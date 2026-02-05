@@ -65,7 +65,7 @@ class AIService:
         except json.JSONDecodeError:
             pass
 
-        print(f"Failed to extract JSON from: {text[:100]}...")
+        logger.warning(f"Failed to extract JSON from: {text[:100]}...")
         return None
 
     def _clean_mermaid_syntax(self, text: str) -> str:
@@ -201,35 +201,110 @@ class AIService:
             return self._extract_json(response)
         return {"course_name": keyword, "nodes": []}
 
-    async def generate_quiz(self, content: str, difficulty: str = "medium") -> List[Dict]:
+    async def generate_quiz(self, content: str, node_name: str = "", difficulty: str = "medium", style: str = "standard") -> List[Dict]:
         system_prompt = """
-        You are an expert educator creating a quiz to test understanding of the provided content.
-        Create 5 multiple-choice questions based on the key concepts in the text.
+        You are an expert educator creating a quiz to test understanding of the provided content or topic.
+        Create 5 multiple-choice questions based on the key concepts in the text or the topic provided.
         
         Requirements:
         1. Questions should challenge the learner's understanding, not just memory.
         2. Difficulty level: {difficulty}
-        3. Provide 4 options for each question.
-        4. Provide the correct answer index (0-3).
-        5. Provide a brief explanation for why the answer is correct.
+        3. Style: {style} (if 'creative', use scenarios; if 'practical', use real-world problems; if 'standard', use academic style).
+        4. Provide 4 options for each question.
+        5. Provide the correct answer index (0-3).
+        6. Provide a brief explanation for why the answer is correct.
+        7. IMPORTANT: You MUST return valid JSON. Do not output conversational text.
         
         Output JSON format:
         [
-            {
+            {{
                 "id": 1,
                 "question": "What is ...?",
                 "options": ["Option A", "Option B", "Option C", "Option D"],
                 "correct_index": 2,
                 "explanation": "Because ..."
-            }
+            }}
         ]
         """
-        prompt = f"Content:\n{content}\n\nPlease generate the quiz JSON."
         
-        response = await self._call_llm(prompt, system_prompt.format(difficulty=difficulty))
+        content_text = content
+        if not content or len(content) < 50:
+            content_text = f"Topic: {node_name}\n(The detailed content is missing, please generate general questions based on this topic)"
+        
+        prompt = f"Content:\n{content_text}\n\nPlease generate the quiz JSON."
+        
+        response = await self._call_llm(prompt, system_prompt.format(difficulty=difficulty, style=style))
         if response:
-            return self._extract_json(response) or []
-        return []
+            result = self._extract_json(response)
+            if result:
+                return result
+        
+        # Hard Fallback: If AI fails or returns empty, generate template questions
+        # This ensures the user NEVER sees "Cannot generate" error.
+        logger.warning(f"Quiz generation failed for {node_name}. Using hard fallback.")
+        fallback_topic = node_name if node_name else "此主题"
+        return [
+            {
+                "id": 1,
+                "question": f"关于“{fallback_topic}”的核心概念，以下描述正确的是？",
+                "options": [
+                    f"{fallback_topic} 是一个孤立的概念，与其他知识无关",
+                    f"{fallback_topic} 是该学科体系中的关键组成部分",
+                    f"{fallback_topic} 已经被现代理论完全推翻",
+                    f"{fallback_topic} 仅在特定极端情况下适用"
+                ],
+                "correct_index": 1,
+                "explanation": f"{fallback_topic} 作为核心知识点，在学科体系中起着承上启下的作用，是理解后续内容的基础。"
+            },
+            {
+                "id": 2,
+                "question": f"在实际应用中，理解“{fallback_topic}”主要有助于解决什么问题？",
+                "options": [
+                    "历史背景的考证",
+                    "复杂系统中的关键机制分析",
+                    "无关数据的随机处理",
+                    "纯粹的理论推导游戏"
+                ],
+                "correct_index": 1,
+                "explanation": f"掌握{fallback_topic}的原理，能够帮助我们分析和处理实际系统中的复杂机制与关键问题。"
+            },
+            {
+                "id": 3,
+                "question": f"对于初学者来说，学习“{fallback_topic}”最大的挑战通常是？",
+                "options": [
+                    "概念过于简单，缺乏挑战",
+                    "理解其抽象逻辑与实际场景的映射",
+                    "相关资料太少，无法查阅",
+                    "没有任何挑战，一学就会"
+                ],
+                "correct_index": 1,
+                "explanation": f"{fallback_topic}往往包含一定的抽象逻辑，将其准确映射到实际应用场景中是初学者常见的难点。"
+            },
+            {
+                "id": 4,
+                "question": f"以下哪项不是“{fallback_topic}”的典型特征？",
+                "options": [
+                    "系统性",
+                    "逻辑性",
+                    "随意性",
+                    "实用性"
+                ],
+                "correct_index": 2,
+                "explanation": f"{fallback_topic}作为科学或专业知识，具有严密的逻辑和系统性，绝非随意构建。"
+            },
+            {
+                "id": 5,
+                "question": f"深入掌握“{fallback_topic}”后，下一步通常应该学习？",
+                "options": [
+                    "放弃该学科",
+                    "基于此概念的高阶应用与扩展",
+                    "与此完全无关的娱乐内容",
+                    "重复死记硬背基础定义"
+                ],
+                "correct_index": 1,
+                "explanation": f"在打好{fallback_topic}的基础后，进阶学习通常涉及将其应用于更复杂的场景或进行理论扩展。"
+            }
+        ]
 
     async def generate_sub_nodes(self, node_name: str, node_level: int, node_id: str, course_name: str = "", parent_context: str = "") -> List[Dict]:
         system_prompt = f"""
@@ -373,31 +448,31 @@ class AIService:
         async for chunk in self._stream_llm(prompt, system_prompt):
             yield chunk
 
-    async def redefine_content(self, node_name: str, requirement: str) -> str:
+    async def redefine_content(self, node_name: str, requirement: str, original_content: str = "", course_context: str = "", previous_context: str = "") -> str:
         """
         Refine the content of a node based on specific requirements.
         Uses advanced prompt engineering for better structure and clarity.
         """
         system_prompt = """
-你是该领域的资深专家和金牌大学讲师。
-任务：为当前节点撰写一段**适合大学生和专业人士阅读的教科书正文**。
+        你是该领域的资深专家和金牌大学讲师。
+        任务：为当前节点撰写一段**适合大学生和专业人士阅读的教科书正文**。
 
-要求：
-1. **核心教学风格**：
-   - **简洁流畅**：行文干练，逻辑清晰，拒绝冗余和低幼化表达。
-   - **专业严谨**：准确使用学术术语，定义清晰，推导严密。
-   - **深度解析**：不仅仅停留在表面定义，要深入剖析背后的原理和机制。
-   - **场景化解释**：使用具体的行业应用场景或技术场景来辅助解释，而非简单的生活类比。
+        要求：
+        1. **核心教学风格**：
+           - **简洁流畅**：行文干练，逻辑清晰，拒绝冗余和低幼化表达。
+           - **专业严谨**：准确使用学术术语，定义清晰，推导严密。
+           - **深度解析**：不仅仅停留在表面定义，要深入剖析背后的原理和机制。
+           - **场景化解释**：使用具体的行业应用场景或技术场景来辅助解释，而非简单的生活类比。
 
-2. **结构化写作**（Markdown 格式）：
-   - **### 💡 核心概念**：清晰、专业的定义。必要时补充背景知识。
-     - **排版要求**：关键名词使用 **加粗** 强调。
-   - **### 🔍 原理与机制**：深入解析工作原理、底层逻辑或数学模型。
-   - **### 🛠️ 关键技术/方法**：具体的推导过程、算法步骤或技术细节。
-     - **公式规范（绝对严格执行）**：
-       - **行内公式**：必须使用 `$公式$` 格式（例如 `$E=mc^2$`）。
-       - **块级公式**：必须使用 `$$` 包裹，且独占一行。
-       - **LaTeX 环境**：所有矩阵、方程组（如 `\\begin{matrix}`）**必须**包裹在 `$$` 中。
+        2. **结构化写作**（Markdown 格式）：
+           - **### 💡 核心概念**：清晰、专业的定义。必要时补充背景知识。
+             - **排版要求**：关键名词使用 **加粗** 强调。
+           - **### 🔍 原理与机制**：深入解析工作原理、底层逻辑或数学模型。
+           - **### 🛠️ 关键技术/方法**：具体的推导过程、算法步骤或技术细节。
+             - **公式规范（绝对严格执行）**：
+               - **行内公式**：必须使用 `$公式$` 格式（例如 `$E=mc^2$`）。
+               - **块级公式**：必须使用 `$$` 包裹，且独占一行。
+               - **LaTeX 环境**：所有矩阵、方程组（如 `\\begin{matrix}`）**必须**包裹在 `$$` 中。
    - **### 🎨 架构/流程图示**：使用 Mermaid 语法绘制专业的流程图或架构图。必须使用 ```mermaid 代码块包裹。
    - **###  行业应用案例**：结合实际产业界的真实应用案例进行分析。
    - **### ✅ 思考与拓展**：提供 1-2 个具有挑战性的思考题或进阶阅读方向。
@@ -405,7 +480,18 @@ class AIService:
 3. **篇幅要求**：**800-1500 字**，内容详实且有深度。
 4. **输出格式**：直接输出 **Markdown 正文**。
 """
-        prompt = f"当前章节标题：{node_name}\n用户额外需求：{requirement}（请保持专业、简洁、流畅，适合大学生阅读）\n请开始撰写正文："
+        prompt_parts = [f"当前章节标题：{node_name}"]
+        if course_context:
+            prompt_parts.append(f"全书大纲：\n{course_context}")
+        if previous_context:
+            prompt_parts.append(f"上文摘要：\n{previous_context}")
+        if original_content:
+            prompt_parts.append(f"原始简介（参考）：\n{original_content}")
+            
+        prompt_parts.append(f"用户额外需求：{requirement}（请保持专业、简洁、流畅，适合大学生阅读）")
+        prompt_parts.append("请开始撰写正文：")
+        
+        prompt = "\n\n".join(prompt_parts)
         
         response = await self._call_llm(prompt, system_prompt)
         if response:

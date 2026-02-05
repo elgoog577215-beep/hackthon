@@ -29,7 +29,7 @@
         </div>
 
         <!-- List Content -->
-        <div class="flex-1 overflow-auto p-3 custom-scrollbar space-y-2.5">
+        <div class="flex-1 overflow-auto p-3 custom-scrollbar space-y-2.5 scroll-smooth">
             <div 
                 v-for="(course, index) in courseStore.courseList" 
                 :key="course.course_id" 
@@ -198,9 +198,16 @@
                     placeholder="搜索章节..."
                     class="w-full pl-2 pr-8 py-2 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-xs font-medium text-slate-700 placeholder-slate-400/80 group-focus-within:placeholder-primary-300/50 relative z-10"
                 />
-                <div v-if="filterText" @click="filterText = ''" class="absolute right-2 cursor-pointer text-slate-400 hover:text-slate-600 transition-colors relative z-10">
-                    <el-icon :size="14"><CircleClose /></el-icon>
-                </div>
+                <!-- Clear Button -->
+                <transition name="scale-fade">
+                    <button 
+                        v-if="filterText" 
+                        class="absolute right-2 text-slate-400 hover:text-primary-500 transition-colors z-20"
+                        @click="filterText = ''"
+                    >
+                        <el-icon :size="14"><CircleClose /></el-icon>
+                    </button>
+                </transition>
             </div>
           </div>
         </div>
@@ -247,18 +254,10 @@
                 </div>
                 
                 <!-- Text -->
-                <el-tooltip 
-                    :content="node.label" 
-                    placement="right" 
-                    :show-after="500"
-                    :enterable="false"
-                    effect="light"
-                    popper-class="!rounded-xl !border-white/50 !shadow-glass !bg-white/90 !backdrop-blur-md !text-slate-700 !font-medium"
-                >
                     <span class="whitespace-nowrap text-sm transition-colors tracking-tight mr-2 truncate max-w-40 lg:max-w-52" 
                         :class="data.node_level === 1 ? 'font-bold text-slate-800' : 'text-slate-600 font-medium group-hover:text-slate-900 group-data-[current=true]:text-primary-950'">
                         
-                        <!-- Status Dot (Inline) -->
+                        <!-- Status Dot / Read Indicator -->
                         <span class="inline-block w-1.5 h-1.5 rounded-full mr-1.5 mb-0.5 align-middle transition-colors duration-300"
                               :class="{
                                   'bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.4)]': 
@@ -270,9 +269,8 @@
                               }">
                         </span>
                         
-                        {{ node.label }}
+                        <span v-html="highlightSearch(node.label)"></span>
                     </span>
-                </el-tooltip>
                 
                 <!-- Hover Actions (Next to text) -->
                 <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-data-[current=true]:opacity-100 transition-opacity bg-white/50 backdrop-blur-sm rounded-lg px-1 shadow-sm border border-white/40 flex-shrink-0" @click.stop>
@@ -315,27 +313,47 @@
         title="课程笔记"
         width="600px"
         append-to-body
+        class="glass-dialog"
     >
         <div class="max-h-[60vh] overflow-y-auto custom-scrollbar p-1">
-            <div v-if="courseStore.annotations.length === 0" class="text-center text-gray-400 py-10">
+            <div v-if="courseStore.notes.length === 0" class="text-center text-gray-400 py-10">
                 暂无笔记
             </div>
             <div v-else class="space-y-4">
-                <div v-for="anno in courseStore.annotations" :key="anno.anno_id" class="bg-white/50 border border-white/60 rounded-xl p-4 shadow-sm hover:shadow-md transition-all">
+                <div v-for="note in courseStore.notes" :key="note.id" class="bg-white/50 border border-white/60 rounded-xl p-4 shadow-sm hover:shadow-md transition-all">
                     <div class="flex justify-between items-start mb-2">
-                        <div class="font-bold text-slate-700 text-sm">{{ anno.anno_summary }}</div>
-                        <el-button link type="danger" size="small" @click="courseStore.deleteAnnotation(anno.anno_id)">
+                        <div class="flex flex-col gap-1 w-full mr-2">
+                            <div class="flex items-center gap-2">
+                                <span v-if="note.sourceType === 'ai'" class="text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100 whitespace-nowrap">AI 助手</span>
+                                <span v-else class="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 whitespace-nowrap">笔记</span>
+                                <div class="font-bold text-slate-700 text-sm truncate">{{ note.content.split('\n')[0] }}</div>
+                            </div>
+                            <div class="flex items-center gap-2 text-[10px] text-slate-400">
+                                <span class="bg-slate-100 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    <el-icon><Location /></el-icon>
+                                    {{ getNodeName(note.nodeId) }}
+                                </span>
+                                <span class="flex items-center gap-1">
+                                    <el-icon><Clock /></el-icon>
+                                    {{ formatDate(note.createdAt) }}
+                                </span>
+                            </div>
+                        </div>
+                        <el-button link type="danger" size="small" @click="courseStore.deleteNote(note.id)">
                             <el-icon><Delete /></el-icon>
                         </el-button>
                     </div>
-                    <div v-if="anno.quote" class="text-xs text-slate-500 italic border-l-2 border-primary-300 pl-2 mb-2 bg-slate-50/50 py-1 rounded-r">
-                        "{{ anno.quote }}"
+                    <div v-if="note.quote" class="text-xs text-slate-500 italic border-l-2 border-primary-300 pl-2 mb-2 bg-slate-50/50 py-1 rounded-r">
+                        "{{ note.quote }}"
                     </div>
-                    <div class="text-xs text-slate-600 leading-relaxed">
-                        {{ anno.answer || anno.question }}
+                    <div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap max-h-32 overflow-hidden relative group cursor-pointer" @click="note.expanded = !note.expanded">
+                        <div :class="{ 'line-clamp-3': !note.expanded }">{{ note.content }}</div>
+                        <div v-if="!note.expanded && note.content.length > 100" class="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white/80 to-transparent flex items-end justify-center">
+                            <span class="text-[10px] text-primary-500 bg-white/80 px-2 rounded-full shadow-sm mb-1">展开更多</span>
+                        </div>
                     </div>
                     <div class="flex justify-end mt-2">
-                        <el-button link type="primary" size="small" @click="courseStore.scrollToNode(anno.node_id); notesDialogVisible = false">
+                        <el-button link type="primary" size="small" @click="courseStore.scrollToNode(note.nodeId); notesDialogVisible = false">
                             跳转到原文
                         </el-button>
                     </div>
@@ -347,11 +365,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, watch, onUnmounted, computed } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
-import { Plus, Search, CircleClose, Collection, Delete, Notebook, ArrowLeft, Loading, Edit, VideoPlay, VideoPause, MagicStick, Document, Fold } from '@element-plus/icons-vue'
+import { Plus, Search, CircleClose, Collection, Delete, Notebook, ArrowLeft, Loading, Edit, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check } from '@element-plus/icons-vue'
 import { BookOpen, Hash, FileText, Circle } from 'lucide-vue-next'
 
 const courseStore = useCourseStore()
@@ -363,6 +381,33 @@ const notesDialogVisible = ref(false)
 const treeRef = ref<InstanceType<typeof ElTree>>()
 const treeContentRef = ref<HTMLElement | null>(null)
 let resizeObserver: ResizeObserver | null = null
+
+// Helper functions for Notes
+const flatNodeMap = computed(() => {
+    const map = new Map<string, string>()
+    const traverse = (nodes: any[]) => {
+        for (const node of nodes) {
+            map.set(node.node_id, node.node_name)
+            if (node.children) traverse(node.children)
+        }
+    }
+    traverse(courseStore.courseTree)
+    return map
+})
+
+const getNodeName = (nodeId: string) => {
+    return flatNodeMap.value.get(nodeId) || '未知章节'
+}
+
+const formatDate = (timestamp: number) => {
+    if (!timestamp) return ''
+    return new Date(timestamp).toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    })
+}
 
 const setupResizeObserver = (el: HTMLElement) => {
     if (resizeObserver) resizeObserver.disconnect()
@@ -410,6 +455,24 @@ const getIcon = (level: number) => {
     }
 }
 
+// Watch for external current node changes (e.g. from scroll spy)
+watch(() => courseStore.currentNode, (newNode) => {
+    if (newNode && treeRef.value) {
+        treeRef.value.setCurrentKey(newNode.node_id)
+        
+        // Optional: Auto-scroll sidebar to keep active node in view
+         // Use nextTick to ensure DOM is updated
+         setTimeout(() => {
+             if (treeRef.value && treeRef.value.$el) {
+                 const currentEl = treeRef.value.$el.querySelector('.el-tree-node.is-current')
+                 if (currentEl) {
+                     currentEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                 }
+             }
+         }, 100)
+    }
+})
+
 watch(filterText, (val) => {
   treeRef.value!.filter(val)
 })
@@ -419,38 +482,22 @@ const filterNode = (value: string, data: any) => {
   return data.node_name.toLowerCase().includes(value.toLowerCase())
 }
 
+const highlightSearch = (label: string) => {
+    if (!filterText.value) return label
+    const reg = new RegExp(filterText.value, 'gi')
+    return label.replace(reg, (match) => `<span class="text-primary-600 font-bold bg-yellow-100 rounded px-0.5">${match}</span>`)
+}
+
 const handleNodeClick = (data: any) => {
   // Update current node in store
   courseStore.selectNode(data)
+  
+  // Trigger scroll in ContentArea
+  courseStore.scrollToNode(data.node_id)
 
   // Mobile UX: Close sidebar on selection
   if (window.innerWidth < 768) {
       emit('node-selected', data)
-  }
-
-  // Instead of isolating the node, scroll to it in the continuous view
-  const element = document.getElementById(`node-${data.node_id}`)
-  if (element) {
-    // Add a small offset for the sticky header
-    const offset = 80
-    const bodyRect = document.body.getBoundingClientRect().top
-    const elementRect = element.getBoundingClientRect().top
-    const elementPosition = elementRect - bodyRect
-    const offsetPosition = elementPosition - offset
-
-    const scrollContainer = document.getElementById('content-scroll-container')
-    if (scrollContainer) {
-        // Calculate position relative to the container
-        const containerRect = scrollContainer.getBoundingClientRect().top
-        const relativeElementTop = elementRect - containerRect
-        scrollContainer.scrollBy({
-            top: relativeElementTop - 20, // 20px buffer
-            behavior: 'smooth'
-        })
-    } else {
-        // Fallback
-        element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
   }
 }
 
@@ -460,7 +507,8 @@ const handleAdd = (data: any) => {
         cancelButtonText: '取消',
         inputPattern: /\S+/,
         inputErrorMessage: '名称不能为空'
-    }).then(({ value }) => {
+    }).then((res: any) => {
+        const { value } = res
         courseStore.addCustomNode(data.node_id, value)
     }).catch(() => {})
 }
@@ -480,7 +528,8 @@ const handleRename = (data: any) => {
         inputValue: data.node_name,
         inputPattern: /\S+/,
         inputErrorMessage: '名称不能为空'
-    }).then(({ value }) => {
+    }).then((res: any) => {
+        const { value } = res
         courseStore.renameNode(data.node_id, value)
     }).catch(() => {})
 }
@@ -496,7 +545,8 @@ const createNewCourse = () => {
         inputPattern: /\S+/,
         inputErrorMessage: '主题不能为空',
         inputPlaceholder: '例如：量子力学基础',
-    }).then(async ({ value }) => {
+    }).then(async (data: any) => {
+        const { value } = data
         // Trigger generation
         await courseStore.generateCourse(value)
         // Navigate to the new course route to persist state

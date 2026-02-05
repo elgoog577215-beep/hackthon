@@ -244,3 +244,17 @@ body {
   background: transparent;
   padding: 0;
 }
+
+/* Highlight Marker Style */
+.highlight-marker {
+  background-color: rgba(251, 191, 36, 0.3); /* Amber-300 with opacity */
+  border-bottom: 2px solid #f59e0b; /* Amber-500 underline */
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-radius: 2px;
+}
+
+.highlight-marker:hover, .highlight-marker.active {
+  background-color: rgba(251, 191, 36, 0.5);
+  border-bottom-width: 3px;
+}

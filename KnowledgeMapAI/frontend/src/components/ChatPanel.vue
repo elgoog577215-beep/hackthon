@@ -58,7 +58,7 @@
     
     <!-- Output Area -->
     <div class="flex-1 m-4 my-2 overflow-hidden relative glass-panel rounded-2xl flex flex-col">
-        <div class="flex-1 overflow-auto p-5 space-y-6 custom-scrollbar relative scroll-smooth" ref="chatContainer">
+        <div class="flex-1 overflow-auto p-5 space-y-6 custom-scrollbar relative scroll-smooth" ref="chatContainer" @click="handleChatClick">
             <!-- Background Pattern -->
             <div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: radial-gradient(var(--el-color-primary) 1px, transparent 1px); background-size: 24px 24px;"></div>
 
@@ -99,23 +99,85 @@
 
                     <div v-if="msg.type === 'ai' && typeof msg.content === 'object'" class="relative z-10">
                          <!-- Header: AI Icon + Title -->
-                        <div class="flex items-center gap-2 mb-3 text-xxs font-bold text-primary-600 uppercase tracking-wider border-b border-gray-100/80 pb-2">
-                            <div class="w-5 h-5 rounded bg-primary-50 flex items-center justify-center text-primary-500">
-                                <el-icon><MagicStick /></el-icon>
+                        <div class="flex items-center gap-2 mb-3 text-xxs font-bold text-primary-600 uppercase tracking-wider border-b border-gray-100/80 pb-2 justify-between">
+                            <div class="flex items-center gap-2">
+                                <div class="w-5 h-5 rounded bg-primary-50 flex items-center justify-center text-primary-500">
+                                    <el-icon><MagicStick /></el-icon>
+                                </div>
+                                <span>AI Analysis</span>
                             </div>
-                            <span>AI Analysis</span>
+                            <button 
+                                class="flex items-center gap-1 text-slate-400 hover:text-primary-600 transition-colors px-2 py-1 rounded hover:bg-primary-50"
+                                @click="handleSaveAsNote(msg.content.core_answer || msg.content.answer, 'ai')"
+                                title="保存为笔记"
+                            >
+                                <el-icon><DocumentAdd /></el-icon>
+                                <span class="scale-90">保存</span>
+                            </button>
                         </div>
                         <div v-if="msg.content.answer" class="prose prose-sm prose-slate mb-3 leading-relaxed">
                             <div v-html="renderMarkdown(msg.content.answer)"></div>
                         </div>
-                        <div v-if="msg.content.quiz" class="mt-3 bg-primary-50/50 p-4 rounded-xl border border-primary-100/50">
-                            <div class="text-xs font-bold text-primary-700 mb-2 flex items-center gap-2">
-                                <el-icon><QuestionFilled /></el-icon> 思考题
+                        <div v-if="msg.content.quiz" class="mt-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm select-none">
+                            <!-- Question Header -->
+                            <div class="flex items-start gap-3 mb-3">
+                                <div class="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center font-bold text-sm shrink-0">
+                                    Q
+                                </div>
+                                <div class="text-slate-800 font-bold leading-relaxed pt-1">{{ msg.content.quiz.question }}</div>
                             </div>
-                            <div class="text-slate-700 font-medium">{{ msg.content.quiz.question }}</div>
-                            <div class="mt-2 space-y-1">
-                                <div v-for="(opt, oIdx) in msg.content.quiz.options" :key="oIdx" class="text-xs text-slate-500 bg-white/60 px-2 py-1.5 rounded border border-white/50">
-                                    {{ (['A','B','C','D'][oIdx] as string) }}. {{ opt }}
+
+                            <!-- Options -->
+                            <div class="space-y-2 pl-11">
+                                <button 
+                                    v-for="(opt, oIdx) in msg.content.quiz.options" 
+                                    :key="oIdx"
+                                    class="w-full text-left p-3 rounded-xl border transition-all relative group"
+                                    :class="getOptionClass(idx, oIdx, msg.content.quiz)"
+                                    @click="handleOptionClick(idx, oIdx, msg.content.quiz)"
+                                    :disabled="isQuizSubmitted(idx)"
+                                >
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold transition-colors shrink-0"
+                                            :class="getOptionBadgeClass(idx, oIdx, msg.content.quiz)">
+                                            {{ getOptionLabel(oIdx) }}
+                                        </div>
+                                        <span class="text-sm font-medium">{{ opt }}</span>
+                                    </div>
+                                    
+                                    <!-- Result Icon -->
+                                    <div v-if="isQuizSubmitted(idx)" class="absolute right-3 top-1/2 -translate-y-1/2">
+                                        <el-icon v-if="oIdx === msg.content.quiz.correct_index" class="text-emerald-500 text-lg"><CircleCheckFilled /></el-icon>
+                                        <el-icon v-else-if="getQuizState(idx).selected === oIdx" class="text-red-500 text-lg"><CircleCloseFilled /></el-icon>
+                                    </div>
+                                </button>
+                            </div>
+
+                            <!-- Explanation & Actions -->
+                            <div v-if="isQuizSubmitted(idx)" class="mt-4 pl-11 animate-in fade-in slide-in-from-top-2">
+                                <div class="bg-slate-50 rounded-xl p-3 border border-slate-100 mb-3">
+                                    <div class="text-xs font-bold text-slate-500 uppercase mb-1">解析</div>
+                                    <div class="text-sm text-slate-600 leading-relaxed">{{ msg.content.quiz.explanation }}</div>
+                                </div>
+                                
+                                <!-- Actions -->
+                                <div class="flex gap-2 mt-3">
+                                    <button 
+                                        v-if="getQuizState(idx).selected !== msg.content.quiz.correct_index"
+                                        class="flex items-center gap-2 text-xs font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 px-3 py-2 rounded-lg transition-colors border border-amber-200"
+                                        @click="saveWrongQuestion(msg.content.quiz, idx)"
+                                    >
+                                        <el-icon><Notebook /></el-icon>
+                                        <span>加入错题本</span>
+                                    </button>
+                                    
+                                    <button 
+                                        class="flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-primary-600 bg-white hover:bg-slate-50 px-3 py-2 rounded-lg transition-colors border border-slate-200 shadow-sm"
+                                        @click="resetQuiz(idx)"
+                                    >
+                                        <el-icon><RefreshRight /></el-icon>
+                                        <span>重试</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -137,6 +199,7 @@
         <div class="p-4 pt-2 bg-gradient-to-t from-white/80 to-transparent backdrop-blur-sm relative z-20">
             <div class="relative group shadow-lg shadow-primary-500/5 rounded-2xl bg-white border border-slate-200 focus-within:border-primary-400 focus-within:ring-4 focus-within:ring-primary-500/10 transition-all duration-300">
                 <textarea
+                    ref="inputRef"
                     v-model="inputMessage"
                     class="w-full bg-transparent border-none rounded-2xl px-4 py-3 pr-12 text-sm focus:ring-0 resize-none h-[52px] max-h-[120px] custom-scrollbar placeholder:text-slate-400 text-slate-700"
                     placeholder="输入问题，Ctrl + Enter 发送..."
@@ -162,26 +225,216 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, watch, nextTick, onMounted, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
-import { ChatDotRound, Position, Loading, MagicStick, Setting, Delete, QuestionFilled } from '@element-plus/icons-vue'
-import { marked } from 'marked'
+import { ChatDotRound, Position, Loading, MagicStick, Setting, Delete, QuestionFilled, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight } from '@element-plus/icons-vue'
+import MarkdownIt from 'markdown-it'
+import mk from 'markdown-it-katex'
+import 'katex/dist/katex.min.css'
 import DOMPurify from 'dompurify'
+import { ElMessage } from 'element-plus'
+import hljs from 'highlight.js'
+import 'highlight.js/styles/atom-one-dark.css'
 
 const courseStore = useCourseStore()
 const inputMessage = ref('')
 const chatContainer = ref<HTMLElement | null>(null)
 const personaDialogVisible = ref(false)
+const inputRef = ref<HTMLTextAreaElement | null>(null)
 
-const scrollToBottom = async () => {
+// Helper to get option label (A, B, C...)
+const getOptionLabel = (index: number) => String.fromCharCode(65 + index)
+
+// Quiz State Management
+const quizStates = reactive<Record<number, { selected: number | null }>>({})
+
+const getQuizState = (idx: number) => {
+    if (!quizStates[idx]) {
+        quizStates[idx] = { selected: null }
+    }
+    return quizStates[idx]
+}
+
+const isQuizSubmitted = (msgIdx: number) => {
+    return getQuizState(msgIdx).selected !== null
+}
+
+const resetQuiz = (idx: number) => {
+    const state = getQuizState(idx)
+    state.selected = null
+}
+
+const handleOptionClick = (msgIdx: number, optIdx: number, quiz: any) => {
+    const state = getQuizState(msgIdx)
+    if (state.selected !== null) return
+    
+    state.selected = optIdx
+    // Optional: could add sound or immediate feedback toast here
+}
+
+const getOptionClass = (msgIdx: number, optIdx: number, quiz: any) => {
+    const state = getQuizState(msgIdx)
+    const isSelected = state.selected === optIdx
+    const isCorrect = quiz.correct_index === optIdx
+    const isSubmitted = state.selected !== null
+    
+    if (!isSubmitted) {
+        return isSelected 
+            ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm ring-1 ring-primary-200' 
+            : 'border-slate-200 hover:border-primary-300 hover:bg-slate-50 text-slate-600'
+    }
+    
+    // Submitted state
+    if (isCorrect) {
+        return 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-emerald-200'
+    }
+    
+    if (isSelected && !isCorrect) {
+        return 'border-red-500 bg-red-50 text-red-700 shadow-sm ring-1 ring-red-200'
+    }
+    
+    return 'border-slate-100 text-slate-400 opacity-60'
+}
+
+const getOptionBadgeClass = (msgIdx: number, optIdx: number, quiz: any) => {
+    const state = getQuizState(msgIdx)
+    const isSelected = state.selected === optIdx
+    const isCorrect = quiz.correct_index === optIdx
+    const isSubmitted = state.selected !== null
+    
+    if (!isSubmitted) {
+        return isSelected 
+            ? 'border-primary-500 bg-primary-500 text-white' 
+            : 'border-slate-300 text-slate-500 group-hover:border-primary-400 group-hover:text-primary-500'
+    }
+    
+    if (isCorrect) {
+        return 'border-emerald-500 bg-emerald-500 text-white'
+    }
+    
+    if (isSelected && !isCorrect) {
+        return 'border-red-500 bg-red-500 text-white'
+    }
+    
+    return 'border-slate-200 text-slate-300'
+}
+
+const saveWrongQuestion = async (quiz: any, msgIdx: number) => {
+    const state = getQuizState(msgIdx)
+    const selectedOpt = state.selected !== null ? quiz.options[state.selected] : '未选择'
+    const correctOpt = quiz.options[quiz.correct_index]
+    
+    const content = `**错题记录**\n\n**题目**：${quiz.question}\n\n**我的选择**：${selectedOpt} (错误)\n**正确答案**：${correctOpt}\n\n**解析**：\n${quiz.explanation}`
+    
+    await handleSaveAsNote(content, 'ai', quiz.node_id)
+}
+
+const handleSaveAsNote = async (content: string, type: string = 'text', nodeId?: string) => {
+    if (!content) return
+    
+    // Use injected nodeId from quiz, or fallback to current node or first node
+    const targetNodeId = nodeId || courseStore.currentNode?.node_id || (courseStore.nodes.length > 0 ? courseStore.nodes[0].node_id : '')
+    
+    if (!targetNodeId) {
+        ElMessage.warning('无法关联章节，请先生成课程内容')
+        return
+    }
+
+    try {
+        const noteId = crypto.randomUUID()
+        await courseStore.createNote({
+            id: noteId,
+            nodeId: targetNodeId,
+            highlightId: '', // General note, not attached to text
+            quote: '',
+            content: content,
+            color: '#fef3c7', // Amber color for wrong answers/notes
+            createdAt: Date.now(),
+            sourceType: 'ai'
+        }) 
+        ElMessage.success('已保存到笔记')
+    } catch (e) {
+        console.error(e)
+        ElMessage.error('保存失败')
+    }
+}
+
+// Markdown Setup
+const md = new MarkdownIt({
+    html: true,
+    linkify: true,
+    typographer: true,
+    highlight: function (str, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+            try {
+                return '<pre class="hljs p-4 rounded-lg bg-[#282c34] text-sm overflow-x-auto"><code>' +
+                       hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
+                       '</code></pre>';
+            } catch (__) {}
+        }
+        return '<pre class="hljs p-4 rounded-lg bg-[#282c34] text-sm overflow-x-auto"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
+    }
+}).use(mk)
+
+// Custom fence renderer for Copy Button
+md.renderer.rules.fence = function (tokens, idx, options, env, self) {
+  const token = tokens[idx];
+  const info = token.info ? md.utils.escapeHtml(token.info) : '';
+  const langName = info.split(/\s+/g)[0];
+  
+  let highlighted;
+  if (options.highlight) {
+      highlighted = options.highlight(token.content, langName, '') || md.utils.escapeHtml(token.content);
+  } else {
+      highlighted = md.utils.escapeHtml(token.content);
+  }
+  
+  return `<div class="relative group code-block-wrapper my-2 rounded-lg overflow-hidden border border-slate-200/50 shadow-sm bg-[#282c34]">
+            <div class="absolute top-2 right-2 flex items-center gap-2 z-10">
+                <span class="text-xs text-slate-400 font-mono opacity-0 group-hover:opacity-100 transition-opacity select-none">${langName}</span>
+                <button class="p-1.5 rounded-md bg-slate-700/50 hover:bg-slate-700 text-white/70 hover:text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all copy-btn" title="复制代码">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2-2v1"></path></svg>
+                </button>
+            </div>
+            ${highlighted}
+          </div>`;
+};
+
+const handleChatClick = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const btn = target.closest('.copy-btn');
+    if (btn) {
+        const wrapper = btn.closest('.code-block-wrapper');
+        const codeEl = wrapper?.querySelector('pre code') || wrapper?.querySelector('pre');
+        if (codeEl) {
+            const text = codeEl.textContent || '';
+            navigator.clipboard.writeText(text).then(() => {
+                ElMessage.success('代码已复制')
+            }).catch(() => {
+                ElMessage.error('复制失败')
+            })
+        }
+    }
+}
+
+const scrollToBottom = async (force = false) => {
     await nextTick()
-    if (chatContainer.value) {
-        chatContainer.value.scrollTop = chatContainer.value.scrollHeight
+    if (!chatContainer.value) return
+    
+    const { scrollTop, scrollHeight, clientHeight } = chatContainer.value
+    // Threshold to determine if user is near bottom (e.g. 100px)
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 150
+    
+    if (force || isNearBottom) {
+        chatContainer.value.scrollTo({
+            top: scrollHeight,
+            behavior: 'smooth'
+        })
     }
 }
 
 watch(() => courseStore.chatHistory, () => {
-    scrollToBottom()
+    scrollToBottom(false)
 }, { deep: true })
 
 const sendMessage = async () => {
@@ -196,7 +449,7 @@ const sendMessage = async () => {
         content: msg
     })
     
-    await scrollToBottom()
+    await scrollToBottom(true) // Force scroll on user send
     
     await courseStore.sendMessage(msg)
 }
@@ -209,12 +462,30 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 const renderMarkdown = (content: string) => {
     if (typeof content !== 'string') return ''
-    const rawHtml = marked(content) as string
-    return DOMPurify.sanitize(rawHtml)
+    
+    // Pre-process LaTeX formula fixes
+    let fixedContent = content
+        // Fix \[ ... \] block formulas to $$ ... $$
+        .replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$')
+        // Fix \( ... \) inline formulas to $ ... $
+        .replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$')
+    
+    try {
+        const rawHtml = md.render(fixedContent)
+        return DOMPurify.sanitize(rawHtml)
+    } catch (e) {
+        console.warn('Markdown render error:', e)
+        return content
+    }
 }
+
+// Removed duplicate handleSaveAsNote
 
 onMounted(() => {
     scrollToBottom()
+    nextTick(() => {
+        inputRef.value?.focus()
+    })
 })
 </script>
 

@@ -3,28 +3,36 @@ import time
 import sys
 import uuid
 import random
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 BASE_URL = "http://localhost:8000"
 
 def test_generate_course(keyword):
-    print(f"Testing generate_course with keyword: {keyword}")
+    logger.info(f"Testing generate_course with keyword: {keyword}")
     try:
         response = requests.post(f"{BASE_URL}/generate_course", json={"keyword": keyword})
         if response.status_code == 200:
             data = response.json()
             if "nodes" in data and len(data["nodes"]) > 0:
-                print("  Success")
+                logger.info("  Success")
                 return data["nodes"][0]["node_id"]
             else:
-                print("  Failed: No nodes returned")
+                logger.error("  Failed: No nodes returned")
         else:
-            print(f"  Failed: Status {response.status_code}")
+            logger.error(f"  Failed: Status {response.status_code}")
     except Exception as e:
-        print(f"  Error: {e}")
+        logger.error(f"  Error: {e}")
     return None
 
 def test_subnodes(node_id):
-    print(f"Testing subnodes for node: {node_id}")
+    logger.info(f"Testing subnodes for node: {node_id}")
     try:
         response = requests.post(f"{BASE_URL}/nodes/{node_id}/subnodes", json={
             "node_id": node_id,
@@ -34,18 +42,18 @@ def test_subnodes(node_id):
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, list) and len(data) > 0:
-                print("  Success")
+                logger.info("  Success")
                 return True
             else:
-                print("  Failed: Empty list or invalid format")
+                logger.error("  Failed: Empty list or invalid format")
         else:
-            print(f"  Failed: Status {response.status_code}")
+            logger.error(f"  Failed: Status {response.status_code}")
     except Exception as e:
-        print(f"  Error: {e}")
+        logger.error(f"  Error: {e}")
     return False
 
 def main():
-    print("Waiting for server to start...")
+    logger.info("Waiting for server to start...")
     # Wait for server port to be open
     for i in range(30):
         try:
@@ -54,7 +62,8 @@ def main():
         except:
             time.sleep(1)
             print(".", end="", flush=True)
-    print("\nServer ready.")
+    print("\n")
+    logger.info("Server ready.")
 
     success_count = 0
     total_tests = 10
@@ -62,7 +71,7 @@ def main():
     keywords = ["Python", "Vue", "FastAPI", "Design", "AI", "History", "Math", "Physics", "Art", "Music"]
     
     for i in range(total_tests):
-        print(f"\n--- Test Iteration {i+1}/{total_tests} ---")
+        logger.info(f"--- Test Iteration {i+1}/{total_tests} ---")
         keyword = keywords[i]
         node_id = test_generate_course(keyword)
         if node_id:
@@ -71,7 +80,7 @@ def main():
         
         time.sleep(0.5)
 
-    print(f"\nTotal Success: {success_count}/{total_tests}")
+    logger.info(f"Total Success: {success_count}/{total_tests}")
     if success_count == total_tests:
         sys.exit(0)
     else:

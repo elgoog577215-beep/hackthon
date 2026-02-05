@@ -2,7 +2,10 @@ import json
 import os
 import uuid
 import shutil
+import logging
 from typing import List, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR = "data"
 COURSES_DIR = os.path.join(DATA_DIR, "courses")
@@ -33,11 +36,11 @@ class Storage:
                         with open(new_path, 'w', encoding='utf-8') as nf:
                             json.dump(data, nf, ensure_ascii=False, indent=2)
             except Exception as e:
-                print(f"Migration failed: {e}")
+                logger.warning(f"Migration failed: {e}")
             # Rename legacy file to avoid re-migration
             try:
                 os.rename(LEGACY_COURSE_FILE, LEGACY_COURSE_FILE + ".bak")
-            except:
+            except Exception:
                 pass
 
         if not os.path.exists(ANNOTATIONS_FILE):
@@ -58,7 +61,8 @@ class Storage:
                         with open(filepath, 'r', encoding='utf-8') as f:
                             data = json.load(f)
                             self.courses_cache[course_id] = data
-                    except:
+                    except Exception as e:
+                        logger.warning(f"Failed to load course {filename}: {e}")
                         continue
         self._cache_initialized = True
 
@@ -98,7 +102,15 @@ class Storage:
 
     def save_annotation(self, annotation: dict):
         annotations = self.load_annotations()
-        annotations.append(annotation)
+        
+        # Check if exists and update
+        existing_index = next((i for i, a in enumerate(annotations) if a.get('anno_id') == annotation.get('anno_id')), -1)
+        
+        if existing_index >= 0:
+            annotations[existing_index] = annotation
+        else:
+            annotations.append(annotation)
+            
         # Cache is updated by reference since load_annotations returns the list object
         # But to be safe and explicit:
         self.annotations_cache = annotations
@@ -129,5 +141,21 @@ class Storage:
         
         with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
             json.dump(new_annotations, f, ensure_ascii=False, indent=2)
+
+    def update_annotation(self, anno_id: str, content: str):
+        annotations = self.load_annotations()
+        updated = False
+        for anno in annotations:
+            if anno.get('anno_id') == anno_id:
+                anno['answer'] = content
+                # Update summary
+                anno['anno_summary'] = content[:50] + '...' if len(content) > 50 else content
+                updated = True
+                break
+        
+        if updated:
+            self.annotations_cache = annotations
+            with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(annotations, f, ensure_ascii=False, indent=2)
 
 storage = Storage()
