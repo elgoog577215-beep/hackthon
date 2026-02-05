@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import http from '../utils/http'
+import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -86,8 +87,55 @@ export const useCourseStore = defineStore('course', {
     activeAnnotation: null as Annotation | null,
     scrollToNodeId: null as string | null,
     userPersona: '' as string,
+    chatLoading: false,
   }),
+  getters: {
+    treeData: (state) => state.courseTree,
+  },
   actions: {
+    createTask(courseId: string, courseName: string, nodes: Node[]): Task {
+        const task: Task = {
+            id: courseId,
+            courseName: courseName,
+            status: 'idle',
+            progress: 0,
+            currentStep: '',
+            logs: [],
+            nodes: JSON.parse(JSON.stringify(nodes)), // Deep copy for task isolation
+            shouldStop: false
+        }
+        this.tasks.set(courseId, task)
+        return task
+    },
+
+    async createCourse(courseName: string) {
+        try {
+            const res = await http.post('/generate_course', { keyword: courseName })
+            if (res.data) {
+                const courseId = res.data.course_id
+                // Initialize empty task/state if needed
+                await this.fetchCourseList()
+                return courseId
+            }
+        } catch (error) {
+            console.error(error)
+            throw error
+        }
+    },
+
+    async sendMessage(message: string) {
+        this.chatLoading = true
+        try {
+            await this.askQuestion(message)
+        } finally {
+            this.chatLoading = false
+        }
+    },
+
+    addMessage(type: 'user' | 'ai', content: string | any) {
+        this.chatHistory.push({ type, content })
+    },
+
     scrollToNode(nodeId: string) {
         this.scrollToNodeId = null
         setTimeout(() => {
@@ -317,7 +365,7 @@ export const useCourseStore = defineStore('course', {
 
     async fetchCourseTree() {
        await this.fetchCourseList()
-       if (this.courseList.length > 0) {
+       if (this.courseList.length > 0 && this.courseList[0]) {
            await this.loadCourse(this.courseList[0].course_id)
        }
     },
@@ -378,9 +426,10 @@ export const useCourseStore = defineStore('course', {
       await this.startSmartGeneration(keyword)
     },
 
-    getLinearNodes(nodes: Node[] = this.courseTree): Node[] {
+    getLinearNodes(nodes?: Node[]): Node[] {
+      const targetNodes = nodes || this.courseTree
       let result: Node[] = []
-      for (const node of nodes) {
+      for (const node of targetNodes) {
         result.push(node)
         if (node.children && node.children.length > 0) {
           result.push(...this.getLinearNodes(node.children))
@@ -518,7 +567,7 @@ export const useCourseStore = defineStore('course', {
         let previousContext = "相关上下文..."
         if (index > 0) {
             const prev = task.nodes[index - 1]
-            if (prev.node_content) {
+            if (prev && prev.node_content) {
                 previousContext = `上节 (${prev.node_name}) 回顾: ` + prev.node_content.slice(-300)
             }
         }
@@ -573,7 +622,9 @@ export const useCourseStore = defineStore('course', {
         const regex = /^(#{1,6})\s+(.*)$/gm
         let match
         while ((match = regex.exec(content)) !== null) {
-            headers.push(match[2].trim())
+            if (match[2]) {
+                headers.push(match[2].trim())
+            }
         }
 
         if (headers.length > 0) {
@@ -635,15 +686,16 @@ export const useCourseStore = defineStore('course', {
         })
     },
 
-    async generateFullDetails(courseId: string = this.currentCourseId) {
-      if (!courseId) return
+    async generateFullDetails(courseId?: string) {
+      const targetCourseId = courseId || this.currentCourseId
+      if (!targetCourseId) return
       
-      const task = this.tasks.get(courseId)
+      const task = this.tasks.get(targetCourseId)
       if (!task) return
       
       task.status = 'running'
       task.shouldStop = false
-      if (courseId === this.currentCourseId) {
+      if (targetCourseId === this.currentCourseId) {
           this.generationStatus = 'generating'
       }
 
@@ -653,7 +705,7 @@ export const useCourseStore = defineStore('course', {
           const hasChildren = task.nodes.some(child => child.parent_node_id === n.node_id)
           if (!hasChildren) {
               this.addToQueue({
-                  courseId,
+                  courseId: targetCourseId,
                   type: 'structure',
                   targetNodeId: n.node_id,
                   title: `构建章节: ${n.node_name}`
@@ -664,7 +716,7 @@ export const useCourseStore = defineStore('course', {
       const l3Nodes = task.nodes.filter(n => n.node_level === 3 && (!n.node_content || n.node_content.length < 50))
       for (const n of l3Nodes) {
           this.addToQueue({
-              courseId,
+              courseId: targetCourseId,
               type: 'content',
               targetNodeId: n.node_id,
               title: `撰写正文: ${n.node_name}`
@@ -701,7 +753,7 @@ export const useCourseStore = defineStore('course', {
             let previousContext = "相关背景..."
             if (idx > 0) {
                 const prev = linear[idx - 1]
-                if (prev.node_content) {
+                if (prev && prev.node_content) {
                     previousContext = `上节回顾 (${prev.node_name}): ` + prev.node_content.slice(-500)
                 }
             }
@@ -832,7 +884,7 @@ export const useCourseStore = defineStore('course', {
       }
       
       if (!targetNode && this.nodes.length > 0) {
-          targetNode = this.nodes[0]
+          targetNode = this.nodes[0] || null
       }
 
       if (!targetNode) {
@@ -841,6 +893,7 @@ export const useCourseStore = defineStore('course', {
       }
       
       this.loading = true
+      this.chatLoading = true
       try {
         // Construct full course context for Q&A
         const linearNodes = this.getLinearNodes(this.courseTree)
@@ -883,7 +936,7 @@ export const useCourseStore = defineStore('course', {
         }))
 
         // Create a placeholder message for AI
-        const aiMsgIndex = this.chatHistory.length + 1 // +1 because we push user msg first
+        // const aiMsgIndex = this.chatHistory.length + 1 // +1 because we push user msg first
         
         this.chatHistory.push({
           type: 'user',
@@ -998,6 +1051,7 @@ export const useCourseStore = defineStore('course', {
         // this.chatHistory.pop() 
       } finally {
         this.loading = false
+        this.chatLoading = false
       }
     },
 
@@ -1036,7 +1090,7 @@ export const useCourseStore = defineStore('course', {
         const idx = linearNodes.findIndex(n => n.node_id === node.node_id)
         if (idx > 0) {
             const prev = linearNodes[idx - 1]
-            if (prev.node_content) {
+            if (prev && prev.node_content) {
                 previousContext = `上节回顾 (${prev.node_name}): ` + prev.node_content.slice(-500)
             }
         }
@@ -1095,7 +1149,7 @@ export const useCourseStore = defineStore('course', {
         const idx = linearNodes.findIndex(n => n.node_id === node.node_id)
         if (idx > 0) {
             const prev = linearNodes[idx - 1]
-            if (prev.node_content) {
+            if (prev && prev.node_content) {
                 previousContext = `上节回顾 (${prev.node_name}): ` + prev.node_content.slice(-500)
             }
         }
@@ -1168,8 +1222,8 @@ export const useCourseStore = defineStore('course', {
         this.loading = true
         try {
             const res = await axios.post(`${API_BASE}/courses/${this.currentCourseId}/locate`, { keyword })
-            if (res.target_node_id) {
-                const target = this.nodes.find(n => n.node_id === res.target_node_id)
+            if (res.data.target_node_id) {
+                const target = this.nodes.find(n => n.node_id === res.data.target_node_id)
                 if (target) {
                     this.currentNode = target
                     ElMessage.success(`已定位到: ${target.node_name}`)
@@ -1222,6 +1276,25 @@ export const useCourseStore = defineStore('course', {
             ElMessage.success('删除成功')
         } catch (error) {
             ElMessage.error('删除失败')
+        }
+    },
+
+    async renameNode(nodeId: string, newName: string) {
+        if (!this.currentCourseId) return
+        this.loading = true
+        try {
+            await http.put(`/courses/${this.currentCourseId}/nodes/${nodeId}`, {
+                node_name: newName
+            })
+            const node = this.nodes.find(n => n.node_id === nodeId)
+            if (node) {
+                node.node_name = newName
+            }
+            ElMessage.success('重命名成功')
+        } catch (error) {
+            ElMessage.error('重命名失败')
+        } finally {
+            this.loading = false
         }
     },
 
