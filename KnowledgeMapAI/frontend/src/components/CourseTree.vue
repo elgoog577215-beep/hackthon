@@ -528,8 +528,8 @@ const backToCourses = () => {
 :deep(.el-tree-node__content) {
     height: auto;
     background-color: transparent !important;
-    padding: 3px 0; /* Increased padding for breathing room */
-    margin-bottom: 2px;
+    padding: 4px 0; /* Increased padding for breathing room */
+    margin-bottom: 4px;
 }
 :deep(.el-tree-node:focus > .el-tree-node__content) {
     background-color: transparent !important;
@@ -552,7 +552,7 @@ const backToCourses = () => {
 
 /* Tree Lines - Refined */
 :deep(.el-tree-node__children) {
-    border-left: 1px solid var(--color-slate-100);
+    border-left: 1px solid #f1f5f9;
     margin-left: 18px; 
 }
 
@@ -569,16 +569,16 @@ const backToCourses = () => {
 /* Transition Animations */
 .fade-slide-enter-active,
 .fade-slide-leave-active {
-  transition: all 0.3s ease;
+    transition: all 0.3s ease;
 }
 
 .fade-slide-enter-from {
-  opacity: 0;
-  transform: translateX(-10px);
+    opacity: 0;
+    transform: translateX(-10px);
 }
 
 .fade-slide-leave-to {
-  opacity: 0;
-  transform: translateX(10px);
+    opacity: 0;
+    transform: translateX(10px);
 }
 </style>
