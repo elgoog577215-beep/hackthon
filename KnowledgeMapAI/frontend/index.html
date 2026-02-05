@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KnowledgeMap AI - 智能知识图谱生成</title>
+    <style>
+      /* Ensure KaTeX display equations have scroll if too wide */
+      .katex-display {
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 4px;
+      }
+      /* Fix KaTeX font loading if necessary */
+      body .katex {
+        font-size: 1.1em;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 overflow-hidden">
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
