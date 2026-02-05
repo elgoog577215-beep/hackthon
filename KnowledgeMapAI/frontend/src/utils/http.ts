@@ -15,17 +15,16 @@ const http: AxiosInstance = axios.create({
 // Request Interceptor
 http.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // You can add auth tokens here if needed in the future
-    // const token = localStorage.getItem('token');
-    // if (token) {
-    //   config.headers.Authorization = `Bearer ${token}`;
-    // }
     return config;
   },
   (error: AxiosError) => {
     return Promise.reject(error);
   }
 );
+
+interface ErrorResponse {
+  detail?: string;
+}
 
 // Response Interceptor
 http.interceptors.response.use(
@@ -57,7 +56,7 @@ http.interceptors.response.use(
       }
       
       // If backend returns a specific detail message, use it
-      const data = error.response.data as any;
+      const data = error.response.data as ErrorResponse;
       if (data && data.detail) {
         message = data.detail;
       }

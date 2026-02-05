@@ -25,6 +25,19 @@ export interface Annotation {
   quote?: string
 }
 
+export interface Note {
+    id: string
+    nodeId: string
+    highlightId: string
+    quote: string
+    content: string
+    color: string
+    createdAt: number
+    top?: number // Dynamic position for rendering
+    sourceType?: 'user' | 'ai'
+    expanded?: boolean
+}
+
 export interface Course {
     course_id: string
     course_name: string
@@ -52,6 +65,27 @@ export interface Task {
     shouldStop: boolean // Flag to signal stop
 }
 
+export interface AIContent {
+    core_answer: string
+    detail_answer?: unknown[]
+    quote?: string
+    anno_summary?: string
+    anno_id?: string
+    node_id?: string
+    question?: string
+    answer?: string
+    quiz?: {
+        question: string
+        options: string[]
+        answer: string
+    }
+}
+
+export interface ChatMessage {
+    type: 'user' | 'ai'
+    content: string | AIContent
+}
+
 export const useCourseStore = defineStore('course', {
   state: () => ({
     courseList: [] as Course[],
@@ -61,7 +95,7 @@ export const useCourseStore = defineStore('course', {
     currentNode: null as Node | null,
     annotations: [] as Annotation[],
     loading: false,
-    chatHistory: [] as any[],
+    chatHistory: [] as ChatMessage[],
     
     // --- Task Management System ---
     tasks: new Map<string, Task>(), // courseId -> Task
@@ -81,18 +115,71 @@ export const useCourseStore = defineStore('course', {
     
     // Typewriter effect buffer
     typingBuffer: new Map<string, string>(),
-    typingInterval: null as any,
+    typingInterval: null as number | null,
     
     // Context-aware Q&A
     activeAnnotation: null as Annotation | null,
     scrollToNodeId: null as string | null,
     userPersona: '' as string,
     chatLoading: false,
+    
+    // UI State
+    isFocusMode: false,
+    
+    // Notes System
+    notes: [] as Note[],
   }),
   getters: {
     treeData: (state) => state.courseTree,
+    getNotesByNodeId: (state) => (nodeId: string) => state.notes.filter(n => n.nodeId === nodeId),
   },
   actions: {
+    addNote(note: Note) {
+        this.notes.push(note)
+    },
+    async createNote(note: Note) {
+        this.addNote(note)
+        // Persist to backend
+        try {
+            await this.saveAnnotation({
+                anno_id: note.id,
+                node_id: note.nodeId,
+                question: note.sourceType === 'ai' ? 'AI Assistant Note' : 'User Note',
+                answer: note.content,
+                anno_summary: note.content.length > 50 ? note.content.slice(0, 50) + '...' : note.content,
+                quote: note.quote,
+                source_type: note.sourceType || 'user'
+            })
+        } catch (e) {
+            console.error('Failed to persist note', e)
+        }
+    },
+    async updateNote(id: string, content: string) {
+        const note = this.notes.find(n => n.id === id)
+        if (note) {
+            note.content = content
+            try {
+                await http.put(`/annotations/${id}`, { content })
+            } catch (e) {
+                console.error('Failed to update note persistence', e)
+                ElMessage.warning('笔记保存失败，请重试')
+            }
+        }
+    },
+    async deleteNote(id: string) {
+        const index = this.notes.findIndex(n => n.id === id)
+        if (index !== -1) {
+            this.notes.splice(index, 1)
+            // Persist to backend
+            try {
+                await http.delete(`/annotations/${id}`)
+                // Also remove from legacy annotations if present
+                this.annotations = this.annotations.filter(a => a.anno_id !== id)
+            } catch (e) {
+                console.error('Failed to delete note persistence', e)
+            }
+        }
+    },
     createTask(courseId: string, courseName: string, nodes: Node[]): Task {
         const task: Task = {
             id: courseId,
@@ -132,7 +219,7 @@ export const useCourseStore = defineStore('course', {
         }
     },
 
-    addMessage(type: 'user' | 'ai', content: string | any) {
+    addMessage(type: 'user' | 'ai', content: string | AIContent) {
         this.chatHistory.push({ type, content })
     },
 
@@ -172,17 +259,63 @@ export const useCourseStore = defineStore('course', {
         this.activeAnnotation = null
     },
 
-    async generateQuiz(nodeId: string, nodeContent: string) {
+    async generateQuiz(nodeId: string, nodeContent: string, style: string = 'standard', difficulty: string = 'medium') {
+        this.chatLoading = true
+        // Add user message indicating quiz request
+        this.chatHistory.push({
+            type: 'user',
+            content: `请为"${this.nodes.find(n => n.node_id === nodeId)?.node_name || '当前章节'}"生成一份${difficulty === 'hard' ? '困难' : (difficulty === 'easy' ? '简单' : '中等')}难度的${style === 'creative' ? '创意' : (style === 'practical' ? '实战' : '标准')}测试题。`
+        })
+        
         try {
             const res = await http.post(`/courses/${this.currentCourseId}/nodes/${nodeId}/quiz`, {
-                node_id: nodeId,
                 node_content: nodeContent,
-                difficulty: 'medium'
+                node_name: this.nodes.find(n => n.node_id === nodeId)?.node_name || '',
+                difficulty: difficulty,
+                style: style
             })
+            
+            // The backend returns a list of questions. We'll add them as AI messages.
+            // For now, let's just handle the first one or all of them.
+            // Typically "Generate Quiz" implies a set.
+            // But the UI in ChatPanel seems to handle one quiz object per message nicely.
+            // Let's add them as separate messages or a single message with multiple quizzes?
+            // The current ChatPanel handles `msg.content.quiz` as a SINGLE object.
+            // Let's change backend to return one quiz? No, backend returns List.
+            // We will iterate and add them.
+            
+            if (Array.isArray(res.data)) {
+                 if (res.data.length === 0) {
+                    this.chatHistory.push({
+                        type: 'ai',
+                        content: '抱歉，无法根据当前内容生成测试题。'
+                    })
+                 } else {
+                     res.data.forEach((quizItem: any, index: number) => {
+                        this.chatHistory.push({
+                            type: 'ai',
+                            content: {
+                                answer: index === 0 ? `### 📝 ${style === 'creative' ? '创意挑战' : (style === 'practical' ? '实战演练' : '知识测验')}\n这里有几道题目来检测你的学习成果：` : '',
+                                quiz: {
+                                    ...quizItem,
+                                    node_id: nodeId
+                                }
+                            }
+                        })
+                     })
+                 }
+            }
+            
             return res.data
         } catch (error) {
             ElMessage.error('生成测验失败')
+            this.chatHistory.push({
+                type: 'ai',
+                content: '生成测验时遇到错误，请稍后再试。'
+            })
             return []
+        } finally {
+            this.chatLoading = false
         }
     },
 
@@ -375,9 +508,8 @@ export const useCourseStore = defineStore('course', {
       const tree: Node[] = []
       
       // Use shallow copy to preserve object references for reactivity
-      // But we need to reset children to avoid duplication on re-build
-      // We map to a new array but keep the node objects (if they are objects)
-      // Actually, we want to modify the SAME objects so that changes to this.nodes reflect in this.courseTree
+      // We modify the SAME objects so that changes to this.nodes reflect in this.courseTree
+      // This is intentional for Vue reactivity.
       
       const deepNodes = nodes // Direct reference
 
@@ -443,7 +575,7 @@ export const useCourseStore = defineStore('course', {
     addToQueue(item: Omit<QueueItem, 'uuid' | 'status'>) {
         const newItem: QueueItem = {
             ...item,
-            uuid: Math.random().toString(36).substring(2, 15),
+            uuid: crypto.randomUUID(),
             status: 'pending'
         }
         this.queue.push(newItem)
@@ -497,9 +629,10 @@ export const useCourseStore = defineStore('course', {
             }
 
         } catch (e: any) {
+            const errorMessage = e instanceof Error ? e.message : String(e)
             nextItem.status = 'error'
-            nextItem.errorMsg = e.message || String(e)
-            if (task) task.logs.push(`❌ 失败: ${nextItem.title} - ${e.message}`)
+            nextItem.errorMsg = errorMessage
+            if (task) task.logs.push(`❌ 失败: ${nextItem.title} - ${errorMessage}`)
         } finally {
             if (task && task.shouldStop) {
                 this.isQueueProcessing = false
@@ -798,9 +931,15 @@ export const useCourseStore = defineStore('course', {
     },
 
     selectNode(node: Node) {
-      this.currentNode = node
-      this.fetchAnnotations(node.node_id)
+        this.currentNode = node
+        this.fetchAnnotations(node.node_id)
     },
+
+    setCurrentNodeSilent(node: Node) {
+        this.currentNode = node
+    },
+    
+    // markNodeAsVisited removed as per request
 
     async fetchAnnotations(nodeId: string) {
       // Deprecated: We now load all annotations for the course at once
@@ -824,26 +963,49 @@ export const useCourseStore = defineStore('course', {
         try {
             const res = await axios.get(`${API_BASE}/courses/${courseId}/annotations`)
             this.annotations = res.data
+            
+            // Unify: Convert legacy annotations to Notes
+            const annotations = res.data as Annotation[]
+            annotations.forEach(anno => {
+                // Avoid duplicates based on ID
+                if (!this.notes.find(n => n.id === anno.anno_id)) {
+                    this.notes.push({
+                        id: anno.anno_id,
+                        nodeId: anno.node_id,
+                        highlightId: `hl-${anno.anno_id}`, // Synthetic highlight ID
+                        quote: anno.quote || '',
+                        content: (anno.anno_summary || '') + '\n' + (anno.answer || anno.question || ''),
+                        color: 'amber',
+                        createdAt: Date.now(),
+                        sourceType: 'user', // Assume legacy are user notes
+                        expanded: false
+                    })
+                }
+            })
         } catch (error) {
             console.error("Failed to load annotations", error)
         }
     },
 
-    async saveAnnotation(anno: any) {
+    async saveAnnotation(anno: Partial<Annotation>) {
         // Prevent duplicates locally first
-        if (!this.annotations.find(a => a.anno_id === anno.anno_id)) {
-            const newAnno: Annotation = {
-                anno_id: anno.anno_id || `anno_${Date.now()}`,
-                node_id: anno.node_id,
-                question: anno.question || 'User Note',
-                answer: anno.answer || '',
-                anno_summary: anno.anno_summary || 'Note',
-                source_type: 'user_saved',
-                quote: anno.quote
-            }
+        if (anno.anno_id && this.annotations.find(a => a.anno_id === anno.anno_id)) {
+             ElMessage.warning('该笔记已存在')
+             return
+        }
+
+        const newAnno: Annotation = {
+            anno_id: anno.anno_id || `anno_${crypto.randomUUID()}`,
+            node_id: anno.node_id!,
+            question: anno.question || 'User Note',
+            answer: anno.answer || '',
+            anno_summary: anno.anno_summary || 'Note',
+            source_type: 'user_saved',
+            quote: anno.quote
+        }
             
-            try {
-                // Save to backend
+        try {
+            // Save to backend
                 await http.post(`/annotations`, newAnno)
                 
                 this.annotations.push(newAnno)
@@ -855,9 +1017,6 @@ export const useCourseStore = defineStore('course', {
                 ElMessage.error('保存失败')
                 console.error(e)
             }
-        } else {
-            ElMessage.warning('该笔记已存在')
-        }
     },
 
     async deleteAnnotation(annoId: string) {
@@ -936,30 +1095,27 @@ export const useCourseStore = defineStore('course', {
         }))
 
         // Create a placeholder message for AI
-        // const aiMsgIndex = this.chatHistory.length + 1 // +1 because we push user msg first
         
-        this.chatHistory.push({
-          type: 'user',
-          content: question
-        })
-        
-        const aiMessageContent = {
+        const aiMessageContent: AIContent = {
             core_answer: '',
             detail_answer: [],
             quote: '',
             anno_summary: 'AI 思考中...',
-            anno_id: `anno_${Date.now()}`,
+            anno_id: `anno_${crypto.randomUUID()}`,
             node_id: '',
             question: question,
             answer: ''
         }
         
-        const aiMessage = {
+        const aiMessageRaw: ChatMessage = {
           type: 'ai',
           content: aiMessageContent
         }
         
-        this.chatHistory.push(aiMessage)
+        this.chatHistory.push(aiMessageRaw)
+        // Get the reactive proxy from the array so updates trigger UI changes
+        const aiMessage = this.chatHistory[this.chatHistory.length - 1] as ChatMessage
+        if (typeof aiMessage.content === 'string') return // Should not happen
 
         // Fetch Stream
         const response = await fetch(`${API_BASE}/ask`, {
@@ -1029,11 +1185,27 @@ export const useCourseStore = defineStore('course', {
                     aiMessage.content.anno_summary = metadata.anno_summary || 'AI 笔记'
                     
                     // Auto-save annotation if quote exists? No, let user decide.
+                    // Actually, if we want to unify, we can save it as a Note automatically?
+                    // The user requested "AI 助手生成的笔记自动保存到 Notes 列表"
                     if (metadata.quote) {
                         this.activeAnnotation = {
                             ...aiMessage.content,
                             source_type: 'ai_chat'
                         }
+                        
+                        // Auto-convert to Note
+                        const noteId = `note-${Date.now()}`
+                        const highlightId = `highlight-${Date.now()}`
+                        this.createNote({
+                            id: noteId,
+                            nodeId: metadata.node_id,
+                            highlightId: highlightId,
+                            quote: metadata.quote,
+                            content: aiMessage.content.anno_summary + '\n' + aiMessage.content.core_answer,
+                            color: 'purple',
+                            createdAt: Date.now(),
+                            sourceType: 'ai'
+                        })
                     }
                 }
             } catch (e) {

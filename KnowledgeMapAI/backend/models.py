@@ -49,20 +49,34 @@ class AskQuestionRequest(BaseModel):
     node_content: str
     question: str
     history: List[dict] = []
-    selection: str = ""
-    user_persona: str = ""
+    selection: Optional[str] = ""
+    user_persona: Optional[str] = ""
 
-class QuizQuestion(BaseModel):
-    id: int
+class AddNodeRequest(BaseModel):
+    parent_node_id: str = "root"
+    node_name: str = "New Node"
+
+class SaveAnnotationRequest(BaseModel):
+    anno_id: Optional[str] = None
+    node_id: str
     question: str
-    options: List[str]
-    correct_index: int
-    explanation: str
+    answer: str
+    anno_summary: str
+    source_type: Literal["user", "ai", "user_saved"] = "user"
+    quote: Optional[str] = None
+
+class UpdateNodeRequest(BaseModel):
+    node_name: Optional[str] = None
+    node_content: Optional[str] = None
+
+class UpdateAnnotationRequest(BaseModel):
+    content: str
 
 class GenerateQuizRequest(BaseModel):
-    node_id: str
     node_content: str
-    difficulty: str = "medium" # easy, medium, hard
+    node_name: Optional[str] = ""
+    difficulty: str = "medium"
+    style: Optional[str] = "standard"
 
 class LocateNodeRequest(BaseModel):
     keyword: str

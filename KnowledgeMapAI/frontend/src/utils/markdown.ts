@@ -4,6 +4,7 @@ import mermaid from 'mermaid';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import linkAttributes from 'markdown-it-link-attributes';
+import 'highlight.js/styles/atom-one-dark.css';
 
 // Initialize mermaid
 mermaid.initialize({
@@ -16,26 +17,9 @@ mermaid.initialize({
 // Ported from markdown-it-katex to use local katex instance
 // License: MIT
 
-function isValidDelim(state: any, pos: number) {
-    var prevChar, nextChar,
-        max = state.posMax,
-        can_open = true,
+function isValidDelim(_state: any, _pos: number) {
+    var can_open = true,
         can_close = true;
-
-    prevChar = pos > 0 ? state.src.charCodeAt(pos - 1) : -1;
-    nextChar = pos + 1 <= max ? state.src.charCodeAt(pos + 1) : -1;
-
-    // Relaxed whitespace conditions for opening and closing to support AI output
-    // We comment out the strict whitespace checks
-    /*
-    if (prevChar === 0x20 || prevChar === 0x09 ||
-            (nextChar >= 0x30 && nextChar <= 0x39)) {
-        can_close = false;
-    }
-    if (nextChar === 0x20 || nextChar === 0x09) {
-        can_open = false;
-    }
-    */
 
     return {
         can_open: can_open,
@@ -188,22 +172,18 @@ function math_plugin(md: any, options: any) {
     md.renderer.rules.math_block = blockRenderer;
 };
 
-// Main markdown configuration
+// Markdown Configuration
 const md = new MarkdownIt({
     html: true,
     linkify: true,
     typographer: true,
-    breaks: true,
-    highlight: function (str, lang) {
+    highlight: function (str: string, lang: string) {
         if (lang && hljs.getLanguage(lang)) {
-          try {
-            return '<pre class="hljs"><code>' +
-                   hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
-                   '</code></pre>';
-          } catch (__) {}
+            try {
+                return hljs.highlight(str, { language: lang }).value;
+            } catch (__) {}
         }
-    
-        return '<pre class="hljs"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
+        return ''; // use external default escaping
     }
 });
 
@@ -218,7 +198,8 @@ md.use(linkAttributes, {
 md.use(math_plugin);
 
 // Custom renderer for mermaid code blocks
-const defaultFence = md.renderer.rules.fence || function(tokens: any, idx: number, options: any, env: any, self: any) {
+// @ts-ignore
+const defaultFence = md.renderer.rules.fence || function(tokens: any, idx: number, options: any, _env: any, self: any) {
   return self.renderToken(tokens, idx, options);
 };
 
@@ -237,7 +218,6 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any, env: 
         'timeline', 'gitGraph', 'journey'
     ];
     
-    const firstWord = code.split(/[\s\n]+/)[0];
     if (!knownTypes.some(type => code.startsWith(type))) {
         // Simple heuristic: if it looks like A -> B, it's a graph
         if (code.includes('-->') || code.includes('---')) {
@@ -257,19 +237,19 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any, env: 
 
     // 2.1 Fix [Text] -> ["Text"] (Rectangular nodes)
     // Allow newlines in text
-    code = code.replace(/\[(?![(\[/\\<])([^\[\]]+?)\]/g, (match: string, p1: string) => {
+    code = code.replace(/\[(?![(\[/\\<])([^\[\]]+?)\]/g, (_match: string, p1: string) => {
         // Don't touch if it looks like a subgraph or class definition
-        if (p1.trim().startsWith('id=') || p1.trim().startsWith('class:')) return match;
+        if (p1.trim().startsWith('id=') || p1.trim().startsWith('class:')) return _match;
         return `[${quoteIfNeeded(p1)}]`;
     });
     
     // 2.2 Fix (Text) -> ("Text") (Round nodes)
-    code = code.replace(/\((?!\()([^()]+?)\)/g, (match: string, p1: string) => {
+    code = code.replace(/\((?!\()([^()]+?)\)/g, (_match: string, p1: string) => {
         return `(${quoteIfNeeded(p1)})`;
     });
 
     // 2.3 Fix {Text} -> {"Text"} (Rhombus nodes)
-    code = code.replace(/\{(?![{!])([^{}]+?)\}/g, (match: string, p1: string) => {
+    code = code.replace(/\{(?![{!])([^{}]+?)\}/g, (_match: string, p1: string) => {
         return `{${quoteIfNeeded(p1)}}`;
     });
     

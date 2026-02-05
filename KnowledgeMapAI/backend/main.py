@@ -9,7 +9,12 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from models import *
+    from models import (
+    Node, Annotation, GenerateCourseRequest, GenerateSubNodesRequest,
+    RedefineContentRequest, ExtendContentRequest, AskQuestionRequest,
+    UpdateAnnotationRequest, GenerateQuizRequest, LocateNodeRequest,
+    AddNodeRequest, SaveAnnotationRequest, UpdateNodeRequest
+)
     from storage import storage
     from ai_service import ai_service
 except ImportError:
@@ -81,7 +86,7 @@ async def generate_course(req: GenerateCourseRequest):
 # --- Node Operations (Scoped by Course) ---
 
 @app.post("/courses/{course_id}/nodes")
-def add_custom_node(course_id: str, req: dict):
+def add_custom_node(course_id: str, req: AddNodeRequest):
     # Expects parent_node_id, node_name
     tree_data = storage.load_course(course_id)
     if not tree_data:
@@ -89,15 +94,15 @@ def add_custom_node(course_id: str, req: dict):
     
     # Determine level
     level = 1
-    if req.get("parent_node_id") and req["parent_node_id"] != "root":
-        parent = next((n for n in tree_data.get("nodes", []) if n["node_id"] == req["parent_node_id"]), None)
+    if req.parent_node_id and req.parent_node_id != "root":
+        parent = next((n for n in tree_data.get("nodes", []) if n["node_id"] == req.parent_node_id), None)
         if parent:
             level = parent.get("node_level", 1) + 1
     
     new_node = {
         "node_id": str(uuid.uuid4()),
-        "parent_node_id": req.get("parent_node_id", "root"),
-        "node_name": req.get("node_name", "New Node"),
+        "parent_node_id": req.parent_node_id,
+        "node_name": req.node_name,
         "node_level": level,
         "node_content": "Custom content...",
         "node_type": "custom"
@@ -160,7 +165,7 @@ async def redefine_node_stream(course_id: str, node_id: str, req: RedefineConten
     async def stream_generator():
         full_content = ""
         try:
-            async for chunk in ai_service.redefine_content_stream(req.node_name, req.user_requirement, req.course_context, req.previous_context):
+            async for chunk in ai_service.redefine_node_content(req.node_name, req.original_content, req.user_requirement, req.course_context, req.previous_context):
                 full_content += chunk
                 yield chunk
         except Exception as e:
@@ -181,7 +186,13 @@ async def redefine_node_stream(course_id: str, node_id: str, req: RedefineConten
 
 @app.post("/courses/{course_id}/nodes/{node_id}/redefine")
 def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest):
-    new_content = ai_service.redefine_content(req.node_name, req.user_requirement)
+    new_content = ai_service.redefine_content(
+        req.node_name, 
+        req.user_requirement,
+        req.original_content,
+        req.course_context,
+        req.previous_context
+    )
     
     tree_data = storage.load_course(course_id)
     if not tree_data:
@@ -204,13 +215,13 @@ def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest):
 @app.post("/courses/{course_id}/nodes/{node_id}/quiz")
 async def generate_quiz(course_id: str, node_id: str, req: GenerateQuizRequest):
     # Verify node content (or use provided content)
-    questions = await ai_service.generate_quiz(req.node_content, req.difficulty)
+    questions = await ai_service.generate_quiz(req.node_content, req.node_name, req.difficulty, req.style)
     return questions
 
 @app.post("/courses/{course_id}/nodes/{node_id}/extend")
-async def extend_node_content(course_id: str, node_id: str, req: dict):
+async def extend_node_content(course_id: str, node_id: str, req: ExtendContentRequest):
     # req: node_name, requirement
-    content = await ai_service.extend_content(req.get("node_name"), req.get("requirement"))
+    content = await ai_service.extend_content(req.node_name, req.user_requirement)
     
     # Save?
     # For now, just return, frontend appends
@@ -228,21 +239,25 @@ def get_annotations(node_id: str):
     return storage.get_annotations_by_node(node_id)
 
 @app.post("/annotations")
-def save_annotation(req: dict):
-    # Basic validation
-    if "node_id" not in req or "anno_summary" not in req:
-        raise HTTPException(status_code=400, detail="Missing required fields")
+def save_annotation(req: SaveAnnotationRequest):
+    # Basic validation is handled by Pydantic
     
+    data = req.dict()
     # Ensure ID
-    if "anno_id" not in req:
-        req["anno_id"] = f"anno_{uuid.uuid4()}"
+    if not data.get("anno_id"):
+        data["anno_id"] = f"anno_{uuid.uuid4()}"
         
-    storage.save_annotation(req)
-    return req
+    storage.save_annotation(data)
+    return data
 
 @app.delete("/annotations/{anno_id}")
 def delete_annotation(anno_id: str):
     storage.delete_annotation(anno_id)
+    return {"status": "success"}
+
+@app.put("/annotations/{anno_id}")
+def update_annotation(anno_id: str, req: UpdateAnnotationRequest):
+    storage.update_annotation(anno_id, req.content)
     return {"status": "success"}
 
 @app.get("/courses/{course_id}/annotations")
@@ -292,13 +307,15 @@ def delete_node(course_id: str, node_id: str):
     raise HTTPException(status_code=404, detail="Node not found")
 
 @app.put("/courses/{course_id}/nodes/{node_id}")
-def update_node(course_id: str, node_id: str, node_update: dict):
+def update_node(course_id: str, node_id: str, node_update: UpdateNodeRequest):
     tree_data = storage.load_course(course_id)
     if "nodes" in tree_data:
         for node in tree_data["nodes"]:
             if node["node_id"] == node_id:
-                if "node_name" in node_update:
-                    node["node_name"] = node_update["node_name"]
+                if node_update.node_name is not None:
+                    node["node_name"] = node_update.node_name
+                if node_update.node_content is not None:
+                    node["node_content"] = node_update.node_content
                 storage.save_course(course_id, tree_data)
                 return node
     raise HTTPException(status_code=404, detail="Node not found")
