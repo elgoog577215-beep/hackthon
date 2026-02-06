@@ -11,7 +11,8 @@ class ContentMemoryManager:
     Focus: Textbook knowledge graph, teaching content understanding.
     """
     def __init__(self):
-        pass
+        # Cache for flattened nodes: course_id -> (timestamp, List[Dict])
+        self.flat_nodes_cache = {}
 
     def get_course_context(self, course_id: str, current_node_id: str) -> str:
         """
@@ -20,12 +21,25 @@ class ContentMemoryManager:
         2. Parent node context (if any).
         3. Previous/Next sibling context (brief).
         """
+        # Storage now uses in-memory cache, so this is fast
         course = storage.load_course(course_id)
         if not course:
             return ""
 
         nodes = course.get("nodes", [])
-        flat_nodes = self._flatten_nodes(nodes)
+        
+        # Cache flattened structure (simple invalidation based on object id or we can just recompute if small)
+        # Since course object is same ref from storage cache if not reloaded, we can use id(nodes)
+        cache_key = (course_id, id(nodes))
+        if cache_key in self.flat_nodes_cache:
+            flat_nodes = self.flat_nodes_cache[cache_key]
+        else:
+            flat_nodes = self._flatten_nodes(nodes)
+            # Clear old cache for this course to prevent leak
+            # Simple approach: clear all for this course_id? Or just keep dict small.
+            # For MVP, just set.
+            self.flat_nodes_cache = {k:v for k,v in self.flat_nodes_cache.items() if k[0] != course_id}
+            self.flat_nodes_cache[cache_key] = flat_nodes
         
         current_node = next((n for n in flat_nodes if n.get("node_id") == current_node_id), None)
         if not current_node:
@@ -201,17 +215,48 @@ class ContextCompressor:
         recent_history = history[-keep_count:]
         older_history = history[:-keep_count]
 
-        # 3. Create Summary (Mocking the LLM summarization for speed, or we could call LLM)
-        # For a real implementation, we would call an LLM here to summarize `older_history`.
-        # Here we use a heuristic: extract first sentence of user questions.
+        # 3. Create Summary
+        # We need to call LLM asynchronously. Since this method might be called in a sync context or 
+        # inside an async flow where we want to await, we need to handle it carefully.
+        # However, to avoid circular imports and complex async injection here, we will define a protocol.
+        # Actually, let's inject the summarizer function if possible, or use a callback.
         
+        # For this MVP, we will rely on the caller (DualMemoryController) to handle the async summarization 
+        # OR we can make this method async. Let's make it async.
+        pass
+
+    async def compress_history_async(self, history: List[Dict], summarizer_func) -> List[Dict]:
+        """
+        Async version that uses an external summarizer function (LLM).
+        """
+        if not history:
+            return []
+
+        # 1. Calculate total tokens
+        total_text = "".join([str(msg.get('content', '')) for msg in history])
+        total_tokens = self._estimate_tokens(total_text)
+
+        if total_tokens < self.max_history_tokens:
+            return history
+
+        logger.info(f"Compressing history (LLM): {total_tokens} tokens -> Target: {self.max_history_tokens}")
+
+        keep_count = 5
+        if len(history) <= keep_count:
+            return history
+
+        recent_history = history[-keep_count:]
+        older_history = history[:-keep_count]
+
+        # Call the injected summarizer function
         summary_text = "Previous conversation summary: "
-        for msg in older_history:
-            role = msg.get('role', 'unknown')
-            content = str(msg.get('content', ''))
-            if role == 'user':
-                summary_text += f"User asked about {content[:20]}...; "
-            
+        try:
+            summary_content = await summarizer_func(older_history)
+            summary_text += summary_content
+        except Exception as e:
+            logger.error(f"Summarization failed: {e}")
+            summary_text += " (Auto-summary unavailable)"
+
         summary_message = {
             "role": "system", 
             "content": f"Context Summary: {summary_text}"
@@ -291,10 +336,13 @@ Answer the user's question now.
 """
         return system_prompt
 
-    def optimize_history(self, history: List[Dict]) -> List[Dict]:
+    async def optimize_history(self, history: List[Dict], summarizer_func=None) -> List[Dict]:
         """
-        Public API to compress history
+        Public API to compress history.
+        Now async to support LLM summarization.
         """
+        if summarizer_func:
+             return await self.compressor.compress_history_async(history, summarizer_func)
         return self.compressor.compress_history(history)
 
 memory_controller = DualMemoryController()
