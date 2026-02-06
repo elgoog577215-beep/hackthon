@@ -11,6 +11,8 @@ class Node(BaseModel):
     node_content: str = ""
     node_type: Literal["original", "custom", "extend"] = "original"
     create_time: Optional[datetime] = None
+    is_read: bool = False
+    quiz_score: Optional[int] = None
 
 class Annotation(BaseModel):
     anno_id: str
@@ -44,6 +46,7 @@ class ExtendContentRequest(BaseModel):
     user_requirement: str
 
 class AskQuestionRequest(BaseModel):
+    course_id: Optional[str] = None
     node_id: str
     node_name: str
     node_content: str
@@ -68,6 +71,8 @@ class SaveAnnotationRequest(BaseModel):
 class UpdateNodeRequest(BaseModel):
     node_name: Optional[str] = None
     node_content: Optional[str] = None
+    is_read: Optional[bool] = None
+    quiz_score: Optional[int] = None
 
 class UpdateAnnotationRequest(BaseModel):
     content: str
@@ -77,6 +82,12 @@ class GenerateQuizRequest(BaseModel):
     node_name: Optional[str] = ""
     difficulty: str = "medium"
     style: Optional[str] = "standard"
+    user_persona: Optional[str] = ""
+
+class SummarizeChatRequest(BaseModel):
+    history: List[dict]
+    course_context: Optional[str] = ""
+    user_persona: Optional[str] = ""
 
 class LocateNodeRequest(BaseModel):
     keyword: str

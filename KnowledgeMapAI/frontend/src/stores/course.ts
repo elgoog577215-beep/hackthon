@@ -13,6 +13,8 @@ export interface Node {
   node_content: string
   node_type: 'original' | 'custom' | 'extend'
   children?: Node[]
+  is_read?: boolean
+  quiz_score?: number
 }
 
 export interface Annotation {
@@ -34,7 +36,8 @@ export interface Note {
     color: string
     createdAt: number
     top?: number // Dynamic position for rendering
-    sourceType?: 'user' | 'ai'
+    sourceType?: 'user' | 'ai' | 'format'
+    style?: 'bold' | 'underline' | 'wave' | 'dashed' | 'highlight'
     expanded?: boolean
 }
 
@@ -120,7 +123,8 @@ export const useCourseStore = defineStore('course', {
     // Context-aware Q&A
     activeAnnotation: null as Annotation | null,
     scrollToNodeId: null as string | null,
-    userPersona: '' as string,
+    focusNoteId: null as string | null,
+    userPersona: localStorage.getItem('user_persona') || '',
     chatLoading: false,
     
     // UI State
@@ -137,6 +141,38 @@ export const useCourseStore = defineStore('course', {
     addNote(note: Note) {
         this.notes.push(note)
     },
+    updateUserPersona(persona: string) {
+        this.userPersona = persona
+        localStorage.setItem('user_persona', persona)
+    },
+
+    async markNodeAsRead(nodeId: string) {
+        const node = this.nodes.find(n => n.node_id === nodeId)
+        if (node && !node.is_read) {
+            node.is_read = true
+            try {
+                await http.put(`/courses/${this.currentCourseId}/nodes/${nodeId}`, { is_read: true })
+            } catch (e) {
+                console.error('Failed to sync read status', e)
+            }
+        }
+    },
+
+    async updateNodeScore(nodeId: string, score: number) {
+        const node = this.nodes.find(n => n.node_id === nodeId)
+        if (node) {
+            // Keep best score
+            if (!node.quiz_score || score > node.quiz_score) {
+                node.quiz_score = score
+                try {
+                    await http.put(`/courses/${this.currentCourseId}/nodes/${nodeId}`, { quiz_score: score })
+                } catch (e) {
+                    console.error('Failed to sync quiz score', e)
+                }
+            }
+        }
+    },
+
     async createNote(note: Note) {
         this.addNote(note)
         // Persist to backend
@@ -229,6 +265,14 @@ export const useCourseStore = defineStore('course', {
             this.scrollToNodeId = nodeId
         }, 10)
     },
+
+    scrollToNote(noteId: string) {
+        // Just trigger the action, let the component handle the DOM
+        this.focusNoteId = null
+        setTimeout(() => {
+            this.focusNoteId = noteId
+        }, 10)
+    },
     // --- Task Actions ---
     getTask(courseId: string) {
         return this.tasks.get(courseId)
@@ -272,7 +316,8 @@ export const useCourseStore = defineStore('course', {
                 node_content: nodeContent,
                 node_name: this.nodes.find(n => n.node_id === nodeId)?.node_name || '',
                 difficulty: difficulty,
-                style: style
+                style: style,
+                user_persona: this.userPersona
             })
             
             // The backend returns a list of questions. We'll add them as AI messages.
@@ -1000,7 +1045,7 @@ export const useCourseStore = defineStore('course', {
             question: anno.question || 'User Note',
             answer: anno.answer || '',
             anno_summary: anno.anno_summary || 'Note',
-            source_type: 'user_saved',
+            source_type: anno.source_type || 'user_saved',
             quote: anno.quote
         }
             
@@ -1009,7 +1054,11 @@ export const useCourseStore = defineStore('course', {
                 await http.post(`/annotations`, newAnno)
                 
                 this.annotations.push(newAnno)
-                ElMessage.success('笔记已保存')
+                
+                // Suppress toast for pure formatting actions (highlight, bold, etc)
+                if (anno.source_type !== 'format') {
+                    ElMessage.success('笔记已保存')
+                }
                 
                 // Also update active annotation to highlight immediately
                 this.activeAnnotation = newAnno
@@ -1201,11 +1250,29 @@ export const useCourseStore = defineStore('course', {
                             nodeId: metadata.node_id,
                             highlightId: highlightId,
                             quote: metadata.quote,
-                            content: aiMessage.content.anno_summary + '\n' + aiMessage.content.core_answer,
+                            content: aiMessage.content.anno_summary, // Use summary as note content
                             color: 'purple',
                             createdAt: Date.now(),
                             sourceType: 'ai'
                         })
+
+                        // Update message with noteId for UI actions
+                        aiMessage.content.anno_id = noteId
+
+                        // Teacher Behavior: Auto-scroll to the location (Turn the page & Highlight)
+                        if (metadata.node_id) {
+                            // Expand the node if needed (ensure visibility)
+                            this.scrollToNode(metadata.node_id)
+                            
+                            // Scroll to the specific highlight (Note)
+                            // We use a small timeout to allow the DOM to update with the new highlight
+                            setTimeout(() => {
+                                this.focusNoteId = null
+                                setTimeout(() => {
+                                    this.focusNoteId = noteId
+                                }, 50)
+                            }, 100)
+                        }
                     }
                 }
             } catch (e) {
@@ -1244,6 +1311,55 @@ export const useCourseStore = defineStore('course', {
             ElMessage.error('生成失败')
         } finally {
             this.loading = false
+        }
+    },
+
+    async generateQuiz(nodeId: string, nodeContent: string, style: string = "standard", difficulty: string = "medium") {
+        if (!nodeContent) return []
+        
+        try {
+            const res = await axios.post(`${API_BASE}/generate_quiz`, {
+                node_content: nodeContent,
+                node_name: nodeId, // Optional
+                difficulty,
+                style
+            })
+            return res.data
+        } catch (e) {
+            console.error("Quiz generation failed", e)
+            throw e
+        }
+    },
+
+    async summarizeChat() {
+        if (this.chatHistory.length === 0) {
+            ElMessage.warning('没有可总结的对话')
+            return null
+        }
+        
+        this.chatLoading = true
+        try {
+            // Construct lightweight context
+            const history = this.chatHistory.map(msg => ({
+                role: msg.type === 'user' ? 'user' : 'assistant',
+                content: typeof msg.content === 'string' ? msg.content : (msg.content.core_answer || '')
+            }))
+            
+            const context = this.currentNode ? `当前章节：${this.currentNode.node_name}` : '全书概览'
+            
+            const res = await axios.post(`${API_BASE}/summarize_chat`, {
+                history,
+                course_context: context,
+                user_persona: this.userPersona
+            })
+            
+            return res.data
+        } catch (e) {
+            console.error(e)
+            ElMessage.error('总结生成失败')
+            return null
+        } finally {
+            this.chatLoading = false
         }
     },
 

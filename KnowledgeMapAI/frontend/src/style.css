@@ -98,6 +98,60 @@ body {
 }
 
 /* Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out forwards;
+  opacity: 0;
+}
+
+/* KaTeX Fixes for Tailwind CSS Conflicts */
+/* Tailwind's preflight resets sub/sup vertical-align and font-size, which breaks KaTeX layout */
+.katex sub, .katex sup {
+    vertical-align: baseline !important;
+    font-size: 100% !important;
+    position: static !important;
+}
+
+.katex .base {
+    margin-top: 0 !important;
+}
+
+/* Reset any global text styles that might affect KaTeX structure */
+.katex * {
+    line-height: normal !important;
+    text-indent: 0 !important;
+    border-color: currentColor !important;
+}
+
+/* Fix for fraction lines disappearing or misaligned */
+.katex .mfrac .frac-line {
+    border-bottom-width: 0.04em !important;
+    border-color: currentColor !important; /* Force border color to be visible */
+}
+
+/* Fix alignment of display math */
+.katex-display {
+    margin: 1em 0 !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* Ensure inline math doesn't break line height excessively but maintains internal structure */
+.katex {
+    text-rendering: auto !important;
+    font: inherit !important;
+}
+
 @keyframes fade-in-up {
   from {
     opacity: 0;
@@ -142,33 +196,10 @@ body {
   animation: blob 10s infinite;
 }
 
-.animation-delay-2000 {
-  animation-delay: 2s;
-}
-
-.animation-delay-4000 {
-  animation-delay: 4s;
-}
-
-@keyframes shimmer {
-  0% { transform: translateX(-200%) skewX(-12deg); }
-  100% { transform: translateX(200%) skewX(-12deg); }
-}
-
-/* Vue Transitions */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
+/* Transition Utilities */
 .slide-up-enter-active,
 .slide-up-leave-active {
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.3s ease-out;
 }
 
 .slide-up-enter-from,
@@ -177,84 +208,32 @@ body {
   opacity: 0;
 }
 
-/* Element Plus Overrides */
-.el-tree {
-  background: transparent !important;
-  color: #374151 !important;
+@keyframes bounceIn {
+  0% { transform: scale(0.9); opacity: 0; }
+  60% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
-.el-tree-node__content {
-  height: 42px !important;
-  margin-bottom: 4px;
-  border-radius: 8px;
-  transition: all 0.2s;
+.animate-bounce-in {
+  animation: bounceIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-.el-tree-node__content:hover {
-  background-color: rgba(255, 255, 255, 0.5) !important;
+/* Highlight Flash Animation */
+@keyframes flashHighlight {
+  0%, 100% { background-color: rgba(139, 92, 246, 0.1); }
+  50% { background-color: rgba(139, 92, 246, 0.5); box-shadow: 0 0 10px rgba(139, 92, 246, 0.3); }
 }
 
-.el-tree-node.is-current > .el-tree-node__content {
-  background-color: transparent !important;
-  color: #6d28d9 !important;
-  font-weight: 600;
+.flash-highlight {
+  animation: flashHighlight 1.5s ease-in-out;
+  border-radius: 4px;
 }
 
-/* Markdown Typography */
-.prose h1 {
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  background: var(--primary-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin-bottom: 1.5rem;
+@keyframes flashCard {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); box-shadow: 0 0 20px rgba(139, 92, 246, 0.2); }
 }
 
-.prose h2 {
-  font-weight: 700;
-  color: #374151;
-  margin-top: 2rem;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(0,0,0,0.05);
-}
-
-.prose p {
-  line-height: 1.75;
-  margin-bottom: 1.25rem;
-  color: #4b5563;
-}
-
-.prose pre {
-  background: #1e293b;
-  border-radius: 0.75rem;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-}
-
-.prose code {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
-  padding: 0.125rem 0.25rem;
-  border-radius: 0.25rem;
-  font-size: 0.875em;
-}
-
-.prose pre code {
-  color: inherit;
-  background: transparent;
-  padding: 0;
-}
-
-/* Highlight Marker Style */
-.highlight-marker {
-  background-color: rgba(251, 191, 36, 0.3); /* Amber-300 with opacity */
-  border-bottom: 2px solid #f59e0b; /* Amber-500 underline */
-  cursor: pointer;
-  transition: all 0.2s ease;
-  border-radius: 2px;
-}
-
-.highlight-marker:hover, .highlight-marker.active {
-  background-color: rgba(251, 191, 36, 0.5);
-  border-bottom-width: 3px;
+.flash-card {
+  animation: flashCard 0.5s ease-out;
 }
