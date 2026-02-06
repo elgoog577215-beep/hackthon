@@ -622,7 +622,15 @@ class AIService:
             try:
                 # Local import to avoid circular dependency if any
                 from memory import memory_controller
-                system_prompt = memory_controller.build_tutor_prompt(course_id, node_id, question, history)
+                
+                # 1. Optimize History (Context Compression)
+                optimized_history = memory_controller.optimize_history(history)
+                
+                # 2. Build Dual Memory Prompt
+                system_prompt = memory_controller.build_tutor_prompt(course_id, node_id, question, optimized_history)
+                
+                # Use optimized history for prompt construction
+                history = optimized_history
                 
                 # Append the metadata instruction which is critical for frontend parsing
                 # We inject the current node_id as default if AI doesn't find a better one

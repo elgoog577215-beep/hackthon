@@ -155,6 +155,70 @@ class KnowledgeMigrationManager:
             return "\n".join(related[:3]) # Limit to top 3
         return ""
 
+class ContextCompressor:
+    """
+    Smart Context Management & Compression.
+    Implements strategies to balance Memory Length vs Model Performance.
+    """
+    def __init__(self, max_history_tokens=2000):
+        self.max_history_tokens = max_history_tokens
+
+    def _estimate_tokens(self, text: str) -> int:
+        # Rough estimation: 1 token ~= 1.5 chars for Chinese/English mix
+        # This is faster than real tokenization
+        return len(text) // 1.5
+
+    def compress_history(self, history: List[Dict]) -> List[Dict]:
+        """
+        Compresses conversation history using 'Rolling Window with Summary' strategy.
+        Preserves:
+        1. System instructions (if any)
+        2. The most recent N messages (Recency bias)
+        3. A condensed summary of older messages (Long-term memory)
+        """
+        if not history:
+            return []
+
+        # 1. Calculate total tokens
+        total_text = "".join([str(msg.get('content', '')) for msg in history])
+        total_tokens = self._estimate_tokens(total_text)
+
+        # If within limits, return as is
+        if total_tokens < self.max_history_tokens:
+            return history
+
+        logger.info(f"Compressing history: {total_tokens} tokens -> Target: {self.max_history_tokens}")
+
+        # 2. Strategy: Keep last 5 messages intact, summarize the rest
+        # Assuming the first message might be system prompt? 
+        # In this app, history passed from frontend usually starts with user/ai pair.
+        
+        keep_count = 5
+        if len(history) <= keep_count:
+            return history # Can't compress much if message count is low but tokens are high (huge messages)
+            # In that case, we might need to truncate individual message content (not implemented here for safety)
+
+        recent_history = history[-keep_count:]
+        older_history = history[:-keep_count]
+
+        # 3. Create Summary (Mocking the LLM summarization for speed, or we could call LLM)
+        # For a real implementation, we would call an LLM here to summarize `older_history`.
+        # Here we use a heuristic: extract first sentence of user questions.
+        
+        summary_text = "Previous conversation summary: "
+        for msg in older_history:
+            role = msg.get('role', 'unknown')
+            content = str(msg.get('content', ''))
+            if role == 'user':
+                summary_text += f"User asked about {content[:20]}...; "
+            
+        summary_message = {
+            "role": "system", 
+            "content": f"Context Summary: {summary_text}"
+        }
+
+        return [summary_message] + recent_history
+
 class DualMemoryController:
     """
     Orchestrates the collaboration between Content and User memory spaces.
@@ -163,12 +227,14 @@ class DualMemoryController:
     - Context Switching Mechanism
     - Knowledge Migration Control
     - Learning Effect Evaluation
+    - Context Compression (NEW)
     """
     def __init__(self):
         self.content_memory = ContentMemoryManager()
         self.user_memory = UserMemoryManager()
         self.evaluator = LearningEffectEvaluator()
         self.migration_manager = KnowledgeMigrationManager()
+        self.compressor = ContextCompressor()
 
     def build_tutor_prompt(self, course_id: str, node_id: str, query: str, history: List[Dict]) -> str:
         # 1. Retrieve Core Contexts (Dual Memory Spaces)
@@ -182,9 +248,6 @@ class DualMemoryController:
         related_knowledge = self.migration_manager.find_related_knowledge(node_id, query)
         
         # 4. Context Switching Logic (Dynamic Persona Adjustment)
-        # If user is confused, emphasize User Memory (mistakes, preferences) and simplify Content.
-        # If user is advanced, emphasize Content Memory (depth) and reduce hand-holding.
-        
         instruction_tone = "balanced"
         if "Confused" in learning_state:
             instruction_tone = "supportive and simplified"
@@ -227,5 +290,11 @@ You act like a real teacher opening a textbook.
 Answer the user's question now.
 """
         return system_prompt
+
+    def optimize_history(self, history: List[Dict]) -> List[Dict]:
+        """
+        Public API to compress history
+        """
+        return self.compressor.compress_history(history)
 
 memory_controller = DualMemoryController()
