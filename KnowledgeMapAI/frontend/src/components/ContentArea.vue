@@ -381,7 +381,7 @@
                 <!-- Unquoted/Global Notes (Static Flow) -->
                 <div id="global-notes-section" class="flex flex-col gap-3 p-2 pb-4 mb-2 border-b border-slate-100/50 relative z-10">
                     <div class="flex justify-between items-center px-1">
-                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Global Notes</div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">全局笔记</div>
                         <el-button link size="small" type="primary" @click="addGlobalNote">
                             <el-icon class="mr-1"><Plus /></el-icon>添加
                         </el-button>
@@ -420,9 +420,9 @@
                                 class="mb-2"
                                 placeholder="输入笔记内容..."
                             />
-                            <div class="flex justify-end gap-2">
-                                <el-button size="small" @click.stop="cancelEditing">取消</el-button>
-                                <el-button size="small" type="primary" @click.stop="saveEditing(note)">保存</el-button>
+                            <div class="flex justify-end gap-2 mt-2">
+                                <el-button size="small" text bg @click.stop="cancelEditing">取消</el-button>
+                                <el-button size="small" type="primary" round @click.stop="saveEditing(note)">保存修改</el-button>
                             </div>
                         </div>
                         <template v-else>
@@ -454,76 +454,86 @@
                          :style="{ top: (note.top || 0) + 'px' }">
                         
                          <!-- Connector Line -->
-                         <div class="absolute -left-3 top-4 w-3 h-px bg-primary-300 dashed-line"></div>
-                         <div class="absolute -left-3 top-3.5 w-1.5 h-1.5 rounded-full bg-primary-500 shadow-sm ring-2 ring-white"></div>
+                         <div class="absolute -left-4 top-5 w-4 h-px transition-colors duration-300" 
+                              :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-300' : 'bg-slate-200'"></div>
+                         <div class="absolute -left-[18px] top-[17px] w-2 h-2 rounded-full shadow-sm ring-2 ring-white transition-all duration-300"
+                              :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-500 scale-125' : (note.sourceType === 'ai' ? 'bg-purple-400' : 'bg-slate-300')"></div>
 
                          <!-- Note Bubble -->
-                         <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 group hover:shadow-md hover:border-primary-200 transition-all cursor-pointer"
-                              :class="{'ring-2 ring-primary-100': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !bg-purple-50/30': note.sourceType === 'ai'}"
+                         <div class="bg-white rounded-xl shadow-md border border-slate-100 p-0 group hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 cursor-pointer overflow-hidden"
+                              :class="{'ring-2 ring-primary-200': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !shadow-purple-100': note.sourceType === 'ai'}"
                               @click="scrollToHighlight(note.highlightId)"
                               @mouseenter="setHovered(note.id)"
                               @mouseleave="setHovered(null)">
-                            <div class="flex justify-between items-start mb-1">
-                                <div v-if="note.sourceType === 'ai'" class="text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100 flex items-center gap-1">
+                            
+                            <!-- Header -->
+                            <div class="flex justify-between items-center px-3 py-2 border-b border-slate-50"
+                                 :class="note.sourceType === 'ai' ? 'bg-purple-50/50' : 'bg-slate-50/50'">
+                                <div v-if="note.sourceType === 'ai'" class="text-[10px] font-bold text-purple-600 flex items-center gap-1">
                                     <el-icon><MagicStick /></el-icon> AI 助手
                                 </div>
-                                <div v-else class="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">笔记</div>
+                                <div v-else class="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                                    <div class="w-1.5 h-1.5 rounded-full" :class="note.color && note.color !== 'transparent' ? `bg-${note.color}-400` : 'bg-amber-400'"></div>
+                                    笔记
+                                </div>
                                 
                                 <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button class="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-primary-600" @click.stop="handleEditNote(note)">
+                                    <button class="p-1 hover:bg-white rounded text-slate-400 hover:text-primary-600 transition-colors shadow-sm" @click.stop="handleEditNote(note)">
                                         <el-icon :size="12"><Edit /></el-icon>
                                     </button>
-                                    <button class="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-red-500" @click.stop="handleDeleteNote(note.id)">
+                                    <button class="p-1 hover:bg-white rounded text-slate-400 hover:text-red-500 transition-colors shadow-sm" @click.stop="handleDeleteNote(note.id)">
                                         <el-icon :size="12"><Delete /></el-icon>
                                     </button>
                                 </div>
                             </div>
-                            <div v-if="note.quote" class="text-xs text-slate-500 italic mb-2 line-clamp-2 border-l-2 border-slate-200 pl-2">
-                                "{{ note.quote }}"
-                            </div>
-                            <div v-if="editingNoteId === note.id" class="mt-2" @click.stop>
-                                <el-input 
-                                    v-model="editingContent" 
-                                    type="textarea" 
-                                    :rows="3" 
-                                    resize="none"
-                                    class="mb-2"
-                                    placeholder="输入笔记内容..."
-                                />
-                                <div class="flex justify-end gap-2">
-                                    <el-button size="small" @click.stop="cancelEditing">取消</el-button>
-                                    <el-button size="small" type="primary" @click.stop="saveEditing(note)">保存</el-button>
+
+                            <!-- Content -->
+                            <div class="p-3">
+                                <div v-if="note.quote" class="text-xs text-slate-400 italic mb-2 line-clamp-2 pl-2 border-l-2" :class="note.sourceType === 'ai' ? 'border-purple-200' : 'border-slate-200'">
+                                    "{{ note.quote }}"
                                 </div>
-                            </div>
-                            <template v-else>
-                                <!-- Content with auto-collapse -->
-                                <div class="relative group/content transition-all duration-300"
-                                     :class="{'max-h-[120px] overflow-hidden': shouldCollapse(note) && !isAccordionMode, 'max-h-[52px] overflow-hidden': shouldCollapse(note) && isAccordionMode}">
-                                    <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap" v-html="formatNoteContent(note.content)"></div>
-                                    
-                                    <!-- Gradient Mask -->
-                                    <div v-if="shouldCollapse(note)" 
-                                         class="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none flex items-end justify-center pb-1">
+                                <div v-if="editingNoteId === note.id" class="mt-2" @click.stop>
+                                    <el-input 
+                                        v-model="editingContent" 
+                                        type="textarea" 
+                                        :rows="3" 
+                                        resize="none"
+                                        class="mb-2 !text-xs"
+                                        placeholder="输入笔记内容..."
+                                        ref="editInputRef"
+                                    />
+                                    <div class="flex justify-end gap-2 mt-2">
+                                        <el-button size="small" text bg @click.stop="cancelEditing">取消</el-button>
+                                        <el-button size="small" type="primary" round @click.stop="saveEditing(note)">保存修改</el-button>
                                     </div>
                                 </div>
-
-                                <!-- Expand/Collapse Action -->
-                                <div v-if="shouldCollapse(note) || expandedNoteIds.includes(note.id)" class="mt-1 flex justify-center">
-                                    <el-button link type="primary" size="small" @click.stop="toggleExpand(note.id)" class="!text-xs font-bold group-hover:underline">
-                                        {{ expandedNoteIds.includes(note.id) ? '收起' : '展开' }} <el-icon class="ml-1"><ArrowDown v-if="!expandedNoteIds.includes(note.id)" /><ArrowUp v-else /></el-icon>
-                                    </el-button>
-                                </div>
-
-                                <div class="mt-2 flex items-center justify-between">
-                                    <div class="flex items-center gap-1 text-[10px] text-slate-400">
-                                        <el-icon><Timer /></el-icon>
-                                        <span>{{ dayjs(note.createdAt).fromNow() }}</span>
+                                <template v-else>
+                                    <!-- Content with auto-collapse -->
+                                    <div class="relative group/content transition-all duration-300"
+                                         :class="{'max-h-[120px] overflow-hidden': shouldCollapse(note) && !isAccordionMode, 'max-h-[60px] overflow-hidden': shouldCollapse(note) && isAccordionMode}">
+                                        <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap" v-html="formatNoteContent(note.content)"></div>
+                                        
+                                        <!-- Gradient Mask -->
+                                        <div v-if="shouldCollapse(note)" 
+                                             class="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent pointer-events-none">
+                                        </div>
                                     </div>
-                                    <el-tag v-if="note.sourceType === 'ai'" size="small" type="success" effect="plain" round class="!h-5 !text-[10px] !px-1.5 border-none bg-green-50 text-green-600">
-                                        AI 生成
-                                    </el-tag>
-                                </div>
-                            </template>
+
+                                    <!-- Expand/Collapse Action -->
+                                    <div v-if="shouldCollapse(note) || expandedNoteIds.includes(note.id)" class="mt-2 flex justify-center">
+                                        <button @click.stop="toggleExpand(note.id)" class="text-[10px] font-bold text-slate-400 hover:text-primary-600 flex items-center gap-1 transition-colors bg-slate-50 hover:bg-primary-50 px-2 py-0.5 rounded-full">
+                                            {{ expandedNoteIds.includes(note.id) ? '收起' : '展开' }} <el-icon><ArrowDown v-if="!expandedNoteIds.includes(note.id)" /><ArrowUp v-else /></el-icon>
+                                        </button>
+                                    </div>
+
+                                    <div class="mt-3 pt-2 border-t border-slate-50 flex items-center justify-between text-[10px] text-slate-300">
+                                        <div class="flex items-center gap-1">
+                                            <el-icon><Timer /></el-icon>
+                                            <span>{{ dayjs(note.createdAt).fromNow() }}</span>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
                          </div>
                     </div>
                 </transition-group>

@@ -21,7 +21,14 @@ class AIService:
         # Configure API Key via environment variable
         self.api_key = os.getenv("AI_API_KEY")
         self.api_base = os.getenv("AI_API_BASE", "https://api-inference.modelscope.cn/v1")
-        self.model = os.getenv("AI_MODEL", "Qwen/Qwen2.5-72B-Instruct")
+        
+        # Hybrid Model Strategy
+        # Smart Model: For complex reasoning, creative writing, and detailed explanations.
+        self.model_smart = os.getenv("AI_MODEL", "Qwen/Qwen2.5-72B-Instruct")
+        
+        # Fast Model: For summarization, classification, and simple tasks.
+        # Default to a smaller, faster model if not specified.
+        self.model_fast = os.getenv("AI_MODEL_FAST", "Qwen/Qwen2.5-7B-Instruct")
         
         self.client = AsyncOpenAI(
             base_url=self.api_base,
@@ -132,9 +139,10 @@ class AIService:
         
         return clean_text
 
-    async def _call_llm(self, prompt: str, system_prompt: str = "You are a helpful assistant.") -> str:
+    async def _call_llm(self, prompt: str, system_prompt: str = "You are a helpful assistant.", use_fast_model: bool = False) -> str:
         """
         Generic function to call LLM using OpenAI client.
+        Supports Model Routing (Smart vs Fast).
         """
         if not self.api_key:
             return None # Signal to use mock fallback
@@ -144,8 +152,11 @@ class AIService:
                 "enable_thinking": True
             }
             
+            # Select Model
+            model_id = self.model_fast if use_fast_model else self.model_smart
+            
             response = await self.client.chat.completions.create(
-                model=self.model,
+                model=model_id,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
@@ -168,7 +179,7 @@ class AIService:
                     if delta.content:
                         full_content += delta.content
             
-            logger.info("AI Response Complete")
+            logger.info(f"AI Response Complete (Model: {model_id})")
             return full_content
         except Exception as e:
             logger.error(f"AI API Call Error: {e}")
@@ -406,7 +417,7 @@ class AIService:
             {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{node_name} - 子节点 2", "node_level": new_level, "node_content": "", "node_type": "custom"}
         ]
 
-    async def _stream_llm(self, prompt: str, system_prompt: str = "You are a helpful assistant."):
+    async def _stream_llm(self, prompt: str, system_prompt: str = "You are a helpful assistant.", use_fast_model: bool = False):
         """
         Generator function to stream LLM response chunks.
         """
@@ -418,9 +429,12 @@ class AIService:
             extra_body = {
                 "enable_thinking": True
             }
+            
+            # Select Model
+            model_id = self.model_fast if use_fast_model else self.model_smart
 
             response = await self.client.chat.completions.create(
-                model=self.model,
+                model=model_id,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
@@ -624,7 +638,8 @@ class AIService:
                 from memory import memory_controller
                 
                 # 1. Optimize History (Context Compression)
-                optimized_history = memory_controller.optimize_history(history)
+                # Pass the summarizer method from this instance to avoid circular dependency
+                optimized_history = await memory_controller.optimize_history(history, self.summarize_history)
                 
                 # 2. Build Dual Memory Prompt
                 system_prompt = memory_controller.build_tutor_prompt(course_id, node_id, question, optimized_history)
@@ -803,10 +818,34 @@ DO NOT wrap the JSON in markdown code blocks.
         
         prompt = f"课程背景：\n{course_context}\n\n对话历史：\n{history_text}\n\n请生成总结笔记："
         
-        response = await self._call_llm(prompt, system_prompt)
+        # Use Fast Model for summarization
+        response = await self._call_llm(prompt, system_prompt, use_fast_model=True)
         if response:
             return self._extract_json(response) or {"title": "对话总结", "content": response}
         return {"title": "总结失败", "content": "无法生成总结。"}
+
+    async def summarize_history(self, history: List[Dict]) -> str:
+        """
+        Summarizes conversation history using LLM.
+        """
+        system_prompt = """
+You are a Conversation Summarizer.
+Your task is to condense the provided conversation history into a concise summary that preserves key context, user intent, and important details.
+The summary will be used as "Long-term Memory" for an AI assistant.
+
+Requirements:
+1. Identify the main topic(s) discussed.
+2. Preserve any specific user questions and the core of the answers.
+3. Keep it dense and information-rich (avoid fluff).
+4. Use third-person perspective (e.g., "User asked about X, AI explained Y").
+"""
+        history_text = "\n".join([f"{msg.get('role', 'unknown')}: {msg.get('content', '')}" for msg in history])
+        
+        prompt = f"Please summarize the following conversation:\n\n{history_text}"
+        
+        # Use Fast Model for summarization
+        response = await self._call_llm(prompt, system_prompt, use_fast_model=True)
+        return response if response else "Previous conversation summary (auto-generated failed)."
 
     def locate_node(self, keyword: str, all_nodes: List[Dict]) -> Dict:
         # Simple mock search - Semantic search requires embedding, sticking to keyword match for now
