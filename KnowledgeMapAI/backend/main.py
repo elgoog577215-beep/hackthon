@@ -13,7 +13,7 @@ try:
     Node, Annotation, GenerateCourseRequest, GenerateSubNodesRequest,
     RedefineContentRequest, ExtendContentRequest, AskQuestionRequest,
     UpdateAnnotationRequest, GenerateQuizRequest, LocateNodeRequest,
-    AddNodeRequest, SaveAnnotationRequest, UpdateNodeRequest
+    AddNodeRequest, SaveAnnotationRequest, UpdateNodeRequest, SummarizeChatRequest
 )
     from storage import storage
     from ai_service import ai_service
@@ -230,7 +230,15 @@ async def extend_node_content(course_id: str, node_id: str, req: ExtendContentRe
 @app.post("/ask")
 def ask_question(req: AskQuestionRequest):
     return StreamingResponse(
-        ai_service.answer_question_stream(req.question, req.node_content, req.history, req.selection, req.user_persona),
+        ai_service.answer_question_stream(
+            req.question, 
+            req.node_content, 
+            req.history, 
+            req.selection, 
+            req.user_persona,
+            req.course_id,
+            req.node_id
+        ),
         media_type="text/plain"
     )
 
@@ -282,6 +290,14 @@ def locate_node(course_id: str, req: LocateNodeRequest):
          return {}
     return ai_service.locate_node(req.keyword, tree_data["nodes"])
 
+@app.post("/generate_quiz")
+async def generate_quiz(req: GenerateQuizRequest):
+    return await ai_service.generate_quiz(req.node_content, req.difficulty, req.style, req.user_persona)
+
+@app.post("/summarize_chat")
+async def summarize_chat(req: SummarizeChatRequest):
+    return await ai_service.summarize_chat(req.history, req.course_context, req.user_persona)
+
 @app.delete("/courses/{course_id}/nodes/{node_id}")
 def delete_node(course_id: str, node_id: str):
     tree_data = storage.load_course(course_id)
@@ -316,6 +332,10 @@ def update_node(course_id: str, node_id: str, node_update: UpdateNodeRequest):
                     node["node_name"] = node_update.node_name
                 if node_update.node_content is not None:
                     node["node_content"] = node_update.node_content
+                if node_update.is_read is not None:
+                    node["is_read"] = node_update.is_read
+                if node_update.quiz_score is not None:
+                    node["quiz_score"] = node_update.quiz_score
                 storage.save_course(course_id, tree_data)
                 return node
     raise HTTPException(status_code=404, detail="Node not found")

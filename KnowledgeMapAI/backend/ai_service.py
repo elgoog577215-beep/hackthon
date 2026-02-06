@@ -33,6 +33,8 @@ class AIService:
         Robust JSON extraction from LLM response.
         Handles Markdown blocks, plain text, and potential noise.
         """
+        logger.info(f"Raw AI Response for JSON extraction: {text[:200]}...")
+
         try:
             # First try direct parsing
             return json.loads(text)
@@ -40,15 +42,17 @@ class AIService:
             pass
 
         # Try to find JSON block in markdown
-        json_match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
+        # Relaxed regex to capture content between ```json and ```
+        json_match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
         if json_match:
             try:
                 return json.loads(json_match.group(1))
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                logger.warning(f"Markdown JSON decode error: {e}")
                 pass
 
         # Try to find any code block
-        code_match = re.search(r'```\s*(\{.*?\})\s*```', text, re.DOTALL)
+        code_match = re.search(r'```\s*(.*?)\s*```', text, re.DOTALL)
         if code_match:
             try:
                 return json.loads(code_match.group(1))
@@ -62,10 +66,11 @@ class AIService:
             if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
                 json_str = text[start_idx:end_idx+1]
                 return json.loads(json_str)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            logger.warning(f"Substring JSON decode error: {e}")
             pass
 
-        logger.warning(f"Failed to extract JSON from: {text[:100]}...")
+        logger.warning(f"Failed to extract JSON from: {text[:500]}...")
         return None
 
     def _clean_mermaid_syntax(self, text: str) -> str:
@@ -135,18 +140,30 @@ class AIService:
             return None # Signal to use mock fallback
         
         try:
+            extra_body = {
+                "enable_thinking": True
+            }
+            
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                stream=True, 
+                stream=True,
+                extra_body=extra_body
             )
             
             full_content = ""
             async for chunk in response:
                 if chunk.choices:
+                    # Handle reasoning content if available (for logging/debugging)
+                    if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+                        reasoning = chunk.choices[0].delta.reasoning_content
+                        if reasoning:
+                            # We can log thinking process or just ignore it for now
+                            pass
+                            
                     delta = chunk.choices[0].delta
                     if delta.content:
                         full_content += delta.content
@@ -398,17 +415,29 @@ class AIService:
             return
 
         try:
+            extra_body = {
+                "enable_thinking": True
+            }
+
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                stream=True
+                stream=True,
+                extra_body=extra_body
             )
             
             async for chunk in response:
                 if chunk.choices:
+                    # Handle reasoning content if available (for logging/debugging)
+                    if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+                        reasoning = chunk.choices[0].delta.reasoning_content
+                        if reasoning:
+                             # We can log thinking process or just ignore it for now
+                             pass
+                    
                     delta = chunk.choices[0].delta
                     if delta.content:
                         yield delta.content
@@ -581,12 +610,42 @@ class AIService:
 
         return f"拓展知识点：\n关于 {node_name} 的延伸阅读... {requirement}"
 
-    async def answer_question_stream(self, question: str, context: str, history: List[dict] = [], selection: str = "", user_persona: str = ""):
+    async def answer_question_stream(self, question: str, context: str, history: List[dict] = [], selection: str = "", user_persona: str = "", course_id: str = None, node_id: str = None):
         """
         Stream answer with metadata appended at the end.
         Structure: [Answer Content] \n\n---METADATA---\n [JSON Metadata]
         """
-        system_prompt = f"""
+        system_prompt = ""
+        
+        # Try to use Dual Memory System if context is available
+        if course_id and node_id:
+            try:
+                # Local import to avoid circular dependency if any
+                from memory import memory_controller
+                system_prompt = memory_controller.build_tutor_prompt(course_id, node_id, question, history)
+                
+                # Append the metadata instruction which is critical for frontend parsing
+                # We inject the current node_id as default if AI doesn't find a better one
+                system_prompt += f"""
+
+=== METADATA OUTPUT RULE (MANDATORY) ===
+You MUST output the metadata at the very end of your response.
+
+**Format**:
+[Your Answer Content Here]
+
+---METADATA---
+{{"node_id": "{node_id}", "quote": "quote from text if any", "anno_summary": "short summary"}}
+
+DO NOT wrap the JSON in markdown code blocks.
+"""
+            except Exception as e:
+                logger.error(f"Dual Memory Error: {e}")
+                # Fallback will be handled below
+        
+        if not system_prompt:
+            # Fallback / Standard Prompt
+            system_prompt = f"""
 你是学术助手，请根据提供的课程内容、对话历史和选中的文本回答用户的问题。
 
 **用户画像（个性化设定）**：
@@ -596,6 +655,12 @@ class AIService:
 **核心任务**：
 1. **回答问题**：直接、专业、简洁地回答用户问题。
 2. **定位上下文**：识别答案关联的课程章节或原文。
+
+**教师模式（TEACHER MODE）**：
+请像一位真实的老师一样：
+1. **定位原文**：尽量在提供的课程内容中找到能够支持你回答的原句。
+2. **划线高亮**：将找到的原句放入 metadata 的 `quote` 字段中。前端界面会自动高亮显示这句话，就像老师在课本上划线一样。
+3. **总结笔记**：在 `anno_summary` 中生成一个简短的笔记标题。
 
 **输出格式规范（严格执行）**：
 为了支持流式输出和后续处理，输出必须分为两部分，用 `---METADATA---` 分隔。
@@ -610,7 +675,7 @@ class AIService:
 - 正文结束后，**另起一行**输出分隔符：`---METADATA---`
 - 紧接着输出一个标准的 JSON 对象（不要用 markdown 代码块包裹），包含：
   - `node_id`: (string) 答案主要参考的章节ID。如果无法确定，返回 null。
-  - `quote`: (string) 答案引用的原文片段。如果没有引用，返回 null。
+  - `quote`: (string) 答案引用的原文片段（必须是原文中存在的句子）。如果没有引用，返回 null。
   - `anno_summary`: (string) 5-10个字的简短摘要，用于生成笔记标题。
 
 **示例**：
@@ -620,6 +685,7 @@ class AIService:
 ---METADATA---
 {{"node_id": "uuid-123", "quote": "递归是...", "anno_summary": "递归的概念"}}
 """
+
         # Build prompt
         history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history[-5:]])
         
@@ -664,6 +730,75 @@ class AIService:
                 "anno_summary": "AI 回答"
             }
         return {"answer": "抱歉，无法回答。", "quote": "", "anno_summary": "错误"}
+
+    async def generate_quiz(self, node_content: str, difficulty: str = "medium", style: str = "standard", user_persona: str = "") -> List[Dict]:
+        system_prompt = f"""
+你是一位专业的考试出题专家。请根据提供的课程内容，生成 3 道单项选择题。
+
+**用户画像**：
+{user_persona if user_persona else "通用学习者"}
+请根据用户画像调整题目的情境、用词和难度适配度。
+
+**难度要求**：{difficulty} (easy: 基础概念; medium: 理解应用; hard: 综合分析)
+**风格要求**：{style} (standard: 标准学术; practical: 结合实际场景; creative: 趣味性/脑筋急转弯)
+
+**输出格式**：
+直接输出一个标准的 JSON 数组，**严禁**使用 markdown 代码块包裹。
+每个对象包含：
+- `question`: (string) 题干
+- `options`: (list of strings) 4个选项 [A, B, C, D]
+- `answer`: (string) 正确选项的内容（必须完全匹配 options 中的某一项）
+- `explanation`: (string) 解析（解释为什么选这个，以及其他选项为什么错）
+
+**示例**：
+[
+  {{
+    "question": "Python中列表是可变的吗？",
+    "options": ["是的", "不是", "只有部分可变", "看情况"],
+    "answer": "是的",
+    "explanation": "列表(List)是Python中的可变序列..."
+  }}
+]
+"""
+        prompt = f"课程内容片段：\n{node_content[:2000]}\n\n请出题："
+        
+        response = await self._call_llm(prompt, system_prompt)
+        if response:
+            return self._extract_json(response) or []
+        return []
+
+    async def summarize_chat(self, history: List[dict], course_context: str = "", user_persona: str = "") -> Dict:
+        system_prompt = f"""
+你是一位专业的学习笔记整理员。请根据用户的对话历史，总结出一份结构清晰的学习笔记。
+
+**用户画像**：
+{user_persona if user_persona else "通用学习者"}
+请根据用户的背景和偏好，调整笔记的语言风格（如：通俗易懂 vs 专业严谨）。
+
+**要求**：
+1. **标题**：提炼对话的核心主题（10字以内）。
+2. **内容**：
+   - 梳理核心知识点。
+   - 记录重要的问答对（Q&A）。
+   - 标记用户的疑惑点和最终解答。
+3. **格式**：Markdown 格式。
+
+**输出格式**：
+直接输出一个 JSON 对象（不要 markdown 代码块）：
+{{
+  "title": "笔记标题",
+  "content": "Markdown 内容..."
+}}
+"""
+        # Convert history to text
+        history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+        
+        prompt = f"课程背景：\n{course_context}\n\n对话历史：\n{history_text}\n\n请生成总结笔记："
+        
+        response = await self._call_llm(prompt, system_prompt)
+        if response:
+            return self._extract_json(response) or {"title": "对话总结", "content": response}
+        return {"title": "总结失败", "content": "无法生成总结。"}
 
     def locate_node(self, keyword: str, all_nodes: List[Dict]) -> Dict:
         # Simple mock search - Semantic search requires embedding, sticking to keyword match for now

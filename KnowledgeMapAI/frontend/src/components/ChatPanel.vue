@@ -19,6 +19,9 @@
             <button class="glass-icon-btn p-2 rounded-lg hover:bg-white/50 text-slate-500 hover:text-primary-600 transition-colors" @click="personaDialogVisible = true" title="设置画像">
                 <el-icon :size="18"><Setting /></el-icon>
             </button>
+            <button v-if="courseStore.chatHistory.length > 0" class="glass-icon-btn p-2 rounded-lg hover:bg-white/50 text-slate-500 hover:text-primary-600 transition-colors" @click="handleSummarize" title="一键总结">
+                <el-icon :size="18"><Collection /></el-icon>
+            </button>
             <button v-if="courseStore.chatHistory.length > 0" class="glass-icon-btn p-2 rounded-lg hover:bg-red-50 text-slate-500 hover:text-red-500 transition-colors" @click="courseStore.clearChat()" title="清空对话">
                 <el-icon :size="18"><Delete /></el-icon>
             </button>
@@ -52,6 +55,36 @@
         <template #footer>
             <div class="dialog-footer">
                 <button class="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-medium shadow-lg shadow-primary-500/30 transition-all active:scale-95" @click="personaDialogVisible = false">保存设定</button>
+            </div>
+        </template>
+    </el-dialog>
+    
+    <!-- Summary Preview Dialog -->
+    <el-dialog
+        v-model="summaryDialogVisible"
+        title="对话总结预览"
+        width="600px"
+        append-to-body
+        class="glass-dialog"
+        align-center
+    >
+        <div class="flex flex-col gap-4">
+            <el-input v-model="summaryTitle" placeholder="标题" class="font-bold" />
+            <div class="glass-input-wrapper">
+                <el-input
+                    v-model="summaryContent"
+                    type="textarea"
+                    :rows="12"
+                    placeholder="总结内容..."
+                    resize="none"
+                    class="glass-textarea custom-scrollbar"
+                />
+            </div>
+        </div>
+        <template #footer>
+            <div class="dialog-footer flex justify-end gap-2">
+                <button class="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors" @click="summaryDialogVisible = false">取消</button>
+                <button class="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-medium shadow-lg shadow-primary-500/30 transition-all active:scale-95" @click="saveSummary">保存笔记</button>
             </div>
         </template>
     </el-dialog>
@@ -106,14 +139,26 @@
                                 </div>
                                 <span>AI Analysis</span>
                             </div>
-                            <button 
-                                class="flex items-center gap-1 text-slate-400 hover:text-primary-600 transition-colors px-2 py-1 rounded hover:bg-primary-50"
-                                @click="handleSaveAsNote(msg.content.core_answer || msg.content.answer, 'ai')"
-                                title="保存为笔记"
-                            >
-                                <el-icon><DocumentAdd /></el-icon>
-                                <span class="scale-90">保存</span>
-                            </button>
+                            <div class="flex items-center gap-1">
+                                <!-- Locate Context Button -->
+                                <button 
+                                    v-if="msg.content.node_id || msg.content.anno_id"
+                                    class="flex items-center gap-1 text-slate-400 hover:text-primary-600 transition-colors px-2 py-1 rounded hover:bg-primary-50"
+                                    @click="msg.content.anno_id ? courseStore.scrollToNote(msg.content.anno_id) : courseStore.scrollToNode(msg.content.node_id)"
+                                    title="定位到原文"
+                                >
+                                    <el-icon><Location /></el-icon>
+                                    <span class="scale-90">原文</span>
+                                </button>
+                                <button 
+                                    class="flex items-center gap-1 text-slate-400 hover:text-primary-600 transition-colors px-2 py-1 rounded hover:bg-primary-50"
+                                    @click="handleSaveAsNote(msg.content.core_answer || msg.content.answer, 'ai')"
+                                    title="保存为笔记"
+                                >
+                                    <el-icon><DocumentAdd /></el-icon>
+                                    <span class="scale-90">保存</span>
+                                </button>
+                            </div>
                         </div>
                         <div v-if="msg.content.answer" class="prose prose-sm prose-slate mb-3 leading-relaxed">
                             <div v-html="renderMarkdown(msg.content.answer)"></div>
@@ -161,7 +206,16 @@
                                 </div>
                                 
                                 <!-- Actions -->
-                                <div class="flex gap-2 mt-3">
+                                <div class="flex gap-2 mt-3 flex-wrap">
+                                    <button 
+                                        v-if="msg.content.quiz.node_id"
+                                        class="flex items-center gap-2 text-xs font-bold text-primary-600 bg-primary-50 hover:bg-primary-100 px-3 py-2 rounded-lg transition-colors border border-primary-200"
+                                        @click="courseStore.scrollToNode(msg.content.quiz.node_id)"
+                                    >
+                                        <el-icon><Reading /></el-icon>
+                                        <span>回顾知识点</span>
+                                    </button>
+
                                     <button 
                                         v-if="getQuizState(idx).selected !== msg.content.quiz.correct_index"
                                         class="flex items-center gap-2 text-xs font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 px-3 py-2 rounded-lg transition-colors border border-amber-200"
@@ -227,9 +281,9 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
-import { ChatDotRound, Position, Loading, MagicStick, Setting, Delete, QuestionFilled, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight } from '@element-plus/icons-vue'
+import { ChatDotRound, Position, Loading, MagicStick, Setting, Delete, QuestionFilled, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading } from '@element-plus/icons-vue'
 import MarkdownIt from 'markdown-it'
-import mk from 'markdown-it-katex'
+import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import DOMPurify from 'dompurify'
 import { ElMessage } from 'element-plus'
@@ -241,6 +295,38 @@ const inputMessage = ref('')
 const chatContainer = ref<HTMLElement | null>(null)
 const personaDialogVisible = ref(false)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
+
+// Summary Dialog State
+const summaryDialogVisible = ref(false)
+const summaryTitle = ref('')
+const summaryContent = ref('')
+
+const handleSummarize = async () => {
+    const summary = await courseStore.summarizeChat()
+    if (summary) {
+        summaryTitle.value = summary.title || '对话总结'
+        summaryContent.value = summary.content || ''
+        summaryDialogVisible.value = true
+    }
+}
+
+const saveSummary = async () => {
+    if (!summaryContent.value.trim()) return
+    
+    await courseStore.createNote({
+        id: `note-${Date.now()}`,
+        nodeId: courseStore.currentNode?.node_id || courseStore.nodes[0]?.node_id || 'root',
+        highlightId: '',
+        quote: '',
+        content: `**${summaryTitle.value}**\n\n${summaryContent.value}`,
+        color: 'purple',
+        createdAt: Date.now(),
+        sourceType: 'ai'
+    })
+    
+    ElMessage.success('对话总结已保存')
+    summaryDialogVisible.value = false
+}
 
 // Helper to get option label (A, B, C...)
 const getOptionLabel = (index: number) => String.fromCharCode(65 + index)
@@ -359,6 +445,116 @@ const handleSaveAsNote = async (content: string, type: string = 'text', nodeId?:
     }
 }
 
+const customMathPlugin = (md: MarkdownIt) => {
+    // Inline math $...$
+    md.inline.ruler.before('escape', 'math_inline', (state, silent) => {
+        if (state.src[state.pos] !== '$') return false
+        if (state.src.slice(state.pos, state.pos + 2) === '$$') return false
+        
+        const start = state.pos + 1
+        let match = start
+        let pos = start
+        
+        // Find closing $
+        while ((match = state.src.indexOf('$', pos)) !== -1) {
+            // Check for escaped \$
+            if (state.src[match - 1] === '\\') {
+                pos = match + 1
+                continue
+            }
+            break
+        }
+        
+        if (match === -1) return false
+        if (match - start === 0) return false // Empty $$
+        
+        if (!silent) {
+            const token = state.push('math_inline', 'math', 0)
+            token.markup = '$'
+            token.content = state.src.slice(start, match)
+        }
+        
+        state.pos = match + 1
+        return true
+    })
+
+    // Block math $$...$$
+    md.block.ruler.after('blockquote', 'math_block', (state, startLine, endLine, silent) => {
+        const startPos = state.bMarks[startLine] + state.tShift[startLine]
+        const max = state.eMarks[startLine]
+        
+        if (state.src.slice(startPos, startPos + 2) !== '$$') return false
+        
+        let pos = startPos + 2
+        let content = ''
+        let found = false
+        let nextLine = startLine
+        
+        // Check if closing $$ is on the same line
+        if (state.src.indexOf('$$', pos) !== -1) {
+            const end = state.src.indexOf('$$', pos)
+            content = state.src.slice(pos, end)
+            nextLine = startLine + 1
+            found = true
+        } else {
+            // Multiline block
+            content = state.src.slice(pos)
+            nextLine++
+            
+            while (nextLine < endLine) {
+                const lineStart = state.bMarks[nextLine] + state.tShift[nextLine]
+                const lineEnd = state.eMarks[nextLine]
+                const lineText = state.src.slice(lineStart, lineEnd)
+                
+                if (lineText.trim().endsWith('$$')) {
+                    content += '\n' + lineText.trim().slice(0, -2)
+                    found = true
+                    nextLine++
+                    break
+                }
+                
+                content += '\n' + lineText
+                nextLine++
+            }
+        }
+        
+        if (!found) return false
+        if (silent) return true
+        
+        const token = state.push('math_block', 'math', 0)
+        token.block = true
+        token.content = content
+        token.map = [startLine, nextLine]
+        token.markup = '$$'
+        
+        state.line = nextLine
+        return true
+    })
+
+    // Renderers
+    md.renderer.rules.math_inline = (tokens, idx) => {
+        try {
+            return katex.renderToString(tokens[idx].content, { 
+                throwOnError: false, 
+                displayMode: false 
+            })
+        } catch (e) {
+            return tokens[idx].content
+        }
+    }
+
+    md.renderer.rules.math_block = (tokens, idx) => {
+        try {
+            return '<div class="katex-display">' + katex.renderToString(tokens[idx].content, { 
+                throwOnError: false, 
+                displayMode: true 
+            }) + '</div>'
+        } catch (e) {
+            return '<pre>' + tokens[idx].content + '</pre>'
+        }
+    }
+}
+
 // Markdown Setup
 const md = new MarkdownIt({
     html: true,
@@ -374,7 +570,7 @@ const md = new MarkdownIt({
         }
         return '<pre class="hljs p-4 rounded-lg bg-[#282c34] text-sm overflow-x-auto"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
     }
-}).use(mk)
+}).use(customMathPlugin)
 
 // Custom fence renderer for Copy Button
 md.renderer.rules.fence = function (tokens, idx, options, env, self) {
@@ -469,10 +665,25 @@ const renderMarkdown = (content: string) => {
         .replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$')
         // Fix \( ... \) inline formulas to $ ... $
         .replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$')
+        // Fix LLM generating spaces in function calls like f' (x) -> f'(x)
+        .replace(/(\w+)'\s+\((.+?)\)/g, "$1'($2)")
+        .replace(/(\w+)\s+'/g, "$1'")
+        // Fix trailing dollar signs in block math
+        .replace(/(\$\$[\s\S]*?)[^$]\$$/gm, "$1$$")
+        // Standardize mixed math blocks
+        .replace(/(\$\$[\s\S]*?\$\$)|(\$\s+(.+?)\\s+\$)/g, (match, block, inline, content) => {
+            if (block) return block
+            if (inline) return `$${content}$`
+            return match
+        })
     
     try {
         const rawHtml = md.render(fixedContent)
-        return DOMPurify.sanitize(rawHtml)
+        // Allow katex classes and styles
+        return DOMPurify.sanitize(rawHtml, {
+            ADD_TAGS: ['span', 'div'],
+            ADD_ATTR: ['class', 'style']
+        })
     } catch (e) {
         console.warn('Markdown render error:', e)
         return content
