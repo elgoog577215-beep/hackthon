@@ -25,6 +25,9 @@ class Annotation(BaseModel):
 
 class GenerateCourseRequest(BaseModel):
     keyword: str
+    difficulty: Optional[str] = "medium"
+    style: Optional[str] = "academic"
+    requirements: Optional[str] = ""
 
 class GenerateSubNodesRequest(BaseModel):
     node_id: str

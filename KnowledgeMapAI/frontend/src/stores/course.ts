@@ -423,7 +423,7 @@ export const useCourseStore = defineStore('course', {
         ElMessage.info('生成已暂停')
     },
 
-    async startSmartGeneration(keyword: string) {
+    async startSmartGeneration(keyword: string, options: { difficulty?: string, style?: string, requirements?: string } = {}) {
         this.loading = true
         this.isGenerating = true
         this.generationStatus = 'generating'
@@ -434,7 +434,7 @@ export const useCourseStore = defineStore('course', {
         try {
             // Step 1: Generate Skeleton
             this.addLog(`🏗️ 正在构建课程大纲架构...`)
-        const res = await http.post(`/generate_course`, { keyword })
+        const res = await http.post(`/generate_course`, { keyword, ...options })
             if (res.data && res.data.nodes) {
                 const courseId = res.data.course_id
                 const courseName = res.data.course_name
@@ -599,8 +599,8 @@ export const useCourseStore = defineStore('course', {
         }
     },
 
-    async generateCourse(keyword: string) {
-      await this.startSmartGeneration(keyword)
+    async generateCourse(keyword: string, options: { difficulty?: string, style?: string, requirements?: string } = {}) {
+      await this.startSmartGeneration(keyword, options)
     },
 
     getLinearNodes(nodes?: Node[]): Node[] {

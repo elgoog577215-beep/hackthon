@@ -185,9 +185,14 @@ class AIService:
             logger.error(f"AI API Call Error: {e}")
             return None
 
-    async def generate_course(self, keyword: str) -> Dict:
-        system_prompt = """
+    async def generate_course(self, keyword: str, difficulty: str = "medium", style: str = "academic", requirements: str = "") -> Dict:
+        system_prompt = f"""
 你是一位资深学科专家和课程架构师，专注于为高等教育和职业发展设计严谨的学术课程体系。
+
+## 课程配置
+- 难度等级：{difficulty} (beginner/medium/advanced)
+- 教学风格：{style}
+- 额外要求：{requirements if requirements else "无"}
 
 ## 学术定位
 - 受众：大学本科生、研究生及专业技术人员
@@ -196,6 +201,7 @@ class AIService:
 
 ## 核心任务
 基于学科关键词，设计完整的课程架构，确保知识体系的系统性和完整性。
+请根据配置的难度和风格调整课程内容的深度和广度。
 
 ## 学术要求
 1. **结构层级**
@@ -206,19 +212,20 @@ class AIService:
 2. **内容规范**
    - 课程命名：采用学术著作或专业课程的标准命名方式
    - 章节逻辑：遵循"学科导论→理论基础→核心技术→应用实践→前沿发展"的学术演进路径
-   - 内容摘要：每章50字左右的学术性概述，突出核心概念和知识要点
+   - 内容摘要：每章50字左右的概述，突出核心概念和知识要点
+   - 风格适配：请确保章节名称和摘要内容符合设定的"{style}"风格。
 
 3. **输出格式**
    严格按照指定JSON格式输出，确保技术实现的准确性。
    推荐将 JSON 包裹在 markdown 代码块中（```json ... ```），以便于提取。
-{
+{{
 "course_name":"《关键词：原理与实践》",
 "nodes":[
-{"node_id":"id_1","parent_node_id":"root","node_name":"《计算机科学导论》","node_level":1,"node_content":"前言与课程综述","node_type":"original"},
-{"node_id":"id_2","parent_node_id":"id_1","node_name":"第一章 基础理论","node_level":2,"node_content":"本章阐述...","node_type":"original"},
-{"node_id":"id_3","parent_node_id":"id_1","node_name":"第二章 核心机制","node_level":2,"node_content":"本章深入分析...","node_type":"original"}
+{{"node_id":"id_1","parent_node_id":"root","node_name":"《计算机科学导论》","node_level":1,"node_content":"前言与课程综述","node_type":"original"}},
+{{"node_id":"id_2","parent_node_id":"id_1","node_name":"第一章 基础理论","node_level":2,"node_content":"本章阐述...","node_type":"original"}},
+{{"node_id":"id_3","parent_node_id":"id_1","node_name":"第二章 核心机制","node_level":2,"node_content":"本章深入分析...","node_type":"original"}}
 ]
-}
+}}
 """
         prompt = f"用户想要学习“{keyword}”，请生成一份专业且系统的课程大纲。"
         
