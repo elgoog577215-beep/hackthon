@@ -361,6 +361,48 @@
             </div>
         </div>
     </el-dialog>
+      <!-- Create Course Dialog -->
+      <el-dialog v-model="createDialogVisible" title="AI 智能生成课程" width="500px" class="glass-dialog" append-to-body>
+        <el-form :model="createForm" label-position="top">
+            <el-form-item label="课程主题">
+                <el-input v-model="createForm.keyword" placeholder="例如：量子力学基础、Python编程" size="large" />
+            </el-form-item>
+            <div class="grid grid-cols-2 gap-4">
+                <el-form-item label="难度等级">
+                    <el-select v-model="createForm.difficulty" size="large">
+                        <el-option label="入门 (Beginner)" value="beginner" />
+                        <el-option label="进阶 (Medium)" value="medium" />
+                        <el-option label="专家 (Advanced)" value="advanced" />
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="教学风格">
+                    <el-select v-model="createForm.style" size="large">
+                        <el-option label="学术严谨" value="academic" />
+                        <el-option label="通俗易懂" value="easy" />
+                        <el-option label="实战案例" value="practical" />
+                        <el-option label="幽默风趣" value="humorous" />
+                    </el-select>
+                </el-form-item>
+            </div>
+            <el-form-item label="额外要求">
+                <el-input 
+                    v-model="createForm.requirements" 
+                    type="textarea" 
+                    :rows="3" 
+                    placeholder="例如：侧重历史发展，或者多一些代码示例..." 
+                    resize="none"
+                />
+            </el-form-item>
+        </el-form>
+        <template #footer>
+            <span class="dialog-footer">
+                <el-button @click="createDialogVisible = false">取消</el-button>
+                <el-button type="primary" @click="handleCreateConfirm" :loading="courseStore.loading">
+                    <el-icon class="mr-1"><MagicStick /></el-icon> 开始生成
+                </el-button>
+            </span>
+        </template>
+      </el-dialog>
   </div>
 </template>
 
@@ -538,22 +580,41 @@ const handleDelete = (data: any) => {
     courseStore.deleteNode(data.node_id)
 }
 
+const createDialogVisible = ref(false)
+const createForm = reactive({
+    keyword: '',
+    difficulty: 'medium',
+    style: 'academic',
+    requirements: ''
+})
+
 const createNewCourse = () => {
-    ElMessageBox.prompt('请输入想要学习的课程主题（如：线性代数、Python编程）', 'AI 智能生成课程', {
-        confirmButtonText: '开始生成',
-        cancelButtonText: '取消',
-        inputPattern: /\S+/,
-        inputErrorMessage: '主题不能为空',
-        inputPlaceholder: '例如：量子力学基础',
-    }).then(async (data: any) => {
-        const { value } = data
-        // Trigger generation
-        await courseStore.generateCourse(value)
-        // Navigate to the new course route to persist state
-        if (courseStore.currentCourseId) {
-            router.push(`/course/${courseStore.currentCourseId}`)
-        }
-    }).catch(() => {})
+    // Reset form
+    createForm.keyword = ''
+    createForm.difficulty = 'medium'
+    createForm.style = 'academic'
+    createForm.requirements = ''
+    createDialogVisible.value = true
+}
+
+const handleCreateConfirm = async () => {
+    if (!createForm.keyword.trim()) {
+        ElMessage.warning('请输入课程主题')
+        return
+    }
+    createDialogVisible.value = false
+    
+    // Trigger generation with options
+    await courseStore.generateCourse(createForm.keyword, {
+        difficulty: createForm.difficulty,
+        style: createForm.style,
+        requirements: createForm.requirements
+    })
+    
+    // Navigate to the new course route to persist state
+    if (courseStore.currentCourseId) {
+        router.push(`/course/${courseStore.currentCourseId}`)
+    }
 }
 
 const handleCourseClick = async (courseId: string) => {

@@ -74,7 +74,12 @@ def delete_course(course_id: str):
 @app.post("/generate_course")
 async def generate_course(req: GenerateCourseRequest):
     # Generate new course content
-    data = await ai_service.generate_course(req.keyword)
+    data = await ai_service.generate_course(
+        req.keyword, 
+        difficulty=req.difficulty, 
+        style=req.style, 
+        requirements=req.requirements
+    )
     
     # Create new Course ID
     course_id = str(uuid.uuid4())
