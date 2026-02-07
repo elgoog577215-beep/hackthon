@@ -172,8 +172,8 @@ class AIService:
                     if hasattr(chunk.choices[0].delta, 'reasoning_content'):
                         reasoning = chunk.choices[0].delta.reasoning_content
                         if reasoning:
-                            # We can log thinking process or just ignore it for now
-                            pass
+                            # Log thinking process to console to match user expectation
+                            print(reasoning, end='', flush=True)
                             
                     delta = chunk.choices[0].delta
                     if delta.content:
