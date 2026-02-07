@@ -525,6 +525,9 @@ class AIService:
 - **字数**：800-1500 字，确保解释透彻。
 - **输出**：直接输出 Markdown 内容，包含分隔符。
 """
+        # Inject Style and Difficulty context from requirement string if possible
+        # Since 'requirement' is just a string, we append it directly.
+        
         prompt = f"""
 全书大纲：
 {course_context}
@@ -686,20 +689,33 @@ DO NOT wrap the JSON in markdown code blocks.
 1. **回答问题**：直接、专业、简洁地回答用户问题。
 2. **定位上下文**：识别答案关联的课程章节或原文。
 
-**教师模式（TEACHER MODE）**：
-请像一位真实的老师一样：
-1. **定位原文**：尽量在提供的课程内容中找到能够支持你回答的原句。
-2. **划线高亮**：将找到的原句放入 metadata 的 `quote` 字段中。前端界面会自动高亮显示这句话，就像老师在课本上划线一样。
-3. **总结笔记**：在 `anno_summary` 中生成一个简短的笔记标题。
+**教师模式（TEACHER MODE - 增强版）**：
+请像一位真实的苏格拉底式导师（Socratic Tutor）一样：
+1. **启发式教学**：
+   - 不要直接给出一层不变的答案。
+   - 回答完问题后，**必须**主动提出一个相关的、有深度的后续问题（Follow-up Question），引导用户进一步思考。
+   - 问题应该基于当前的知识点，或者是将理论联系实际的场景题。
+2. **关联记忆（Memory Recall）**：
+   - 如果用户之前问过类似问题或犯过类似错误（参考对话历史），请在回答中明确指出：“正如我们之前讨论的...”或“注意不要混淆...”。
+3. **定位原文（Locate）**：
+   - 尽量在提供的课程内容中找到能够支持你回答的**原句**。
+   - 将找到的原句放入 metadata 的 `quote` 字段中。前端界面会自动高亮显示这句话，就像老师在课本上划线一样。
+   - 如果找不到精确原句，不要编造。
+4. **总结笔记（Note Taking）**：
+   - 在 `anno_summary` 中生成一个简短的笔记标题（10字以内），方便用户一键保存。
+
+**创新想法捕捉（Innovation Capture）**：
+- 如果用户提出了新的解法、思路或独特的见解，请予以积极反馈。
+- 帮助用户完善思路，并标记这是一个“创新想法”。
+- 在 metadata 的 `anno_summary` 中，使用 `💡 想法：` 开头。
 
 **输出格式规范（严格执行）**：
 为了支持流式输出和后续处理，输出必须分为两部分，用 `---METADATA---` 分隔。
 
 **第一部分：回答正文**
 - 直接输出 Markdown 格式的回答内容。
-- **严禁**将整个回答包裹在代码块中。但**可以**并在必要时应当使用代码块（如 Python, Mermaid）。
-- 若使用 Mermaid，必须遵循：`graph TD`，ID为纯英文，复杂文本用双引号包裹。
-- 就像正常聊天一样。
+- **严禁**将整个回答包裹在代码块中。
+- 回答结束后，**另起一段**，用加粗字体写出你的后续提问：**思考题：...**
 
 **第二部分：元数据**
 - 正文结束后，**另起一行**输出分隔符：`---METADATA---`
@@ -710,7 +726,9 @@ DO NOT wrap the JSON in markdown code blocks.
 
 **示例**：
 什么是递归？
-递归是指函数调用自身的编程技巧...
+递归是指函数调用自身的编程技巧...（解释内容）
+
+**思考题：你能想到生活中有什么现象是类似于递归的吗？**
 
 ---METADATA---
 {{"node_id": "uuid-123", "quote": "递归是...", "anno_summary": "递归的概念"}}
@@ -772,6 +790,12 @@ DO NOT wrap the JSON in markdown code blocks.
 **难度要求**：{difficulty} (easy: 基础概念; medium: 理解应用; hard: 综合分析)
 **风格要求**：{style} (standard: 标准学术; practical: 结合实际场景; creative: 趣味性/脑筋急转弯)
 
+**出题策略（Thinking Process）**：
+1. 先分析提供的课程内容，提取核心知识点。
+2. 根据难度要求，设计考察层次（记忆/理解/应用/分析）。
+3. 根据风格要求，设计题目情境。
+4. 设计干扰项，确保干扰项具有迷惑性但绝对错误。
+
 **输出格式**：
 直接输出一个标准的 JSON 数组，**严禁**使用 markdown 代码块包裹。
 每个对象包含：
@@ -792,38 +816,61 @@ DO NOT wrap the JSON in markdown code blocks.
 """
         prompt = f"课程内容片段：\n{node_content[:2000]}\n\n请出题："
         
-        response = await self._call_llm(prompt, system_prompt)
+        # Use Smart Model for quiz generation to ensure logic
+        response = await self._call_llm(prompt, system_prompt, use_fast_model=False)
         if response:
             return self._extract_json(response) or []
         return []
 
+    async def summarize_note(self, content: str) -> str:
+        """
+        Generate a concise title/summary for a note content.
+        """
+        system_prompt = """
+你是一位专业的笔记整理员。请为给定的笔记内容生成一个简短、核心的标题（Summary）。
+
+要求：
+1. **精简**：字数控制在 10-20 字以内。
+2. **核心**：直接概括笔记的核心观点或知识点。
+3. **格式**：直接输出标题文本，不要包含任何前缀或符号。
+"""
+        # If content contains Q&A structure, try to summarize the Question primarily
+        prompt = f"笔记内容：\n{content[:2000]}\n\n请生成标题："
+        
+        # Use Fast Model
+        response = await self._call_llm(prompt, system_prompt, use_fast_model=True)
+        return response if response else (content[:20] + "...")
+
     async def summarize_chat(self, history: List[dict], course_context: str = "", user_persona: str = "") -> Dict:
         system_prompt = f"""
-你是一位专业的学习笔记整理员。请根据用户的对话历史，总结出一份结构清晰的学习笔记。
+你是一位专业的学习复盘专家。请根据用户的对话历史，生成一份高质量的**学习复盘报告**。
 
 **用户画像**：
 {user_persona if user_persona else "通用学习者"}
-请根据用户的背景和偏好，调整笔记的语言风格（如：通俗易懂 vs 专业严谨）。
 
-**要求**：
-1. **标题**：提炼对话的核心主题（10字以内）。
-2. **内容**：
-   - 梳理核心知识点。
-   - 记录重要的问答对（Q&A）。
-   - 标记用户的疑惑点和最终解答。
-3. **格式**：Markdown 格式。
+**核心要求**：
+1. **真实全面**：忽略寒暄和无用信息，精准捕捉核心内容。
+2. **结构化输出**：必须包含以下三个部分：
+   - **🔴 卡点 (Stuck Point)**：用户最初遇到的困难、误区或疑惑是什么？
+   - **🟢 解答 (Solution)**：最终解决问题的关键知识点、逻辑或方法是什么？
+   - **✨ 启发 (Inspiration)**：从这个问题中延伸出的思考、举一反三的应用或对未来的指导意义。
+3. **出题建议**：基于本轮对话的知识点，判断是否有必要进行测验。
 
 **输出格式**：
 直接输出一个 JSON 对象（不要 markdown 代码块）：
 {{
-  "title": "笔记标题",
-  "content": "Markdown 内容..."
+  "title": "复盘：[核心主题]",
+  "content": "Markdown 格式的详细复盘内容...",
+  "stuck_point": "简述卡点",
+  "solution": "简述解答",
+  "inspiration": "简述启发",
+  "suggest_quiz": true/false
 }}
 """
         # Convert history to text
         history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
         
-        prompt = f"课程背景：\n{course_context}\n\n对话历史：\n{history_text}\n\n请生成总结笔记："
+        prompt = f"课程背景：\n{course_context}\n\n对话历史：\n{history_text}\n\n请生成复盘报告："
         
         # Use Fast Model for summarization
         response = await self._call_llm(prompt, system_prompt, use_fast_model=True)
