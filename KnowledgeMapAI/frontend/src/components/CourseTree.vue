@@ -362,56 +362,167 @@
         </div>
     </el-dialog>
       <!-- Create Course Dialog -->
-      <el-dialog v-model="createDialogVisible" title="AI 智能生成课程" width="500px" class="glass-dialog" append-to-body>
-        <el-form :model="createForm" label-position="top">
-            <el-form-item label="课程主题">
-                <el-input v-model="createForm.keyword" placeholder="例如：量子力学基础、Python编程" size="large" />
-            </el-form-item>
-            <div class="grid grid-cols-2 gap-4">
-                <el-form-item label="难度等级">
-                    <el-select v-model="createForm.difficulty" size="large">
-                        <el-option label="入门 (Beginner)" value="beginner" />
-                        <el-option label="进阶 (Medium)" value="medium" />
-                        <el-option label="专家 (Advanced)" value="advanced" />
-                    </el-select>
-                </el-form-item>
-                <el-form-item label="教学风格">
-                    <el-select v-model="createForm.style" size="large">
-                        <el-option label="学术严谨" value="academic" />
-                        <el-option label="通俗易懂" value="easy" />
-                        <el-option label="实战案例" value="practical" />
-                        <el-option label="幽默风趣" value="humorous" />
-                    </el-select>
-                </el-form-item>
+      <el-dialog 
+        v-model="createDialogVisible" 
+        width="680px" 
+        class="glass-dialog !rounded-[2rem] !p-0 overflow-hidden shadow-2xl" 
+        :show-close="false"
+        append-to-body
+        align-center
+      >
+        <template #header="{ close, titleId, titleClass }">
+            <div class="px-8 py-6 border-b border-slate-100/80 flex justify-between items-center bg-white/80 backdrop-blur-xl relative z-10">
+                <div class="flex items-center gap-4">
+                    <div class="relative w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform duration-500">
+                        <div class="absolute inset-0 bg-white/20 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        <el-icon :size="24" class="drop-shadow-md"><MagicStick /></el-icon>
+                    </div>
+                    <div>
+                        <h4 class="text-xl font-bold text-slate-800 leading-tight font-display tracking-tight">AI 智能课程生成</h4>
+                        <p class="text-xs text-slate-500 font-medium mt-1 tracking-wide">基于深度学习模型构建个性化知识图谱</p>
+                    </div>
+                </div>
+                <button @click="createDialogVisible = false" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all duration-300">
+                    <el-icon :size="18"><Close /></el-icon>
+                </button>
             </div>
-            <el-form-item label="额外要求">
-                <el-input 
-                    v-model="createForm.requirements" 
-                    type="textarea" 
-                    :rows="3" 
-                    placeholder="例如：侧重历史发展，或者多一些代码示例..." 
-                    resize="none"
-                />
-            </el-form-item>
-        </el-form>
-        <template #footer>
-            <span class="dialog-footer">
-                <el-button @click="createDialogVisible = false">取消</el-button>
-                <el-button type="primary" @click="handleCreateConfirm" :loading="courseStore.loading">
-                    <el-icon class="mr-1"><MagicStick /></el-icon> 开始生成
-                </el-button>
-            </span>
         </template>
+        
+        <div class="p-8 space-y-8 bg-gradient-to-b from-slate-50/50 to-white">
+            <el-form :model="createForm" label-position="top" class="space-y-8">
+                
+                <!-- Topic Input -->
+                <div class="space-y-3">
+                    <label class="text-sm font-bold text-slate-700 flex items-center gap-2 select-none">
+                        <div class="w-6 h-6 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center shadow-sm border border-blue-100">
+                            <el-icon :size="14"><Notebook /></el-icon>
+                        </div>
+                        课程主题
+                    </label>
+                    <div class="relative group">
+                        <el-input 
+                            v-model="createForm.keyword" 
+                            placeholder="例如：量子力学基础、Python编程、西方哲学史..." 
+                            size="large" 
+                            class="!text-base custom-input-shadow transition-all duration-300"
+                            clearable
+                        />
+                        <div class="absolute inset-0 rounded-xl ring-2 ring-primary-500/20 opacity-0 group-focus-within:opacity-100 transition-opacity pointer-events-none"></div>
+                    </div>
+                </div>
+
+                <!-- Grid Layout for Options -->
+                <div class="grid grid-cols-2 gap-8">
+                    <!-- Difficulty Selection -->
+                    <div class="space-y-3">
+                        <label class="text-sm font-bold text-slate-700 flex items-center gap-2 select-none">
+                            <div class="w-6 h-6 rounded-lg bg-amber-50 text-amber-500 flex items-center justify-center shadow-sm border border-amber-100">
+                                <el-icon :size="14"><Trophy /></el-icon>
+                            </div>
+                            难度等级
+                        </label>
+                        <div class="grid grid-cols-1 gap-3">
+                            <div 
+                                v-for="level in [
+                                    { val: 'beginner', label: '入门', sub: '零基础友好', color: 'bg-emerald-400', shadow: 'shadow-emerald-100' },
+                                    { val: 'medium', label: '进阶', sub: '有一定基础', color: 'bg-blue-400', shadow: 'shadow-blue-100' },
+                                    { val: 'advanced', label: '专家', sub: '深入原理', color: 'bg-violet-400', shadow: 'shadow-violet-100' }
+                                ]" 
+                                :key="level.val"
+                                class="relative flex items-center p-3 rounded-xl border-2 transition-all cursor-pointer group hover:-translate-y-0.5"
+                                :class="createForm.difficulty === level.val 
+                                    ? 'bg-white border-primary-500 shadow-md ring-1 ring-primary-500/20' 
+                                    : 'bg-white border-slate-100 hover:border-slate-300 hover:shadow-sm'"
+                                @click="createForm.difficulty = level.val"
+                            >
+                                <div class="w-1.5 h-8 rounded-full mr-3 transition-colors duration-300" 
+                                     :class="createForm.difficulty === level.val ? level.color : 'bg-slate-200 group-hover:bg-slate-300'"></div>
+                                <div class="flex-1">
+                                    <div class="font-bold text-sm text-slate-700 group-hover:text-slate-900 transition-colors">{{ level.label }}</div>
+                                    <div class="text-[10px] text-slate-400 font-medium group-hover:text-slate-500 transition-colors">{{ level.sub }}</div>
+                                </div>
+                                <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-300"
+                                     :class="createForm.difficulty === level.val ? 'border-primary-500 bg-primary-500 text-white scale-110' : 'border-slate-200 bg-slate-50 text-transparent'">
+                                    <el-icon :size="12" class="font-bold"><Check /></el-icon>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Style Selection -->
+                    <div class="space-y-3">
+                        <label class="text-sm font-bold text-slate-700 flex items-center gap-2 select-none">
+                            <div class="w-6 h-6 rounded-lg bg-pink-50 text-pink-500 flex items-center justify-center shadow-sm border border-pink-100">
+                                <el-icon :size="14"><MagicStick /></el-icon>
+                            </div>
+                            教学风格
+                        </label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div 
+                                v-for="style in [
+                                    { val: 'academic', label: '学术严谨', icon: '🎓' },
+                                    { val: 'easy', label: '通俗易懂', icon: '👶' },
+                                    { val: 'practical', label: '实战案例', icon: '🛠️' },
+                                    { val: 'humorous', label: '幽默风趣', icon: '😄' }
+                                ]" 
+                                :key="style.val"
+                                class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer hover:-translate-y-0.5 aspect-[4/3]"
+                                :class="createForm.style === style.val 
+                                    ? 'bg-white border-primary-500 shadow-md ring-1 ring-primary-500/20' 
+                                    : 'bg-white border-slate-100 hover:border-slate-300 hover:shadow-sm'"
+                                @click="createForm.style = style.val"
+                            >
+                                <span class="text-2xl mb-1 filter drop-shadow-sm transform transition-transform duration-300" 
+                                      :class="createForm.style === style.val ? 'scale-110' : 'group-hover:scale-110'">
+                                    {{ style.icon }}
+                                </span>
+                                <span class="font-bold text-xs text-slate-700 text-center">{{ style.label }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Requirements Input -->
+                <div class="space-y-3">
+                    <label class="text-sm font-bold text-slate-700 flex items-center gap-2 select-none">
+                        <div class="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center shadow-sm border border-emerald-100">
+                            <el-icon :size="14"><ChatLineSquare /></el-icon>
+                        </div>
+                        额外要求
+                    </label>
+                    <el-input 
+                        v-model="createForm.requirements" 
+                        type="textarea" 
+                        :rows="3" 
+                        placeholder="例如：侧重历史发展，或者多一些代码示例..." 
+                        resize="none"
+                        class="!bg-white shadow-sm hover:shadow transition-shadow duration-300"
+                    />
+                </div>
+            </el-form>
+        </div>
+        
+        <div class="px-8 py-6 border-t border-slate-100 bg-slate-50/80 backdrop-blur flex justify-between items-center">
+            <div class="text-xs text-slate-400 font-medium px-2">
+                 预计耗时: <span class="text-slate-600 font-bold">30-60秒</span>
+            </div>
+            <div class="flex gap-3">
+                <el-button @click="createDialogVisible = false" class="!rounded-xl !px-6 !h-11 !text-slate-600 hover:!text-slate-800 !bg-white hover:!bg-slate-50 !border-slate-200 hover:!border-slate-300 shadow-sm hover:shadow transition-all">取消</el-button>
+                <el-button type="primary" @click="handleCreateConfirm" :loading="courseStore.loading" class="!rounded-xl !px-8 !h-11 !bg-gradient-to-r !from-indigo-500 !to-violet-600 !border-none shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:-translate-y-0.5 active:translate-y-0 transition-all font-bold tracking-wide">
+                    <el-icon class="mr-2 animate-pulse"><MagicStick /></el-icon> 开始生成
+                </el-button>
+            </div>
+        </div>
       </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, computed } from 'vue'
+import { ref, watch, onUnmounted, computed, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
-import { Plus, Search, CircleClose, Collection, Delete, Notebook, ArrowLeft, Loading, Edit, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check } from '@element-plus/icons-vue'
+import { Plus, Search, CircleClose, Collection, Delete, Notebook, ArrowLeft, Loading, Edit, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare } from '@element-plus/icons-vue'
 import { BookOpen, Hash, FileText, Circle } from 'lucide-vue-next'
 
 const courseStore = useCourseStore()

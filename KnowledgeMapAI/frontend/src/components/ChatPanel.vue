@@ -62,31 +62,67 @@
     <!-- Summary Preview Dialog -->
     <el-dialog
         v-model="summaryDialogVisible"
-        title="对话总结预览"
         width="600px"
         append-to-body
-        class="glass-dialog"
+        class="glass-dialog !rounded-[2rem] !p-0 overflow-hidden shadow-2xl"
         align-center
+        :show-close="false"
     >
-        <div class="flex flex-col gap-4">
-            <el-input v-model="summaryTitle" placeholder="标题" class="font-bold" />
-            <div class="glass-input-wrapper">
-                <el-input
-                    v-model="summaryContent"
-                    type="textarea"
-                    :rows="12"
-                    placeholder="总结内容..."
-                    resize="none"
-                    class="glass-textarea custom-scrollbar"
-                />
-            </div>
-        </div>
-        <template #footer>
-            <div class="dialog-footer flex justify-end gap-2">
-                <button class="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors" @click="summaryDialogVisible = false">取消</button>
-                <button class="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-medium shadow-lg shadow-primary-500/30 transition-all active:scale-95" @click="saveSummary">保存笔记</button>
+        <template #header>
+            <div class="px-8 py-5 border-b border-slate-100/80 flex justify-between items-center bg-white/80 backdrop-blur-xl">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+                        <el-icon :size="20"><Collection /></el-icon>
+                    </div>
+                    <div>
+                        <h4 class="text-lg font-bold text-slate-800 leading-tight font-display">对话总结预览</h4>
+                        <p class="text-xs text-slate-500 font-medium mt-0.5">AI 智能提炼核心要点</p>
+                    </div>
+                </div>
+                <button @click="summaryDialogVisible = false" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+                    <el-icon :size="18"><Close /></el-icon>
+                </button>
             </div>
         </template>
+
+        <div class="p-8 bg-slate-50/50">
+            <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                <!-- Title Input -->
+                <div class="px-6 py-4 border-b border-slate-50">
+                    <input 
+                        v-model="summaryTitle" 
+                        class="w-full text-lg font-bold text-slate-800 placeholder-slate-300 bg-transparent outline-none" 
+                        placeholder="请输入笔记标题..."
+                    />
+                </div>
+                
+                <!-- Markdown Content Preview -->
+                <div class="relative">
+                    <div class="p-6 max-h-[50vh] overflow-y-auto custom-scrollbar bg-white">
+                        <div class="prose prose-slate prose-sm max-w-none 
+                            prose-headings:font-bold prose-headings:text-slate-800 
+                            prose-p:text-slate-600 prose-p:leading-relaxed
+                            prose-li:text-slate-600 prose-strong:text-slate-800 prose-strong:font-bold
+                            prose-code:text-primary-600 prose-code:bg-primary-50 prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none
+                            prose-pre:bg-slate-800 prose-pre:rounded-xl prose-pre:shadow-lg
+                            prose-blockquote:border-l-4 prose-blockquote:border-primary-200 prose-blockquote:bg-primary-50/30 prose-blockquote:px-4 prose-blockquote:py-1 prose-blockquote:rounded-r-lg prose-blockquote:not-italic
+                            "
+                            v-html="renderMarkdown(summaryContent)"
+                        ></div>
+                    </div>
+                    
+                    <!-- Edit Overlay (Optional, if we want to allow raw edit) -->
+                    <!-- For now, keep it read-only preview with title edit, as markdown edit is complex in this view -->
+                </div>
+            </div>
+        </div>
+
+        <div class="px-8 py-5 border-t border-slate-100 bg-white flex justify-end gap-3 items-center">
+            <el-button @click="summaryDialogVisible = false" class="!rounded-xl !px-6 !h-10 !border-slate-200 text-slate-600 hover:!bg-slate-50">取消</el-button>
+            <el-button type="primary" @click="saveSummary" class="!rounded-xl !px-8 !h-10 !bg-gradient-to-r !from-emerald-500 !to-teal-600 !border-none shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:-translate-y-0.5 transition-all font-bold">
+                <el-icon class="mr-1"><Check /></el-icon> 保存为笔记
+            </el-button>
+        </div>
     </el-dialog>
     
     <!-- Output Area -->
@@ -109,6 +145,18 @@
                     <el-icon class="text-primary-500"><MagicStick /></el-icon>
                     有什么不懂的？随时问我
                 </span>
+            </div>
+
+            <!-- Finish Topic Button (Visible when chat exists) -->
+            <div v-if="courseStore.chatHistory.length > 2" class="sticky top-0 z-10 flex justify-center py-2 pointer-events-none">
+                <button 
+                    class="pointer-events-auto bg-white/90 backdrop-blur-md border border-primary-200 text-primary-600 px-4 py-1.5 rounded-full shadow-sm text-xs font-bold hover:bg-primary-50 transition-all flex items-center gap-1.5 group"
+                    @click="handleSummarize"
+                >
+                    <el-icon><CircleCheckFilled /></el-icon>
+                    <span>我学会了，结束本话题</span>
+                    <el-icon class="group-hover:translate-x-0.5 transition-transform"><ArrowRight /></el-icon>
+                </button>
             </div>
 
             <!-- QA History -->
@@ -140,9 +188,36 @@
                                 <span>AI Analysis</span>
                             </div>
                             <div class="flex items-center gap-1">
-                                <!-- Locate Context Button -->
+                                <!-- Quote Preview (Enhanced Locate) -->
+                                <el-popover
+                                    v-if="msg.content.quote"
+                                    placement="top"
+                                    :width="300"
+                                    trigger="hover"
+                                    popper-class="glass-popover"
+                                >
+                                    <template #reference>
+                                        <button 
+                                            class="flex items-center gap-1 text-slate-400 hover:text-primary-600 transition-colors px-2 py-1 rounded hover:bg-primary-50"
+                                            @click="msg.content.anno_id ? courseStore.scrollToNote(msg.content.anno_id) : courseStore.scrollToNode(msg.content.node_id)"
+                                        >
+                                            <el-icon><Location /></el-icon>
+                                            <span class="scale-90">原文</span>
+                                        </button>
+                                    </template>
+                                    <div class="p-2 space-y-2">
+                                        <div class="text-xs font-bold text-slate-500 uppercase flex items-center gap-1">
+                                            <el-icon><Reading /></el-icon> 引用来源
+                                        </div>
+                                        <div class="text-xs text-slate-700 leading-relaxed border-l-2 border-primary-300 pl-2 italic">
+                                            "{{ msg.content.quote.length > 100 ? msg.content.quote.slice(0, 100) + '...' : msg.content.quote }}"
+                                        </div>
+                                        <div class="text-[10px] text-slate-400 text-right">点击按钮跳转到此处</div>
+                                    </div>
+                                </el-popover>
+                                
                                 <button 
-                                    v-if="msg.content.node_id || msg.content.anno_id"
+                                    v-else-if="msg.content.node_id || msg.content.anno_id"
                                     class="flex items-center gap-1 text-slate-400 hover:text-primary-600 transition-colors px-2 py-1 rounded hover:bg-primary-50"
                                     @click="msg.content.anno_id ? courseStore.scrollToNote(msg.content.anno_id) : courseStore.scrollToNode(msg.content.node_id)"
                                     title="定位到原文"
@@ -150,9 +225,10 @@
                                     <el-icon><Location /></el-icon>
                                     <span class="scale-90">原文</span>
                                 </button>
+
                                 <button 
                                     class="flex items-center gap-1 text-slate-400 hover:text-primary-600 transition-colors px-2 py-1 rounded hover:bg-primary-50"
-                                    @click="handleSaveAsNote(msg.content.core_answer || msg.content.answer, 'ai')"
+                                    @click="handleSaveAsNote(msg.content.core_answer || msg.content.answer, 'ai', { ...msg, idx })"
                                     title="保存为笔记"
                                 >
                                     <el-icon><DocumentAdd /></el-icon>
@@ -281,12 +357,12 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
-import { ChatDotRound, Position, Loading, MagicStick, Setting, Delete, QuestionFilled, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading } from '@element-plus/icons-vue'
+import { ChatDotRound, Position, Loading, MagicStick, Setting, Delete, QuestionFilled, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight } from '@element-plus/icons-vue'
 import MarkdownIt from 'markdown-it'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import DOMPurify from 'dompurify'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/atom-one-dark.css'
 
@@ -300,32 +376,82 @@ const inputRef = ref<HTMLTextAreaElement | null>(null)
 const summaryDialogVisible = ref(false)
 const summaryTitle = ref('')
 const summaryContent = ref('')
+const summaryStuck = ref('')
+const summarySolution = ref('')
+const summaryInspiration = ref('')
+const summarySuggestQuiz = ref(false)
+
+// Watch for pending chat input from other components (e.g. quote selection)
+watch(() => courseStore.pendingChatInput, (newVal) => {
+    if (newVal) {
+        inputMessage.value = newVal
+        // Focus input
+        nextTick(() => {
+            inputRef.value?.focus()
+            // Clear the pending state so it can be triggered again with same text if needed
+            courseStore.pendingChatInput = ''
+        })
+    }
+})
 
 const handleSummarize = async () => {
     const summary = await courseStore.summarizeChat()
     if (summary) {
         summaryTitle.value = summary.title || '对话总结'
         summaryContent.value = summary.content || ''
+        summaryStuck.value = summary.stuck_point || ''
+        summarySolution.value = summary.solution || ''
+        summaryInspiration.value = summary.inspiration || ''
+        summarySuggestQuiz.value = summary.suggest_quiz || false
+        
         summaryDialogVisible.value = true
     }
 }
 
-const saveSummary = async () => {
-    if (!summaryContent.value.trim()) return
-    
-    await courseStore.createNote({
-        id: `note-${Date.now()}`,
-        nodeId: courseStore.currentNode?.node_id || courseStore.nodes[0]?.node_id || 'root',
+const saveSummary = () => {
+    const fullContent = `
+# ${summaryTitle.value}
+
+## 🔴 卡点 (Stuck Point)
+${summaryStuck.value}
+
+## 🟢 解答 (Solution)
+${summarySolution.value}
+
+## ✨ 启发 (Inspiration)
+${summaryInspiration.value}
+
+---
+**详细复盘**：
+${summaryContent.value}
+`
+    courseStore.createNote({
+        id: `summary-${Date.now()}`,
+        nodeId: courseStore.currentNode?.node_id || 'global',
         highlightId: '',
         quote: '',
-        content: `**${summaryTitle.value}**\n\n${summaryContent.value}`,
-        color: 'purple',
+        content: fullContent,
+        color: 'blue',
         createdAt: Date.now(),
-        sourceType: 'ai'
+        sourceType: 'ai',
+        style: 'highlight'
     })
     
-    ElMessage.success('对话总结已保存')
     summaryDialogVisible.value = false
+    ElMessage.success('复盘笔记已保存')
+    
+    // Suggest Quiz
+    if (summarySuggestQuiz.value) {
+        ElMessageBox.confirm('本轮对话包含重要知识点，是否进行测验以巩固学习？', '巩固测验', {
+            confirmButtonText: '开始测验',
+            cancelButtonText: '稍后',
+            type: 'success'
+        }).then(() => {
+             // Generate quiz based on summary content
+             // We can trigger a quiz generation using the summary content as context
+             courseStore.generateQuizFromSummary(summaryContent.value)
+        }).catch(() => {})
+    }
 }
 
 // Helper to get option label (A, B, C...)
@@ -405,20 +531,45 @@ const getOptionBadgeClass = (msgIdx: number, optIdx: number, quiz: any) => {
     return 'border-slate-200 text-slate-300'
 }
 
-const saveWrongQuestion = async (quiz: any, msgIdx: number) => {
-    const state = getQuizState(msgIdx)
-    const selectedOpt = state.selected !== null ? quiz.options[state.selected] : '未选择'
-    const correctOpt = quiz.options[quiz.correct_index]
-    
-    const content = `**错题记录**\n\n**题目**：${quiz.question}\n\n**我的选择**：${selectedOpt} (错误)\n**正确答案**：${correctOpt}\n\n**解析**：\n${quiz.explanation}`
-    
-    await handleSaveAsNote(content, 'ai', quiz.node_id)
+const saveWrongQuestion = async (quiz: any, idx: number) => {
+    // 1. Prompt for Reflection
+    try {
+        const { value: reflection } = await ElMessageBox.prompt('请简要分析错误原因（这将帮助你更好地避坑）：', '错题反思', {
+            confirmButtonText: '保存',
+            cancelButtonText: '取消',
+            inputPlaceholder: '例如：概念混淆、粗心大意、公式记错...',
+            inputType: 'textarea',
+        })
+        
+        if (reflection) {
+             const state = getQuizState(idx)
+             const wrongOpt = quiz.options[state.selected]
+             const correctOpt = quiz.options[quiz.correct_index]
+             
+             courseStore.addNote({
+                 id: `wrong-${Date.now()}`,
+                 nodeId: quiz.node_id || courseStore.currentNode?.node_id || 'global',
+                 highlightId: '',
+                 quote: quiz.question,
+                 content: `🔴 **错题记录**\n\n**题目**：${quiz.question}\n\n**我的选择**：${wrongOpt} (❌)\n**正确答案**：${correctOpt} (✅)\n\n**解析**：${quiz.explanation}\n\n**💡 我的反思**：\n${reflection}`,
+                 color: 'red',
+                 createdAt: Date.now(),
+                 sourceType: 'wrong', // Special type for mistakes,
+                 style: 'highlight'
+             })
+             
+             ElMessage.success('已加入错题本')
+        }
+    } catch (e) {
+        // Cancelled
+    }
 }
 
-const handleSaveAsNote = async (content: string, type: string = 'text', nodeId?: string) => {
+const handleSaveAsNote = async (content: string, type: string = 'text', msg?: any) => {
     if (!content) return
     
-    // Use injected nodeId from quiz, or fallback to current node or first node
+    // Use injected nodeId from msg, or fallback to current node or first node
+    const nodeId = msg?.content?.node_id || msg?.node_id
     const targetNodeId = nodeId || courseStore.currentNode?.node_id || (courseStore.nodes.length > 0 ? courseStore.nodes[0].node_id : '')
     
     if (!targetNodeId) {
@@ -427,14 +578,47 @@ const handleSaveAsNote = async (content: string, type: string = 'text', nodeId?:
     }
 
     try {
+        // Construct structured note content if message context is available
+        let finalContent = content
+        let quote = ''
+        
+        if (msg) {
+            // Find previous user message for question
+            let question = '提问'
+            if (msg.idx && msg.idx > 0) {
+                const prevMsg = courseStore.chatHistory[msg.idx - 1]
+                if (prevMsg.type === 'user') {
+                    question = typeof prevMsg.content === 'string' ? prevMsg.content : ''
+                }
+            }
+            
+            // Get Quote
+            if (msg.content?.quote) {
+                quote = msg.content.quote
+            }
+            
+            // Format: 1. Original 2. Question 3. Answer
+            finalContent = ``
+            
+            if (quote) {
+                finalContent += `> ${quote}\n\n`
+            }
+            
+            if (question) {
+                finalContent += `**Q: ${question}**\n\n`
+            }
+            
+            finalContent += `**A:**\n${content}`
+        }
+
         const noteId = crypto.randomUUID()
         await courseStore.createNote({
             id: noteId,
             nodeId: targetNodeId,
             highlightId: '', // General note, not attached to text
-            quote: '',
-            content: content,
-            color: '#fef3c7', // Amber color for wrong answers/notes
+            quote: quote, // Store raw quote for potential linking
+            content: finalContent,
+            color: '#fef3c7', // Amber color for notes
             createdAt: Date.now(),
             sourceType: 'ai'
         }) 

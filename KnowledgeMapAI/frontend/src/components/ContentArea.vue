@@ -18,7 +18,7 @@
     </Teleport>
 
     <!-- Toolbar -->
-    <div class="h-16 flex items-center justify-between px-4 lg:px-6 mx-2 lg:mx-6 mt-4 mb-2 sticky top-4 z-30 transition-all duration-300 glass-panel rounded-2xl">
+    <div class="h-16 flex items-center justify-between px-4 lg:px-6 mx-2 lg:mx-6 mt-4 mb-2 sticky top-4 z-30 transition-all duration-300 glass-panel-floating rounded-2xl">
       <div class="bg-white/50 backdrop-blur-sm rounded-full px-4 py-1.5 border border-white/40 shadow-sm flex items-center gap-2">
         <span class="font-bold text-slate-700 truncate max-w-[200px]">
             {{ courseStore.courseList.find(c => c.course_id === courseStore.currentCourseId)?.course_name || '课程预览' }}
@@ -102,7 +102,7 @@
                 :prefix-icon="Search" 
                 size="small" 
                 clearable 
-                class="!w-40 focus:!w-64 transition-all duration-300 glass-input"
+                class="!w-40 focus:!w-64 transition-all duration-300 glass-input-clean"
                 @input="handleGlobalSearch"
             />
             <div v-if="globalSearchResults.length > 0" class="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 p-2 z-50 max-h-60 overflow-auto">
@@ -145,10 +145,10 @@
             
             <!-- Row 1: Quick Actions -->
             <div class="flex items-center gap-1 pb-1.5 mb-1.5 border-b border-slate-100">
-                <el-tooltip content="AI 智能解析" placement="top" :show-after="500">
-                    <button @click="handleExplain" class="flex-1 relative z-10 flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-xl text-slate-600 hover:text-primary-600 hover:bg-primary-50 transition-all group active:scale-95">
-                        <el-icon class="text-lg mb-0.5"><MagicStick /></el-icon> 
-                        <span class="text-[10px] font-bold">解析</span>
+                <el-tooltip content="引用提问" placement="top" :show-after="500">
+                    <button @click="handleAsk" class="flex-1 relative z-10 flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-xl text-slate-600 hover:text-primary-600 hover:bg-primary-50 transition-all group active:scale-95">
+                        <el-icon class="text-lg mb-0.5"><ChatDotRound /></el-icon> 
+                        <span class="text-[10px] font-bold">提问</span>
                     </button>
                 </el-tooltip>
                 
@@ -280,6 +280,18 @@
                         </div>
                     </div>
 
+                    <!-- Chapter Summary -->
+                    <div v-if="node.node_content" class="mb-8 p-6 bg-slate-50/50 rounded-2xl border border-slate-100/60 backdrop-blur-sm">
+                        <div class="prose prose-slate max-w-none prose-p:text-slate-600 prose-p:leading-relaxed"
+                             :style="{ 
+                                fontSize: fontSize + 'px',
+                                fontFamily: fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' : (fontFamily === 'serif' ? 'ui-serif, Georgia, Cambria, Times New Roman, Times, serif' : 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif'),
+                                lineHeight: lineHeight 
+                             }"
+                             v-html="renderMarkdown(node.node_content)">
+                        </div>
+                    </div>
+
                     <!-- Quiz Button -->
                     <div class="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                         <button 
@@ -324,219 +336,186 @@
         </div>
 
         <!-- Note Column (Desktop Only) -->
-        <div id="note-column" v-if="!courseStore.isFocusMode" class="hidden lg:flex flex-col w-[260px] flex-shrink-0 relative border-l border-slate-100 bg-slate-50/30 transition-all duration-300">
-             <!-- Search Header -->
-            <div class="sticky top-0 z-10 p-3 bg-slate-50/95 backdrop-blur border-b border-slate-100 flex flex-col gap-2">
-                <div class="flex items-center gap-2">
-                    <h3 class="text-sm font-bold text-slate-700">我的笔记</h3>
-                    <div class="flex-1"></div>
+        <div id="note-column" v-if="!courseStore.isFocusMode" class="hidden lg:flex flex-col w-[280px] flex-shrink-0 relative bg-slate-50/50 transition-all duration-300 border-l border-white/50">
+             <!-- Search Header (Floating Card) -->
+            <div class="sticky top-4 z-30 mx-3 mb-2 p-3 glass-panel-floating rounded-2xl flex flex-col gap-3 transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+                <div class="flex items-center justify-between px-1">
+                    <h3 class="text-sm font-black text-slate-800 tracking-tight flex items-center gap-2">
+                        <span class="w-1.5 h-4 bg-primary-500 rounded-full"></span>
+                        我的笔记
+                    </h3>
                     <el-tooltip content="导出笔记" placement="bottom">
-                        <button class="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-white rounded-md transition-colors" @click="exportContent">
+                        <button class="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-slate-100 rounded-lg transition-all duration-300" @click="exportContent">
                             <el-icon><Download /></el-icon>
                         </button>
                     </el-tooltip>
                 </div>
                 
                 <!-- Note Filters -->
-                <div class="relative flex bg-slate-100 p-1 rounded-xl mb-2 select-none">
-                    <!-- Animated Background -->
-                    <div class="absolute top-1 bottom-1 rounded-lg bg-white shadow-sm transition-all duration-300 ease-out"
+                <div class="relative flex bg-slate-200/40 p-1 rounded-xl select-none border border-white/20">
+                    <div class="absolute top-1 bottom-1 rounded-lg bg-white shadow-[0_2px_8px_rgba(0,0,0,0.08)] border border-white/60 transition-all duration-300 ease-out"
                          :style="activeTabStyle"></div>
-                         
-                    <button v-for="tab in ['all', 'ai', 'user', 'wrong']" :key="tab"
-                        class="relative flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors z-10 text-center"
-                        :class="activeNoteFilter === tab ? 'text-primary-600' : 'text-slate-500 hover:text-slate-700'"
+                    <button v-for="tab in ['notes', 'mistakes']" :key="tab"
+                        class="relative flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors z-10 text-center tracking-wide"
+                        :class="activeNoteFilter === tab ? 'text-slate-800' : 'text-slate-500 hover:text-slate-700'"
                         @click="activeNoteFilter = tab"
                     >
-                        {{ tab === 'all' ? '全部' : (tab === 'ai' ? 'AI' : (tab === 'user' ? '手记' : '错题')) }}
+                        {{ tab === 'notes' ? '笔记' : '错题' }}
                     </button>
                 </div>
 
-                <el-input v-model="noteSearchQuery" placeholder="搜索笔记..." :prefix-icon="Search" size="small" clearable class="!w-full glass-input">
+                <el-input 
+                    v-model="noteSearchQuery" 
+                    placeholder="搜索..." 
+                    :prefix-icon="Search" 
+                    size="small" 
+                    clearable 
+                    class="!w-full glass-input-clean"
+                >
                     <template #suffix>
                         <el-icon v-if="isSearching" class="is-loading text-primary-500"><Loading /></el-icon>
                     </template>
                 </el-input>
             </div>
 
-            <div id="notes-container" class="relative flex-1 w-full">
-                <div class="absolute inset-0 pointer-events-none">
-                    <!-- Guide Line -->
-                    <div class="absolute left-[-1px] top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-primary-200 to-transparent opacity-50"></div>
-                </div>
-                
-                <!-- Loading Skeleton -->
-                <div v-if="isSearching" class="absolute inset-0 z-20 bg-white/80 backdrop-blur-sm p-4 space-y-4">
-                    <div v-for="i in 3" :key="i" class="animate-pulse flex flex-col gap-2">
-                         <div class="h-20 bg-slate-100 rounded-xl"></div>
+            <div id="notes-container" class="relative flex-1 w-full flex flex-col">
+                <!-- Mistakes View (Linear List) -->
+                <div v-if="activeNoteFilter === 'mistakes'" class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-3">
+                     <div v-if="displayedNotes.length === 0" class="text-center py-8 text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                        暂无错题记录
                     </div>
-                </div>
-                
-                <!-- Empty State for Search -->
-                <div v-if="!isSearching && displayedNotes.length === 0 && debouncedSearchQuery" class="flex flex-col items-center justify-center py-10 text-slate-400">
-                    <el-icon :size="24" class="mb-2 opacity-50"><Search /></el-icon>
-                    <p class="text-xs">未找到相关笔记</p>
-                </div>
-
-                <!-- Unquoted/Global Notes (Static Flow) -->
-                <div id="global-notes-section" class="flex flex-col gap-3 p-2 pb-4 mb-2 border-b border-slate-100/50 relative z-10">
-                    <div class="flex justify-between items-center px-1">
-                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">全局笔记</div>
-                        <el-button link size="small" type="primary" @click="addGlobalNote">
-                            <el-icon class="mr-1"><Plus /></el-icon>添加
-                        </el-button>
-                    </div>
-                    <div v-if="unquotedNotes.length === 0" class="text-center py-4 text-xs text-slate-400 bg-slate-50/50 rounded-lg border border-dashed border-slate-200">
-                        暂无全局笔记
-                    </div>
-                    <div v-for="note in unquotedNotes" :key="note.id" 
-                         class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 group hover:shadow-md hover:border-primary-200 transition-all cursor-pointer relative"
-                         :class="{'ring-2 ring-primary-100': activeNoteId === note.id, '!border-purple-200 !bg-purple-50/30': note.sourceType === 'ai'}"
-                         @click="handleEditNote(note)">
-                        
-                        <!-- Connector (Hidden for global) -->
-                        
-                        <div class="flex justify-between items-start mb-1">
-                            <div v-if="note.sourceType === 'ai'" class="text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100 flex items-center gap-1">
-                                <el-icon><MagicStick /></el-icon> AI 助手
+                    <div v-for="note in displayedNotes" :key="note.id"
+                         class="bg-white/90 backdrop-blur-sm rounded-2xl shadow-[0_4px_12px_rgba(0,0,0,0.05)] border border-white p-0 group hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] transition-all duration-300 cursor-pointer overflow-hidden relative"
+                         :class="{'ring-2 ring-primary-100': activeNoteId === note.id}"
+                         @click="scrollToHighlight(note.highlightId)">
+                         
+                         <!-- Header -->
+                        <div class="flex justify-between items-center px-4 py-3 border-b border-red-100 bg-red-50/30">
+                            <div class="flex flex-col gap-0.5">
+                                <div class="text-[10px] font-bold text-red-500 flex items-center gap-1.5 uppercase tracking-wide">
+                                    <el-icon><CircleCheckFilled /></el-icon> 错题本
+                                </div>
+                                <div class="text-[10px] font-medium text-slate-400 truncate max-w-[180px]">
+                                    {{ getNodeName(note.nodeId) }}
+                                </div>
                             </div>
-                            <div v-else class="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">笔记</div>
                             
                             <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button class="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-primary-600" @click.stop="handleEditNote(note)">
-                                    <el-icon :size="12"><Edit /></el-icon>
+                                <button class="p-1.5 hover:bg-white rounded-lg text-slate-400 hover:text-primary-600 transition-colors shadow-sm" @click.stop="handleEditNote(note)">
+                                    <el-icon :size="14"><Edit /></el-icon>
                                 </button>
-                                <button class="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-red-500" @click.stop="handleDeleteNote(note.id)">
-                                    <el-icon :size="12"><Delete /></el-icon>
+                                <button class="p-1.5 hover:bg-white rounded-lg text-slate-400 hover:text-red-500 transition-colors shadow-sm" @click.stop="handleDeleteNote(note.id)">
+                                    <el-icon :size="14"><Delete /></el-icon>
                                 </button>
                             </div>
                         </div>
-                        <div v-if="editingNoteId === note.id" class="mt-2" @click.stop>
-                            <el-input 
-                                v-model="editingContent" 
-                                type="textarea" 
-                                :rows="3" 
-                                resize="none"
-                                class="mb-2"
-                                placeholder="输入笔记内容..."
-                            />
-                            <div class="flex justify-end gap-2 mt-2">
-                                <el-button size="small" text bg @click.stop="cancelEditing">取消</el-button>
-                                <el-button size="small" type="primary" round @click.stop="saveEditing(note)">保存修改</el-button>
+
+                        <!-- Content -->
+                        <div class="p-3">
+                            <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap" v-html="formatNoteContent(note.content)"></div>
+                            <div class="mt-2 text-[10px] text-slate-300 flex items-center gap-1">
+                                <el-icon><Timer /></el-icon> {{ dayjs(note.createdAt).fromNow() }}
                             </div>
                         </div>
-                        <template v-else>
-                            <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap" 
-                                 v-html="formatNoteContent(note.content)"
-                                 :style="noteContentStyle(note)"></div>
-                                <div v-if="shouldCollapse(note)" 
-                                      class="text-primary-500 text-xs cursor-pointer hover:underline mt-1 select-none block"
-                                      @click.stop="toggleExpand(note.id)">
-                                    {{ expandedNoteIds.includes(note.id) ? '收起' : '展开' }}
-                                </div>
-                                <div class="mt-2 flex items-center justify-between">
-                                    <div class="flex items-center gap-1 text-[10px] text-slate-400">
-                                        <el-icon><Timer /></el-icon>
-                                        <span>{{ dayjs(note.createdAt).fromNow() }}</span>
-                                    </div>
-                                    <el-tag v-if="note.sourceType === 'ai'" size="small" type="success" effect="plain" round class="!h-5 !text-[10px] !px-1.5 border-none bg-green-50 text-green-600">
-                                        AI 生成
-                                    </el-tag>
-                                </div>
-                            </template>
                     </div>
                 </div>
 
-                <!-- Quoted Notes (Absolute Positioning) -->
-                <transition-group name="list">
-                    <div v-for="note in displayedQuotedNotes" :key="note.id" :id="note.id"
-                         class="absolute left-2 right-2 transition-all duration-500 ease-out"
-                         :style="{ top: (note.top || 0) + 'px' }">
-                        
-                         <!-- Connector Line -->
-                         <div class="absolute -left-4 top-5 w-4 h-px transition-colors duration-300" 
-                              :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-300' : 'bg-slate-200'"></div>
-                         <div class="absolute -left-[18px] top-[17px] w-2 h-2 rounded-full shadow-sm ring-2 ring-white transition-all duration-300"
-                              :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-500 scale-125' : (note.sourceType === 'ai' ? 'bg-purple-400' : 'bg-slate-300')"></div>
+                <!-- Notes View (Aligned/Absolute) -->
+                <div v-else class="relative flex-1 w-full">
+                    <div class="absolute inset-0 pointer-events-none">
+                        <!-- Guide Line -->
+                        <div class="absolute left-[-1px] top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-primary-200 to-transparent opacity-50"></div>
+                    </div>
 
-                         <!-- Note Bubble -->
-                         <div class="bg-white rounded-xl shadow-md border border-slate-100 p-0 group hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 cursor-pointer overflow-hidden"
-                              :class="{'ring-2 ring-primary-200': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !shadow-purple-100': note.sourceType === 'ai'}"
-                              @click="scrollToHighlight(note.highlightId)"
-                              @mouseenter="setHovered(note.id)"
-                              @mouseleave="setHovered(null)">
+                    <!-- Quoted Notes (Absolute Positioning) -->
+                    <transition-group name="list">
+                        <div v-for="note in displayedQuotedNotes" :key="note.id" :id="note.id"
+                             class="absolute left-2 right-2 transition-all duration-500 ease-out"
+                             :style="{ top: (note.top || 0) + 'px' }">
                             
-                            <!-- Header -->
-                            <div class="flex justify-between items-center px-3 py-2 border-b border-slate-50"
-                                 :class="note.sourceType === 'ai' ? 'bg-purple-50/50' : 'bg-slate-50/50'">
-                                <div v-if="note.sourceType === 'ai'" class="text-[10px] font-bold text-purple-600 flex items-center gap-1">
-                                    <el-icon><MagicStick /></el-icon> AI 助手
-                                </div>
-                                <div v-else class="text-[10px] font-bold text-slate-500 flex items-center gap-1">
-                                    <div class="w-1.5 h-1.5 rounded-full" :class="note.color && note.color !== 'transparent' ? `bg-${note.color}-400` : 'bg-amber-400'"></div>
-                                    笔记
-                                </div>
+                             <!-- Connector Line -->
+                             <div class="absolute -left-4 top-5 w-4 h-px transition-colors duration-300" 
+                                  :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-300' : 'bg-slate-200'"></div>
+                             <div class="absolute -left-[18px] top-[17px] w-2 h-2 rounded-full shadow-sm ring-2 ring-white transition-all duration-300"
+                                  :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-500 scale-125' : (note.sourceType === 'ai' ? 'bg-purple-400' : 'bg-slate-300')"></div>
+
+                             <!-- Note Bubble -->
+                             <div class="bg-white/90 backdrop-blur-sm rounded-2xl shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)] border border-white p-0 group hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer overflow-hidden"
+                                  :class="{'ring-2 ring-primary-200': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !shadow-purple-100': note.sourceType === 'ai'}"
+                                  @click="scrollToHighlight(note.highlightId)"
+                                  @mouseenter="setHovered(note.id)"
+                                  @mouseleave="setHovered(null)">
                                 
-                                <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button class="p-1 hover:bg-white rounded text-slate-400 hover:text-primary-600 transition-colors shadow-sm" @click.stop="handleEditNote(note)">
-                                        <el-icon :size="12"><Edit /></el-icon>
-                                    </button>
-                                    <button class="p-1 hover:bg-white rounded text-slate-400 hover:text-red-500 transition-colors shadow-sm" @click.stop="handleDeleteNote(note.id)">
-                                        <el-icon :size="12"><Delete /></el-icon>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Content -->
-                            <div class="p-3">
-                                <div v-if="note.quote" class="text-xs text-slate-400 italic mb-2 line-clamp-2 pl-2 border-l-2" :class="note.sourceType === 'ai' ? 'border-purple-200' : 'border-slate-200'">
-                                    "{{ note.quote }}"
-                                </div>
-                                <div v-if="editingNoteId === note.id" class="mt-2" @click.stop>
-                                    <el-input 
-                                        v-model="editingContent" 
-                                        type="textarea" 
-                                        :rows="3" 
-                                        resize="none"
-                                        class="mb-2 !text-xs"
-                                        placeholder="输入笔记内容..."
-                                        ref="editInputRef"
-                                    />
-                                    <div class="flex justify-end gap-2 mt-2">
-                                        <el-button size="small" text bg @click.stop="cancelEditing">取消</el-button>
-                                        <el-button size="small" type="primary" round @click.stop="saveEditing(note)">保存修改</el-button>
+                                <!-- Header -->
+                                <div class="flex justify-between items-center px-3 py-2 border-b border-slate-50 transition-colors duration-300"
+                                     :class="note.sourceType === 'ai' ? 'group-hover:border-purple-100' : 'group-hover:border-amber-100'">
+                                    
+                                    <div v-if="note.sourceType === 'ai'" class="text-[10px] font-bold text-purple-600 flex items-center gap-1.5 uppercase tracking-wide">
+                                        <el-icon><MagicStick /></el-icon> AI 助手
                                     </div>
-                                </div>
-                                <template v-else>
-                                    <!-- Content with auto-collapse -->
-                                    <div class="relative group/content transition-all duration-300"
-                                         :class="{'max-h-[120px] overflow-hidden': shouldCollapse(note) && !isAccordionMode, 'max-h-[60px] overflow-hidden': shouldCollapse(note) && isAccordionMode}">
-                                        <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap" v-html="formatNoteContent(note.content)"></div>
-                                        
-                                        <!-- Gradient Mask -->
-                                        <div v-if="shouldCollapse(note)" 
-                                             class="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent pointer-events-none">
-                                        </div>
+                                    <div v-else class="text-[10px] font-bold text-slate-500 flex items-center gap-1.5 uppercase tracking-wide">
+                                        <div class="w-1.5 h-1.5 rounded-full" :class="note.color && note.color !== 'transparent' ? `bg-${note.color}-400` : 'bg-amber-400'"></div>
+                                        笔记
                                     </div>
-
-                                    <!-- Expand/Collapse Action -->
-                                    <div v-if="shouldCollapse(note) || expandedNoteIds.includes(note.id)" class="mt-2 flex justify-center">
-                                        <button @click.stop="toggleExpand(note.id)" class="text-[10px] font-bold text-slate-400 hover:text-primary-600 flex items-center gap-1 transition-colors bg-slate-50 hover:bg-primary-50 px-2 py-0.5 rounded-full">
-                                            {{ expandedNoteIds.includes(note.id) ? '收起' : '展开' }} <el-icon><ArrowDown v-if="!expandedNoteIds.includes(note.id)" /><ArrowUp v-else /></el-icon>
+                                    
+                                    <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button class="p-1 hover:bg-slate-50 rounded-md text-slate-400 hover:text-primary-600 transition-colors" @click.stop="handleEditNote(note)">
+                                            <el-icon :size="12"><Edit /></el-icon>
+                                        </button>
+                                        <button class="p-1 hover:bg-slate-50 rounded-md text-slate-400 hover:text-red-500 transition-colors" @click.stop="handleDeleteNote(note.id)">
+                                            <el-icon :size="12"><Delete /></el-icon>
                                         </button>
                                     </div>
+                                </div>
 
-                                    <div class="mt-3 pt-2 border-t border-slate-50 flex items-center justify-between text-[10px] text-slate-300">
-                                        <div class="flex items-center gap-1">
-                                            <el-icon><Timer /></el-icon>
-                                            <span>{{ dayjs(note.createdAt).fromNow() }}</span>
+                                <!-- Content -->
+                                <div class="p-3">
+                                    <div v-if="editingNoteId === note.id" class="mt-2" @click.stop>
+                                        <el-input 
+                                            v-model="editingContent" 
+                                            type="textarea" 
+                                            :rows="3" 
+                                            resize="none"
+                                            class="mb-2 !text-xs"
+                                            placeholder="输入笔记内容..."
+                                            ref="editInputRef"
+                                        />
+                                        <div class="flex justify-end gap-2 mt-2">
+                                            <el-button size="small" text bg @click.stop="cancelEditing">取消</el-button>
+                                            <el-button size="small" type="primary" round @click.stop="saveEditing(note)">保存修改</el-button>
                                         </div>
                                     </div>
-                                </template>
-                            </div>
-                         </div>
-                    </div>
-                </transition-group>
+                                    <template v-else>
+                                        <!-- Content with auto-collapse -->
+                                        <div class="relative group/content transition-all duration-300"
+                                             :class="{'max-h-[500px] overflow-hidden': shouldCollapse(note) && !isAccordionMode, 'max-h-[200px] overflow-hidden': shouldCollapse(note) && isAccordionMode}">
+                                            <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap" v-html="formatNoteContent(note.content)"></div>
+                                            
+                                            <!-- Gradient Mask -->
+                                            <div v-if="shouldCollapse(note)" 
+                                                 class="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent pointer-events-none">
+                                            </div>
+                                        </div>
+
+                                        <!-- Expand/Collapse Action -->
+                                        <div v-if="shouldCollapse(note) || expandedNoteIds.includes(note.id)" class="mt-2 flex justify-center">
+                                            <button @click.stop="toggleExpand(note.id)" class="text-[10px] font-bold text-slate-400 hover:text-primary-600 flex items-center gap-1 transition-colors bg-slate-50 hover:bg-primary-50 px-2 py-0.5 rounded-full">
+                                                {{ expandedNoteIds.includes(note.id) ? '收起' : '展开' }} <el-icon><ArrowDown v-if="!expandedNoteIds.includes(note.id)" /><ArrowUp v-else /></el-icon>
+                                            </button>
+                                        </div>
+
+                                        <div class="mt-3 pt-2 border-t border-slate-50 flex items-center justify-between text-[10px] text-slate-300">
+                                            <div class="flex items-center gap-1">
+                                                <el-icon><Timer /></el-icon>
+                                                <span>{{ dayjs(note.createdAt).fromNow() }}</span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                             </div>
+                        </div>
+                    </transition-group>
+                </div>
             </div>
         </div>
       </div>
@@ -566,7 +545,7 @@
       <el-drawer v-model="showMobileNotes" title="课程笔记" size="80%" direction="rtl">
         <div class="flex flex-col h-full">
             <div class="p-4 border-b border-slate-100">
-                <el-input v-model="noteSearchQuery" placeholder="搜索笔记..." :prefix-icon="Search" clearable />
+                <el-input v-model="noteSearchQuery" placeholder="搜索笔记..." :prefix-icon="Search" clearable class="glass-input-clean" />
             </div>
             <div class="flex-1 overflow-auto p-4 space-y-4">
                 <div v-if="displayedNotes.length === 0" class="text-center text-slate-400 py-8">
@@ -599,7 +578,7 @@
         v-model="quizConfig.visible"
         title="生成智能测验"
         width="400px"
-        class="glass-dialog"
+        class="glass-dialog-clean"
         align-center
         append-to-body
     >
@@ -648,7 +627,7 @@
       v-model="quizVisible"
       title="智能测验"
       width="600px"
-      class="glass-dialog"
+      class="glass-dialog-clean"
       align-center
       append-to-body
     >
@@ -711,7 +690,7 @@
         v-model="noteDetailVisible"
         title="笔记详情"
         width="600px"
-        class="glass-dialog"
+        class="glass-dialog-clean"
         align-center
         append-to-body
     >
@@ -788,7 +767,7 @@ import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
-import { Minus, Plus, Download, MagicStick, VideoPlay, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, CircleCheckFilled, FullScreen, Microphone, Setting, Connection, Trophy, ArrowDown, ArrowUp, Loading } from '@element-plus/icons-vue'
+import { Minus, Plus, Download, MagicStick, VideoPlay, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, CircleCheckFilled, FullScreen, Microphone, Setting, Connection, Trophy, ArrowDown, ArrowUp, Loading, ChatDotRound } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -805,7 +784,7 @@ const selectionMenu = ref({ visible: false, x: 0, y: 0, text: '', range: null as
 const noteSearchQuery = ref('')
 const globalSearchQuery = ref('')
 const globalSearchResults = ref<any[]>([])
-const activeNoteFilter = ref('all')
+const activeNoteFilter = ref('notes')
 const showMobileNotes = ref(false)
 const isSpeaking = ref(false)
 const currentSpeakingContent = ref('')
@@ -1121,7 +1100,7 @@ const suggestedQuizNode = ref<any>(null)
 // Check if content is long enough to collapse
 const isLongContent = (content: string) => {
     // Heuristic: length > 80 or has more than 2 newlines
-    return content.length > 80 || content.split('\n').length > 2
+    return content.length > 300 || content.split('\n').length > 8
 }
 
 const openNoteDetail = (note: any) => {
@@ -1278,12 +1257,12 @@ const scrollToSearchResult = (nodeId: string) => {
 
 // Tab Animation Style
 const activeTabStyle = computed(() => {
-    const tabs = ['all', 'ai', 'user', 'wrong']
+    const tabs = ['notes', 'mistakes']
     const idx = tabs.indexOf(activeNoteFilter.value)
     if (idx === -1) return {}
     return {
-        left: `${idx * 25}%`,
-        width: '25%'
+        left: `${idx * 50}%`,
+        width: '50%'
     }
 })
 
@@ -1292,14 +1271,11 @@ const visibleNotes = computed(() => {
     let notes = courseStore.notes.filter(n => nodeIds.has(n.nodeId))
     
     // Filter by Type
-    if (activeNoteFilter.value !== 'all') {
-        if (activeNoteFilter.value === 'ai') {
-            notes = notes.filter(n => n.sourceType === 'ai')
-        } else if (activeNoteFilter.value === 'user') {
-            notes = notes.filter(n => n.sourceType === 'user')
-        } else if (activeNoteFilter.value === 'wrong') {
-            notes = notes.filter(n => n.content.includes('**错题记录**') || n.content.includes('#错题'))
-        }
+    if (activeNoteFilter.value === 'mistakes') {
+        notes = notes.filter(n => n.content.includes('**错题记录**') || n.content.includes('#错题'))
+    } else {
+        // 'notes' tab: Exclude mistakes
+        notes = notes.filter(n => !(n.content.includes('**错题记录**') || n.content.includes('#错题')))
     }
 
     if (debouncedSearchQuery.value) {
@@ -1307,13 +1283,21 @@ const visibleNotes = computed(() => {
         notes = notes.filter(n => n.content.toLowerCase().includes(query) || (n.quote && n.quote.toLowerCase().includes(query)))
     }
     
+    // Sort by Chapter Order then Time
+    const nodeOrder = new Map(flatNodes.value.map((n, i) => [n.node_id, i]))
+    notes.sort((a, b) => {
+        const orderA = nodeOrder.get(a.nodeId) ?? -1
+        const orderB = nodeOrder.get(b.nodeId) ?? -1
+        if (orderA !== orderB) return orderA - orderB
+        return a.createdAt - b.createdAt
+    })
+    
     return notes
 })
 
 const quotedNotes = computed(() => visibleNotes.value.filter(n => n.quote && n.quote.trim().length > 0))
 const displayedNotes = computed(() => visibleNotes.value.filter(n => n.sourceType !== 'format'))
 const displayedQuotedNotes = computed(() => quotedNotes.value.filter(n => n.sourceType !== 'format'))
-const unquotedNotes = computed(() => visibleNotes.value.filter(n => (!n.quote || n.quote.trim().length === 0) && n.sourceType !== 'format'))
 
 watch(() => [visibleNotes.value.length, flatNodes.value], () => {
     nextTick(() => {
@@ -1692,12 +1676,6 @@ const updateNotePositions = () => {
     // 3. Collision Resolution (Stacking)
     let lastBottom = 0 
     
-    // Get Global Section Bottom (Read once)
-    const globalSection = document.getElementById('global-notes-section')
-    if (globalSection) {
-        lastBottom = globalSection.offsetTop + globalSection.offsetHeight
-    }
-
     const GAP = 16 
 
     positionedNotes.forEach(item => {
@@ -1754,6 +1732,11 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
             else if (key === 'u') applyFormat('underline', 'solid')
         }
     }
+}
+
+const getNodeName = (nodeId: string) => {
+    const node = flatNodes.value.find(n => n.node_id === nodeId)
+    return node ? node.node_name : '未知章节'
 }
 
 onMounted(() => {
@@ -2025,29 +2008,18 @@ const handleMouseUp = (_e: MouseEvent) => {
     }
 }
 
-const handleExplain = async () => {
+const handleAsk = () => {
     if (!selectionMenu.value.text) return
     
     const selection = selectionMenu.value.text
-    const prompt = `请对以下选中内容进行深度解析：\n> "${selection}"\n\n请从以下几个维度进行分析：\n1. 🔍 **核心概念**：解释其中的关键术语。\n2. 💡 **原理阐述**：用通俗易懂的语言说明其背后的逻辑。\n3. 🌟 **举例说明**：给出一个具体的应用场景或案例。\n4. 🔗 **关联思考**：这段内容与课程其他部分的联系。`
+    // Format as a quote
+    const quote = `> ${selection}\n\n`
     
-    // 1. Add User Message
-    courseStore.addMessage('user', prompt)
+    // Set to store to trigger ChatPanel update
+    courseStore.setPendingChatInput(quote)
     
-    // 2. Find Context Node
-    let nodeId = undefined
-    if (selectionMenu.value.range) {
-         const nodeEl = selectionMenu.value.range.startContainer.parentElement?.closest('[id^="node-"]')
-         if (nodeEl) nodeId = nodeEl.id.replace('node-', '')
-    }
-    
-    // 3. Trigger AI
+    // Hide menu
     selectionMenu.value.visible = false
-    
-    // Open Chat Panel if possible? (Optional, maybe just a toast)
-    ElMessage.success('正在进行深度解析，请查看右侧助手')
-    
-    await courseStore.askQuestion(prompt, selection, nodeId)
 }
 
 const handleTranslate = async () => {
@@ -2204,29 +2176,7 @@ const saveEditing = async (note: any) => {
     ElMessage.success('笔记已更新')
 }
 
-const addGlobalNote = () => {
-    ElMessageBox.prompt('请输入笔记内容', '添加全局笔记', {
-        confirmButtonText: '添加',
-        cancelButtonText: '取消',
-        inputType: 'textarea',
-        inputPlaceholder: '记录您的想法...'
-    }).then(({ value }) => {
-        if (!value || !value.trim()) return
-        
-        const noteId = `note-${Date.now()}`
-        courseStore.createNote({
-            id: noteId,
-            nodeId: courseStore.treeData[0]?.node_id || 'root', // Default to first node or root if no context
-            highlightId: '',
-            quote: '',
-            content: value,
-            color: 'yellow',
-            createdAt: Date.now(),
-            sourceType: 'user'
-        })
-        ElMessage.success('笔记已添加')
-    }).catch(() => {})
-}
+
 
 const handleDeleteNote = (noteId: string) => {
     const note = courseStore.notes.find(n => n.id === noteId)
@@ -2638,6 +2588,41 @@ onUnmounted(() => {
   transform: scale(0.9);
 }
 
+:deep(.glass-dialog-clean) {
+    background: rgba(255, 255, 255, 0.9) !important;
+    backdrop-filter: blur(24px) saturate(180%);
+    border-radius: 24px;
+    box-shadow: 
+        0 0 0 1px rgba(255, 255, 255, 0.2),
+        0 20px 40px -12px rgba(0, 0, 0, 0.12), 
+        0 0 0 1px rgba(0,0,0,0.02);
+    border: none;
+    overflow: hidden;
+}
+
+:deep(.glass-dialog-clean .el-dialog__header) {
+    margin-right: 0;
+    padding: 24px 28px 16px;
+    border-bottom: 1px solid rgba(0,0,0,0.03);
+}
+
+:deep(.glass-dialog-clean .el-dialog__title) {
+    font-weight: 800;
+    color: #1e293b;
+    font-size: 1.25rem;
+    letter-spacing: -0.02em;
+}
+
+:deep(.glass-dialog-clean .el-dialog__body) {
+    padding: 24px 28px;
+}
+
+:deep(.glass-dialog-clean .el-dialog__footer) {
+    padding: 16px 28px 24px;
+    border-top: 1px solid rgba(0,0,0,0.03);
+    background: rgba(250, 250, 255, 0.5);
+}
+
 :deep(.glass-dialog) {
     background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(20px);
@@ -2731,6 +2716,45 @@ onUnmounted(() => {
 .back-to-top-leave-to {
     opacity: 0;
     transform: translateY(20px);
+}
+
+:deep(.glass-input-clean .el-input__wrapper) {
+    background-color: rgba(255, 255, 255, 0.6) !important;
+    box-shadow: none !important;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 12px;
+    padding: 8px 12px;
+    transition: all 0.3s ease;
+}
+
+:deep(.glass-input-clean .el-input__wrapper:hover) {
+    background-color: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(255, 255, 255, 0.8);
+}
+
+:deep(.glass-input-clean .el-input__wrapper.is-focus) {
+    background-color: white !important;
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.08) !important;
+}
+
+.glass-panel-floating {
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+}
+
+.glass-panel-floating:hover {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.06);
+}
+
+
+:deep(.glass-input-clean .el-input__inner) {
+    color: #334155;
+    font-weight: 500;
 }
 
 </style>

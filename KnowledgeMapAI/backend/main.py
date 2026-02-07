@@ -121,7 +121,7 @@ def add_custom_node(course_id: str, req: AddNodeRequest):
     return new_node
 
 @app.post("/courses/{course_id}/nodes/{node_id}/subnodes")
-def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesRequest):
+async def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesRequest):
     tree_data = storage.load_course(course_id)
     if not tree_data:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -146,7 +146,7 @@ def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesRequest
                 parent_context = node.get("node_content", "")
                 break
     
-    new_nodes = ai_service.generate_sub_nodes(req.node_name, req.node_level, node_id, course_name, parent_context)
+    new_nodes = await ai_service.generate_sub_nodes(req.node_name, req.node_level, node_id, course_name, parent_context)
     
     if "nodes" in tree_data:
         for node in new_nodes:
@@ -252,14 +252,31 @@ def get_annotations(node_id: str):
     return storage.get_annotations_by_node(node_id)
 
 @app.post("/annotations")
-def save_annotation(req: SaveAnnotationRequest):
+async def save_annotation(req: SaveAnnotationRequest):
     # Basic validation is handled by Pydantic
     
     data = req.dict()
     # Ensure ID
     if not data.get("anno_id"):
         data["anno_id"] = f"anno_{uuid.uuid4()}"
+    
+    # AI-Enhanced Summary Generation
+    # If anno_summary is just a truncated version of answer (or default), try to generate a better one
+    # Only if answer is long enough (> 50 chars) and source_type is user/ai
+    if len(data.get("answer", "")) > 50:
+        # Check if summary is "lazy" (i.e. starts with answer prefix)
+        current_summary = data.get("anno_summary", "")
+        answer_start = data.get("answer", "")[:20]
         
+        if not current_summary or current_summary.startswith(answer_start) or current_summary == "Note":
+             try:
+                 # Call AI Service to generate summary
+                 generated_summary = await ai_service.summarize_note(data["answer"])
+                 if generated_summary:
+                     data["anno_summary"] = generated_summary
+             except Exception as e:
+                 print(f"Failed to generate AI summary for note: {e}")
+
     storage.save_annotation(data)
     return data
 

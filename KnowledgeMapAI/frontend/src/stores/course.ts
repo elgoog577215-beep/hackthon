@@ -124,6 +124,7 @@ export const useCourseStore = defineStore('course', {
     activeAnnotation: null as Annotation | null,
     scrollToNodeId: null as string | null,
     focusNoteId: null as string | null,
+    pendingChatInput: '' as string, // For quoting text to chat
     userPersona: localStorage.getItem('user_persona') || '',
     chatLoading: false,
     
@@ -273,6 +274,11 @@ export const useCourseStore = defineStore('course', {
             this.focusNoteId = noteId
         }, 10)
     },
+
+    setPendingChatInput(text: string) {
+        this.pendingChatInput = text
+    },
+
     // --- Task Actions ---
     getTask(courseId: string) {
         return this.tasks.get(courseId)
@@ -1361,6 +1367,17 @@ export const useCourseStore = defineStore('course', {
         } finally {
             this.chatLoading = false
         }
+    },
+
+    async generateQuizFromSummary(summaryContent: string) {
+        if (!this.currentNode) return
+        
+        const prompt = `基于以下复盘内容生成测验：\n${summaryContent.slice(0, 2000)}`
+        
+        // Use existing addMessage to simulate user request, but clearer
+        this.addMessage('user', '请根据刚才的复盘内容，帮我出几道题巩固一下。')
+        
+        await this.askQuestion(prompt)
     },
 
     async redefineContent(node: Node, requirement: string) {
