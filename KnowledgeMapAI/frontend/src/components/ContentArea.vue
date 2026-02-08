@@ -258,77 +258,118 @@
         </div>
 
         <!-- Note Column (Desktop Only) - Responsive width -->
-        <div id="note-column" v-if="!courseStore.isFocusMode" class="hidden xl:flex flex-col w-[260px] 2xl:w-[280px] flex-shrink-0 relative bg-slate-50/50 transition-all duration-300 border-l border-white/50">
+        <div id="note-column" v-if="!courseStore.isFocusMode" class="hidden xl:flex flex-col w-[280px] 2xl:w-[320px] flex-shrink-0 relative bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50">
              <!-- Search Header (Floating Card) -->
-            <div class="sticky top-4 z-30 mx-3 mb-2 p-3 glass-panel-floating rounded-lg flex flex-col gap-3 transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
-                <div class="flex items-center justify-between px-1">
-                    <h3 class="text-sm font-black text-slate-800 tracking-tight flex items-center gap-2">
-                        <span class="w-1.5 h-4 bg-primary-500 rounded-full"></span>
-                        我的笔记
-                    </h3>
-                    <el-tooltip content="导出笔记" placement="bottom">
-                        <button class="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-slate-100 rounded-lg transition-all duration-300" @click="exportContent">
-                            <el-icon><Download /></el-icon>
+            <div class="sticky top-0 z-30 px-4 py-4 bg-white/90 backdrop-blur-xl border-b border-slate-200/60 flex flex-col gap-4">
+                <!-- Header Row -->
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-lg shadow-primary-500/25">
+                            <el-icon class="text-white" :size="16"><Notebook /></el-icon>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-slate-800">我的笔记</h3>
+                            <p class="text-[10px] text-slate-400">{{ noteCounts.notes }} 条笔记 · {{ noteCounts.mistakes }} 道错题</p>
+                        </div>
+                    </div>
+                    <el-dropdown trigger="click" placement="bottom-end">
+                        <button class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all duration-200">
+                            <el-icon :size="18"><More /></el-icon>
                         </button>
-                    </el-tooltip>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item @click="exportContent">
+                                    <el-icon class="mr-2"><Download /></el-icon>导出笔记
+                                </el-dropdown-item>
+                                <el-dropdown-item @click="exportMistakes" v-if="noteCounts.mistakes > 0">
+                                    <el-icon class="mr-2"><Document /></el-icon>导出错题
+                                </el-dropdown-item>
+                                <el-dropdown-item divided @click="clearAllFilters">
+                                    <el-icon class="mr-2"><RefreshLeft /></el-icon>重置筛选
+                                </el-dropdown-item>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
                 </div>
                 
-                <!-- Note Filters -->
-                <div class="relative flex bg-slate-200/40 p-1 rounded-xl select-none border border-white/20">
-                    <div class="absolute top-1 bottom-1 rounded-lg bg-white shadow-[0_2px_8px_rgba(0,0,0,0.08)] border border-white/60 transition-all duration-300 ease-out"
-                         :style="activeTabStyle"></div>
-                    <button v-for="tab in ['notes', 'mistakes', 'tags']" :key="tab"
-                        class="relative flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors z-10 text-center tracking-wide"
-                        :class="activeNoteFilter === tab ? 'text-slate-800' : 'text-slate-500 hover:text-slate-700'"
-                        @click="activeNoteFilter = tab"
+                <!-- Modern Tab Navigation -->
+                <div class="flex items-center gap-1 p-1 bg-slate-100/80 rounded-xl">
+                    <button v-for="tab in noteTabs" :key="tab.key"
+                        class="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium rounded-lg transition-all duration-200"
+                        :class="activeNoteFilter === tab.key 
+                            ? 'bg-white text-slate-800 shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'"
+                        @click="activeNoteFilter = tab.key"
                     >
-                        {{ tab === 'notes' ? `笔记 ${noteCounts.notes}` : tab === 'mistakes' ? `错题 ${noteCounts.mistakes}` : `标签 ${allTags.length}` }}
+                        <el-icon :size="14" :class="tab.color"><component :is="tab.icon" /></el-icon>
+                        <span>{{ tab.label }}</span>
+                        <span v-if="tab.count > 0" class="ml-0.5 px-1.5 py-0.5 text-[10px] rounded-full"
+                              :class="activeNoteFilter === tab.key ? 'bg-slate-100 text-slate-600' : 'bg-slate-200/50 text-slate-500'">
+                            {{ tab.count }}
+                        </span>
                     </button>
                 </div>
 
+                <!-- Search Bar with Icon -->
+                <div class="relative group">
+                    <div class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary-500 transition-colors">
+                        <el-icon :size="16"><Search /></el-icon>
+                    </div>
+                    <input 
+                        v-model="noteSearchQuery" 
+                        type="text"
+                        placeholder="搜索笔记内容..."
+                        class="w-full pl-10 pr-9 py-2.5 bg-slate-100/50 border border-transparent rounded-xl text-sm text-slate-700 placeholder:text-slate-400 focus:bg-white focus:border-primary-300 focus:ring-4 focus:ring-primary-500/10 transition-all duration-200 outline-none"
+                    >
+                    <div v-if="noteSearchQuery" @click="noteSearchQuery = ''" 
+                         class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full cursor-pointer transition-all">
+                        <el-icon :size="12"><Close /></el-icon>
+                    </div>
+                    <div v-else-if="isSearching" class="absolute right-3 top-1/2 -translate-y-1/2">
+                        <el-icon class="is-loading text-primary-500" :size="16"><Loading /></el-icon>
+                    </div>
+                </div>
+                
                 <!-- Tag Cloud View -->
-                <div v-if="activeNoteFilter === 'tags'" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto custom-scrollbar">
+                <div v-if="activeNoteFilter === 'tags'" class="flex flex-wrap gap-2 max-h-28 overflow-y-auto custom-scrollbar -mx-1 px-1">
                     <button
                         v-for="tag in allTags" :key="tag.name"
                         @click="toggleTagFilter(tag.name)"
-                        class="px-2 py-1 text-[10px] rounded-full transition-all duration-200 border"
+                        class="px-3 py-1.5 text-xs rounded-lg transition-all duration-200 border flex items-center gap-1.5"
                         :class="selectedTags.includes(tag.name) 
-                            ? 'bg-primary-100 text-primary-700 border-primary-200 shadow-sm' 
-                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'"
-                        :style="{ fontSize: tag.size + 'px' }"
+                            ? 'bg-primary-50 text-primary-700 border-primary-200 shadow-sm' 
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:shadow-sm'"
                     >
-                        {{ tag.name }} ({{ tag.count }})
+                        <el-icon :size="12" :class="selectedTags.includes(tag.name) ? 'text-primary-500' : 'text-slate-400'"><PriceTag /></el-icon>
+                        {{ tag.name }}
+                        <span class="text-[10px] opacity-60">{{ tag.count }}</span>
                     </button>
-                    <div v-if="allTags.length === 0" class="w-full text-center py-2 text-[10px] text-slate-400">
+                    <div v-if="allTags.length === 0" class="w-full text-center py-4 text-xs text-slate-400 bg-slate-50 rounded-lg">
+                        <el-icon class="mb-1 block" :size="20"><PriceTag /></el-icon>
                         暂无标签，为笔记添加标签进行分类
                     </div>
                 </div>
-
-                <el-input 
-                    v-model="noteSearchQuery" 
-                    placeholder="搜索笔记内容..." 
-                    :prefix-icon="Search" 
-                    size="small" 
-                    clearable 
-                    class="!w-full glass-input-clean"
-                >
-                    <template #suffix>
-                        <el-icon v-if="isSearching" class="is-loading text-primary-500"><Loading /></el-icon>
-                    </template>
-                </el-input>
                 
                 <!-- Active Filters Display -->
-                <div v-if="selectedTags.length > 0 || debouncedSearchQuery" class="flex flex-wrap gap-1">
-                    <span v-if="selectedTags.length > 0" class="text-[10px] text-slate-400">标签:</span>
-                    <span v-for="tag in selectedTags" :key="tag" 
-                          class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-primary-50 text-primary-600 text-[9px] rounded-full">
-                        {{ tag }}
-                        <button @click="toggleTagFilter(tag)" class="hover:text-primary-800">
-                            <el-icon :size="8"><Close /></el-icon>
-                        </button>
-                    </span>
-                    <span v-if="debouncedSearchQuery" class="text-[10px] text-slate-400 ml-auto">
-                        找到 {{ displayedNotes.length }} 条
+                <div v-if="selectedTags.length > 0 || debouncedSearchQuery" class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                    <span class="text-[10px] text-slate-400">筛选:</span>
+                    <div class="flex flex-wrap gap-1.5 flex-1">
+                        <span v-for="tag in selectedTags" :key="tag" 
+                              class="inline-flex items-center gap-1 px-2 py-1 bg-primary-50 text-primary-600 text-[11px] rounded-lg border border-primary-100">
+                            {{ tag }}
+                            <button @click="toggleTagFilter(tag)" class="hover:text-primary-800 w-4 h-4 flex items-center justify-center rounded hover:bg-primary-100 transition-colors">
+                                <el-icon :size="10"><Close /></el-icon>
+                            </button>
+                        </span>
+                        <span v-if="debouncedSearchQuery" class="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 text-[11px] rounded-lg">
+                            "{{ debouncedSearchQuery }}"
+                            <button @click="noteSearchQuery = ''" class="hover:text-slate-800 w-4 h-4 flex items-center justify-center rounded hover:bg-slate-200 transition-colors">
+                                <el-icon :size="10"><Close /></el-icon>
+                            </button>
+                        </span>
+                    </div>
+                    <span v-if="displayedNotes.length > 0" class="text-[10px] text-slate-400 whitespace-nowrap">
+                        {{ displayedNotes.length }} 条结果
                     </span>
                 </div>
             </div>
@@ -752,7 +793,7 @@
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { renderMarkdown } from '../utils/markdown'
-import { Download, MagicStick, VideoPlay, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowDown, ArrowUp, ChatDotRound, Position, ArrowRight, Loading } from '@element-plus/icons-vue'
+import { Download, MagicStick, VideoPlay, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowDown, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, PriceTag, DocumentChecked, Warning } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -771,6 +812,20 @@ const scrollProgress = ref(0)
 const lightboxVisible = ref(false)
 const lightboxImage = ref('')
 const selectedTags = ref<string[]>([])
+
+// Note tabs configuration
+const noteTabs = computed(() => [
+    { key: 'notes', label: '笔记', icon: Notebook, count: noteCounts.value.notes, color: 'text-primary-500' },
+    { key: 'mistakes', label: '错题', icon: Warning, count: noteCounts.value.mistakes, color: 'text-red-500' },
+    { key: 'tags', label: '标签', icon: PriceTag, count: allTags.value.length, color: 'text-amber-500' }
+])
+
+// Clear all filters
+const clearAllFilters = () => {
+    selectedTags.value = []
+    noteSearchQuery.value = ''
+    activeNoteFilter.value = 'notes'
+}
 
 // Tag filtering logic
 const allTags = computed(() => {
@@ -931,6 +986,89 @@ const exportContent = async () => {
             // Export as JSON
             courseStore.downloadNotes('json')
             ElMessage.success('笔记已导出为 JSON')
+        }
+    }
+}
+
+// Export mistakes
+const exportMistakes = async () => {
+    try {
+        await ElMessageBox.confirm(
+            '选择导出错题格式：',
+            '导出错题',
+            {
+                distinguishCancelAndClose: true,
+                confirmButtonText: 'Markdown',
+                cancelButtonText: 'JSON',
+                type: 'warning'
+            }
+        )
+        // Export as Markdown
+        const mistakes = courseStore.notes.filter((n: any) => n.sourceType === 'wrong' || n.content.includes('#错题'))
+        if (mistakes.length === 0) {
+            ElMessage.warning('暂无错题可导出')
+            return
+        }
+        
+        let markdown = '# 错题本\n\n'
+        markdown += `导出时间: ${dayjs().format('YYYY-MM-DD HH:mm')}\n\n`
+        markdown += `共 ${mistakes.length} 道错题\n\n---\n\n`
+        
+        mistakes.forEach((note: any, index: number) => {
+            markdown += `## 错题 ${index + 1}\n\n`
+            markdown += `**来源章节:** ${getNodeName(note.nodeId)}\n\n`
+            markdown += `**内容:**\n${note.content}\n\n`
+            if (note.quote) {
+                markdown += `**原文引用:**\n> ${note.quote}\n\n`
+            }
+            markdown += `**记录时间:** ${dayjs(note.createdAt).format('YYYY-MM-DD HH:mm')}\n\n`
+            markdown += '---\n\n'
+        })
+        
+        const blob = new Blob([markdown], { type: 'text/markdown' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `错题本_${dayjs().format('YYYYMMDD')}.md`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        
+        ElMessage.success('错题已导出为 Markdown')
+    } catch (action) {
+        if (action === 'cancel') {
+            // Export as JSON
+            const mistakes = courseStore.notes.filter((n: any) => n.sourceType === 'wrong' || n.content.includes('#错题'))
+            if (mistakes.length === 0) {
+                ElMessage.warning('暂无错题可导出')
+                return
+            }
+            
+            const data = {
+                exportTime: dayjs().format('YYYY-MM-DD HH:mm'),
+                totalMistakes: mistakes.length,
+                mistakes: mistakes.map((note: any) => ({
+                    id: note.id,
+                    nodeId: note.nodeId,
+                    nodeName: getNodeName(note.nodeId),
+                    content: note.content,
+                    quote: note.quote,
+                    createdAt: note.createdAt
+                }))
+            }
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `错题本_${dayjs().format('YYYYMMDD')}.json`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+            
+            ElMessage.success('错题已导出为 JSON')
         }
     }
 }
