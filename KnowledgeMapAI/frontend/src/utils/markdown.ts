@@ -1,5 +1,5 @@
 import MarkdownIt from 'markdown-it';
-import katex from 'katex';
+import markdownItKatex from 'markdown-it-katex';
 import mermaid from 'mermaid';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
@@ -13,164 +13,6 @@ mermaid.initialize({
     securityLevel: 'loose',
     fontFamily: 'ui-sans-serif, system-ui, sans-serif'
 });
-
-// Ported from markdown-it-katex to use local katex instance
-// License: MIT
-
-function isValidDelim(_state: any, _pos: number) {
-    var can_open = true,
-        can_close = true;
-
-    return {
-        can_open: can_open,
-        can_close: can_close
-    };
-}
-
-function math_inline(state: any, silent: boolean) {
-    var start, match, token, res, pos;
-
-    if (state.src[state.pos] !== "$") { return false; }
-
-    res = isValidDelim(state, state.pos);
-    if (!res.can_open) {
-        if (!silent) { state.pending += "$"; }
-        state.pos += 1;
-        return true;
-    }
-
-    start = state.pos + 1;
-    match = start;
-    while ( (match = state.src.indexOf("$", match)) !== -1) {
-        pos = match - 1;
-        while (state.src[pos] === "\\") { pos -= 1; }
-
-        // Even number of escapes, potential closing delimiter found
-        if ( ((match - pos) % 2) == 1 ) { break; }
-        match += 1;
-    }
-
-    if (match === -1) {
-        if (!silent) { state.pending += "$"; }
-        state.pos = start;
-        return true;
-    }
-
-    if (match - start === 0) {
-        if (!silent) { state.pending += "$$"; }
-        state.pos = start + 1;
-        return true;
-    }
-
-    res = isValidDelim(state, match);
-    if (!res.can_close) {
-        if (!silent) { state.pending += "$"; }
-        state.pos = start;
-        return true;
-    }
-
-    if (!silent) {
-        token         = state.push('math_inline', 'math', 0);
-        token.markup  = "$";
-        token.content = state.src.slice(start, match);
-    }
-
-    state.pos = match + 1;
-    return true;
-}
-
-function math_block(state: any, start: number, end: number, silent: boolean){
-    var firstLine, lastLine, next, lastPos, found = false, token,
-        pos = state.bMarks[start] + state.tShift[start],
-        max = state.eMarks[start]
-
-    if(pos + 2 > max){ return false; }
-    if(state.src.slice(pos,pos+2)!=='$$'){ return false; }
-
-    pos += 2;
-    firstLine = state.src.slice(pos,max);
-
-    if(silent){ return true; }
-    if(firstLine.trim().slice(-2)==='$$'){
-        // Single line expression
-        firstLine = firstLine.trim().slice(0, -2);
-        found = true;
-    }
-
-    for(next = start; !found; ){
-
-        next++;
-
-        if(next >= end){ break; }
-
-        pos = state.bMarks[next]+state.tShift[next];
-        max = state.eMarks[next];
-
-        if(pos < max && state.tShift[next] < state.blkIndent){
-            // non-empty line with negative indent should stop the list:
-            break;
-        }
-
-        if(state.src.slice(pos,max).trim().slice(-2)==='$$'){
-            lastPos = state.src.slice(0,max).lastIndexOf('$$');
-            lastLine = state.src.slice(pos,lastPos);
-            found = true;
-        }
-
-    }
-
-    state.line = next + 1;
-
-    token = state.push('math_block', 'math', 0);
-    token.block = true;
-    token.content = (firstLine && firstLine.trim() ? firstLine + '\n' : '')
-    + state.getLines(start + 1, next, state.tShift[start], true)
-    + (lastLine && lastLine.trim() ? lastLine : '');
-    token.map = [ start, state.line ];
-    token.markup = '$$';
-    return true;
-}
-
-function math_plugin(md: any, options: any) {
-    options = options || {};
-
-    var katexInline = function(latex: string){
-        options.displayMode = false;
-        try{
-            return katex.renderToString(latex, options);
-        }
-        catch(error){
-            if(options.throwOnError){ console.log(error); }
-            return latex;
-        }
-    };
-
-    var inlineRenderer = function(tokens: any, idx: number){
-        return katexInline(tokens[idx].content);
-    };
-
-    var katexBlock = function(latex: string){
-        options.displayMode = true;
-        try{
-            return "<p class='katex-block'>" + katex.renderToString(latex, options) + "</p>";
-        }
-        catch(error){
-            if(options.throwOnError){ console.log(error); }
-            return latex;
-        }
-    }
-
-    var blockRenderer = function(tokens: any, idx: number){
-        return  katexBlock(tokens[idx].content) + '\n';
-    }
-
-    md.inline.ruler.before('escape', 'math_inline', math_inline);
-    md.block.ruler.after('blockquote', 'math_block', math_block, {
-        alt: [ 'paragraph', 'reference', 'blockquote', 'list' ]
-    });
-    md.renderer.rules.math_inline = inlineRenderer;
-    md.renderer.rules.math_block = blockRenderer;
-};
 
 // Markdown Configuration
 const md = new MarkdownIt({
@@ -195,7 +37,11 @@ md.use(linkAttributes, {
   }
 });
 
-md.use(math_plugin);
+// Use standard katex plugin
+md.use(markdownItKatex, {
+    throwOnError: false,
+    errorColor: '#cc0000'
+});
 
 // Custom renderer for mermaid code blocks
 // @ts-ignore
@@ -203,11 +49,11 @@ const defaultFence = md.renderer.rules.fence || function(tokens: any, idx: numbe
   return self.renderToken(tokens, idx, options);
 };
 
-md.renderer.rules.fence = function(tokens: any, idx: number, options: any, env: any, self: any) {
+md.renderer.rules.fence = function(tokens: any, idx: number, options: any) {
   const token = tokens[idx];
   const info = token.info ? token.info.trim() : '';
   
-    if (info === 'mermaid') {
+  if (info === 'mermaid') {
     let code = token.content.trim();
     
     // Auto-fix 1: Ensure valid diagram type header
@@ -253,35 +99,82 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any, env: 
         return `{${quoteIfNeeded(p1)}}`;
     });
     
-    // Auto-fix 3: Replace Common invalid characters in IDs (if needed)
-    // This is harder to do safely with regex, so we skip for now unless specific errors arise.
-
     return `<div class="mermaid">${code}</div>`;
   }
   
-  return defaultFence(tokens, idx, options, env, self);
+  const langName = info.split(/\s+/g)[0];
+  let highlighted = '';
+  if (options.highlight) {
+    highlighted = options.highlight(token.content, langName, '') || '';
+  }
+  const code = highlighted || md.utils.escapeHtml(token.content);
+  const rawCode = encodeURIComponent(token.content);
+
+  return `<div class="relative group code-block-wrapper my-2 rounded-lg overflow-hidden border border-slate-200/50 shadow-sm bg-[#282c34]">
+            <div class="absolute top-2 right-2 flex items-center gap-2 z-10">
+                <span class="text-xs text-slate-400 font-mono opacity-0 group-hover:opacity-100 transition-opacity select-none">${langName}</span>
+                <button class="p-1.5 rounded-md bg-slate-700/50 hover:bg-slate-700 text-white/70 hover:text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all copy-btn" title="复制代码" data-code="${rawCode}">复制</button>
+            </div>
+            <pre class="hljs p-4 rounded-lg text-sm overflow-x-auto"><code>${code}</code></pre>
+          </div>`;
 };
+
+// Add image lazy loading support
+md.renderer.rules.image = function (tokens, idx, options, _env, self) {
+  const token = tokens[idx];
+  if (token) {
+    token.attrSet('loading', 'lazy');
+    token.attrSet('class', 'rounded-xl shadow-sm border border-slate-100 my-4 max-w-full h-auto');
+  }
+  return self.renderToken(tokens, idx, options);
+};
+
+// Memoization cache
+const markdownCache = new Map<string, string>()
 
 export const renderMarkdown = (content: string) => {
     if (!content) return '';
     
+    // Check cache
+    if (markdownCache.has(content)) {
+        return markdownCache.get(content) || ''
+    }
+
     // Normalize LaTeX delimiters for compatibility
     // Replace \[ ... \] with $$ ... $$
     let normalized = content.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$');
     // Replace \( ... \) with $ ... $
     normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
     
-    // Fix: Remove redundant escaping of brackets in text if not math
-    // Sometimes AI outputs \[Text\] for simple brackets. 
-    // If inside $$ it's fine, but outside it might be ugly.
-    // We trust markdown-it-math to handle $$ blocks.
+    // Fix spaces in inline math $ ... $ -> $...$ to ensure markdown-it-katex parses it
+    normalized = normalized.replace(/(\$\$[\s\S]*?\$\$)|(\$\s+(.+?)\s+\$)/g, (match, block, inline, content) => {
+        if (block) return block
+        if (inline) return `$${content}$`
+        return match
+    })
+    // Fix non-standard prime notation
+    normalized = normalized.replace(/(\w+)'\s+\((.+?)\)/g, "$1'($2)")
+    normalized = normalized.replace(/(\w+)\s+'/g, "$1'")
+    // Fix trailing dollar sign issue
+    normalized = normalized.replace(/(\$\$[\s\S]*?)[^$]\$$/gm, "$1$$")
+
+    let sanitized = ''
+    try {
+        const rawHtml = md.render(normalized);
+        sanitized = DOMPurify.sanitize(rawHtml, {
+            ADD_TAGS: ['iframe', 'span', 'div', 'p', 'button', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtable', 'mtr', 'mtd'],
+            ADD_ATTR: ['allow', 'allowfullscreen', 'frameborder', 'scrolling', 'target', 'class', 'style', 'xmlns', 'display', 'mathvariant', 'loading', 'data-code', 'title']
+        });
+    } catch (e) {
+        sanitized = DOMPurify.sanitize(normalized)
+    }
+
+    // Cache result (limit cache size)
+    if (markdownCache.size > 500) {
+        const firstKey = markdownCache.keys().next().value
+        if (firstKey) markdownCache.delete(firstKey)
+    }
+    markdownCache.set(content, sanitized)
     
-    // Render markdown to HTML
-    const rawHtml = md.render(normalized);
-    
-    // Sanitize HTML
-    return DOMPurify.sanitize(rawHtml, {
-        ADD_TAGS: ['iframe'], // Allow iframes if needed (e.g. video embeds), be careful
-        ADD_ATTR: ['allow', 'allowfullscreen', 'frameborder', 'scrolling', 'target']
-    });
+    return sanitized;
 };

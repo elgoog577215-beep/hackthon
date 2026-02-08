@@ -1,12 +1,12 @@
 <template>
   <transition name="slide-up">
-    <div v-if="visible" class="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-3xl z-50 flex flex-col font-sans">
+    <div v-if="visible" class="fixed bottom-5 left-1/2 -translate-x-1/2 w-[92%] max-w-4xl z-50 flex flex-col font-sans">
       
       <!-- Playlist Panel -->
       <transition name="expand">
-        <div v-if="showDetails" class="glass-panel-tech mb-4 !rounded-2xl !bg-white/80 flex flex-col max-h-[400px]">
+        <div v-if="showDetails" class="glass-panel-tech mb-3 !rounded-2xl !bg-white/85 flex flex-col max-h-[360px]">
             <!-- Header -->
-            <div class="flex items-center px-5 py-3 border-b border-white/20 bg-gradient-to-r from-primary-50/50 to-primary-50/50">
+            <div class="flex items-center px-4 py-2.5 border-b border-white/30 bg-gradient-to-r from-primary-50/60 to-primary-50/40">
                 <div class="flex items-center gap-2">
                     <el-icon class="text-primary-500"><List /></el-icon>
                     <span class="text-xs font-bold text-slate-600 uppercase tracking-wider">Generation Queue</span>
@@ -21,15 +21,32 @@
                 </div>
             </div>
             
-            <!-- Queue List -->
-            <div class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+            <div class="px-4 py-2.5 border-b border-white/20">
+                <div class="text-xxs font-bold text-slate-500 uppercase tracking-wider mb-2">Status Overview</div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div v-for="item in meta" :key="item.label" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xxs font-semibold"
+                         :class="{
+                            'bg-primary-50 border-primary-100 text-primary-700': item.tone === 'primary',
+                            'bg-emerald-50 border-emerald-100 text-emerald-700': item.tone === 'success',
+                            'bg-amber-50 border-amber-100 text-amber-700': item.tone === 'warning',
+                            'bg-red-50 border-red-100 text-red-700': item.tone === 'danger',
+                            'bg-slate-50 border-slate-100 text-slate-600': !item.tone || item.tone === 'muted'
+                         }"
+                    >
+                        <span class="truncate">{{ item.label }}</span>
+                        <span class="ml-2 text-slate-500 truncate">{{ item.value }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5">
                 <div v-if="queue.length === 0" class="flex flex-col items-center justify-center h-32 text-slate-400 gap-2">
                     <el-icon class="text-2xl opacity-50"><FolderChecked /></el-icon>
                     <span class="text-xs">Queue is empty</span>
                 </div>
                 
                 <div v-for="(item, idx) in queue" :key="item.uuid" 
-                     class="group flex items-center gap-3 p-2.5 rounded-xl transition-all border border-transparent relative overflow-hidden"
+                     class="group flex items-center gap-3 p-2 rounded-xl transition-all border border-transparent relative overflow-hidden"
                      :class="[
                         item.status === 'running' ? 'bg-primary-50/80 border-primary-100' : 'hover:bg-white/60',
                         item.status === 'completed' ? 'opacity-70 grayscale-[0.5]' : '',
@@ -40,7 +57,7 @@
                     <div v-if="item.status === 'running'" class="absolute left-0 top-0 bottom-0 w-1 bg-primary-500"></div>
 
                     <!-- Status Icon -->
-                    <div class="w-8 h-8 flex items-center justify-center rounded-lg shrink-0 text-sm transition-colors"
+                    <div class="w-7 h-7 flex items-center justify-center rounded-lg shrink-0 text-sm transition-colors"
                          :class="{
                              'bg-emerald-100 text-emerald-600': item.status === 'completed',
                              'bg-primary-500 text-white shadow-md shadow-primary-500/30': item.status === 'running',
@@ -78,17 +95,17 @@
       </transition>
 
       <!-- Main Player Bar -->
-      <div class="glass-noise h-[72px] bg-white/75 backdrop-blur-3xl rounded-3xl border border-white/60 shadow-[0_8px_30px_rgba(0,0,0,0.08)] flex items-center px-2 pr-6 relative overflow-visible group hover:bg-white/85 transition-all z-50 select-none">
+      <div class="glass-noise h-[64px] bg-white/80 backdrop-blur-3xl rounded-2xl border border-white/60 shadow-[0_6px_24px_rgba(0,0,0,0.08)] flex items-center px-2 pr-4 relative overflow-visible group hover:bg-white/90 transition-all z-50 select-none">
         
         <!-- Glow Effect -->
         <div v-if="status === 'generating'" class="absolute inset-0 rounded-3xl ring-2 ring-primary-500/20 animate-pulse pointer-events-none"></div>
 
         <!-- Album Art / Progress Circle -->
-        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white shadow-lg shadow-primary-500/30 ml-2 relative overflow-hidden shrink-0 group-hover:scale-105 transition-transform duration-300">
+        <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white shadow-lg shadow-primary-500/30 ml-2 relative overflow-hidden shrink-0 group-hover:scale-105 transition-transform duration-300">
             <div v-if="status === 'generating'" class="absolute inset-0 bg-white/20 animate-pulse"></div>
             
             <!-- Center Icon -->
-            <el-icon class="text-2xl relative z-10" :class="{'animate-spin': status === 'generating'}"><Loading /></el-icon>
+            <el-icon class="text-xl relative z-10" :class="{'animate-spin': status === 'generating'}"><Loading /></el-icon>
             
             <!-- Circular Progress -->
             <svg class="absolute inset-0 w-full h-full -rotate-90 pointer-events-none z-0" viewBox="0 0 100 100">
@@ -98,13 +115,14 @@
         </div>
 
         <!-- Info Area -->
-        <div class="flex-1 ml-4 min-w-0 flex flex-col justify-center h-full py-2">
+        <div class="flex-1 ml-4 min-w-0 flex flex-col justify-center h-full py-1">
              <div class="flex items-center gap-2 mb-0.5">
                  <span class="px-2 py-0.5 rounded-full text-xxs font-black uppercase tracking-widest shadow-sm border"
                     :class="{
                         'bg-primary-500 border-primary-400 text-white': status === 'generating',
                         'bg-amber-400 border-amber-300 text-white': status === 'paused',
-                        'bg-slate-100 border-slate-200 text-slate-500': status === 'idle'
+                        'bg-slate-100 border-slate-200 text-slate-500': status === 'idle',
+                        'bg-red-500 border-red-400 text-white': status === 'error'
                     }"
                  >
                      {{ status === 'generating' ? 'PLAYING' : status }}
@@ -115,15 +133,16 @@
              <div class="flex items-center">
                  <div class="text-sm font-bold text-slate-800 truncate">{{ currentTask || 'Waiting for tasks...' }}</div>
              </div>
+             <div v-if="hint" class="text-xxs text-slate-500 truncate mt-0.5">{{ hint }}</div>
              
              <!-- Mini Linear Progress -->
-             <div class="mt-1.5 h-1 bg-slate-200/60 rounded-full overflow-hidden w-full max-w-60">
+             <div class="mt-1 h-1 bg-slate-200/60 rounded-full overflow-hidden w-full max-w-56">
                  <div class="h-full bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-300" :style="{ width: progress + '%' }"></div>
              </div>
         </div>
 
         <!-- Controls -->
-        <div class="flex items-center gap-3 ml-4">
+        <div class="flex items-center gap-2 ml-4">
             <div class="h-8 w-px bg-slate-200 mx-1"></div>
             
             <button @click="toggleDetails" 
@@ -162,15 +181,17 @@ interface QueueItem {
 const props = defineProps<{
   visible: boolean
   currentTask: string | null
-  logs: string[] // Kept for compatibility but we prioritize queue
+  logs: string[]
   queue: QueueItem[]
   progress: number
   status: 'idle' | 'generating' | 'paused' | 'error'
+  meta: { label: string; value: string; tone?: 'primary' | 'success' | 'warning' | 'danger' | 'muted' }[]
+  hint?: string | null
 }>()
 
 defineEmits(['close'])
 
-const showDetails = ref(true) // Default open if active? Or closed.
+const showDetails = ref(false)
 const toggleDetails = () => {
     showDetails.value = !showDetails.value
 }

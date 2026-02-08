@@ -1,7 +1,7 @@
 <template>
   <div class="h-full flex flex-col relative overflow-hidden">
     <!-- Header -->
-    <div class="m-2 lg:m-4 mb-2 p-3 lg:p-4 z-20 relative flex items-center justify-between gap-3 glass-panel rounded-2xl">
+    <div class="mx-4 mt-4 mb-2 h-16 px-4 z-20 relative flex items-center justify-between gap-3 glass-panel-tech-floating rounded-2xl">
         <div class="absolute inset-0 bg-gradient-to-r from-primary-50/30 to-primary-50/30 pointer-events-none rounded-2xl"></div>
         <div class="relative flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-lg shadow-primary-500/30 text-white animate-pulse-slow">
@@ -126,10 +126,10 @@
     </el-dialog>
     
     <!-- Output Area -->
-    <div class="flex-1 m-4 my-2 overflow-hidden relative glass-panel rounded-2xl flex flex-col">
-        <div class="flex-1 overflow-auto p-5 space-y-6 custom-scrollbar relative scroll-smooth" ref="chatContainer" @click="handleChatClick">
-            <!-- Background Pattern -->
-            <div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: radial-gradient(var(--el-color-primary) 1px, transparent 1px); background-size: 24px 24px;"></div>
+    <div class="flex-1 m-4 my-2 overflow-hidden relative glass-panel-tech-content rounded-3xl flex flex-col shadow-[inset_0_0_20px_rgba(255,255,255,0.5)] border border-white/60">
+        <div class="flex-1 overflow-auto p-5 space-y-6 custom-scrollbar relative scroll-smooth pb-32" ref="chatContainer" @click="handleChatClick">
+            <!-- Background Pattern (Cleaned) -->
+            <!-- <div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: radial-gradient(var(--el-color-primary) 1px, transparent 1px); background-size: 24px 24px;"></div> -->
 
             <!-- Empty States -->
             <div v-if="courseStore.chatHistory.length === 0" class="flex flex-col items-center justify-center mt-10 text-gray-400 opacity-80 animate-in fade-in zoom-in duration-500">
@@ -169,7 +169,7 @@
                         : 'bg-white/80 border border-white/60 !rounded-tl-sm self-start hover:bg-white/90 transition-all shadow-[0_4px_20px_-4px_rgba(148,163,184,0.1)] hover:shadow-[0_8px_25px_-5px_rgba(148,163,184,0.15)]']">
                     
                     <!-- Noise Texture Overlay for subtle detail -->
-                    <div class="absolute inset-0 opacity-[0.1] pointer-events-none mix-blend-overlay bg-[url('data:image/svg+xml,%3Csvg%20viewBox=%220%200%20200%20200%22%20xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter%20id=%22noise%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%220.8%22%20numOctaves=%223%22%20stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect%20width=%22100%25%22%20height=%22100%25%22%20filter=%22url(%23noise)%22%20opacity=%221%22/%3E%3C/svg%3E')]"></div>
+                    <!-- <div class="absolute inset-0 opacity-[0.1] pointer-events-none mix-blend-overlay bg-[url('data:image/svg+xml,%3Csvg%20viewBox=%220%200%20200%20200%22%20xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter%20id=%22noise%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%220.8%22%20numOctaves=%223%22%20stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect%20width=%22100%25%22%20height=%22100%25%22%20filter=%22url(%23noise)%22%20opacity=%221%22/%3E%3C/svg%3E')]"></div> -->
 
                     <!-- Shimmer for AI messages -->
                     <div v-if="msg.type === 'ai'" class="absolute inset-0 bg-gradient-to-r from-transparent via-white/60 to-transparent w-1/2 -skew-x-12 translate-x-[-200%] animate-[shimmer_4s_infinite] pointer-events-none"></div>
@@ -199,7 +199,7 @@
                                     <template #reference>
                                         <button 
                                             class="flex items-center gap-1 text-slate-400 hover:text-primary-600 transition-colors px-2 py-1 rounded hover:bg-primary-50"
-                                            @click="msg.content.anno_id ? courseStore.scrollToNote(msg.content.anno_id) : courseStore.scrollToNode(msg.content.node_id)"
+                                            @click="scrollToSource(msg.content)"
                                         >
                                             <el-icon><Location /></el-icon>
                                             <span class="scale-90">原文</span>
@@ -219,7 +219,7 @@
                                 <button 
                                     v-else-if="msg.content.node_id || msg.content.anno_id"
                                     class="flex items-center gap-1 text-slate-400 hover:text-primary-600 transition-colors px-2 py-1 rounded hover:bg-primary-50"
-                                    @click="msg.content.anno_id ? courseStore.scrollToNote(msg.content.anno_id) : courseStore.scrollToNode(msg.content.node_id)"
+                                    @click="scrollToSource(msg.content)"
                                     title="定位到原文"
                                 >
                                     <el-icon><Location /></el-icon>
@@ -228,7 +228,7 @@
 
                                 <button 
                                     class="flex items-center gap-1 text-slate-400 hover:text-primary-600 transition-colors px-2 py-1 rounded hover:bg-primary-50"
-                                    @click="handleSaveAsNote(msg.content.core_answer || msg.content.answer, 'ai', { ...msg, idx })"
+                                    @click="handleSaveAsNote(getMessageText(msg.content), { ...msg, idx })"
                                     title="保存为笔记"
                                 >
                                     <el-icon><DocumentAdd /></el-icon>
@@ -239,81 +239,78 @@
                         <div v-if="msg.content.answer" class="prose prose-sm prose-slate mb-3 leading-relaxed">
                             <div v-html="renderMarkdown(msg.content.answer)"></div>
                         </div>
-                        <div v-if="msg.content.quiz" class="mt-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm select-none">
-                            <!-- Question Header -->
-                            <div class="flex items-start gap-3 mb-3">
-                                <div class="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center font-bold text-sm shrink-0">
-                                    Q
+                        <div v-if="getQuizList(msg.content).length > 0" class="mt-3 space-y-4 select-none">
+                            <div v-for="(quiz, qIdx) in getQuizList(msg.content)" :key="qIdx" class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                                <div class="flex items-start gap-3 mb-3">
+                                    <div class="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center font-bold text-sm shrink-0">
+                                        Q
+                                    </div>
+                                    <div class="text-slate-800 font-bold leading-relaxed pt-1">{{ quiz.question }}</div>
                                 </div>
-                                <div class="text-slate-800 font-bold leading-relaxed pt-1">{{ msg.content.quiz.question }}</div>
-                            </div>
 
-                            <!-- Options -->
-                            <div class="space-y-2 pl-11">
-                                <button 
-                                    v-for="(opt, oIdx) in msg.content.quiz.options" 
-                                    :key="oIdx"
-                                    class="w-full text-left p-3 rounded-xl border transition-all relative group"
-                                    :class="getOptionClass(idx, oIdx, msg.content.quiz)"
-                                    @click="handleOptionClick(idx, oIdx, msg.content.quiz)"
-                                    :disabled="isQuizSubmitted(idx)"
-                                >
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold transition-colors shrink-0"
-                                            :class="getOptionBadgeClass(idx, oIdx, msg.content.quiz)">
-                                            {{ getOptionLabel(oIdx) }}
+                                <div class="space-y-2 pl-11">
+                                    <button 
+                                        v-for="(opt, oIdx) in quiz.options" 
+                                        :key="oIdx"
+                                        class="w-full text-left p-3 rounded-xl border transition-all relative group"
+                                        :class="getOptionClass(idx, qIdx, oIdx, quiz)"
+                                        @click="handleOptionClick(idx, qIdx, oIdx)"
+                                        :disabled="isQuizSubmitted(idx, qIdx)"
+                                    >
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold transition-colors shrink-0"
+                                                :class="getOptionBadgeClass(idx, qIdx, oIdx, quiz)">
+                                                {{ getOptionLabel(oIdx) }}
+                                            </div>
+                                            <span class="text-sm font-medium">{{ opt }}</span>
                                         </div>
-                                        <span class="text-sm font-medium">{{ opt }}</span>
-                                    </div>
-                                    
-                                    <!-- Result Icon -->
-                                    <div v-if="isQuizSubmitted(idx)" class="absolute right-3 top-1/2 -translate-y-1/2">
-                                        <el-icon v-if="oIdx === msg.content.quiz.correct_index" class="text-emerald-500 text-lg"><CircleCheckFilled /></el-icon>
-                                        <el-icon v-else-if="getQuizState(idx).selected === oIdx" class="text-red-500 text-lg"><CircleCloseFilled /></el-icon>
-                                    </div>
-                                </button>
-                            </div>
-
-                            <!-- Explanation & Actions -->
-                            <div v-if="isQuizSubmitted(idx)" class="mt-4 pl-11 animate-in fade-in slide-in-from-top-2">
-                                <div class="bg-slate-50 rounded-xl p-3 border border-slate-100 mb-3">
-                                    <div class="text-xs font-bold text-slate-500 uppercase mb-1">解析</div>
-                                    <div class="text-sm text-slate-600 leading-relaxed">{{ msg.content.quiz.explanation }}</div>
+                                        
+                                        <div v-if="isQuizSubmitted(idx, qIdx)" class="absolute right-3 top-1/2 -translate-y-1/2">
+                                            <el-icon v-if="oIdx === quiz.correct_index" class="text-emerald-500 text-lg"><CircleCheckFilled /></el-icon>
+                                            <el-icon v-else-if="getQuizState(idx, qIdx).selected === oIdx" class="text-red-500 text-lg"><CircleCloseFilled /></el-icon>
+                                        </div>
+                                    </button>
                                 </div>
-                                
-                                <!-- Actions -->
-                                <div class="flex gap-2 mt-3 flex-wrap">
-                                    <button 
-                                        v-if="msg.content.quiz.node_id"
-                                        class="flex items-center gap-2 text-xs font-bold text-primary-600 bg-primary-50 hover:bg-primary-100 px-3 py-2 rounded-lg transition-colors border border-primary-200"
-                                        @click="courseStore.scrollToNode(msg.content.quiz.node_id)"
-                                    >
-                                        <el-icon><Reading /></el-icon>
-                                        <span>回顾知识点</span>
-                                    </button>
 
-                                    <button 
-                                        v-if="getQuizState(idx).selected !== msg.content.quiz.correct_index"
-                                        class="flex items-center gap-2 text-xs font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 px-3 py-2 rounded-lg transition-colors border border-amber-200"
-                                        @click="saveWrongQuestion(msg.content.quiz, idx)"
-                                    >
-                                        <el-icon><Notebook /></el-icon>
-                                        <span>加入错题本</span>
-                                    </button>
+                                <div v-if="isQuizSubmitted(idx, qIdx)" class="mt-4 pl-11 animate-in fade-in slide-in-from-top-2">
+                                    <div class="bg-slate-50 rounded-xl p-3 border border-slate-100 mb-3">
+                                        <div class="text-xs font-bold text-slate-500 uppercase mb-1">解析</div>
+                                        <div class="text-sm text-slate-600 leading-relaxed">{{ quiz.explanation }}</div>
+                                    </div>
                                     
-                                    <button 
-                                        class="flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-primary-600 bg-white hover:bg-slate-50 px-3 py-2 rounded-lg transition-colors border border-slate-200 shadow-sm"
-                                        @click="resetQuiz(idx)"
-                                    >
-                                        <el-icon><RefreshRight /></el-icon>
-                                        <span>重试</span>
-                                    </button>
+                                    <div class="flex gap-2 mt-3 flex-wrap">
+                                        <button 
+                                            v-if="quiz.node_id"
+                                            class="flex items-center gap-2 text-xs font-bold text-primary-600 bg-primary-50 hover:bg-primary-100 px-3 py-2 rounded-lg transition-colors border border-primary-200"
+                                            @click="courseStore.scrollToNode(quiz.node_id)"
+                                        >
+                                            <el-icon><Reading /></el-icon>
+                                            <span>回顾知识点</span>
+                                        </button>
+
+                                        <button 
+                                            v-if="getQuizState(idx, qIdx).selected !== quiz.correct_index"
+                                            class="flex items-center gap-2 text-xs font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 px-3 py-2 rounded-lg transition-colors border border-amber-200"
+                                            @click="saveWrongQuestion(quiz, idx, qIdx)"
+                                        >
+                                            <el-icon><Notebook /></el-icon>
+                                            <span>加入错题本</span>
+                                        </button>
+                                        
+                                        <button 
+                                            class="flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-primary-600 bg-white hover:bg-slate-50 px-3 py-2 rounded-lg transition-colors border border-slate-200 shadow-sm"
+                                            @click="resetQuiz(idx, qIdx)"
+                                        >
+                                            <el-icon><RefreshRight /></el-icon>
+                                            <span>重试</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div v-else class="relative z-10 leading-relaxed whitespace-pre-wrap font-medium" :class="msg.type === 'user' ? 'text-white' : 'text-slate-700'">
-                        <div v-if="msg.type === 'ai'" v-html="renderMarkdown(msg.content)"></div>
+                        <div v-if="msg.type === 'ai'" v-html="renderMarkdown(getMessageText(msg.content))"></div>
                         <span v-else>{{ msg.content }}</span>
                     </div>
                 </div>
@@ -325,29 +322,32 @@
             </div>
         </div>
         
-        <!-- Floating Input Area -->
-        <div class="p-4 pt-2 bg-gradient-to-t from-white/80 to-transparent backdrop-blur-sm relative z-20">
-            <div class="relative group shadow-lg shadow-primary-500/5 rounded-2xl bg-white border border-slate-200 focus-within:border-primary-400 focus-within:ring-4 focus-within:ring-primary-500/10 transition-all duration-300">
+        <!-- Floating Input Area (Dock Style) -->
+        <div class="absolute bottom-6 left-6 right-6 z-30">
+            <div class="relative group bg-white/80 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.08)] rounded-[2rem] border border-white/60 hover:border-primary-200 hover:shadow-[0_12px_40px_rgba(139,92,246,0.15)] transition-all duration-300 ring-1 ring-white/50">
                 <textarea
                     ref="inputRef"
                     v-model="inputMessage"
-                    class="w-full bg-transparent border-none rounded-2xl px-4 py-3 pr-12 text-sm focus:ring-0 resize-none h-[52px] max-h-[120px] custom-scrollbar placeholder:text-slate-400 text-slate-700"
-                    placeholder="输入问题，Ctrl + Enter 发送..."
+                    class="w-full bg-transparent border-none rounded-[2rem] px-6 py-4 pr-14 text-sm focus:ring-0 resize-none h-[60px] max-h-[200px] custom-scrollbar placeholder:text-slate-400 text-slate-700 font-medium leading-relaxed"
+                    placeholder="输入问题，与 AI 探索知识 (Ctrl + Enter 发送)..."
                     @keydown="handleKeydown"
+                    @input="adjustTextareaHeight"
                 ></textarea>
                 
                 <button 
-                    class="absolute right-2 bottom-2 p-2 rounded-xl transition-all duration-300 flex items-center justify-center"
-                    :class="inputMessage.trim() ? 'bg-primary-600 text-white shadow-md shadow-primary-500/30 hover:scale-105 active:scale-95' : 'bg-slate-100 text-slate-400 cursor-not-allowed'"
-                    @click="sendMessage"
-                    :disabled="!inputMessage.trim() || courseStore.chatLoading"
+                    class="absolute right-2 bottom-2 w-11 h-11 rounded-full transition-all duration-300 flex items-center justify-center group/btn"
+                    :class="courseStore.chatLoading
+                        ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 hover:scale-110 active:scale-95'
+                        : (inputMessage.trim() ? 'bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:scale-110 active:scale-95' : 'bg-slate-100 text-slate-300 cursor-not-allowed')"
+                    @click="courseStore.chatLoading ? stopMessage() : sendMessage()"
+                    :disabled="!courseStore.chatLoading && !inputMessage.trim()"
                 >
-                    <el-icon v-if="courseStore.chatLoading" class="is-loading"><Loading /></el-icon>
-                    <el-icon v-else :size="18"><Position /></el-icon>
+                    <el-icon v-if="courseStore.chatLoading" :size="18"><CircleCloseFilled /></el-icon>
+                    <el-icon v-else :size="20" class="group-hover/btn:-translate-y-0.5 group-hover/btn:translate-x-0.5 transition-transform"><Position /></el-icon>
                 </button>
             </div>
-            <div class="text-center mt-2">
-                <span class="text-[10px] text-slate-400 font-medium bg-white/50 px-2 py-0.5 rounded-full border border-slate-100">AI 内容由大模型生成，请仔细甄别</span>
+            <div class="text-center mt-3">
+                <span class="text-[10px] text-slate-400 font-medium bg-white/40 backdrop-blur px-3 py-1 rounded-full border border-white/30 shadow-sm">AI 内容由大模型生成，请仔细甄别</span>
             </div>
         </div>
     </div>
@@ -357,7 +357,8 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
-import { ChatDotRound, Position, Loading, MagicStick, Setting, Delete, QuestionFilled, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight } from '@element-plus/icons-vue'
+import type { AIContent } from '../stores/course'
+import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight } from '@element-plus/icons-vue'
 import MarkdownIt from 'markdown-it'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
@@ -371,6 +372,20 @@ const inputMessage = ref('')
 const chatContainer = ref<HTMLElement | null>(null)
 const personaDialogVisible = ref(false)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
+
+const adjustTextareaHeight = () => {
+    if (inputRef.value) {
+        inputRef.value.style.height = '60px' // Reset to min height to calculate scrollHeight correctly
+        const scrollHeight = inputRef.value.scrollHeight
+        inputRef.value.style.height = `${Math.min(Math.max(scrollHeight, 60), 200)}px`
+    }
+}
+
+watch(inputMessage, () => {
+    nextTick(() => {
+        adjustTextareaHeight()
+    })
+})
 
 // Summary Dialog State
 const summaryDialogVisible = ref(false)
@@ -457,35 +472,57 @@ ${summaryContent.value}
 // Helper to get option label (A, B, C...)
 const getOptionLabel = (index: number) => String.fromCharCode(65 + index)
 
-// Quiz State Management
-const quizStates = reactive<Record<number, { selected: number | null }>>({})
+const getMessageText = (content: string | AIContent) => {
+    if (typeof content === 'string') return content
+    return content.core_answer || content.answer || ''
+}
 
-const getQuizState = (idx: number) => {
-    if (!quizStates[idx]) {
-        quizStates[idx] = { selected: null }
+const getQuizList = (content: AIContent) => {
+    if (content.quiz_list && content.quiz_list.length > 0) return content.quiz_list
+    if (content.quiz) return [content.quiz]
+    return []
+}
+
+const scrollToSource = (content: AIContent) => {
+    if (content.anno_id) {
+        courseStore.scrollToNote(content.anno_id)
+        return
     }
-    return quizStates[idx]
+    if (content.node_id) {
+        courseStore.scrollToNode(content.node_id)
+    }
 }
 
-const isQuizSubmitted = (msgIdx: number) => {
-    return getQuizState(msgIdx).selected !== null
+// Quiz State Management
+const quizStates = reactive<Record<string, { selected: number | null }>>({})
+const getQuizKey = (msgIdx: number, quizIdx: number) => `${msgIdx}-${quizIdx}`
+
+const getQuizState = (msgIdx: number, quizIdx: number) => {
+    const key = getQuizKey(msgIdx, quizIdx)
+    if (!quizStates[key]) {
+        quizStates[key] = { selected: null }
+    }
+    return quizStates[key]
 }
 
-const resetQuiz = (idx: number) => {
-    const state = getQuizState(idx)
+const isQuizSubmitted = (msgIdx: number, quizIdx: number) => {
+    return getQuizState(msgIdx, quizIdx).selected !== null
+}
+
+const resetQuiz = (msgIdx: number, quizIdx: number) => {
+    const state = getQuizState(msgIdx, quizIdx)
     state.selected = null
 }
 
-const handleOptionClick = (msgIdx: number, optIdx: number, quiz: any) => {
-    const state = getQuizState(msgIdx)
+const handleOptionClick = (msgIdx: number, quizIdx: number, optIdx: number) => {
+    const state = getQuizState(msgIdx, quizIdx)
     if (state.selected !== null) return
     
     state.selected = optIdx
-    // Optional: could add sound or immediate feedback toast here
 }
 
-const getOptionClass = (msgIdx: number, optIdx: number, quiz: any) => {
-    const state = getQuizState(msgIdx)
+const getOptionClass = (msgIdx: number, quizIdx: number, optIdx: number, quiz: any) => {
+    const state = getQuizState(msgIdx, quizIdx)
     const isSelected = state.selected === optIdx
     const isCorrect = quiz.correct_index === optIdx
     const isSubmitted = state.selected !== null
@@ -508,8 +545,8 @@ const getOptionClass = (msgIdx: number, optIdx: number, quiz: any) => {
     return 'border-slate-100 text-slate-400 opacity-60'
 }
 
-const getOptionBadgeClass = (msgIdx: number, optIdx: number, quiz: any) => {
-    const state = getQuizState(msgIdx)
+const getOptionBadgeClass = (msgIdx: number, quizIdx: number, optIdx: number, quiz: any) => {
+    const state = getQuizState(msgIdx, quizIdx)
     const isSelected = state.selected === optIdx
     const isCorrect = quiz.correct_index === optIdx
     const isSubmitted = state.selected !== null
@@ -531,18 +568,20 @@ const getOptionBadgeClass = (msgIdx: number, optIdx: number, quiz: any) => {
     return 'border-slate-200 text-slate-300'
 }
 
-const saveWrongQuestion = async (quiz: any, idx: number) => {
+const saveWrongQuestion = async (quiz: any, msgIdx: number, quizIdx: number) => {
     // 1. Prompt for Reflection
     try {
-        const { value: reflection } = await ElMessageBox.prompt('请简要分析错误原因（这将帮助你更好地避坑）：', '错题反思', {
+        const result = await ElMessageBox.prompt('请简要分析错误原因（这将帮助你更好地避坑）：', '错题反思', {
             confirmButtonText: '保存',
             cancelButtonText: '取消',
             inputPlaceholder: '例如：概念混淆、粗心大意、公式记错...',
             inputType: 'textarea',
         })
+        const reflection = typeof result === 'string' ? result : (result as { value?: string }).value
         
         if (reflection) {
-             const state = getQuizState(idx)
+             const state = getQuizState(msgIdx, quizIdx)
+             if (state.selected === null) return
              const wrongOpt = quiz.options[state.selected]
              const correctOpt = quiz.options[quiz.correct_index]
              
@@ -565,12 +604,12 @@ const saveWrongQuestion = async (quiz: any, idx: number) => {
     }
 }
 
-const handleSaveAsNote = async (content: string, type: string = 'text', msg?: any) => {
+const handleSaveAsNote = async (content: string, msg?: any) => {
     if (!content) return
     
     // Use injected nodeId from msg, or fallback to current node or first node
     const nodeId = msg?.content?.node_id || msg?.node_id
-    const targetNodeId = nodeId || courseStore.currentNode?.node_id || (courseStore.nodes.length > 0 ? courseStore.nodes[0].node_id : '')
+    const targetNodeId = nodeId || courseStore.currentNode?.node_id || courseStore.nodes?.[0]?.node_id || ''
     
     if (!targetNodeId) {
         ElMessage.warning('无法关联章节，请先生成课程内容')
@@ -587,7 +626,7 @@ const handleSaveAsNote = async (content: string, type: string = 'text', msg?: an
             let question = '提问'
             if (msg.idx && msg.idx > 0) {
                 const prevMsg = courseStore.chatHistory[msg.idx - 1]
-                if (prevMsg.type === 'user') {
+                if (prevMsg && prevMsg.type === 'user') {
                     question = typeof prevMsg.content === 'string' ? prevMsg.content : ''
                 }
             }
@@ -664,8 +703,7 @@ const customMathPlugin = (md: MarkdownIt) => {
 
     // Block math $$...$$
     md.block.ruler.after('blockquote', 'math_block', (state, startLine, endLine, silent) => {
-        const startPos = state.bMarks[startLine] + state.tShift[startLine]
-        const max = state.eMarks[startLine]
+        const startPos = (state.bMarks[startLine] ?? 0) + (state.tShift[startLine] ?? 0)
         
         if (state.src.slice(startPos, startPos + 2) !== '$$') return false
         
@@ -686,8 +724,8 @@ const customMathPlugin = (md: MarkdownIt) => {
             nextLine++
             
             while (nextLine < endLine) {
-                const lineStart = state.bMarks[nextLine] + state.tShift[nextLine]
-                const lineEnd = state.eMarks[nextLine]
+                const lineStart = (state.bMarks[nextLine] ?? 0) + (state.tShift[nextLine] ?? 0)
+                const lineEnd = state.eMarks[nextLine] ?? lineStart
                 const lineText = state.src.slice(lineStart, lineEnd)
                 
                 if (lineText.trim().endsWith('$$')) {
@@ -717,24 +755,28 @@ const customMathPlugin = (md: MarkdownIt) => {
 
     // Renderers
     md.renderer.rules.math_inline = (tokens, idx) => {
+        const token = tokens[idx]
+        if (!token) return ''
         try {
-            return katex.renderToString(tokens[idx].content, { 
+            return katex.renderToString(token.content, { 
                 throwOnError: false, 
                 displayMode: false 
             })
         } catch (e) {
-            return tokens[idx].content
+            return token.content
         }
     }
 
     md.renderer.rules.math_block = (tokens, idx) => {
+        const token = tokens[idx]
+        if (!token) return ''
         try {
-            return '<div class="katex-display">' + katex.renderToString(tokens[idx].content, { 
+            return '<div class="katex-display">' + katex.renderToString(token.content, { 
                 throwOnError: false, 
                 displayMode: true 
             }) + '</div>'
         } catch (e) {
-            return '<pre>' + tokens[idx].content + '</pre>'
+            return '<pre>' + token.content + '</pre>'
         }
     }
 }
@@ -743,21 +785,22 @@ const customMathPlugin = (md: MarkdownIt) => {
 const md = new MarkdownIt({
     html: true,
     linkify: true,
-    typographer: true,
-    highlight: function (str, lang) {
-        if (lang && hljs.getLanguage(lang)) {
-            try {
-                return '<pre class="hljs p-4 rounded-lg bg-[#282c34] text-sm overflow-x-auto"><code>' +
-                       hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
-                       '</code></pre>';
-            } catch (__) {}
-        }
-        return '<pre class="hljs p-4 rounded-lg bg-[#282c34] text-sm overflow-x-auto"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
-    }
+    typographer: true
 }).use(customMathPlugin)
 
+md.options.highlight = (str: string, lang: string) => {
+    if (lang && hljs.getLanguage(lang)) {
+        try {
+            return '<pre class="hljs p-4 rounded-lg bg-[#282c34] text-sm overflow-x-auto"><code>' +
+                   hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
+                   '</code></pre>';
+        } catch (__) {}
+    }
+    return '<pre class="hljs p-4 rounded-lg bg-[#282c34] text-sm overflow-x-auto"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
+}
+
 // Custom fence renderer for Copy Button
-md.renderer.rules.fence = function (tokens, idx, options, env, self) {
+md.renderer.rules.fence = function (tokens: any[], idx: number, options: any) {
   const token = tokens[idx];
   const info = token.info ? md.utils.escapeHtml(token.info) : '';
   const langName = info.split(/\s+/g)[0];
@@ -832,6 +875,10 @@ const sendMessage = async () => {
     await scrollToBottom(true) // Force scroll on user send
     
     await courseStore.sendMessage(msg)
+}
+
+const stopMessage = () => {
+    courseStore.cancelChat()
 }
 
 const handleKeydown = (e: KeyboardEvent) => {
@@ -917,5 +964,18 @@ onMounted(() => {
     background-color: white;
     border-color: var(--el-color-primary);
     box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+
+.glass-panel-tech-floating {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+}
+
+.glass-panel-tech-content {
+    background: rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
 }
 </style>

@@ -2,8 +2,21 @@ import { defineStore } from 'pinia'
 import http from '../utils/http'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import dayjs from 'dayjs'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const GENERATION_STATE_KEY = 'course-generation-state-v1'
+const sanitizeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').trim()
+const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+}
 
 export interface Node {
   node_id: string
@@ -36,8 +49,8 @@ export interface Note {
     color: string
     createdAt: number
     top?: number // Dynamic position for rendering
-    sourceType?: 'user' | 'ai' | 'format'
-    style?: 'bold' | 'underline' | 'wave' | 'dashed' | 'highlight'
+    sourceType?: 'user' | 'ai' | 'format' | 'wrong'
+    style?: 'bold' | 'underline' | 'wave' | 'dashed' | 'highlight' | 'solid' | 'wavy'
     expanded?: boolean
 }
 
@@ -81,7 +94,18 @@ export interface AIContent {
         question: string
         options: string[]
         answer: string
+        correct_index?: number
+        explanation?: string
+        node_id?: string
     }
+    quiz_list?: {
+        question: string
+        options: string[]
+        answer: string
+        correct_index?: number
+        explanation?: string
+        node_id?: string
+    }[]
 }
 
 export interface ChatMessage {
@@ -127,9 +151,17 @@ export const useCourseStore = defineStore('course', {
     pendingChatInput: '' as string, // For quoting text to chat
     userPersona: localStorage.getItem('user_persona') || '',
     chatLoading: false,
+    chatAbortController: null as AbortController | null,
     
     // UI State
     isFocusMode: false,
+    isMobileNotesVisible: false,
+    globalSearchQuery: '',
+    uiSettings: {
+        fontSize: 16, // Default font size
+        fontFamily: 'sans' as 'sans' | 'serif' | 'mono',
+        lineHeight: 1.75
+    },
     
     // Notes System
     notes: [] as Note[],
@@ -139,12 +171,121 @@ export const useCourseStore = defineStore('course', {
     getNotesByNodeId: (state) => (nodeId: string) => state.notes.filter(n => n.nodeId === nodeId),
   },
   actions: {
+    setUiSettings(settings: Partial<typeof this.uiSettings>) {
+        this.uiSettings = { ...this.uiSettings, ...settings }
+    },
     addNote(note: Note) {
         this.notes.push(note)
     },
     updateUserPersona(persona: string) {
         this.userPersona = persona
         localStorage.setItem('user_persona', persona)
+    },
+
+    persistGenerationState() {
+        try {
+            const tasks = Array.from(this.tasks.values()).map(task => ({
+                id: task.id,
+                courseName: task.courseName,
+                status: task.status,
+                progress: task.progress,
+                currentStep: task.currentStep,
+                logs: task.logs,
+                nodes: task.nodes,
+                shouldStop: false
+            }))
+            const queue = this.queue.map(item => ({ ...item }))
+            const data = {
+                version: 1,
+                currentCourseId: this.currentCourseId,
+                tasks,
+                queue
+            }
+            localStorage.setItem(GENERATION_STATE_KEY, JSON.stringify(data))
+        } catch (e) {
+            console.error(e)
+        }
+    },
+
+    restoreGenerationState() {
+        const raw = localStorage.getItem(GENERATION_STATE_KEY)
+        if (!raw) return
+        try {
+            const data = JSON.parse(raw)
+            const tasks = new Map<string, Task>()
+            if (Array.isArray(data.tasks)) {
+                data.tasks.forEach((task: Task) => {
+                    tasks.set(task.id, {
+                        ...task,
+                        shouldStop: false
+                    })
+                })
+            }
+            const normalizedQueue = Array.isArray(data.queue)
+                ? data.queue.map((item: QueueItem) => ({
+                    ...item,
+                    status: item.status === 'running' ? 'pending' : item.status,
+                    errorMsg: item.status === 'running' ? undefined : item.errorMsg
+                }))
+                : []
+
+            this.tasks = tasks
+            this.queue = normalizedQueue
+            this.isQueueProcessing = false
+
+            if (!this.currentCourseId && data.currentCourseId) {
+                this.currentCourseId = data.currentCourseId
+            }
+
+            const hasPending = this.queue.some(i => i.status === 'pending')
+            if (hasPending) {
+                this.tasks.forEach(task => {
+                    const hasTaskPending = this.queue.some(i => i.courseId === task.id && i.status === 'pending')
+                    if (hasTaskPending) {
+                        task.status = 'running'
+                        task.currentStep = task.currentStep || '生成恢复中'
+                        this.addLogToTask(task.id, '♻️ 检测到未完成任务，已自动恢复生成')
+                    }
+                })
+                if (this.currentCourseId) {
+                    const currentTask = this.tasks.get(this.currentCourseId)
+                    if (currentTask && currentTask.status === 'running') {
+                        this.isGenerating = true
+                        this.generationStatus = 'generating'
+                        this.generationLogs = currentTask.logs
+                    }
+                }
+                setTimeout(() => this.processQueue(), 50)
+            } else {
+                this.finalizeIdleTasks()
+            }
+        } catch (e) {
+            console.error(e)
+        }
+    },
+
+    finalizeIdleTasks() {
+        let updated = false
+        this.tasks.forEach(task => {
+            const hasWork = this.queue.some(i => i.courseId === task.id && (i.status === 'pending' || i.status === 'running'))
+            if (task.status === 'running' && !hasWork) {
+                task.status = 'completed'
+                task.progress = 100
+                task.currentStep = ''
+                this.addLogToTask(task.id, '✅ 生成完成')
+                updated = true
+            }
+        })
+        if (updated) {
+            this.isGenerating = false
+            if (this.currentCourseId) {
+                const currentTask = this.tasks.get(this.currentCourseId)
+                if (!currentTask || currentTask.status !== 'running') {
+                    this.generationStatus = 'idle'
+                }
+            }
+            this.persistGenerationState()
+        }
     },
 
     async markNodeAsRead(nodeId: string) {
@@ -229,6 +370,7 @@ export const useCourseStore = defineStore('course', {
             shouldStop: false
         }
         this.tasks.set(courseId, task)
+        this.persistGenerationState()
         return task
     },
 
@@ -253,6 +395,12 @@ export const useCourseStore = defineStore('course', {
             await this.askQuestion(message)
         } finally {
             this.chatLoading = false
+        }
+    },
+
+    cancelChat() {
+        if (this.chatAbortController) {
+            this.chatAbortController.abort()
         }
     },
 
@@ -290,6 +438,7 @@ export const useCourseStore = defineStore('course', {
             task.status = 'paused'
             task.shouldStop = true
             this.addLogToTask(courseId, '⏸️ 任务已暂停')
+            this.persistGenerationState()
         }
     },
 
@@ -299,6 +448,7 @@ export const useCourseStore = defineStore('course', {
             task.status = 'running'
             task.shouldStop = false
             this.addLogToTask(courseId, '▶️ 任务继续')
+            this.persistGenerationState()
             // Trigger queue processing if it was stopped
             this.processQueue()
         }
@@ -309,13 +459,15 @@ export const useCourseStore = defineStore('course', {
         this.activeAnnotation = null
     },
 
-    async generateQuiz(nodeId: string, nodeContent: string, style: string = 'standard', difficulty: string = 'medium') {
+    async generateQuiz(nodeId: string, nodeContent: string, style: string = 'standard', difficulty: string = 'medium', options: { silent?: boolean } = {}) {
         this.chatLoading = true
-        // Add user message indicating quiz request
-        this.chatHistory.push({
-            type: 'user',
-            content: `请为"${this.nodes.find(n => n.node_id === nodeId)?.node_name || '当前章节'}"生成一份${difficulty === 'hard' ? '困难' : (difficulty === 'easy' ? '简单' : '中等')}难度的${style === 'creative' ? '创意' : (style === 'practical' ? '实战' : '标准')}测试题。`
-        })
+        const silent = options.silent === true
+        if (!silent) {
+            this.chatHistory.push({
+                type: 'user',
+                content: `请为"${this.nodes.find(n => n.node_id === nodeId)?.node_name || '当前章节'}"生成一份${difficulty === 'hard' ? '困难' : (difficulty === 'easy' ? '简单' : '中等')}难度的${style === 'creative' ? '创意' : (style === 'practical' ? '实战' : '标准')}测试题。`
+            })
+        }
         
         try {
             const res = await http.post(`/courses/${this.currentCourseId}/nodes/${nodeId}/quiz`, {
@@ -336,34 +488,38 @@ export const useCourseStore = defineStore('course', {
             // We will iterate and add them.
             
             if (Array.isArray(res.data)) {
-                 if (res.data.length === 0) {
-                    this.chatHistory.push({
-                        type: 'ai',
-                        content: '抱歉，无法根据当前内容生成测试题。'
-                    })
-                 } else {
-                     res.data.forEach((quizItem: any, index: number) => {
+                if (res.data.length === 0) {
+                    if (!silent) {
                         this.chatHistory.push({
                             type: 'ai',
-                            content: {
-                                answer: index === 0 ? `### 📝 ${style === 'creative' ? '创意挑战' : (style === 'practical' ? '实战演练' : '知识测验')}\n这里有几道题目来检测你的学习成果：` : '',
-                                quiz: {
-                                    ...quizItem,
-                                    node_id: nodeId
-                                }
-                            }
+                            content: '抱歉，无法根据当前内容生成测试题。'
                         })
-                     })
-                 }
+                    }
+                } else if (!silent) {
+                    const title = `### 📝 ${style === 'creative' ? '创意挑战' : (style === 'practical' ? '实战演练' : '知识测验')}\n这里有几道题目来检测你的学习成果：`
+                    this.chatHistory.push({
+                        type: 'ai',
+                        content: {
+                            core_answer: title,
+                            answer: title,
+                            quiz_list: res.data.map((quizItem: any) => ({
+                                ...quizItem,
+                                node_id: nodeId
+                            }))
+                        }
+                    })
+                }
             }
             
             return res.data
         } catch (error) {
             ElMessage.error('生成测验失败')
-            this.chatHistory.push({
-                type: 'ai',
-                content: '生成测验时遇到错误，请稍后再试。'
-            })
+            if (!silent) {
+                this.chatHistory.push({
+                    type: 'ai',
+                    content: '生成测验时遇到错误，请稍后再试。'
+                })
+            }
             return []
         } finally {
             this.chatLoading = false
@@ -402,8 +558,10 @@ export const useCourseStore = defineStore('course', {
             
             // Auto-stop if no generating and no buffer
             if (!this.isGenerating && !hasWork) {
-                clearInterval(this.typingInterval)
-                this.typingInterval = null
+                if (this.typingInterval !== null) {
+                    clearInterval(this.typingInterval)
+                    this.typingInterval = null
+                }
             }
         }, 30) // 30ms per update
     },
@@ -427,6 +585,7 @@ export const useCourseStore = defineStore('course', {
             this.typingInterval = null
         }
         ElMessage.info('生成已暂停')
+        this.persistGenerationState()
     },
 
     async startSmartGeneration(keyword: string, options: { difficulty?: string, style?: string, requirements?: string } = {}) {
@@ -454,6 +613,7 @@ export const useCourseStore = defineStore('course', {
                 this.courseTree = this.buildTree(this.nodes)
                 await this.fetchCourseList()
                 this.addLog(`✅ 大纲架构构建完成，包含 ${this.nodes.length} 个节点`)
+                this.persistGenerationState()
                 
                 // Link task nodes to UI nodes (by reference or copy?)
                 // Actually, let's keep them separate but sync them.
@@ -470,17 +630,22 @@ export const useCourseStore = defineStore('course', {
             ElMessage.error('生成失败')
             this.isGenerating = false
             this.generationStatus = 'error'
+            this.persistGenerationState()
         } finally {
             this.loading = false
         }
     },
 
     async fetchCourseList() {
+        this.loading = true
         try {
             const res = await http.get(`/courses`)
             this.courseList = res.data
         } catch (error) {
             console.error(error)
+            this.courseList = []
+        } finally {
+            this.loading = false
         }
     },
 
@@ -521,10 +686,19 @@ export const useCourseStore = defineStore('course', {
                     this.generationProgress = task ? task.progress : 100
                     this.generationLogs = task ? task.logs : []
                 }
+            } else {
+                throw new Error('课程数据为空')
             }
         } catch (error) {
             console.error(error)
             ElMessage.error('加载课程失败')
+            this.currentCourseId = ''
+            this.currentNode = null
+            this.nodes = []
+            this.courseTree = []
+            this.isGenerating = false
+            this.generationStatus = 'idle'
+            this.generationProgress = 0
         } finally {
             this.loading = false
         }
@@ -542,6 +716,8 @@ export const useCourseStore = defineStore('course', {
                 this.currentCourseId = ''
                 this.currentNode = null
             }
+            this.queue = this.queue.filter(item => item.courseId !== courseId)
+            this.persistGenerationState()
         } catch (error) {
             ElMessage.error('删除失败')
         }
@@ -621,15 +797,141 @@ export const useCourseStore = defineStore('course', {
       return result
     },
 
+    exportCourseJson() {
+        const course = this.courseList.find(c => c.course_id === this.currentCourseId)
+        const nodeIds = new Set(this.getLinearNodes(this.courseTree).map(n => n.node_id))
+        const notes = this.notes.filter(n => nodeIds.has(n.nodeId) && n.sourceType !== 'format')
+        if (!course && this.nodes.length === 0 && notes.length === 0) {
+            ElMessage.warning('当前没有可导出的内容')
+            return
+        }
+        const data = JSON.stringify({
+            exportedAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+            course: course || null,
+            nodes: this.nodes,
+            courseTree: this.courseTree,
+            notes
+        }, null, 2)
+        const filename = `${sanitizeFileName(course?.course_name || 'course')}_export_${dayjs().format('YYYYMMDD_HHmmss')}.json`
+        downloadBlob(new Blob([data], { type: 'application/json' }), filename)
+        ElMessage.success('导出成功')
+    },
+
+    exportCourseMarkdown() {
+        const course = this.courseList.find(c => c.course_id === this.currentCourseId)
+        const linearNodes = this.getLinearNodes(this.courseTree)
+        const nodeIds = new Set(linearNodes.map(n => n.node_id))
+        const notes = this.notes.filter(n => nodeIds.has(n.nodeId))
+        if (!course && this.nodes.length === 0 && notes.length === 0) {
+            ElMessage.warning('当前没有可导出的内容')
+            return
+        }
+        const courseName = course?.course_name || 'My Course'
+        let md = `# ${courseName}\n\n`
+        md += `> 导出时间：${dayjs().format('YYYY-MM-DD HH:mm')}\n\n`
+        md += `> 节点数：${this.nodes.length}\n\n`
+        md += `> 笔记数：${notes.filter(n => n.sourceType !== 'format').length}\n\n---\n\n`
+        const groupedNotes = new Map<string, Note[]>()
+        const nodeOrder = new Map(linearNodes.map((n, i) => [n.node_id, i]))
+        notes.sort((a, b) => {
+            const orderA = nodeOrder.get(a.nodeId) ?? -1
+            const orderB = nodeOrder.get(b.nodeId) ?? -1
+            if (orderA !== orderB) return orderA - orderB
+            return a.createdAt - b.createdAt
+        })
+        notes.forEach(note => {
+            const nodeId = note.nodeId
+            if (!groupedNotes.has(nodeId)) groupedNotes.set(nodeId, [])
+            groupedNotes.get(nodeId)?.push(note)
+        })
+        linearNodes.forEach(node => {
+            const level = Math.min(4, Math.max(1, Number(node.node_level || 1)))
+            md += `${'#'.repeat(level)} ${node.node_name}\n\n`
+            if (node.node_content) {
+                md += `${node.node_content}\n\n`
+            }
+            const nodeNotes = groupedNotes.get(node.node_id)?.filter(n => n.sourceType !== 'format') || []
+            if (nodeNotes.length > 0) {
+                md += `**笔记**\n\n`
+                nodeNotes.forEach(note => {
+                    if (note.quote) {
+                        md += `> ${note.quote}\n\n`
+                    }
+                    md += `${note.content}\n\n`
+                    const typeLabel = note.sourceType === 'ai' ? 'AI 助手' : '笔记'
+                    md += `> — *${typeLabel} · ${dayjs(note.createdAt).format('YYYY-MM-DD HH:mm')}*\n\n`
+                })
+                md += `---\n\n`
+            }
+        })
+        const filename = `${sanitizeFileName(courseName)}_export_${dayjs().format('YYYYMMDD_HHmmss')}.md`
+        downloadBlob(new Blob([md], { type: 'text/markdown' }), filename)
+        ElMessage.success('导出成功')
+    },
+
+    exportNotesMarkdown(notes: Note[], options: { filterLabel: string, query?: string }) {
+        if (!notes || notes.length === 0) {
+            ElMessage.warning('当前没有可导出的笔记')
+            return
+        }
+        const courseName = this.courseList.find(c => c.course_id === this.currentCourseId)?.course_name || 'My Notes'
+        let md = `# ${courseName}\n\n`
+        md += `> 导出时间：${dayjs().format('YYYY-MM-DD HH:mm')}\n\n`
+        md += `> 类型：${options.filterLabel}\n\n`
+        if (options.query) {
+            md += `> 搜索：${options.query}\n\n`
+        }
+        md += `> 条目数：${notes.length}\n\n---\n\n`
+        const linearNodes = this.getLinearNodes(this.courseTree)
+        const nodeOrder = new Map(linearNodes.map((n, i) => [n.node_id, i]))
+        const nodeNameMap = new Map(linearNodes.map(n => [n.node_id, n.node_name]))
+        notes.sort((a, b) => {
+            const orderA = nodeOrder.get(a.nodeId) ?? -1
+            const orderB = nodeOrder.get(b.nodeId) ?? -1
+            if (orderA !== orderB) return orderA - orderB
+            return a.createdAt - b.createdAt
+        })
+        const groupedNotes = new Map<string, Note[]>()
+        notes.forEach(note => {
+            const nodeId = note.nodeId
+            if (!groupedNotes.has(nodeId)) groupedNotes.set(nodeId, [])
+            groupedNotes.get(nodeId)?.push(note)
+        })
+        groupedNotes.forEach((noteItems, nodeId) => {
+            md += `## ${nodeNameMap.get(nodeId) || '未知章节'}\n\n`
+            noteItems.forEach(note => {
+                if (note.quote) {
+                    md += `> ${note.quote}\n\n`
+                }
+                md += `${note.content}\n\n`
+                const typeLabel = note.sourceType === 'ai' ? 'AI 助手' : '笔记'
+                md += `> — *${typeLabel} · ${dayjs(note.createdAt).format('YYYY-MM-DD HH:mm')}*\n\n---\n\n`
+            })
+        })
+        const filename = `${sanitizeFileName(courseName)}_${options.filterLabel}_${dayjs().format('YYYYMMDD_HHmmss')}.md`
+        downloadBlob(new Blob([md], { type: 'text/markdown' }), filename)
+        ElMessage.success('Markdown 导出成功')
+    },
+
     // --- Queue System Actions ---
     
     addToQueue(item: Omit<QueueItem, 'uuid' | 'status'>) {
+        const exists = this.queue.some(existing =>
+            existing.courseId === item.courseId &&
+            existing.type === item.type &&
+            existing.targetNodeId === item.targetNodeId &&
+            (existing.status === 'pending' || existing.status === 'running')
+        )
+        if (exists) {
+            return
+        }
         const newItem: QueueItem = {
             ...item,
             uuid: crypto.randomUUID(),
             status: 'pending'
         }
         this.queue.push(newItem)
+        this.persistGenerationState()
         
         // Trigger processing
         this.processQueue()
@@ -641,11 +943,14 @@ export const useCourseStore = defineStore('course', {
         const nextItem = this.queue.find(i => i.status === 'pending')
         if (!nextItem) {
             this.isQueueProcessing = false
+            this.finalizeIdleTasks()
+            this.persistGenerationState()
             return
         }
 
         this.isQueueProcessing = true
         nextItem.status = 'running'
+        this.persistGenerationState()
         
         const task = this.tasks.get(nextItem.courseId)
         
@@ -678,12 +983,14 @@ export const useCourseStore = defineStore('course', {
                 const completed = this.queue.filter(i => i.status === 'completed').length
                 task.progress = Math.floor((completed / total) * 100)
             }
+            this.persistGenerationState()
 
         } catch (e: any) {
             const errorMessage = e instanceof Error ? e.message : String(e)
             nextItem.status = 'error'
             nextItem.errorMsg = errorMessage
             if (task) task.logs.push(`❌ 失败: ${nextItem.title} - ${errorMessage}`)
+            this.persistGenerationState()
         } finally {
             if (task && task.shouldStop) {
                 this.isQueueProcessing = false
@@ -692,6 +999,7 @@ export const useCourseStore = defineStore('course', {
                 this.isQueueProcessing = false
                 setTimeout(() => this.processQueue(), 50)
             }
+            this.persistGenerationState()
         }
     },
 
@@ -1088,6 +1396,8 @@ export const useCourseStore = defineStore('course', {
     },
 
     async askQuestion(question: string, selection: string = "", targetNodeId?: string) {
+      let controller: AbortController | null = null
+      let aiMessage: ChatMessage | null = null
       // Fallback to the first node (Course Root) if no node is explicitly selected
       let targetNode = this.currentNode
       
@@ -1109,6 +1419,11 @@ export const useCourseStore = defineStore('course', {
       this.loading = true
       this.chatLoading = true
       try {
+        if (this.chatAbortController) {
+            this.chatAbortController.abort()
+        }
+        controller = new AbortController()
+        this.chatAbortController = controller
         // Construct full course context for Q&A
         const linearNodes = this.getLinearNodes(this.courseTree)
         
@@ -1169,7 +1484,7 @@ export const useCourseStore = defineStore('course', {
         
         this.chatHistory.push(aiMessageRaw)
         // Get the reactive proxy from the array so updates trigger UI changes
-        const aiMessage = this.chatHistory[this.chatHistory.length - 1] as ChatMessage
+        aiMessage = this.chatHistory[this.chatHistory.length - 1] as ChatMessage
         if (typeof aiMessage.content === 'string') return // Should not happen
 
         // Fetch Stream
@@ -1184,8 +1499,12 @@ export const useCourseStore = defineStore('course', {
                 history,
                 selection,
                 user_persona: this.userPersona
-            })
+            }),
+            signal: controller.signal
         })
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+        }
 
         const reader = response.body?.getReader()
         if (!reader) throw new Error("No reader")
@@ -1242,21 +1561,36 @@ export const useCourseStore = defineStore('course', {
                     // Auto-save annotation if quote exists? No, let user decide.
                     // Actually, if we want to unify, we can save it as a Note automatically?
                     // The user requested "AI 助手生成的笔记自动保存到 Notes 列表"
-                    if (metadata.quote) {
+                    const quoteText = (metadata.quote || '').trim()
+                    const answerText = (aiMessage.content.core_answer || aiMessage.content.answer || '').trim()
+                    const summaryText = (metadata.anno_summary || '').trim()
+                    const noteContentRaw = summaryText && summaryText !== 'AI 笔记' ? summaryText : answerText
+                    const noteContent = noteContentRaw.replace(/\s+/g, ' ').trim()
+                    if (quoteText && quoteText.length >= 3 && noteContent.length >= 8) {
+                        const noteId = `note-${Date.now()}`
+                        const resolvedNodeId = metadata.node_id || aiMessage.content.node_id || this.currentNode?.node_id || ''
+                        const shortSummary = summaryText && summaryText !== 'AI 笔记'
+                            ? summaryText
+                            : (answerText.length > 50 ? `${answerText.slice(0, 50)}...` : answerText)
+                        
                         this.activeAnnotation = {
-                            ...aiMessage.content,
-                            source_type: 'ai_chat'
+                            anno_id: noteId,
+                            node_id: resolvedNodeId,
+                            question: 'AI 笔记',
+                            answer: answerText,
+                            anno_summary: shortSummary || 'AI 笔记',
+                            source_type: 'ai_chat',
+                            quote: quoteText
                         }
                         
                         // Auto-convert to Note
-                        const noteId = `note-${Date.now()}`
                         const highlightId = `highlight-${Date.now()}`
                         this.createNote({
                             id: noteId,
-                            nodeId: metadata.node_id,
+                            nodeId: resolvedNodeId,
                             highlightId: highlightId,
-                            quote: metadata.quote,
-                            content: aiMessage.content.anno_summary, // Use summary as note content
+                            quote: quoteText,
+                            content: noteContent.length > 200 ? `${noteContent.slice(0, 200)}...` : noteContent,
                             color: 'purple',
                             createdAt: Date.now(),
                             sourceType: 'ai'
@@ -1289,14 +1623,30 @@ export const useCourseStore = defineStore('course', {
              aiMessage.content.answer = fullText
         }
         
-      } catch (error) {
+      } catch (error: any) {
+        if (controller?.signal.aborted || error?.name === 'AbortError') {
+            if (aiMessage && typeof aiMessage.content !== 'string') {
+                aiMessage.content.core_answer = '已停止生成'
+                aiMessage.content.answer = '已停止生成'
+                aiMessage.content.anno_summary = '已停止生成'
+            }
+            return
+        }
         console.error(error)
         ElMessage.error('提问失败')
+        if (aiMessage && typeof aiMessage.content !== 'string') {
+            aiMessage.content.core_answer = '生成失败，请稍后重试。'
+            aiMessage.content.answer = '生成失败，请稍后重试。'
+            aiMessage.content.anno_summary = '生成失败'
+        }
         // Remove the failed placeholder or mark error?
         // this.chatHistory.pop() 
       } finally {
         this.loading = false
         this.chatLoading = false
+        if (this.chatAbortController === controller) {
+            this.chatAbortController = null
+        }
       }
     },
 
@@ -1317,23 +1667,6 @@ export const useCourseStore = defineStore('course', {
             ElMessage.error('生成失败')
         } finally {
             this.loading = false
-        }
-    },
-
-    async generateQuiz(nodeId: string, nodeContent: string, style: string = "standard", difficulty: string = "medium") {
-        if (!nodeContent) return []
-        
-        try {
-            const res = await axios.post(`${API_BASE}/generate_quiz`, {
-                node_content: nodeContent,
-                node_name: nodeId, // Optional
-                difficulty,
-                style
-            })
-            return res.data
-        } catch (e) {
-            console.error("Quiz generation failed", e)
-            throw e
         }
     },
 

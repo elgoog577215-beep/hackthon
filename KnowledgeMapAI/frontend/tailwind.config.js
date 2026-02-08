@@ -7,9 +7,14 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Plus Jakarta Sans"', 'Inter', 'sans-serif'],
-        serif: ['"Merriweather"', 'serif'],
-        mono: ['"JetBrains Mono"', 'monospace'],
+        // UI Font: Inter + Noto Sans SC + System Fallbacks
+        sans: ['"Inter"', '"Noto Sans SC"', '"PingFang SC"', '"Hiragino Sans GB"', '"Microsoft YaHei"', '"Helvetica Neue"', 'Helvetica', 'Arial', 'sans-serif'],
+        // Reading Font: Noto Serif SC + System Serif
+        serif: ['"Noto Serif SC"', '"Songti SC"', '"SimSun"', '"Times New Roman"', 'Times', 'serif'],
+        // Code Font: JetBrains Mono + System Mono
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace'],
+        // Display/Heading Font
+        display: ['"Noto Sans SC"', '"Inter"', 'sans-serif'],
       },
       colors: {
         primary: {
