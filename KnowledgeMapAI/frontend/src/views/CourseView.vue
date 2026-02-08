@@ -90,14 +90,31 @@
         <div class="w-1 h-10 rounded-full bg-slate-300/40 backdrop-blur-sm group-hover:bg-primary-400 group-hover:h-12 group-hover:w-1.5 group-hover:shadow-[0_0_8px_rgba(139,92,246,0.4)] transition-all duration-300"></div>
     </div>
 
-    <ChatPanel 
+    <!-- Right Sidebar: Chat or Stats -->
+    <div
       v-show="(!isMobile || mobileShowRight) && !courseStore.isFocusMode"
-      :style="{ width: isMobile ? '85%' : rightSidebarWidth + 'px' }" 
+      :style="{ width: isMobile ? '85%' : rightSidebarWidth + 'px' }"
       :class="[
-        'flex-shrink-0 overflow-hidden',
+        'flex-shrink-0 overflow-hidden h-full',
         isMobile ? 'absolute right-0 top-0 bottom-0 z-50 bg-white shadow-2xl' : 'z-20 animate-fade-in-up stagger-3'
       ]"
-    />
+    >
+      <!-- Tab Switcher - Moved to right side -->
+      <div class="absolute top-2 right-4 z-30 flex bg-white/90 backdrop-blur-md rounded-full p-1 shadow-sm border border-slate-100">
+        <button
+          v-for="tab in ['chat', 'stats']"
+          :key="tab"
+          @click="activeRightTab = tab"
+          class="px-3 py-1 text-xs font-medium rounded-full transition-all"
+          :class="activeRightTab === tab ? 'bg-primary-500 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'"
+        >
+          {{ tab === 'chat' ? 'AI助手' : '学习统计' }}
+        </button>
+      </div>
+
+      <ChatPanel v-show="activeRightTab === 'chat'" class="h-full pt-10" />
+      <LearningStats v-show="activeRightTab === 'stats'" class="h-full pt-10" />
+    </div>
   </div>
 </template>
 
@@ -105,6 +122,7 @@
 import CourseTree from '../components/CourseTree.vue'
 import ContentArea from '../components/ContentArea.vue'
 import ChatPanel from '../components/ChatPanel.vue'
+import LearningStats from '../components/LearningStats.vue'
 import { useCourseStore } from '../stores/course'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -120,6 +138,15 @@ const restoredId = courseStore.restoreGenerationState()
 if (restoredId && !route.params.courseId) {
     router.push(`/course/${restoredId}`)
 }
+
+// Restore learning stats
+courseStore.restoreLearningStats()
+
+// Restore quiz data
+courseStore.restoreQuizData()
+
+// Right sidebar tab
+const activeRightTab = ref('chat')
 
 // Mobile Logic
 const isMobile = ref(false)
@@ -263,6 +290,61 @@ const handleKeydown = (e: KeyboardEvent) => {
     }
 }
 
+// Study time tracking
+let studyStartTime: number | null = null
+let currentNodeId: string | null = null
+let studyInterval: number | null = null
+
+const startStudyTracking = () => {
+  studyStartTime = Date.now()
+  currentNodeId = courseStore.currentNode?.node_id || null
+
+  // Record study time every minute
+  studyInterval = window.setInterval(() => {
+    if (studyStartTime && document.visibilityState === 'visible') {
+      const elapsedMinutes = Math.floor((Date.now() - studyStartTime) / 60000)
+      if (elapsedMinutes > 0) {
+        courseStore.recordStudyTime(elapsedMinutes, currentNodeId || undefined)
+        studyStartTime = Date.now() // Reset start time
+      }
+    }
+  }, 60000) // Every minute
+}
+
+const stopStudyTracking = () => {
+  if (studyInterval) {
+    clearInterval(studyInterval)
+    studyInterval = null
+  }
+
+  // Record remaining time
+  if (studyStartTime) {
+    const elapsedMinutes = Math.round((Date.now() - studyStartTime) / 60000)
+    if (elapsedMinutes > 0) {
+      courseStore.recordStudyTime(elapsedMinutes, currentNodeId || undefined)
+    }
+    studyStartTime = null
+  }
+}
+
+// Handle visibility change
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'hidden') {
+    // Pause tracking when tab is hidden
+    if (studyStartTime) {
+      const elapsedMinutes = Math.round((Date.now() - studyStartTime) / 60000)
+      if (elapsedMinutes > 0) {
+        courseStore.recordStudyTime(elapsedMinutes, currentNodeId || undefined)
+      }
+      studyStartTime = null
+    }
+  } else {
+    // Resume tracking when tab becomes visible
+    studyStartTime = Date.now()
+    currentNodeId = courseStore.currentNode?.node_id || null
+  }
+}
+
 onMounted(() => {
   courseStore.fetchCourseList()
   checkMobile()
@@ -271,6 +353,10 @@ onMounted(() => {
   window.addEventListener('mouseup', handleMouseUp)
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('beforeunload', handleBeforeUnload)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+
+  // Start study tracking
+  startStudyTracking()
 })
 
 onUnmounted(() => {
@@ -279,5 +365,96 @@ onUnmounted(() => {
   window.removeEventListener('mouseup', handleMouseUp)
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+
+  // Stop study tracking
+  stopStudyTracking()
 })
 </script>
+
+<style scoped>
+/* Smooth transitions for all interactive elements */
+button, .interactive {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Enhanced hover effects */
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Focus ring animation */
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+}
+
+/* Tab switcher animation */
+.tab-indicator {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Sidebar slide animations */
+.sidebar-enter-active,
+.sidebar-leave-active {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-enter-from,
+.sidebar-leave-to {
+  transform: translateX(-100%);
+}
+
+/* Mobile overlay fade */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* Resizer handle glow effect */
+.resizer-handle {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.resizer-handle:hover {
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+}
+
+/* Content area smooth scroll */
+:deep(.content-scroll) {
+  scroll-behavior: smooth;
+}
+
+/* Ripple effect for buttons */
+.ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+.ripple:active::after {
+  width: 200%;
+  height: 200%;
+}
+</style>

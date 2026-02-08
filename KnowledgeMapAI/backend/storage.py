@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 DATA_DIR = "data"
 COURSES_DIR = os.path.join(DATA_DIR, "courses")
 ANNOTATIONS_FILE = os.path.join(DATA_DIR, "annotations.json")
+KNOWLEDGE_GRAPH_DIR = os.path.join(DATA_DIR, "knowledge_graphs")
 # Legacy file for migration
 LEGACY_COURSE_FILE = os.path.join(DATA_DIR, "course_tree.json")
 
@@ -19,10 +20,13 @@ class Storage:
             os.makedirs(DATA_DIR)
         if not os.path.exists(COURSES_DIR):
             os.makedirs(COURSES_DIR)
+        if not os.path.exists(KNOWLEDGE_GRAPH_DIR):
+            os.makedirs(KNOWLEDGE_GRAPH_DIR)
         
         # Initialize Cache
         self.courses_cache: Dict[str, dict] = {}
         self.annotations_cache: Optional[List[dict]] = None
+        self.knowledge_graph_cache: Dict[str, dict] = {}
         self._cache_initialized = False
 
         # Migrate legacy course if exists
@@ -157,5 +161,30 @@ class Storage:
             self.annotations_cache = annotations
             with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(annotations, f, ensure_ascii=False, indent=2)
+
+    def save_knowledge_graph(self, course_id: str, graph_data: dict):
+        """Save knowledge graph to disk and cache"""
+        self.knowledge_graph_cache[course_id] = graph_data
+        filepath = os.path.join(KNOWLEDGE_GRAPH_DIR, f"{course_id}.json")
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(graph_data, f, ensure_ascii=False, indent=2)
+
+    def load_knowledge_graph(self, course_id: str) -> Optional[dict]:
+        """Load knowledge graph from cache or disk"""
+        # Check cache first
+        if course_id in self.knowledge_graph_cache:
+            return self.knowledge_graph_cache[course_id]
+        
+        # Load from disk
+        filepath = os.path.join(KNOWLEDGE_GRAPH_DIR, f"{course_id}.json")
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.knowledge_graph_cache[course_id] = data
+                    return data
+            except Exception as e:
+                logger.warning(f"Failed to load knowledge graph for {course_id}: {e}")
+        return None
 
 storage = Storage()

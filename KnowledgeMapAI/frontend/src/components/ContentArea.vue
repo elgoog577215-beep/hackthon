@@ -18,7 +18,7 @@
     </Teleport>
 
     <!-- Content List (Continuous Scroll) -->
-    <div class="flex-1 overflow-auto p-4 lg:p-10 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp" @dblclick="handleDoubleClick">
+    <div class="flex-1 overflow-auto p-4 lg:p-10 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp">
       
         <!-- Selection Menu -->
     <Teleport to="body">
@@ -103,132 +103,152 @@
 
 
         <!-- Main Content Column -->
-        <div class="flex-1 min-w-0 px-4 lg:px-12 space-y-12 pb-32 pt-4">
-            <div v-for="(node, index) in flatNodes" :key="node.node_id" :id="'node-' + node.node_id" 
-                class="scroll-mt-24 transition-all duration-500 animate-fade-in-up"
+        <div class="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 xl:px-12 space-y-8 sm:space-y-10 lg:space-y-12 pb-24 sm:pb-28 lg:pb-32 pt-2 sm:pt-3 lg:pt-4">
+            <div v-for="(node, index) in flatNodes" :key="node.node_id" :id="'node-' + node.node_id"
+                class="scroll-mt-20 sm:scroll-mt-22 lg:scroll-mt-24 transition-all duration-500 animate-fade-in-up"
                 :style="{ animationDelay: (index * 100) + 'ms' }">
-                
+
                 <!-- Level 1: Course Title / Part -->
-                <div v-if="node.node_level === 1" class="relative overflow-hidden rounded-[2.5rem] bg-white/60 backdrop-blur-2xl border border-white/60 shadow-xl shadow-primary-500/5 mb-24 group hover:shadow-2xl hover:shadow-primary-500/10 transition-shadow duration-500">
+                <div v-if="node.node_level === 1" class="relative overflow-hidden rounded-3xl sm:rounded-[2.5rem] bg-white/60 backdrop-blur-2xl border border-white/60 shadow-xl shadow-primary-500/5 mb-16 sm:mb-20 lg:mb-24 group hover:shadow-2xl hover:shadow-primary-500/10 transition-shadow duration-500">
                     <!-- Background Decor -->
                     <div class="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-white/20 pointer-events-none"></div>
                     <div class="absolute -top-[40%] -right-[20%] w-[80%] h-[120%] bg-gradient-to-b from-primary-100/40 to-transparent rounded-full blur-[100px] pointer-events-none opacity-60 mix-blend-multiply"></div>
                     <div class="absolute -bottom-[40%] -left-[20%] w-[80%] h-[120%] bg-gradient-to-t from-pink-100/40 to-transparent rounded-full blur-[100px] pointer-events-none opacity-60 mix-blend-multiply"></div>
-                    
-                    <div class="relative z-10 p-16 lg:p-24 flex flex-col items-center text-center">
+
+                    <div class="relative z-10 p-8 sm:p-12 lg:p-16 xl:p-20 flex flex-col items-center text-center">
                         <!-- Badge -->
-                        <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/80 border border-slate-200/60 shadow-sm backdrop-blur-md mb-10 group-hover:-translate-y-1 transition-transform duration-500">
+                        <div class="inline-flex items-center gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-white/80 border border-slate-200/60 shadow-sm backdrop-blur-md mb-6 sm:mb-8 lg:mb-10 group-hover:-translate-y-1 transition-transform duration-500">
                             <span class="relative flex h-2 w-2">
                             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-400 opacity-75"></span>
                             <span class="relative inline-flex rounded-full h-2 w-2 bg-primary-500"></span>
                             </span>
-                            <span class="text-[10px] font-bold tracking-widest text-slate-500 uppercase font-sans">Interactive Course</span>
+                            <span class="text-[9px] sm:text-[10px] font-bold tracking-widest text-slate-500 uppercase font-sans">Interactive Course</span>
                         </div>
 
-                        <!-- Title -->
-                        <h1 class="text-5xl lg:text-7xl font-black text-slate-800 mb-8 tracking-tighter drop-shadow-sm font-display leading-[1.1] max-w-6xl bg-clip-text text-transparent bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700">
+                        <!-- Title - Optimized max-width for readability -->
+                        <h1 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-slate-800 mb-6 sm:mb-7 lg:mb-8 tracking-tight drop-shadow-sm font-display leading-[1.15] max-w-4xl bg-clip-text text-transparent bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700">
                             {{ node.node_name.replace(/《|》/g, '') }}
                         </h1>
 
                         <!-- Divider -->
-                        <div class="flex items-center gap-6 mb-10 opacity-40">
-                            <div class="w-16 h-px bg-gradient-to-r from-transparent via-slate-400 to-transparent"></div>
+                        <div class="flex items-center gap-4 sm:gap-6 mb-6 sm:mb-8 lg:mb-10 opacity-40">
+                            <div class="w-12 sm:w-16 h-px bg-gradient-to-r from-transparent via-slate-400 to-transparent"></div>
                             <div class="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
-                            <div class="w-16 h-px bg-gradient-to-r from-transparent via-slate-400 to-transparent"></div>
+                            <div class="w-12 sm:w-16 h-px bg-gradient-to-r from-transparent via-slate-400 to-transparent"></div>
                         </div>
 
-                        <!-- Description -->
-                        <div class="prose prose-lg prose-slate text-slate-600 max-w-5xl mx-auto font-sans leading-relaxed mix-blend-multiply text-center font-medium" v-html="renderMarkdown(node.node_content)"></div>
+                        <!-- Description - Optimized line length -->
+                        <div class="prose prose-base sm:prose-lg prose-slate text-slate-600 max-w-2xl sm:max-w-3xl mx-auto font-sans leading-relaxed mix-blend-multiply text-center font-medium" v-html="renderMarkdown(node.node_content)"></div>
                     </div>
                 </div>
 
-                <!-- Level 2: Chapter -->
-                <div v-else-if="node.node_level === 2" class="mt-24 mb-10 relative group">
-                    <div class="absolute -left-4 -top-4 w-20 h-20 bg-gradient-to-br from-slate-100 to-transparent rounded-full opacity-50 blur-xl group-hover:opacity-100 transition-opacity"></div>
-                    
-                    <!-- New Modern Chapter Header -->
-                    <div class="relative z-10 bg-white/40 backdrop-blur-xl rounded-xl border border-white/60 p-8 shadow-sm mb-10 overflow-hidden">
-                        <!-- Decorative bg -->
-                        <div class="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-primary-50/50 to-transparent rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none"></div>
+                <!-- Level 2: Chapter - Grand Premium Style -->
+                <div v-else-if="node.node_level === 2" class="mt-12 sm:mt-14 lg:mt-16 mb-8 sm:mb-10 lg:mb-12 relative group">
+                    <!-- Decorative Background Elements -->
+                    <div class="absolute -inset-4 bg-gradient-to-br from-primary-50/50 via-white to-indigo-50/30 rounded-3xl blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-700 -z-10"></div>
 
-                        <div class="flex flex-col gap-6 relative">
+                    <div class="relative bg-white rounded-2xl sm:rounded-3xl overflow-hidden shadow-[0_4px_20px_-4px_rgba(0,0,0,0.1)] border border-slate-100 hover:shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] transition-all duration-500">
+                        <!-- Top Accent Bar -->
+                        <div class="h-1.5 bg-gradient-to-r from-primary-400 via-indigo-500 to-purple-500"></div>
+
+                        <div class="p-6 sm:p-8 lg:p-10">
                             <!-- Top Row: Badge & Metadata -->
-                            <div class="flex items-center justify-between">
+                            <div class="flex items-center justify-between flex-wrap gap-3 mb-6">
                                 <div class="flex items-center gap-3">
-                                    <span class="px-3 py-1 rounded-full bg-slate-900 text-white text-[10px] font-black tracking-widest uppercase">Chapter</span>
-                                    <div class="h-px w-8 bg-slate-300"></div>
-                                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Part {{ index + 1 }}</span>
+                                    <div class="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-slate-800 to-slate-700 text-white rounded-full shadow-md">
+                                        <el-icon :size="12" class="text-primary-300"><Reading /></el-icon>
+                                        <span class="text-[11px] font-bold tracking-wider uppercase">Chapter</span>
+                                    </div>
+                                    <span class="text-2xl font-black text-slate-200">{{ String(index + 1).padStart(2, '0') }}</span>
                                 </div>
-                                
+
                                 <!-- Metadata Pills -->
                                 <div class="flex items-center gap-2">
-                                    <div v-if="node.is_read" class="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
-                                        <el-icon><Check /></el-icon> 已读
+                                    <div v-if="node.is_read" class="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full shadow-sm">
+                                        <el-icon :size="12"><Check /></el-icon> 已读
                                     </div>
-                                    <div class="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 bg-white border border-slate-200 px-2.5 py-1 rounded-full shadow-sm">
-                                        <el-icon><Timer /></el-icon> {{ Math.ceil((node.node_content?.length || 0) / 500) }} min
+                                    <div class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full">
+                                        <el-icon :size="12"><Timer /></el-icon> {{ Math.ceil((node.node_content?.length || 0) / 500) }} min
                                     </div>
                                 </div>
                             </div>
 
                             <!-- Middle Row: Title & Action -->
-                            <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                                <h2 class="text-5xl md:text-6xl font-black text-slate-800 tracking-tight leading-tight">
-                                    {{ node.node_name }}
-                                </h2>
-                                
-                                <button 
-                                    class="flex-shrink-0 group/btn relative overflow-hidden rounded-xl bg-slate-900 text-white px-8 py-4 flex items-center gap-3 shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all duration-300"
+                            <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+                                <div class="flex-1">
+                                    <h2 class="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-800 tracking-tight leading-[1.1] mb-4">
+                                        <span class="bg-clip-text text-transparent bg-gradient-to-br from-slate-900 via-slate-800 to-slate-600">
+                                            {{ node.node_name }}
+                                        </span>
+                                    </h2>
+
+                                    <!-- Decorative Line -->
+                                    <div class="flex items-center gap-3 mb-4">
+                                        <div class="w-16 h-1 bg-gradient-to-r from-primary-500 to-indigo-500 rounded-full"></div>
+                                        <div class="w-2 h-2 rounded-full bg-primary-400"></div>
+                                        <div class="w-8 h-0.5 bg-slate-200 rounded-full"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Quiz Button - Premium Style -->
+                                <button
+                                    class="flex-shrink-0 group/btn relative overflow-hidden rounded-xl bg-gradient-to-r from-slate-800 to-slate-900 text-white px-6 py-3 flex items-center gap-3 shadow-lg hover:shadow-xl hover:shadow-primary-500/20 hover:scale-[1.02] transition-all duration-300"
                                     @click="handleStartQuiz(node)"
                                 >
-                                    <div class="absolute inset-0 bg-gradient-to-r from-primary-500 to-indigo-600 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-300"></div>
-                                    <el-icon class="relative z-10 text-2xl"><VideoPlay /></el-icon>
-                                    <span class="relative z-10 font-bold text-xl">本章测验</span>
-                                    <el-icon class="relative z-10 text-lg opacity-50 group-hover/btn:translate-x-1 transition-transform"><ArrowRight /></el-icon>
+                                    <div class="absolute inset-0 bg-gradient-to-r from-primary-500 via-indigo-500 to-purple-500 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-300"></div>
+                                    <div class="relative z-10 flex items-center gap-2">
+                                        <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
+                                            <el-icon class="text-lg"><VideoPlay /></el-icon>
+                                        </div>
+                                        <div class="flex flex-col items-start">
+                                            <span class="text-[10px] text-white/70 font-medium uppercase tracking-wider">Test</span>
+                                            <span class="font-bold text-sm">本章测验</span>
+                                        </div>
+                                    </div>
                                 </button>
                             </div>
 
                             <!-- Bottom Row: Summary -->
-                            <div v-if="node.node_content" class="relative mt-2">
-                                <div class="absolute left-0 top-0 bottom-0 w-1 bg-primary-500 rounded-full"></div>
-                                <div class="pl-5 py-1">
-                                    <p class="text-slate-600 text-sm leading-relaxed font-medium opacity-80 line-clamp-3">
-                                        {{ node.node_content.slice(0, 150) }}...
-                                    </p>
+                            <div v-if="node.node_content" class="relative mt-6 pt-6 border-t border-slate-100">
+                                <div class="flex gap-4">
+                                    <div class="w-1 bg-gradient-to-b from-primary-400 to-indigo-400 rounded-full"></div>
+                                    <div class="flex-1">
+                                        <p class="text-slate-500 text-sm leading-relaxed line-clamp-2 font-medium">
+                                            {{ node.node_content.slice(0, 150) }}...
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    
-
                 </div>
 
                 <!-- Level 3+: Content Card -->
-                <div v-else class="group relative pl-8 border-l-2 border-slate-100 hover:border-primary-300 transition-colors duration-300">
-                    <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-slate-50 border-2 border-slate-200 group-hover:border-primary-500 group-hover:bg-primary-50 transition-all duration-300"></div>
-                    
-                    <div class="flex items-center justify-between mb-4 group/header">
-                        <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
-                            <span class="w-1.5 h-5 bg-primary-500 rounded-full opacity-80"></span>
+                <div v-else class="group relative pl-4 sm:pl-5 lg:pl-6 border-l-2 border-slate-200 hover:border-primary-300 transition-colors duration-300">
+                    <div class="absolute -left-[4.5px] sm:-left-[5px] top-1.5 w-2 sm:w-2.5 h-2 sm:h-2.5 rounded-full bg-slate-200 border border-white shadow-sm group-hover:bg-primary-400 group-hover:scale-125 transition-all duration-300"></div>
+
+                    <div class="flex items-center justify-between mb-2 sm:mb-3 group/header">
+                        <h3 class="text-base sm:text-lg font-semibold text-slate-700 flex items-center gap-2 pr-2">
                             {{ node.node_name }}
                         </h3>
-                        <div class="flex gap-2">
-                            <button class="px-2 py-1 text-xs font-bold text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors flex items-center gap-1" @click="handleStartQuiz(node)" title="小节测验">
-                                <el-icon><VideoPlay /></el-icon>
+                        <div class="flex gap-1 sm:gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0">
+                            <button class="px-1.5 sm:px-2 py-0.5 sm:py-1 text-[9px] sm:text-[10px] font-medium text-primary-600 bg-primary-50/80 hover:bg-primary-100 rounded-md transition-colors flex items-center gap-0.5 sm:gap-1" @click="handleStartQuiz(node)" title="小节测验">
+                                <el-icon :size="11"><VideoPlay /></el-icon>
                                 <span>测验</span>
                             </button>
-                            <button class="p-1 text-slate-400 hover:text-primary-500 rounded-md hover:bg-slate-100 transition-colors" @click="showSummary(node)" title="内容摘要">
-                                <el-icon><Notebook /></el-icon>
+                            <button class="p-1 sm:p-1.5 text-slate-400 hover:text-primary-500 rounded-md hover:bg-slate-100 transition-colors" @click="showSummary(node)" title="内容摘要">
+                                <el-icon :size="13"><Notebook /></el-icon>
                             </button>
                         </div>
                     </div>
-                    
-                    <div class="glass-panel p-6 lg:p-8 rounded-lg relative overflow-hidden group-hover:shadow-lg transition-shadow duration-300">
-                        <div class="prose prose-slate max-w-none prose-headings:font-display prose-headings:text-slate-800 prose-p:text-slate-600 prose-a:text-primary-600 hover:prose-a:text-primary-500 prose-strong:text-slate-700 prose-code:text-primary-600 prose-code:bg-primary-50 prose-pre:bg-slate-800 prose-pre:shadow-lg" 
-                            :style="{ 
+
+                    <div class="bg-white/60 backdrop-blur-sm p-3 sm:p-4 lg:p-5 xl:p-6 rounded-lg sm:rounded-xl relative overflow-hidden border border-slate-100/60 group-hover:bg-white/80 group-hover:border-slate-200/80 group-hover:shadow-sm transition-all duration-300">
+                        <div
+                            class="prose prose-slate max-w-none content-render prose-sm sm:prose-base"
+                            :style="{
                                 fontSize: fontSize + 'px',
-                                fontFamily: fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' : (fontFamily === 'serif' ? 'ui-serif, Georgia, Cambria, Times New Roman, Times, serif' : 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif'),
-                                lineHeight: lineHeight 
+                                fontFamily: fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' : (fontFamily === 'serif' ? 'ui-serif, Georgia, Cambria, Times New Roman, Times, serif' : '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif'),
+                                lineHeight: lineHeight
                             }"
                             v-html="renderMarkdown(node.node_content)">
                         </div>
@@ -237,8 +257,8 @@
             </div>
         </div>
 
-        <!-- Note Column (Desktop Only) -->
-        <div id="note-column" v-if="!courseStore.isFocusMode" class="hidden lg:flex flex-col w-[280px] flex-shrink-0 relative bg-slate-50/50 transition-all duration-300 border-l border-white/50">
+        <!-- Note Column (Desktop Only) - Responsive width -->
+        <div id="note-column" v-if="!courseStore.isFocusMode" class="hidden xl:flex flex-col w-[260px] 2xl:w-[280px] flex-shrink-0 relative bg-slate-50/50 transition-all duration-300 border-l border-white/50">
              <!-- Search Header (Floating Card) -->
             <div class="sticky top-4 z-30 mx-3 mb-2 p-3 glass-panel-floating rounded-lg flex flex-col gap-3 transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
                 <div class="flex items-center justify-between px-1">
@@ -257,18 +277,36 @@
                 <div class="relative flex bg-slate-200/40 p-1 rounded-xl select-none border border-white/20">
                     <div class="absolute top-1 bottom-1 rounded-lg bg-white shadow-[0_2px_8px_rgba(0,0,0,0.08)] border border-white/60 transition-all duration-300 ease-out"
                          :style="activeTabStyle"></div>
-                    <button v-for="tab in ['notes', 'mistakes']" :key="tab"
+                    <button v-for="tab in ['notes', 'mistakes', 'tags']" :key="tab"
                         class="relative flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors z-10 text-center tracking-wide"
                         :class="activeNoteFilter === tab ? 'text-slate-800' : 'text-slate-500 hover:text-slate-700'"
                         @click="activeNoteFilter = tab"
                     >
-                        {{ tab === 'notes' ? `笔记 ${noteCounts.notes}` : `错题 ${noteCounts.mistakes}` }}
+                        {{ tab === 'notes' ? `笔记 ${noteCounts.notes}` : tab === 'mistakes' ? `错题 ${noteCounts.mistakes}` : `标签 ${allTags.length}` }}
                     </button>
+                </div>
+
+                <!-- Tag Cloud View -->
+                <div v-if="activeNoteFilter === 'tags'" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto custom-scrollbar">
+                    <button
+                        v-for="tag in allTags" :key="tag.name"
+                        @click="toggleTagFilter(tag.name)"
+                        class="px-2 py-1 text-[10px] rounded-full transition-all duration-200 border"
+                        :class="selectedTags.includes(tag.name) 
+                            ? 'bg-primary-100 text-primary-700 border-primary-200 shadow-sm' 
+                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'"
+                        :style="{ fontSize: tag.size + 'px' }"
+                    >
+                        {{ tag.name }} ({{ tag.count }})
+                    </button>
+                    <div v-if="allTags.length === 0" class="w-full text-center py-2 text-[10px] text-slate-400">
+                        暂无标签，为笔记添加标签进行分类
+                    </div>
                 </div>
 
                 <el-input 
                     v-model="noteSearchQuery" 
-                    placeholder="搜索..." 
+                    placeholder="搜索笔记内容..." 
                     :prefix-icon="Search" 
                     size="small" 
                     clearable 
@@ -278,8 +316,20 @@
                         <el-icon v-if="isSearching" class="is-loading text-primary-500"><Loading /></el-icon>
                     </template>
                 </el-input>
-                <div v-if="debouncedSearchQuery" class="text-[10px] text-slate-400 px-1">
-                    找到 {{ displayedNotes.length }} 条
+                
+                <!-- Active Filters Display -->
+                <div v-if="selectedTags.length > 0 || debouncedSearchQuery" class="flex flex-wrap gap-1">
+                    <span v-if="selectedTags.length > 0" class="text-[10px] text-slate-400">标签:</span>
+                    <span v-for="tag in selectedTags" :key="tag" 
+                          class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-primary-50 text-primary-600 text-[9px] rounded-full">
+                        {{ tag }}
+                        <button @click="toggleTagFilter(tag)" class="hover:text-primary-800">
+                            <el-icon :size="8"><Close /></el-icon>
+                        </button>
+                    </span>
+                    <span v-if="debouncedSearchQuery" class="text-[10px] text-slate-400 ml-auto">
+                        找到 {{ displayedNotes.length }} 条
+                    </span>
                 </div>
             </div>
 
@@ -361,7 +411,7 @@
                              <!-- Note Bubble -->
                              <div class="bg-white/90 backdrop-blur-sm rounded-2xl shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)] border p-0 group hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer overflow-hidden"
                                   :class="[noteCardBorderClass(note), {'ring-2 ring-primary-200': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !shadow-purple-100': note.sourceType === 'ai'}]"
-                                 @click="scrollToHighlight(note.highlightId, note.id)"
+                                 @click="handleNoteClick(note)"
                                   @mouseenter="setHovered(note.id)"
                                   @mouseleave="setHovered(null)">
                                 
@@ -405,21 +455,22 @@
                                         </div>
                                     </div>
                                     <template v-else>
-                                        <!-- Content with auto-collapse -->
-                                        <div class="relative group/content transition-all duration-300"
-                                             :class="{'max-h-[500px] overflow-hidden': shouldCollapse(note) && !isAccordionMode, 'max-h-[200px] overflow-hidden': shouldCollapse(note) && isAccordionMode}">
-                                            <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap note-underline" v-html="formatNoteContent(note.content)"></div>
-                                            
+                                        <!-- Content Preview - always collapsed, click to view full in dialog -->
+                                        <div class="relative group/content">
+                                            <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap note-underline max-h-[120px] overflow-hidden">
+                                                {{ note.content.slice(0, 100) }}{{ note.content.length > 100 ? '...' : '' }}
+                                            </div>
+
                                             <!-- Gradient Mask -->
-                                            <div v-if="shouldCollapse(note)" 
-                                                 class="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent pointer-events-none">
+                                            <div v-if="note.content.length > 100"
+                                                 class="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none">
                                             </div>
                                         </div>
 
-                                        <!-- Expand/Collapse Action -->
-                                        <div v-if="shouldCollapse(note) || expandedNoteIds.includes(note.id)" class="mt-2 flex justify-center">
-                                            <button @click.stop="toggleExpand(note.id)" class="text-[10px] font-bold text-slate-400 hover:text-primary-600 flex items-center gap-1 transition-colors bg-slate-50 hover:bg-primary-50 px-2 py-0.5 rounded-full">
-                                                {{ expandedNoteIds.includes(note.id) ? '收起' : '展开' }} <el-icon><ArrowDown v-if="!expandedNoteIds.includes(note.id)" /><ArrowUp v-else /></el-icon>
+                                        <!-- View Full Action -->
+                                        <div class="mt-2 flex justify-center">
+                                            <button @click.stop="handleNoteClick(note)" class="text-[10px] font-bold text-slate-400 hover:text-primary-600 flex items-center gap-1 transition-colors bg-slate-50 hover:bg-primary-50 px-2 py-0.5 rounded-full">
+                                                查看详情 <el-icon><View /></el-icon>
                                             </button>
                                         </div>
 
@@ -622,8 +673,8 @@
     <el-dialog
         v-model="noteDetailVisible"
         title="笔记详情"
-        width="600px"
-        class="glass-dialog-clean"
+        width="700px"
+        class="note-detail-dialog"
         align-center
         append-to-body
     >
@@ -632,18 +683,23 @@
             <div v-if="selectedNote.quote" class="p-4 bg-slate-50 rounded-xl border-l-4 italic text-slate-600 text-sm" :class="noteQuoteBorderClass(selectedNote)">
                 "{{ selectedNote.quote }}"
             </div>
-            
-            <!-- Main Content -->
-            <div class="prose prose-slate max-w-none text-slate-800 leading-relaxed" v-html="formatNoteContent(selectedNote.content)"></div>
-            
+
+            <!-- Main Content with enhanced markdown rendering -->
+            <div class="note-content-markdown" v-html="formatNoteContent(selectedNote.content)"></div>
+
             <!-- Metadata -->
             <div class="flex items-center justify-between pt-4 border-t border-slate-100 text-xs text-slate-400">
                 <div class="flex items-center gap-2">
                     <el-icon><Timer /></el-icon>
                     创建于 {{ dayjs(selectedNote.createdAt).format('YYYY-MM-DD HH:mm') }}
                 </div>
-                <div v-if="selectedNote.sourceType === 'ai'" class="flex items-center gap-1 text-primary-600 font-bold bg-primary-50 px-2 py-1 rounded">
-                    <el-icon><MagicStick /></el-icon> AI 助手生成
+                <div class="flex items-center gap-2">
+                    <el-button v-if="selectedNote.nodeId" size="small" text @click="jumpToNoteSource(selectedNote); noteDetailVisible = false">
+                        <el-icon class="mr-1"><Position /></el-icon>跳转原文
+                    </el-button>
+                    <div v-if="selectedNote.sourceType === 'ai'" class="flex items-center gap-1 text-primary-600 font-bold bg-primary-50 px-2 py-1 rounded">
+                        <el-icon><MagicStick /></el-icon> AI 助手生成
+                    </div>
                 </div>
             </div>
         </div>
@@ -655,9 +711,9 @@
         </template>
     </el-dialog>
 
-    <!-- Quiz Suggestion Toast -->
+    <!-- Quiz Suggestion Toast - Moved left to avoid AI panel overlap -->
     <transition name="slide-up">
-        <div v-if="showQuizSuggestion && suggestedQuizNode" class="fixed bottom-20 right-4 lg:right-8 z-[100] w-72 lg:w-80 bg-white p-4 rounded-xl shadow-xl border border-slate-200 flex flex-col gap-3">
+        <div v-if="showQuizSuggestion && suggestedQuizNode" class="fixed bottom-20 right-4 lg:right-[340px] z-[100] w-72 lg:w-80 bg-white p-4 rounded-xl shadow-xl border border-slate-200 flex flex-col gap-3">
             <div class="flex items-start justify-between">
                 <div class="flex items-center gap-2 text-primary-600">
                     <el-icon class="text-xl"><Trophy /></el-icon>
@@ -709,11 +765,44 @@ const courseStore = useCourseStore()
 const selectionMenu = ref({ visible: false, x: 0, y: 0, placement: 'top', text: '', range: null as Range | null })
 const noteSearchQuery = ref('')
 const activeNoteFilter = ref('notes')
-const isAccordionMode = ref(true) // Default to true or false? Let's say false initially or true for better UX
-const expandedNoteIds = ref<string[]>([])
+const isAccordionMode = ref(true) // Default to true for collapse mode
+const expandedNoteIds = ref<string[]>([]) // Empty means all notes collapsed by default
 const scrollProgress = ref(0)
 const lightboxVisible = ref(false)
 const lightboxImage = ref('')
+const selectedTags = ref<string[]>([])
+
+// Tag filtering logic
+const allTags = computed(() => {
+    const tagCounts = new Map<string, number>()
+    courseStore.notes.forEach((note: any) => {
+        if (note.tags && Array.isArray(note.tags)) {
+            note.tags.forEach((tag: string) => {
+                tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)
+            })
+        }
+    })
+    
+    const maxCount = Math.max(...tagCounts.values(), 1)
+    const minCount = Math.min(...tagCounts.values(), 1)
+    
+    return Array.from(tagCounts.entries())
+        .map(([name, count]) => ({
+            name,
+            count,
+            size: minCount === maxCount ? 11 : 9 + ((count - minCount) / (maxCount - minCount)) * 4
+        }))
+        .sort((a, b) => b.count - a.count)
+})
+
+const toggleTagFilter = (tag: string) => {
+    const index = selectedTags.value.indexOf(tag)
+    if (index > -1) {
+        selectedTags.value.splice(index, 1)
+    } else {
+        selectedTags.value.push(tag)
+    }
+}
 
 const debounce = (fn: Function, delay: number) => {
     let timeout: any
@@ -822,10 +911,28 @@ const flatNodes = computed(() => {
 })
 const nodeNameMap = computed(() => new Map(flatNodes.value.map(n => [n.node_id, n.node_name])))
 
-const exportContent = () => {
-    const filterLabel = activeNoteFilter.value === 'mistakes' ? '错题' : '笔记'
-    const query = debouncedSearchQuery.value.trim()
-    courseStore.exportNotesMarkdown(displayedNotes.value.slice(), { filterLabel, query: query || undefined })
+const exportContent = async () => {
+    try {
+        await ElMessageBox.confirm(
+            '选择导出格式：',
+            '导出笔记',
+            {
+                distinguishCancelAndClose: true,
+                confirmButtonText: 'Markdown',
+                cancelButtonText: 'JSON',
+                type: 'info'
+            }
+        )
+        // Export as Markdown
+        courseStore.downloadNotes('markdown')
+        ElMessage.success('笔记已导出为 Markdown')
+    } catch (action) {
+        if (action === 'cancel') {
+            // Export as JSON
+            courseStore.downloadNotes('json')
+            ElMessage.success('笔记已导出为 JSON')
+        }
+    }
 }
 
 const chapterEndNodes = computed(() => {
@@ -1044,7 +1151,19 @@ const visibleNotes = computed(() => {
 })
 
 const quotedNotes = computed(() => visibleNotes.value.filter(n => n.quote && n.quote.trim().length > 0))
-const displayedNotes = computed(() => visibleNotes.value.filter(n => n.sourceType !== 'format'))
+const displayedNotes = computed(() => {
+    let notes = visibleNotes.value.filter(n => n.sourceType !== 'format')
+    
+    // Apply tag filter
+    if (selectedTags.value.length > 0) {
+        notes = notes.filter((n: any) => {
+            const noteTags = n.tags || []
+            return selectedTags.value.some(tag => noteTags.includes(tag))
+        })
+    }
+    
+    return notes
+})
 const displayedQuotedNotes = computed(() => quotedNotes.value.filter(n => n.sourceType !== 'format'))
 const noteEmptyText = computed(() => {
     if (debouncedSearchQuery.value) return '无匹配结果'
@@ -1543,18 +1662,24 @@ watch(editingNoteId, () => {
 
 const formatNoteContent = (content: string) => {
     if (!content) return ''
-    
-    let processed = content.replace(/(?<=^|\s)(#[\w\u4e00-\u9fa5]+)/g, '<span class="text-primary-600 font-bold">$1</span>')
-    
+
+    // First render markdown, then apply highlighting
+    let html = renderMarkdown(content)
+
+    // Apply tag highlighting to rendered HTML (safer approach)
+    // Match hashtags that are not inside HTML tags
+    html = html.replace(/(?<![<\w])(#[\w\u4e00-\u9fa5]+)/g, '<span class="text-primary-600 font-bold">$1</span>')
+
+    // Apply search highlighting
     if (searchTokens.value.length > 0) {
         const tokens = Array.from(new Set(searchTokens.value.map(t => escapeRegExp(t)).filter(Boolean)))
         if (tokens.length > 0) {
             const regex = new RegExp(`(${tokens.join('|')})`, 'gi')
-            processed = processed.replace(regex, '<span class="bg-yellow-200 text-slate-900 rounded px-0.5 box-decoration-clone">$1</span>')
+            html = html.replace(regex, '<span class="bg-yellow-200 text-slate-900 rounded px-0.5 box-decoration-clone">$1</span>')
         }
     }
-    
-    return renderMarkdown(processed)
+
+    return html
 }
 
 const formatMistakeContent = (content: string) => {
@@ -1591,10 +1716,6 @@ const formatMistakeContent = (content: string) => {
 }
 
 // Selection Handling
-const handleDoubleClick = () => {
-    courseStore.isFocusMode = !courseStore.isFocusMode
-}
-
 const handleMouseUp = (_e: MouseEvent) => {
     // Check if clicked on image
     const target = _e.target as HTMLElement
@@ -1777,12 +1898,19 @@ const toggleExpand = (noteId: string) => {
 }
 
 const handleNoteClick = (note: any) => {
+    // Open note detail dialog instead of jumping
+    selectedNote.value = note
+    noteDetailVisible.value = true
+    activeNoteId.value = note.id
+}
+
+const jumpToNoteSource = (note: any) => {
     // Priority 1: Jump to specific highlight if it exists in DOM
     if (note.highlightId) {
         scrollToHighlight(note.highlightId, note.id)
         return
     }
-    
+
     // Priority 2: Jump to Node (Chapter/Section)
     if (note.nodeId) {
         courseStore.scrollToNode(note.nodeId)
@@ -2447,6 +2575,294 @@ onUnmounted(() => {
 :deep(.glass-input-clean .el-input__inner) {
     color: #334155;
     font-weight: 500;
+}
+
+/* Content Render Styles */
+.content-render :deep(h1),
+.content-render :deep(h2),
+.content-render :deep(h3),
+.content-render :deep(h4) {
+    font-weight: 600;
+    color: #1e293b;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+}
+
+.content-render :deep(h2) {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.content-render :deep(h3) {
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.content-render :deep(p) {
+    color: #475569;
+    line-height: 1.8;
+    margin-bottom: 1.25rem;
+    font-size: 15px;
+}
+
+.content-render :deep(a) {
+    color: #4f46e5;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.content-render :deep(a:hover) {
+    text-decoration: underline;
+}
+
+.content-render :deep(strong) {
+    color: #334155;
+    font-weight: 600;
+}
+
+.content-render :deep(code) {
+    color: #4f46e5;
+    background: rgba(79, 70, 229, 0.08);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.375rem;
+    font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.content-render :deep(pre) {
+    background: #1e293b;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin: 1.25rem 0;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    overflow-x: auto;
+}
+
+.content-render :deep(pre code) {
+    background: transparent;
+    color: #e2e8f0;
+    padding: 0;
+}
+
+.content-render :deep(ul),
+.content-render :deep(ol) {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+}
+
+.content-render :deep(li) {
+    color: #475569;
+    font-size: 15px;
+    line-height: 1.8;
+    margin: 0.375rem 0;
+}
+
+.content-render :deep(blockquote) {
+    border-left: 3px solid #818cf8;
+    background: linear-gradient(to right, rgba(79, 70, 229, 0.05), transparent);
+    padding-left: 1.25rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    margin: 1.25rem 0;
+    font-style: normal;
+    color: #475569;
+    font-weight: 500;
+}
+
+/* Note Detail Dialog Markdown Styles */
+:deep(.note-detail-dialog) {
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(24px) saturate(180%);
+    border-radius: 20px;
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.2),
+        0 20px 40px -12px rgba(0, 0, 0, 0.12),
+        0 0 0 1px rgba(0,0,0,0.02);
+    border: none;
+    overflow: hidden;
+}
+
+:deep(.note-detail-dialog .el-dialog__header) {
+    margin-right: 0;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+
+:deep(.note-detail-dialog .el-dialog__title) {
+    font-weight: 700;
+    color: #1e293b;
+    font-size: 1.125rem;
+}
+
+:deep(.note-detail-dialog .el-dialog__body) {
+    padding: 20px 24px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+:deep(.note-detail-dialog .el-dialog__footer) {
+    padding: 16px 24px 20px;
+    border-top: 1px solid rgba(0,0,0,0.05);
+}
+
+.note-content-markdown {
+    color: #334155;
+    line-height: 1.8;
+    font-size: 15px;
+}
+
+.note-content-markdown :deep(h1),
+.note-content-markdown :deep(h2),
+.note-content-markdown :deep(h3),
+.note-content-markdown :deep(h4),
+.note-content-markdown :deep(h5),
+.note-content-markdown :deep(h6) {
+    font-weight: 600;
+    color: #1e293b;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    line-height: 1.4;
+}
+
+.note-content-markdown :deep(h1) {
+    font-size: 1.5rem;
+    font-weight: 700;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 0.5rem;
+}
+
+.note-content-markdown :deep(h2) {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.note-content-markdown :deep(h3) {
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.note-content-markdown :deep(h4) {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.note-content-markdown :deep(p) {
+    margin-bottom: 1rem;
+    color: #475569;
+}
+
+.note-content-markdown :deep(strong) {
+    color: #1e293b;
+    font-weight: 600;
+}
+
+.note-content-markdown :deep(em) {
+    color: #64748b;
+    font-style: italic;
+}
+
+.note-content-markdown :deep(code) {
+    color: #4f46e5;
+    background: rgba(79, 70, 229, 0.08);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.375rem;
+    font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.note-content-markdown :deep(pre) {
+    background: #1e293b;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+}
+
+.note-content-markdown :deep(pre code) {
+    background: transparent;
+    color: #e2e8f0;
+    padding: 0;
+}
+
+.note-content-markdown :deep(ul),
+.note-content-markdown :deep(ol) {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+}
+
+.note-content-markdown :deep(li) {
+    margin: 0.375rem 0;
+}
+
+.note-content-markdown :deep(blockquote) {
+    border-left: 3px solid #818cf8;
+    background: linear-gradient(to right, rgba(79, 70, 229, 0.05), transparent);
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-radius: 0 0.5rem 0.5rem 0;
+}
+
+/* Table Styles */
+.note-content-markdown :deep(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 14px;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.note-content-markdown :deep(thead) {
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+}
+
+.note-content-markdown :deep(th) {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: #1e293b;
+    border-bottom: 2px solid #cbd5e1;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.note-content-markdown :deep(td) {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e2e8f0;
+    color: #475569;
+}
+
+.note-content-markdown :deep(tr:hover) {
+    background: rgba(79, 70, 229, 0.03);
+}
+
+.note-content-markdown :deep(tr:last-child td) {
+    border-bottom: none;
+}
+
+.note-content-markdown :deep(a) {
+    color: #4f46e5;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.note-content-markdown :deep(a:hover) {
+    text-decoration: underline;
+}
+
+.note-content-markdown :deep(hr) {
+    border: none;
+    border-top: 1px solid #e2e8f0;
+    margin: 1.5rem 0;
+}
+
+.note-content-markdown :deep(img) {
+    max-width: 100%;
+    border-radius: 0.5rem;
+    margin: 1rem 0;
 }
 
 </style>

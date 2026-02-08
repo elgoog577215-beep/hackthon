@@ -801,30 +801,35 @@ DO NOT wrap the JSON in markdown code blocks.
 
 **核心要求**：
 1. **真实全面**：忽略寒暄和无用信息，精准捕捉核心内容。
-2. **结构化输出**：必须包含以下三个部分：
+2. **内容详实**：每个部分都要详细展开，不要简单概括。
+   - 卡点：详细描述用户的问题背景、具体困惑点、尝试过的解决思路
+   - 解答：完整阐述核心知识点，包括原理、逻辑、关键步骤，必要时举例说明
+   - 启发：深入分析延伸思考，提供实际应用场景和学习建议
+3. **结构化输出**：必须包含以下三个部分：
    - **🔴 卡点 (Stuck Point)**：用户最初遇到的困难、误区或疑惑是什么？
    - **🟢 解答 (Solution)**：最终解决问题的关键知识点、逻辑或方法是什么？
    - **✨ 启发 (Inspiration)**：从这个问题中延伸出的思考、举一反三的应用或对未来的指导意义。
-3. **出题建议**：基于本轮对话的知识点，判断是否有必要进行测验。
+4. **字数要求**：content 字段至少 300-500 字，确保内容充实有价值。
+5. **出题建议**：基于本轮对话的知识点，判断是否有必要进行测验。
 
 **输出格式**：
 直接输出一个 JSON 对象（不要 markdown 代码块）：
 {{
   "title": "复盘：[核心主题]",
-  "content": "Markdown 格式的详细复盘内容...",
-  "stuck_point": "简述卡点",
-  "solution": "简述解答",
-  "inspiration": "简述启发",
+  "content": "Markdown 格式的详细复盘内容，包含完整的知识点阐述、原理解释和实际应用...",
+  "stuck_point": "详细描述卡点",
+  "solution": "详细描述解答",
+  "inspiration": "详细描述启发",
   "suggest_quiz": true/false
 }}
 """
         # Convert history to text
         history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
         
-        prompt = f"课程背景：\n{course_context}\n\n对话历史：\n{history_text}\n\n请生成复盘报告："
+        prompt = f"课程背景：\n{course_context}\n\n对话历史：\n{history_text}\n\n请生成详细的复盘报告，确保内容丰富充实："
         
-        # Use Fast Model for summarization
-        response = await self._call_llm(prompt, system_prompt, use_fast_model=True)
+        # Use standard model for better quality summary
+        response = await self._call_llm(prompt, system_prompt, use_fast_model=False)
         if response:
             return self._extract_json(response) or {"title": "对话总结", "content": response}
         return {"title": "总结失败", "content": "无法生成总结。"}
@@ -851,6 +856,133 @@ Requirements:
         # Use Fast Model for summarization
         response = await self._call_llm(prompt, system_prompt, use_fast_model=True)
         return response if response else "Previous conversation summary (auto-generated failed)."
+
+    async def generate_knowledge_graph(self, course_name: str, course_context: str, nodes: List[Dict]) -> Dict:
+        """
+        Generate a knowledge graph structure based on course content.
+        
+        Args:
+            course_name: Name of the course
+            course_context: Full course outline/context
+            nodes: List of course nodes with their content
+            
+        Returns:
+            Dictionary containing nodes and edges for the knowledge graph
+        """
+        from prompts import get_prompt
+        
+        # Build course context summary
+        nodes_summary = []
+        for node in nodes[:20]:  # Limit to first 20 nodes to avoid token limit
+            nodes_summary.append({
+                "id": node.get("node_id", ""),
+                "name": node.get("node_name", ""),
+                "level": node.get("node_level", 1),
+                "content": node.get("node_content", "")[:100]  # Truncate content
+            })
+        
+        context_text = f"""
+课程名称：{course_name}
+
+课程大纲：
+{course_context}
+
+章节列表：
+{json.dumps(nodes_summary, ensure_ascii=False, indent=2)}
+"""
+        
+        # Get the knowledge graph prompt template
+        prompt_template = get_prompt("generate_knowledge_graph")
+        system_prompt = prompt_template.format(
+            course_name=course_name,
+            course_context=context_text
+        )
+        
+        user_prompt = f"""请基于以下课程内容生成知识图谱：
+
+课程名称：{course_name}
+
+主要章节：
+{chr(10).join([f"- {n.get('node_name', '')}: {n.get('node_content', '')[:50]}..." for n in nodes_summary[:15]])}
+
+请生成包含节点和关系的知识图谱JSON。"""
+        
+        response = await self._call_llm(user_prompt, system_prompt)
+        
+        if response:
+            result = self._extract_json(response)
+            if result and "nodes" in result and "edges" in result:
+                return result
+        
+        # Fallback: Generate a simple graph based on node hierarchy
+        logger.warning("Knowledge graph generation failed, using fallback")
+        return self._generate_fallback_knowledge_graph(nodes)
+    
+    def _generate_fallback_knowledge_graph(self, nodes: List[Dict]) -> Dict:
+        """
+        Generate a simple fallback knowledge graph based on node hierarchy.
+        """
+        graph_nodes = []
+        graph_edges = []
+        
+        # Create nodes
+        for node in nodes[:15]:
+            node_id = node.get("node_id", str(uuid.uuid4()))
+            node_level = node.get("node_level", 1)
+            
+            # Determine node type based on level
+            if node_level == 1:
+                node_type = "core"
+            elif node_level == 2:
+                node_type = "basic"
+            else:
+                node_type = "advanced"
+            
+            graph_nodes.append({
+                "id": node_id,
+                "label": node.get("node_name", "Unknown"),
+                "type": node_type,
+                "description": node.get("node_content", "")[:50],
+                "chapter_id": node_id
+            })
+        
+        # Create edges based on parent-child relationships
+        node_map = {n["id"]: n for n in graph_nodes}
+        for node in nodes[:15]:
+            node_id = node.get("node_id", "")
+            parent_id = node.get("parent_node_id", "")
+            
+            if parent_id and parent_id in node_map and node_id in node_map:
+                graph_edges.append({
+                    "source": parent_id,
+                    "target": node_id,
+                    "relation": "contains",
+                    "label": "包含"
+                })
+        
+        # Add some cross-references between same-level nodes
+        level_groups = {}
+        for node in graph_nodes:
+            level = node.get("type", "basic")
+            if level not in level_groups:
+                level_groups[level] = []
+            level_groups[level].append(node)
+        
+        # Connect nodes within same level
+        for level, group in level_groups.items():
+            for i in range(len(group) - 1):
+                if len(graph_edges) < 30:  # Limit total edges
+                    graph_edges.append({
+                        "source": group[i]["id"],
+                        "target": group[i + 1]["id"],
+                        "relation": "related",
+                        "label": "关联"
+                    })
+        
+        return {
+            "nodes": graph_nodes,
+            "edges": graph_edges
+        }
 
     def locate_node(self, keyword: str, all_nodes: List[Dict]) -> Dict:
         # Simple mock search - Semantic search requires embedding, sticking to keyword match for now
