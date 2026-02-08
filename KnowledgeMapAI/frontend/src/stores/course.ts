@@ -165,6 +165,9 @@ export const useCourseStore = defineStore('course', {
     
     // Notes System
     notes: [] as Note[],
+    
+    // State Restoration Flag
+    stateRestored: false,
   }),
   getters: {
     treeData: (state) => state.courseTree,
@@ -208,8 +211,11 @@ export const useCourseStore = defineStore('course', {
     },
 
     restoreGenerationState() {
+        if (this.stateRestored) {
+            return this.currentCourseId
+        }
         const raw = localStorage.getItem(GENERATION_STATE_KEY)
-        if (!raw) return
+        if (!raw) return null
         try {
             const data = JSON.parse(raw)
             const tasks = new Map<string, Task>()
@@ -233,8 +239,13 @@ export const useCourseStore = defineStore('course', {
             this.queue = normalizedQueue
             this.isQueueProcessing = false
 
-            if (!this.currentCourseId && data.currentCourseId) {
-                this.currentCourseId = data.currentCourseId
+            // Restore currentCourseId if valid
+            let restoredCourseId = null
+            if (data.currentCourseId && this.tasks.has(data.currentCourseId)) {
+                restoredCourseId = data.currentCourseId
+                if (!this.currentCourseId) {
+                    this.currentCourseId = restoredCourseId
+                }
             }
 
             const hasPending = this.queue.some(i => i.status === 'pending')
@@ -257,10 +268,42 @@ export const useCourseStore = defineStore('course', {
                 }
                 setTimeout(() => this.processQueue(), 50)
             } else {
-                this.finalizeIdleTasks()
+                // Check for "Zombie" tasks: Status is running but queue is empty
+                // This happens if the app was closed while queue was being populated or processed
+                let recovered = false
+                this.tasks.forEach(task => {
+                    if (task.status === 'running') {
+                        this.addLogToTask(task.id, '🔄 正在检查课程完整性...')
+                        // Re-run generation logic to fill missing gaps
+                        this.generateFullDetails(task.id)
+                        
+                        // Check if queue was populated
+                        const hasNewWork = this.queue.some(i => i.courseId === task.id && i.status === 'pending')
+                        if (hasNewWork) {
+                            recovered = true
+                            this.addLogToTask(task.id, '♻️ 发现未完成章节，继续生成')
+                        } else {
+                            // Really done
+                            task.status = 'completed'
+                            task.progress = 100
+                            this.addLogToTask(task.id, '✅ 课程检查完毕，已全部完成')
+                        }
+                    }
+                })
+
+                if (recovered) {
+                    this.isQueueProcessing = false
+                    setTimeout(() => this.processQueue(), 50)
+                } else {
+                    this.finalizeIdleTasks()
+                }
             }
+            
+            this.stateRestored = true
+            return restoredCourseId
         } catch (e) {
             console.error(e)
+            return null
         }
     },
 
@@ -448,6 +491,14 @@ export const useCourseStore = defineStore('course', {
             task.status = 'running'
             task.shouldStop = false
             this.addLogToTask(courseId, '▶️ 任务继续')
+            
+            // Check if queue needs repopulation (e.g. after restart)
+            const hasPending = this.queue.some(i => i.courseId === courseId && (i.status === 'pending' || i.status === 'running'))
+            if (!hasPending) {
+                 this.addLogToTask(courseId, '🔄 正在检查未完成章节...')
+                 this.generateFullDetails(courseId)
+            }
+
             this.persistGenerationState()
             // Trigger queue processing if it was stopped
             this.processQueue()
@@ -513,7 +564,7 @@ export const useCourseStore = defineStore('course', {
                 }
             }
             
-            return res.data
+            return Array.isArray(res.data) ? res.data : []
         } catch (error) {
             ElMessage.error('生成测验失败')
             if (!silent) {

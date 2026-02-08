@@ -1,21 +1,31 @@
 <template>
   <div ref="containerRef" class="flex-1 flex overflow-hidden relative min-h-0 w-full h-full">
     
-    <!-- Mobile Overlay -->
-    <div v-if="isMobile && (mobileShowLeft || mobileShowRight)" 
-         class="absolute inset-0 bg-black/20 backdrop-blur-sm z-40 transition-opacity"
-         @click="closeMobileSidebars">
-    </div>
+    <!-- Mobile Overlay - Improved z-index and click handling -->
+    <Transition name="fade">
+      <div v-if="isMobile && (mobileShowLeft || mobileShowRight)" 
+           class="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-[60]"
+           @click="closeMobileSidebars">
+      </div>
+    </Transition>
 
-    <!-- Mobile Toggles -->
-    <div v-if="isMobile" class="absolute top-4 left-4 z-30">
-        <button @click="mobileShowLeft = !mobileShowLeft" class="p-2 bg-white/80 backdrop-blur-md rounded-lg shadow-sm border border-slate-200 text-slate-600">
-            <el-icon><Menu /></el-icon>
+    <!-- Mobile Toggles - Better positioning and styling -->
+    <div v-if="isMobile && !courseStore.isFocusMode" class="fixed top-20 left-4 z-50">
+        <button 
+          @click="toggleLeftSidebar" 
+          class="w-10 h-10 bg-white/95 backdrop-blur-md rounded-xl shadow-lg border border-slate-200 text-slate-600 flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95"
+          :class="{ 'bg-primary-50 border-primary-200 text-primary-600': mobileShowLeft }"
+        >
+            <el-icon :size="18"><Menu /></el-icon>
         </button>
     </div>
-    <div v-if="isMobile" class="absolute top-4 right-4 z-30">
-        <button @click="mobileShowRight = !mobileShowRight" class="p-2 bg-white/80 backdrop-blur-md rounded-lg shadow-sm border border-slate-200 text-slate-600">
-            <el-icon><ChatDotRound /></el-icon>
+    <div v-if="isMobile && !courseStore.isFocusMode" class="fixed top-20 right-4 z-50">
+        <button 
+          @click="toggleRightSidebar" 
+          class="w-10 h-10 bg-white/95 backdrop-blur-md rounded-xl shadow-lg border border-slate-200 text-slate-600 flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95"
+          :class="{ 'bg-primary-50 border-primary-200 text-primary-600': mobileShowRight }"
+        >
+            <el-icon :size="18"><ChatDotRound /></el-icon>
         </button>
     </div>
 
@@ -96,14 +106,19 @@ import ContentArea from '../components/ContentArea.vue'
 import ChatPanel from '../components/ChatPanel.vue'
 import { useCourseStore } from '../stores/course'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Menu, ChatDotRound, Expand } from '@element-plus/icons-vue'
 
 const courseStore = useCourseStore()
 const route = useRoute()
+const router = useRouter()
 const containerRef = ref<HTMLElement | null>(null)
 
-courseStore.restoreGenerationState()
+// Restore state and handle redirection
+const restoredId = courseStore.restoreGenerationState()
+if (restoredId && !route.params.courseId) {
+    router.push(`/course/${restoredId}`)
+}
 
 // Mobile Logic
 const isMobile = ref(false)
@@ -122,6 +137,21 @@ const checkMobile = () => {
 const closeMobileSidebars = () => {
     mobileShowLeft.value = false
     mobileShowRight.value = false
+}
+
+// Toggle functions with mutual exclusivity
+const toggleLeftSidebar = () => {
+    mobileShowLeft.value = !mobileShowLeft.value
+    if (mobileShowLeft.value) {
+        mobileShowRight.value = false
+    }
+}
+
+const toggleRightSidebar = () => {
+    mobileShowRight.value = !mobileShowRight.value
+    if (mobileShowRight.value) {
+        mobileShowLeft.value = false
+    }
 }
 
 // Sidebar Resizing Logic

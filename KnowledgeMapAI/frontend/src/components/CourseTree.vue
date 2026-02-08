@@ -4,7 +4,7 @@
     <!-- MODE 1: COURSE LIST -->
     <transition name="fade-slide" mode="out-in">
       <div v-if="!courseStore.currentCourseId" class="flex flex-col h-full" key="list">
-        <div class="mx-3 mt-3 mb-1 px-4 py-3 flex justify-between items-center flex-shrink-0 glass-panel-tech-floating rounded-2xl z-10 relative">
+        <div class="mx-3 mt-3 mb-1 px-4 py-3 flex justify-between items-center flex-shrink-0 glass-panel-tech-floating rounded-xl z-10 relative">
             <div class="flex items-center gap-2">
                 <button 
                     class="p-1 -ml-1 text-slate-400 hover:text-primary-600 rounded-lg hover:bg-slate-100 transition-colors"
@@ -37,7 +37,7 @@
                 :style="{ animationDelay: (index * 50) + 'ms' }"
             >
                 <div 
-                    class="group relative p-3.5 rounded-2xl glass-card-tech-hover cursor-pointer overflow-hidden h-full"
+                    class="group relative p-3.5 rounded-lg glass-card-tech-hover cursor-pointer overflow-hidden h-full"
                     @click="handleCourseClick(course.course_id)"
                 >
                  <!-- Hover Gradient -->
@@ -112,38 +112,42 @@
             </div>
             </div>
 
-             <!-- Empty State -->
+             <!-- Enhanced Empty State -->
             <div v-if="courseStore.courseList.length === 0 && !courseStore.loading" class="flex flex-col items-center justify-center h-64 animate-fade-in-up p-6">
-                <div class="glass-card-tech rounded-[2.5rem] p-8 flex flex-col items-center text-center shadow-2xl shadow-primary-500/10 border-white/70">
-                    <div class="w-20 h-20 rounded-[2rem] bg-gradient-to-br from-primary-50 to-white border border-white shadow-[0_8px_30px_rgba(139,92,246,0.1)] flex items-center justify-center mb-6 relative group transition-transform hover:scale-105">
-                        <div class="absolute inset-0 bg-primary-500/5 rounded-[2rem] animate-pulse-slow"></div>
-                        <el-icon :size="32" class="text-primary-400 group-hover:text-primary-600 transition-colors"><Notebook /></el-icon>
+                <div class="glass-panel p-8 flex flex-col items-center text-center max-w-[280px]">
+                    <div class="w-16 h-16 rounded-xl bg-gradient-to-br from-primary-100 to-primary-50 border border-primary-200 flex items-center justify-center mb-5 relative">
+                        <el-icon :size="28" class="text-primary-600"><Notebook /></el-icon>
+                        <div class="absolute -top-1 -right-1 w-4 h-4 bg-primary-500 rounded-full flex items-center justify-center">
+                            <el-icon :size="10" class="text-white"><Plus /></el-icon>
+                        </div>
                     </div>
-                    <h3 class="text-lg font-bold text-slate-700 mb-2 font-display">开启知识之旅</h3>
-                    <p class="text-sm text-slate-400 mb-6 max-w-[200px] leading-relaxed">创建一个新课程，让 AI 帮你构建完整的知识体系</p>
-                    <el-button type="primary" class="!rounded-xl !px-6 !font-bold !bg-gradient-to-r !from-primary-500 !to-primary-600 !border-none !shadow-lg !shadow-primary-500/20 hover:!shadow-primary-500/40 hover:!scale-105 transition-all" @click="createNewCourse">
-                        新建课程
-                    </el-button>
+                    <h3 class="text-base font-semibold text-slate-800 mb-2">开始您的学习之旅</h3>
+                    <p class="text-sm text-slate-500 mb-5 leading-relaxed">创建第一个课程，让 AI 为您构建完整的知识图谱</p>
+                    <button 
+                        class="glass-button-primary w-full flex items-center justify-center gap-2" 
+                        @click="createNewCourse"
+                    >
+                        <el-icon :size="16"><Plus /></el-icon>
+                        <span>新建课程</span>
+                    </button>
+                    <div class="mt-4 flex items-center gap-2 text-xs text-slate-400">
+                        <el-icon :size="12"><InfoFilled /></el-icon>
+                        <span>支持 PDF、Markdown 导入</span>
+                    </div>
                 </div>
             </div>
             
-            <!-- Loading State -->
+            <!-- Enhanced Loading State -->
             <div v-if="courseStore.loading && courseStore.courseList.length === 0" class="flex flex-col items-center justify-center h-60">
-                <div class="relative flex flex-col items-center gap-4">
-                    <!-- Holographic Spinner -->
-                    <div class="relative w-16 h-16 flex items-center justify-center">
-                        <div class="absolute inset-0 rounded-full border-2 border-primary-500/20"></div>
-                        <div class="absolute inset-0 rounded-full border-t-2 border-primary-500 animate-spin"></div>
-                        <div class="absolute inset-2 rounded-full border-2 border-primary-500/20"></div>
-                        <div class="absolute inset-2 rounded-full border-b-2 border-primary-500 animate-spin-reverse"></div>
-                        <div class="absolute inset-0 bg-primary-500/5 blur-xl rounded-full animate-pulse-slow"></div>
-                        
-                        <el-icon class="text-2xl text-transparent bg-clip-text bg-gradient-to-br from-primary-500 to-primary-600 animate-pulse"><Loading /></el-icon>
+                <div class="flex flex-col items-center gap-4">
+                    <!-- Clean Spinner -->
+                    <div class="relative w-12 h-12">
+                        <div class="absolute inset-0 rounded-full border-2 border-slate-200"></div>
+                        <div class="absolute inset-0 rounded-full border-2 border-primary-500 border-t-transparent animate-spin"></div>
                     </div>
-                    
                     <div class="flex flex-col items-center gap-1">
-                        <span class="text-sm font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary-600 to-primary-600 tracking-wider">LOADING DATA</span>
-                        <span class="text-[10px] text-slate-400 font-mono">正在初始化课程数据...</span>
+                        <span class="text-sm font-medium text-slate-600">加载中...</span>
+                        <span class="text-xs text-slate-400">正在获取课程数据</span>
                     </div>
                 </div>
             </div>
@@ -154,7 +158,7 @@
       <!-- MODE 2: TREE VIEW -->
       <div v-else class="flex flex-col h-full" key="tree">
         <!-- Compact Header -->
-        <div class="mx-4 mt-4 mb-2 h-16 px-4 flex gap-3 items-center justify-between flex-shrink-0 glass-panel-tech-floating rounded-2xl z-10 relative box-border">
+        <div class="mx-4 mt-4 mb-2 h-16 px-4 flex gap-3 items-center justify-between flex-shrink-0 glass-panel-tech-floating rounded-xl z-10 relative box-border">
           
           <div class="flex items-center gap-1">
             <!-- Collapse Button -->
@@ -185,31 +189,25 @@
             </button>
           </div>
 
-          <!-- Search Input -->
-          <div class="relative group flex-1 transition-all duration-300 ease-out min-w-0">
-            <div class="relative flex items-center bg-white/40 hover:bg-white/60 focus-within:!bg-white/80 backdrop-blur-md border border-white/60 focus-within:border-primary-300/50 rounded-xl transition-all duration-300 shadow-sm group-focus-within:shadow-lg group-focus-within:shadow-primary-500/10 overflow-hidden h-9">
-                <!-- Inner Shadow for depth -->
-                <div class="absolute inset-0 shadow-[inset_0_2px_4px_rgba(0,0,0,0.02)] pointer-events-none rounded-xl"></div>
-                
-                <div class="pl-3 flex items-center justify-center text-slate-400 group-focus-within:text-primary-500 transition-colors duration-300 relative z-10">
-                     <el-icon :size="14" class="group-focus-within:scale-110 group-focus-within:rotate-12 transition-transform duration-300"><Search /></el-icon>
+          <!-- Search Input - Beautiful Design -->
+          <div class="relative flex-1 min-w-0">
+            <div class="flex items-center bg-white rounded-lg h-8 shadow-sm border border-slate-200/60 transition-all duration-300 focus-within:shadow-[0_0_15px_rgba(139,92,246,0.2)] focus-within:border-primary-300/50 hover:shadow-md hover:border-slate-300/60">
+                <div class="pl-2.5 pr-1.5 text-slate-400 transition-colors duration-300">
+                     <el-icon :size="14"><Search /></el-icon>
                 </div>
                 <input 
                     v-model="filterText"
                     type="text"
                     placeholder="搜索章节..."
-                    class="w-full pl-2 pr-8 py-2 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-xs font-medium text-slate-700 placeholder-slate-400/80 group-focus-within:placeholder-primary-300/50 relative z-10 h-full"
+                    class="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-xs text-slate-600 placeholder:text-slate-400/70 h-full pr-7"
                 />
-                <!-- Clear Button -->
-                <transition name="scale-fade">
-                    <button 
-                        v-if="filterText" 
-                        class="absolute right-2 text-slate-400 hover:text-primary-500 transition-colors z-20"
-                        @click="filterText = ''"
-                    >
-                        <el-icon :size="14"><CircleClose /></el-icon>
-                    </button>
-                </transition>
+                <button 
+                    v-if="filterText" 
+                    class="absolute right-1.5 text-slate-400 hover:text-slate-600 transition-colors"
+                    @click="filterText = ''"
+                >
+                    <el-icon :size="12"><CircleClose /></el-icon>
+                </button>
             </div>
           </div>
         </div>
@@ -524,7 +522,7 @@ import { ref, watch, onUnmounted, computed, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
-import { Plus, Search, CircleClose, Collection, Delete, Notebook, ArrowLeft, Loading, Edit, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare } from '@element-plus/icons-vue'
+import { Plus, Search, CircleClose, Collection, Delete, Notebook, ArrowLeft, Edit, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled } from '@element-plus/icons-vue'
 import { BookOpen, Hash, FileText, Circle } from 'lucide-vue-next'
 
 const courseStore = useCourseStore()
