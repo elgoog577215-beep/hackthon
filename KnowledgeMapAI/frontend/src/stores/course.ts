@@ -459,13 +459,14 @@ export const useCourseStore = defineStore('course', {
         this.activeAnnotation = null
     },
 
-    async generateQuiz(nodeId: string, nodeContent: string, style: string = 'standard', difficulty: string = 'medium', options: { silent?: boolean } = {}) {
+    async generateQuiz(nodeId: string, nodeContent: string, style: string = 'standard', difficulty: string = 'medium', options: { silent?: boolean, questionCount?: number } = {}) {
         this.chatLoading = true
         const silent = options.silent === true
+        const questionCount = options.questionCount || 3
         if (!silent) {
             this.chatHistory.push({
                 type: 'user',
-                content: `请为"${this.nodes.find(n => n.node_id === nodeId)?.node_name || '当前章节'}"生成一份${difficulty === 'hard' ? '困难' : (difficulty === 'easy' ? '简单' : '中等')}难度的${style === 'creative' ? '创意' : (style === 'practical' ? '实战' : '标准')}测试题。`
+                content: `请为"${this.nodes.find(n => n.node_id === nodeId)?.node_name || '当前章节'}"生成一份${difficulty === 'hard' ? '困难' : (difficulty === 'easy' ? '简单' : '中等')}难度的${style === 'creative' ? '创意' : (style === 'practical' ? '实战' : '标准')}测试题（共${questionCount}题）。`
             })
         }
         
@@ -475,7 +476,8 @@ export const useCourseStore = defineStore('course', {
                 node_name: this.nodes.find(n => n.node_id === nodeId)?.node_name || '',
                 difficulty: difficulty,
                 style: style,
-                user_persona: this.userPersona
+                user_persona: this.userPersona,
+                question_count: questionCount
             })
             
             // The backend returns a list of questions. We'll add them as AI messages.

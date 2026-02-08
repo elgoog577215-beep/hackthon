@@ -141,10 +141,6 @@
                     <!-- Decor dots -->
                     <div class="absolute top-6 right-6 w-2 h-2 rounded-full bg-primary-400/30 animate-ping"></div>
                 </div>
-                <span class="text-sm font-bold text-gray-500 bg-white/60 backdrop-blur-md px-5 py-2 rounded-full border border-white/50 shadow-sm flex items-center gap-2">
-                    <el-icon class="text-primary-500"><MagicStick /></el-icon>
-                    有什么不懂的？随时问我
-                </span>
             </div>
 
             <!-- Finish Topic Button (Visible when chat exists) -->
@@ -347,7 +343,7 @@
                 </button>
             </div>
             <div class="text-center mt-3">
-                <span class="text-[10px] text-slate-400 font-medium bg-white/40 backdrop-blur px-3 py-1 rounded-full border border-white/30 shadow-sm">AI 内容由大模型生成，请仔细甄别</span>
+        
             </div>
         </div>
     </div>

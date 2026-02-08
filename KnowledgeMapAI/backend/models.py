@@ -86,6 +86,7 @@ class GenerateQuizRequest(BaseModel):
     difficulty: str = "medium"
     style: Optional[str] = "standard"
     user_persona: Optional[str] = ""
+    question_count: int = 3
 
 class SummarizeChatRequest(BaseModel):
     history: List[dict]
