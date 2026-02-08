@@ -8,6 +8,13 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from typing import List, Dict, Optional
 
+# Import prompt templates
+from prompts import (
+    get_prompt,
+    TUTOR_SYSTEM_BASE,
+    TUTOR_METADATA_RULE,
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -257,6 +264,7 @@ class AIService:
            - 正确答案需基于权威理论或实证研究
            - 解释说明应引用相关理论依据
            - **必须返回有效的 JSON 格式**，不要输出任何对话文本。
+           - **格式增强**：在 explanation 字段中，如果需要对比或展示结构化信息，请优先使用 Markdown 表格；如果需要展示流程或逻辑关系，请使用 Mermaid 图表。
 
         ## 学术规范
         - 问题表述严谨，避免歧义
@@ -279,7 +287,8 @@ class AIService:
         if not content or len(content) < 50:
             content_text = f"Topic: {node_name}\n(The detailed content is missing, please generate general questions based on this topic)"
         
-        prompt = f"Content:\n{content_text}\n\nPlease generate the quiz JSON."
+        # Explicitly mention question count in the user prompt as well to reinforce it
+        prompt = f"Content:\n{content_text}\n\nPlease generate exactly {question_count} questions in JSON format. Remember to use Markdown tables or Mermaid diagrams in 'explanation' if helpful for understanding."
         
         response = await self._call_llm(prompt, system_prompt.format(difficulty=difficulty, style=style, question_count=question_count))
         if response:
@@ -292,7 +301,7 @@ class AIService:
         # This ensures the user NEVER sees "Cannot generate" error.
         logger.warning(f"Quiz generation failed for {node_name}. Using hard fallback.")
         fallback_topic = node_name if node_name else "此主题"
-        return [
+        fallback_questions = [
             {
                 "id": 1,
                 "question": f"关于“{fallback_topic}”的核心概念，以下描述正确的是？",
@@ -346,14 +355,16 @@ class AIService:
                 "question": f"深入掌握“{fallback_topic}”后，下一步通常应该学习？",
                 "options": [
                     "放弃该学科",
-                    "基于此概念的高阶应用与扩展",
-                    "与此完全无关的娱乐内容",
-                    "重复死记硬背基础定义"
+                    "该领域的进阶理论或相关交叉学科",
+                    "完全不相关的领域",
+                    "重复学习基础概念"
                 ],
                 "correct_index": 1,
-                "explanation": f"在打好{fallback_topic}的基础后，进阶学习通常涉及将其应用于更复杂的场景或进行理论扩展。"
+                "explanation": f"在掌握基础后，进阶理论或交叉学科的应用是深入研究的必经之路。"
             }
         ]
+        
+        return fallback_questions[:question_count]
 
     async def generate_sub_nodes(self, node_name: str, node_level: int, node_id: str, course_name: str = "", parent_context: str = "") -> List[Dict]:
         system_prompt = f"""
@@ -513,8 +524,7 @@ class AIService:
     - **### ✅ 思考与挑战**
 
 ### 技术规范
-- **图表**：**请积极使用 Mermaid 图表来辅助解释**，确保学术规范性。
-  - **至少包含一张**流程图（graph TD）或时序图（sequenceDiagram）。
+- **图表（强制要求）**：每章**必须**包含至少一张 Mermaid 图表（如流程图、时序图、类图或思维导图），用于直观解释核心概念或流程。
   - 节点 ID 必须纯英文，严禁中文或特殊符号。
   - 节点文本必须双引号包裹。
 - **公式**：采用标准数学符号和表达方式
@@ -584,8 +594,7 @@ class AIService:
    - 每个部分都要体现学术研究的严谨性
 
 ### 技术规范
-- **图表**：**请积极使用 Mermaid 图表来辅助解释**，确保学术规范性。
-  - **至少包含一张**流程图（graph TD）或时序图（sequenceDiagram）。
+- **图表（强制要求）**：每章**必须**包含至少一张 Mermaid 图表（如流程图、时序图、类图或思维导图），用于直观解释核心概念或流程。
   - 节点 ID 必须纯英文，严禁中文或特殊符号。
   - 节点文本必须双引号包裹。
 - 公式：采用标准数学符号和表达方式（LaTeX）
@@ -692,7 +701,10 @@ DO NOT wrap the JSON in markdown code blocks.
 **核心任务**：
 1. **回答问题**：直接、专业、简洁地回答用户问题。
 2. **定位上下文**：识别答案关联的课程章节或原文。
-3. **格式化输出**：如果内容适合（如对比、列表、步骤），**务必使用 Markdown 表格**或列表展示，拒绝大段纯文本。
+3. **格式化输出**：
+   - **表格**：凡是涉及对比、数据列举、步骤说明的内容，**必须使用 Markdown 表格**展示。
+   - **图表**：凡是涉及流程、架构、思维导图的内容，**必须使用 Mermaid 代码块**展示。
+   - **代码**：代码片段请使用标准代码块。
 
 **教师模式（TEACHER MODE - 增强版）**：
 请像一位真实的苏格拉底式导师（Socratic Tutor）一样：
@@ -719,7 +731,8 @@ DO NOT wrap the JSON in markdown code blocks.
 
 **第一部分：回答正文**
 - 直接输出 Markdown 格式的回答内容。
-- **表格支持**：如果回答涉及对比、数据列举或多步骤说明，**必须优先使用 Markdown 表格**进行展示，以提升可读性。
+- **表格支持（强制要求）**：凡是涉及对比（VS）、参数列表、步骤说明或数据展示的内容，**必须**使用 Markdown 表格呈现。
+- **图表支持（强烈推荐）**：凡是涉及流程、时序、类关系或思维导图，请使用 Mermaid 代码块（```mermaid ... ```）展示。
 - **严禁**将整个回答包裹在代码块中。
 - 回答结束后，**另起一段**，用加粗字体写出你的后续提问：**思考题：...**
 
@@ -759,74 +772,6 @@ DO NOT wrap the JSON in markdown code blocks.
 """
         async for chunk in self._stream_llm(prompt, system_prompt):
             yield chunk
-
-    async def answer_question_json(self, question: str, context: str, history: List[dict] = [], selection: str = ""):
-        # Build Prompt
-        prompt_parts = []
-        prompt_parts.append(f"课程内容：\n{context}")
-        
-        if selection:
-            prompt_parts.append(f"\n用户选中的内容（重点关注）：\n{selection}")
-            
-        if history:
-            history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history[-5:]]) # Limit to last 5 messages
-            prompt_parts.append(f"\n对话历史：\n{history_text}")
-            
-        prompt_parts.append(f"\n用户问题：{question}")
-        
-        prompt = "\n\n".join(prompt_parts)
-        
-        response = self._call_llm(prompt, system_prompt)
-        if response:
-            return self._extract_json(response) or {
-                "answer": response,
-                "quote": "",
-                "anno_summary": "AI 回答"
-            }
-        return {"answer": "抱歉，无法回答。", "quote": "", "anno_summary": "错误"}
-
-    async def generate_quiz(self, node_content: str, difficulty: str = "medium", style: str = "standard", user_persona: str = "", question_count: int = 3) -> List[Dict]:
-        system_prompt = f"""
-        你是一位专业的考试出题专家。请根据提供的课程内容，生成 {question_count} 道单项选择题。
-
-**用户画像**：
-{user_persona if user_persona else "通用学习者"}
-请根据用户画像调整题目的情境、用词和难度适配度。
-
-**难度要求**：{difficulty} (easy: 基础概念; medium: 理解应用; hard: 综合分析)
-**风格要求**：{style} (standard: 标准学术; practical: 结合实际场景; creative: 趣味性/脑筋急转弯)
-
-**出题策略（Thinking Process）**：
-1. 先分析提供的课程内容，提取核心知识点。
-2. 根据难度要求，设计考察层次（记忆/理解/应用/分析）。
-3. 根据风格要求，设计题目情境。
-4. 设计干扰项，确保干扰项具有迷惑性但绝对错误。
-
-**输出格式**：
-直接输出一个标准的 JSON 数组，**严禁**使用 markdown 代码块包裹。
-每个对象包含：
-- `question`: (string) 题干
-- `options`: (list of strings) 4个选项 [A, B, C, D]
-- `answer`: (string) 正确选项的内容（必须完全匹配 options 中的某一项）
-- `explanation`: (string) 解析（解释为什么选这个，以及其他选项为什么错）
-
-**示例**：
-[
-  {{
-    "question": "Python中列表是可变的吗？",
-    "options": ["是的", "不是", "只有部分可变", "看情况"],
-    "answer": "是的",
-    "explanation": "列表(List)是Python中的可变序列..."
-  }}
-]
-"""
-        prompt = f"课程内容片段：\n{node_content[:2000]}\n\n请出题："
-        
-        # Use Smart Model for quiz generation to ensure logic
-        response = await self._call_llm(prompt, system_prompt, use_fast_model=False)
-        if response:
-            return self._extract_json(response) or []
-        return []
 
     async def summarize_note(self, content: str) -> str:
         """

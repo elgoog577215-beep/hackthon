@@ -1,8 +1,8 @@
 <template>
   <div class="h-full flex flex-col relative overflow-hidden">
     <!-- Header -->
-    <div class="mx-4 mt-4 mb-2 h-16 px-4 z-20 relative flex items-center justify-between gap-3 glass-panel-tech-floating rounded-2xl">
-        <div class="absolute inset-0 bg-gradient-to-r from-primary-50/30 to-primary-50/30 pointer-events-none rounded-2xl"></div>
+    <div class="mx-4 mt-4 mb-2 h-16 px-4 z-20 relative flex items-center justify-between gap-3 glass-panel-tech-floating rounded-xl">
+        <div class="absolute inset-0 bg-gradient-to-r from-primary-50/30 to-primary-50/30 pointer-events-none rounded-xl"></div>
         <div class="relative flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-lg shadow-primary-500/30 text-white animate-pulse-slow">
                 <el-icon class="text-xl"><ChatDotRound /></el-icon>
@@ -126,14 +126,14 @@
     </el-dialog>
     
     <!-- Output Area -->
-    <div class="flex-1 m-4 my-2 overflow-hidden relative glass-panel-tech-content rounded-3xl flex flex-col shadow-[inset_0_0_20px_rgba(255,255,255,0.5)] border border-white/60">
+    <div class="flex-1 m-4 my-2 overflow-hidden relative glass-panel-tech-content rounded-xl flex flex-col shadow-[inset_0_0_20px_rgba(255,255,255,0.5)] border border-white/60">
         <div class="flex-1 overflow-auto p-5 space-y-6 custom-scrollbar relative scroll-smooth pb-32" ref="chatContainer" @click="handleChatClick">
             <!-- Background Pattern (Cleaned) -->
             <!-- <div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: radial-gradient(var(--el-color-primary) 1px, transparent 1px); background-size: 24px 24px;"></div> -->
 
             <!-- Empty States -->
             <div v-if="courseStore.chatHistory.length === 0" class="flex flex-col items-center justify-center mt-10 text-gray-400 opacity-80 animate-in fade-in zoom-in duration-500">
-                <div class="w-24 h-24 bg-gradient-to-br from-gray-50 to-gray-100 rounded-[2rem] flex items-center justify-center mb-6 shadow-[0_8px_30px_rgba(0,0,0,0.04)] ring-1 ring-white/60 relative overflow-hidden group">
+                <div class="w-24 h-24 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl flex items-center justify-center mb-6 shadow-[0_8px_30px_rgba(0,0,0,0.04)] ring-1 ring-white/60 relative overflow-hidden group">
                     <div class="absolute inset-0 bg-gradient-to-tr from-primary-500/5 via-primary-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
                     <div class="w-14 h-14 bg-white rounded-2xl shadow-sm flex items-center justify-center text-3xl animate-float relative z-10 text-primary-500">
                         <el-icon><ChatDotRound /></el-icon>
@@ -159,7 +159,7 @@
             <div v-for="(msg, idx) in courseStore.chatHistory" :key="idx" 
                 class="flex flex-col gap-2 animate-fade-in-up" :style="{ animationDelay: `${idx * 50}ms` }">
                 
-                <div :class="['p-5 rounded-3xl text-sm max-w-[90%] transition-all relative overflow-hidden shadow-sm backdrop-blur-md group', 
+                <div :class="['p-5 rounded-2xl text-sm max-w-[90%] transition-all relative overflow-hidden shadow-sm backdrop-blur-md group', 
                     msg.type === 'user' 
                         ? 'bg-gradient-to-br from-primary-600 to-primary-700 text-white self-end rounded-tr-sm shadow-[0_8px_20px_-4px_rgba(139,92,246,0.3)] ring-1 ring-white/20 border-t border-white/20' 
                         : 'bg-white/80 border border-white/60 !rounded-tl-sm self-start hover:bg-white/90 transition-all shadow-[0_4px_20px_-4px_rgba(148,163,184,0.1)] hover:shadow-[0_8px_25px_-5px_rgba(148,163,184,0.15)]']">
@@ -318,34 +318,42 @@
             </div>
         </div>
         
-        <!-- Floating Input Area (Dock Style) -->
+        <!-- Floating Input Area - Refined Design -->
         <div class="absolute bottom-6 left-6 right-6 z-30">
-            <div class="relative group bg-white/80 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.08)] rounded-[2rem] border border-white/60 hover:border-primary-200 hover:shadow-[0_12px_40px_rgba(139,92,246,0.15)] transition-all duration-300 ring-1 ring-white/50">
-                <textarea
-                    ref="inputRef"
-                    v-model="inputMessage"
-                    class="w-full bg-transparent border-none rounded-[2rem] px-6 py-4 pr-14 text-sm focus:ring-0 resize-none h-[60px] max-h-[200px] custom-scrollbar placeholder:text-slate-400 text-slate-700 font-medium leading-relaxed"
-                    placeholder="输入问题，与 AI 探索知识 (Ctrl + Enter 发送)..."
-                    @keydown="handleKeydown"
-                    @input="adjustTextareaHeight"
-                ></textarea>
+            <div class="relative group">
+                <!-- Subtle glow effect on focus -->
+                <div class="absolute -inset-0.5 bg-gradient-to-r from-primary-200/50 via-purple-200/50 to-primary-200/50 rounded-2xl opacity-0 group-focus-within:opacity-100 blur-sm transition-opacity duration-300"></div>
+
+                <div class="relative bg-white/90 backdrop-blur-xl rounded-2xl border border-slate-200/60 group-focus-within:border-primary-300/60 shadow-[0_4px_20px_rgba(0,0,0,0.06)] group-focus-within:shadow-[0_8px_30px_rgba(139,92,246,0.12)] transition-all duration-300">
+                    <textarea
+                        ref="inputRef"
+                        v-model="inputMessage"
+                        class="w-full bg-transparent border-none rounded-2xl px-5 py-3.5 pr-12 text-sm focus:ring-0 resize-none h-[52px] max-h-[160px] custom-scrollbar placeholder:text-slate-400/80 text-slate-700 leading-relaxed"
+                        placeholder="输入问题，与 AI 探索知识..."
+                        @keydown="handleKeydown"
+                        @input="adjustTextareaHeight"
+                    ></textarea>
+                    
+                    <button 
+                        class="absolute right-2 bottom-2 w-9 h-9 rounded-full transition-all duration-200 flex items-center justify-center"
+                        :class="courseStore.chatLoading
+                            ? 'bg-red-500 text-white shadow-md hover:bg-red-600'
+                            : (inputMessage.trim() ? 'bg-primary-600 text-white shadow-md hover:bg-primary-700' : 'bg-slate-100 text-slate-300 cursor-not-allowed')"
+                        @click="courseStore.chatLoading ? stopMessage() : sendMessage()"
+                        :disabled="!courseStore.chatLoading && !inputMessage.trim()"
+                    >
+                        <el-icon v-if="courseStore.chatLoading" :size="16"><CircleCloseFilled /></el-icon>
+                        <el-icon v-else :size="16"><Position /></el-icon>
+                    </button>
+                </div>
                 
-                <button 
-                    class="absolute right-2 bottom-2 w-11 h-11 rounded-full transition-all duration-300 flex items-center justify-center group/btn"
-                    :class="courseStore.chatLoading
-                        ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 hover:scale-110 active:scale-95'
-                        : (inputMessage.trim() ? 'bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:scale-110 active:scale-95' : 'bg-slate-100 text-slate-300 cursor-not-allowed')"
-                    @click="courseStore.chatLoading ? stopMessage() : sendMessage()"
-                    :disabled="!courseStore.chatLoading && !inputMessage.trim()"
-                >
-                    <el-icon v-if="courseStore.chatLoading" :size="18"><CircleCloseFilled /></el-icon>
-                    <el-icon v-else :size="20" class="group-hover/btn:-translate-y-0.5 group-hover/btn:translate-x-0.5 transition-transform"><Position /></el-icon>
-                </button>
-            </div>
-            <div class="text-center mt-3">
-        
+                <!-- Keyboard hint -->
+                <div class="absolute -top-6 right-0 text-[10px] text-slate-400 opacity-0 group-focus-within:opacity-100 transition-opacity duration-300">
+                    Ctrl + Enter 发送
+                </div>
             </div>
         </div>
+
     </div>
   </div>
 </template>
@@ -355,13 +363,8 @@ import { ref, watch, nextTick, onMounted, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import type { AIContent } from '../stores/course'
 import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight } from '@element-plus/icons-vue'
-import MarkdownIt from 'markdown-it'
-import katex from 'katex'
-import 'katex/dist/katex.min.css'
-import DOMPurify from 'dompurify'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import hljs from 'highlight.js'
-import 'highlight.js/styles/atom-one-dark.css'
+import { renderMarkdown } from '../utils/markdown'
 
 const courseStore = useCourseStore()
 const inputMessage = ref('')
@@ -664,165 +667,23 @@ const handleSaveAsNote = async (content: string, msg?: any) => {
     }
 }
 
-const customMathPlugin = (md: MarkdownIt) => {
-    // Inline math $...$
-    md.inline.ruler.before('escape', 'math_inline', (state, silent) => {
-        if (state.src[state.pos] !== '$') return false
-        if (state.src.slice(state.pos, state.pos + 2) === '$$') return false
-        
-        const start = state.pos + 1
-        let match = start
-        let pos = start
-        
-        // Find closing $
-        while ((match = state.src.indexOf('$', pos)) !== -1) {
-            // Check for escaped \$
-            if (state.src[match - 1] === '\\') {
-                pos = match + 1
-                continue
-            }
-            break
-        }
-        
-        if (match === -1) return false
-        if (match - start === 0) return false // Empty $$
-        
-        if (!silent) {
-            const token = state.push('math_inline', 'math', 0)
-            token.markup = '$'
-            token.content = state.src.slice(start, match)
-        }
-        
-        state.pos = match + 1
-        return true
-    })
-
-    // Block math $$...$$
-    md.block.ruler.after('blockquote', 'math_block', (state, startLine, endLine, silent) => {
-        const startPos = (state.bMarks[startLine] ?? 0) + (state.tShift[startLine] ?? 0)
-        
-        if (state.src.slice(startPos, startPos + 2) !== '$$') return false
-        
-        let pos = startPos + 2
-        let content = ''
-        let found = false
-        let nextLine = startLine
-        
-        // Check if closing $$ is on the same line
-        if (state.src.indexOf('$$', pos) !== -1) {
-            const end = state.src.indexOf('$$', pos)
-            content = state.src.slice(pos, end)
-            nextLine = startLine + 1
-            found = true
-        } else {
-            // Multiline block
-            content = state.src.slice(pos)
-            nextLine++
-            
-            while (nextLine < endLine) {
-                const lineStart = (state.bMarks[nextLine] ?? 0) + (state.tShift[nextLine] ?? 0)
-                const lineEnd = state.eMarks[nextLine] ?? lineStart
-                const lineText = state.src.slice(lineStart, lineEnd)
-                
-                if (lineText.trim().endsWith('$$')) {
-                    content += '\n' + lineText.trim().slice(0, -2)
-                    found = true
-                    nextLine++
-                    break
-                }
-                
-                content += '\n' + lineText
-                nextLine++
-            }
-        }
-        
-        if (!found) return false
-        if (silent) return true
-        
-        const token = state.push('math_block', 'math', 0)
-        token.block = true
-        token.content = content
-        token.map = [startLine, nextLine]
-        token.markup = '$$'
-        
-        state.line = nextLine
-        return true
-    })
-
-    // Renderers
-    md.renderer.rules.math_inline = (tokens, idx) => {
-        const token = tokens[idx]
-        if (!token) return ''
-        try {
-            return katex.renderToString(token.content, { 
-                throwOnError: false, 
-                displayMode: false 
-            })
-        } catch (e) {
-            return token.content
-        }
-    }
-
-    md.renderer.rules.math_block = (tokens, idx) => {
-        const token = tokens[idx]
-        if (!token) return ''
-        try {
-            return '<div class="katex-display">' + katex.renderToString(token.content, { 
-                throwOnError: false, 
-                displayMode: true 
-            }) + '</div>'
-        } catch (e) {
-            return '<pre>' + token.content + '</pre>'
-        }
-    }
-}
-
-// Markdown Setup
-const md = new MarkdownIt({
-    html: true,
-    linkify: true,
-    typographer: true
-}).use(customMathPlugin)
-
-md.options.highlight = (str: string, lang: string) => {
-    if (lang && hljs.getLanguage(lang)) {
-        try {
-            return '<pre class="hljs p-4 rounded-lg bg-[#282c34] text-sm overflow-x-auto"><code>' +
-                   hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
-                   '</code></pre>';
-        } catch (__) {}
-    }
-    return '<pre class="hljs p-4 rounded-lg bg-[#282c34] text-sm overflow-x-auto"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
-}
-
-// Custom fence renderer for Copy Button
-md.renderer.rules.fence = function (tokens: any[], idx: number, options: any) {
-  const token = tokens[idx];
-  const info = token.info ? md.utils.escapeHtml(token.info) : '';
-  const langName = info.split(/\s+/g)[0];
-  
-  let highlighted;
-  if (options.highlight) {
-      highlighted = options.highlight(token.content, langName, '') || md.utils.escapeHtml(token.content);
-  } else {
-      highlighted = md.utils.escapeHtml(token.content);
-  }
-  
-  return `<div class="relative group code-block-wrapper my-2 rounded-lg overflow-hidden border border-slate-200/50 shadow-sm bg-[#282c34]">
-            <div class="absolute top-2 right-2 flex items-center gap-2 z-10">
-                <span class="text-xs text-slate-400 font-mono opacity-0 group-hover:opacity-100 transition-opacity select-none">${langName}</span>
-                <button class="p-1.5 rounded-md bg-slate-700/50 hover:bg-slate-700 text-white/70 hover:text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all copy-btn" title="复制代码">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2-2v1"></path></svg>
-                </button>
-            </div>
-            ${highlighted}
-          </div>`;
-};
-
 const handleChatClick = (e: MouseEvent) => {
     const target = e.target as HTMLElement;
     const btn = target.closest('.copy-btn');
     if (btn) {
+        // Check for data-code attribute (utils/markdown.ts style)
+        const codeFromAttr = btn.getAttribute('data-code');
+        if (codeFromAttr) {
+            const decoded = decodeURIComponent(codeFromAttr);
+            navigator.clipboard.writeText(decoded).then(() => {
+                ElMessage.success('代码已复制')
+            }).catch(() => {
+                ElMessage.error('复制失败')
+            })
+            return;
+        }
+
+        // Fallback for existing/legacy style (if any)
         const wrapper = btn.closest('.code-block-wrapper');
         const codeEl = wrapper?.querySelector('pre code') || wrapper?.querySelector('pre');
         if (codeEl) {
@@ -883,39 +744,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     }
 }
 
-const renderMarkdown = (content: string) => {
-    if (typeof content !== 'string') return ''
-    
-    // Pre-process LaTeX formula fixes
-    let fixedContent = content
-        // Fix \[ ... \] block formulas to $$ ... $$
-        .replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$')
-        // Fix \( ... \) inline formulas to $ ... $
-        .replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$')
-        // Fix LLM generating spaces in function calls like f' (x) -> f'(x)
-        .replace(/(\w+)'\s+\((.+?)\)/g, "$1'($2)")
-        .replace(/(\w+)\s+'/g, "$1'")
-        // Fix trailing dollar signs in block math
-        .replace(/(\$\$[\s\S]*?)[^$]\$$/gm, "$1$$")
-        // Standardize mixed math blocks
-        .replace(/(\$\$[\s\S]*?\$\$)|(\$\s+(.+?)\\s+\$)/g, (match, block, inline, content) => {
-            if (block) return block
-            if (inline) return `$${content}$`
-            return match
-        })
-    
-    try {
-        const rawHtml = md.render(fixedContent)
-        // Allow katex classes and styles
-        return DOMPurify.sanitize(rawHtml, {
-            ADD_TAGS: ['span', 'div'],
-            ADD_ATTR: ['class', 'style']
-        })
-    } catch (e) {
-        console.warn('Markdown render error:', e)
-        return content
-    }
-}
+
 
 // Removed duplicate handleSaveAsNote
 

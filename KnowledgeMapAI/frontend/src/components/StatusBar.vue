@@ -4,7 +4,7 @@
       
       <!-- Playlist Panel -->
       <transition name="expand">
-        <div v-if="showDetails" class="glass-panel-tech mb-3 !rounded-2xl !bg-white/85 flex flex-col max-h-[360px]">
+        <div v-if="showDetails" class="glass-panel-tech mb-3 !rounded-lg !bg-white/85 flex flex-col max-h-[360px]">
             <!-- Header -->
             <div class="flex items-center px-4 py-2.5 border-b border-white/30 bg-gradient-to-r from-primary-50/60 to-primary-50/40">
                 <div class="flex items-center gap-2">
@@ -95,10 +95,13 @@
       </transition>
 
       <!-- Main Player Bar -->
-      <div class="glass-noise h-[64px] bg-white/80 backdrop-blur-3xl rounded-2xl border border-white/60 shadow-[0_6px_24px_rgba(0,0,0,0.08)] flex items-center px-2 pr-4 relative overflow-visible group hover:bg-white/90 transition-all z-50 select-none">
+      <div 
+        @click="$emit('click')"
+        class="glass-noise h-[64px] bg-white/80 backdrop-blur-3xl rounded-xl border border-white/60 shadow-[0_6px_24px_rgba(0,0,0,0.08)] flex items-center px-2 pr-4 relative overflow-visible group hover:bg-white/90 transition-all z-50 select-none cursor-pointer"
+      >
         
         <!-- Glow Effect -->
-        <div v-if="status === 'generating'" class="absolute inset-0 rounded-3xl ring-2 ring-primary-500/20 animate-pulse pointer-events-none"></div>
+        <div v-if="status === 'generating'" class="absolute inset-0 rounded-xl ring-2 ring-primary-500/20 animate-pulse pointer-events-none"></div>
 
         <!-- Album Art / Progress Circle -->
         <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white shadow-lg shadow-primary-500/30 ml-2 relative overflow-hidden shrink-0 group-hover:scale-105 transition-transform duration-300">
@@ -142,7 +145,7 @@
         </div>
 
         <!-- Controls -->
-        <div class="flex items-center gap-2 ml-4">
+        <div class="flex items-center gap-2 ml-4" @click.stop>
             <div class="h-8 w-px bg-slate-200 mx-1"></div>
             
             <button @click="toggleDetails" 
@@ -189,7 +192,7 @@ const props = defineProps<{
   hint?: string | null
 }>()
 
-defineEmits(['close'])
+defineEmits(['close', 'click'])
 
 const showDetails = ref(false)
 const toggleDetails = () => {

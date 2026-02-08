@@ -1,7 +1,7 @@
 <template>
-  <div class="h-full flex flex-col">
-    <!-- Reading Progress Bar -->
-    <div class="fixed top-0 left-0 right-0 h-1 bg-slate-100 z-50" v-if="scrollProgress > 0">
+  <div class="h-full flex flex-col relative">
+    <!-- Reading Progress Bar - Positioned below header -->
+    <div class="absolute top-0 left-0 right-0 h-1 bg-slate-100/50 z-10" v-if="scrollProgress > 0">
         <div class="h-full bg-gradient-to-r from-primary-400 to-primary-600 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(99,102,241,0.5)]" :style="{ width: scrollProgress + '%' }"></div>
     </div>
 
@@ -24,8 +24,12 @@
     <Teleport to="body">
       <transition name="scale-fade">
         <div v-if="selectionMenu.visible" 
-            class="fixed z-50 flex flex-col p-1.5 bg-white/95 backdrop-blur-xl rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.15)] border border-white/40 ring-1 ring-black/5 min-w-[260px] select-none"
-            :style="{ left: selectionMenu.x + 'px', top: selectionMenu.y + 'px', transform: 'translateX(-50%)' }"
+            class="fixed z-50 flex flex-col p-1.5 bg-white/95 backdrop-blur-xl rounded-lg shadow-[0_12px_40px_rgba(0,0,0,0.15)] border border-white/40 ring-1 ring-black/5 min-w-[260px] select-none"
+            :style="{ 
+                left: selectionMenu.x + 'px', 
+                top: selectionMenu.y + 'px', 
+                transform: selectionMenu.placement === 'bottom' ? 'translateX(-50%)' : 'translate(-50%, -100%)' 
+            }"
             @mousedown.stop>
             
             <!-- Row 1: Quick Actions -->
@@ -89,7 +93,8 @@
             </div>
             
             <!-- Arrow -->
-            <div class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-b border-r border-white/40 rotate-45 shadow-[4px_4px_4px_rgba(0,0,0,0.05)]"></div>
+            <div v-if="selectionMenu.placement === 'bottom'" class="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-t border-l border-white/40 rotate-45 shadow-[-2px_-2px_4px_rgba(0,0,0,0.02)]"></div>
+            <div v-else class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-b border-r border-white/40 rotate-45 shadow-[4px_4px_4px_rgba(0,0,0,0.05)]"></div>
         </div>
       </transition>
     </Teleport>
@@ -142,7 +147,7 @@
                     <div class="absolute -left-4 -top-4 w-20 h-20 bg-gradient-to-br from-slate-100 to-transparent rounded-full opacity-50 blur-xl group-hover:opacity-100 transition-opacity"></div>
                     
                     <!-- New Modern Chapter Header -->
-                    <div class="relative z-10 bg-white/40 backdrop-blur-xl rounded-3xl border border-white/60 p-8 shadow-sm mb-10 overflow-hidden">
+                    <div class="relative z-10 bg-white/40 backdrop-blur-xl rounded-xl border border-white/60 p-8 shadow-sm mb-10 overflow-hidden">
                         <!-- Decorative bg -->
                         <div class="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-primary-50/50 to-transparent rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none"></div>
 
@@ -218,7 +223,7 @@
                         </div>
                     </div>
                     
-                    <div class="glass-panel p-6 lg:p-8 rounded-2xl relative overflow-hidden group-hover:shadow-lg transition-shadow duration-300">
+                    <div class="glass-panel p-6 lg:p-8 rounded-lg relative overflow-hidden group-hover:shadow-lg transition-shadow duration-300">
                         <div class="prose prose-slate max-w-none prose-headings:font-display prose-headings:text-slate-800 prose-p:text-slate-600 prose-a:text-primary-600 hover:prose-a:text-primary-500 prose-strong:text-slate-700 prose-code:text-primary-600 prose-code:bg-primary-50 prose-pre:bg-slate-800 prose-pre:shadow-lg" 
                             :style="{ 
                                 fontSize: fontSize + 'px',
@@ -235,7 +240,7 @@
         <!-- Note Column (Desktop Only) -->
         <div id="note-column" v-if="!courseStore.isFocusMode" class="hidden lg:flex flex-col w-[280px] flex-shrink-0 relative bg-slate-50/50 transition-all duration-300 border-l border-white/50">
              <!-- Search Header (Floating Card) -->
-            <div class="sticky top-4 z-30 mx-3 mb-2 p-3 glass-panel-floating rounded-2xl flex flex-col gap-3 transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+            <div class="sticky top-4 z-30 mx-3 mb-2 p-3 glass-panel-floating rounded-lg flex flex-col gap-3 transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
                 <div class="flex items-center justify-between px-1">
                     <h3 class="text-sm font-black text-slate-800 tracking-tight flex items-center gap-2">
                         <span class="w-1.5 h-4 bg-primary-500 rounded-full"></span>
@@ -561,37 +566,42 @@
         <p class="text-slate-600 font-medium">AI 正在出题中...</p>
       </div>
       <div v-else class="py-2">
-        <div v-for="(q, idx) in quizQuestions" :key="idx" class="mb-8 last:mb-0">
-          <p class="font-bold text-slate-800 mb-3 text-lg">{{ idx + 1 }}. {{ q.question }}</p>
-          <div class="space-y-2">
-            <div 
-              v-for="(opt, oIdx) in q.options" 
-              :key="oIdx"
-              class="p-3 rounded-xl border border-slate-200 cursor-pointer transition-all duration-200 hover:border-primary-300 hover:bg-primary-50/30 flex items-center gap-3"
-              :class="{ 
-                '!bg-emerald-50 !border-emerald-500': quizSubmitted && opt === q.answer,
-                '!bg-red-50 !border-red-500': quizSubmitted && userAnswers[idx] === opt && opt !== q.answer,
-                'bg-primary-50 border-primary-500': userAnswers[idx] === opt && !quizSubmitted
-              }"
-              @click="!quizSubmitted && (userAnswers[idx] = opt)"
-            >
-              <div class="w-5 h-5 rounded-full border flex items-center justify-center text-xs transition-colors"
-                   :class="{
-                     'border-emerald-500 bg-emerald-500 text-white': quizSubmitted && opt === q.answer,
-                     'border-red-500 bg-red-500 text-white': quizSubmitted && userAnswers[idx] === opt && opt !== q.answer,
-                     'border-primary-500 bg-primary-500 text-white': userAnswers[idx] === opt && !quizSubmitted,
-                     'border-slate-300 text-slate-400': userAnswers[idx] !== opt && !(quizSubmitted && opt === q.answer)
-                   }">
-                  <span v-if="quizSubmitted && opt === q.answer"><el-icon><Check /></el-icon></span>
-                  <span v-else-if="quizSubmitted && userAnswers[idx] === opt && opt !== q.answer"><el-icon><Close /></el-icon></span>
-                  <span v-else>{{ String.fromCharCode(65 + Number(oIdx)) }}</span>
-              </div>
-              <span class="text-slate-700 font-medium">{{ opt }}</span>
+        <div v-if="quizQuestions && quizQuestions.length > 0">
+            <div v-for="(q, idx) in quizQuestions" :key="idx" class="mb-8 last:mb-0">
+            <p class="font-bold text-slate-800 mb-3 text-lg">{{ idx + 1 }}. {{ q.question }}</p>
+            <div class="space-y-2">
+                <div 
+                v-for="(opt, oIdx) in q.options" 
+                :key="oIdx"
+                class="p-3 rounded-xl border border-slate-200 cursor-pointer transition-all duration-200 hover:border-primary-300 hover:bg-primary-50/30 flex items-center gap-3"
+                :class="{ 
+                    '!bg-emerald-50 !border-emerald-500': quizSubmitted && opt === q.answer,
+                    '!bg-red-50 !border-red-500': quizSubmitted && userAnswers[idx] === opt && opt !== q.answer,
+                    'bg-primary-50 border-primary-500': userAnswers[idx] === opt && !quizSubmitted
+                }"
+                @click="!quizSubmitted && (userAnswers[idx] = opt)"
+                >
+                <div class="w-5 h-5 rounded-full border flex items-center justify-center text-xs transition-colors"
+                    :class="{
+                        'border-emerald-500 bg-emerald-500 text-white': quizSubmitted && opt === q.answer,
+                        'border-red-500 bg-red-500 text-white': quizSubmitted && userAnswers[idx] === opt && opt !== q.answer,
+                        'border-primary-500 bg-primary-500 text-white': userAnswers[idx] === opt && !quizSubmitted,
+                        'border-slate-300 text-slate-400': userAnswers[idx] !== opt && !(quizSubmitted && opt === q.answer)
+                    }">
+                    <span v-if="quizSubmitted && opt === q.answer"><el-icon><Check /></el-icon></span>
+                    <span v-else-if="quizSubmitted && userAnswers[idx] === opt && opt !== q.answer"><el-icon><Close /></el-icon></span>
+                    <span v-else>{{ String.fromCharCode(65 + Number(oIdx)) }}</span>
+                </div>
+                <span class="text-slate-700 font-medium">{{ opt }}</span>
+                </div>
             </div>
-          </div>
-          <div v-if="quizSubmitted" class="mt-3 text-sm bg-slate-50 p-3 rounded-lg text-slate-600">
-             <span class="font-bold text-slate-800">解析：</span> {{ q.explanation || '暂无解析' }}
-          </div>
+            <div v-if="quizSubmitted" class="mt-3 text-sm bg-slate-50 p-3 rounded-lg text-slate-600">
+                <span class="font-bold text-slate-800">解析：</span> {{ q.explanation || '暂无解析' }}
+            </div>
+            </div>
+        </div>
+        <div v-else class="text-center text-slate-500 py-10">
+            暂无测验题目
         </div>
       </div>
       <template #footer>
@@ -647,7 +657,7 @@
 
     <!-- Quiz Suggestion Toast -->
     <transition name="slide-up">
-        <div v-if="showQuizSuggestion && suggestedQuizNode" class="fixed bottom-8 right-8 z-50 w-80 bg-white/90 backdrop-blur-xl p-4 rounded-2xl shadow-2xl border border-primary-100 flex flex-col gap-3 animate-bounce-in">
+        <div v-if="showQuizSuggestion && suggestedQuizNode" class="fixed bottom-20 right-4 lg:right-8 z-[100] w-72 lg:w-80 bg-white p-4 rounded-xl shadow-xl border border-slate-200 flex flex-col gap-3">
             <div class="flex items-start justify-between">
                 <div class="flex items-center gap-2 text-primary-600">
                     <el-icon class="text-xl"><Trophy /></el-icon>
@@ -686,7 +696,7 @@
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { renderMarkdown } from '../utils/markdown'
-import { Download, MagicStick, VideoPlay, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowDown, ArrowUp, Loading, ChatDotRound, Position, ArrowRight } from '@element-plus/icons-vue'
+import { Download, MagicStick, VideoPlay, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowDown, ArrowUp, ChatDotRound, Position, ArrowRight, Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -696,7 +706,7 @@ dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
 const courseStore = useCourseStore()
-const selectionMenu = ref({ visible: false, x: 0, y: 0, text: '', range: null as Range | null })
+const selectionMenu = ref({ visible: false, x: 0, y: 0, placement: 'top', text: '', range: null as Range | null })
 const noteSearchQuery = ref('')
 const activeNoteFilter = ref('notes')
 const isAccordionMode = ref(true) // Default to true or false? Let's say false initially or true for better UX
@@ -762,15 +772,15 @@ const quizQuestions = ref<any[]>([])
 const userAnswers = ref<string[]>([])
 const quizSubmitted = ref(false)
 const quizScore = computed(() => {
-    if (!quizSubmitted.value || quizQuestions.value.length === 0) return 0
-    let correct = 0
-    quizQuestions.value.forEach((q, idx) => {
-        if (userAnswers.value[idx] && userAnswers.value[idx] === q.answer) {
-            correct += 1
-        }
-    })
-    return Math.round((correct / quizQuestions.value.length) * 100)
-})
+              if (!quizSubmitted.value || !quizQuestions.value || quizQuestions.value.length === 0) return 0
+              let correct = 0
+              quizQuestions.value.forEach((q, idx) => {
+                  if (userAnswers.value[idx] && userAnswers.value[idx] === q.answer) {
+                      correct += 1
+                  }
+              })
+              return Math.round((correct / quizQuestions.value.length) * 100)
+          })
 const isManualScrolling = ref(false)
 const activeNoteId = ref<string | null>(null)
 const hoveredNoteId = ref<string | null>(null)
@@ -873,6 +883,8 @@ const setupChapterObserver = () => {
         })
     })
 }
+
+
 
 const isSearching = ref(false)
 const debouncedSearchQuery = ref('')
@@ -1464,6 +1476,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
                  selectionMenu.value = {
                      visible: false,
                      x: 0, y: 0,
+                     placement: 'top',
                      text: selection.toString(),
                      range: range
                  }
@@ -1601,11 +1614,15 @@ const handleMouseUp = (_e: MouseEvent) => {
         
         // Boundary Detection
         const MENU_WIDTH = 280
-        const MENU_HEIGHT = 80
+        const MENU_HEIGHT = 100 // Estimate menu height
         const VIEWPORT_WIDTH = window.innerWidth
         
         let x = rect.left + (rect.width / 2)
-        let y = rect.top - 60 // Default top
+        // Position relative to selection:
+        // By default, we place it ABOVE the selection (at rect.top)
+        // The transform: translate(-50%, -100%) will move it up by its own height
+        let y = rect.top - 12 
+        let placement = 'top'
         
         // Prevent overflow right
         if (x + (MENU_WIDTH / 2) > VIEWPORT_WIDTH - 20) {
@@ -1616,15 +1633,17 @@ const handleMouseUp = (_e: MouseEvent) => {
             x = (MENU_WIDTH / 2) + 20
         }
         
-        // Prevent overflow top (flip to bottom if not enough space)
-        if (y - MENU_HEIGHT < 60) { // 60px for toolbar
-            y = rect.bottom + 20
+        // Check top overflow: if not enough space above, flip to bottom
+        if (y - MENU_HEIGHT < 60) { // Keep clear of header (approx 60px)
+            y = rect.bottom + 12
+            placement = 'bottom'
         }
         
         selectionMenu.value = {
             visible: true,
             x: x, 
             y: y, 
+            placement: placement,
             text: selection.toString(),
             range: range
         }

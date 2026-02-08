@@ -13,24 +13,24 @@
     <!-- Main Floating Container -->
     <div class="w-full h-full flex flex-col gap-3 relative z-10">
         
-        <!-- Global Header -->
-        <header class="h-16 flex-shrink-0 flex items-center justify-between px-6 glass-panel-tech-floating rounded-2xl z-20 relative animate-fade-in-up shadow-[0_12px_40px_rgba(15,23,42,0.08)] border border-white/70">
-            <div class="flex items-center gap-3 cursor-pointer" @click="router.push('/')">
-                <div class="w-10 h-10 bg-primary-600 rounded-xl flex items-center justify-center text-white shadow-sm transition-transform duration-300 relative overflow-hidden group hover:scale-105">
+        <!-- Global Header - Improved contrast and hierarchy -->
+        <header class="h-16 flex-shrink-0 flex items-center justify-between px-6 glass-panel-tech-floating rounded-xl z-20 relative animate-fade-in-up">
+            <div class="flex items-center gap-3 cursor-pointer group" @click="router.push('/')">
+                <div class="w-10 h-10 bg-primary-600 rounded-xl flex items-center justify-center text-white shadow-md transition-all duration-200 relative overflow-hidden group-hover:shadow-lg group-hover:scale-105">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6 relative z-10">
                         <path d="M11.7 2.805a.75.75 0 01.6 0A60.65 60.65 0 0122.83 8.72a.75.75 0 01-.231 1.337 49.949 49.949 0 00-9.902 3.912l-.003.002-.34.18a.75.75 0 01-.707 0A50.009 50.009 0 002.21 10.057a.75.75 0 01-.231-1.337A60.653 60.653 0 0111.7 2.805z" />
                         <path d="M13.06 15.473a48.45 48.45 0 017.666-3.282c.134 1.438.227 2.945.227 4.53 0 5.705-3.276 10.675-8.25 13.05a.75.75 0 01-.706 0C7.026 27.478 3.75 22.508 3.75 16.8c0-1.66.103-3.235.249-4.735a48.51 48.51 0 017.76 3.42c.433.224.943.224 1.301-.012z" />
                     </svg>
                 </div>
                 <div>
-                    <h1 class="text-xl font-bold tracking-tight font-display text-slate-800">KnowledgeMap AI</h1>
-                    <p class="text-xxs uppercase tracking-widest text-slate-500 font-bold opacity-90">Qoder 智能引擎</p>
+                    <h1 class="text-lg font-semibold tracking-tight font-display text-slate-900">KnowledgeMap AI</h1>
+                    <p class="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Qoder 智能引擎</p>
                 </div>
             </div>
             
-            <!-- Central Course Title -->
-            <div class="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-2 bg-white/50 backdrop-blur-sm rounded-full px-4 py-1.5 border border-white/40 shadow-sm" v-if="courseStore.currentCourseId">
-                <span class="font-bold text-slate-700 truncate max-w-[200px]">
+            <!-- Central Course Title - Improved readability -->
+            <div class="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-2 bg-white/60 backdrop-blur-sm rounded-full px-4 py-1.5 border border-slate-200/60 shadow-sm" v-if="courseStore.currentCourseId">
+                <span class="font-semibold text-slate-800 truncate max-w-[200px]">
                     {{ courseStore.courseList.find(c => c.course_id === courseStore.currentCourseId)?.course_name || '课程预览' }}
                 </span>
                 <span class="text-slate-300">|</span>
@@ -40,53 +40,59 @@
             <div class="flex items-center gap-3">
                  <!-- Toolbar Controls -->
                 <div class="flex items-center gap-2" v-if="courseStore.currentCourseId">
-                    <!-- Global Search -->
-                    <div class="relative group mr-2">
-                        <div class="relative transition-all duration-500 ease-out" 
-                             :class="isSearchFocused ? 'w-80' : 'w-56'">
+                    <!-- Global Search - Beautiful Design -->
+                    <div class="relative mr-2">
+                        <div class="relative transition-all duration-300 ease-out" :class="isSearchFocused ? 'w-80' : 'w-56'">
+                            <!-- Glow effect -->
+                            <div class="absolute -inset-[1px] bg-gradient-to-r from-primary-400/0 via-primary-500/30 to-primary-400/0 rounded-full opacity-0 blur-[2px] transition-opacity duration-300" :class="isSearchFocused ? 'opacity-100' : ''"></div>
                             
-                            <!-- Glowing Background Effect -->
-                            <div class="absolute -inset-0.5 bg-gradient-to-r from-primary-300 via-purple-300 to-primary-300 rounded-lg opacity-0 group-hover:opacity-30 transition duration-500 blur-sm"
-                                 :class="{'!opacity-50 blur-md': isSearchFocused}"></div>
-                            
-                            <el-input 
-                                :model-value="courseStore.globalSearchQuery"
-                                placeholder="搜索全书内容..." 
-                                :prefix-icon="Search" 
-                                size="large" 
-                                clearable 
-                                class="tech-search-input relative z-10"
-                                @input="handleGlobalSearch"
-                                @focus="isSearchFocused = true"
-                                @blur="isSearchFocused = false"
-                            />
+                            <div class="relative flex items-center bg-white rounded-full h-9 shadow-sm border border-slate-200/60 transition-all duration-300" :class="isSearchFocused ? 'shadow-[0_0_20px_rgba(139,92,246,0.25)] border-primary-300/50' : 'hover:shadow-md hover:border-slate-300/60'">
+                                <div class="pl-3 pr-2 text-slate-400 transition-colors duration-300" :class="isSearchFocused ? 'text-primary-500' : ''">
+                                    <el-icon :size="16"><Search /></el-icon>
+                                </div>
+                                <input 
+                                    :value="courseStore.globalSearchQuery"
+                                    type="text"
+                                    placeholder="搜索全书内容..."
+                                    class="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-sm text-slate-700 placeholder:text-slate-400/70 h-full pr-3"
+                                    @input="handleGlobalSearch"
+                                    @focus="isSearchFocused = true"
+                                    @blur="isSearchFocused = false"
+                                />
+                                <button 
+                                    v-if="courseStore.globalSearchQuery"
+                                    class="mr-2 text-slate-400 hover:text-slate-600 transition-colors"
+                                    @click="courseStore.globalSearchQuery = ''; globalSearchResults = []"
+                                >
+                                    <el-icon :size="14"><CircleClose /></el-icon>
+                                </button>
+                            </div>
                         </div>
 
-                        <div v-if="globalSearchResults.length > 0" class="absolute top-full left-0 right-0 mt-4 bg-white/90 backdrop-blur-xl rounded-2xl shadow-[0_24px_60px_rgba(15,23,42,0.12)] border border-white/60 ring-1 ring-white/40 p-3 z-50 max-h-80 overflow-auto animate-fade-in-up">
-                            <div class="flex items-center justify-between px-2 py-1 mb-1">
-                                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">搜索结果</div>
-                                <div class="text-[10px] font-bold text-slate-500 bg-white/70 rounded-full px-2 py-0.5 border border-white/60">{{ globalSearchResults.length }}</div>
+                        <!-- Search Results Dropdown -->
+                        <div v-if="globalSearchResults.length > 0" class="absolute top-full left-0 right-0 mt-3 bg-white/95 backdrop-blur-xl rounded-xl shadow-lg border border-slate-100 p-2 z-50 max-h-80 overflow-auto">
+                            <div class="flex items-center justify-between px-2 py-1.5 mb-1 border-b border-slate-100">
+                                <span class="text-[11px] font-medium text-slate-500">搜索结果</span>
+                                <span class="text-[10px] text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{{ globalSearchResults.length }}</span>
                             </div>
                             <div v-for="(res, idx) in globalSearchResults" :key="idx" 
-                                class="p-3 bg-white/70 hover:bg-primary-50/80 rounded-xl cursor-pointer transition-all duration-200 group/item border border-transparent hover:border-primary-100 hover:shadow-sm"
+                                class="px-3 py-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors group/item"
                                 @click="scrollToSearchResult(res.id)">
-                                <div class="flex items-center justify-between mb-1">
-                                    <span class="font-bold text-slate-700 text-sm truncate group-hover/item:text-primary-700 transition-colors">{{ res.title }}</span>
-                                    <el-icon class="text-slate-300 group-hover/item:text-primary-400 group-hover/item:translate-x-1 transition-all"><ArrowRight /></el-icon>
+                                <div class="flex items-center justify-between">
+                                    <span class="font-medium text-slate-700 text-sm truncate group-hover/item:text-primary-600">{{ res.title }}</span>
+                                    <el-icon class="text-slate-300 group-hover/item:text-primary-400" :size="14"><ArrowRight /></el-icon>
                                 </div>
-                                <span class="text-xs text-slate-500 line-clamp-2 leading-relaxed" v-html="res.preview"></span>
+                                <p class="text-xs text-slate-500 mt-0.5 line-clamp-1" v-html="res.preview"></p>
                             </div>
                         </div>
                     </div>
 
-                    <button class="lg:hidden p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-primary-600 transition-colors" @click="courseStore.isMobileNotesVisible = true">
-                        <el-icon :size="18"><Notebook /></el-icon>
-                    </button>
+
                     
                     <!-- Typography Settings -->
                     <el-popover placement="bottom" :width="240" trigger="click" popper-class="glass-popover">
                         <template #reference>
-                            <button class="group p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-primary-600 transition-all" title="外观设置">
+                            <button class="glass-icon-btn" title="外观设置">
                                 <el-icon :size="18"><Setting /></el-icon>
                             </button>
                         </template>
@@ -123,10 +129,10 @@
                     
                     <!-- Focus Mode -->
                     <button 
-                        class="group p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-primary-600 transition-all"
-                        @click="toggleFocusMode"
+                        class="glass-icon-btn"
                         :class="{'!text-primary-600 !bg-primary-50': courseStore.isFocusMode}"
-                        title="专注模式"
+                        @click="toggleFocusMode"
+                        title="专注模式 (F)"
                     >
                         <el-icon :size="18"><FullScreen /></el-icon>
                     </button>
@@ -134,7 +140,7 @@
                     <div class="w-px h-5 bg-slate-200 mx-1"></div>
 
                     <el-dropdown trigger="click" @command="handleExport">
-                        <button class="group p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-primary-600 transition-all" title="导出">
+                        <button class="glass-icon-btn" title="导出">
                             <el-icon :size="18"><Download /></el-icon>
                         </button>
                         <template #dropdown>
@@ -163,6 +169,7 @@
         :meta="statusMeta"
         :hint="statusHint"
         @close="courseStore.stopGeneration"
+        @click="handleStatusClick"
     />
   </div>
 </template>
@@ -173,7 +180,7 @@ import { useCourseStore } from './stores/course'
 import { useRouter } from 'vue-router'
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Notebook, Setting, Minus, Plus, FullScreen, Search, Download, ArrowRight } from '@element-plus/icons-vue'
+import { Setting, Minus, Plus, FullScreen, Search, Download, ArrowRight, CircleClose } from '@element-plus/icons-vue'
 
 const courseStore = useCourseStore()
 const router = useRouter()
@@ -257,15 +264,25 @@ const flatNodes = computed(() => {
     return nodes
 })
 
-const handleGlobalSearch = (val: string) => {
-    if (!val || !val.trim()) {
+const handleGlobalSearch = (val: string | Event) => {
+    // Handle both direct string and event object
+    let searchValue: string
+    if (typeof val === 'string') {
+        searchValue = val
+    } else if (val && val.target) {
+        searchValue = (val.target as HTMLInputElement).value
+    } else {
+        searchValue = ''
+    }
+    
+    if (!searchValue || !searchValue.trim()) {
         globalSearchResults.value = []
         courseStore.globalSearchQuery = ''
         return
     }
     
-    courseStore.globalSearchQuery = val
-    const query = val.toLowerCase().trim()
+    courseStore.globalSearchQuery = searchValue
+    const query = searchValue.toLowerCase().trim()
     const results: any[] = []
     
     // Search in flatNodes
@@ -346,8 +363,20 @@ const handleGlobalClick = (e: MouseEvent) => {
     }
 }
 
+const handleStatusClick = () => {
+    if (courseStore.currentCourseId) {
+        router.push(`/course/${courseStore.currentCourseId}`)
+    }
+}
+
 onMounted(() => {
     document.addEventListener('click', handleGlobalClick);
+    // Restore generation state globally
+    const restoredId = courseStore.restoreGenerationState()
+    if (restoredId && router.currentRoute.value.path === '/') {
+        router.push(`/course/${restoredId}`)
+        ElMessage.success('已自动恢复上次未完成的课程生成任务')
+    }
 })
 
 onUnmounted(() => {
