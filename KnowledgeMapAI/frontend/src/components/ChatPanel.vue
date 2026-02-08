@@ -1,29 +1,28 @@
 <template>
   <div class="h-full flex flex-col relative overflow-hidden">
-    <!-- Header -->
-    <div class="mx-4 mt-4 mb-2 h-16 px-4 z-20 relative flex items-center justify-between gap-3 glass-panel-tech-floating rounded-xl">
-        <div class="absolute inset-0 bg-gradient-to-r from-primary-50/30 to-primary-50/30 pointer-events-none rounded-xl"></div>
-        <div class="relative flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-lg shadow-primary-500/30 text-white animate-pulse-slow">
-                <el-icon class="text-xl"><ChatDotRound /></el-icon>
+    <!-- Header - Improved spacing and layout -->
+    <div class="mx-2 sm:mx-3 mt-2 sm:mt-3 mb-2 h-11 sm:h-12 px-2 sm:px-3 z-20 relative flex items-center justify-between gap-1 sm:gap-2 bg-white/70 backdrop-blur-md rounded-xl border border-slate-200/50 shadow-sm">
+        <div class="relative flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-md shadow-primary-500/20 text-white flex-shrink-0">
+                <el-icon :size="16" class="sm:!text-[18px]"><ChatDotRound /></el-icon>
             </div>
-            <div>
-                <div class="font-bold text-gray-800 font-display text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-gray-800 to-gray-600">AI 智能助手</div>
-                <div class="flex items-center gap-1.5">
-                    <div class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(34,211,238,0.6)]"></div>
-                    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">在线</span>
+            <div class="min-w-0 overflow-hidden">
+                <div class="font-semibold text-slate-800 text-xs sm:text-sm truncate">AI 助手</div>
+                <div class="flex items-center gap-1">
+                    <div class="w-1 h-1 rounded-full bg-emerald-400 flex-shrink-0"></div>
+                    <span class="text-[8px] sm:text-[9px] text-slate-400">在线</span>
                 </div>
             </div>
         </div>
-        <div class="relative z-10 flex gap-2">
-            <button class="glass-icon-btn p-2 rounded-lg hover:bg-white/50 text-slate-500 hover:text-primary-600 transition-colors" @click="personaDialogVisible = true" title="设置画像">
-                <el-icon :size="18"><Setting /></el-icon>
+        <div class="relative flex gap-0.5 sm:gap-1 flex-shrink-0">
+            <button class="p-1 sm:p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary-600 transition-colors" @click="personaDialogVisible = true" title="设置画像">
+                <el-icon :size="14" class="sm:!text-[16px]"><Setting /></el-icon>
             </button>
-            <button v-if="courseStore.chatHistory.length > 0" class="glass-icon-btn p-2 rounded-lg hover:bg-white/50 text-slate-500 hover:text-primary-600 transition-colors" @click="handleSummarize" title="一键总结">
-                <el-icon :size="18"><Collection /></el-icon>
+            <button v-if="courseStore.chatHistory.length > 0" class="p-1 sm:p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary-600 transition-colors" @click="handleSummarize" title="一键总结">
+                <el-icon :size="14" class="sm:!text-[16px]"><Collection /></el-icon>
             </button>
-            <button v-if="courseStore.chatHistory.length > 0" class="glass-icon-btn p-2 rounded-lg hover:bg-red-50 text-slate-500 hover:text-red-500 transition-colors" @click="courseStore.clearChat()" title="清空对话">
-                <el-icon :size="18"><Delete /></el-icon>
+            <button v-if="courseStore.chatHistory.length > 0" class="p-1 sm:p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors" @click="courseStore.clearChat()" title="清空对话">
+                <el-icon :size="14" class="sm:!text-[16px]"><Delete /></el-icon>
             </button>
         </div>
     </div>
@@ -131,15 +130,38 @@
             <!-- Background Pattern (Cleaned) -->
             <!-- <div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: radial-gradient(var(--el-color-primary) 1px, transparent 1px); background-size: 24px 24px;"></div> -->
 
-            <!-- Empty States -->
-            <div v-if="courseStore.chatHistory.length === 0" class="flex flex-col items-center justify-center mt-10 text-gray-400 opacity-80 animate-in fade-in zoom-in duration-500">
-                <div class="w-24 h-24 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl flex items-center justify-center mb-6 shadow-[0_8px_30px_rgba(0,0,0,0.04)] ring-1 ring-white/60 relative overflow-hidden group">
-                    <div class="absolute inset-0 bg-gradient-to-tr from-primary-500/5 via-primary-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
-                    <div class="w-14 h-14 bg-white rounded-2xl shadow-sm flex items-center justify-center text-3xl animate-float relative z-10 text-primary-500">
-                        <el-icon><ChatDotRound /></el-icon>
+            <!-- Empty States with Smart Suggestions -->
+            <div v-if="courseStore.chatHistory.length === 0" class="flex flex-col items-center justify-center mt-6 text-gray-400">
+                <div class="w-16 h-16 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl flex items-center justify-center mb-4 shadow-sm ring-1 ring-white/60">
+                    <div class="w-10 h-10 bg-white rounded-lg shadow-sm flex items-center justify-center text-2xl text-primary-500">
+                        <el-icon :size="24"><ChatDotRound /></el-icon>
                     </div>
-                    <!-- Decor dots -->
-                    <div class="absolute top-6 right-6 w-2 h-2 rounded-full bg-primary-400/30 animate-ping"></div>
+                </div>
+                <p class="text-xs text-slate-400 mb-4">有什么可以帮助你的？</p>
+
+                <!-- Smart Suggestions -->
+                <div class="w-full px-4 space-y-2">
+                    <p class="text-[10px] text-slate-400 uppercase tracking-wider text-center">快速提问</p>
+                    <div class="flex flex-wrap gap-2 justify-center">
+                        <button v-for="suggestion in smartSuggestions" :key="suggestion"
+                                @click="quickAsk(suggestion)"
+                                class="px-3 py-1.5 text-xs bg-white/80 hover:bg-white border border-slate-200 hover:border-primary-300 rounded-full text-slate-600 hover:text-primary-600 transition-all shadow-sm hover:shadow">
+                            {{ suggestion }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Context-based Suggestions -->
+                <div v-if="contextSuggestions.length > 0" class="w-full px-4 mt-4 space-y-2">
+                    <p class="text-[10px] text-slate-400 uppercase tracking-wider text-center font-medium">基于当前内容</p>
+                    <div class="flex flex-col gap-2">
+                        <button v-for="suggestion in contextSuggestions" :key="suggestion.text"
+                                @click="quickAsk(suggestion.text)"
+                                class="px-3 py-2.5 text-xs bg-white/80 hover:bg-primary-50 border border-slate-200/60 hover:border-primary-200 rounded-xl text-slate-600 hover:text-primary-700 transition-all duration-200 text-left flex items-center gap-2 shadow-sm hover:shadow-md">
+                            <el-icon :size="12" class="text-primary-400"><Reading /></el-icon>
+                            <span class="font-medium">{{ suggestion.text }}</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -156,32 +178,22 @@
             </div>
 
             <!-- QA History -->
-            <div v-for="(msg, idx) in courseStore.chatHistory" :key="idx" 
-                class="flex flex-col gap-2 animate-fade-in-up" :style="{ animationDelay: `${idx * 50}ms` }">
-                
-                <div :class="['p-5 rounded-2xl text-sm max-w-[90%] transition-all relative overflow-hidden shadow-sm backdrop-blur-md group', 
-                    msg.type === 'user' 
-                        ? 'bg-gradient-to-br from-primary-600 to-primary-700 text-white self-end rounded-tr-sm shadow-[0_8px_20px_-4px_rgba(139,92,246,0.3)] ring-1 ring-white/20 border-t border-white/20' 
-                        : 'bg-white/80 border border-white/60 !rounded-tl-sm self-start hover:bg-white/90 transition-all shadow-[0_4px_20px_-4px_rgba(148,163,184,0.1)] hover:shadow-[0_8px_25px_-5px_rgba(148,163,184,0.15)]']">
-                    
-                    <!-- Noise Texture Overlay for subtle detail -->
-                    <!-- <div class="absolute inset-0 opacity-[0.1] pointer-events-none mix-blend-overlay bg-[url('data:image/svg+xml,%3Csvg%20viewBox=%220%200%20200%20200%22%20xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter%20id=%22noise%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%220.8%22%20numOctaves=%223%22%20stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect%20width=%22100%25%22%20height=%22100%25%22%20filter=%22url(%23noise)%22%20opacity=%221%22/%3E%3C/svg%3E')]"></div> -->
+            <div v-for="(msg, idx) in courseStore.chatHistory" :key="idx"
+                class="flex flex-col gap-1.5 animate-fade-in-up" :style="{ animationDelay: `${idx * 30}ms` }">
 
-                    <!-- Shimmer for AI messages -->
-                    <div v-if="msg.type === 'ai'" class="absolute inset-0 bg-gradient-to-r from-transparent via-white/60 to-transparent w-1/2 -skew-x-12 translate-x-[-200%] animate-[shimmer_4s_infinite] pointer-events-none"></div>
-
-                    <!-- Reflection for User messages -->
-                    <div v-if="msg.type === 'user'" class="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent opacity-50 pointer-events-none"></div>
-                    <div v-if="msg.type === 'user'" class="absolute -bottom-10 -right-10 w-32 h-32 bg-primary-600/30 blur-3xl rounded-full pointer-events-none"></div>
+                <div :class="['p-3.5 rounded-xl text-sm max-w-[92%] transition-all relative overflow-hidden shadow-sm group',
+                    msg.type === 'user'
+                        ? 'bg-primary-600 text-white self-end rounded-tr-sm'
+                        : 'bg-white border border-slate-100 !rounded-tl-sm self-start hover:border-slate-200']">
 
                     <div v-if="msg.type === 'ai' && typeof msg.content === 'object'" class="relative z-10">
                          <!-- Header: AI Icon + Title -->
-                        <div class="flex items-center gap-2 mb-3 text-xxs font-bold text-primary-600 uppercase tracking-wider border-b border-gray-100/80 pb-2 justify-between">
-                            <div class="flex items-center gap-2">
-                                <div class="w-5 h-5 rounded bg-primary-50 flex items-center justify-center text-primary-500">
-                                    <el-icon><MagicStick /></el-icon>
+                        <div class="flex items-center gap-1.5 mb-2 text-[10px] font-semibold text-primary-600 uppercase tracking-wide border-b border-slate-100/60 pb-1.5 justify-between">
+                            <div class="flex items-center gap-1.5">
+                                <div class="w-4 h-4 rounded bg-primary-50 flex items-center justify-center text-primary-500">
+                                    <el-icon :size="12"><MagicStick /></el-icon>
                                 </div>
-                                <span>AI Analysis</span>
+                                <span>AI</span>
                             </div>
                             <div class="flex items-center gap-1">
                                 <!-- Quote Preview (Enhanced Locate) -->
@@ -236,48 +248,59 @@
                             <div v-html="renderMarkdown(msg.content.answer)"></div>
                         </div>
                         <div v-if="getQuizList(msg.content).length > 0" class="mt-3 space-y-4 select-none">
-                            <div v-for="(quiz, qIdx) in getQuizList(msg.content)" :key="qIdx" class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                                <div class="flex items-start gap-3 mb-3">
-                                    <div class="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center font-bold text-sm shrink-0">
-                                        Q
+                            <div v-for="(quiz, qIdx) in getQuizList(msg.content)" :key="qIdx" 
+                                 class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] transition-all duration-300"
+                                 :class="{ 'ring-2 ring-purple-100 border-purple-200': quiz.isReview }">
+                                <!-- Review Badge -->
+                                <div v-if="quiz.isReview" class="flex items-center gap-1.5 mb-3 text-purple-600">
+                                    <el-icon :size="14"><RefreshRight /></el-icon>
+                                    <span class="text-[11px] font-bold uppercase tracking-wide">错题回顾</span>
+                                </div>
+                                
+                                <div class="flex items-start gap-3 mb-4">
+                                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-primary-100 to-primary-50 text-primary-600 flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
+                                        {{ qIdx + 1 }}
                                     </div>
-                                    <div class="text-slate-800 font-bold leading-relaxed pt-1">{{ quiz.question }}</div>
+                                    <div class="text-slate-800 font-semibold leading-relaxed pt-1 text-[15px]">{{ quiz.question }}</div>
                                 </div>
 
-                                <div class="space-y-2 pl-11">
+                                <div class="space-y-2.5 pl-11">
                                     <button 
                                         v-for="(opt, oIdx) in quiz.options" 
                                         :key="oIdx"
-                                        class="w-full text-left p-3 rounded-xl border transition-all relative group"
+                                        class="w-full text-left p-3.5 rounded-xl border transition-all duration-200 relative group"
                                         :class="getOptionClass(idx, qIdx, oIdx, quiz)"
                                         @click="handleOptionClick(idx, qIdx, oIdx)"
                                         :disabled="isQuizSubmitted(idx, qIdx)"
                                     >
                                         <div class="flex items-center gap-3">
-                                            <div class="w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold transition-colors shrink-0"
+                                            <div class="w-6 h-6 rounded-lg border flex items-center justify-center text-[11px] font-bold transition-colors shrink-0"
                                                 :class="getOptionBadgeClass(idx, qIdx, oIdx, quiz)">
                                                 {{ getOptionLabel(oIdx) }}
                                             </div>
-                                            <span class="text-sm font-medium">{{ opt }}</span>
+                                            <span class="text-sm font-medium leading-relaxed">{{ opt }}</span>
                                         </div>
                                         
                                         <div v-if="isQuizSubmitted(idx, qIdx)" class="absolute right-3 top-1/2 -translate-y-1/2">
-                                            <el-icon v-if="oIdx === quiz.correct_index" class="text-emerald-500 text-lg"><CircleCheckFilled /></el-icon>
-                                            <el-icon v-else-if="getQuizState(idx, qIdx).selected === oIdx" class="text-red-500 text-lg"><CircleCloseFilled /></el-icon>
+                                            <el-icon v-if="oIdx === quiz.correct_index" class="text-emerald-500 text-xl"><CircleCheckFilled /></el-icon>
+                                            <el-icon v-else-if="getQuizState(idx, qIdx).selected === oIdx" class="text-red-500 text-xl"><CircleCloseFilled /></el-icon>
                                         </div>
                                     </button>
                                 </div>
 
-                                <div v-if="isQuizSubmitted(idx, qIdx)" class="mt-4 pl-11 animate-in fade-in slide-in-from-top-2">
-                                    <div class="bg-slate-50 rounded-xl p-3 border border-slate-100 mb-3">
-                                        <div class="text-xs font-bold text-slate-500 uppercase mb-1">解析</div>
-                                        <div class="text-sm text-slate-600 leading-relaxed">{{ quiz.explanation }}</div>
+                                <div v-if="isQuizSubmitted(idx, qIdx)" class="mt-4 pl-11 animate-in fade-in slide-in-from-top-2 duration-300">
+                                    <div class="bg-gradient-to-r from-slate-50 to-white rounded-xl p-4 border border-slate-100 mb-3">
+                                        <div class="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase mb-2">
+                                            <el-icon :size="12"><InfoFilled /></el-icon>
+                                            解析
+                                        </div>
+                                        <div class="text-sm text-slate-600 leading-[1.8]">{{ quiz.explanation }}</div>
                                     </div>
                                     
                                     <div class="flex gap-2 mt-3 flex-wrap">
                                         <button 
                                             v-if="quiz.node_id"
-                                            class="flex items-center gap-2 text-xs font-bold text-primary-600 bg-primary-50 hover:bg-primary-100 px-3 py-2 rounded-lg transition-colors border border-primary-200"
+                                            class="flex items-center gap-2 text-xs font-bold text-primary-600 bg-primary-50 hover:bg-primary-100 px-3 py-2 rounded-lg transition-all duration-200 border border-primary-200/50 hover:border-primary-300"
                                             @click="courseStore.scrollToNode(quiz.node_id)"
                                         >
                                             <el-icon><Reading /></el-icon>
@@ -318,27 +341,52 @@
             </div>
         </div>
         
-        <!-- Floating Input Area - Refined Design -->
-        <div class="absolute bottom-6 left-6 right-6 z-30">
-            <div class="relative group">
-                <!-- Subtle glow effect on focus -->
-                <div class="absolute -inset-0.5 bg-gradient-to-r from-primary-200/50 via-purple-200/50 to-primary-200/50 rounded-2xl opacity-0 group-focus-within:opacity-100 blur-sm transition-opacity duration-300"></div>
+        <!-- Floating Input Area - Compact Design -->
+        <div class="absolute bottom-4 left-4 right-4 z-30">
+            <!-- Quick Commands Panel -->
+            <div v-if="showQuickCommands" class="mb-2 bg-white/95 backdrop-blur-md rounded-xl border border-slate-200/60 shadow-lg p-3 animate-fade-in-up">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">快捷指令</span>
+                    <button @click="showQuickCommands = false" class="text-slate-400 hover:text-slate-600">
+                        <el-icon :size="12"><Close /></el-icon>
+                    </button>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button v-for="cmd in quickCommands" :key="cmd.key"
+                            @click="applyQuickCommand(cmd)"
+                            class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-slate-50 hover:bg-primary-50 border border-slate-200 hover:border-primary-200 rounded-lg text-slate-600 hover:text-primary-600 transition-all">
+                        <el-icon :size="12"><component :is="cmd.icon" /></el-icon>
+                        <span>{{ cmd.label }}</span>
+                        <span class="text-[9px] text-slate-400 ml-0.5">/{{ cmd.key }}</span>
+                    </button>
+                </div>
+            </div>
 
-                <div class="relative bg-white/90 backdrop-blur-xl rounded-2xl border border-slate-200/60 group-focus-within:border-primary-300/60 shadow-[0_4px_20px_rgba(0,0,0,0.06)] group-focus-within:shadow-[0_8px_30px_rgba(139,92,246,0.12)] transition-all duration-300">
+            <div class="relative group">
+                <div class="relative bg-white/90 backdrop-blur-md rounded-xl border border-slate-200/60 group-focus-within:border-primary-300/60 shadow-sm group-focus-within:shadow-md transition-all duration-200">
+                    <!-- Quick Command Trigger -->
+                    <button
+                        class="absolute left-2.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg bg-slate-100 hover:bg-primary-50 text-slate-400 hover:text-primary-600 transition-all flex items-center justify-center"
+                        @click="showQuickCommands = !showQuickCommands"
+                        title="快捷指令"
+                    >
+                        <el-icon :size="14"><CommandMenu /></el-icon>
+                    </button>
+
                     <textarea
                         ref="inputRef"
                         v-model="inputMessage"
-                        class="w-full bg-transparent border-none rounded-2xl px-5 py-3.5 pr-12 text-sm focus:ring-0 resize-none h-[52px] max-h-[160px] custom-scrollbar placeholder:text-slate-400/80 text-slate-700 leading-relaxed"
-                        placeholder="输入问题，与 AI 探索知识..."
+                        class="w-full bg-transparent border-none rounded-2xl pl-12 pr-12 py-3.5 text-[15px] focus:ring-0 resize-none h-[56px] max-h-[140px] custom-scrollbar placeholder:text-slate-400/70 text-slate-700 leading-relaxed"
+                        placeholder="输入 / 查看快捷指令，或输入问题..."
                         @keydown="handleKeydown"
-                        @input="adjustTextareaHeight"
+                        @input="handleInput"
                     ></textarea>
-                    
-                    <button 
-                        class="absolute right-2 bottom-2 w-9 h-9 rounded-full transition-all duration-200 flex items-center justify-center"
+
+                    <button
+                        class="absolute right-2.5 bottom-2.5 w-9 h-9 rounded-xl transition-all duration-200 flex items-center justify-center shadow-sm"
                         :class="courseStore.chatLoading
-                            ? 'bg-red-500 text-white shadow-md hover:bg-red-600'
-                            : (inputMessage.trim() ? 'bg-primary-600 text-white shadow-md hover:bg-primary-700' : 'bg-slate-100 text-slate-300 cursor-not-allowed')"
+                            ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-500/30'
+                            : (inputMessage.trim() ? 'bg-gradient-to-r from-primary-500 to-primary-600 text-white hover:shadow-primary-500/30 hover:scale-105' : 'bg-slate-100 text-slate-300 cursor-not-allowed')"
                         @click="courseStore.chatLoading ? stopMessage() : sendMessage()"
                         :disabled="!courseStore.chatLoading && !inputMessage.trim()"
                     >
@@ -346,9 +394,9 @@
                         <el-icon v-else :size="16"><Position /></el-icon>
                     </button>
                 </div>
-                
+
                 <!-- Keyboard hint -->
-                <div class="absolute -top-6 right-0 text-[10px] text-slate-400 opacity-0 group-focus-within:opacity-100 transition-opacity duration-300">
+                <div class="absolute -top-5 right-0 text-[10px] text-slate-400/80 opacity-0 group-focus-within:opacity-100 transition-opacity duration-200 font-medium">
                     Ctrl + Enter 发送
                 </div>
             </div>
@@ -359,10 +407,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, reactive } from 'vue'
+import { ref, watch, nextTick, onMounted, reactive, computed } from 'vue'
 import { useCourseStore } from '../stores/course'
 import type { AIContent } from '../stores/course'
-import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight } from '@element-plus/icons-vue'
+import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight, InfoFilled, QuestionFilled, Document, DataLine, Lightbulb, TrendCharts, Menu as CommandMenu } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown } from '../utils/markdown'
 
@@ -371,6 +419,36 @@ const inputMessage = ref('')
 const chatContainer = ref<HTMLElement | null>(null)
 const personaDialogVisible = ref(false)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
+const showQuickCommands = ref(false)
+
+// Quick Commands Definition
+const quickCommands = [
+    { key: 'summary', label: '总结内容', icon: 'Document', template: '请帮我总结一下当前章节的核心内容' },
+    { key: 'explain', label: '详细解释', icon: 'QuestionFilled', template: '请详细解释一下这个概念，包括定义、原理和应用场景' },
+    { key: 'example', label: '举例说明', icon: 'Lightbulb', template: '请给我举几个具体的例子来帮助理解' },
+    { key: 'compare', label: '对比分析', icon: 'DataLine', template: '请对比分析一下相关概念的异同点' },
+    { key: 'quiz', label: '生成测验', icon: 'TrendCharts', template: '请基于当前内容生成几道测验题' },
+    { key: 'keypoints', label: '提取重点', icon: 'Collection', template: '请提取本章节的重点和考点' }
+]
+
+const handleInput = () => {
+    adjustTextareaHeight()
+    // Show quick commands when typing "/"
+    if (inputMessage.value === '/') {
+        showQuickCommands.value = true
+    } else if (!inputMessage.value.startsWith('/')) {
+        showQuickCommands.value = false
+    }
+}
+
+const applyQuickCommand = (cmd: typeof quickCommands[0]) => {
+    inputMessage.value = cmd.template
+    showQuickCommands.value = false
+    nextTick(() => {
+        inputRef.value?.focus()
+        adjustTextareaHeight()
+    })
+}
 
 const adjustTextareaHeight = () => {
     if (inputRef.value) {
@@ -568,6 +646,21 @@ const getOptionBadgeClass = (msgIdx: number, quizIdx: number, optIdx: number, qu
 }
 
 const saveWrongQuestion = async (quiz: any, msgIdx: number, quizIdx: number) => {
+    const state = getQuizState(msgIdx, quizIdx)
+    if (state.selected === null) return
+
+    // Record to quiz system
+    const nodeName = courseStore.currentNode?.node_name || '未知章节'
+    courseStore.recordWrongAnswer({
+        question: quiz.question,
+        options: quiz.options,
+        correctIndex: quiz.correct_index,
+        userIndex: state.selected,
+        explanation: quiz.explanation,
+        nodeId: quiz.node_id || courseStore.currentNode?.node_id || 'global',
+        nodeName: nodeName
+    })
+
     // 1. Prompt for Reflection
     try {
         const result = await ElMessageBox.prompt('请简要分析错误原因（这将帮助你更好地避坑）：', '错题反思', {
@@ -577,13 +670,11 @@ const saveWrongQuestion = async (quiz: any, msgIdx: number, quizIdx: number) => 
             inputType: 'textarea',
         })
         const reflection = typeof result === 'string' ? result : (result as { value?: string }).value
-        
+
         if (reflection) {
-             const state = getQuizState(msgIdx, quizIdx)
-             if (state.selected === null) return
              const wrongOpt = quiz.options[state.selected]
              const correctOpt = quiz.options[quiz.correct_index]
-             
+
              courseStore.addNote({
                  id: `wrong-${Date.now()}`,
                  nodeId: quiz.node_id || courseStore.currentNode?.node_id || 'global',
@@ -736,6 +827,52 @@ const sendMessage = async () => {
 
 const stopMessage = () => {
     courseStore.cancelChat()
+}
+
+// ========== Smart Suggestions ==========
+const smartSuggestions = [
+    '帮我总结一下这个章节',
+    '这个概念是什么意思？',
+    '能举个例子吗？',
+    '这个知识点常考吗？',
+    '和之前的内容有什么联系？'
+]
+
+const contextSuggestions = computed(() => {
+    const suggestions = []
+    const currentNode = courseStore.currentNode
+
+    if (currentNode) {
+        // Based on current node content
+        if (currentNode.node_content) {
+            const content = currentNode.node_content.toLowerCase()
+
+            // Detect content type and suggest relevant questions
+            if (content.includes('定义') || content.includes('概念')) {
+                suggestions.push({ text: `"${currentNode.node_name}"的核心定义是什么？`, type: 'definition' })
+            }
+            if (content.includes('公式') || content.includes('计算')) {
+                suggestions.push({ text: `这个公式的适用条件是什么？`, type: 'formula' })
+            }
+            if (content.includes('步骤') || content.includes('流程')) {
+                suggestions.push({ text: `能梳理一下操作步骤吗？`, type: 'process' })
+            }
+            if (content.includes('例子') || content.includes('案例')) {
+                suggestions.push({ text: `还有类似的例子吗？`, type: 'example' })
+            }
+
+            // Always add general suggestions
+            suggestions.push({ text: `关于"${currentNode.node_name}"的重点有哪些？`, type: 'keypoints' })
+        }
+    }
+
+    // Limit to 3 suggestions
+    return suggestions.slice(0, 3)
+})
+
+const quickAsk = (question: string) => {
+    inputMessage.value = question
+    sendMessage()
 }
 
 const handleKeydown = (e: KeyboardEvent) => {

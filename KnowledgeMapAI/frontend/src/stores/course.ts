@@ -52,6 +52,8 @@ export interface Note {
     sourceType?: 'user' | 'ai' | 'format' | 'wrong'
     style?: 'bold' | 'underline' | 'wave' | 'dashed' | 'highlight' | 'solid' | 'wavy'
     expanded?: boolean
+    tags?: string[] // Note tags for categorization
+    title?: string // Optional note title
 }
 
 export interface Course {
@@ -101,10 +103,11 @@ export interface AIContent {
     quiz_list?: {
         question: string
         options: string[]
-        answer: string
+        answer?: string
         correct_index?: number
         explanation?: string
         node_id?: string
+        isReview?: boolean
     }[]
 }
 
@@ -165,13 +168,46 @@ export const useCourseStore = defineStore('course', {
     
     // Notes System
     notes: [] as Note[],
-    
+
+    // Learning Statistics
+    learningStats: {
+        totalStudyTime: 0, // minutes
+        dailyStudyTime: {} as Record<string, number>, // date -> minutes
+        nodeReadTime: {} as Record<string, number>, // nodeId -> minutes
+        lastReadPosition: {} as Record<string, { nodeId: string; scrollTop: number }>, // courseId -> position
+        completedNodes: [] as string[], // nodeIds that are fully read
+        streakDays: 0,
+        lastStudyDate: null as string | null,
+        studyDays: 0, // Total days studied
+    },
+
+    // Quiz System
+    wrongAnswers: [] as Array<{
+        question: string
+        options: string[]
+        correctIndex: number
+        userIndex: number
+        explanation: string
+        nodeId: string
+        nodeName: string
+        timestamp: number
+        reviewCount: number
+    }>,
+    quizHistory: [] as Array<{
+        nodeId: string
+        nodeName: string
+        totalQuestions: number
+        correctCount: number
+        timestamp: number
+    }>,
+
     // State Restoration Flag
     stateRestored: false,
   }),
   getters: {
     treeData: (state) => state.courseTree,
     getNotesByNodeId: (state) => (nodeId: string) => state.notes.filter(n => n.nodeId === nodeId),
+    currentCourse: (state) => state.courseList.find(c => c.course_id === state.currentCourseId),
   },
   actions: {
     setUiSettings(settings: Partial<typeof this.uiSettings>) {
@@ -183,6 +219,221 @@ export const useCourseStore = defineStore('course', {
     updateUserPersona(persona: string) {
         this.userPersona = persona
         localStorage.setItem('user_persona', persona)
+    },
+
+    // ========== Learning Statistics ==========
+    recordStudyTime(minutes: number, nodeId?: string) {
+        const today = dayjs().format('YYYY-MM-DD')
+
+        // Update total time
+        this.learningStats.totalStudyTime += minutes
+
+        // Update daily time
+        if (!this.learningStats.dailyStudyTime[today]) {
+            this.learningStats.dailyStudyTime[today] = 0
+        }
+        this.learningStats.dailyStudyTime[today] += minutes
+
+        // Update node-specific time
+        if (nodeId) {
+            if (!this.learningStats.nodeReadTime[nodeId]) {
+                this.learningStats.nodeReadTime[nodeId] = 0
+            }
+            this.learningStats.nodeReadTime[nodeId] += minutes
+        }
+
+        // Update streak
+        const todayStr = dayjs().format('YYYY-MM-DD')
+        const lastDate = this.learningStats.lastStudyDate
+
+        if (lastDate) {
+            const diff = dayjs(todayStr).diff(dayjs(lastDate), 'day')
+            if (diff === 1) {
+                // Consecutive day
+                this.learningStats.streakDays += 1
+            } else if (diff > 1) {
+                // Streak broken
+                this.learningStats.streakDays = 1
+            }
+        } else {
+            this.learningStats.streakDays = 1
+        }
+
+        this.learningStats.lastStudyDate = todayStr
+
+        // Persist to localStorage
+        this.persistLearningStats()
+    },
+
+    saveReadingPosition(courseId: string, nodeId: string, scrollTop: number) {
+        this.learningStats.lastReadPosition[courseId] = { nodeId, scrollTop }
+        this.persistLearningStats()
+    },
+
+    getReadingPosition(courseId: string): { nodeId: string; scrollTop: number } | null {
+        return this.learningStats.lastReadPosition[courseId] || null
+    },
+
+    markNodeAsCompleted(nodeId: string) {
+        if (!this.learningStats.completedNodes.includes(nodeId)) {
+            this.learningStats.completedNodes.push(nodeId)
+            this.persistLearningStats()
+        }
+    },
+
+    isNodeCompleted(nodeId: string): boolean {
+        return this.learningStats.completedNodes.includes(nodeId)
+    },
+
+    getNodeReadTime(nodeId: string): number {
+        return this.learningStats.nodeReadTime[nodeId] || 0
+    },
+
+    getTodayStudyTime(): number {
+        const today = dayjs().format('YYYY-MM-DD')
+        return this.learningStats.dailyStudyTime[today] || 0
+    },
+
+    getWeeklyStudyTime(): number {
+        let total = 0
+        for (let i = 0; i < 7; i++) {
+            const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD')
+            total += this.learningStats.dailyStudyTime[date] || 0
+        }
+        return total
+    },
+
+    persistLearningStats() {
+        try {
+            localStorage.setItem('learning_stats', JSON.stringify(this.learningStats))
+        } catch (e) {
+            console.error('Failed to persist learning stats:', e)
+        }
+    },
+
+    restoreLearningStats() {
+        try {
+            const raw = localStorage.getItem('learning_stats')
+            if (raw) {
+                const stats = JSON.parse(raw)
+                this.learningStats = { ...this.learningStats, ...stats }
+            }
+        } catch (e) {
+            console.error('Failed to restore learning stats:', e)
+        }
+    },
+
+    // ========== Note Export Functions ==========
+    exportNotesToMarkdown(): string {
+        const notes = this.notes
+        if (notes.length === 0) {
+            return '# 学习笔记\n\n暂无笔记内容。'
+        }
+
+        let markdown = '# 学习笔记导出\n\n'
+        markdown += `导出时间：${dayjs().format('YYYY-MM-DD HH:mm:ss')}\n\n`
+        markdown += `---\n\n`
+
+        // Group notes by source type
+        const groupedNotes = {
+            user: notes.filter(n => n.sourceType === 'user' || !n.sourceType),
+            ai: notes.filter(n => n.sourceType === 'ai'),
+            wrong: notes.filter(n => n.sourceType === 'wrong'),
+            format: notes.filter(n => n.sourceType === 'format')
+        }
+
+        // Export wrong questions first (important)
+        if (groupedNotes.wrong.length > 0) {
+            markdown += '## 📝 错题记录\n\n'
+            groupedNotes.wrong.forEach((note, idx) => {
+                markdown += `### 错题 ${idx + 1}\n\n`
+                markdown += `**时间**：${dayjs(note.createdAt).format('YYYY-MM-DD HH:mm')}\n\n`
+                if (note.quote) {
+                    markdown += `**题目**：\n> ${note.quote}\n\n`
+                }
+                markdown += `${note.content}\n\n`
+                markdown += `---\n\n`
+            })
+        }
+
+        // Export AI Q&A notes
+        if (groupedNotes.ai.length > 0) {
+            markdown += '## 💬 AI 问答记录\n\n'
+            groupedNotes.ai.forEach((note, idx) => {
+                markdown += `### 问答 ${idx + 1}\n\n`
+                markdown += `**时间**：${dayjs(note.createdAt).format('YYYY-MM-DD HH:mm')}\n\n`
+                if (note.quote) {
+                    markdown += `**引用**：\n> ${note.quote}\n\n`
+                }
+                markdown += `${note.content}\n\n`
+                markdown += `---\n\n`
+            })
+        }
+
+        // Export user notes
+        if (groupedNotes.user.length > 0) {
+            markdown += '## ✏️ 个人笔记\n\n'
+            groupedNotes.user.forEach((note, idx) => {
+                markdown += `### 笔记 ${idx + 1}\n\n`
+                markdown += `**时间**：${dayjs(note.createdAt).format('YYYY-MM-DD HH:mm')}\n\n`
+                if (note.quote) {
+                    markdown += `**引用**：\n> ${note.quote}\n\n`
+                }
+                markdown += `${note.content}\n\n`
+                markdown += `---\n\n`
+            })
+        }
+
+        return markdown
+    },
+
+    exportNotesToJSON(): string {
+        const exportData = {
+            exportTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+            totalNotes: this.notes.length,
+            notes: this.notes.map(note => ({
+                ...note,
+                createdAtFormatted: dayjs(note.createdAt).format('YYYY-MM-DD HH:mm:ss')
+            }))
+        }
+        return JSON.stringify(exportData, null, 2)
+    },
+
+    downloadNotes(format: 'markdown' | 'json' = 'markdown') {
+        const content = format === 'markdown' ? this.exportNotesToMarkdown() : this.exportNotesToJSON()
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+        const filename = `学习笔记_${dayjs().format('YYYYMMDD')}.${format === 'markdown' ? 'md' : 'json'}`
+        downloadBlob(blob, filename)
+    },
+
+    // ========== Note Tags Management ==========
+    getAllNoteTags(): string[] {
+        const tags = new Set<string>()
+        this.notes.forEach(note => {
+            note.tags?.forEach(tag => tags.add(tag))
+        })
+        return Array.from(tags).sort()
+    },
+
+    getNotesByTag(tag: string): Note[] {
+        return this.notes.filter(note => note.tags?.includes(tag))
+    },
+
+    addTagToNote(noteId: string, tag: string) {
+        const note = this.notes.find(n => n.id === noteId)
+        if (note) {
+            if (!note.tags) note.tags = []
+            if (!note.tags.includes(tag)) {
+                note.tags.push(tag)
+            }
+        }
+    },
+
+    removeTagFromNote(noteId: string, tag: string) {
+        const note = this.notes.find(n => n.id === noteId)
+        if (note && note.tags) {
+            note.tags = note.tags.filter(t => t !== tag)
+        }
     },
 
     persistGenerationState() {
@@ -576,6 +827,154 @@ export const useCourseStore = defineStore('course', {
             return []
         } finally {
             this.chatLoading = false
+        }
+    },
+
+    // ========== Enhanced Quiz System ==========
+    recordWrongAnswer(quizData: {
+        question: string
+        options: string[]
+        correctIndex: number
+        userIndex: number
+        explanation: string
+        nodeId: string
+        nodeName: string
+    }) {
+        const existingIndex = this.wrongAnswers.findIndex(
+            w => w.question === quizData.question && w.nodeId === quizData.nodeId
+        )
+
+        if (existingIndex >= 0) {
+            // Update existing wrong answer
+            const existing = this.wrongAnswers[existingIndex]
+            if (existing) {
+                existing.reviewCount += 1
+                existing.timestamp = Date.now()
+            }
+        } else {
+            // Add new wrong answer
+            this.wrongAnswers.push({
+                ...quizData,
+                timestamp: Date.now(),
+                reviewCount: 1
+            })
+        }
+
+        // Persist to localStorage
+        this.persistQuizData()
+    },
+
+    recordQuizResult(nodeId: string, nodeName: string, total: number, correct: number) {
+        this.quizHistory.push({
+            nodeId,
+            nodeName,
+            totalQuestions: total,
+            correctCount: correct,
+            timestamp: Date.now()
+        })
+        this.persistQuizData()
+    },
+
+    persistQuizData() {
+        try {
+            localStorage.setItem('quiz_wrong_answers', JSON.stringify(this.wrongAnswers))
+            localStorage.setItem('quiz_history', JSON.stringify(this.quizHistory))
+        } catch (e) {
+            console.error('Failed to persist quiz data:', e)
+        }
+    },
+
+    restoreQuizData() {
+        try {
+            const wrongRaw = localStorage.getItem('quiz_wrong_answers')
+            const historyRaw = localStorage.getItem('quiz_history')
+
+            if (wrongRaw) {
+                this.wrongAnswers = JSON.parse(wrongRaw)
+            }
+            if (historyRaw) {
+                this.quizHistory = JSON.parse(historyRaw)
+            }
+        } catch (e) {
+            console.error('Failed to restore quiz data:', e)
+        }
+    },
+
+    // Get wrong answers that need review (sorted by review count and time)
+    getWrongAnswersForReview(limit: number = 10) {
+        return this.wrongAnswers
+            .sort((a, b) => {
+                // Prioritize: fewer reviews first, then older ones
+                if (a.reviewCount !== b.reviewCount) {
+                    return a.reviewCount - b.reviewCount
+                }
+                return a.timestamp - b.timestamp
+            })
+            .slice(0, limit)
+    },
+
+    // Mark wrong answer as reviewed (remove or increment)
+    markWrongAnswerReviewed(question: string, nodeId: string, remove: boolean = false) {
+        const index = this.wrongAnswers.findIndex(
+            w => w.question === question && w.nodeId === nodeId
+        )
+
+        if (index >= 0) {
+            const wrongAnswer = this.wrongAnswers[index]
+            if (remove) {
+                this.wrongAnswers.splice(index, 1)
+            } else if (wrongAnswer) {
+                wrongAnswer.reviewCount += 1
+                wrongAnswer.timestamp = Date.now()
+            }
+            this.persistQuizData()
+        }
+    },
+
+    // Generate smart quiz based on wrong answers
+    async generateSmartQuizFromMistakes() {
+        const wrongAnswersToReview = this.getWrongAnswersForReview(5)
+
+        if (wrongAnswersToReview.length === 0) {
+            ElMessage.info('暂无需要复习的错题')
+            return []
+        }
+
+        // Create a review quiz message
+        const title = '### 🔄 错题回顾\n根据你之前的错题，我们精选了一些题目帮助你巩固：'
+
+        this.chatHistory.push({
+            type: 'ai',
+            content: {
+                core_answer: title,
+                answer: title,
+                quiz_list: wrongAnswersToReview.map(w => ({
+                    question: w.question,
+                    options: w.options,
+                    correct_index: w.correctIndex,
+                    explanation: w.explanation,
+                    node_id: w.nodeId,
+                    isReview: true // Mark as review question
+                }))
+            }
+        })
+
+        return wrongAnswersToReview
+    },
+
+    // Get quiz statistics
+    getQuizStats() {
+        const totalQuizzes = this.quizHistory.length
+        const totalQuestions = this.quizHistory.reduce((sum, h) => sum + h.totalQuestions, 0)
+        const totalCorrect = this.quizHistory.reduce((sum, h) => sum + h.correctCount, 0)
+        const accuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0
+
+        return {
+            totalQuizzes,
+            totalQuestions,
+            totalCorrect,
+            accuracy,
+            wrongAnswerCount: this.wrongAnswers.length
         }
     },
 
@@ -1349,6 +1748,13 @@ export const useCourseStore = defineStore('course', {
 
     setCurrentNodeSilent(node: Node) {
         this.currentNode = node
+    },
+
+    setCurrentNode(nodeId: string) {
+        const node = this.courseTree.find(n => n.node_id === nodeId)
+        if (node) {
+            this.currentNode = node
+        }
     },
     
     // markNodeAsVisited removed as per request

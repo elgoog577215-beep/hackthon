@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 import sys
 import os
 
@@ -216,6 +217,67 @@ def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest):
         storage.save_course(course_id, tree_data)
         return {"node_content": new_content}
     raise HTTPException(status_code=404, detail="Node not found")
+
+
+# -----------------------------------------------------------------------------
+# Knowledge Graph API
+# -----------------------------------------------------------------------------
+class KnowledgeGraphRequest(BaseModel):
+    course_id: str
+
+
+@app.post("/courses/{course_id}/knowledge_graph")
+async def generate_knowledge_graph(course_id: str):
+    """
+    Generate a knowledge graph for the course using AI.
+    """
+    tree_data = storage.load_course(course_id)
+    if not tree_data or "nodes" not in tree_data:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    course_name = tree_data.get("course_name", "Unknown Course")
+    nodes = tree_data.get("nodes", [])
+    
+    # Build course context
+    course_context = f"Course: {course_name}\n"
+    for node in nodes[:20]:
+        course_context += f"- {node.get('node_name', '')}: {node.get('node_content', '')[:100]}\n"
+    
+    # Generate knowledge graph
+    graph_data = await ai_service.generate_knowledge_graph(
+        course_name=course_name,
+        course_context=course_context,
+        nodes=nodes
+    )
+    
+    # Cache the graph in storage
+    storage.save_knowledge_graph(course_id, graph_data)
+    
+    return {
+        "status": "success",
+        "data": graph_data
+    }
+
+
+@app.get("/courses/{course_id}/knowledge_graph")
+def get_knowledge_graph(course_id: str):
+    """
+    Get the cached knowledge graph for a course.
+    """
+    graph_data = storage.load_knowledge_graph(course_id)
+    if graph_data:
+        return {
+            "status": "success",
+            "data": graph_data,
+            "cached": True
+        }
+    
+    # Return empty graph if not cached
+    return {
+        "status": "success",
+        "data": {"nodes": [], "edges": []},
+        "cached": False
+    }
 
 @app.post("/courses/{course_id}/nodes/{node_id}/quiz")
 async def generate_quiz(course_id: str, node_id: str, req: GenerateQuizRequest):

@@ -415,7 +415,79 @@ EXTEND_CONTENT = PromptTemplate(
 
 
 # -----------------------------------------------------------------------------
-# 7. Q&A with Metadata
+# 7. Knowledge Graph Generation
+# -----------------------------------------------------------------------------
+GENERATE_KNOWLEDGE_GRAPH = PromptTemplate(
+    name="generate_knowledge_graph",
+    version="1.0.0",
+    description="Generate knowledge graph structure from course content",
+    parameters=["course_name", "course_context"],
+    tags=["knowledge_graph", "visualization", "structure"],
+    system_prompt=f"""{ACADEMIC_IDENTITY}
+
+## 任务背景
+- **课程名称**：{{course_name}}
+- **课程上下文**：{{course_context}}
+
+## 核心任务
+基于课程内容，构建一个**知识图谱**，展示知识点之间的关联关系。
+
+## 知识图谱规范
+1. **节点类型**
+   - **核心概念** (core)：课程的核心主题或关键概念
+   - **基础概念** (basic)：支撑核心概念的基础知识
+   - **进阶概念** (advanced)：基于核心概念的深入内容
+   - **应用场景** (application)：概念的实际应用案例
+
+2. **关系类型**
+   - **依赖** (depends_on)：A 依赖于 B（B 是 A 的前置知识）
+   - **包含** (contains)：A 包含 B（B 是 A 的子概念）
+   - **关联** (related)：A 与 B 有关联（两者相互影响）
+   - **应用** (applies_to)：A 应用于 B（A 在 B 中得到应用）
+
+3. **节点数量**
+   - 生成 **10-20个** 节点，覆盖课程的主要知识点
+   - 确保核心概念位于图谱中心
+
+4. **关系数量**
+   - 每个节点至少有 **1-3个** 关系
+   - 确保图谱连通性（没有孤立节点）
+
+{OUTPUT_FORMAT_JSON}
+
+**输出格式**：
+```json
+{{
+  "nodes": [
+    {{
+      "id": "node_1",
+      "label": "概念名称",
+      "type": "core",
+      "description": "概念的简要描述（20字以内）",
+      "chapter_id": "对应章节ID（可选）"
+    }}
+  ],
+  "edges": [
+    {{
+      "source": "node_1",
+      "target": "node_2",
+      "relation": "depends_on",
+      "label": "依赖关系"
+    }}
+  ]
+}}
+```
+
+## 关系设计原则
+- **依赖关系**：前置知识指向后续知识（如"微积分" → "机器学习"）
+- **包含关系**：父概念指向子概念（如"数据结构" → "二叉树"）
+- **关联关系**：平行概念之间的横向联系（如"算法" ↔ "数据结构"）
+- **应用关系**：理论指向实践（如"神经网络" → "图像识别"）"""
+)
+
+
+# -----------------------------------------------------------------------------
+# 8. Q&A with Metadata
 # -----------------------------------------------------------------------------
 TUTOR_SYSTEM_BASE = f"""{ACADEMIC_IDENTITY}
 
@@ -477,6 +549,7 @@ PROMPT_REGISTRY: Dict[str, PromptTemplate] = {
     "generate_content": GENERATE_CONTENT,
     "redefine_content": REDEFINE_CONTENT,
     "extend_content": EXTEND_CONTENT,
+    "generate_knowledge_graph": GENERATE_KNOWLEDGE_GRAPH,
 }
 
 
