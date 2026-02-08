@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col relative">
+  <div class="h-full flex flex-col relative bg-gradient-to-br from-slate-50/50 to-white/30">
     
     <!-- MODE 1: COURSE LIST -->
     <transition name="fade-slide" mode="out-in">
@@ -28,8 +28,8 @@
             </button>
         </div>
 
-        <!-- List Content -->
-        <div class="flex-1 overflow-auto p-3 custom-scrollbar space-y-2.5 scroll-smooth">
+        <!-- List Content - Optimized Scrollbar -->
+        <div class="flex-1 overflow-y-auto overflow-x-hidden p-3 sidebar-scroll space-y-2.5 scroll-smooth pr-2">
             <div 
                 v-for="(course, index) in courseStore.courseList" 
                 :key="course.course_id" 
@@ -157,35 +157,35 @@
 
       <!-- MODE 2: TREE VIEW -->
       <div v-else class="flex flex-col h-full" key="tree">
-        <!-- Compact Header -->
-        <div class="mx-4 mt-4 mb-2 h-16 px-4 flex gap-3 items-center justify-between flex-shrink-0 glass-panel-tech-floating rounded-xl z-10 relative box-border">
+        <!-- Compact Header - Optimized -->
+        <div class="mx-3 mt-3 mb-2 h-14 px-3 flex gap-2 items-center justify-between flex-shrink-0 glass-panel-tech-floating rounded-xl z-10 relative box-border">
           
           <div class="flex items-center gap-1">
             <!-- Collapse Button -->
             <button 
-                class="flex-shrink-0 w-8 h-8 glass-card-tech-hover !p-0 !rounded-xl !border-white/50 text-slate-500 hover:text-primary-600 flex items-center justify-center group"
+                class="flex-shrink-0 w-7 h-7 glass-card-tech-hover !p-0 !rounded-lg !border-white/50 text-slate-500 hover:text-primary-600 flex items-center justify-center group"
                 @click="$emit('toggle-sidebar')"
                 title="收起侧边栏"
             >
-                <el-icon :size="16"><Fold /></el-icon>
+                <el-icon :size="14"><Fold /></el-icon>
             </button>
 
             <!-- Back Button -->
             <button 
-                class="flex-shrink-0 w-8 h-8 glass-card-tech-hover !p-0 !rounded-xl !border-white/50 text-slate-500 hover:text-primary-600 flex items-center justify-center group"
+                class="flex-shrink-0 w-7 h-7 glass-card-tech-hover !p-0 !rounded-lg !border-white/50 text-slate-500 hover:text-primary-600 flex items-center justify-center group"
                 @click="backToCourses"
                 title="返回课程列表"
             >
-                <el-icon :size="16" class="group-hover:-translate-x-0.5 transition-transform"><ArrowLeft /></el-icon>
+                <el-icon :size="14" class="group-hover:-translate-x-0.5 transition-transform"><ArrowLeft /></el-icon>
             </button>
 
             <!-- Notes Button -->
             <button 
-                class="flex-shrink-0 w-8 h-8 glass-card-tech-hover !p-0 !rounded-xl !border-white/50 text-slate-500 hover:text-amber-500 flex items-center justify-center group"
+                class="flex-shrink-0 w-7 h-7 glass-card-tech-hover !p-0 !rounded-lg !border-white/50 text-slate-500 hover:text-amber-500 flex items-center justify-center group"
                 @click="notesDialogVisible = true"
                 title="课程笔记"
             >
-                <el-icon :size="16"><Document /></el-icon>
+                <el-icon :size="14"><Document /></el-icon>
             </button>
           </div>
 
@@ -212,8 +212,8 @@
           </div>
         </div>
         
-        <!-- Tree Content -->
-        <div class="flex-1 overflow-auto p-3 custom-scrollbar">
+        <!-- Tree Content - Optimized Scrollbar -->
+        <div class="flex-1 overflow-y-auto overflow-x-hidden p-3 sidebar-scroll pr-2">
           <!-- Wrapper must allow shrinking to content width to avoid infinite loop with parent width -->
           <div class="w-max" ref="treeContentRef">
            <el-tree
@@ -562,16 +562,80 @@ const formatDate = (timestamp: number) => {
     })
 }
 
+// Smart width calculation based on content
+const calculateOptimalWidth = () => {
+    // Helper: calculate text width
+    const calculateTextWidth = (text: string): number => {
+        let width = 0
+        for (const char of text) {
+            // Check if Chinese character
+            if (/[\u4e00-\u9fa5]/.test(char)) {
+                width += 14
+            } else {
+                width += 8
+            }
+        }
+        return width
+    }
+
+    // Mode 1: Course List View
+    if (!courseStore.currentCourseId) {
+        const courseNames = courseStore.courseList.map(c => c.course_name)
+        if (courseNames.length === 0) return 260
+
+        let maxWidth = 0
+        courseNames.forEach(name => {
+            // Course name + "章节" badge + actions + padding
+            const textWidth = calculateTextWidth(name)
+            // Icon (32px) + gap (12px) + badge (~60px) + actions (~80px) + padding (48px)
+            const width = textWidth + 32 + 12 + 60 + 80 + 48
+            maxWidth = Math.max(maxWidth, width)
+        })
+
+        return Math.max(260, Math.min(maxWidth, 340))
+    }
+
+    // Mode 2: Tree View
+    const getAllNodeNames = (nodes: any[]): string[] => {
+        let names: string[] = []
+        for (const node of nodes) {
+            names.push(node.node_name)
+            if (node.children && node.children.length > 0) {
+                names = names.concat(getAllNodeNames(node.children))
+            }
+        }
+        return names
+    }
+
+    const nodeNames = getAllNodeNames(courseStore.courseTree)
+    if (nodeNames.length === 0) return 260
+
+    let maxWidth = 0
+    nodeNames.forEach(name => {
+        const textWidth = calculateTextWidth(name)
+        // Add space for icon (24px) + indent (16px per level) + padding (40px) + actions (60px)
+        const level = (name.match(/\./g) || []).length + 1
+        const width = textWidth + 24 + (level * 16) + 40 + 60
+        maxWidth = Math.max(maxWidth, width)
+    })
+
+    // Add safety buffer for scrollbar and margins
+    maxWidth += 20
+
+    // Constrain within reasonable bounds
+    // Min: 240px (enough for short names), Max: 380px (prevent too wide)
+    return Math.max(240, Math.min(maxWidth, 380))
+}
+
 const setupResizeObserver = (el: HTMLElement) => {
     if (resizeObserver) resizeObserver.disconnect()
     
     resizeObserver = new ResizeObserver((entries) => {
         window.requestAnimationFrame(() => {
             for (const entry of entries) {
-                // Measure intrinsic content width
-                // Add padding (24px for p-3) + safety buffer (20px)
-                const width = entry.contentRect.width + 44
-                emit('update:preferredWidth', width)
+                // Use smart width calculation
+                const optimalWidth = calculateOptimalWidth()
+                emit('update:preferredWidth', optimalWidth)
             }
         })
     })
@@ -589,6 +653,26 @@ watch(treeContentRef, (el) => {
         }
     }
 })
+
+// Watch for course list changes to auto-adjust width
+watch(() => courseStore.courseList.length, () => {
+    if (!courseStore.currentCourseId) {
+        // In course list mode, recalculate width
+        const optimalWidth = calculateOptimalWidth()
+        emit('update:preferredWidth', optimalWidth)
+    }
+}, { immediate: true })
+
+// Watch for tree data changes to auto-adjust width
+watch(() => courseStore.courseTree.length, () => {
+    if (courseStore.currentCourseId) {
+        // In tree view mode, recalculate width
+        setTimeout(() => {
+            const optimalWidth = calculateOptimalWidth()
+            emit('update:preferredWidth', optimalWidth)
+        }, 100) // Delay to ensure DOM is updated
+    }
+}, { immediate: true })
 
 onUnmounted(() => {
     if (resizeObserver) resizeObserver.disconnect()

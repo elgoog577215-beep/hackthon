@@ -148,12 +148,12 @@ textarea:active {
 }
 
 /* ============================================
-   SCROLLBAR
+   SCROLLBAR - Optimized Design
    ============================================ */
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -161,12 +161,29 @@ textarea:active {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(156, 163, 175, 0.4);
+  background: rgba(156, 163, 175, 0.35);
   border-radius: 3px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(107, 114, 128, 0.6);
+  background: rgba(139, 92, 246, 0.5);
+  border-radius: 3px;
+}
+
+/* Custom scrollbar for sidebar - more compact */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 2px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.4);
 }
 
 /* Selection Style */

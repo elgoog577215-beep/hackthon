@@ -29,12 +29,13 @@
         </button>
     </div>
 
-    <CourseTree 
+    <CourseTree
       v-show="(!isMobile || mobileShowLeft) && !isLeftCollapsed && !courseStore.isFocusMode"
-      :style="{ width: isMobile ? '85%' : leftSidebarWidth + 'px' }" 
+      :style="{ width: isMobile ? '85%' : leftSidebarWidth + 'px' }"
       :class="[
-        'flex-shrink-0 !transition-none overflow-hidden',
-        isMobile ? 'absolute left-0 top-0 bottom-0 z-50 bg-white shadow-2xl' : 'z-10 animate-fade-in-up stagger-1'
+        'flex-shrink-0 overflow-hidden transition-all duration-300 ease-out',
+        isMobile ? 'absolute left-0 top-0 bottom-0 z-50 bg-white shadow-2xl' : 'z-10 animate-fade-in-up stagger-1',
+        isResizingLeft ? '!transition-none' : ''
       ]"
       @update:preferredWidth="handlePreferredWidth"
       @node-selected="mobileShowLeft = false"
@@ -52,41 +53,41 @@
         </button>
     </div>
     
-    <!-- Left Resizer (Desktop Only) -->
+    <!-- Left Resizer (Desktop Only) - Optimized Position -->
     <div 
       v-if="!isMobile && !isLeftCollapsed && !courseStore.isFocusMode"
-      class="w-4 -ml-2 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative transition-colors"
+      class="w-3 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative transition-colors -ml-1"
       @mousedown="startResizeLeft"
       @dblclick="resetLeftSidebar"
     >
         <!-- Vertical Line (Always subtle, darker on hover/active) -->
         <div 
             class="absolute inset-y-0 w-px transition-colors duration-300"
-            :class="isResizingLeft ? 'bg-primary-200' : 'bg-transparent group-hover:bg-slate-200'"
+            :class="isResizingLeft ? 'bg-primary-300' : 'bg-transparent group-hover:bg-slate-200'"
         ></div>
         
-        <!-- Handle Pill -->
+        <!-- Handle Pill - More Compact -->
         <div 
-            class="w-1.5 h-12 rounded-full backdrop-blur-sm transition-all duration-300 shadow-sm"
+            class="w-1 h-10 rounded-full backdrop-blur-sm transition-all duration-300 shadow-sm"
             :class="isResizingLeft 
-                ? 'bg-primary-500 h-16 w-2 shadow-[0_0_10px_rgba(99,102,241,0.5)]' 
-                : 'bg-slate-300/80 group-hover:bg-primary-400 group-hover:h-16 group-hover:w-2'"
+                ? 'bg-primary-500 h-14 w-1.5 shadow-[0_0_8px_rgba(99,102,241,0.4)]' 
+                : 'bg-slate-300/60 group-hover:bg-primary-400 group-hover:h-12 group-hover:w-1.5'"
         ></div>
     </div>
 
     <ContentArea class="flex-1 overflow-hidden relative z-0 animate-fade-in-up stagger-2" />
 
-    <!-- Right Resizer (Desktop Only) -->
+    <!-- Right Resizer (Desktop Only) - Optimized Position -->
     <div 
       v-if="!isMobile && !courseStore.isFocusMode"
-      class="w-4 -mr-2 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative"
+      class="w-3 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative -mr-1"
       @mousedown="startResizeRight"
       @dblclick="resetRightSidebar"
     >
         <!-- Hover Line -->
         <div class="absolute inset-y-4 w-px bg-white/0 group-hover:bg-primary-300/50 transition-colors duration-300"></div>
-        <!-- Handle -->
-        <div class="w-1 h-8 rounded-full bg-slate-300/30 backdrop-blur-sm group-hover:bg-primary-400 group-hover:h-16 group-hover:w-1 group-hover:shadow-[0_0_10px_rgba(139,92,246,0.6)] transition-all duration-300"></div>
+        <!-- Handle - More Compact -->
+        <div class="w-1 h-10 rounded-full bg-slate-300/40 backdrop-blur-sm group-hover:bg-primary-400 group-hover:h-12 group-hover:w-1.5 group-hover:shadow-[0_0_8px_rgba(139,92,246,0.4)] transition-all duration-300"></div>
     </div>
 
     <ChatPanel 
@@ -154,9 +155,9 @@ const toggleRightSidebar = () => {
     }
 }
 
-// Sidebar Resizing Logic
-const leftSidebarWidth = ref(280) // Reduced from 320 for better balance
-const rightSidebarWidth = ref(360) // Reduced from 400 to prevent crowding
+// Sidebar Resizing Logic - Optimized Width
+const leftSidebarWidth = ref(260) // Optimized from 280 for better space usage
+const rightSidebarWidth = ref(340) // Optimized from 360 for better balance
 const isResizingLeft = ref(false)
 const isResizingRight = ref(false)
 const isAutoWidth = ref(true)
@@ -183,9 +184,21 @@ const resetLeftSidebar = () => {
 const resetRightSidebar = () => { rightSidebarWidth.value = 400 }
 
 const handlePreferredWidth = (width: number) => {
-  if (isAutoWidth.value && !isMobile.value) {
-    const newWidth = Math.max(280, Math.min(width, 500))
-    leftSidebarWidth.value = newWidth
+  if (isAutoWidth.value && !isMobile.value && !isResizingLeft.value) {
+    // Smooth width transition with constraints
+    // Min: 240px (compact), Max: 380px (comfortable reading)
+    const targetWidth = Math.max(240, Math.min(width, 380))
+
+    // Use smooth interpolation for gradual changes
+    const currentWidth = leftSidebarWidth.value
+    const diff = targetWidth - currentWidth
+
+    // Only update if change is significant (> 10px) to avoid jitter
+    if (Math.abs(diff) > 10) {
+      // Smooth transition: move 30% towards target
+      const newWidth = Math.round(currentWidth + diff * 0.3)
+      leftSidebarWidth.value = newWidth
+    }
   }
 }
 
@@ -196,14 +209,14 @@ const handleMouseMove = (e: MouseEvent) => {
 
   if (isResizingLeft.value) {
     const newWidth = e.clientX - containerRect.left
-    if (newWidth >= 200 && newWidth <= 500) { // Adjusted range
+    if (newWidth >= 220 && newWidth <= 420) { // Optimized range for better UX
       leftSidebarWidth.value = newWidth
     }
   }
   
   if (isResizingRight.value) {
     const newWidth = containerRect.right - e.clientX
-    if (newWidth >= 280 && newWidth <= 600) { // Adjusted min width
+    if (newWidth >= 280 && newWidth <= 500) { // Optimized range
       rightSidebarWidth.value = newWidth
     }
   }
