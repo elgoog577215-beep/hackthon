@@ -4,7 +4,7 @@
     <!-- MODE 1: COURSE LIST -->
     <transition name="fade-slide" mode="out-in">
       <div v-if="!courseStore.currentCourseId" class="flex flex-col h-full" key="list">
-        <div class="mx-3 mt-3 mb-1 px-4 py-3 flex justify-between items-center flex-shrink-0 glass-panel-tech rounded-2xl z-10 relative">
+        <div class="mx-3 mt-3 mb-1 px-4 py-3 flex justify-between items-center flex-shrink-0 glass-panel-tech-floating rounded-2xl z-10 relative">
             <div class="flex items-center gap-2">
                 <button 
                     class="p-1 -ml-1 text-slate-400 hover:text-primary-600 rounded-lg hover:bg-slate-100 transition-colors"
@@ -37,7 +37,7 @@
                 :style="{ animationDelay: (index * 50) + 'ms' }"
             >
                 <div 
-                    class="group relative p-3.5 rounded-2xl glass-card-tech cursor-pointer overflow-hidden h-full"
+                    class="group relative p-3.5 rounded-2xl glass-card-tech-hover cursor-pointer overflow-hidden h-full"
                     @click="handleCourseClick(course.course_id)"
                 >
                  <!-- Hover Gradient -->
@@ -154,38 +154,40 @@
       <!-- MODE 2: TREE VIEW -->
       <div v-else class="flex flex-col h-full" key="tree">
         <!-- Compact Header -->
-        <div class="mx-3 mt-3 mb-1 px-4 py-3 flex gap-2 items-center flex-shrink-0 glass-panel-tech rounded-2xl z-10 relative">
+        <div class="mx-4 mt-4 mb-2 h-16 px-4 flex gap-3 items-center justify-between flex-shrink-0 glass-panel-tech-floating rounded-2xl z-10 relative box-border">
           
-          <!-- Collapse Button -->
-          <button 
-            class="flex-shrink-0 w-8 h-8 glass-card-tech !p-0 !rounded-xl !border-white/50 text-slate-500 hover:text-primary-600 flex items-center justify-center group mr-1"
-            @click="$emit('toggle-sidebar')"
-            title="收起侧边栏"
-          >
-            <el-icon :size="16"><Fold /></el-icon>
-          </button>
+          <div class="flex items-center gap-1">
+            <!-- Collapse Button -->
+            <button 
+                class="flex-shrink-0 w-8 h-8 glass-card-tech-hover !p-0 !rounded-xl !border-white/50 text-slate-500 hover:text-primary-600 flex items-center justify-center group"
+                @click="$emit('toggle-sidebar')"
+                title="收起侧边栏"
+            >
+                <el-icon :size="16"><Fold /></el-icon>
+            </button>
 
-          <!-- Back Button -->
-          <button 
-            class="flex-shrink-0 w-8 h-8 glass-card-tech !p-0 !rounded-xl !border-white/50 text-slate-500 hover:text-primary-600 flex items-center justify-center group mr-1"
-            @click="backToCourses"
-            title="返回课程列表"
-          >
-            <el-icon :size="16" class="group-hover:-translate-x-0.5 transition-transform"><ArrowLeft /></el-icon>
-          </button>
+            <!-- Back Button -->
+            <button 
+                class="flex-shrink-0 w-8 h-8 glass-card-tech-hover !p-0 !rounded-xl !border-white/50 text-slate-500 hover:text-primary-600 flex items-center justify-center group"
+                @click="backToCourses"
+                title="返回课程列表"
+            >
+                <el-icon :size="16" class="group-hover:-translate-x-0.5 transition-transform"><ArrowLeft /></el-icon>
+            </button>
 
-          <!-- Notes Button -->
-          <button 
-            class="flex-shrink-0 w-8 h-8 glass-card-tech !p-0 !rounded-xl !border-white/50 text-slate-500 hover:text-amber-500 flex items-center justify-center group mr-1"
-            @click="notesDialogVisible = true"
-            title="课程笔记"
-          >
-            <el-icon :size="16"><Document /></el-icon>
-          </button>
+            <!-- Notes Button -->
+            <button 
+                class="flex-shrink-0 w-8 h-8 glass-card-tech-hover !p-0 !rounded-xl !border-white/50 text-slate-500 hover:text-amber-500 flex items-center justify-center group"
+                @click="notesDialogVisible = true"
+                title="课程笔记"
+            >
+                <el-icon :size="16"><Document /></el-icon>
+            </button>
+          </div>
 
           <!-- Search Input -->
-          <div class="relative group flex-1 transition-all duration-300 ease-out">
-            <div class="relative flex items-center bg-white/40 hover:bg-white/60 focus-within:!bg-white/80 backdrop-blur-md border border-white/60 focus-within:border-primary-300/50 rounded-xl transition-all duration-300 shadow-sm group-focus-within:shadow-lg group-focus-within:shadow-primary-500/10 overflow-hidden">
+          <div class="relative group flex-1 transition-all duration-300 ease-out min-w-0">
+            <div class="relative flex items-center bg-white/40 hover:bg-white/60 focus-within:!bg-white/80 backdrop-blur-md border border-white/60 focus-within:border-primary-300/50 rounded-xl transition-all duration-300 shadow-sm group-focus-within:shadow-lg group-focus-within:shadow-primary-500/10 overflow-hidden h-9">
                 <!-- Inner Shadow for depth -->
                 <div class="absolute inset-0 shadow-[inset_0_2px_4px_rgba(0,0,0,0.02)] pointer-events-none rounded-xl"></div>
                 
@@ -196,7 +198,7 @@
                     v-model="filterText"
                     type="text"
                     placeholder="搜索章节..."
-                    class="w-full pl-2 pr-8 py-2 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-xs font-medium text-slate-700 placeholder-slate-400/80 group-focus-within:placeholder-primary-300/50 relative z-10"
+                    class="w-full pl-2 pr-8 py-2 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-xs font-medium text-slate-700 placeholder-slate-400/80 group-focus-within:placeholder-primary-300/50 relative z-10 h-full"
                 />
                 <!-- Clear Button -->
                 <transition name="scale-fade">
@@ -370,7 +372,7 @@
         append-to-body
         align-center
       >
-        <template #header="{ close, titleId, titleClass }">
+        <template #header>
             <div class="px-8 py-6 border-b border-slate-100/80 flex justify-between items-center bg-white/80 backdrop-blur-xl relative z-10">
                 <div class="flex items-center gap-4">
                     <div class="relative w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform duration-500">
@@ -750,8 +752,10 @@ const backToCourses = () => {
 :deep(.el-tree-node__content) {
     height: auto;
     background-color: transparent !important;
-    padding: 4px 0; /* Increased padding for breathing room */
-    margin-bottom: 4px;
+    padding: 6px 0; /* Increased padding */
+    margin-bottom: 6px;
+    border-radius: 12px;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 :deep(.el-tree-node:focus > .el-tree-node__content) {
     background-color: transparent !important;
@@ -774,8 +778,14 @@ const backToCourses = () => {
 
 /* Tree Lines - Refined */
 :deep(.el-tree-node__children) {
-    border-left: 1px solid #f1f5f9;
-    margin-left: 18px; 
+    border-left: 2px dashed rgba(203, 213, 225, 0.6); /* More visible dashed line */
+    margin-left: 22px; 
+    padding-left: 4px;
+    transition: border-color 0.3s;
+}
+
+:deep(.el-tree-node__children:hover) {
+    border-left-color: rgba(139, 92, 246, 0.4); /* Highlight line on hover */
 }
 
 /* Node Appearance Animation */
@@ -802,5 +812,26 @@ const backToCourses = () => {
 .fade-slide-leave-to {
     opacity: 0;
     transform: translateX(10px);
+}
+
+.glass-panel-tech-floating {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+}
+
+.glass-card-tech-hover {
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(10px);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.glass-card-tech-hover:hover {
+    background: rgba(255, 255, 255, 0.8);
+    border-color: rgba(255, 255, 255, 0.8);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.08);
 }
 </style>

@@ -17,121 +17,6 @@
         </transition>
     </Teleport>
 
-    <!-- Toolbar -->
-    <div class="h-16 flex items-center justify-between px-4 lg:px-6 mx-2 lg:mx-6 mt-4 mb-2 sticky top-4 z-30 transition-all duration-300 glass-panel-floating rounded-2xl">
-      <div class="bg-white/50 backdrop-blur-sm rounded-full px-4 py-1.5 border border-white/40 shadow-sm flex items-center gap-2">
-        <span class="font-bold text-slate-700 truncate max-w-[200px]">
-            {{ courseStore.courseList.find(c => c.course_id === courseStore.currentCourseId)?.course_name || '课程预览' }}
-        </span>
-        <span class="text-slate-300">|</span>
-        <span class="text-xs text-slate-500">全书模式</span>
-      </div>
-      
-      <div class="flex gap-3">
-        <button class="lg:hidden px-3 py-1.5 rounded-lg bg-white/40 hover:bg-white/80 border border-white/50 text-slate-600 flex items-center gap-2" @click="showMobileNotes = true">
-            <el-icon><Notebook /></el-icon>
-        </button>
-        
-        <!-- Typography Settings -->
-        <el-popover placement="bottom" :width="240" trigger="click" popper-class="glass-popover">
-            <template #reference>
-                <button class="px-3 py-1.5 rounded-lg bg-white/40 hover:bg-white/80 border border-white/50 text-slate-600 hover:text-primary-600 flex items-center gap-2 transition-all shadow-sm hover:shadow-md text-xs font-bold">
-                    <el-icon><Setting /></el-icon>
-                    <span class="hidden lg:inline">外观</span>
-                </button>
-            </template>
-            <div class="p-2 space-y-4">
-                <!-- Font Size -->
-                <div class="space-y-2">
-                    <div class="text-xs font-bold text-slate-500">字号</div>
-                    <div class="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
-                        <button class="flex-1 p-1 hover:bg-white rounded text-slate-600" @click="fontSize = Math.max(8, fontSize - 1)"><el-icon><Minus /></el-icon></button>
-                        <span class="text-xs font-mono w-8 text-center">{{ fontSize }}</span>
-                        <button class="flex-1 p-1 hover:bg-white rounded text-slate-600" @click="fontSize = Math.min(72, fontSize + 1)"><el-icon><Plus /></el-icon></button>
-                    </div>
-                </div>
-                <!-- Font Family -->
-                <div class="space-y-2">
-                    <div class="text-xs font-bold text-slate-500">字体</div>
-                    <div class="grid grid-cols-3 gap-2">
-                        <button class="px-2 py-1 text-xs border rounded hover:border-primary-500" :class="fontFamily === 'sans' ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="fontFamily = 'sans'">无衬线</button>
-                        <button class="px-2 py-1 text-xs border rounded hover:border-primary-500 font-serif" :class="fontFamily === 'serif' ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="fontFamily = 'serif'">衬线</button>
-                        <button class="px-2 py-1 text-xs border rounded hover:border-primary-500 font-mono" :class="fontFamily === 'mono' ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="fontFamily = 'mono'">等宽</button>
-                    </div>
-                </div>
-                <!-- Line Height -->
-                <div class="space-y-2">
-                    <div class="text-xs font-bold text-slate-500">行高</div>
-                    <div class="grid grid-cols-3 gap-2">
-                        <button class="px-2 py-1 text-xs border rounded hover:border-primary-500" :class="lineHeight === 1.5 ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="lineHeight = 1.5">紧凑</button>
-                        <button class="px-2 py-1 text-xs border rounded hover:border-primary-500" :class="lineHeight === 1.75 ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="lineHeight = 1.75">舒适</button>
-                        <button class="px-2 py-1 text-xs border rounded hover:border-primary-500" :class="lineHeight === 2 ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="lineHeight = 2">宽松</button>
-                    </div>
-                </div>
-            </div>
-        </el-popover>
-        
-        <!-- Focus Mode -->
-        <button 
-            class="px-3 py-1.5 rounded-lg bg-white/40 hover:bg-white/80 border border-white/50 text-slate-600 hover:text-primary-600 flex items-center gap-2 transition-all shadow-sm hover:shadow-md text-xs font-bold"
-            @click="toggleFocusMode"
-            :class="{'!text-primary-600 !bg-white': courseStore.isFocusMode}"
-            title="专注模式"
-        >
-            <el-icon><FullScreen /></el-icon>
-            <span class="hidden lg:inline">{{ courseStore.isFocusMode ? '退出专注' : '专注模式' }}</span>
-        </button>
-
-        <!-- TTS Control -->
-        <button 
-            class="px-3 py-1.5 rounded-lg bg-white/40 hover:bg-white/80 border border-white/50 text-slate-600 hover:text-primary-600 flex items-center gap-2 transition-all shadow-sm hover:shadow-md text-xs font-bold"
-            @click="toggleTTS"
-            :class="{'!text-primary-600 !bg-white': isSpeaking}"
-        >
-            <el-icon><Microphone /></el-icon>
-            <span class="hidden lg:inline">{{ isSpeaking ? '停止朗读' : '朗读全书' }}</span>
-        </button>
-
-        <div class="w-px h-6 bg-slate-300 mx-1"></div>
-
-        <!-- Global Search -->
-        <div class="relative group">
-            <el-input 
-                v-model="globalSearchQuery" 
-                placeholder="搜索内容..." 
-                :prefix-icon="Search" 
-                size="small" 
-                clearable 
-                class="!w-40 focus:!w-64 transition-all duration-300 glass-input-clean"
-                @input="handleGlobalSearch"
-            />
-            <div v-if="globalSearchResults.length > 0" class="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 p-2 z-50 max-h-60 overflow-auto">
-                <div v-for="(res, idx) in globalSearchResults" :key="idx" 
-                     class="p-2 hover:bg-slate-50 rounded-lg cursor-pointer text-xs flex flex-col gap-1"
-                     @click="scrollToSearchResult(res.id)">
-                    <span class="font-bold text-slate-700 truncate">{{ res.title }}</span>
-                    <span class="text-slate-500 truncate" v-html="res.preview"></span>
-                </div>
-            </div>
-        </div>
-
-        <el-dropdown trigger="click" @command="handleExport">
-            <button 
-                class="px-3 py-1.5 rounded-lg bg-white/40 hover:bg-white/80 border border-white/50 text-slate-600 hover:text-primary-600 flex items-center gap-2 transition-all shadow-sm hover:shadow-md text-xs font-bold" 
-            >
-                <el-icon><Download /></el-icon>
-                <span>导出</span>
-            </button>
-            <template #dropdown>
-                <el-dropdown-menu>
-                    <el-dropdown-item command="json">导出 JSON 备份</el-dropdown-item>
-                    <el-dropdown-item command="markdown">导出 Markdown 文档</el-dropdown-item>
-                </el-dropdown-menu>
-            </template>
-        </el-dropdown>
-      </div>
-    </div>
-
     <!-- Content List (Continuous Scroll) -->
     <div class="flex-1 overflow-auto p-4 lg:p-10 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp" @dblclick="handleDoubleClick">
       
@@ -255,71 +140,83 @@
                 <!-- Level 2: Chapter -->
                 <div v-else-if="node.node_level === 2" class="mt-24 mb-10 relative group">
                     <div class="absolute -left-4 -top-4 w-20 h-20 bg-gradient-to-br from-slate-100 to-transparent rounded-full opacity-50 blur-xl group-hover:opacity-100 transition-opacity"></div>
-                    <div class="flex items-baseline gap-4 mb-6 border-b-2 border-slate-100 pb-4">
-                        <span class="text-4xl font-black text-slate-200 font-display select-none">CHAPTER</span>
-                        <h2 class="text-3xl font-bold text-slate-800 relative z-10">{{ node.node_name }}</h2>
-                        <!-- TTS Button -->
-                        <button class="ml-2 p-1.5 rounded-full text-slate-300 hover:text-primary-500 hover:bg-primary-50 transition-all opacity-0 group-hover:opacity-100"
-                                @click="toggleTTS(node.node_content)"
-                                :class="{'text-primary-500 bg-primary-50 !opacity-100 animate-pulse': isSpeaking && currentSpeakingContent === node.node_content}"
-                                title="朗读本章">
-                             <el-icon><Microphone /></el-icon>
-                        </button>
+                    
+                    <!-- New Modern Chapter Header -->
+                    <div class="relative z-10 bg-white/40 backdrop-blur-xl rounded-3xl border border-white/60 p-8 shadow-sm mb-10 overflow-hidden">
+                        <!-- Decorative bg -->
+                        <div class="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-primary-50/50 to-transparent rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none"></div>
+
+                        <div class="flex flex-col gap-6 relative">
+                            <!-- Top Row: Badge & Metadata -->
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <span class="px-3 py-1 rounded-full bg-slate-900 text-white text-[10px] font-black tracking-widest uppercase">Chapter</span>
+                                    <div class="h-px w-8 bg-slate-300"></div>
+                                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Part {{ index + 1 }}</span>
+                                </div>
+                                
+                                <!-- Metadata Pills -->
+                                <div class="flex items-center gap-2">
+                                    <div v-if="node.is_read" class="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
+                                        <el-icon><Check /></el-icon> 已读
+                                    </div>
+                                    <div class="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 bg-white border border-slate-200 px-2.5 py-1 rounded-full shadow-sm">
+                                        <el-icon><Timer /></el-icon> {{ Math.ceil((node.node_content?.length || 0) / 500) }} min
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Middle Row: Title & Action -->
+                            <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                <h2 class="text-5xl md:text-6xl font-black text-slate-800 tracking-tight leading-tight">
+                                    {{ node.node_name }}
+                                </h2>
+                                
+                                <button 
+                                    class="flex-shrink-0 group/btn relative overflow-hidden rounded-xl bg-slate-900 text-white px-8 py-4 flex items-center gap-3 shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all duration-300"
+                                    @click="handleStartQuiz(node)"
+                                >
+                                    <div class="absolute inset-0 bg-gradient-to-r from-primary-500 to-indigo-600 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-300"></div>
+                                    <el-icon class="relative z-10 text-2xl"><VideoPlay /></el-icon>
+                                    <span class="relative z-10 font-bold text-xl">本章测验</span>
+                                    <el-icon class="relative z-10 text-lg opacity-50 group-hover/btn:translate-x-1 transition-transform"><ArrowRight /></el-icon>
+                                </button>
+                            </div>
+
+                            <!-- Bottom Row: Summary -->
+                            <div v-if="node.node_content" class="relative mt-2">
+                                <div class="absolute left-0 top-0 bottom-0 w-1 bg-primary-500 rounded-full"></div>
+                                <div class="pl-5 py-1">
+                                    <p class="text-slate-600 text-sm leading-relaxed font-medium opacity-80 line-clamp-3">
+                                        {{ node.node_content.slice(0, 150) }}...
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
-                    <!-- Chapter Metadata -->
-                    <div class="flex items-center gap-4 mb-4 text-xs font-bold text-slate-400">
-                        <div v-if="node.is_read" class="flex items-center gap-1 text-emerald-500 bg-emerald-50 px-2 py-1 rounded-full">
-                            <el-icon><Check /></el-icon> 已读
-                        </div>
-                        <div v-if="node.quiz_score !== undefined" class="flex items-center gap-1 text-amber-500 bg-amber-50 px-2 py-1 rounded-full">
-                            <el-icon><Trophy /></el-icon> 最高分: {{ node.quiz_score }}%
-                        </div>
-                        <div class="flex items-center gap-1 text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">
-                            <el-icon><Timer /></el-icon> 预计阅读: {{ Math.ceil((node.node_content?.length || 0) / 500) }} 分钟
-                        </div>
-                    </div>
 
-                    <!-- Chapter Summary -->
-                    <div v-if="node.node_content" class="mb-8 p-6 bg-slate-50/50 rounded-2xl border border-slate-100/60 backdrop-blur-sm">
-                        <div class="prose prose-slate max-w-none prose-p:text-slate-600 prose-p:leading-relaxed"
-                             :style="{ 
-                                fontSize: fontSize + 'px',
-                                fontFamily: fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' : (fontFamily === 'serif' ? 'ui-serif, Georgia, Cambria, Times New Roman, Times, serif' : 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif'),
-                                lineHeight: lineHeight 
-                             }"
-                             v-html="renderMarkdown(node.node_content)">
-                        </div>
-                    </div>
-
-                    <!-- Quiz Button -->
-                    <div class="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                        <button 
-                        class="glass-icon-btn !w-auto !px-3 !h-8 !rounded-full bg-white/50 hover:bg-white/90 text-xs gap-2"
-                        @click="handleStartQuiz(node)" 
-                        title="智能测验"
-                        >
-                        <el-icon><VideoPlay /></el-icon>
-                        <span>本章测验</span>
-                        </button>
-                    </div>
                 </div>
 
                 <!-- Level 3+: Content Card -->
                 <div v-else class="group relative pl-8 border-l-2 border-slate-100 hover:border-primary-300 transition-colors duration-300">
                     <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-slate-50 border-2 border-slate-200 group-hover:border-primary-500 group-hover:bg-primary-50 transition-all duration-300"></div>
                     
-                    <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-3">
-                        {{ node.node_name }}
-                        <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex gap-2">
-                            <button class="p-1 text-slate-400 hover:text-primary-500 rounded-md hover:bg-slate-100 transition-colors" @click="handleStartQuiz(node)" title="小节测验">
+                    <div class="flex items-center justify-between mb-4 group/header">
+                        <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                            <span class="w-1.5 h-5 bg-primary-500 rounded-full opacity-80"></span>
+                            {{ node.node_name }}
+                        </h3>
+                        <div class="flex gap-2">
+                            <button class="px-2 py-1 text-xs font-bold text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors flex items-center gap-1" @click="handleStartQuiz(node)" title="小节测验">
                                 <el-icon><VideoPlay /></el-icon>
+                                <span>测验</span>
                             </button>
                             <button class="p-1 text-slate-400 hover:text-primary-500 rounded-md hover:bg-slate-100 transition-colors" @click="showSummary(node)" title="内容摘要">
                                 <el-icon><Notebook /></el-icon>
                             </button>
                         </div>
-                    </h3>
+                    </div>
                     
                     <div class="glass-panel p-6 lg:p-8 rounded-2xl relative overflow-hidden group-hover:shadow-lg transition-shadow duration-300">
                         <div class="prose prose-slate max-w-none prose-headings:font-display prose-headings:text-slate-800 prose-p:text-slate-600 prose-a:text-primary-600 hover:prose-a:text-primary-500 prose-strong:text-slate-700 prose-code:text-primary-600 prose-code:bg-primary-50 prose-pre:bg-slate-800 prose-pre:shadow-lg" 
@@ -360,7 +257,7 @@
                         :class="activeNoteFilter === tab ? 'text-slate-800' : 'text-slate-500 hover:text-slate-700'"
                         @click="activeNoteFilter = tab"
                     >
-                        {{ tab === 'notes' ? '笔记' : '错题' }}
+                        {{ tab === 'notes' ? `笔记 ${noteCounts.notes}` : `错题 ${noteCounts.mistakes}` }}
                     </button>
                 </div>
 
@@ -376,45 +273,57 @@
                         <el-icon v-if="isSearching" class="is-loading text-primary-500"><Loading /></el-icon>
                     </template>
                 </el-input>
+                <div v-if="debouncedSearchQuery" class="text-[10px] text-slate-400 px-1">
+                    找到 {{ displayedNotes.length }} 条
+                </div>
             </div>
 
             <div id="notes-container" class="relative flex-1 w-full flex flex-col">
                 <!-- Mistakes View (Linear List) -->
                 <div v-if="activeNoteFilter === 'mistakes'" class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-3">
                      <div v-if="displayedNotes.length === 0" class="text-center py-8 text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
-                        暂无错题记录
+                        {{ noteEmptyText }}
                     </div>
                     <div v-for="note in displayedNotes" :key="note.id"
                          class="bg-white/90 backdrop-blur-sm rounded-2xl shadow-[0_4px_12px_rgba(0,0,0,0.05)] border border-white p-0 group hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] transition-all duration-300 cursor-pointer overflow-hidden relative"
                          :class="{'ring-2 ring-primary-100': activeNoteId === note.id}"
-                         @click="scrollToHighlight(note.highlightId)">
+                         @click="handleNoteClick(note)">
                          
                          <!-- Header -->
-                        <div class="flex justify-between items-center px-4 py-3 border-b border-red-100 bg-red-50/30">
+                        <div class="flex justify-between items-center px-4 py-3 border-b border-slate-100/50">
                             <div class="flex flex-col gap-0.5">
-                                <div class="text-[10px] font-bold text-red-500 flex items-center gap-1.5 uppercase tracking-wide">
-                                    <el-icon><CircleCheckFilled /></el-icon> 错题本
+                                <div class="text-[10px] font-black text-red-500 flex items-center gap-1.5 uppercase tracking-wide">
+                                    <div class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
+                                    错题本
                                 </div>
-                                <div class="text-[10px] font-medium text-slate-400 truncate max-w-[180px]">
+                                <div class="text-[10px] font-bold text-slate-400 truncate max-w-[180px]">
                                     {{ getNodeName(note.nodeId) }}
                                 </div>
                             </div>
                             
                             <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button class="p-1.5 hover:bg-white rounded-lg text-slate-400 hover:text-primary-600 transition-colors shadow-sm" @click.stop="handleEditNote(note)">
+                                <button class="p-1.5 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-primary-600 transition-colors shadow-sm" @click.stop="handleEditNote(note)" v-if="note.sourceType !== 'wrong' && !note.content.includes('#错题')">
                                     <el-icon :size="14"><Edit /></el-icon>
                                 </button>
-                                <button class="p-1.5 hover:bg-white rounded-lg text-slate-400 hover:text-red-500 transition-colors shadow-sm" @click.stop="handleDeleteNote(note.id)">
+                                <button class="p-1.5 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors shadow-sm" @click.stop="handleDeleteNote(note.id)">
                                     <el-icon :size="14"><Delete /></el-icon>
                                 </button>
                             </div>
                         </div>
 
                         <!-- Content -->
-                        <div class="p-3">
-                            <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap" v-html="formatNoteContent(note.content)"></div>
-                            <div class="mt-2 text-[10px] text-slate-300 flex items-center gap-1">
-                                <el-icon><Timer /></el-icon> {{ dayjs(note.createdAt).fromNow() }}
+                        <div class="p-4">
+                            <div class="text-sm text-slate-700 font-medium leading-relaxed note-underline" v-html="formatMistakeContent(note.content)"></div>
+                            <div class="mt-3 pt-3 border-t border-slate-50 flex items-center justify-between text-[10px] text-slate-300">
+                                <div class="flex items-center gap-1">
+                                    <el-icon><Timer /></el-icon> {{ dayjs(note.createdAt).fromNow() }}
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <button class="flex items-center gap-1 hover:text-primary-500 transition-colors" @click.stop="handleNoteClick(note)">
+                                        <el-icon><Position /></el-icon> 跳转原文
+                                    </button>
+                                    <div class="font-mono text-slate-200">#{{ note.id.slice(-4) }}</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -422,6 +331,11 @@
 
                 <!-- Notes View (Aligned/Absolute) -->
                 <div v-else class="relative flex-1 w-full">
+                    <div v-if="displayedNotes.length === 0" class="absolute inset-0 flex items-center justify-center">
+                        <div class="px-3 py-2 text-xs text-slate-400 bg-white/80 backdrop-blur-sm border border-white rounded-xl">
+                            {{ noteEmptyText }}
+                        </div>
+                    </div>
                     <div class="absolute inset-0 pointer-events-none">
                         <!-- Guide Line -->
                         <div class="absolute left-[-1px] top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-primary-200 to-transparent opacity-50"></div>
@@ -440,9 +354,9 @@
                                   :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-500 scale-125' : (note.sourceType === 'ai' ? 'bg-purple-400' : 'bg-slate-300')"></div>
 
                              <!-- Note Bubble -->
-                             <div class="bg-white/90 backdrop-blur-sm rounded-2xl shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)] border border-white p-0 group hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer overflow-hidden"
-                                  :class="{'ring-2 ring-primary-200': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !shadow-purple-100': note.sourceType === 'ai'}"
-                                  @click="scrollToHighlight(note.highlightId)"
+                             <div class="bg-white/90 backdrop-blur-sm rounded-2xl shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)] border p-0 group hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer overflow-hidden"
+                                  :class="[noteCardBorderClass(note), {'ring-2 ring-primary-200': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !shadow-purple-100': note.sourceType === 'ai'}]"
+                                 @click="scrollToHighlight(note.highlightId, note.id)"
                                   @mouseenter="setHovered(note.id)"
                                   @mouseleave="setHovered(null)">
                                 
@@ -454,7 +368,7 @@
                                         <el-icon><MagicStick /></el-icon> AI 助手
                                     </div>
                                     <div v-else class="text-[10px] font-bold text-slate-500 flex items-center gap-1.5 uppercase tracking-wide">
-                                        <div class="w-1.5 h-1.5 rounded-full" :class="note.color && note.color !== 'transparent' ? `bg-${note.color}-400` : 'bg-amber-400'"></div>
+                                        <div class="w-1.5 h-1.5 rounded-full" :class="noteDotClass(note)"></div>
                                         笔记
                                     </div>
                                     
@@ -489,7 +403,7 @@
                                         <!-- Content with auto-collapse -->
                                         <div class="relative group/content transition-all duration-300"
                                              :class="{'max-h-[500px] overflow-hidden': shouldCollapse(note) && !isAccordionMode, 'max-h-[200px] overflow-hidden': shouldCollapse(note) && isAccordionMode}">
-                                            <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap" v-html="formatNoteContent(note.content)"></div>
+                                            <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap note-underline" v-html="formatNoteContent(note.content)"></div>
                                             
                                             <!-- Gradient Mask -->
                                             <div v-if="shouldCollapse(note)" 
@@ -542,29 +456,29 @@
 
 
       <!-- Mobile Notes Drawer -->
-      <el-drawer v-model="showMobileNotes" title="课程笔记" size="80%" direction="rtl">
+      <el-drawer v-model="courseStore.isMobileNotesVisible" title="课程笔记" size="80%" direction="rtl">
         <div class="flex flex-col h-full">
             <div class="p-4 border-b border-slate-100">
                 <el-input v-model="noteSearchQuery" placeholder="搜索笔记..." :prefix-icon="Search" clearable class="glass-input-clean" />
             </div>
             <div class="flex-1 overflow-auto p-4 space-y-4">
                 <div v-if="displayedNotes.length === 0" class="text-center text-slate-400 py-8">
-                    暂无笔记
+                    {{ noteEmptyText }}
                 </div>
                 <div v-for="note in displayedNotes" :key="'mobile-'+note.id" 
                      class="bg-white rounded-xl shadow-sm border border-slate-200 p-4"
                      :class="{'!border-purple-200 !bg-purple-50/30': note.sourceType === 'ai'}"
-                     @click="scrollToHighlight(note.highlightId); showMobileNotes = false">
+                     @click="scrollToHighlight(note.highlightId, note.id); courseStore.isMobileNotesVisible = false">
                     <div class="flex justify-between items-start mb-2">
                         <div v-if="note.sourceType === 'ai'" class="text-xs font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded border border-purple-100">AI 助手</div>
-                        <div v-else class="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">笔记</div>
+                        <div v-else class="text-xs font-bold px-2 py-0.5 rounded border" :class="noteBadgeClass(note)">笔记</div>
                         <div class="flex gap-2">
                              <button class="p-1 text-slate-400 hover:text-primary-600" @click.stop="handleEditNote(note)"><el-icon><Edit /></el-icon></button>
                              <button class="p-1 text-slate-400 hover:text-red-500" @click.stop="handleDeleteNote(note.id)"><el-icon><Delete /></el-icon></button>
                         </div>
                     </div>
                     <div v-if="note.quote" class="text-xs text-slate-500 italic mb-2 border-l-2 border-slate-200 pl-2">"{{ note.quote }}"</div>
-                    <div class="text-sm text-slate-700 font-medium whitespace-pre-wrap" v-html="formatNoteContent(note.content)"></div>
+                    <div class="text-sm text-slate-700 font-medium whitespace-pre-wrap note-underline" v-html="formatNoteContent(note.content)"></div>
                     <div class="mt-2 text-xs text-slate-400 flex items-center gap-1">
                         <el-icon><Timer /></el-icon> {{ dayjs(note.createdAt).fromNow() }}
                     </div>
@@ -668,12 +582,13 @@
             </div>
           </div>
           <div v-if="quizSubmitted" class="mt-3 text-sm bg-slate-50 p-3 rounded-lg text-slate-600">
-             <span class="font-bold text-slate-800">解析：</span> {{ q.explanation }}
+             <span class="font-bold text-slate-800">解析：</span> {{ q.explanation || '暂无解析' }}
           </div>
         </div>
       </div>
       <template #footer>
-        <div class="flex justify-end gap-3" v-if="!generatingQuiz">
+        <div class="flex items-center gap-3" v-if="!generatingQuiz">
+          <div v-if="quizSubmitted" class="text-sm text-slate-500 mr-auto">得分 {{ quizScore }} 分</div>
           <el-button @click="quizVisible = false" class="!border-none !bg-slate-100 hover:!bg-slate-200 text-slate-600">关闭</el-button>
           <el-button v-if="!quizSubmitted" type="primary" @click="submitQuiz" class="bg-gradient-to-r from-primary-500 to-primary-600 border-none shadow-lg shadow-primary-500/30 hover:shadow-primary-500/40">
             提交答案
@@ -696,7 +611,7 @@
     >
         <div v-if="selectedNote" class="flex flex-col gap-4">
             <!-- Quote Context -->
-            <div v-if="selectedNote.quote" class="p-4 bg-slate-50 rounded-xl border-l-4 border-primary-400 italic text-slate-600 text-sm">
+            <div v-if="selectedNote.quote" class="p-4 bg-slate-50 rounded-xl border-l-4 italic text-slate-600 text-sm" :class="noteQuoteBorderClass(selectedNote)">
                 "{{ selectedNote.quote }}"
             </div>
             
@@ -762,12 +677,8 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useCourseStore } from '../stores/course'
-import MarkdownIt from 'markdown-it'
-import katex from 'katex'
-import 'katex/dist/katex.min.css'
-import hljs from 'highlight.js'
-import DOMPurify from 'dompurify'
-import { Minus, Plus, Download, MagicStick, VideoPlay, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, CircleCheckFilled, FullScreen, Microphone, Setting, Connection, Trophy, ArrowDown, ArrowUp, Loading, ChatDotRound } from '@element-plus/icons-vue'
+import { renderMarkdown } from '../utils/markdown'
+import { Download, MagicStick, VideoPlay, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowDown, ArrowUp, Loading, ChatDotRound, Position, ArrowRight } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -777,265 +688,24 @@ dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
 const courseStore = useCourseStore()
-const fontSize = ref(16)
-const fontFamily = ref('sans')
-const lineHeight = ref(1.75)
 const selectionMenu = ref({ visible: false, x: 0, y: 0, text: '', range: null as Range | null })
 const noteSearchQuery = ref('')
-const globalSearchQuery = ref('')
-const globalSearchResults = ref<any[]>([])
 const activeNoteFilter = ref('notes')
-const showMobileNotes = ref(false)
-const isSpeaking = ref(false)
-const currentSpeakingContent = ref('')
 const isAccordionMode = ref(true) // Default to true or false? Let's say false initially or true for better UX
 const expandedNoteIds = ref<string[]>([])
 const scrollProgress = ref(0)
 const lightboxVisible = ref(false)
 const lightboxImage = ref('')
 
-// TTS Logic - Merged
-const toggleTTS = (content?: string) => {
-    // If called without content (e.g. from Toolbar button), read full content
-    if (!content || typeof content !== 'string') {
-        if (isSpeaking.value) {
-            window.speechSynthesis.cancel()
-            isSpeaking.value = false
-            currentSpeakingContent.value = ''
-            return
-        }
-        
-        // Generate text content from flatNodes
-        const text = flatNodes.value.map(n => {
-            const c = n.node_content || ''
-            // Simple markdown stripping
-            const stripped = c
-                .replace(/[#*`>]/g, '') 
-                .replace(/\[.*?\]\(.*?\)/g, '') 
-                .replace(/!\[.*?\]\(.*?\)/g, '')
-            return `${n.node_name}。\n${stripped}`
-        }).join('\n\n')
-        
-        // Start full reading (Node by Node for better control)
-        speakNodesRecursively(0)
-        isSpeaking.value = true
-        currentSpeakingContent.value = 'FULL_BOOK'
-        return
-    }
-
-    // If called with content (Chapter button)
-    if (isSpeaking.value && currentSpeakingContent.value === content) {
-        window.speechSynthesis.cancel()
-        isSpeaking.value = false
-        currentSpeakingContent.value = ''
-    } else {
-        window.speechSynthesis.cancel()
-        const utterance = new SpeechSynthesisUtterance(content)
-        utterance.lang = 'zh-CN'
-        utterance.rate = 1.0
-        utterance.onend = () => {
-            isSpeaking.value = false
-            currentSpeakingContent.value = ''
-        }
-        window.speechSynthesis.speak(utterance)
-        isSpeaking.value = true
-        currentSpeakingContent.value = content
+const debounce = (fn: Function, delay: number) => {
+    let timeout: any
+    return (...args: any[]) => {
+        clearTimeout(timeout)
+        timeout = setTimeout(() => fn(...args), delay)
     }
 }
 
-const speakNodesRecursively = (index: number) => {
-    if (index >= flatNodes.value.length || !isSpeaking.value) {
-        isSpeaking.value = false
-        return
-    }
-    
-    const node = flatNodes.value[index]
-    const content = node.node_content.replace(/[#*`>]/g, '').replace(/\[.*?\]\(.*?\)/g, '')
-    const text = `${node.node_name}。\n${content}`
-    
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'zh-CN'
-    
-    utterance.onstart = () => {
-        courseStore.scrollToNode(node.node_id)
-        // Add visual highlight class
-        const el = document.getElementById(`node-${node.node_id}`)
-        if (el) el.classList.add('ring-4', 'ring-primary-200', 'bg-primary-50/30')
-    }
-    
-    utterance.onend = () => {
-        const el = document.getElementById(`node-${node.node_id}`)
-        if (el) el.classList.remove('ring-4', 'ring-primary-200', 'bg-primary-50/30')
-        if (isSpeaking.value) speakNodesRecursively(index + 1)
-    }
-    
-    utterance.onerror = () => {
-        isSpeaking.value = false
-    }
-    
-    window.speechSynthesis.speak(utterance)
-}
-
-const toggleFocusMode = () => {
-    courseStore.isFocusMode = !courseStore.isFocusMode
-}
-
-// Custom Math Plugin using installed katex
-const customMathPlugin = (md: MarkdownIt) => {
-    // Inline math $...$
-    md.inline.ruler.before('escape', 'math_inline', (state, silent) => {
-        if (state.src[state.pos] !== '$') return false;
-        
-        // Block math check (double dollar)
-        if (state.src.slice(state.pos, state.pos + 2) === '$$') return false; // Handled by block rule
-        
-        const start = state.pos + 1;
-        let match = start;
-        let pos = start;
-        
-        while ((match = state.src.indexOf('$', pos)) !== -1) {
-            // Check for escaped dollar
-            if (state.src[match - 1] === '\\') {
-                pos = match + 1;
-                continue;
-            }
-            break;
-        }
-        
-        if (match === -1) return false;
-        if (match - start === 0) return false;
-        
-        if (!silent) {
-            const token = state.push('math_inline', 'math', 0);
-            token.markup = '$';
-            token.content = state.src.slice(start, match);
-        }
-        
-        state.pos = match + 1;
-        return true;
-    });
-
-    // Block math $$...$$
-    md.block.ruler.after('blockquote', 'math_block', (state, startLine, endLine, silent) => {
-        const startPos = state.bMarks[startLine] + state.tShift[startLine];
-        const max = state.eMarks[startLine];
-        
-        if (state.src.slice(startPos, startPos + 2) !== '$$') return false;
-        
-        let pos = startPos + 2;
-        let content = '';
-        let found = false;
-        let nextLine = startLine;
-        
-        // Single line case $$...$$
-        if (state.src.indexOf('$$', pos) !== -1) {
-             const end = state.src.indexOf('$$', pos);
-             content = state.src.slice(pos, end);
-             nextLine = startLine + 1;
-             found = true;
-        } else {
-            // Multi line case
-            content = state.src.slice(pos);
-            nextLine++;
-            while (nextLine < endLine) {
-                const lineStart = state.bMarks[nextLine] + state.tShift[nextLine];
-                const lineEnd = state.eMarks[nextLine];
-                const lineText = state.src.slice(lineStart, lineEnd);
-                
-                if (lineText.trim().endsWith('$$')) {
-                    content += '\n' + lineText.trim().slice(0, -2);
-                    found = true;
-                    nextLine++;
-                    break;
-                }
-                content += '\n' + lineText;
-                nextLine++;
-            }
-        }
-        
-        if (!found) return false;
-        if (silent) return true;
-        
-        const token = state.push('math_block', 'math', 0);
-        token.block = true;
-        token.content = content;
-        token.map = [startLine, nextLine];
-        token.markup = '$$';
-        
-        state.line = nextLine;
-        return true;
-    });
-
-    // Renderers
-    md.renderer.rules.math_inline = (tokens, idx) => {
-        try {
-            return katex.renderToString(tokens[idx].content, { throwOnError: false, displayMode: false });
-        } catch (e) {
-            return tokens[idx].content;
-        }
-    };
-    
-    md.renderer.rules.math_block = (tokens, idx) => {
-        try {
-            return '<div class="katex-display">' + katex.renderToString(tokens[idx].content, { throwOnError: false, displayMode: true }) + '</div>';
-        } catch (e) {
-            return '<pre>' + tokens[idx].content + '</pre>';
-        }
-    };
-};
-
-// Markdown Configuration
-const md = new MarkdownIt({
-    html: true,
-    linkify: true,
-    typographer: true,
-    highlight: function (str, lang) {
-        if (lang && hljs.getLanguage(lang)) {
-            try {
-                return hljs.highlight(str, { language: lang }).value;
-            } catch (__) {}
-        }
-        return ''; // use external default escaping
-    }
-}).use(customMathPlugin);
-
-// Custom Fence Renderer for Code Blocks
-md.renderer.rules.fence = function (tokens, idx, options, _env, _self) {
-  const token = tokens[idx];
-  if (!token) return '';
-  
-  const info = token.info ? md.utils.unescapeAll(token.info).trim() : '';
-  let langName = '';
-  let highlighted = '';
-
-  if (info) {
-    langName = info.split(/\s+/g)[0] || '';
-  }
-
-  if (options.highlight) {
-    highlighted = options.highlight(token.content, langName, '') || md.utils.escapeHtml(token.content);
-  } else {
-    highlighted = md.utils.escapeHtml(token.content);
-  }
-
-  const validLang = langName || 'plaintext';
-  
-  return `<div class="relative group my-4 rounded-xl overflow-hidden shadow-sm border border-slate-200/60 bg-[#1e293b]">
-      <div class="flex items-center justify-between px-4 py-2 bg-slate-800/50 border-b border-white/5">
-          <div class="flex gap-1.5">
-              <div class="w-3 h-3 rounded-full bg-red-400/80"></div>
-              <div class="w-3 h-3 rounded-full bg-amber-400/80"></div>
-              <div class="w-3 h-3 rounded-full bg-emerald-400/80"></div>
-          </div>
-          <span class="text-xs text-slate-400 font-mono">${validLang}</span>
-      </div>
-      <button class="copy-btn absolute top-2 right-2 p-1.5 text-slate-400 hover:text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 hover:bg-white/20" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(token.content)}'))">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-      </button>
-      <pre class="!m-0 !p-4 !bg-transparent overflow-x-auto text-sm font-mono leading-relaxed"><code class="hljs ${validLang}">${highlighted}</code></pre>
-    </div>`;
-};
-
+const debouncedUpdatePositions = debounce(() => updateNotePositions(), 100)
 
 // Watch for scroll requests from sidebar
 watch(() => courseStore.scrollToNodeId, (nodeId) => {
@@ -1083,8 +753,22 @@ const generatingQuiz = ref(false)
 const quizQuestions = ref<any[]>([])
 const userAnswers = ref<string[]>([])
 const quizSubmitted = ref(false)
+const quizScore = computed(() => {
+    if (!quizSubmitted.value || quizQuestions.value.length === 0) return 0
+    let correct = 0
+    quizQuestions.value.forEach((q, idx) => {
+        if (userAnswers.value[idx] && userAnswers.value[idx] === q.answer) {
+            correct += 1
+        }
+    })
+    return Math.round((correct / quizQuestions.value.length) * 100)
+})
 const isManualScrolling = ref(false)
 const activeNoteId = ref<string | null>(null)
+const hoveredNoteId = ref<string | null>(null)
+const fontSize = computed(() => courseStore.uiSettings.fontSize)
+const fontFamily = computed(() => courseStore.uiSettings.fontFamily)
+const lineHeight = computed(() => courseStore.uiSettings.lineHeight)
 const editingNoteId = ref<string | null>(null)
 const editingContent = ref('')
 let observer: IntersectionObserver | null = null
@@ -1103,11 +787,6 @@ const isLongContent = (content: string) => {
     return content.length > 300 || content.split('\n').length > 8
 }
 
-const openNoteDetail = (note: any) => {
-    selectedNote.value = note
-    noteDetailVisible.value = true
-}
-
 // Notes Logic
 const flatNodes = computed(() => {
     if (!courseStore.treeData || courseStore.treeData.length === 0) return []
@@ -1123,6 +802,13 @@ const flatNodes = computed(() => {
     traverse(courseStore.treeData)
     return nodes
 })
+const nodeNameMap = computed(() => new Map(flatNodes.value.map(n => [n.node_id, n.node_name])))
+
+const exportContent = () => {
+    const filterLabel = activeNoteFilter.value === 'mistakes' ? '错题' : '笔记'
+    const query = debouncedSearchQuery.value.trim()
+    courseStore.exportNotesMarkdown(displayedNotes.value.slice(), { filterLabel, query: query || undefined })
+}
 
 const chapterEndNodes = computed(() => {
     const triggers = new Map<string, any>()
@@ -1182,14 +868,27 @@ const setupChapterObserver = () => {
 
 const isSearching = ref(false)
 const debouncedSearchQuery = ref('')
+const searchTokens = computed(() => {
+    const query = debouncedSearchQuery.value.toLowerCase().trim()
+    if (!query) return []
+    return query.split(/\s+/).filter(Boolean)
+})
+const escapeRegExp = (val: string) => val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 // Debounce logic
 let searchTimeout: any = null
 const handleSearchInput = (val: string) => {
+    const nextVal = val || ''
+    if (!nextVal.trim()) {
+        debouncedSearchQuery.value = ''
+        isSearching.value = false
+        if (searchTimeout) clearTimeout(searchTimeout)
+        return
+    }
     isSearching.value = true
     if (searchTimeout) clearTimeout(searchTimeout)
     searchTimeout = setTimeout(() => {
-        debouncedSearchQuery.value = val
+        debouncedSearchQuery.value = nextVal
         isSearching.value = false
     }, 300)
 }
@@ -1198,61 +897,14 @@ watch(noteSearchQuery, (val) => {
     handleSearchInput(val)
 })
 
-const handleGlobalSearch = (val: string) => {
-    if (!val || !val.trim()) {
-        globalSearchResults.value = []
-        return
-    }
-    
-    const query = val.toLowerCase().trim()
-    const results: any[] = []
-    
-    // Search in flatNodes
-    flatNodes.value.forEach(node => {
-        // Skip root
-        if (node.node_level === 1) return
-        
-        const titleMatch = node.node_name.toLowerCase().includes(query)
-        const contentMatch = node.node_content.toLowerCase().includes(query)
-        
-        if (titleMatch || contentMatch) {
-            // Create preview
-            let preview = ''
-            if (contentMatch) {
-                const idx = node.node_content.toLowerCase().indexOf(query)
-                const start = Math.max(0, idx - 20)
-                const end = Math.min(node.node_content.length, idx + 60)
-                preview = '...' + node.node_content.substring(start, end) + '...'
-                // Highlight query in preview
-                const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-                const regex = new RegExp(`(${safeQuery})`, 'gi')
-                preview = preview.replace(regex, '<span class="text-primary-600 font-bold">$1</span>')
-            } else {
-                preview = '标题匹配'
-            }
-            
-            results.push({
-                id: node.node_id,
-                title: node.node_name,
-                preview: preview
-            })
-        }
-    })
-    
-    globalSearchResults.value = results.slice(0, 8) // Limit to 8 results
-}
+watch(quizVisible, (visible) => {
+    if (visible) return
+    quizQuestions.value = []
+    userAnswers.value = []
+    quizSubmitted.value = false
+    generatingQuiz.value = false
+})
 
-const scrollToSearchResult = (nodeId: string) => {
-    // Implement scroll to search result
-    const el = document.getElementById('node-' + nodeId)
-    if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        // Highlight logic
-        courseStore.setCurrentNodeSilent(flatNodes.value.find(n => n.node_id === nodeId))
-        globalSearchQuery.value = ''
-        globalSearchResults.value = []
-    }
-}
 
 
 // Tab Animation Style
@@ -1266,21 +918,97 @@ const activeTabStyle = computed(() => {
     }
 })
 
+const isMistakeNote = (note: any) => {
+    if (note.sourceType === 'wrong') return true
+    return note.content.includes('**错题记录**') || note.content.includes('#错题')
+}
+
+const noteColorPalette = ['amber', 'emerald', 'sky', 'violet', 'orange', 'rose']
+const defaultNoteStyle = { dot: 'bg-amber-400', highlight: 'bg-amber-200/50 border-b-2 border-amber-400 hover:bg-amber-300/50', border: 'border-amber-200/80', badge: 'text-amber-600 bg-amber-50 border-amber-100', quote: 'border-amber-400' }
+
+const noteColorMap: Record<string, { dot: string; highlight: string; border: string; badge: string; quote: string }> = {
+    amber: defaultNoteStyle,
+    emerald: { dot: 'bg-emerald-400', highlight: 'bg-emerald-200/50 border-b-2 border-emerald-400 hover:bg-emerald-300/50', border: 'border-emerald-200/80', badge: 'text-emerald-600 bg-emerald-50 border-emerald-100', quote: 'border-emerald-400' },
+    sky: { dot: 'bg-sky-400', highlight: 'bg-sky-200/50 border-b-2 border-sky-400 hover:bg-sky-300/50', border: 'border-sky-200/80', badge: 'text-sky-600 bg-sky-50 border-sky-100', quote: 'border-sky-400' },
+    violet: { dot: 'bg-violet-400', highlight: 'bg-violet-200/50 border-b-2 border-violet-400 hover:bg-violet-300/50', border: 'border-violet-200/80', badge: 'text-violet-600 bg-violet-50 border-violet-100', quote: 'border-violet-400' },
+    orange: { dot: 'bg-orange-400', highlight: 'bg-orange-200/50 border-b-2 border-orange-400 hover:bg-orange-300/50', border: 'border-orange-200/80', badge: 'text-orange-600 bg-orange-50 border-orange-100', quote: 'border-orange-400' },
+    rose: { dot: 'bg-rose-400', highlight: 'bg-rose-200/50 border-b-2 border-rose-400 hover:bg-rose-300/50', border: 'border-rose-200/80', badge: 'text-rose-600 bg-rose-50 border-rose-100', quote: 'border-rose-400' },
+    purple: { dot: 'bg-purple-400', highlight: 'bg-purple-200/50 border-b-2 border-purple-400 hover:bg-purple-300/50', border: 'border-purple-200/80', badge: 'text-purple-600 bg-purple-50 border-purple-100', quote: 'border-purple-400' },
+    red: { dot: 'bg-red-400', highlight: 'bg-red-200/50 border-b-2 border-red-400 hover:bg-red-300/50', border: 'border-red-200/80', badge: 'text-red-600 bg-red-50 border-red-100', quote: 'border-red-400' }
+}
+
+const formatHighlightMap: Record<string, string> = {
+    yellow: 'bg-yellow-200/50 hover:bg-yellow-300/50',
+    green: 'bg-green-200/50 hover:bg-green-300/50',
+    blue: 'bg-blue-200/50 hover:bg-blue-300/50',
+    pink: 'bg-pink-200/50 hover:bg-pink-300/50',
+    orange: 'bg-orange-200/50 hover:bg-orange-300/50',
+    purple: 'bg-purple-200/50 hover:bg-purple-300/50'
+}
+
+const hashSeed = (value: string) => {
+    let hash = 0
+    for (let i = 0; i < value.length; i++) {
+        hash = (hash * 31 + value.charCodeAt(i)) % 100000
+    }
+    return hash
+}
+
+const pickPaletteColor = (seed: string) => {
+    if (noteColorPalette.length === 0) return 'amber'
+    const index = hashSeed(seed) % noteColorPalette.length
+    return noteColorPalette[index] ?? 'amber'
+}
+
+const resolveNoteColor = (note: any) => {
+    if (!note) return 'amber'
+    if (note.sourceType === 'ai') return 'purple'
+    if (isMistakeNote(note)) return 'red'
+    if (note.color && note.color !== 'transparent' && note.color !== 'blue') return note.color
+    const seed = note.highlightId || note.id || `${note.nodeId}-${note.createdAt}`
+    return pickPaletteColor(seed)
+}
+
+const noteDotClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || defaultNoteStyle).dot
+const noteHighlightClass = (color: string) => (noteColorMap[color] || defaultNoteStyle).highlight
+const noteCardBorderClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || defaultNoteStyle).border
+const noteBadgeClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || defaultNoteStyle).badge
+const noteQuoteBorderClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || defaultNoteStyle).quote
+
+const noteSearchText = (note: any) => {
+    const nodeName = nodeNameMap.value.get(note.nodeId) || ''
+    const parts = [note.content, note.quote, note.anno_summary, note.title, nodeName]
+    return parts.filter(Boolean).join(' ').toLowerCase()
+}
+
+const noteMatchesSearch = (note: any, tokens: string[]) => {
+    if (tokens.length === 0) return true
+    const text = noteSearchText(note)
+    return tokens.every(token => text.includes(token))
+}
+
+const noteCounts = computed(() => {
+    const nodeIds = new Set(flatNodes.value.map(n => n.node_id))
+    const scoped = courseStore.notes.filter(n => nodeIds.has(n.nodeId))
+    const notes = scoped.filter(n => !isMistakeNote(n) && n.sourceType !== 'format').length
+    const mistakes = scoped.filter(n => isMistakeNote(n) && n.sourceType !== 'format').length
+    return { notes, mistakes }
+})
+
 const visibleNotes = computed(() => {
     const nodeIds = new Set(flatNodes.value.map(n => n.node_id))
     let notes = courseStore.notes.filter(n => nodeIds.has(n.nodeId))
     
     // Filter by Type
     if (activeNoteFilter.value === 'mistakes') {
-        notes = notes.filter(n => n.content.includes('**错题记录**') || n.content.includes('#错题'))
+        notes = notes.filter(n => isMistakeNote(n))
     } else {
         // 'notes' tab: Exclude mistakes
-        notes = notes.filter(n => !(n.content.includes('**错题记录**') || n.content.includes('#错题')))
+        notes = notes.filter(n => !isMistakeNote(n))
     }
 
-    if (debouncedSearchQuery.value) {
-        const query = debouncedSearchQuery.value.toLowerCase()
-        notes = notes.filter(n => n.content.toLowerCase().includes(query) || (n.quote && n.quote.toLowerCase().includes(query)))
+    if (searchTokens.value.length > 0) {
+        notes = notes.filter(n => noteMatchesSearch(n, searchTokens.value))
     }
     
     // Sort by Chapter Order then Time
@@ -1298,6 +1026,10 @@ const visibleNotes = computed(() => {
 const quotedNotes = computed(() => visibleNotes.value.filter(n => n.quote && n.quote.trim().length > 0))
 const displayedNotes = computed(() => visibleNotes.value.filter(n => n.sourceType !== 'format'))
 const displayedQuotedNotes = computed(() => quotedNotes.value.filter(n => n.sourceType !== 'format'))
+const noteEmptyText = computed(() => {
+    if (debouncedSearchQuery.value) return '无匹配结果'
+    return activeNoteFilter.value === 'mistakes' ? '暂无错题记录' : '暂无笔记'
+})
 
 watch(() => [visibleNotes.value.length, flatNodes.value], () => {
     nextTick(() => {
@@ -1307,7 +1039,7 @@ watch(() => [visibleNotes.value.length, flatNodes.value], () => {
     })
 }, { deep: true })
 
-watch(fontSize, () => {
+watch(() => courseStore.uiSettings.fontSize, () => {
     nextTick(() => {
         debouncedUpdatePositions()
     })
@@ -1320,9 +1052,9 @@ const reapplyHighlights = () => {
     
     document.querySelectorAll('.highlight-marker').forEach(el => {
         // ID format: highlightId or highlightId-part-*
-        const id = el.id.split('-part-')[0]
+        const id = el.id ? el.id.split('-part-')[0] : ''
         
-        if (!activeIds.has(id)) {
+        if (!id || !activeIds.has(id)) {
              // Unwrap orphan highlight
              const parent = el.parentNode
              while (el.firstChild) parent?.insertBefore(el.firstChild, el)
@@ -1360,14 +1092,16 @@ const reapplyHighlights = () => {
             
             // Build map: for every character in stripped text, record where it came from
             for (let i = 0; i < text.length; i++) {
-                if (!/\s/.test(text[i])) {
+                const char = text[i]
+                if (!char || /\s/.test(char)) {
+                    continue
+                }
                     mapIndices.push({
                         index: fullTextStripped.length,
                         node: currentNode,
                         offset: i
                     })
-                    fullTextStripped += text[i]
-                }
+                    fullTextStripped += char
             }
             
             textNodes.push({
@@ -1392,19 +1126,21 @@ const reapplyHighlights = () => {
                  const startIndex = matchIndex
                  const endIndex = matchIndex + quoteStripped.length - 1 // Inclusive for map lookup
                  
-                 if (startIndex < mapIndices.length && endIndex < mapIndices.length) {
-                     const startMap = mapIndices[startIndex]
-                     const endMap = mapIndices[endIndex]
-                     
-                     const startNode = startMap.node
-                     const startOffset = startMap.offset
-                     const endNode = endMap.node
-                     const endOffset = endMap.offset + 1 // Exclusive end offset
+                if (startIndex < mapIndices.length && endIndex < mapIndices.length) {
+                    const startMap = mapIndices[startIndex]
+                    const endMap = mapIndices[endIndex]
+                    if (!startMap || !endMap) return
+                    
+                    const startNode = startMap.node
+                    const startOffset = startMap.offset
+                    const endNode = endMap.node
+                    const endOffset = endMap.offset + 1 // Exclusive end offset
                      
                      try {
                          // Create Range
                          const startNodeIdx = textNodes.findIndex(t => t.node === startNode)
                          const endNodeIdx = textNodes.findIndex(t => t.node === endNode)
+                        if (startNodeIdx === -1 || endNodeIdx === -1) return
                          
                          if (startNode === endNode) {
                              const range = document.createRange()
@@ -1415,15 +1151,19 @@ const reapplyHighlights = () => {
                              // Start Node Part
                              const range1 = document.createRange()
                              range1.setStart(startNode, startOffset)
-                             range1.setEnd(startNode, textNodes[startNodeIdx].text.length)
+                            const startNodeText = textNodes[startNodeIdx]
+                            if (!startNodeText) return
+                            range1.setEnd(startNode, startNodeText.text.length)
                              wrapRange(range1, note.highlightId + '-part-start', note.id)
                              
                              // Middle Nodes
                              for (let i = startNodeIdx + 1; i < endNodeIdx; i++) {
-                                 const rangeM = document.createRange()
-                                 rangeM.selectNodeContents(textNodes[i].node)
+                                const nodeEntry = textNodes[i]
+                                if (!nodeEntry) continue
+                                const rangeM = document.createRange()
+                                rangeM.selectNodeContents(nodeEntry.node)
                                  // Only wrap if it contains non-whitespace
-                                 if (textNodes[i].text.trim().length > 0) {
+                                if (nodeEntry.text.trim().length > 0) {
                                      wrapRange(rangeM, note.highlightId + '-part-' + i, note.id)
                                  }
                              }
@@ -1491,6 +1231,7 @@ const applyFormat = (style: string, value?: string) => {
 }
 
 const setHovered = (noteId: string | null) => {
+    hoveredNoteId.value = noteId
     // 1. Clean up old highlights
     document.querySelectorAll('.pulse-highlight').forEach(el => el.classList.remove('pulse-highlight'))
     
@@ -1513,16 +1254,6 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
         const span = document.createElement('span')
         span.id = id
         
-        // Define color map for safe class usage (prevents Tailwind purging)
-        const colorMap: Record<string, string> = {
-            yellow: 'bg-yellow-200/50 hover:bg-yellow-300/50',
-            green: 'bg-green-200/50 hover:bg-green-300/50',
-            blue: 'bg-blue-200/50 hover:bg-blue-300/50',
-            pink: 'bg-pink-200/50 hover:bg-pink-300/50',
-            orange: 'bg-orange-200/50 hover:bg-orange-300/50',
-            purple: 'bg-purple-200/50 hover:bg-purple-300/50',
-        }
-        
         // Dynamic Class based on Note Type/Style
         let className = 'highlight-marker transition-colors cursor-pointer '
         
@@ -1535,15 +1266,16 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
                 className += 'underline decoration-wavy decoration-slate-800 '
             } else if (note.color && note.color !== 'transparent') {
                 // Highlight
-                const colorClass = colorMap[note.color] || `bg-${note.color}-200/50 hover:bg-${note.color}-300/50`
+                const colorClass = formatHighlightMap[note.color] || 'bg-yellow-200/50 hover:bg-yellow-300/50'
                 className += colorClass + ' '
             }
         } else if (note?.sourceType === 'ai') {
             // AI Teacher Style
-            className += 'bg-purple-200/50 border-b-2 border-purple-400 hover:bg-purple-300/50 '
+            className += noteHighlightClass('purple') + ' '
         } else {
             // Default Note Style
-            className += 'bg-amber-200/50 border-b-2 border-amber-400 hover:bg-amber-300/50 '
+            const resolvedColor = resolveNoteColor(note)
+            className += noteHighlightClass(resolvedColor) + ' '
         }
         
         span.className = className
@@ -1578,6 +1310,8 @@ const scrollToNote = (noteId: string) => {
             setTimeout(() => {
                 noteEl.classList.remove('flash-card', 'ring-4', 'ring-primary-200')
             }, 1000)
+        } else if (note.nodeId) {
+            courseStore.scrollToNode(note.nodeId)
         }
 
         // Also flash the text highlight in content area
@@ -1743,8 +1477,7 @@ onMounted(() => {
     window.addEventListener('keydown', handleGlobalKeydown)
     
     // Initialize ResizeObserver
-    resizeObserver = new ResizeObserver((entries) => {
-        // Debounce update
+    resizeObserver = new ResizeObserver(() => {
         debouncedUpdatePositions()
     })
     
@@ -1785,171 +1518,55 @@ watch(editingNoteId, () => {
     })
 })
 
-// Add image lazy loading support
-md.renderer.rules.image = function (tokens, idx, options, env, self) {
-  const token = tokens[idx];
-  token.attrSet('loading', 'lazy'); // Add lazy loading
-  token.attrSet('class', 'rounded-xl shadow-sm border border-slate-100 my-4 max-w-full h-auto'); // Default styling
-  return self.renderToken(tokens, idx, options);
-};
 
-// Memoization cache
-const markdownCache = new Map<string, string>()
-
-const renderMarkdown = (content: string) => {
-    if (!content) return ''
-    
-    // Check cache
-    if (markdownCache.has(content)) {
-        return markdownCache.get(content) || ''
-    }
-    
-    // Pre-process LaTeX formula fixes
-    let fixedContent = content
-        // Fix \[ ... \] block formulas to $$ ... $$
-        .replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$')
-        // Fix \( ... \) inline formulas to $ ... $
-        .replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$')
-        // Fix spaces in inline math $ ... $ -> $...$ to ensure markdown-it-katex parses it
-        .replace(/(\$\$[\s\S]*?\$\$)|(\$\s+(.+?)\s+\$)/g, (match, block, inline, content) => {
-            if (block) return block
-            if (inline) return `$${content}$`
-            return match
-        })
-        // Fix non-standard prime notation
-        .replace(/(\w+)'\s+\((.+?)\)/g, "$1'($2)")
-        .replace(/(\w+)\s+'/g, "$1'")
-        // Fix trailing dollar sign issue
-        .replace(/(\$\$[\s\S]*?)[^$]\$$/gm, "$1$$")
-    
-    try {
-        const rawHtml = md.render(fixedContent)
-        // Allow class and style attributes for styling
-        const sanitized = DOMPurify.sanitize(rawHtml, {
-            ADD_TAGS: ['span'],
-            ADD_ATTR: ['class', 'style', 'loading']
-        })
-        
-        // Cache result (limit cache size?)
-        if (markdownCache.size > 500) {
-            const firstKey = markdownCache.keys().next().value
-            if (firstKey) markdownCache.delete(firstKey)
-        }
-        markdownCache.set(content, sanitized)
-        
-        return sanitized
-    } catch (e) {
-        console.error('Markdown render error:', e)
-        return content
-    }
-}
-
-const handleExport = (command: string) => {
-    if (command === 'json') {
-        exportJson()
-    } else if (command === 'markdown') {
-        downloadMarkdown()
-    }
-}
-
-// exportContent was duplicate or conflicting.
-// The template uses @click="exportContent" on the button.
-// And handleExport on the dropdown.
-// Let's keep exportContent as an alias to downloadMarkdown for the button.
-
-const exportContent = () => {
-    downloadMarkdown()
-}
-
-const exportJson = () => {
-    if (visibleNotes.value.length === 0) {
-        ElMessage.warning('当前没有可导出的笔记')
-        return
-    }
-    
-    const data = JSON.stringify(visibleNotes.value, null, 2)
-    const blob = new Blob([data], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `notes_export_${dayjs().format('YYYYMMDD_HHmmss')}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    
-    ElMessage.success('笔记导出成功')
-}
-
-const downloadMarkdown = () => {
-    if (visibleNotes.value.length === 0) {
-        ElMessage.warning('当前没有可导出的笔记')
-        return
-    }
-    
-    let md = `# ${courseStore.courseList.find(c => c.course_id === courseStore.currentCourseId)?.course_name || 'My Notes'}\n\n`
-    
-    // Group notes by Node (Chapter) to avoid repeated headers
-    const groupedNotes = new Map<string, any[]>()
-    
-    // Maintain order from visibleNotes
-    visibleNotes.value.forEach(note => {
-        const nodeId = note.nodeId
-        if (!groupedNotes.has(nodeId)) {
-            groupedNotes.set(nodeId, [])
-        }
-        groupedNotes.get(nodeId)?.push(note)
-    })
-    
-    // Iterate groups
-    groupedNotes.forEach((notes, nodeId) => {
-        const node = courseStore.nodes.find(n => n.node_id === nodeId)
-        md += `## ${node?.node_name || '未知章节'}\n\n`
-        
-        notes.forEach(note => {
-             // Skip pure formatting notes for better readability in export
-             if (note.sourceType === 'format') return 
-
-             if (note.quote) {
-                 md += `> ${note.quote}\n\n`
-             }
-             md += `${note.content}\n\n`
-            
-            const typeLabel = note.sourceType === 'ai' ? 'AI 助手' : '笔记'
-            md += `> — *${typeLabel} · ${dayjs(note.createdAt).format('YYYY-MM-DD HH:mm')}*\n\n---\n\n`
-        })
-    })
-    
-    const blob = new Blob([md], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `notes_export_${dayjs().format('YYYYMMDD_HHmmss')}.md`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    ElMessage.success('Markdown 导出成功')
-}
 
 const formatNoteContent = (content: string) => {
     if (!content) return ''
     
-    // 1. Tag Highlight (Source level replacement to preserve through markdown render)
-    // Matches #tag at start or after space
     let processed = content.replace(/(?<=^|\s)(#[\w\u4e00-\u9fa5]+)/g, '<span class="text-primary-600 font-bold">$1</span>')
     
-    // 2. Search Highlight (Source level)
-    if (noteSearchQuery.value && noteSearchQuery.value.trim()) {
-        const query = noteSearchQuery.value.trim()
-        const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const regex = new RegExp(`(${safeQuery})`, 'gi')
-        processed = processed.replace(regex, '<span class="bg-yellow-200 text-slate-900 rounded px-0.5 box-decoration-clone">$1</span>')
+    if (searchTokens.value.length > 0) {
+        const tokens = Array.from(new Set(searchTokens.value.map(t => escapeRegExp(t)).filter(Boolean)))
+        if (tokens.length > 0) {
+            const regex = new RegExp(`(${tokens.join('|')})`, 'gi')
+            processed = processed.replace(regex, '<span class="bg-yellow-200 text-slate-900 rounded px-0.5 box-decoration-clone">$1</span>')
+        }
     }
     
-    // 3. Render Markdown & LaTeX
     return renderMarkdown(processed)
+}
+
+const formatMistakeContent = (content: string) => {
+    let html = content
+        .replace(/\*\*错题记录\*\*\s*/g, '')
+        .replace(/#错题/g, '')
+        .trim()
+
+    // 题目
+    html = html.replace(/\*\*题目\*\*：([\s\S]*?)(?=\n\n|\n\*\*|$)/, 
+        '<div class="mb-4"><div class="text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"><span class="w-1 h-3 bg-slate-300 rounded-full"></span>题目</div><div class="text-sm font-bold text-slate-800 leading-relaxed">$1</div></div>')
+
+    // 你的答案 (Error)
+    html = html.replace(/\*\*你的答案\*\*：(.*?) ❌/g, 
+        '<div class="flex items-center justify-between bg-red-50/80 border border-red-100 rounded-xl px-3 py-2.5 mb-2 relative overflow-hidden"><div class="absolute left-0 top-0 bottom-0 w-1 bg-red-400"></div><div class="flex flex-col z-10"><span class="text-[10px] font-bold text-red-400 mb-0.5 uppercase">你的答案</span><span class="text-sm font-bold text-red-700">$1</span></div><div class="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center text-red-500"><svg viewBox="0 0 1024 1024" width="12" height="12"><path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm165.4 618.2l-66-.3L512 563.4l-99.6 118.4-66.1.3c-4.4 0-8.1-3.5-8.1-8 0-1.9.7-3.7 1.9-5.2l130.1-155L340.5 359a8.32 8.32 0 0 1-1.9-5.2c0-4.4 3.6-8 8.1-8l66.1.3L512 464.6l99.6-118.4 66-.3c4.4 0 8.1 3.5 8.1 8 0 1.9-.7 3.7-1.9 5.2L553.5 514l130 155c1.2 1.5 1.9 3.3 1.9 5.2 0 4.4-3.6 8-8 8z" fill="currentColor"></path></svg></div></div>')
+
+    // 正确答案 (Success)
+    html = html.replace(/\*\*正确答案\*\*：(.*?) ✅/g, 
+        '<div class="flex items-center justify-between bg-emerald-50/80 border border-emerald-100 rounded-xl px-3 py-2.5 mb-4 relative overflow-hidden"><div class="absolute left-0 top-0 bottom-0 w-1 bg-emerald-400"></div><div class="flex flex-col z-10"><span class="text-[10px] font-bold text-emerald-500 mb-0.5 uppercase">正确答案</span><span class="text-sm font-bold text-emerald-700">$1</span></div><div class="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-500"><svg viewBox="0 0 1024 1024" width="12" height="12"><path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm193.5 301.7l-210.6 292a31.8 31.8 0 0 1-51.7 0L318.5 484.9c-3.8-5.3 0-12.7 6.5-12.7h46.9c10.2 0 19.9 4.9 25.9 13.3l71.2 98.8 157.2-218c6-8.3 15.6-13.3 25.9-13.3H699c6.5 0 10.3 7.4 6.5 12.7z" fill="currentColor"></path></svg></div></div>')
+
+    // 解析
+    html = html.replace(/\*\*解析\*\*：([\s\S]*?)$/, 
+        '<div class="bg-slate-50 rounded-xl p-3.5 text-xs text-slate-600 leading-relaxed border border-slate-200/60 shadow-inner"><span class="font-bold text-slate-800 flex items-center gap-1.5 mb-2 text-[10px] uppercase tracking-wide"><svg viewBox="0 0 1024 1024" width="12" height="12" class="text-amber-500"><path d="M632 888H392c-4.4 0-8 3.6-8 8v32c0 17.7 14.3 32 32 32h192c17.7 0 32-14.3 32-32v-32c0-4.4-3.6-8-8-8zM512 64c-181.1 0-328 146.9-328 328 0 121.4 66 227.4 164 284.1V792c0 17.7 14.3 32 32 32h264c17.7 0 32-14.3 32-32v-115.9c98-56.7 164-162.7 164-284.1 0-181.1-146.9-328-328-328z" fill="currentColor"></path></svg> 解析</span>$1</div>')
+
+    if (searchTokens.value.length > 0) {
+        const tokens = Array.from(new Set(searchTokens.value.map(t => escapeRegExp(t)).filter(Boolean)))
+        if (tokens.length > 0) {
+            const regex = new RegExp(`(${tokens.join('|')})`, 'gi')
+            html = html.replace(regex, '<span class="bg-yellow-200 text-slate-900 rounded px-0.5 box-decoration-clone">$1</span>')
+        }
+    }
+
+    return html
 }
 
 // Selection Handling
@@ -2058,9 +1675,11 @@ const handleAddNote = () => {
         const { value } = data
         // Create Highlight
         const highlightId = 'highlight-' + Math.random().toString(36).substr(2, 9)
+        const noteId = 'note-' + Math.random().toString(36).substr(2, 9)
+        const color = pickPaletteColor(`${noteId}-${highlightId}`)
         const span = document.createElement('span')
         span.id = highlightId
-        span.className = 'highlight-marker bg-amber-200/50 border-b-2 border-amber-400 cursor-pointer transition-colors hover:bg-amber-300/50'
+        span.className = `highlight-marker ${noteHighlightClass(color)} cursor-pointer transition-colors`
         span.onclick = (e) => {
             e.stopPropagation()
             scrollToHighlight(highlightId)
@@ -2081,12 +1700,12 @@ const handleAddNote = () => {
         
         if (nodeId) {
             courseStore.createNote({
-                id: 'note-' + Math.random().toString(36).substr(2, 9),
+                id: noteId,
                 nodeId,
                 highlightId,
                 quote: selectionMenu.value.text,
                 content: value,
-                color: 'blue',
+                color,
                 createdAt: Date.now(),
                 sourceType: 'user'
             })
@@ -2115,19 +1734,6 @@ const shouldCollapse = (note: any) => {
 // No, formatNoteContent returns HTML string. Truncating HTML is risky.
 // Better to use CSS line-clamp for collapsed state.
 
-const noteContentStyle = (note: any) => {
-    if (expandedNoteIds.value.includes(note.id)) return {}
-    if (isAccordionMode.value || isLongContent(note.content)) {
-        return {
-            display: '-webkit-box',
-            '-webkit-line-clamp': '3',
-            '-webkit-box-orient': 'vertical',
-            overflow: 'hidden'
-        }
-    }
-    return {}
-}
-
 const toggleExpand = (noteId: string) => {
     const index = expandedNoteIds.value.indexOf(noteId)
     if (index === -1) {
@@ -2143,8 +1749,22 @@ const toggleExpand = (noteId: string) => {
     nextTick(() => updateNotePositions())
 }
 
+const handleNoteClick = (note: any) => {
+    // Priority 1: Jump to specific highlight if it exists in DOM
+    if (note.highlightId) {
+        scrollToHighlight(note.highlightId, note.id)
+        return
+    }
+    
+    // Priority 2: Jump to Node (Chapter/Section)
+    if (note.nodeId) {
+        courseStore.scrollToNode(note.nodeId)
+        activeNoteId.value = note.id
+    }
+}
+
 const handleEditNote = (note: any) => {
-    if (showMobileNotes.value) {
+    if (courseStore.isMobileNotesVisible) {
         ElMessageBox.prompt('编辑笔记', '修改笔记', {
             inputValue: note.content,
             confirmButtonText: '保存',
@@ -2206,35 +1826,22 @@ const showUndoToast = (note: any) => {
 const undoNote = ref(null)
 const undoVisible = ref(false)
 
-const handleUndoDelete = () => {
-    if (undoNote.value) {
-        // Just call createNote, which handles addition and persistence.
-        // We use the same ID so backend should update or create if missing?
-        // Actually backend saveAnnotation might expect new ID if it was truly deleted?
-        // But we kept the ID in undoNote.value.
-        courseStore.createNote(undoNote.value)
-        undoVisible.value = false
-        undoNote.value = null
-        ElMessage.success('撤销成功')
-        
-        // Re-apply highlight happens automatically via watcher on notes/visibleNotes?
-        // visibleNotes is computed from courseStore.notes. 
-        // So adding to store updates visibleNotes, which triggers watcher to reapply highlights.
+const scrollToHighlight = (highlightId: string, noteId?: string) => {
+    if (!highlightId) {
+        if (noteId) {
+            scrollToNote(noteId)
+        }
+        return
     }
-}
-
-const scrollToHighlight = (highlightId: string) => {
     const el = document.getElementById(highlightId)
     if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        // Flash effect
         el.classList.add('pulse-highlight')
         setTimeout(() => el.classList.remove('pulse-highlight'), 1500)
         
         const note = courseStore.notes.find(n => n.highlightId === highlightId)
         if (note) {
             activeNoteId.value = note.id
-            // Scroll note column to this note
             const noteCard = document.getElementById(note.id)
             if (noteCard) {
                 noteCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -2242,18 +1849,28 @@ const scrollToHighlight = (highlightId: string) => {
                 setTimeout(() => noteCard.classList.remove('flash-card', 'ring-4', 'ring-primary-200'), 1000)
             }
         }
+        return
     }
+    reapplyHighlights()
+    nextTick(() => {
+        const retryEl = document.getElementById(highlightId)
+        if (retryEl) {
+            retryEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            retryEl.classList.add('pulse-highlight')
+            setTimeout(() => retryEl.classList.remove('pulse-highlight'), 1500)
+            return
+        }
+        if (noteId) {
+            scrollToNote(noteId)
+        }
+        const note = courseStore.notes.find(n => n.highlightId === highlightId)
+        if (note?.nodeId) {
+            courseStore.scrollToNode(note.nodeId)
+        }
+    })
 }
 
-const debounce = (fn: Function, delay: number) => {
-    let timeout: any
-    return (...args: any[]) => {
-        clearTimeout(timeout)
-        timeout = setTimeout(() => fn(...args), delay)
-    }
-}
 
-const debouncedUpdatePositions = debounce(updateNotePositions, 100)
 
 const quizConfig = ref({
     visible: false,
@@ -2291,7 +1908,7 @@ const showSummary = async (node: any) => {
     
     try {
         await ElMessageBox.confirm(
-            `<div>${summary}</div><div class="mt-4 text-primary-600 font-bold cursor-pointer hover:underline">点击生成 AI 深度摘要</div>`, 
+            `<div>${renderMarkdown(summary)}</div><div class="mt-4 text-primary-600 font-bold cursor-pointer hover:underline">点击生成 AI 深度摘要</div>`, 
             `${node.node_name} - 内容预览`, 
             {
                 confirmButtonText: '生成 AI 摘要',
@@ -2329,28 +1946,32 @@ const generateAiSummary = async (node: any) => {
 const submitQuiz = () => {
     if (!quizConfig.value.nodeId) return
 
-    if (userAnswers.value.some(a => !a)) {
+    const total = quizQuestions.value.length
+    if (total === 0) {
+        ElMessage.warning('暂无可提交的题目')
+        return
+    }
+    
+    const normalizedAnswers = quizQuestions.value.map((_, idx) => userAnswers.value[idx] || '')
+    if (normalizedAnswers.some(a => !a)) {
         ElMessage.warning('请完成所有题目后再提交')
         return
     }
     
-    // Calculate score
     let correctCount = 0
-    let total = quizQuestions.value.length
-    
-    if (total === 0) return
     
     quizQuestions.value.forEach((q, idx) => {
-        if (userAnswers.value[idx] === q.answer) {
+        if (normalizedAnswers[idx] === q.answer) {
             correctCount++
         } else {
             // Auto-save wrong question
-            const userAnswer = userAnswers.value[idx]
+            const userAnswer = normalizedAnswers[idx]
             const noteContent = `**错题记录**\n\n**题目**：${q.question}\n\n**你的答案**：${userAnswer} ❌\n**正确答案**：${q.answer} ✅\n\n**解析**：${q.explanation || '暂无解析'}\n\n#错题`
             
             // Check if this wrong question already exists (avoid duplicates)
             const exists = courseStore.notes.some(n => 
                 n.nodeId === quizConfig.value.nodeId && 
+                n.sourceType === 'wrong' &&
                 n.content.includes(q.question)
             )
             
@@ -2363,7 +1984,7 @@ const submitQuiz = () => {
                     content: noteContent,
                     color: 'red',
                     createdAt: Date.now(),
-                    sourceType: 'user', // Treat as user note but with special tag
+                    sourceType: 'wrong', // Mark as wrong question for UI handling
                     style: 'highlight' // Visual indicator
                 })
             }
@@ -2387,6 +2008,12 @@ const submitQuiz = () => {
 const confirmQuiz = async () => {
     quizConfig.value.visible = false
     
+    const nodeContent = nodeContentForQuiz(quizConfig.value.nodeId)
+    if (!nodeContent || !nodeContent.trim()) {
+        ElMessage.warning('当前章节暂无内容，无法生成测验')
+        return
+    }
+    
     // Reset state
     quizVisible.value = true
     generatingQuiz.value = true
@@ -2406,13 +2033,15 @@ const confirmQuiz = async () => {
         
         const res = await courseStore.generateQuiz(
             quizConfig.value.nodeId, 
-            nodeContentForQuiz(quizConfig.value.nodeId), 
+            nodeContent, 
             quizConfig.value.style,
-            quizConfig.value.difficulty
+            quizConfig.value.difficulty,
+            { silent: true }
         )
         
         if (res && Array.isArray(res)) {
             quizQuestions.value = res
+            userAnswers.value = new Array(res.length).fill('')
         } else {
             quizVisible.value = false
             ElMessage.warning('生成题目失败，请重试')
@@ -2493,6 +2122,27 @@ const scrollToTop = () => {
     }
 }
 
+const restoreScrollPosition = () => {
+    if (!courseStore.currentCourseId) return
+    const savedPos = localStorage.getItem(`scroll-pos-${courseStore.currentCourseId}`)
+    if (!savedPos) return
+    const container = document.getElementById('content-scroll-container')
+    if (!container) return
+    let attempts = 0
+    const tryRestore = () => {
+        if (!container) return
+        const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
+        const target = Math.min(parseInt(savedPos), maxTop)
+        if (maxTop > 0 || attempts >= 5) {
+            container.scrollTop = target
+            return
+        }
+        attempts += 1
+        setTimeout(tryRestore, 200)
+    }
+    tryRestore()
+}
+
 onMounted(() => {
     document.addEventListener('mousedown', (e) => {
         if (selectionMenu.value.visible && !(e.target as HTMLElement).closest('#content-scroll-container')) {
@@ -2504,11 +2154,11 @@ onMounted(() => {
     if (container) {
         container.addEventListener('scroll', handleScroll)
         
-        observer = new IntersectionObserver((entries) => {
+        observer = new IntersectionObserver((entries: IntersectionObserverEntry[]) => {
             if (isManualScrolling.value) return 
 
             // Find the intersecting entry that is closest to the top of viewport
-            let bestCandidate = null
+            let bestCandidate: any = null
             let maxRatio = -1
 
             entries.forEach(entry => {
@@ -2521,7 +2171,8 @@ onMounted(() => {
             })
             
             if (bestCandidate) {
-                const nodeId = (bestCandidate.target as HTMLElement).id.replace('node-', '')
+                const target = bestCandidate.target as HTMLElement | null
+                const nodeId = target ? target.id.replace('node-', '') : ''
                 if (nodeId && courseStore.currentNode?.node_id !== nodeId) {
                     const node = flatNodes.value.find(n => n.node_id === nodeId)
                     if (node) {
@@ -2543,17 +2194,7 @@ onMounted(() => {
     setTimeout(() => {
         reapplyHighlights()
         updateNotePositions()
-        
-        // Restore scroll position
-        if (courseStore.currentCourseId) {
-            const savedPos = localStorage.getItem(`scroll-pos-${courseStore.currentCourseId}`)
-            if (savedPos) {
-                const container = document.getElementById('content-scroll-container')
-                if (container) {
-                    container.scrollTop = parseInt(savedPos)
-                }
-            }
-        }
+        restoreScrollPosition()
     }, 1000)
 })
 
@@ -2716,6 +2357,29 @@ onUnmounted(() => {
 .back-to-top-leave-to {
     opacity: 0;
     transform: translateY(20px);
+}
+
+.note-underline {
+    position: relative;
+}
+
+.note-underline::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -6px;
+    height: 6px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='6' viewBox='0 0 120 6'><polyline points='0,4 20,4 20,1 40,1 40,4 60,4 60,1 80,1 80,4 100,4 100,1 120,1' fill='none' stroke='%2394a3b8' stroke-width='1.5' stroke-linejoin='miter' stroke-linecap='square'/></svg>");
+    background-repeat: repeat-x;
+    background-size: 120px 6px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+}
+
+.group:hover .note-underline::after {
+    opacity: 0.8;
 }
 
 :deep(.glass-input-clean .el-input__wrapper) {

@@ -1,24 +1,20 @@
 <template>
-  <div class="h-screen w-full flex items-center justify-center p-2 overflow-hidden bg-slate-50 relative font-sans selection:bg-primary-500/20 selection:text-primary-900">
-    <!-- Exquisite Background System -->
-    <div class="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-        <!-- 1. Base Mesh Gradient (Subtle & Rich) -->
-        <div class="absolute inset-0 opacity-60 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary-100/40 via-slate-50 to-primary-100/40"></div>
+  <div class="h-screen w-full flex items-center justify-center p-2 overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100 relative font-sans selection:bg-primary-500/20 selection:text-primary-900 antialiased">
+    <!-- Clean Background System -->
+    <div class="absolute inset-0 z-0 pointer-events-none overflow-hidden bg-slate-50/50">
+        <!-- 1. Subtle Base Gradient -->
+        <div class="absolute inset-0 opacity-30 bg-gradient-to-br from-indigo-50/50 via-slate-50 to-blue-50/50"></div>
         
-        <!-- 2. Animated Orbs (Deep Depth) -->
-        <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary-200/20 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
-        <div class="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary-200/20 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
-        <div class="absolute bottom-[-20%] left-[20%] w-[50%] h-[50%] bg-pink-200/20 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
-        
-        <!-- 3. Fine Grain Noise (Texture) -->
-        <div class="absolute inset-0 opacity-[0.02]" style="background-image: url(&quot;data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E&quot;);"></div>
+        <!-- 2. Very Subtle Ambient Light (Optional, much softer) -->
+        <div class="absolute top-[-20%] right-[-10%] w-[60%] h-[60%] bg-indigo-100/20 rounded-full blur-[100px] opacity-40"></div>
+        <div class="absolute bottom-[-20%] left-[-10%] w-[60%] h-[60%] bg-blue-100/20 rounded-full blur-[100px] opacity-40"></div>
     </div>
 
     <!-- Main Floating Container -->
     <div class="w-full h-full flex flex-col gap-3 relative z-10">
         
         <!-- Global Header -->
-        <header class="h-16 flex-shrink-0 flex items-center px-6 glass-panel-tech rounded-2xl z-20 relative animate-fade-in-up">
+        <header class="h-16 flex-shrink-0 flex items-center justify-between px-6 glass-panel-tech-floating rounded-2xl z-20 relative animate-fade-in-up shadow-[0_12px_40px_rgba(15,23,42,0.08)] border border-white/70">
             <div class="flex items-center gap-3 cursor-pointer" @click="router.push('/')">
                 <div class="w-10 h-10 bg-primary-600 rounded-xl flex items-center justify-center text-white shadow-sm transition-transform duration-300 relative overflow-hidden group hover:scale-105">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6 relative z-10">
@@ -32,13 +28,122 @@
                 </div>
             </div>
             
-            <div class="ml-auto flex items-center gap-4">
-                 <div class="hidden md:flex items-center gap-2 px-3 py-1.5 bg-white/50 rounded-full border border-white/60 shadow-sm text-xs font-medium text-gray-600 backdrop-blur-md">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    系统在线
-                </div>
-                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-gray-50 to-gray-100 border border-white shadow-inner flex items-center justify-center text-xs font-bold text-gray-600 cursor-pointer hover:scale-105 hover:shadow-lg transition-all duration-300">
-                    U
+            <!-- Central Course Title -->
+            <div class="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-2 bg-white/50 backdrop-blur-sm rounded-full px-4 py-1.5 border border-white/40 shadow-sm" v-if="courseStore.currentCourseId">
+                <span class="font-bold text-slate-700 truncate max-w-[200px]">
+                    {{ courseStore.courseList.find(c => c.course_id === courseStore.currentCourseId)?.course_name || '课程预览' }}
+                </span>
+                <span class="text-slate-300">|</span>
+                <span class="text-xs text-slate-500">全书模式</span>
+            </div>
+
+            <div class="flex items-center gap-3">
+                 <!-- Toolbar Controls -->
+                <div class="flex items-center gap-2" v-if="courseStore.currentCourseId">
+                    <!-- Global Search -->
+                    <div class="relative group mr-2">
+                        <div class="relative transition-all duration-500 ease-out" 
+                             :class="isSearchFocused ? 'w-80' : 'w-56'">
+                            
+                            <!-- Glowing Background Effect -->
+                            <div class="absolute -inset-0.5 bg-gradient-to-r from-primary-300 via-purple-300 to-primary-300 rounded-lg opacity-0 group-hover:opacity-30 transition duration-500 blur-sm"
+                                 :class="{'!opacity-50 blur-md': isSearchFocused}"></div>
+                            
+                            <el-input 
+                                :model-value="courseStore.globalSearchQuery"
+                                placeholder="搜索全书内容..." 
+                                :prefix-icon="Search" 
+                                size="large" 
+                                clearable 
+                                class="tech-search-input relative z-10"
+                                @input="handleGlobalSearch"
+                                @focus="isSearchFocused = true"
+                                @blur="isSearchFocused = false"
+                            />
+                        </div>
+
+                        <div v-if="globalSearchResults.length > 0" class="absolute top-full left-0 right-0 mt-4 bg-white/90 backdrop-blur-xl rounded-2xl shadow-[0_24px_60px_rgba(15,23,42,0.12)] border border-white/60 ring-1 ring-white/40 p-3 z-50 max-h-80 overflow-auto animate-fade-in-up">
+                            <div class="flex items-center justify-between px-2 py-1 mb-1">
+                                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">搜索结果</div>
+                                <div class="text-[10px] font-bold text-slate-500 bg-white/70 rounded-full px-2 py-0.5 border border-white/60">{{ globalSearchResults.length }}</div>
+                            </div>
+                            <div v-for="(res, idx) in globalSearchResults" :key="idx" 
+                                class="p-3 bg-white/70 hover:bg-primary-50/80 rounded-xl cursor-pointer transition-all duration-200 group/item border border-transparent hover:border-primary-100 hover:shadow-sm"
+                                @click="scrollToSearchResult(res.id)">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="font-bold text-slate-700 text-sm truncate group-hover/item:text-primary-700 transition-colors">{{ res.title }}</span>
+                                    <el-icon class="text-slate-300 group-hover/item:text-primary-400 group-hover/item:translate-x-1 transition-all"><ArrowRight /></el-icon>
+                                </div>
+                                <span class="text-xs text-slate-500 line-clamp-2 leading-relaxed" v-html="res.preview"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="lg:hidden p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-primary-600 transition-colors" @click="courseStore.isMobileNotesVisible = true">
+                        <el-icon :size="18"><Notebook /></el-icon>
+                    </button>
+                    
+                    <!-- Typography Settings -->
+                    <el-popover placement="bottom" :width="240" trigger="click" popper-class="glass-popover">
+                        <template #reference>
+                            <button class="group p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-primary-600 transition-all" title="外观设置">
+                                <el-icon :size="18"><Setting /></el-icon>
+                            </button>
+                        </template>
+                        <div class="p-2 space-y-4">
+                            <!-- Font Size -->
+                            <div class="space-y-2">
+                                <div class="text-xs font-bold text-slate-500">字号</div>
+                                <div class="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
+                                    <button class="flex-1 p-1 hover:bg-white rounded text-slate-600" @click="courseStore.uiSettings.fontSize = Math.max(8, courseStore.uiSettings.fontSize - 1)"><el-icon><Minus /></el-icon></button>
+                                    <span class="text-xs font-mono w-8 text-center">{{ courseStore.uiSettings.fontSize }}</span>
+                                    <button class="flex-1 p-1 hover:bg-white rounded text-slate-600" @click="courseStore.uiSettings.fontSize = Math.min(72, courseStore.uiSettings.fontSize + 1)"><el-icon><Plus /></el-icon></button>
+                                </div>
+                            </div>
+                            <!-- Font Family -->
+                            <div class="space-y-2">
+                                <div class="text-xs font-bold text-slate-500">字体</div>
+                                <div class="grid grid-cols-3 gap-2">
+                                    <button class="px-2 py-1 text-xs border rounded hover:border-primary-500" :class="courseStore.uiSettings.fontFamily === 'sans' ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="courseStore.uiSettings.fontFamily = 'sans'">无衬线</button>
+                                    <button class="px-2 py-1 text-xs border rounded hover:border-primary-500 font-serif" :class="courseStore.uiSettings.fontFamily === 'serif' ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="courseStore.uiSettings.fontFamily = 'serif'">衬线</button>
+                                    <button class="px-2 py-1 text-xs border rounded hover:border-primary-500 font-mono" :class="courseStore.uiSettings.fontFamily === 'mono' ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="courseStore.uiSettings.fontFamily = 'mono'">等宽</button>
+                                </div>
+                            </div>
+                            <!-- Line Height -->
+                            <div class="space-y-2">
+                                <div class="text-xs font-bold text-slate-500">行高</div>
+                                <div class="grid grid-cols-3 gap-2">
+                                    <button class="px-2 py-1 text-xs border rounded hover:border-primary-500" :class="courseStore.uiSettings.lineHeight === 1.5 ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="courseStore.uiSettings.lineHeight = 1.5">紧凑</button>
+                                    <button class="px-2 py-1 text-xs border rounded hover:border-primary-500" :class="courseStore.uiSettings.lineHeight === 1.75 ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="courseStore.uiSettings.lineHeight = 1.75">舒适</button>
+                                    <button class="px-2 py-1 text-xs border rounded hover:border-primary-500" :class="courseStore.uiSettings.lineHeight === 2 ? 'bg-primary-50 border-primary-500 text-primary-600' : 'bg-white border-slate-200'" @click="courseStore.uiSettings.lineHeight = 2">宽松</button>
+                                </div>
+                            </div>
+                        </div>
+                    </el-popover>
+                    
+                    <!-- Focus Mode -->
+                    <button 
+                        class="group p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-primary-600 transition-all"
+                        @click="toggleFocusMode"
+                        :class="{'!text-primary-600 !bg-primary-50': courseStore.isFocusMode}"
+                        title="专注模式"
+                    >
+                        <el-icon :size="18"><FullScreen /></el-icon>
+                    </button>
+
+                    <div class="w-px h-5 bg-slate-200 mx-1"></div>
+
+                    <el-dropdown trigger="click" @command="handleExport">
+                        <button class="group p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-primary-600 transition-all" title="导出">
+                            <el-icon :size="18"><Download /></el-icon>
+                        </button>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item command="json">导出 JSON 备份</el-dropdown-item>
+                                <el-dropdown-item command="markdown">导出 Markdown 文档</el-dropdown-item>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
                 </div>
             </div>
         </header>
@@ -49,12 +154,14 @@
 
     <!-- Global Status Bar -->
     <StatusBar 
-        :visible="courseStore.generationStatus !== 'idle'"
-        :status="courseStore.generationStatus"
-        :current-task="courseStore.currentGeneratingNode"
+        :visible="statusVisible"
+        :status="statusMode"
+        :current-task="statusTask"
         :logs="courseStore.generationLogs"
-        :progress="courseStore.generationProgress"
+        :progress="statusProgress"
         :queue="courseStore.queue"
+        :meta="statusMeta"
+        :hint="statusHint"
         @close="courseStore.stopGeneration"
     />
   </div>
@@ -64,11 +171,159 @@
 import StatusBar from './components/StatusBar.vue'
 import { useCourseStore } from './stores/course'
 import { useRouter } from 'vue-router'
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Notebook, Setting, Minus, Plus, FullScreen, Search, Download, ArrowRight } from '@element-plus/icons-vue'
 
 const courseStore = useCourseStore()
 const router = useRouter()
+type StatusTone = 'primary' | 'success' | 'warning' | 'danger' | 'muted'
+type StatusMetaItem = { label: string; value: string; tone?: StatusTone }
+
+const statusVisible = computed(() => {
+    if (courseStore.generationStatus !== 'idle') return true
+    if (courseStore.chatLoading) return true
+    if (courseStore.loading) return true
+    return courseStore.queue.some(i => i.status === 'running' || i.status === 'pending')
+})
+
+const statusMode = computed(() => {
+    if (courseStore.generationStatus === 'error') return 'error'
+    if (courseStore.isGenerating) return 'generating'
+    if (courseStore.chatLoading) return 'generating'
+    if (courseStore.loading) return 'paused'
+    if (courseStore.queue.some(i => i.status === 'running' || i.status === 'pending')) return 'paused'
+    return 'idle'
+})
+
+const statusTask = computed(() => {
+    if (courseStore.isGenerating) return courseStore.currentGeneratingNode || '内容生成中'
+    if (courseStore.chatLoading) return 'AI 生成中'
+    if (courseStore.loading) return '数据加载中'
+    if (courseStore.queue.some(i => i.status === 'running' || i.status === 'pending')) return '队列等待中'
+    return null
+})
+
+const statusProgress = computed(() => {
+    if (courseStore.isGenerating) return courseStore.generationProgress
+    if (courseStore.chatLoading) return 35
+    if (courseStore.loading) return 15
+    if (courseStore.queue.some(i => i.status === 'running' || i.status === 'pending')) return 5
+    return 0
+})
+
+const currentCourseName = computed(() => {
+    const current = courseStore.courseList.find(c => c.course_id === courseStore.currentCourseId)
+    return current?.course_name || '未选择'
+})
+
+const statusMeta = computed<StatusMetaItem[]>(() => {
+    const pendingCount = courseStore.queue.filter(i => i.status === 'pending').length
+    const runningCount = courseStore.queue.filter(i => i.status === 'running').length
+    return [
+        { label: '课程', value: currentCourseName.value, tone: 'primary' },
+        { label: '章节', value: courseStore.currentNode?.node_name || '未选择', tone: 'muted' },
+        { label: '节点', value: String(courseStore.nodes.length), tone: 'muted' },
+        { label: '笔记', value: String(courseStore.notes.length), tone: 'success' },
+        { label: '对话', value: String(courseStore.chatHistory.length), tone: courseStore.chatLoading ? 'warning' : 'muted' },
+        { label: '队列', value: `${runningCount} 运行 / ${pendingCount} 等待`, tone: runningCount > 0 ? 'warning' : 'muted' },
+        { label: '数据加载', value: courseStore.loading ? '进行中' : '空闲', tone: courseStore.loading ? 'warning' : 'muted' },
+        { label: '生成状态', value: statusMode.value, tone: statusMode.value === 'error' ? 'danger' : (statusMode.value === 'generating' ? 'primary' : 'muted') }
+    ]
+})
+
+const statusHint = computed(() => {
+    const lastLog = courseStore.generationLogs[courseStore.generationLogs.length - 1]
+    if (lastLog) return lastLog
+    if (courseStore.chatLoading) return 'AI 正在思考与生成内容'
+    if (courseStore.loading) return '正在加载课程数据'
+    return ''
+})
+
+// UI State
+const globalSearchResults = ref<any[]>([])
+const isSearchFocused = ref(false)
+
+// Helper: Flatten nodes for search and export order
+const flatNodes = computed(() => {
+    const nodes: any[] = []
+    const traverse = (node: any) => {
+        nodes.push(node)
+        if (node.children) {
+            node.children.forEach(traverse)
+        }
+    }
+    courseStore.courseTree.forEach(traverse)
+    return nodes
+})
+
+const handleGlobalSearch = (val: string) => {
+    if (!val || !val.trim()) {
+        globalSearchResults.value = []
+        courseStore.globalSearchQuery = ''
+        return
+    }
+    
+    courseStore.globalSearchQuery = val
+    const query = val.toLowerCase().trim()
+    const results: any[] = []
+    
+    // Search in flatNodes
+    flatNodes.value.forEach(node => {
+        // Skip root
+        if (node.node_level === 1) return
+        
+        const titleMatch = node.node_name.toLowerCase().includes(query)
+        const contentMatch = node.node_content && node.node_content.toLowerCase().includes(query)
+        
+        if (titleMatch || contentMatch) {
+            // Create preview
+            let preview = ''
+            if (contentMatch) {
+                const idx = node.node_content.toLowerCase().indexOf(query)
+                const start = Math.max(0, idx - 20)
+                const end = Math.min(node.node_content.length, idx + 60)
+                preview = '...' + node.node_content.substring(start, end) + '...'
+                // Highlight query in preview
+                const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                const regex = new RegExp(`(${safeQuery})`, 'gi')
+                preview = preview.replace(regex, '<span class="text-primary-600 font-bold">$1</span>')
+            } else {
+                preview = '标题匹配'
+            }
+            
+            results.push({
+                id: node.node_id,
+                title: node.node_name,
+                preview: preview
+            })
+        }
+    })
+    
+    globalSearchResults.value = results.slice(0, 8) // Limit to 8 results
+}
+
+const scrollToSearchResult = (nodeId: string) => {
+    courseStore.scrollToNode(nodeId)
+    const node = flatNodes.value.find(n => n.node_id === nodeId)
+    if (node) {
+        courseStore.setCurrentNodeSilent(node)
+    }
+    courseStore.globalSearchQuery = ''
+    globalSearchResults.value = []
+}
+
+const toggleFocusMode = () => {
+    courseStore.isFocusMode = !courseStore.isFocusMode
+}
+
+const handleExport = (command: string) => {
+    if (command === 'json') {
+        courseStore.exportCourseJson()
+    } else if (command === 'markdown') {
+        courseStore.exportCourseMarkdown()
+    }
+}
 
 const handleGlobalClick = (e: MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -76,7 +331,13 @@ const handleGlobalClick = (e: MouseEvent) => {
     if (btn) {
         const code = btn.getAttribute('data-code');
         if (code) {
-            navigator.clipboard.writeText(code).then(() => {
+            let text = ''
+            try {
+                text = decodeURIComponent(code)
+            } catch (e) {
+                text = code
+            }
+            navigator.clipboard.writeText(text).then(() => {
                 ElMessage.success('代码已复制到剪贴板');
             }).catch(() => {
                 ElMessage.error('复制失败');
@@ -94,10 +355,54 @@ onUnmounted(() => {
 })
 </script>
 
+<style>
+.tech-search-input .el-input__wrapper {
+    background-color: rgba(255, 255, 255, 0.6) !important;
+    backdrop-filter: blur(16px) !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), inset 0 0 0 1px rgba(255, 255, 255, 0.6) !important;
+    border-radius: 9999px !important;
+    padding-left: 18px !important;
+    padding-right: 18px !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.tech-search-input .el-input__wrapper.is-focus {
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3), 0 8px 30px rgba(99, 102, 241, 0.2), inset 0 0 20px rgba(99, 102, 241, 0.05) !important;
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    border-color: rgba(99, 102, 241, 0.5) !important;
+    transform: translateY(-1px);
+}
+
+.tech-search-input .el-input__wrapper:hover:not(.is-focus) {
+    background-color: rgba(255, 255, 255, 0.8) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+}
+
+.tech-search-input .el-input__inner {
+    font-weight: 600 !important;
+    color: #1e293b !important;
+    font-family: 'Space Grotesk', system-ui, sans-serif !important;
+}
+
+.tech-search-input .el-input__inner::placeholder {
+    color: #64748b !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.025em !important;
+}
+</style>
+
 <style scoped>
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease;
+}
+
+.glass-panel-tech-floating {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
 }
 
 .fade-enter-from,

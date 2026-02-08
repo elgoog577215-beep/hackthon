@@ -103,6 +103,8 @@ const courseStore = useCourseStore()
 const route = useRoute()
 const containerRef = ref<HTMLElement | null>(null)
 
+courseStore.restoreGenerationState()
+
 // Mobile Logic
 const isMobile = ref(false)
 const mobileShowLeft = ref(false)
@@ -128,6 +130,10 @@ const rightSidebarWidth = ref(360) // Reduced from 400 to prevent crowding
 const isResizingLeft = ref(false)
 const isResizingRight = ref(false)
 const isAutoWidth = ref(true)
+
+const handleBeforeUnload = () => {
+    courseStore.persistGenerationState()
+}
 
 const startResizeLeft = () => { 
   isResizingLeft.value = true 
@@ -221,6 +227,7 @@ onMounted(() => {
   window.addEventListener('mousemove', handleMouseMove)
   window.addEventListener('mouseup', handleMouseUp)
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('beforeunload', handleBeforeUnload)
 })
 
 onUnmounted(() => {
@@ -228,5 +235,6 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', handleMouseMove)
   window.removeEventListener('mouseup', handleMouseUp)
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 </script>
