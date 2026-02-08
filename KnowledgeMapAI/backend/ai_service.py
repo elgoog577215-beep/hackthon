@@ -234,7 +234,7 @@ class AIService:
             return self._extract_json(response)
         return {"course_name": keyword, "nodes": []}
 
-    async def generate_quiz(self, content: str, node_name: str = "", difficulty: str = "medium", style: str = "standard") -> List[Dict]:
+    async def generate_quiz(self, content: str, node_name: str = "", difficulty: str = "medium", style: str = "standard", user_persona: str = "", question_count: int = 3) -> List[Dict]:
         system_prompt = """
         你是一位专业的教育测量专家，负责设计符合学术标准的评估工具。
 
@@ -246,6 +246,7 @@ class AIService:
            - 侧重概念理解、原理应用和问题解决能力
            - 避免简单记忆性题目，强调分析、综合和评价层次
            - 确保题目具有区分度和效度
+           - **题目数量**：请严格生成 {question_count} 道题目。
 
         2. **难度控制**
            - {difficulty}级别：根据难度参数调整题目复杂度
@@ -280,7 +281,7 @@ class AIService:
         
         prompt = f"Content:\n{content_text}\n\nPlease generate the quiz JSON."
         
-        response = await self._call_llm(prompt, system_prompt.format(difficulty=difficulty, style=style))
+        response = await self._call_llm(prompt, system_prompt.format(difficulty=difficulty, style=style, question_count=question_count))
         if response:
             result = self._extract_json(response)
             if result:
@@ -507,13 +508,13 @@ class AIService:
      - **### 💡 核心概念与背景**
      - **### 🔍 深度原理/底层机制**（重中之重）
      - **### 🛠️ 技术实现/方法论**
-     - **### 🎨 可视化图解**（必须包含Mermaid图表，ID纯英文无空格，文本双引号包裹）
-     - **### 🚀 实战案例/行业应用**
-     - **### ✅ 思考与挑战**
+    - **### 🎨 可视化图解**（**务必包含 Mermaid 图表**，用于解释流程、架构或关系。ID纯英文无空格，文本双引号包裹）
+    - **### 🚀 实战案例/行业应用**
+    - **### ✅ 思考与挑战**
 
 ### 技术规范
-- **图表**：使用专业图表工具（Mermaid），确保学术规范性
-  - 仅使用 `graph TD` 或 `sequenceDiagram`。
+- **图表**：**请积极使用 Mermaid 图表来辅助解释**，确保学术规范性。
+  - **至少包含一张**流程图（graph TD）或时序图（sequenceDiagram）。
   - 节点 ID 必须纯英文，严禁中文或特殊符号。
   - 节点文本必须双引号包裹。
 - **公式**：采用标准数学符号和表达方式
@@ -583,7 +584,10 @@ class AIService:
    - 每个部分都要体现学术研究的严谨性
 
 ### 技术规范
-- 图表：使用专业图表工具，确保学术规范性（Mermaid）
+- **图表**：**请积极使用 Mermaid 图表来辅助解释**，确保学术规范性。
+  - **至少包含一张**流程图（graph TD）或时序图（sequenceDiagram）。
+  - 节点 ID 必须纯英文，严禁中文或特殊符号。
+  - 节点文本必须双引号包裹。
 - 公式：采用标准数学符号和表达方式（LaTeX）
 - 参考文献：符合学术引用规范
 
@@ -688,6 +692,7 @@ DO NOT wrap the JSON in markdown code blocks.
 **核心任务**：
 1. **回答问题**：直接、专业、简洁地回答用户问题。
 2. **定位上下文**：识别答案关联的课程章节或原文。
+3. **格式化输出**：如果内容适合（如对比、列表、步骤），**务必使用 Markdown 表格**或列表展示，拒绝大段纯文本。
 
 **教师模式（TEACHER MODE - 增强版）**：
 请像一位真实的苏格拉底式导师（Socratic Tutor）一样：
@@ -714,6 +719,7 @@ DO NOT wrap the JSON in markdown code blocks.
 
 **第一部分：回答正文**
 - 直接输出 Markdown 格式的回答内容。
+- **表格支持**：如果回答涉及对比、数据列举或多步骤说明，**必须优先使用 Markdown 表格**进行展示，以提升可读性。
 - **严禁**将整个回答包裹在代码块中。
 - 回答结束后，**另起一段**，用加粗字体写出你的后续提问：**思考题：...**
 
@@ -779,9 +785,9 @@ DO NOT wrap the JSON in markdown code blocks.
             }
         return {"answer": "抱歉，无法回答。", "quote": "", "anno_summary": "错误"}
 
-    async def generate_quiz(self, node_content: str, difficulty: str = "medium", style: str = "standard", user_persona: str = "") -> List[Dict]:
+    async def generate_quiz(self, node_content: str, difficulty: str = "medium", style: str = "standard", user_persona: str = "", question_count: int = 3) -> List[Dict]:
         system_prompt = f"""
-你是一位专业的考试出题专家。请根据提供的课程内容，生成 3 道单项选择题。
+        你是一位专业的考试出题专家。请根据提供的课程内容，生成 {question_count} 道单项选择题。
 
 **用户画像**：
 {user_persona if user_persona else "通用学习者"}

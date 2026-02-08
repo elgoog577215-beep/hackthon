@@ -503,6 +503,14 @@
              </div>
              
              <div class="space-y-3">
+                 <div class="flex justify-between items-center">
+                    <div class="text-sm font-bold text-slate-600">题目数量</div>
+                    <div class="text-xs font-bold text-primary-600 bg-primary-50 px-2 py-0.5 rounded">{{ quizConfig.questionCount }} 题</div>
+                 </div>
+                 <el-slider v-model="quizConfig.questionCount" :min="3" :max="10" :step="1" show-stops size="small" />
+             </div>
+
+             <div class="space-y-3">
                  <div class="text-sm font-bold text-slate-600">难度选择</div>
                  <div class="grid grid-cols-3 gap-2">
                      <button v-for="diff in ['easy', 'medium', 'hard']" :key="diff"
@@ -1877,7 +1885,8 @@ const quizConfig = ref({
     nodeId: '',
     nodeName: '',
     difficulty: 'medium',
-    style: 'standard'
+    style: 'standard',
+    questionCount: 3
 })
 
 // Quiz Handling
@@ -2036,7 +2045,7 @@ const confirmQuiz = async () => {
             nodeContent, 
             quizConfig.value.style,
             quizConfig.value.difficulty,
-            { silent: true }
+            { silent: true, questionCount: quizConfig.value.questionCount }
         )
         
         if (res && Array.isArray(res)) {

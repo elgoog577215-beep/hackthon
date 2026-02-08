@@ -219,9 +219,14 @@ def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest):
 
 @app.post("/courses/{course_id}/nodes/{node_id}/quiz")
 async def generate_quiz(course_id: str, node_id: str, req: GenerateQuizRequest):
-    # Verify node content (or use provided content)
-    questions = await ai_service.generate_quiz(req.node_content, req.node_name, req.difficulty, req.style)
-    return questions
+    return await ai_service.generate_quiz(
+        req.node_content, 
+        node_name=req.node_name,
+        difficulty=req.difficulty,
+        style=req.style,
+        user_persona=req.user_persona,
+        question_count=req.question_count
+    )
 
 @app.post("/courses/{course_id}/nodes/{node_id}/extend")
 async def extend_node_content(course_id: str, node_id: str, req: ExtendContentRequest):
@@ -314,7 +319,13 @@ def locate_node(course_id: str, req: LocateNodeRequest):
 
 @app.post("/generate_quiz")
 async def generate_quiz(req: GenerateQuizRequest):
-    return await ai_service.generate_quiz(req.node_content, req.difficulty, req.style, req.user_persona)
+    return await ai_service.generate_quiz(
+        req.node_content,
+        difficulty=req.difficulty,
+        style=req.style,
+        user_persona=req.user_persona,
+        question_count=req.question_count
+    )
 
 @app.post("/summarize_chat")
 async def summarize_chat(req: SummarizeChatRequest):
