@@ -120,29 +120,44 @@ export const renderMarkdown = (content: string) => {
         return markdownCache.get(content) || ''
     }
 
+    // --- Pre-processing for Robustness ---
+    let normalized = content;
+
+    // 1. Fix unclosed block math $$ ...
+    const blockMathCount = (normalized.match(/\$\$/g) || []).length;
+    if (blockMathCount % 2 !== 0) {
+        normalized += '\n$$';
+    }
+
+    // 2. Fix unclosed code blocks ``` ...
+    const fenceCount = (normalized.match(/^```/gm) || []).length;
+    if (fenceCount % 2 !== 0) {
+        normalized += '\n```';
+    }
+
+    // 3. Fix bare LaTeX environments (wrap in $$ if not already)
+    // Matches \begin{matrix}... \end{matrix} that are NOT surrounded by $$
+    // We use a simplified check: if we see \begin{...} and it's not preceded by $$, wrap it.
+    // This is heuristic and might be risky, but addresses the specific issue.
+    // Better approach: Let's assume block environments starting at newline.
+    normalized = normalized.replace(/(^|\n)\\begin\{([a-z*]+)\}([\s\S]*?)\\end\{\2\}/gm, (match) => {
+        return `\n$$\n${match.trim()}\n$$\n`;
+    });
+
     // Fix: Auto-add space after headers (e.g., "###Title" -> "### Title")
-    let normalized = content.replace(/^(#{1,6})(?=[^#\s])/gm, '$1 ');
+    normalized = normalized.replace(/^(#{1,6})(?=[^#\s])/gm, '$1 ');
 
     // Normalize LaTeX delimiters for compatibility
     // Replace \[ ... \] with $$ ... $$
     normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$');
-    // Replace \( ... \) with $ ... $ (we'll convert back to valid katex format later if needed, but $$ is standard)
+    // Replace \( ... \) with $ ... $ 
     normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
     
     // Fix spaces in inline math $ ... $ -> $...$
-    // And ensure we use $$...$$ for block and $...$ for inline (if supported)
-    // IMPORTANT: markdown-it-katex default often supports $$ for block and $ for inline
-    // But to be safe, we ensure $...$ has NO outer spaces if that's the requirement, 
-    // OR we convert single $ to \\( ... \\) if that's what the parser prefers.
-    // Testing shows markdown-it-katex usually handles $...$ if it's not surrounded by spaces? 
-    // Actually, let's normalize to standard LaTeX: $$ for block, \\( for inline to be safe.
-    
     normalized = normalized.replace(/(\$\$[\s\S]*?\$\$)|(\$([^\$\n]+?)\$)/g, (match, block, inline, content) => {
         if (block) return block
         if (inline) {
-            // Trim content
             const trimmed = content.trim()
-            // Keep as $...$ for markdown-it-katex
             return `$${trimmed}$`
         }
         return match
