@@ -579,7 +579,7 @@ You MUST output the metadata at the very end of your response.
 [Your Answer Content Here]
 
 ---METADATA---
-{{"node_id": "{node_id}", "quote": "quote from text if any", "anno_summary": "short summary"}}
+{{"node_id": "{node_id}", "quote": "quote from text if any", "anno_summary": "Core knowledge points summary in Markdown bullet points (3-5 points)"}}
 
 DO NOT wrap the JSON in markdown code blocks.
 """
@@ -617,7 +617,7 @@ DO NOT wrap the JSON in markdown code blocks.
    - 将找到的原句放入 metadata 的 `quote` 字段中。前端界面会自动高亮显示这句话，就像老师在课本上划线一样。
    - 如果找不到精确原句，不要编造。
 4. **总结笔记（Note Taking）**：
-   - 在 `anno_summary` 中生成一个简短的笔记标题（10字以内），方便用户一键保存。
+   - 在 `anno_summary` 中生成一个核心知识点概括（Markdown 列表，3-5点），方便用户快速回顾。
 
 **创新想法捕捉（Innovation Capture）**：
 - 如果用户提出了新的解法、思路或独特的见解，请予以积极反馈。
@@ -639,7 +639,7 @@ DO NOT wrap the JSON in markdown code blocks.
 - 紧接着输出一个标准的 JSON 对象（不要用 markdown 代码块包裹），包含：
   - `node_id`: (string) 答案主要参考的章节ID。如果无法确定，返回 null。
   - `quote`: (string) 答案引用的原文片段（必须是原文中存在的句子）。如果没有引用，返回 null。
-  - `anno_summary`: (string) 5-10个字的简短摘要，用于生成笔记标题。
+  - `anno_summary`: (string) 核心知识点概括，使用 Markdown 无序列表格式（3-5点）。
 
 **示例**：
 什么是递归？

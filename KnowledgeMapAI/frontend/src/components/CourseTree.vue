@@ -286,7 +286,7 @@
                             <div class="flex items-center gap-2">
                                 <span v-if="note.sourceType === 'ai'" class="text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100 whitespace-nowrap">AI 助手</span>
                                 <span v-else class="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 whitespace-nowrap">笔记</span>
-                                <div class="font-bold text-slate-700 text-sm truncate">{{ note.content.split('\n')[0] }}</div>
+                                <div class="font-bold text-slate-700 text-sm truncate">{{ note.summary ? '核心概括' : note.content.split('\n')[0] }}</div>
                             </div>
                             <div class="flex items-center gap-2 text-[10px] text-slate-400">
                                 <span class="bg-slate-100 px-1.5 py-0.5 rounded flex items-center gap-1">
@@ -306,9 +306,9 @@
                     <div v-if="note.quote" class="text-xs text-slate-500 italic border-l-2 border-primary-300 pl-2 mb-2 bg-slate-50/50 py-1 rounded-r">
                         "{{ note.quote }}"
                     </div>
-                    <div class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap max-h-32 overflow-hidden relative group cursor-pointer" @click="note.expanded = !note.expanded">
-                        <div :class="{ 'line-clamp-3': !note.expanded }">{{ note.content }}</div>
-                        <div v-if="!note.expanded && note.content.length > 100" class="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white/80 to-transparent flex items-end justify-center">
+                    <div class="text-xs text-slate-600 leading-relaxed max-h-32 overflow-hidden relative group cursor-pointer note-preview-content" @click="note.expanded = !note.expanded">
+                        <div :class="{ 'line-clamp-3': !note.expanded }" v-html="renderMarkdown(note.summary || note.content)"></div>
+                        <div v-if="!note.expanded && (note.summary || note.content).length > 100" class="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white/80 to-transparent flex items-end justify-center">
                             <span class="text-[10px] text-primary-500 bg-white/80 px-2 rounded-full shadow-sm mb-1">展开更多</span>
                         </div>
                     </div>
@@ -484,6 +484,7 @@ import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
 import { Plus, Search, CircleClose, Collection, Delete, Notebook, ArrowLeft, Edit, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled } from '@element-plus/icons-vue'
 import { BookOpen, Hash, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
+import { renderMarkdown } from '../utils/markdown'
 
 const courseStore = useCourseStore()
 const router = useRouter()
@@ -910,5 +911,41 @@ const backToCourses = () => {
     border-color: rgba(255, 255, 255, 0.8);
     transform: translateY(-2px);
     box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.08);
+}
+
+/* Preview Card Markdown Overrides */
+.note-preview-content :deep(h1),
+.note-preview-content :deep(h2),
+.note-preview-content :deep(h3),
+.note-preview-content :deep(h4),
+.note-preview-content :deep(h5),
+.note-preview-content :deep(h6) {
+    font-size: 0.95rem !important;
+    font-weight: 700 !important;
+    margin: 0.25rem 0 !important;
+    line-height: 1.4 !important;
+    color: #334155;
+}
+
+.note-preview-content :deep(p) {
+    margin-bottom: 0.25rem !important;
+    font-size: 0.875rem !important;
+}
+
+.note-preview-content :deep(ul),
+.note-preview-content :deep(ol) {
+    margin: 0.25rem 0 !important;
+    padding-left: 1rem !important;
+}
+
+.note-preview-content :deep(pre),
+.note-preview-content :deep(blockquote),
+.note-preview-content :deep(table) {
+    margin: 0.5rem 0 !important;
+    font-size: 0.75rem !important;
+}
+
+.note-preview-content :deep(.katex) {
+    font-size: 1em !important;
 }
 </style>

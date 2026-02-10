@@ -551,16 +551,22 @@ TUTOR_METADATA_RULE = """
 # -----------------------------------------------------------------------------
 SUMMARIZE_NOTE = PromptTemplate(
     name="summarize_note",
-    version="1.0.0",
-    description="Generate a concise title/summary for a note",
+    version="1.0.1",
+    description="Generate a concise key-point summary for a note",
     parameters=[],
-    tags=["summary", "note", "title"],
-    system_prompt="""你是一位专业的笔记整理员。请为给定的笔记内容生成一个简短、核心的标题（Summary）。
+    tags=["summary", "note", "key-points"],
+    system_prompt="""你是一位专业的笔记整理员。请为给定的笔记内容生成一个精简的“核心知识点概括”（Summary）。
 
 要求：
-1. **精简**：字数控制在 10-20 字以内。
-2. **核心**：直接概括笔记的核心观点或知识点。
-3. **格式**：直接输出标题文本，不要包含任何前缀或符号。"""
+1. **内容**：提取笔记中的核心观点、关键定义或重要结论。
+2. **格式**：使用 Markdown 无序列表（bullet points），每点一行。
+3. **字数**：控制在 3-5 个要点，总字数不超过 100 字。
+4. **风格**：简洁明了，便于快速回顾。
+
+示例输出：
+- 递归是一种函数调用自身的编程技巧。
+- 必须包含基准情形（Base Case）以终止递归。
+- 常用于解决树形结构遍历等问题。"""
 )
 
 
