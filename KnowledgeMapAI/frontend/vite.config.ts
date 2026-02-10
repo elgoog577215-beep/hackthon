@@ -33,6 +33,18 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true
       },
+      '/annotations': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      },
+      '/generate_quiz': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      },
+      '/summarize_chat': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      },
       '/ask': {
         target: 'http://localhost:8000',
         changeOrigin: true
