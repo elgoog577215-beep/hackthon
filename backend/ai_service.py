@@ -8,37 +8,37 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from typing import List, Dict, Optional
 
-# Import prompt templates
+# 导入提示模板
 from prompts import (
     get_prompt,
     TUTOR_SYSTEM_BASE,
     TUTOR_METADATA_RULE,
 )
 
-# Configure logging
+# 配置日志记录
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load environment variables
+# 加载环境变量
 load_dotenv()
 
-# Mock AI Service with capabilities to switch to Real API
+# 具有切换到真实 API 功能的模拟 AI 服务
 class AIService:
     """
-    Abstraction layer for AI model interactions.
-    Supports switching between different models based on task complexity.
+    AI 模型交互的抽象层。
+    支持根据任务复杂性在不同模型之间切换。
     """
     def __init__(self):
-        # Configure API Key via environment variable
+        # 通过环境变量配置 API 密钥
         self.api_key = os.getenv("AI_API_KEY")
         self.api_base = os.getenv("AI_API_BASE", "https://api-inference.modelscope.cn/v1")
         
-        # Hybrid Model Strategy
-        # Smart Model: For complex reasoning, creative writing, and detailed explanations.
+        # 混合模型策略
+        # 智能模型：用于复杂推理、创意写作和详细解释。
         self.model_smart = os.getenv("AI_MODEL", "Qwen/Qwen3-32B")
         
-        # Fast Model: For summarization, classification, and simple tasks.
-        # Default to a smaller, faster model if not specified.
+        # 快速模型：用于摘要、分类和简单任务。
+        # 如果未指定，默认使用更小、更快的模型。
         self.model_fast = os.getenv("AI_MODEL_FAST", "Qwen/Qwen3-32B")
         
         self.client = AsyncOpenAI(
@@ -48,19 +48,19 @@ class AIService:
 
     def _extract_json(self, text: str) -> Optional[Dict]:
         """
-        Robust JSON extraction from LLM response.
-        Handles Markdown blocks, plain text, and potential noise.
+        从 LLM 响应中稳健地提取 JSON。
+        处理 Markdown 块、纯文本和潜在的干扰信息。
         """
         logger.info(f"Raw AI Response for JSON extraction: {text[:200]}...")
 
         try:
-            # First try direct parsing
+            # 首先尝试直接解析
             return json.loads(text)
         except json.JSONDecodeError:
             pass
 
-        # Try to find JSON block in markdown
-        # Relaxed regex to capture content between ```json and ```
+        # 尝试在 markdown 中查找 JSON 块
+        # 宽松的正则表达式以捕获 ```json 和 ``` 之间的内容
         json_match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
         if json_match:
             try:
@@ -69,7 +69,7 @@ class AIService:
                 logger.warning(f"Markdown JSON decode error: {e}")
                 pass
 
-        # Try to find any code block
+        # 尝试查找任何代码块
         code_match = re.search(r'```\s*(.*?)\s*```', text, re.DOTALL)
         if code_match:
             try:
@@ -77,7 +77,7 @@ class AIService:
             except json.JSONDecodeError:
                 pass
 
-        # Try to find the first '{' and the last '}'
+        # 尝试查找第一个 '{' 和最后一个 '}'
         try:
             start_idx = text.find('{')
             end_idx = text.rfind('}')
@@ -90,7 +90,7 @@ class AIService:
 
         logger.warning(f"Failed to extract JSON from: {text[:500]}...")
         
-        # Debug: Write failed text to file
+        # 调试：将失败的文本写入文件
         try:
             with open("debug_failed_json.txt", "w", encoding="utf-8") as f:
                 f.write(text)
@@ -444,8 +444,8 @@ class AIService:
 - **字数**：800-1500 字，确保解释透彻。
 - **输出**：直接输出 Markdown 内容，包含分隔符。
 """
-        # Inject Style and Difficulty context from requirement string if possible
-        # Since 'requirement' is just a string, we append it directly.
+        # 如果可能，从需求字符串中注入样式和难度上下文
+        # 由于 'requirement' 只是一个字符串，我们直接附加它。
         
         prompt = f"""
 全书大纲：

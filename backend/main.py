@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
-# Main Application Entry Point
-# This file initializes the FastAPI application, configures middleware (CORS, GZip),
-# and defines the API routes for course management, node operations, and AI services.
+# 主应用程序入口点
+# 此文件初始化 FastAPI 应用程序，配置中间件（CORS、GZip），
+# 并定义课程管理、节点操作和 AI 服务的 API 路由。
 # -----------------------------------------------------------------------------
 
 from fastapi import FastAPI, HTTPException
@@ -13,7 +13,7 @@ from pydantic import BaseModel
 import sys
 import os
 
-# Add current directory to sys.path to ensure local imports work
+# 添加当前目录到 sys.path 以确保本地导入工作正常
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
@@ -26,7 +26,7 @@ try:
     from storage import storage
     from ai_service import ai_service
 except ImportError:
-    # Fallback for when running from parent directory
+    # 当从父目录运行时回退
     from backend.models import *
     from backend.storage import storage
     from backend.ai_service import ai_service
@@ -369,15 +369,15 @@ def update_annotation(anno_id: str, req: UpdateAnnotationRequest):
 
 @app.get("/courses/{course_id}/annotations")
 def get_course_annotations(course_id: str):
-    # Return all annotations for a course (requires filtering by nodes in that course)
-    # 1. Get all nodes in course
+    # 返回课程的所有批注（需要通过该课程中的节点进行过滤）
+    # 1. 获取课程中的所有节点
     course_data = storage.load_course(course_id)
     if not course_data or "nodes" not in course_data:
         return []
     
     node_ids = set(n["node_id"] for n in course_data["nodes"])
     
-    # 2. Get all annotations and filter
+    # 2. 获取所有批注并过滤
     all_annos = storage.load_annotations()
     return [a for a in all_annos if a.get("node_id") in node_ids]
 
@@ -446,30 +446,30 @@ def update_node(course_id: str, node_id: str, node_update: UpdateNodeRequest):
     raise HTTPException(status_code=404, detail="Node not found")
 
 
-# --- Static Files Serving (for Deployment) ---
-# Serves the frontend static assets (Vue.js app) when deployed.
-# This allows the backend to serve the entire application as a single unit.
+# --- 静态文件服务（用于部署） ---
+# 部署时提供前端静态资源（Vue.js 应用）。
+# 这允许后端作为一个单元提供整个应用程序。
 
-# Check if 'static' directory exists (where frontend build should be)
+# 检查 'static' 目录是否存在（前端构建应在此处）
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 if os.path.exists(static_dir):
-    # Mount assets (CSS, JS, Images)
+    # 挂载资产（CSS、JS、图像）
     app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
     
-    # Catch-all route for SPA (Vue Router)
+    # SPA（Vue Router）的捕获所有路由
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
-        # Allow API calls to pass through (should be handled by above routes, but just in case)
+        # 允许 API 调用通过（应由上述路由处理，但以防万一）
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="API endpoint not found")
             
-        # Check if specific file exists (e.g. favicon.ico, robots.txt)
+        # 检查特定文件是否存在（例如 favicon.ico, robots.txt）
         file_path = os.path.join(static_dir, full_path)
         if os.path.exists(file_path) and os.path.isfile(file_path):
             return FileResponse(file_path)
             
-        # Fallback to index.html for Vue Router history mode
+        # 回退到 Vue Router 历史模式的 index.html
         return FileResponse(os.path.join(static_dir, "index.html"))
 
 if __name__ == "__main__":
