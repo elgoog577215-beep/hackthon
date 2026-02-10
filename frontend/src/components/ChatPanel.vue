@@ -294,7 +294,7 @@
                                             <el-icon :size="12"><InfoFilled /></el-icon>
                                             解析
                                         </div>
-                                        <div class="text-sm text-slate-600 leading-[1.8]" v-html="renderMarkdown(quiz.explanation)"></div>
+                                        <div class="text-sm text-slate-600 leading-[1.8]" v-html="renderMarkdown(quiz.explanation || '')"></div>
                                     </div>
                                     
                                     <div class="flex gap-2 mt-3 flex-wrap">
@@ -410,7 +410,7 @@
 import { ref, watch, nextTick, onMounted, reactive, computed } from 'vue'
 import { useCourseStore } from '../stores/course'
 import type { AIContent } from '../stores/course'
-import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight, InfoFilled, QuestionFilled, Document, DataLine, Lightbulb, TrendCharts, Menu as CommandMenu } from '@element-plus/icons-vue'
+import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight, InfoFilled, QuestionFilled, Document, DataLine, Sunny, TrendCharts, Menu as CommandMenu } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown } from '../utils/markdown'
 
@@ -423,12 +423,12 @@ const showQuickCommands = ref(false)
 
 // Quick Commands Definition
 const quickCommands = [
-    { key: 'summary', label: '总结内容', icon: 'Document', template: '请帮我总结一下当前章节的核心内容' },
-    { key: 'explain', label: '详细解释', icon: 'QuestionFilled', template: '请详细解释一下这个概念，包括定义、原理和应用场景' },
-    { key: 'example', label: '举例说明', icon: 'Lightbulb', template: '请给我举几个具体的例子来帮助理解' },
-    { key: 'compare', label: '对比分析', icon: 'DataLine', template: '请对比分析一下相关概念的异同点' },
-    { key: 'quiz', label: '生成测验', icon: 'TrendCharts', template: '请基于当前内容生成几道测验题' },
-    { key: 'keypoints', label: '提取重点', icon: 'Collection', template: '请提取本章节的重点和考点' }
+    { key: 'summary', label: '总结内容', icon: Document, template: '请帮我总结一下当前章节的核心内容' },
+    { key: 'explain', label: '详细解释', icon: QuestionFilled, template: '请详细解释一下这个概念，包括定义、原理和应用场景' },
+    { key: 'example', label: '举例说明', icon: Sunny, template: '请给我举几个具体的例子来帮助理解' },
+    { key: 'compare', label: '对比分析', icon: DataLine, template: '请对比分析一下相关概念的异同点' },
+    { key: 'quiz', label: '生成测验', icon: TrendCharts, template: '请基于当前内容生成几道测验题' },
+    { key: 'keypoints', label: '提取重点', icon: Collection, template: '请提取本章节的重点和考点' }
 ]
 
 const handleInput = () => {

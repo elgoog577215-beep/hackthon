@@ -1740,7 +1740,7 @@ const formatNoteDetailContent = (note: any) => {
         
         // Check if content starts with the quote
         // We look for the quote at the beginning, possibly wrapped in blockquotes
-        const contentParts = content.split('\n')
+        
         // Heuristic: If the first few non-empty lines match the quote, remove them.
         
         // Simpler approach: Check if normalized content *starts with* normalized quote

@@ -478,12 +478,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, computed, reactive, nextTick, onMounted } from 'vue'
+import { ref, watch, onUnmounted, computed, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
-import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
-import { Plus, Search, CircleClose, Collection, Delete, Notebook, ArrowLeft, Edit, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled } from '@element-plus/icons-vue'
-import { BookOpen, Hash, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
+import { ElTree, ElMessage, ElPopconfirm } from 'element-plus'
+import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled } from '@element-plus/icons-vue'
+import { BookOpen, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
 import { renderMarkdown } from '../utils/markdown'
 
 const courseStore = useCourseStore()
@@ -606,7 +606,7 @@ const setupResizeObserver = (el: HTMLElement) => {
     
     resizeObserver = new ResizeObserver((entries) => {
         window.requestAnimationFrame(() => {
-            for (const entry of entries) {
+            for (const _entry of entries) {
                 // Use smart width calculation
                 const optimalWidth = calculateOptimalWidth()
                 emit('update:preferredWidth', optimalWidth)
@@ -723,43 +723,6 @@ const handleNodeClick = (data: any) => {
   if (window.innerWidth < 768) {
       emit('node-selected', data)
   }
-}
-
-const handleAdd = (data: any) => {
-    ElMessageBox.prompt('请输入新节点名称', '添加子节点', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        inputPattern: /\S+/,
-        inputErrorMessage: '名称不能为空'
-    }).then((res: any) => {
-        const { value } = res
-        courseStore.addCustomNode(data.node_id, value)
-    }).catch(() => {})
-}
-
-const handleGenerate = async (data: any) => {
-    if (courseStore.isGenerating) {
-        ElMessage.warning('正在生成中，请稍后')
-        return
-    }
-    await courseStore.generateNodeContent(data.node_id)
-}
-
-const handleRename = (data: any) => {
-    ElMessageBox.prompt('请输入新名称', '重命名', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        inputValue: data.node_name,
-        inputPattern: /\S+/,
-        inputErrorMessage: '名称不能为空'
-    }).then((res: any) => {
-        const { value } = res
-        courseStore.renameNode(data.node_id, value)
-    }).catch(() => {})
-}
-
-const handleDelete = (data: any) => {
-    courseStore.deleteNode(data.node_id)
 }
 
 const createDialogVisible = ref(false)
