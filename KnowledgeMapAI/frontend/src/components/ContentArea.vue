@@ -750,9 +750,40 @@ dayjs.locale('zh-cn')
 
 onUpdated(() => {
     nextTick(() => {
-        mermaid.run({
-            querySelector: '.mermaid'
-        })
+        try {
+            mermaid.run({
+                querySelector: '.mermaid',
+                suppressErrors: true // Prevent Mermaid from throwing errors that break the app
+            }).catch(err => {
+                console.warn('Mermaid rendering warning:', err);
+                // Fallback: If rendering fails, the original code block is often hidden or replaced.
+                // We could try to show the error message in the div.
+                document.querySelectorAll('.mermaid').forEach(el => {
+                    if (el.innerHTML.trim() === '' || el.getAttribute('data-processed') !== 'true') {
+                         // Check if it failed
+                         // Actually mermaid 10+ handles errors by displaying an error graph usually.
+                    }
+                })
+            });
+        } catch (e) {
+            console.error('Mermaid init error:', e)
+        }
+        
+        // Highlight Introduction
+        const blockquotes = document.querySelectorAll('blockquote');
+        blockquotes.forEach(bq => {
+            if (bq.textContent && (bq.textContent.includes('引言') || bq.textContent.includes('Introduction'))) {
+                bq.classList.add('introduction-quote');
+                // Add an icon if not present
+                if (!bq.querySelector('.intro-icon')) {
+                    const icon = document.createElement('span');
+                    icon.className = 'intro-icon';
+                    icon.innerHTML = '💡';
+                    icon.style.marginRight = '8px';
+                    bq.prepend(icon);
+                }
+            }
+        });
     })
 })
 
