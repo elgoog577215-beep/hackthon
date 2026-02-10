@@ -188,7 +188,7 @@ GENERATE_COURSE = PromptTemplate(
 
 2. **内容规范**
    - **课程命名**：采用学术著作或专业课程的标准命名方式
-   - **章节逻辑**：遵循"学科导论→理论基础→核心技术→应用实践→前沿发展"的学术演进路径
+   - **章节逻辑**：直接切入核心主题，遵循"理论基础→核心技术→应用实践→前沿发展"的演进路径，**严禁包含"导论"、"概述"或"Introduction"章节**
    - **内容摘要**：每章50字左右的概述，突出核心概念和知识要点
    - **风格适配**：确保章节名称和摘要内容符合设定的"{{style}}"风格
 
@@ -199,9 +199,8 @@ GENERATE_COURSE = PromptTemplate(
 {{{{
   "course_name": "《关键词：原理与实践》",
   "nodes": [
-    {{{{"node_id": "id_1", "parent_node_id": "root", "node_name": "《计算机科学导论》", "node_level": 1, "node_content": "前言与课程综述", "node_type": "original"}}}},
-    {{{{"node_id": "id_2", "parent_node_id": "id_1", "node_name": "第一章 基础理论", "node_level": 2, "node_content": "本章阐述...", "node_type": "original"}}}},
-    {{{{"node_id": "id_3", "parent_node_id": "id_1", "node_name": "第二章 核心机制", "node_level": 2, "node_content": "本章深入分析...", "node_type": "original"}}}}
+    {{{{"node_id": "id_1", "parent_node_id": "root", "node_name": "第一章 基础理论", "node_level": 1, "node_content": "前言与课程综述", "node_type": "original"}}}},
+    {{{{"node_id": "id_2", "parent_node_id": "root", "node_name": "第二章 核心机制", "node_level": 1, "node_content": "本章深入分析...", "node_type": "original"}}}}
   ]
 }}}}
 ```"""
