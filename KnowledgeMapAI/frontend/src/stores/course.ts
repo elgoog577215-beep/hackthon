@@ -51,8 +51,6 @@ export interface Note {
     top?: number // Dynamic position for rendering
     sourceType?: 'user' | 'ai' | 'format' | 'wrong'
     style?: 'bold' | 'underline' | 'wave' | 'dashed' | 'highlight' | 'solid' | 'wavy'
-    expanded?: boolean
-    tags?: string[] // Note tags for categorization
     title?: string // Optional note title
 }
 
@@ -158,10 +156,11 @@ export const useCourseStore = defineStore('course', {
     
     // UI State
     isFocusMode: false,
+    showKnowledgeGraph: false,
     isMobileNotesVisible: false,
     globalSearchQuery: '',
     uiSettings: {
-        fontSize: 16, // Default font size
+        fontSize: 17, // Default font size
         fontFamily: 'sans' as 'sans' | 'serif' | 'mono',
         lineHeight: 1.75
     },
@@ -406,36 +405,6 @@ export const useCourseStore = defineStore('course', {
         downloadBlob(blob, filename)
     },
 
-    // ========== Note Tags Management ==========
-    getAllNoteTags(): string[] {
-        const tags = new Set<string>()
-        this.notes.forEach(note => {
-            note.tags?.forEach(tag => tags.add(tag))
-        })
-        return Array.from(tags).sort()
-    },
-
-    getNotesByTag(tag: string): Note[] {
-        return this.notes.filter(note => note.tags?.includes(tag))
-    },
-
-    addTagToNote(noteId: string, tag: string) {
-        const note = this.notes.find(n => n.id === noteId)
-        if (note) {
-            if (!note.tags) note.tags = []
-            if (!note.tags.includes(tag)) {
-                note.tags.push(tag)
-            }
-        }
-    },
-
-    removeTagFromNote(noteId: string, tag: string) {
-        const note = this.notes.find(n => n.id === noteId)
-        if (note && note.tags) {
-            note.tags = note.tags.filter(t => t !== tag)
-        }
-    },
-
     persistGenerationState() {
         try {
             const tasks = Array.from(this.tasks.values()).map(task => ({
@@ -479,79 +448,28 @@ export const useCourseStore = defineStore('course', {
                 })
             }
             const normalizedQueue = Array.isArray(data.queue)
-                ? data.queue.map((item: QueueItem) => ({
-                    ...item,
-                    status: item.status === 'running' ? 'pending' : item.status,
-                    errorMsg: item.status === 'running' ? undefined : item.errorMsg
-                }))
+                ? data.queue.filter((item: QueueItem) => item.status === 'completed' || item.status === 'error')
                 : []
 
             this.tasks = tasks
             this.queue = normalizedQueue
             this.isQueueProcessing = false
 
-            // Restore currentCourseId if valid
-            let restoredCourseId = null
-            if (data.currentCourseId && this.tasks.has(data.currentCourseId)) {
-                restoredCourseId = data.currentCourseId
-                if (!this.currentCourseId) {
-                    this.currentCourseId = restoredCourseId
-                }
-            }
+            // DO NOT restore currentCourseId. 
+            // We want the user to start fresh on the home page.
+            this.currentCourseId = ''
 
-            const hasPending = this.queue.some(i => i.status === 'pending')
-            if (hasPending) {
-                this.tasks.forEach(task => {
-                    const hasTaskPending = this.queue.some(i => i.courseId === task.id && i.status === 'pending')
-                    if (hasTaskPending) {
-                        task.status = 'running'
-                        task.currentStep = task.currentStep || '生成恢复中'
-                        this.addLogToTask(task.id, '♻️ 检测到未完成任务，已自动恢复生成')
-                    }
-                })
-                if (this.currentCourseId) {
-                    const currentTask = this.tasks.get(this.currentCourseId)
-                    if (currentTask && currentTask.status === 'running') {
-                        this.isGenerating = true
-                        this.generationStatus = 'generating'
-                        this.generationLogs = currentTask.logs
-                    }
+            // Reset all running/paused tasks to idle and do NOT resume
+            this.tasks.forEach(task => {
+                if (task.status === 'running' || task.status === 'paused') {
+                    task.status = 'idle'
+                    task.currentStep = ''
+                    this.addLogToTask(task.id, '⏹️ 未完成的任务已停止')
                 }
-                setTimeout(() => this.processQueue(), 50)
-            } else {
-                // Check for "Zombie" tasks: Status is running but queue is empty
-                // This happens if the app was closed while queue was being populated or processed
-                let recovered = false
-                this.tasks.forEach(task => {
-                    if (task.status === 'running') {
-                        this.addLogToTask(task.id, '🔄 正在检查课程完整性...')
-                        // Re-run generation logic to fill missing gaps
-                        this.generateFullDetails(task.id)
-                        
-                        // Check if queue was populated
-                        const hasNewWork = this.queue.some(i => i.courseId === task.id && i.status === 'pending')
-                        if (hasNewWork) {
-                            recovered = true
-                            this.addLogToTask(task.id, '♻️ 发现未完成章节，继续生成')
-                        } else {
-                            // Really done
-                            task.status = 'completed'
-                            task.progress = 100
-                            this.addLogToTask(task.id, '✅ 课程检查完毕，已全部完成')
-                        }
-                    }
-                })
-
-                if (recovered) {
-                    this.isQueueProcessing = false
-                    setTimeout(() => this.processQueue(), 50)
-                } else {
-                    this.finalizeIdleTasks()
-                }
-            }
+            })
             
             this.stateRestored = true
-            return restoredCourseId
+            return null
         } catch (e) {
             console.error(e)
             return null
@@ -1104,6 +1022,9 @@ export const useCourseStore = defineStore('course', {
     async loadCourse(courseId: string) {
         this.loading = true
         this.currentCourseId = courseId
+        
+        // Clear previous notes to ensure isolation
+        this.notes = []
         
         // Load Annotations for the whole course
         this.fetchCourseAnnotations(courseId)
@@ -1796,7 +1717,6 @@ export const useCourseStore = defineStore('course', {
                         color: 'amber',
                         createdAt: Date.now(),
                         sourceType: 'user', // Assume legacy are user notes
-                        expanded: false
                     })
                 }
             })
@@ -1925,6 +1845,12 @@ export const useCourseStore = defineStore('course', {
 
         // Create a placeholder message for AI
         
+        // Prepare user notes context (Learning Footprint)
+        const userNotes = this.notes
+            .map(n => `- [${n.sourceType === 'ai' ? 'AI' : 'User'}] ${n.content} (Related to Node: ${n.nodeId})`)
+            .join('\n')
+            .slice(0, 5000) // Limit to 5000 chars to avoid token overflow
+
         const aiMessageContent: AIContent = {
             core_answer: '',
             detail_answer: [],
@@ -1957,6 +1883,7 @@ export const useCourseStore = defineStore('course', {
                 question,
                 history,
                 selection,
+                user_notes: userNotes,
                 user_persona: this.userPersona
             }),
             signal: controller.signal

@@ -18,12 +18,13 @@
     </Teleport>
 
     <!-- Content List (Continuous Scroll) -->
-    <div class="flex-1 overflow-auto p-4 lg:p-10 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp">
+    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp">
       
         <!-- Selection Menu -->
     <Teleport to="body">
       <transition name="scale-fade">
         <div v-if="selectionMenu.visible" 
+            id="selection-menu"
             class="fixed z-50 flex flex-col p-1.5 bg-white/95 backdrop-blur-xl rounded-lg shadow-[0_12px_40px_rgba(0,0,0,0.15)] border border-white/40 ring-1 ring-black/5 min-w-[260px] select-none"
             :style="{ 
                 left: selectionMenu.x + 'px', 
@@ -93,8 +94,8 @@
             </div>
             
             <!-- Arrow -->
-            <div v-if="selectionMenu.placement === 'bottom'" class="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-t border-l border-white/40 rotate-45 shadow-[-2px_-2px_4px_rgba(0,0,0,0.02)]"></div>
-            <div v-else class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-b border-r border-white/40 rotate-45 shadow-[4px_4px_4px_rgba(0,0,0,0.05)]"></div>
+            <div v-if="selectionMenu.placement === 'bottom'" class="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-t border-l border-white/40 rotate-45 shadow-[-2px_-2px_4px_rgba(0,0,0,0.02)]" :style="{ marginLeft: selectionMenu.arrowOffset + 'px' }"></div>
+            <div v-else class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-b border-r border-white/40 rotate-45 shadow-[4px_4px_4px_rgba(0,0,0,0.05)]" :style="{ marginLeft: selectionMenu.arrowOffset + 'px' }"></div>
         </div>
       </transition>
     </Teleport>
@@ -103,7 +104,7 @@
 
 
         <!-- Main Content Column -->
-        <div class="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 xl:px-12 space-y-8 sm:space-y-10 lg:space-y-12 pb-24 sm:pb-28 lg:pb-32 pt-2 sm:pt-3 lg:pt-4">
+        <div class="flex-1 min-w-0 px-2 sm:px-3 lg:px-4 xl:px-6 space-y-8 sm:space-y-10 lg:space-y-12 pb-24 sm:pb-28 lg:pb-32 pt-2 sm:pt-3 lg:pt-4">
             <div v-for="(node, index) in flatNodes" :key="node.node_id" :id="'node-' + node.node_id"
                 class="scroll-mt-20 sm:scroll-mt-22 lg:scroll-mt-24 transition-all duration-500 animate-fade-in-up"
                 :style="{ animationDelay: (index * 100) + 'ms' }">
@@ -160,15 +161,14 @@
                                         <span class="text-[11px] font-bold tracking-wider uppercase">Chapter</span>
                                     </div>
                                     <span class="text-2xl font-black text-slate-200">{{ String(index + 1).padStart(2, '0') }}</span>
+                                    
+
                                 </div>
 
                                 <!-- Metadata Pills -->
                                 <div class="flex items-center gap-2">
                                     <div v-if="node.is_read" class="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full shadow-sm">
                                         <el-icon :size="12"><Check /></el-icon> 已读
-                                    </div>
-                                    <div class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full">
-                                        <el-icon :size="12"><Timer /></el-icon> {{ Math.ceil((node.node_content?.length || 0) / 500) }} min
                                     </div>
                                 </div>
                             </div>
@@ -190,34 +190,21 @@
                                     </div>
                                 </div>
 
-                                <!-- Quiz Button - Premium Style -->
-                                <button
-                                    class="flex-shrink-0 group/btn relative overflow-hidden rounded-xl bg-gradient-to-r from-slate-800 to-slate-900 text-white px-6 py-3 flex items-center gap-3 shadow-lg hover:shadow-xl hover:shadow-primary-500/20 hover:scale-[1.02] transition-all duration-300"
-                                    @click="handleStartQuiz(node)"
-                                >
-                                    <div class="absolute inset-0 bg-gradient-to-r from-primary-500 via-indigo-500 to-purple-500 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-300"></div>
-                                    <div class="relative z-10 flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-                                            <el-icon class="text-lg"><VideoPlay /></el-icon>
-                                        </div>
-                                        <div class="flex flex-col items-start">
-                                            <span class="text-[10px] text-white/70 font-medium uppercase tracking-wider">Test</span>
-                                            <span class="font-bold text-sm">本章测验</span>
-                                        </div>
-                                    </div>
-                                </button>
+                                <div class="flex-shrink-0 mb-4 lg:mb-0">
+                                    <el-button 
+                                        type="primary" 
+                                        plain 
+                                        round 
+                                        class="!px-4 hover:!scale-105 transition-transform"
+                                        @click="handleStartQuiz(node)">
+                                        <el-icon class="mr-1"><MagicStick /></el-icon> 题目测试
+                                    </el-button>
+                                </div>
                             </div>
 
-                            <!-- Bottom Row: Summary -->
-                            <div v-if="node.node_content" class="relative mt-6 pt-6 border-t border-slate-100">
-                                <div class="flex gap-4">
-                                    <div class="w-1 bg-gradient-to-b from-primary-400 to-indigo-400 rounded-full"></div>
-                                    <div class="flex-1">
-                                        <p class="text-slate-500 text-sm leading-relaxed line-clamp-2 font-medium">
-                                            {{ node.node_content.slice(0, 150) }}...
-                                        </p>
-                                    </div>
-                                </div>
+                            <!-- Bottom Row: Content -->
+                            <div v-if="node.node_content" class="mt-8 pt-8 border-t border-slate-100">
+                                <div class="prose prose-slate max-w-none prose-lg" v-html="renderMarkdown(node.node_content)"></div>
                             </div>
                         </div>
                     </div>
@@ -231,22 +218,13 @@
                         <h3 class="text-base sm:text-lg font-semibold text-slate-700 flex items-center gap-2 pr-2">
                             {{ node.node_name }}
                         </h3>
-                        <div class="flex gap-1 sm:gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-shrink-0">
-                            <button class="px-1.5 sm:px-2 py-0.5 sm:py-1 text-[9px] sm:text-[10px] font-medium text-primary-600 bg-primary-50/80 hover:bg-primary-100 rounded-md transition-colors flex items-center gap-0.5 sm:gap-1" @click="handleStartQuiz(node)" title="小节测验">
-                                <el-icon :size="11"><VideoPlay /></el-icon>
-                                <span>测验</span>
-                            </button>
-                            <button class="p-1 sm:p-1.5 text-slate-400 hover:text-primary-500 rounded-md hover:bg-slate-100 transition-colors" @click="showSummary(node)" title="内容摘要">
-                                <el-icon :size="13"><Notebook /></el-icon>
-                            </button>
-                        </div>
                     </div>
 
                     <div class="bg-white/60 backdrop-blur-sm p-3 sm:p-4 lg:p-5 xl:p-6 rounded-lg sm:rounded-xl relative overflow-hidden border border-slate-100/60 group-hover:bg-white/80 group-hover:border-slate-200/80 group-hover:shadow-sm transition-all duration-300">
                         <div
-                            class="prose prose-slate max-w-none content-render prose-sm sm:prose-base"
+                            class="prose prose-slate max-w-none content-render prose-base sm:prose-lg"
                             :style="{
-                                fontSize: fontSize + 'px',
+                                fontSize: (fontSize + 2) + 'px',
                                 fontFamily: fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' : (fontFamily === 'serif' ? 'ui-serif, Georgia, Cambria, Times New Roman, Times, serif' : '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif'),
                                 lineHeight: lineHeight
                             }"
@@ -330,37 +308,10 @@
                     </div>
                 </div>
                 
-                <!-- Tag Cloud View -->
-                <div v-if="activeNoteFilter === 'tags'" class="flex flex-wrap gap-2 max-h-28 overflow-y-auto custom-scrollbar -mx-1 px-1">
-                    <button
-                        v-for="tag in allTags" :key="tag.name"
-                        @click="toggleTagFilter(tag.name)"
-                        class="px-3 py-1.5 text-xs rounded-lg transition-all duration-200 border flex items-center gap-1.5"
-                        :class="selectedTags.includes(tag.name) 
-                            ? 'bg-primary-50 text-primary-700 border-primary-200 shadow-sm' 
-                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:shadow-sm'"
-                    >
-                        <el-icon :size="12" :class="selectedTags.includes(tag.name) ? 'text-primary-500' : 'text-slate-400'"><PriceTag /></el-icon>
-                        {{ tag.name }}
-                        <span class="text-[10px] opacity-60">{{ tag.count }}</span>
-                    </button>
-                    <div v-if="allTags.length === 0" class="w-full text-center py-4 text-xs text-slate-400 bg-slate-50 rounded-lg">
-                        <el-icon class="mb-1 block" :size="20"><PriceTag /></el-icon>
-                        暂无标签，为笔记添加标签进行分类
-                    </div>
-                </div>
-                
                 <!-- Active Filters Display -->
-                <div v-if="selectedTags.length > 0 || debouncedSearchQuery" class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                <div v-if="debouncedSearchQuery" class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
                     <span class="text-[10px] text-slate-400">筛选:</span>
                     <div class="flex flex-wrap gap-1.5 flex-1">
-                        <span v-for="tag in selectedTags" :key="tag" 
-                              class="inline-flex items-center gap-1 px-2 py-1 bg-primary-50 text-primary-600 text-[11px] rounded-lg border border-primary-100">
-                            {{ tag }}
-                            <button @click="toggleTagFilter(tag)" class="hover:text-primary-800 w-4 h-4 flex items-center justify-center rounded hover:bg-primary-100 transition-colors">
-                                <el-icon :size="10"><Close /></el-icon>
-                            </button>
-                        </span>
                         <span v-if="debouncedSearchQuery" class="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 text-[11px] rounded-lg">
                             "{{ debouncedSearchQuery }}"
                             <button @click="noteSearchQuery = ''" class="hover:text-slate-800 w-4 h-4 flex items-center justify-center rounded hover:bg-slate-200 transition-colors">
@@ -381,27 +332,24 @@
                         {{ noteEmptyText }}
                     </div>
                     <div v-for="note in displayedNotes" :key="note.id"
-                         class="bg-white/90 backdrop-blur-sm rounded-2xl shadow-[0_4px_12px_rgba(0,0,0,0.05)] border border-white p-0 group hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] transition-all duration-300 cursor-pointer overflow-hidden relative"
-                         :class="{'ring-2 ring-primary-100': activeNoteId === note.id}"
+                         class="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-0 group hover:shadow-xl hover:shadow-red-500/5 hover:border-red-200 hover:-translate-y-1 transition-all duration-300 cursor-pointer overflow-hidden relative"
+                         :class="{'ring-2 ring-red-100': activeNoteId === note.id}"
                          @click="handleNoteClick(note)">
                          
                          <!-- Header -->
-                        <div class="flex justify-between items-center px-4 py-3 border-b border-slate-100/50">
+                        <div class="flex justify-between items-center px-4 py-3 border-b border-red-50/50 bg-gradient-to-r from-red-50/30 to-transparent">
                             <div class="flex flex-col gap-0.5">
-                                <div class="text-[10px] font-black text-red-500 flex items-center gap-1.5 uppercase tracking-wide">
+                                <div class="text-[11px] font-black text-red-500 flex items-center gap-1.5 uppercase tracking-wide bg-red-50 px-2 py-1 rounded-md">
                                     <div class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
                                     错题本
                                 </div>
-                                <div class="text-[10px] font-bold text-slate-400 truncate max-w-[180px]">
+                                <div class="text-[10px] font-bold text-slate-400 truncate max-w-[180px] mt-1 pl-1">
                                     {{ getNodeName(note.nodeId) }}
                                 </div>
                             </div>
                             
-                            <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button class="p-1.5 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-primary-600 transition-colors shadow-sm" @click.stop="handleEditNote(note)" v-if="note.sourceType !== 'wrong' && !note.content.includes('#错题')">
-                                    <el-icon :size="14"><Edit /></el-icon>
-                                </button>
-                                <button class="p-1.5 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors shadow-sm" @click.stop="handleDeleteNote(note.id)">
+                            <div class="flex gap-1">
+                                <button class="p-1.5 hover:bg-white rounded-md text-slate-400 hover:text-red-500 transition-all shadow-sm border border-transparent hover:border-slate-100" @click.stop="handleDeleteNote(note.id)">
                                     <el-icon :size="14"><Delete /></el-icon>
                                 </button>
                             </div>
@@ -409,16 +357,15 @@
 
                         <!-- Content -->
                         <div class="p-4">
-                            <div class="text-sm text-slate-700 font-medium leading-relaxed note-underline" v-html="formatMistakeContent(note.content)"></div>
-                            <div class="mt-3 pt-3 border-t border-slate-50 flex items-center justify-between text-[10px] text-slate-300">
-                                <div class="flex items-center gap-1">
+                            <div class="text-sm text-slate-700 leading-7 font-sans tracking-normal" v-html="formatMistakeContent(note.content)"></div>
+                            <div class="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between text-[11px] text-slate-400">
+                                <div class="flex items-center gap-1.5 font-medium">
                                     <el-icon><Timer /></el-icon> {{ dayjs(note.createdAt).fromNow() }}
                                 </div>
                                 <div class="flex items-center gap-3">
-                                    <button class="flex items-center gap-1 hover:text-primary-500 transition-colors" @click.stop="handleNoteClick(note)">
+                                    <button class="flex items-center gap-1 hover:text-primary-600 transition-colors px-2 py-1 rounded-full hover:bg-primary-50" @click.stop="handleNoteClick(note)">
                                         <el-icon><Position /></el-icon> 跳转原文
                                     </button>
-                                    <div class="font-mono text-slate-200">#{{ note.id.slice(-4) }}</div>
                                 </div>
                             </div>
                         </div>
@@ -450,78 +397,49 @@
                                   :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-500 scale-125' : (note.sourceType === 'ai' ? 'bg-purple-400' : 'bg-slate-300')"></div>
 
                              <!-- Note Bubble -->
-                             <div class="bg-white/90 backdrop-blur-sm rounded-2xl shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)] border p-0 group hover:shadow-[0_12px_24px_-4px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer overflow-hidden"
-                                  :class="[noteCardBorderClass(note), {'ring-2 ring-primary-200': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !shadow-purple-100': note.sourceType === 'ai'}]"
+                             <div class="bg-white rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] border border-slate-200/60 p-0 group hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.12)] hover:border-primary-200/80 hover:-translate-y-1 transition-all duration-300 cursor-pointer overflow-hidden relative"
+                                  :class="[noteCardBorderClass(note), {'ring-2 ring-primary-200 ring-offset-2 shadow-lg': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !bg-purple-50/10': note.sourceType === 'ai'}]"
                                  @click="handleNoteClick(note)"
                                   @mouseenter="setHovered(note.id)"
                                   @mouseleave="setHovered(null)">
                                 
                                 <!-- Header -->
-                                <div class="flex justify-between items-center px-3 py-2 border-b border-slate-50 transition-colors duration-300"
-                                     :class="note.sourceType === 'ai' ? 'group-hover:border-purple-100' : 'group-hover:border-amber-100'">
+                                <div class="flex justify-between items-center px-4 py-3 border-b border-slate-100/50 transition-colors duration-300 bg-gradient-to-r from-slate-50/50 to-white/50 backdrop-blur-sm"
+                                     :class="note.sourceType === 'ai' ? 'group-hover:border-purple-100 from-purple-50/30' : 'group-hover:border-amber-100'">
                                     
-                                    <div v-if="note.sourceType === 'ai'" class="text-[10px] font-bold text-purple-600 flex items-center gap-1.5 uppercase tracking-wide">
+                                    <div v-if="note.sourceType === 'ai'" class="text-[11px] font-bold text-purple-600 flex items-center gap-1.5 uppercase tracking-wide bg-purple-100/50 px-2 py-1 rounded-md">
                                         <el-icon><MagicStick /></el-icon> AI 助手
                                     </div>
-                                    <div v-else class="text-[10px] font-bold text-slate-500 flex items-center gap-1.5 uppercase tracking-wide">
+                                    <div v-else class="text-[11px] font-bold text-slate-500 flex items-center gap-1.5 uppercase tracking-wide bg-slate-100 px-2 py-1 rounded-md">
                                         <div class="w-1.5 h-1.5 rounded-full" :class="noteDotClass(note)"></div>
                                         笔记
                                     </div>
                                     
-                                    <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button class="p-1 hover:bg-slate-50 rounded-md text-slate-400 hover:text-primary-600 transition-colors" @click.stop="handleEditNote(note)">
-                                            <el-icon :size="12"><Edit /></el-icon>
-                                        </button>
-                                        <button class="p-1 hover:bg-slate-50 rounded-md text-slate-400 hover:text-red-500 transition-colors" @click.stop="handleDeleteNote(note.id)">
-                                            <el-icon :size="12"><Delete /></el-icon>
+                                    <div class="flex gap-1">
+                                        <button class="p-1.5 hover:bg-white rounded-md text-slate-400 hover:text-red-500 transition-all shadow-sm border border-transparent hover:border-slate-100" @click.stop="handleDeleteNote(note.id)">
+                                            <el-icon :size="14"><Delete /></el-icon>
                                         </button>
                                     </div>
                                 </div>
 
                                 <!-- Content -->
-                                <div class="p-3">
-                                    <div v-if="editingNoteId === note.id" class="mt-2" @click.stop>
-                                        <el-input 
-                                            v-model="editingContent" 
-                                            type="textarea" 
-                                            :rows="3" 
-                                            resize="none"
-                                            class="mb-2 !text-xs"
-                                            placeholder="输入笔记内容..."
-                                            ref="editInputRef"
-                                        />
-                                        <div class="flex justify-end gap-2 mt-2">
-                                            <el-button size="small" text bg @click.stop="cancelEditing">取消</el-button>
-                                            <el-button size="small" type="primary" round @click.stop="saveEditing(note)">保存修改</el-button>
-                                        </div>
+                                <div class="p-4">
+                                    <!-- Content Preview -->
+                                    <div class="relative group/content">
+                                        <div class="text-sm text-slate-700 leading-relaxed font-sans tracking-normal note-content-markdown note-preview-content line-clamp-4" v-html="formatNoteContent(note.content)"></div>
                                     </div>
-                                    <template v-else>
-                                        <!-- Content Preview - always collapsed, click to view full in dialog -->
-                                        <div class="relative group/content">
-                                            <div class="text-sm text-slate-700 font-medium leading-relaxed whitespace-pre-wrap note-underline max-h-[120px] overflow-hidden">
-                                                {{ note.content.slice(0, 100) }}{{ note.content.length > 100 ? '...' : '' }}
-                                            </div>
 
-                                            <!-- Gradient Mask -->
-                                            <div v-if="note.content.length > 100"
-                                                 class="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none">
-                                            </div>
+                                    <!-- View Full Action -->
+                                    <div class="mt-4 pt-3 border-t border-slate-100/60 flex items-center justify-between">
+                                        <div class="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium">
+                                            <el-icon><Timer /></el-icon>
+                                            <span>{{ dayjs(note.createdAt).fromNow() }}</span>
                                         </div>
-
-                                        <!-- View Full Action -->
-                                        <div class="mt-2 flex justify-center">
-                                            <button @click.stop="handleNoteClick(note)" class="text-[10px] font-bold text-slate-400 hover:text-primary-600 flex items-center gap-1 transition-colors bg-slate-50 hover:bg-primary-50 px-2 py-0.5 rounded-full">
-                                                查看详情 <el-icon><View /></el-icon>
-                                            </button>
-                                        </div>
-
-                                        <div class="mt-3 pt-2 border-t border-slate-50 flex items-center justify-between text-[10px] text-slate-300">
-                                            <div class="flex items-center gap-1">
-                                                <el-icon><Timer /></el-icon>
-                                                <span>{{ dayjs(note.createdAt).fromNow() }}</span>
-                                            </div>
-                                        </div>
-                                    </template>
+                                        
+                                        <button @click.stop="handleNoteClick(note)" class="text-[11px] font-bold text-slate-400 hover:text-primary-600 flex items-center gap-1 transition-colors px-2 py-1 rounded-full hover:bg-slate-50">
+                                            查看详情 <el-icon><ArrowRight /></el-icon>
+                                        </button>
+                                    </div>
                                 </div>
                              </div>
                         </div>
@@ -563,20 +481,20 @@
                     {{ noteEmptyText }}
                 </div>
                 <div v-for="note in displayedNotes" :key="'mobile-'+note.id" 
-                     class="bg-white rounded-xl shadow-sm border border-slate-200 p-4"
-                     :class="{'!border-purple-200 !bg-purple-50/30': note.sourceType === 'ai'}"
+                     class="bg-white rounded-xl shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] border border-slate-200/60 p-4 active:scale-98 transition-all duration-200"
+                     :class="{'!border-purple-200 !bg-purple-50/10 shadow-purple-100': note.sourceType === 'ai'}"
                      @click="scrollToHighlight(note.highlightId, note.id); courseStore.isMobileNotesVisible = false">
-                    <div class="flex justify-between items-start mb-2">
-                        <div v-if="note.sourceType === 'ai'" class="text-xs font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded border border-purple-100">AI 助手</div>
-                        <div v-else class="text-xs font-bold px-2 py-0.5 rounded border" :class="noteBadgeClass(note)">笔记</div>
-                        <div class="flex gap-2">
-                             <button class="p-1 text-slate-400 hover:text-primary-600" @click.stop="handleEditNote(note)"><el-icon><Edit /></el-icon></button>
-                             <button class="p-1 text-slate-400 hover:text-red-500" @click.stop="handleDeleteNote(note.id)"><el-icon><Delete /></el-icon></button>
+                    <div class="flex justify-between items-start mb-3">
+                        <div v-if="note.sourceType === 'ai'" class="text-[11px] font-bold text-purple-600 bg-purple-100/50 px-2 py-1 rounded-md flex items-center gap-1"><el-icon><MagicStick /></el-icon> AI 助手</div>
+                        <div v-else class="text-[11px] font-bold px-2 py-1 rounded-md bg-slate-100 text-slate-500" :class="noteBadgeClass(note)">笔记</div>
+                        <div class="flex gap-1">
+                             <button class="p-1.5 text-slate-400 hover:text-primary-600 rounded-md hover:bg-slate-50" @click.stop="handleEditNote(note)"><el-icon :size="16"><Edit /></el-icon></button>
+                             <button class="p-1.5 text-slate-400 hover:text-red-500 rounded-md hover:bg-slate-50" @click.stop="handleDeleteNote(note.id)"><el-icon :size="16"><Delete /></el-icon></button>
                         </div>
                     </div>
-                    <div v-if="note.quote" class="text-xs text-slate-500 italic mb-2 border-l-2 border-slate-200 pl-2">"{{ note.quote }}"</div>
-                    <div class="text-sm text-slate-700 font-medium whitespace-pre-wrap note-underline" v-html="formatNoteContent(note.content)"></div>
-                    <div class="mt-2 text-xs text-slate-400 flex items-center gap-1">
+                    <div v-if="note.quote" class="text-xs text-slate-500 italic mb-3 border-l-2 border-slate-200 pl-3 py-1">"{{ note.quote }}"</div>
+                    <div class="text-sm text-slate-700 leading-7 font-sans tracking-normal" v-html="formatNoteContent(note.content)"></div>
+                    <div class="mt-3 text-[11px] text-slate-400 flex items-center gap-1.5 font-medium">
                         <el-icon><Timer /></el-icon> {{ dayjs(note.createdAt).fromNow() }}
                     </div>
                 </div>
@@ -725,11 +643,20 @@
                 "{{ selectedNote.quote }}"
             </div>
 
-            <!-- Main Content with enhanced markdown rendering -->
-            <div class="note-content-markdown" v-html="formatNoteContent(selectedNote.content)"></div>
+            <!-- Main Content / Edit Area -->
+            <div v-if="isDialogEditing">
+                <el-input
+                    v-model="editingContent"
+                    type="textarea"
+                    :rows="12"
+                    placeholder="请输入笔记内容..."
+                    class="glass-input-clean text-base"
+                />
+            </div>
+            <div v-else class="bg-white p-6 rounded-xl border border-slate-100 shadow-sm note-content-markdown min-h-[150px]" v-html="formatNoteDetailContent(selectedNote)"></div>
 
-            <!-- Metadata -->
-            <div class="flex items-center justify-between pt-4 border-t border-slate-100 text-xs text-slate-400">
+            <!-- Metadata (View Mode Only) -->
+            <div v-if="!isDialogEditing" class="flex items-center justify-between pt-4 border-t border-slate-100 text-xs text-slate-400">
                 <div class="flex items-center gap-2">
                     <el-icon><Timer /></el-icon>
                     创建于 {{ dayjs(selectedNote.createdAt).format('YYYY-MM-DD HH:mm') }}
@@ -746,15 +673,21 @@
         </div>
         <template #footer>
             <div class="flex justify-end gap-2">
-                <el-button @click="handleEditNote(selectedNote); noteDetailVisible = false">编辑</el-button>
-                <el-button type="primary" @click="noteDetailVisible = false">关闭</el-button>
+                <template v-if="isDialogEditing">
+                    <el-button @click="cancelDialogEditing">取消</el-button>
+                    <el-button type="primary" @click="saveDialogEditing">保存</el-button>
+                </template>
+                <template v-else>
+                    <el-button @click="isDialogEditing = true">编辑</el-button>
+                    <el-button type="primary" @click="noteDetailVisible = false">关闭</el-button>
+                </template>
             </div>
         </template>
     </el-dialog>
 
-    <!-- Quiz Suggestion Toast - Moved left to avoid AI panel overlap -->
+    <!-- Quiz Suggestion Toast - Moved to center bottom as requested -->
     <transition name="slide-up">
-        <div v-if="showQuizSuggestion && suggestedQuizNode" class="fixed bottom-20 right-4 lg:right-[340px] z-[100] w-72 lg:w-80 bg-white p-4 rounded-xl shadow-xl border border-slate-200 flex flex-col gap-3">
+        <div v-if="showQuizSuggestion && suggestedQuizNode" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-[100] w-72 lg:w-80 bg-white p-4 rounded-xl shadow-xl border border-slate-200 flex flex-col gap-3">
             <div class="flex items-start justify-between">
                 <div class="flex items-center gap-2 text-primary-600">
                     <el-icon class="text-xl"><Trophy /></el-icon>
@@ -790,10 +723,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch, nextTick, onUpdated } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { renderMarkdown } from '../utils/markdown'
-import { Download, MagicStick, VideoPlay, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowDown, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, PriceTag, DocumentChecked, Warning } from '@element-plus/icons-vue'
+import mermaid from 'mermaid'
+import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, Warning } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -802,61 +736,32 @@ import 'dayjs/locale/zh-cn'
 dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
+onUpdated(() => {
+    nextTick(() => {
+        mermaid.run({
+            querySelector: '.mermaid'
+        })
+    })
+})
+
 const courseStore = useCourseStore()
-const selectionMenu = ref({ visible: false, x: 0, y: 0, placement: 'top', text: '', range: null as Range | null })
+const selectionMenu = ref({ visible: false, x: 0, y: 0, arrowOffset: 0, placement: 'top', text: '', range: null as Range | null })
 const noteSearchQuery = ref('')
 const activeNoteFilter = ref('notes')
-const isAccordionMode = ref(true) // Default to true for collapse mode
-const expandedNoteIds = ref<string[]>([]) // Empty means all notes collapsed by default
+
 const scrollProgress = ref(0)
 const lightboxVisible = ref(false)
 const lightboxImage = ref('')
-const selectedTags = ref<string[]>([])
-
 // Note tabs configuration
 const noteTabs = computed(() => [
     { key: 'notes', label: '笔记', icon: Notebook, count: noteCounts.value.notes, color: 'text-primary-500' },
-    { key: 'mistakes', label: '错题', icon: Warning, count: noteCounts.value.mistakes, color: 'text-red-500' },
-    { key: 'tags', label: '标签', icon: PriceTag, count: allTags.value.length, color: 'text-amber-500' }
+    { key: 'mistakes', label: '错题', icon: Warning, count: noteCounts.value.mistakes, color: 'text-red-500' }
 ])
 
 // Clear all filters
 const clearAllFilters = () => {
-    selectedTags.value = []
     noteSearchQuery.value = ''
     activeNoteFilter.value = 'notes'
-}
-
-// Tag filtering logic
-const allTags = computed(() => {
-    const tagCounts = new Map<string, number>()
-    courseStore.notes.forEach((note: any) => {
-        if (note.tags && Array.isArray(note.tags)) {
-            note.tags.forEach((tag: string) => {
-                tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)
-            })
-        }
-    })
-    
-    const maxCount = Math.max(...tagCounts.values(), 1)
-    const minCount = Math.min(...tagCounts.values(), 1)
-    
-    return Array.from(tagCounts.entries())
-        .map(([name, count]) => ({
-            name,
-            count,
-            size: minCount === maxCount ? 11 : 9 + ((count - minCount) / (maxCount - minCount)) * 4
-        }))
-        .sort((a, b) => b.count - a.count)
-})
-
-const toggleTagFilter = (tag: string) => {
-    const index = selectedTags.value.indexOf(tag)
-    if (index > -1) {
-        selectedTags.value.splice(index, 1)
-    } else {
-        selectedTags.value.push(tag)
-    }
 }
 
 const debounce = (fn: Function, delay: number) => {
@@ -931,12 +836,19 @@ const hoveredNoteId = ref<string | null>(null)
 const fontSize = computed(() => courseStore.uiSettings.fontSize)
 const fontFamily = computed(() => courseStore.uiSettings.fontFamily)
 const lineHeight = computed(() => courseStore.uiSettings.lineHeight)
-const editingNoteId = ref<string | null>(null)
 const editingContent = ref('')
 let observer: IntersectionObserver | null = null
 
 const noteDetailVisible = ref(false)
+const isDialogEditing = ref(false)
 const selectedNote = ref<any>(null)
+
+watch(noteDetailVisible, (val) => {
+    if (!val) {
+        isDialogEditing.value = false
+        editingContent.value = ''
+    }
+})
 
 // Quiz Suggestion State
 const readChapters = ref<Set<string>>(new Set())
@@ -1172,16 +1084,7 @@ watch(quizVisible, (visible) => {
 
 
 
-// Tab Animation Style
-const activeTabStyle = computed(() => {
-    const tabs = ['notes', 'mistakes']
-    const idx = tabs.indexOf(activeNoteFilter.value)
-    if (idx === -1) return {}
-    return {
-        left: `${idx * 50}%`,
-        width: '50%'
-    }
-})
+
 
 const isMistakeNote = (note: any) => {
     if (note.sourceType === 'wrong') return true
@@ -1291,14 +1194,6 @@ const visibleNotes = computed(() => {
 const quotedNotes = computed(() => visibleNotes.value.filter(n => n.quote && n.quote.trim().length > 0))
 const displayedNotes = computed(() => {
     let notes = visibleNotes.value.filter(n => n.sourceType !== 'format')
-    
-    // Apply tag filter
-    if (selectedTags.value.length > 0) {
-        notes = notes.filter((n: any) => {
-            const noteTags = n.tags || []
-            return selectedTags.value.some(tag => noteTags.includes(tag))
-        })
-    }
     
     return notes
 })
@@ -1622,6 +1517,16 @@ const updateNotePositions = () => {
     const containerRect = container.getBoundingClientRect()
     const containerTop = containerRect.top
     
+    // Detect Scale Factor (User might be using transform: scale())
+    // If container is scaled, getBoundingClientRect() returns scaled values,
+    // but style.top expects unscaled values (internal coordinate system).
+    let scaleY = 1
+    if (container.offsetHeight > 0) {
+        scaleY = containerRect.height / container.offsetHeight
+    }
+    // Safety clamp for scale to avoid division by zero or extreme values
+    if (scaleY < 0.1 || scaleY > 10) scaleY = 1
+    
     // Create a map of element IDs to search to avoid repeated getElementById
     const elementIds = new Set<string>()
     notes.forEach(note => {
@@ -1647,10 +1552,27 @@ const updateNotePositions = () => {
         }
 
         if (el) {
-            const rect = el.getBoundingClientRect()
-            const relativeTop = rect.top - containerTop
-            // Store the "natural" top position for this note
-            measurements.set(note.id, relativeTop + (isFallback ? 10 : 0))
+            const rects = el.getClientRects()
+            const rect = rects.length > 0 ? rects[0] : el.getBoundingClientRect()
+            if (!rect) {
+                measurements.set(note.id, -9999)
+                return
+            }
+            // Calculate unscaled relative top
+            // (Visual Difference) / Scale = Internal Difference
+            const relativeTop = (rect.top - containerTop) / scaleY
+            
+            // Dynamic Offset for Alignment:
+            // Goal: Align the card connector (dot center at ~21px from card top) with the text center.
+            // rect.height is scaled height. We need unscaled height to calculate internal offset.
+            const unscaledTextHeight = rect.height / scaleY
+            const textCenter = unscaledTextHeight / 2
+            
+            // Connector position is fixed in CSS (21px from top of card)
+            const connectorPos = 21 
+            const offset = textCenter - connectorPos
+            
+            measurements.set(note.id, relativeTop + (isFallback ? 10 : offset))
         } else {
             measurements.set(note.id, -9999)
         }
@@ -1687,7 +1609,8 @@ const updateNotePositions = () => {
     // 3. Collision Resolution (Stacking)
     let lastBottom = 0 
     
-    const GAP = 16 
+    // Increased gap to prevent visual overlap of shadows/borders
+    const GAP = 24 
 
     positionedNotes.forEach(item => {
         // If natural position is above the valid floor (lastBottom + GAP), push it down
@@ -1696,7 +1619,8 @@ const updateNotePositions = () => {
         }
         
         // Update floor for next item
-        lastBottom = item.top + item.height
+        // Use a slightly larger buffer for height to account for varying font rendering
+        lastBottom = item.top + item.height + 4
     })
 
     // --- Phase 3: Batch Write (DOM Updates) ---
@@ -1733,6 +1657,7 @@ const handleGlobalKeydown = (e: KeyboardEvent) => {
                  selectionMenu.value = {
                      visible: false,
                      x: 0, y: 0,
+                     arrowOffset: 0,
                      placement: 'top',
                      text: selection.toString(),
                      range: range
@@ -1790,23 +1715,53 @@ watch(() => visibleNotes.value, () => {
     })
 }, { deep: true })
 
-watch(editingNoteId, () => {
-    nextTick(() => {
-        updateNotePositions()
-    })
-})
 
 
+const formatNoteDetailContent = (note: any) => {
+    let content = note.content || ''
+    
+    // Auto-remove quote from content if it matches the explicit quote context
+    if (note.quote) {
+        // Normalize strings for comparison (ignore whitespace, markdown markers)
+        const normalize = (s: string) => s.replace(/[>\s#*]/g, '').trim().toLowerCase()
+        const normQuote = normalize(note.quote)
+        
+        // Check if content starts with the quote
+        // We look for the quote at the beginning, possibly wrapped in blockquotes
+        const contentParts = content.split('\n')
+        // Heuristic: If the first few non-empty lines match the quote, remove them.
+        
+        // Simpler approach: Check if normalized content *starts with* normalized quote
+        // But the content usually has extra stuff.
+        // Let's rely on standard markdown blockquote structure: "> quote"
+        
+        // Remove blockquotes at the start that match the quote context
+        // Pattern: (> text \n)+
+        
+        // Actually, many AI models output: 
+        // > Quote
+        // 
+        // Answer...
+        
+        // Let's try to strip the first blockquote if it looks similar to note.quote
+        const blockquoteMatch = content.match(/^((?:> ?.*\n?)+)/)
+        if (blockquoteMatch) {
+            const blockContent = blockquoteMatch[1].replace(/^> ?/gm, '')
+            if (normalize(blockContent).includes(normQuote) || normQuote.includes(normalize(blockContent).substring(0, 50))) {
+                 // Remove the blockquote
+                 content = content.replace(blockquoteMatch[0], '').trim()
+            }
+        }
+    }
+    
+    return formatNoteContent(content)
+}
 
 const formatNoteContent = (content: string) => {
     if (!content) return ''
 
     // First render markdown, then apply highlighting
     let html = renderMarkdown(content)
-
-    // Apply tag highlighting to rendered HTML (safer approach)
-    // Match hashtags that are not inside HTML tags
-    html = html.replace(/(?<![<\w])(#[\w\u4e00-\u9fa5]+)/g, '<span class="text-primary-600 font-bold">$1</span>')
 
     // Apply search highlighting
     if (searchTokens.value.length > 0) {
@@ -1871,41 +1826,102 @@ const handleMouseUp = (_e: MouseEvent) => {
         const range = selection.getRangeAt(0)
         const rect = range.getBoundingClientRect()
         
-        // Boundary Detection
-        const MENU_WIDTH = 280
-        const MENU_HEIGHT = 100 // Estimate menu height
-        const VIEWPORT_WIDTH = window.innerWidth
+        // Detect Scale of the Teleport Target (Body)
+        // Similar to note positioning, we must account for global scaling (e.g. transform on body/app)
+        const body = document.body
+        const bodyRect = body.getBoundingClientRect()
+        let scaleX = 1
+        let scaleY = 1
+        if (body.offsetWidth > 0) scaleX = bodyRect.width / body.offsetWidth
+        if (body.offsetHeight > 0) scaleY = bodyRect.height / body.offsetHeight
         
-        let x = rect.left + (rect.width / 2)
-        // Position relative to selection:
-        // By default, we place it ABOVE the selection (at rect.top)
-        // The transform: translate(-50%, -100%) will move it up by its own height
-        let y = rect.top - 12 
+        // Safety clamp
+        if (scaleX < 0.1 || scaleX > 10) scaleX = 1
+        if (scaleY < 0.1 || scaleY > 10) scaleY = 1
+        
+        const isScaled = Math.abs(scaleX - 1) > 0.005 || Math.abs(scaleY - 1) > 0.005
+
+        // Initial Calculation
+        let effectiveViewportWidth = window.innerWidth
+        let x = 0
+        let y = 0
+        
+        if (isScaled) {
+            // Context is scaled (likely transform on body), fixed positioning is relative to body
+            effectiveViewportWidth = window.innerWidth / scaleX
+            x = (rect.left - bodyRect.left) / scaleX + (rect.width / scaleX) / 2
+            y = (rect.top - bodyRect.top) / scaleY - 12
+        } else {
+            // Standard Viewport (No scale)
+            x = rect.left + rect.width / 2
+            y = rect.top - 12
+        }
+        
+        const originalX = x
         let placement = 'top'
-        
-        // Prevent overflow right
-        if (x + (MENU_WIDTH / 2) > VIEWPORT_WIDTH - 20) {
-            x = VIEWPORT_WIDTH - (MENU_WIDTH / 2) - 20
-        }
-        // Prevent overflow left
-        if (x - (MENU_WIDTH / 2) < 20) {
-            x = (MENU_WIDTH / 2) + 20
-        }
-        
-        // Check top overflow: if not enough space above, flip to bottom
-        if (y - MENU_HEIGHT < 60) { // Keep clear of header (approx 60px)
-            y = rect.bottom + 12
-            placement = 'bottom'
-        }
-        
+
+        // Initial estimate (safe default to avoid large jumps)
+        const ESTIMATED_WIDTH = 280
+        if (x + (ESTIMATED_WIDTH / 2) > effectiveViewportWidth - 20) x = effectiveViewportWidth - (ESTIMATED_WIDTH / 2) - 20
+        if (x - (ESTIMATED_WIDTH / 2) < 20) x = (ESTIMATED_WIDTH / 2) + 20
+
         selectionMenu.value = {
             visible: true,
             x: x, 
             y: y, 
+            arrowOffset: originalX - x,
             placement: placement,
             text: selection.toString(),
             range: range
         }
+
+        // Precise Adjustment after Render (Fix for P1: Scaling/Overflow Alignment)
+        nextTick(() => {
+            const menuEl = document.getElementById('selection-menu')
+            if (menuEl) {
+                // Use offsetWidth/Height to get the "layout" size, ignoring the scale-in animation
+                // getBoundingClientRect() would return the scaled-down size during the transition
+                const actualWidth = menuEl.offsetWidth
+                const actualHeight = menuEl.offsetHeight
+                
+                // Re-calculate X based on ACTUAL width
+                let newX = originalX
+                
+                // Prevent overflow right (allow closer to edge: 5px)
+                if (newX + (actualWidth / 2) > effectiveViewportWidth - 5) {
+                    newX = effectiveViewportWidth - (actualWidth / 2) - 5
+                }
+                // Prevent overflow left (allow closer to edge: 5px)
+                if (newX - (actualWidth / 2) < 5) {
+                    newX = (actualWidth / 2) + 5
+                }
+                
+                // Re-calculate Arrow Offset
+                let newArrowOffset = originalX - newX
+                
+                // Clamp arrow (allow closer to edge, e.g. 6px from edge)
+                const maxOffset = (actualWidth / 2) - 6 
+                if (newArrowOffset > maxOffset) newArrowOffset = maxOffset
+                if (newArrowOffset < -maxOffset) newArrowOffset = -maxOffset
+                
+                // Re-calculate Y (Placement)
+                // Need to recalculate base Y/Bottom in correct coordinate space
+                let newY = isScaled ? ((rect.top - bodyRect.top) / scaleY - 12) : (rect.top - 12)
+                let newPlacement = 'top'
+                
+                // Check top overflow with ACTUAL height
+                if (newY - actualHeight < 60) {
+                     newY = isScaled ? ((rect.bottom - bodyRect.top) / scaleY + 12) : (rect.bottom + 12)
+                     newPlacement = 'bottom'
+                }
+                
+                // Update State
+                selectionMenu.value.x = newX
+                selectionMenu.value.y = newY
+                selectionMenu.value.arrowOffset = newArrowOffset
+                selectionMenu.value.placement = newPlacement
+            }
+        })
     } else {
         selectionMenu.value.visible = false
     }
@@ -2003,43 +2019,21 @@ const handleAddNote = () => {
     }).catch(() => {})
 }
 
-const shouldCollapse = (note: any) => {
-    // If it's already expanded, we show the toggle button if it's long or we are in accordion mode
-    // But if expanded, we don't collapse. Wait, the v-if is for the BUTTON.
-    // The content truncation logic should be in the template or a computed property for display content.
-    // Actually, the template uses `formatNoteContent(note.content)`, which renders FULL content.
-    // We need to truncate the content display if not expanded.
-    
-    // Correction: The v-if="shouldCollapse(note)" controls the "Expand/Collapse" button visibility.
-    // So if content is short and not in accordion mode, no button.
-    if (isAccordionMode.value) return true
-    return isLongContent(note.content)
-}
 
-// Override formatNoteContent to support truncation? 
-// No, formatNoteContent returns HTML string. Truncating HTML is risky.
-// Better to use CSS line-clamp for collapsed state.
-
-const toggleExpand = (noteId: string) => {
-    const index = expandedNoteIds.value.indexOf(noteId)
-    if (index === -1) {
-        if (isAccordionMode.value) {
-            expandedNoteIds.value = [noteId]
-        } else {
-            expandedNoteIds.value.push(noteId)
-        }
-    } else {
-        expandedNoteIds.value.splice(index, 1)
-    }
-    // Update positions after expand/collapse
-    nextTick(() => updateNotePositions())
-}
 
 const handleNoteClick = (note: any) => {
     // Open note detail dialog instead of jumping
     selectedNote.value = note
     noteDetailVisible.value = true
     activeNoteId.value = note.id
+    isDialogEditing.value = false
+}
+
+const handleEditNote = (note: any) => {
+    selectedNote.value = note
+    noteDetailVisible.value = true
+    activeNoteId.value = note.id
+    isDialogEditing.value = true
 }
 
 const jumpToNoteSource = (note: any) => {
@@ -2056,36 +2050,21 @@ const jumpToNoteSource = (note: any) => {
     }
 }
 
-const handleEditNote = (note: any) => {
-    if (courseStore.isMobileNotesVisible) {
-        ElMessageBox.prompt('编辑笔记', '修改笔记', {
-            inputValue: note.content,
-            confirmButtonText: '保存',
-            cancelButtonText: '取消',
-            inputType: 'textarea'
-        }).then((data: any) => {
-            const { value } = data
-            courseStore.updateNote(note.id, value)
-        }).catch(() => {})
-    } else {
-        editingNoteId.value = note.id
-        editingContent.value = note.content
-    }
-}
-
-const cancelEditing = () => {
-    editingNoteId.value = null
+const cancelDialogEditing = () => {
+    isDialogEditing.value = false
     editingContent.value = ''
 }
 
-const saveEditing = async (note: any) => {
+const saveDialogEditing = async () => {
     if (!editingContent.value.trim()) {
         ElMessage.warning('笔记内容不能为空')
         return
     }
-    await courseStore.updateNote(note.id, editingContent.value)
-    editingNoteId.value = null
-    editingContent.value = ''
+    if (selectedNote.value) {
+        await courseStore.updateNote(selectedNote.value.id, editingContent.value)
+        selectedNote.value.content = editingContent.value
+    }
+    isDialogEditing.value = false
     ElMessage.success('笔记已更新')
 }
 
@@ -2181,60 +2160,7 @@ const handleStartQuiz = (node: any) => {
     quizConfig.value.visible = true
 }
 
-const showSummary = async (node: any) => {
-    // 1. Try to use AI Summary if available (from metadata or generate on fly?)
-    // For now, let's use a smarter truncation or prompt AI
-    
-    // Check if we already have an AI summary note for this node
-    const aiNote = courseStore.notes.find(n => n.nodeId === node.node_id && n.sourceType === 'ai' && n.content.includes('摘要'))
-    
-    if (aiNote) {
-        ElMessageBox.alert(formatNoteContent(aiNote.content), `${node.node_name} - 智能摘要`, {
-            confirmButtonText: '确定',
-            customClass: 'glass-panel !rounded-2xl',
-            dangerouslyUseHTMLString: true
-        })
-        return
-    }
 
-    // Fallback to simple preview with option to generate
-    const summary = node.node_content.slice(0, 300) + '...'
-    
-    try {
-        await ElMessageBox.confirm(
-            `<div>${renderMarkdown(summary)}</div><div class="mt-4 text-primary-600 font-bold cursor-pointer hover:underline">点击生成 AI 深度摘要</div>`, 
-            `${node.node_name} - 内容预览`, 
-            {
-                confirmButtonText: '生成 AI 摘要',
-                cancelButtonText: '关闭',
-                customClass: 'glass-panel !rounded-2xl',
-                dangerouslyUseHTMLString: true,
-                distinguishCancelAndClose: true
-            }
-        )
-        
-        // If confirmed, trigger AI summary generation
-        generateAiSummary(node)
-        
-    } catch (action) {
-        // Cancelled
-    }
-}
-
-const generateAiSummary = async (node: any) => {
-    ElMessage.success('正在生成摘要，请稍候...')
-    // Simulate or call AI
-    const prompt = `请为章节《${node.node_name}》生成一份精简的摘要，包含核心概念和主要结论。`
-    
-    // Add to chat history
-    courseStore.addMessage('user', prompt)
-    
-    // Call askQuestion but we might want the result to be a NOTE?
-    // Let's use askQuestion and let the user save it, or auto-save.
-    // Ideally we want to call a specific summary endpoint.
-    // For now, reuse askQuestion flow which streams response to chat.
-    await courseStore.askQuestion(prompt, node.node_content, node.node_id)
-}
 
 // Dialog Quiz Logic
 const submitQuiz = () => {
@@ -3003,4 +2929,39 @@ onUnmounted(() => {
     margin: 1rem 0;
 }
 
+/* Preview Card Markdown Overrides */
+.note-preview-content :deep(h1),
+.note-preview-content :deep(h2),
+.note-preview-content :deep(h3),
+.note-preview-content :deep(h4),
+.note-preview-content :deep(h5),
+.note-preview-content :deep(h6) {
+    font-size: 0.95rem !important;
+    font-weight: 700 !important;
+    margin: 0.25rem 0 !important;
+    line-height: 1.4 !important;
+    color: #334155;
+}
+
+.note-preview-content :deep(p) {
+    margin-bottom: 0.25rem !important;
+    font-size: 0.875rem !important;
+}
+
+.note-preview-content :deep(ul),
+.note-preview-content :deep(ol) {
+    margin: 0.25rem 0 !important;
+    padding-left: 1rem !important;
+}
+
+.note-preview-content :deep(pre),
+.note-preview-content :deep(blockquote),
+.note-preview-content :deep(table) {
+    margin: 0.5rem 0 !important;
+    font-size: 0.75rem !important;
+}
+
+.note-preview-content :deep(.katex) {
+    font-size: 1em !important;
+}
 </style>

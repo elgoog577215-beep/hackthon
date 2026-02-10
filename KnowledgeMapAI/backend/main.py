@@ -50,7 +50,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
+@app.get("/api/health")
 def read_root():
     return {"message": "KnowledgeMap AI API"}
 
@@ -87,6 +87,67 @@ async def generate_course(req: GenerateCourseRequest):
     data["course_id"] = course_id
     
     storage.save_course(course_id, data)
+
+    # Automatically generate sub-nodes for chapters (Level 2)
+    # This ensures the generation order: Big Chapters -> Sub Chapters -> Knowledge Graph
+    try:
+        nodes = data.get("nodes", [])
+        course_name = data.get("course_name", "Unknown Course")
+        
+        # Identify Level 2 nodes (Chapters)
+        level_2_nodes = [n for n in nodes if n.get("node_level") == 2]
+        
+        if level_2_nodes:
+            print(f"🔄 Generating sub-nodes for {len(level_2_nodes)} chapters...")
+            
+            # Generate sub-nodes for each chapter
+            # We do this sequentially to avoid overwhelming the LLM service
+            new_sub_nodes = []
+            for chapter_node in level_2_nodes:
+                try:
+                    # Skip if node type is not original/generated (though usually it is)
+                    sub_nodes = await ai_service.generate_sub_nodes(
+                        node_name=chapter_node["node_name"],
+                        node_level=3,
+                        node_id=chapter_node["node_id"],
+                        course_name=course_name,
+                        parent_context=chapter_node.get("node_content", "")
+                    )
+                    new_sub_nodes.extend(sub_nodes)
+                except Exception as e:
+                    print(f"⚠️ Failed to generate sub-nodes for {chapter_node['node_name']}: {e}")
+            
+            # Append new nodes to the course
+            if new_sub_nodes:
+                nodes.extend(new_sub_nodes)
+                data["nodes"] = nodes
+                storage.save_course(course_id, data)
+                print(f"✅ Generated {len(new_sub_nodes)} sub-nodes")
+            
+    except Exception as e:
+        print(f"⚠️ Failed to auto-generate sub-nodes: {e}")
+
+    # Automatically generate Knowledge Graph (Concept Map)
+    try:
+        course_name = data.get("course_name", "Unknown Course")
+        nodes = data.get("nodes", [])
+        
+        # Build initial context
+        course_context = f"Course: {course_name}\n"
+        # We pass empty context here because ai_service.generate_knowledge_graph builds it from nodes
+        # But keeping it for compatibility with the prompt template which uses {{course_context}}
+        # The ai_service constructs a combined context.
+        
+        graph_data = await ai_service.generate_knowledge_graph(
+            course_name=course_name,
+            course_context=course_context,
+            nodes=nodes
+        )
+        storage.save_knowledge_graph(course_id, graph_data)
+        print(f"✅ Knowledge Graph generated automatically for {course_id}")
+    except Exception as e:
+        print(f"⚠️ Failed to auto-generate Knowledge Graph: {e}")
+    
     return data
 
 # --- Node Operations (Scoped by Course) ---
@@ -309,7 +370,8 @@ def ask_question(req: AskQuestionRequest):
             req.selection, 
             req.user_persona,
             req.course_id,
-            req.node_id
+            req.node_id,
+            req.user_notes
         ),
         media_type="text/plain"
     )
@@ -434,3 +496,31 @@ def update_node(course_id: str, node_id: str, node_update: UpdateNodeRequest):
                 storage.save_course(course_id, tree_data)
                 return node
     raise HTTPException(status_code=404, detail="Node not found")
+
+
+# --- Static Files Serving (for Deployment) ---
+# Check if 'static' directory exists (where frontend build should be)
+static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+if os.path.exists(static_dir):
+    # Mount assets (CSS, JS, Images)
+    app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
+    
+    # Catch-all route for SPA (Vue Router)
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # Allow API calls to pass through (should be handled by above routes, but just in case)
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+            
+        # Check if specific file exists (e.g. favicon.ico, robots.txt)
+        file_path = os.path.join(static_dir, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+            
+        # Fallback to index.html for Vue Router history mode
+        return FileResponse(os.path.join(static_dir, "index.html"))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

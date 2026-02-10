@@ -1,59 +1,34 @@
-# KnowledgeMap AI Learning Assistant
+# 灵知 (KnowledgeMap)
 
-A modern, AI-powered learning assistant that generates structured course maps and provides detailed answers.
+基于 Vue 3 + TypeScript + Vite + FastAPI + LLM 的智能课程生成与知识图谱系统。
 
-## Features
+## 功能特性
 
-- **Interactive Course Tree**: Visualizes knowledge structure with infinite nesting.
-- **AI-Generated Content**: Automatically generates courses, chapters, and detailed explanations.
-- **Contextual Q&A**: Ask questions based on specific nodes for precise answers.
-- **Modern UI**: Glassmorphism design with smooth animations and responsive layout.
-- **Bilingual Support**: Fully localized in Chinese.
+- **智能课程生成**：根据用户输入的主题，自动生成课程大纲和内容。
+- **知识图谱**：自动提取课程核心概念，生成交互式知识图谱。
+- **深度学习**：支持多层级章节学习，实时流式内容生成。
+- **双模引擎**：支持快速模式（Fast）和深度模式（Smart）切换。
 
-## Project Structure
+## 技术栈
 
-- `frontend/`: Vue 3 + Vite + Element Plus + Tailwind CSS
-- `backend/`: FastAPI + Python
-- `data/`: JSON storage for course trees and annotations
+- **Frontend**: Vue 3, TypeScript, TailwindCSS, Element Plus, D3.js (Force Graph)
+- **Backend**: FastAPI, Python 3.10+, OpenAI/DeepSeek API
+- **Storage**: JSON-based local storage (for portability)
 
-## Getting Started
+## 快速开始
 
 ### Backend
 
-1. Navigate to `backend` directory:
-   ```bash
-   cd backend
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Run the server:
-   ```bash
-   uvicorn main:app --reload
-   ```
-   Server runs at `http://localhost:8000`.
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
 
 ### Frontend
 
-1. Navigate to `frontend` directory:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Run development server:
-   ```bash
-   npm run dev
-   ```
-   Access the app at `http://localhost:5173`.
-
-## Configuration
-
-- **AI Service**: By default, the system uses a Mock AI service for demonstration. To use a real LLM (e.g., Qwen), set the `AI_API_KEY` environment variable in `backend/.env` (create if needed).
-
-## License
-
-MIT
+```bash
+cd frontend
+npm install
+npm run dev
+```

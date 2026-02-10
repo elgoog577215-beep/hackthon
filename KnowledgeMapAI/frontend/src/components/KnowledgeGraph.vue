@@ -38,8 +38,7 @@
     <!-- Graph Canvas -->
     <div ref="graphContainer" class="graph-canvas" @click="deselectNode">
       <svg
-        ref="svgElement"
-        :viewBox="viewBox"
+        :viewBox="viewBoxString"
         class="graph-svg"
         @wheel.prevent="handleWheel"
         @mousedown="handleMouseDown"
@@ -130,6 +129,15 @@
         </g>
       </svg>
 
+      <!-- Empty State -->
+      <div v-if="!hasGraph && !loading" class="empty-state">
+        <el-icon class="empty-icon"><MagicStick /></el-icon>
+        <p class="empty-text">暂无知识图谱数据</p>
+        <button class="btn-generate-large" @click="generateGraph">
+          立即生成
+        </button>
+      </div>
+
       <!-- Node Detail Panel -->
       <transition name="slide">
         <div v-if="selectedNode" class="node-detail-panel">
@@ -193,17 +201,24 @@ const loading = ref(false)
 const graphData = ref<{ nodes: any[], edges: any[] }>({ nodes: [], edges: [] })
 const selectedNode = ref<any>(null)
 const hoverNode = ref<string | null>(null)
-const svgElement = ref<SVGSVGElement | null>(null)
 const graphContainer = ref<HTMLElement | null>(null)
 
 // ViewBox for zooming and panning
 const viewBox = ref({ x: -400, y: -300, width: 800, height: 600 })
+const viewBoxString = computed(() => `${viewBox.value.x} ${viewBox.value.y} ${viewBox.value.width} ${viewBox.value.height}`)
+
 const isDragging = ref(false)
 const dragStart = ref({ x: 0, y: 0 })
 const viewBoxStart = ref({ x: 0, y: 0 })
 
 // Node type configuration
 const nodeTypes = [
+  { value: 'root', label: '课程核心', color: '#6366f1' },
+  { value: 'module', label: '知识模块', color: '#8b5cf6' },
+  { value: 'concept', label: '核心概念', color: '#10b981' },
+  { value: 'theorem', label: '关键定理', color: '#f59e0b' },
+  { value: 'method', label: '核心方法', color: '#ec4899' },
+  // Backward compatibility
   { value: 'core', label: '核心概念', color: '#6366f1' },
   { value: 'basic', label: '基础概念', color: '#10b981' },
   { value: 'advanced', label: '进阶概念', color: '#f59e0b' },
@@ -228,13 +243,20 @@ async function loadGraph() {
   if (!courseStore.currentCourseId) return
   
   try {
-    const response = await fetch(`/api/courses/${courseStore.currentCourseId}/knowledge_graph`)
-    const result = await response.json()
-    
-    if (result.status === 'success' && result.data.nodes.length > 0) {
-      graphData.value = result.data
-      // Calculate initial layout
-      calculateLayout()
+    const response = await fetch(`/courses/${courseStore.currentCourseId}/knowledge_graph`)
+    // Check if response is ok and is JSON
+    const contentType = response.headers.get("content-type");
+    if (response.ok && contentType && contentType.indexOf("application/json") !== -1) {
+        const result = await response.json()
+        
+        if (result.status === 'success' && result.data.nodes.length > 0) {
+          graphData.value = result.data
+          // Calculate initial layout
+          calculateLayout()
+        }
+    } else {
+        // Handle non-JSON response (likely HTML error page)
+        console.warn('Received non-JSON response for knowledge graph');
     }
   } catch (error) {
     console.error('Failed to load knowledge graph:', error)
@@ -250,20 +272,29 @@ async function generateGraph() {
   
   loading.value = true
   try {
-    const response = await fetch(`/api/courses/${courseStore.currentCourseId}/knowledge_graph`, {
+    const response = await fetch(`/courses/${courseStore.currentCourseId}/knowledge_graph`, {
       method: 'POST'
     })
-    const result = await response.json()
     
-    if (result.status === 'success') {
-      graphData.value = result.data
-      calculateLayout()
-      ElMessage.success('知识图谱生成成功')
+    // Check if response is ok and is JSON
+    const contentType = response.headers.get("content-type");
+    if (response.ok && contentType && contentType.indexOf("application/json") !== -1) {
+        const result = await response.json()
+        
+        if (result.status === 'success') {
+          graphData.value = result.data
+          calculateLayout()
+          ElMessage.success('知识图谱生成成功')
+        } else {
+          ElMessage.error('生成失败: ' + (result.message || 'Unknown error'))
+        }
     } else {
-      ElMessage.error('生成失败')
+        const text = await response.text();
+        console.error('Server returned non-JSON response:', text.substring(0, 100));
+        ElMessage.error('生成失败: 服务器返回错误')
     }
   } catch (error) {
-    console.error('Failed to generate knowledge graph:', error)
+    console.error('Failed to generate knowledge graph:', error instanceof Error ? error.message : error)
     ElMessage.error('生成失败')
   } finally {
     loading.value = false
@@ -286,14 +317,14 @@ function calculateLayout() {
   })
   
   // Simple force simulation (few iterations)
-  for (let iteration = 0; iteration < 50; iteration++) {
+  for (let iteration = 0; iteration < 150; iteration++) {
     // Repulsion between nodes
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const dx = nodes[j].x - nodes[i].x
         const dy = nodes[j].y - nodes[i].y
         const dist = Math.sqrt(dx * dx + dy * dy) || 1
-        const force = 2000 / (dist * dist)
+        const force = 8000 / (dist * dist)
         const fx = (dx / dist) * force
         const fy = (dy / dist) * force
         
@@ -312,7 +343,7 @@ function calculateLayout() {
         const dx = target.x - source.x
         const dy = target.y - source.y
         const dist = Math.sqrt(dx * dx + dy * dy) || 1
-        const force = (dist - 100) * 0.01
+        const force = (dist - 150) * 0.02
         const fx = (dx / dist) * force
         const fy = (dy / dist) * force
         
@@ -323,10 +354,10 @@ function calculateLayout() {
       }
     })
     
-    // Center gravity
+    // Center gravity (weaker to avoid squeezing)
     nodes.forEach(node => {
-      node.x *= 0.95
-      node.y *= 0.95
+      node.x *= 0.995
+      node.y *= 0.995
     })
   }
   
@@ -374,10 +405,14 @@ function getEdgeMidpoint(edge: any) {
 // Get node radius based on type
 function getNodeRadius(node: any) {
   const baseRadius = {
+    root: 45,
+    module: 35,
+    concept: 25,
+    application: 20,
+    // Legacy
     core: 35,
     basic: 25,
-    advanced: 25,
-    application: 25
+    advanced: 25
   }
   const radius = baseRadius[node.type as keyof typeof baseRadius] || 25
   
@@ -410,10 +445,16 @@ function getEdgeClass(edge: any) {
 // Get node icon
 function getNodeIcon(node: any) {
   const icons: Record<string, string> = {
+    root: '★',
+    module: '◆',
+    concept: '●',
+    theorem: 'π',
+    method: 'ƒ',
+    application: '⚡',
+    // Legacy
     core: '★',
     basic: '●',
-    advanced: '▲',
-    application: '◆'
+    advanced: '▲'
   }
   return icons[node.type] || '●'
 }
@@ -436,7 +477,7 @@ function deselectNode() {
 
 // Navigate to node in course
 function navigateToNode(nodeId: string) {
-  courseStore.setCurrentNode(nodeId)
+  courseStore.scrollToNode(nodeId)
   ElMessage.success('已跳转到对应章节')
 }
 
@@ -636,6 +677,31 @@ button:disabled {
   transition: all 0.3s;
 }
 
+.node-circle.root {
+  fill: #6366f1;
+  stroke: #4f46e5;
+}
+
+.node-circle.module {
+  fill: #8b5cf6;
+  stroke: #7c3aed;
+}
+
+.node-circle.concept {
+  fill: #10b981;
+  stroke: #059669;
+}
+
+.node-circle.theorem {
+  fill: #f59e0b;
+  stroke: #d97706;
+}
+
+.node-circle.method {
+  fill: #ec4899;
+  stroke: #db2777;
+}
+
 .node-circle.core {
   fill: #6366f1;
   stroke: #4f46e5;
@@ -748,6 +814,31 @@ button:disabled {
   font-weight: 500;
   padding: 4px 10px;
   border-radius: 12px;
+}
+
+.type-root {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.type-module {
+  background: #ede9fe;
+  color: #7c3aed;
+}
+
+.type-concept {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.type-theorem {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.type-method {
+  background: #fce7f3;
+  color: #be185d;
 }
 
 .type-core {
@@ -882,5 +973,47 @@ button:disabled {
 .slide-leave-to {
   opacity: 0;
   transform: translateX(20px);
+}
+
+/* Empty State */
+.empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  z-index: 10;
+}
+
+.empty-icon {
+  font-size: 48px;
+  color: #cbd5e1;
+}
+
+.empty-text {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+.btn-generate-large {
+  padding: 10px 24px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  border: none;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  transition: all 0.2s;
+}
+
+.btn-generate-large:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
 }
 </style>

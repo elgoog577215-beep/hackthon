@@ -144,6 +144,41 @@ body {
   line-height: 1.6;
 }
 
+/* Smart Scaling for Laptops (Scheme A) */
+@media (max-width: 1600px) {
+  body {
+    zoom: 0.8; /* Simulate 80% browser zoom */
+  }
+  
+  /* Fix: Compensate for zoom shrinking the viewport coverage */
+  /* We scale up the container dimensions so that when zoomed down, they fill the screen */
+  #app, .h-screen {
+    height: 125vh !important; /* 100% / 0.8 = 125% */
+    width: 125vw !important;  /* 100% / 0.8 = 125% */
+  }
+  
+  /* Ensure fixed overlays also cover the full screen */
+  .el-overlay, .fixed.inset-0 {
+    height: 125vh !important;
+    width: 125vw !important;
+  }
+
+  /* Reset zoom for mobile to avoid tiny text on phones */
+  @media (max-width: 768px) {
+    body {
+      zoom: 1;
+    }
+    #app, .h-screen {
+      height: 100vh !important;
+      width: 100vw !important;
+    }
+    .el-overlay, .fixed.inset-0 {
+      height: 100% !important;
+      width: 100% !important;
+    }
+  }
+}
+
 /* ============================================
    TYPOGRAPHY SYSTEM - Enhanced & Refined
    ============================================ */
@@ -871,7 +906,14 @@ html {
 
 .katex {
   font-size: 1.1em !important;
-  line-height: 1.6 !important;
+  line-height: normal !important;
+  text-indent: 0;
+}
+
+/* Fix specific KaTeX spacing issues */
+.katex .base {
+  margin-top: 2px;
+  margin-bottom: 2px;
 }
 
 /* ============================================
