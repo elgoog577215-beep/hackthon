@@ -4,6 +4,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 
+// --- Utility Constants & Functions ---
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 const GENERATION_STATE_KEY = 'course-generation-state-v1'
 const sanitizeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').trim()
@@ -17,6 +18,9 @@ const downloadBlob = (blob: Blob, filename: string) => {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
 }
+
+// --- Types & Interfaces ---
+// These define the shape of the data used throughout the application.
 
 export interface Node {
   node_id: string
@@ -122,6 +126,7 @@ export interface ChatMessage {
 }
 
 export const useCourseStore = defineStore('course', {
+  // --- State Definition ---
   state: () => ({
     courseList: [] as Course[],
     currentCourseId: '' as string,
@@ -133,14 +138,17 @@ export const useCourseStore = defineStore('course', {
     chatHistory: [] as ChatMessage[],
     
     // --- Task Management System ---
+    // Manages the state of long-running generation tasks
     tasks: new Map<string, Task>(), // courseId -> Task
     activeTaskId: null as string | null,
     
     // --- Queue System (Playlist Style) ---
+    // Handles the sequential processing of generation steps
     queue: [] as QueueItem[],
     isQueueProcessing: false,
 
     // Legacy/UI Compatibility State (mapped from active task)
+    // These fields are used by the UI components to display progress
     isGenerating: false,
     generationStatus: 'idle' as 'idle' | 'generating' | 'paused' | 'error',
     generationLogs: [] as string[],
@@ -1349,7 +1357,13 @@ export const useCourseStore = defineStore('course', {
     async processQueue() {
         if (this.isQueueProcessing) return
         
-        const nextItem = this.queue.find(i => i.status === 'pending')
+        // Find next item belonging to a RUNNING task
+        const nextItem = this.queue.find(i => {
+            if (i.status !== 'pending') return false
+            const task = this.tasks.get(i.courseId)
+            return task && task.status === 'running' && !task.shouldStop
+        })
+
         if (!nextItem) {
             this.isQueueProcessing = false
             this.finalizeIdleTasks()
@@ -1566,6 +1580,7 @@ export const useCourseStore = defineStore('course', {
     async processSubchapterItem(item: QueueItem) {
         const task = this.tasks.get(item.courseId)
         if (!task) throw new Error('Task not found')
+        if (task.shouldStop) return
         
         const node = task.nodes.find(n => n.node_id === item.targetNodeId)
         if (!node) throw new Error('Node not found')

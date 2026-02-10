@@ -24,6 +24,10 @@ load_dotenv()
 
 # Mock AI Service with capabilities to switch to Real API
 class AIService:
+    """
+    Abstraction layer for AI model interactions.
+    Supports switching between different models based on task complexity.
+    """
     def __init__(self):
         # Configure API Key via environment variable
         self.api_key = os.getenv("AI_API_KEY")
@@ -158,6 +162,11 @@ class AIService:
         """
         Generic function to call LLM using OpenAI client.
         Supports Model Routing (Smart vs Fast).
+        
+        Args:
+            prompt: User input prompt
+            system_prompt: System instruction
+            use_fast_model: If True, uses the lighter/faster model (e.g. for simple summaries)
         """
         if not self.api_key:
             return None # Signal to use mock fallback

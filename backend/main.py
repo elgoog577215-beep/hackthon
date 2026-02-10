@@ -1,3 +1,9 @@
+# -----------------------------------------------------------------------------
+# Main Application Entry Point
+# This file initializes the FastAPI application, configures middleware (CORS, GZip),
+# and defines the API routes for course management, node operations, and AI services.
+# -----------------------------------------------------------------------------
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -157,6 +163,10 @@ async def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesR
 
 @app.post("/courses/{course_id}/nodes/{node_id}/redefine_stream")
 async def redefine_node_stream(course_id: str, node_id: str, req: RedefineContentRequest):
+    """
+    Streams the content generation for a specific node.
+    This provides a real-time typing effect on the frontend.
+    """
     # Verify existence
     tree_data = storage.load_course(course_id)
     if not tree_data:
@@ -437,6 +447,9 @@ def update_node(course_id: str, node_id: str, node_update: UpdateNodeRequest):
 
 
 # --- Static Files Serving (for Deployment) ---
+# Serves the frontend static assets (Vue.js app) when deployed.
+# This allows the backend to serve the entire application as a single unit.
+
 # Check if 'static' directory exists (where frontend build should be)
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
