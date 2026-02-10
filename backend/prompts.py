@@ -59,10 +59,10 @@ FORMULA_STANDARDS = """
   - ✅ 正确：
     ```
     $$
-    \\begin{matrix}
+    \\begin{{matrix}}
     a & b \\\\
     c & d
-    \\end{matrix}
+    \\end{{matrix}}
     $$
     ```
   - ❌ 错误：不要使用 `\\[` 或 `\\]`
