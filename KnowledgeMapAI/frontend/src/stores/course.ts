@@ -46,6 +46,7 @@ export interface Note {
     highlightId: string
     quote: string
     content: string
+    summary?: string // The concise summary (概括)
     color: string
     createdAt: number
     top?: number // Dynamic position for rendering
@@ -536,7 +537,7 @@ export const useCourseStore = defineStore('course', {
                 node_id: note.nodeId,
                 question: note.sourceType === 'ai' ? 'AI Assistant Note' : 'User Note',
                 answer: note.content,
-                anno_summary: note.content.length > 50 ? note.content.slice(0, 50) + '...' : note.content,
+                anno_summary: note.summary || (note.content.length > 50 ? note.content.slice(0, 50) + '...' : note.content),
                 quote: note.quote,
                 source_type: note.sourceType || 'user'
             })
@@ -1713,10 +1714,11 @@ export const useCourseStore = defineStore('course', {
                         nodeId: anno.node_id,
                         highlightId: `hl-${anno.anno_id}`, // Synthetic highlight ID
                         quote: anno.quote || '',
-                        content: (anno.anno_summary || '') + '\n' + (anno.answer || anno.question || ''),
+                        content: anno.answer || anno.question || '',
+                        summary: anno.anno_summary || '',
                         color: 'amber',
                         createdAt: Date.now(),
-                        sourceType: 'user', // Assume legacy are user notes
+                        sourceType: (anno.source_type as any) || 'user',
                     })
                 }
             })
@@ -1976,7 +1978,8 @@ export const useCourseStore = defineStore('course', {
                             nodeId: resolvedNodeId,
                             highlightId: highlightId,
                             quote: quoteText,
-                            content: noteContent.length > 200 ? `${noteContent.slice(0, 200)}...` : noteContent,
+                            content: answerText,
+                            summary: shortSummary,
                             color: 'purple',
                             createdAt: Date.now(),
                             sourceType: 'ai'

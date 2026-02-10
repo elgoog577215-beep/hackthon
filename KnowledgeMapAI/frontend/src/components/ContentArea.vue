@@ -426,7 +426,7 @@
                                 <div class="p-4">
                                     <!-- Content Preview -->
                                     <div class="relative group/content">
-                                        <div class="text-sm text-slate-700 leading-relaxed font-sans tracking-normal note-content-markdown note-preview-content line-clamp-4" v-html="formatNoteContent(note.content)"></div>
+                                        <div class="text-sm text-slate-700 leading-relaxed font-sans tracking-normal note-content-markdown note-preview-content line-clamp-4" v-html="formatNoteContent(note.summary || note.content)"></div>
                                     </div>
 
                                     <!-- View Full Action -->
@@ -493,7 +493,7 @@
                         </div>
                     </div>
                     <div v-if="note.quote" class="text-xs text-slate-500 italic mb-3 border-l-2 border-slate-200 pl-3 py-1">"{{ note.quote }}"</div>
-                    <div class="text-sm text-slate-700 leading-7 font-sans tracking-normal" v-html="formatNoteContent(note.content)"></div>
+                    <div class="text-sm text-slate-700 leading-7 font-sans tracking-normal" v-html="formatNoteContent(note.summary || note.content)"></div>
                     <div class="mt-3 text-[11px] text-slate-400 flex items-center gap-1.5 font-medium">
                         <el-icon><Timer /></el-icon> {{ dayjs(note.createdAt).fromNow() }}
                     </div>
@@ -639,11 +639,19 @@
     >
         <div v-if="selectedNote" class="flex flex-col gap-4">
             <!-- Quote Context -->
-            <div v-if="selectedNote.quote" class="p-4 bg-slate-50 rounded-xl border-l-4 italic text-slate-600 text-sm" :class="noteQuoteBorderClass(selectedNote)">
-                "{{ selectedNote.quote }}"
-            </div>
+                <div v-if="selectedNote.quote" class="p-4 bg-slate-50 rounded-xl border-l-4 italic text-slate-600 text-sm" :class="noteQuoteBorderClass(selectedNote)">
+                    "{{ selectedNote.quote }}"
+                </div>
 
-            <!-- Main Content / Edit Area -->
+                <!-- Summary Section -->
+                <div v-if="selectedNote.summary" class="p-4 bg-purple-50/50 rounded-xl border border-purple-100">
+                    <div class="text-[11px] font-bold text-purple-600 mb-2 uppercase tracking-wide flex items-center gap-1">
+                        <el-icon><CollectionTag /></el-icon> 核心概括
+                    </div>
+                    <div class="text-sm text-slate-700 leading-relaxed note-content-markdown" v-html="formatNoteContent(selectedNote.summary)"></div>
+                </div>
+
+                <!-- Main Content / Edit Area -->
             <div v-if="isDialogEditing">
                 <el-input
                     v-model="editingContent"
