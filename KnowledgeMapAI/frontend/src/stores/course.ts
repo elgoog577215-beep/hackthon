@@ -1664,7 +1664,7 @@ export const useCourseStore = defineStore('course', {
 
     selectNode(node: Node) {
         this.currentNode = node
-        this.fetchAnnotations(node.node_id)
+        // fetchAnnotations is deprecated and handled by loadCourse (fetchCourseAnnotations)
     },
 
     setCurrentNodeSilent(node: Node) {
