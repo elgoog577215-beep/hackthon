@@ -155,6 +155,9 @@ export const renderMarkdown = (content: string) => {
     // This is heuristic and might be risky, but addresses the specific issue.
     // Better approach: Let's assume block environments starting at newline.
     normalized = normalized.replace(/(^|\n)\\begin\{([a-z*]+)\}([\s\S]*?)\\end\{\2\}/gm, (match) => {
+        // If the match is already inside $$, don't touch it. 
+        // But regex can't easily know global context.
+        // We assume that if it starts at a newline, it's a candidate for block math.
         return `\n$$\n${match.trim()}\n$$\n`;
     });
 
@@ -163,7 +166,7 @@ export const renderMarkdown = (content: string) => {
 
     // Normalize LaTeX delimiters for compatibility
     // Replace \[ ... \] with $$ ... $$
-    normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$');
+    normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, '\n$$\n$1\n$$\n');
     // Replace \( ... \) with $ ... $ 
     normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
     
