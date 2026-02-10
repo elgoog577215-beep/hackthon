@@ -118,7 +118,7 @@
         </div>
 
         <!-- Note Column (Desktop Only) - Responsive width -->
-        <div id="note-column" v-if="!courseStore.isFocusMode" class="hidden xl:flex flex-col w-[280px] 2xl:w-[320px] flex-shrink-0 relative bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50">
+        <div id="note-column" v-if="!courseStore.isFocusMode" class="hidden md:flex flex-col w-[260px] min-w-[260px] xl:w-[300px] xl:min-w-[300px] 2xl:w-[320px] flex-shrink-0 relative bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50">
              <!-- Search Header (Floating Card) -->
             <div class="sticky top-0 z-30 px-4 py-4 bg-white/90 backdrop-blur-xl border-b border-slate-200/60 flex flex-col gap-4">
                 <!-- Header Row -->
