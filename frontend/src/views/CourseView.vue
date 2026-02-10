@@ -179,6 +179,7 @@ const toggleRightSidebar = () => {
 }
 
 // Sidebar Resizing Logic - Compact Width
+// Handles mouse events to resize sidebars with min/max constraints
 const leftSidebarWidth = ref(300) // Fixed width
 const rightSidebarWidth = ref(window.innerWidth < 1440 ? 280 : 340) // Optimized for laptops
 const isResizingLeft = ref(false)
