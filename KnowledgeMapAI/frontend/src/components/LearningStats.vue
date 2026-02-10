@@ -594,7 +594,6 @@ function formatTime(minutes: number): string {
 }
 
 // Knowledge Graph Logic
-const showKnowledgeGraphModal = ref(false)
 const isMobile = ref(window.innerWidth < 768)
 
 // Learning Suggestions

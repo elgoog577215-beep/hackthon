@@ -1,5 +1,5 @@
 <template>
-  <div class="h-screen w-full flex items-center justify-center p-2 overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100 relative font-sans selection:bg-primary-500/20 selection:text-primary-900 antialiased">
+  <div class="h-screen w-full flex items-center justify-center p-0 xl:p-2 overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100 relative font-sans selection:bg-primary-500/20 selection:text-primary-900 antialiased">
     <!-- Clean Background System -->
     <div class="absolute inset-0 z-0 pointer-events-none overflow-hidden bg-slate-50/50">
         <!-- 1. Subtle Base Gradient -->
@@ -14,17 +14,16 @@
     <div class="w-full h-full flex flex-col gap-3 relative z-10">
         
         <!-- Global Header - Improved contrast and hierarchy -->
-        <header class="h-16 flex-shrink-0 flex items-center justify-between px-6 glass-panel-tech-floating rounded-xl z-20 relative animate-fade-in-up">
-            <div class="flex items-center gap-3 cursor-pointer group" @click="router.push('/')">
-                <div class="w-10 h-10 bg-primary-600 rounded-xl flex items-center justify-center text-white shadow-md transition-all duration-200 relative overflow-hidden group-hover:shadow-lg group-hover:scale-105">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6 relative z-10">
+        <header class="h-14 xl:h-16 flex-shrink-0 flex items-center justify-between px-3 xl:px-6 glass-panel-tech-floating rounded-none xl:rounded-xl z-20 relative animate-fade-in-up border-b xl:border-none border-slate-200/50">
+            <div class="flex items-center gap-2 xl:gap-3 cursor-pointer group" @click="router.push('/')">
+                <div class="w-8 h-8 xl:w-10 xl:h-10 bg-primary-600 rounded-lg xl:rounded-xl flex items-center justify-center text-white shadow-md transition-all duration-200 relative overflow-hidden group-hover:shadow-lg group-hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 xl:w-6 xl:h-6 relative z-10">
                         <path d="M11.7 2.805a.75.75 0 01.6 0A60.65 60.65 0 0122.83 8.72a.75.75 0 01-.231 1.337 49.949 49.949 0 00-9.902 3.912l-.003.002-.34.18a.75.75 0 01-.707 0A50.009 50.009 0 002.21 10.057a.75.75 0 01-.231-1.337A60.653 60.653 0 0111.7 2.805z" />
                         <path d="M13.06 15.473a48.45 48.45 0 017.666-3.282c.134 1.438.227 2.945.227 4.53 0 5.705-3.276 10.675-8.25 13.05a.75.75 0 01-.706 0C7.026 27.478 3.75 22.508 3.75 16.8c0-1.66.103-3.235.249-4.735a48.51 48.51 0 017.76 3.42c.433.224.943.224 1.301-.012z" />
                     </svg>
                 </div>
                 <div>
-                    <h1 class="text-lg font-semibold tracking-tight font-display text-slate-900">KnowledgeMap AI</h1>
-                    <p class="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Qoder 智能引擎</p>
+                    <h1 class="text-lg font-semibold tracking-tight font-display text-slate-900">灵知 (KnowledgeMap)</h1>
                 </div>
             </div>
             
@@ -89,6 +88,19 @@
 
 
                     
+                    <!-- Knowledge Graph (Prominent) -->
+                    <button 
+                        class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-300 border shadow-sm group relative overflow-hidden"
+                        :class="courseStore.showKnowledgeGraph ? 'bg-indigo-600 text-white border-indigo-600 shadow-indigo-200' : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:text-indigo-600 hover:shadow-md'"
+                        @click="courseStore.showKnowledgeGraph = true"
+                    >
+                        <!-- Shimmer effect for unselected state -->
+                        <div v-if="!courseStore.showKnowledgeGraph" class="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-indigo-50/50 to-transparent z-0"></div>
+                        
+                        <el-icon :size="16" class="relative z-10"><Connection /></el-icon>
+                        <span class="relative z-10">知识图谱</span>
+                    </button>
+
                     <!-- Typography Settings -->
                     <el-popover placement="bottom" :width="240" trigger="click" popper-class="glass-popover">
                         <template #reference>
@@ -171,11 +183,25 @@
         @close="courseStore.stopGeneration"
         @click="handleStatusClick"
     />
+
+    <!-- Knowledge Graph Modal - Full Component -->
+    <el-dialog
+      v-model="courseStore.showKnowledgeGraph"
+      title="📊 知识图谱"
+      width="90%"
+      class="knowledge-graph-full-dialog"
+      destroy-on-close
+    >
+      <div class="h-[70vh]">
+        <KnowledgeGraph />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import StatusBar from './components/StatusBar.vue'
+import KnowledgeGraph from './components/KnowledgeGraph.vue'
 import { useCourseStore } from './stores/course'
 import { useRouter } from 'vue-router'
 import { onMounted, onUnmounted, ref, computed } from 'vue'
@@ -227,16 +253,27 @@ const currentCourseName = computed(() => {
 const statusMeta = computed<StatusMetaItem[]>(() => {
     const pendingCount = courseStore.queue.filter(i => i.status === 'pending').length
     const runningCount = courseStore.queue.filter(i => i.status === 'running').length
-    return [
+    
+    // Core Items
+    const items: StatusMetaItem[] = [
         { label: '课程', value: currentCourseName.value, tone: 'primary' },
-        { label: '章节', value: courseStore.currentNode?.node_name || '未选择', tone: 'muted' },
-        { label: '节点', value: String(courseStore.nodes.length), tone: 'muted' },
-        { label: '笔记', value: String(courseStore.notes.length), tone: 'success' },
-        { label: '对话', value: String(courseStore.chatHistory.length), tone: courseStore.chatLoading ? 'warning' : 'muted' },
-        { label: '队列', value: `${runningCount} 运行 / ${pendingCount} 等待`, tone: runningCount > 0 ? 'warning' : 'muted' },
-        { label: '数据加载', value: courseStore.loading ? '进行中' : '空闲', tone: courseStore.loading ? 'warning' : 'muted' },
-        { label: '生成状态', value: statusMode.value, tone: statusMode.value === 'error' ? 'danger' : (statusMode.value === 'generating' ? 'primary' : 'muted') }
+        { label: '笔记', value: String(courseStore.notes.length), tone: 'success' }
     ]
+    
+    // Dynamic Items
+    if (courseStore.currentNode) {
+        items.push({ label: '章节', value: courseStore.currentNode.node_name, tone: 'muted' })
+    }
+    
+    if (runningCount > 0 || pendingCount > 0) {
+        items.push({ label: '生成队列', value: `${runningCount} 运行 / ${pendingCount} 等待`, tone: 'warning' })
+    }
+    
+    if (courseStore.chatLoading) {
+        items.push({ label: 'AI状态', value: '思考中...', tone: 'primary' })
+    }
+    
+    return items
 })
 
 const statusHint = computed(() => {

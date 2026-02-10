@@ -56,7 +56,7 @@
     <!-- Left Resizer (Desktop Only) - Optimized Position -->
     <div 
       v-if="!isMobile && !isLeftCollapsed && !courseStore.isFocusMode"
-      class="w-3 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative transition-colors -ml-1"
+      class="w-1 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative transition-colors hover:w-2 hover:-ml-0.5 transition-all duration-200"
       @mousedown="startResizeLeft"
       @dblclick="resetLeftSidebar"
     >
@@ -68,10 +68,10 @@
         
         <!-- Handle Pill - More Compact -->
         <div 
-            class="w-1 h-10 rounded-full backdrop-blur-sm transition-all duration-300 shadow-sm"
+            class="w-0.5 h-10 rounded-full backdrop-blur-sm transition-all duration-300 shadow-sm"
             :class="isResizingLeft 
-                ? 'bg-primary-500 h-14 w-1.5 shadow-[0_0_8px_rgba(99,102,241,0.4)]' 
-                : 'bg-slate-300/60 group-hover:bg-primary-400 group-hover:h-12 group-hover:w-1.5'"
+                ? 'bg-primary-500 h-14 w-1 shadow-[0_0_8px_rgba(99,102,241,0.4)]' 
+                : 'bg-slate-300/60 group-hover:bg-primary-400 group-hover:h-12 group-hover:w-1'"
         ></div>
     </div>
 
@@ -80,14 +80,14 @@
     <!-- Right Resizer (Desktop Only) - Optimized Position -->
     <div 
       v-if="!isMobile && !courseStore.isFocusMode"
-      class="w-3 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative -mr-1"
+      class="w-1 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative hover:w-2 hover:-mr-0.5 transition-all duration-200"
       @mousedown="startResizeRight"
       @dblclick="resetRightSidebar"
     >
         <!-- Hover Line -->
         <div class="absolute inset-y-4 w-px bg-white/0 group-hover:bg-primary-300/50 transition-colors duration-300"></div>
         <!-- Handle - More Compact -->
-        <div class="w-1 h-10 rounded-full bg-slate-300/40 backdrop-blur-sm group-hover:bg-primary-400 group-hover:h-12 group-hover:w-1.5 group-hover:shadow-[0_0_8px_rgba(139,92,246,0.4)] transition-all duration-300"></div>
+        <div class="w-0.5 h-10 rounded-full bg-slate-300/40 backdrop-blur-sm group-hover:bg-primary-400 group-hover:h-12 group-hover:w-1 group-hover:shadow-[0_0_8px_rgba(139,92,246,0.4)] transition-all duration-300"></div>
     </div>
 
     <!-- Right Sidebar: Chat or Stats -->
@@ -126,18 +126,15 @@ import LearningStats from '../components/LearningStats.vue'
 import { useCourseStore } from '../stores/course'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Menu, ChatDotRound, Expand } from '@element-plus/icons-vue'
+import { Menu, ChatDotRound, Expand, Search, CircleClose, ArrowRight } from '@element-plus/icons-vue'
 
 const courseStore = useCourseStore()
 const route = useRoute()
 const router = useRouter()
 const containerRef = ref<HTMLElement | null>(null)
 
-// Restore state and handle redirection
-const restoredId = courseStore.restoreGenerationState()
-if (restoredId && !route.params.courseId) {
-    router.push(`/course/${restoredId}`)
-}
+// Restore state (tasks, logs, etc.) but DO NOT redirect automatically
+courseStore.restoreGenerationState()
 
 // Restore learning stats
 courseStore.restoreLearningStats()
@@ -182,12 +179,12 @@ const toggleRightSidebar = () => {
     }
 }
 
-// Sidebar Resizing Logic - Optimized Width
-const leftSidebarWidth = ref(260) // Optimized from 280 for better space usage
-const rightSidebarWidth = ref(340) // Optimized from 360 for better balance
+// Sidebar Resizing Logic - Compact Width
+const leftSidebarWidth = ref(300) // Fixed width
+const rightSidebarWidth = ref(window.innerWidth < 1440 ? 280 : 340) // Optimized for laptops
 const isResizingLeft = ref(false)
 const isResizingRight = ref(false)
-const isAutoWidth = ref(true)
+const isAutoWidth = ref(false)
 
 const handleBeforeUnload = () => {
     courseStore.persistGenerationState()
@@ -206,15 +203,15 @@ const startResizeRight = () => {
 }
 
 const resetLeftSidebar = () => { 
-  isAutoWidth.value = true
+  leftSidebarWidth.value = 300
 }
 const resetRightSidebar = () => { rightSidebarWidth.value = 400 }
 
 const handlePreferredWidth = (width: number) => {
   if (isAutoWidth.value && !isMobile.value && !isResizingLeft.value) {
     // Smooth width transition with constraints
-    // Min: 240px (compact), Max: 380px (comfortable reading)
-    const targetWidth = Math.max(240, Math.min(width, 380))
+    // Min: 200px (compact), Max: 400px (comfortable reading)
+    const targetWidth = Math.max(200, Math.min(width, 400))
 
     // Use smooth interpolation for gradual changes
     const currentWidth = leftSidebarWidth.value
@@ -236,7 +233,7 @@ const handleMouseMove = (e: MouseEvent) => {
 
   if (isResizingLeft.value) {
     const newWidth = e.clientX - containerRect.left
-    if (newWidth >= 220 && newWidth <= 420) { // Optimized range for better UX
+    if (newWidth >= 180 && newWidth <= 400) { // Compact range for better UX
       leftSidebarWidth.value = newWidth
     }
   }

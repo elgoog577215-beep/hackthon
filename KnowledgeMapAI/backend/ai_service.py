@@ -31,11 +31,11 @@ class AIService:
         
         # Hybrid Model Strategy
         # Smart Model: For complex reasoning, creative writing, and detailed explanations.
-        self.model_smart = os.getenv("AI_MODEL", "Qwen/Qwen2.5-72B-Instruct")
+        self.model_smart = os.getenv("AI_MODEL", "Qwen/Qwen3-32B")
         
         # Fast Model: For summarization, classification, and simple tasks.
         # Default to a smaller, faster model if not specified.
-        self.model_fast = os.getenv("AI_MODEL_FAST", "Qwen/Qwen2.5-7B-Instruct")
+        self.model_fast = os.getenv("AI_MODEL_FAST", "Qwen/Qwen3-32B")
         
         self.client = AsyncOpenAI(
             base_url=self.api_base,
@@ -85,6 +85,14 @@ class AIService:
             pass
 
         logger.warning(f"Failed to extract JSON from: {text[:500]}...")
+        
+        # Debug: Write failed text to file
+        try:
+            with open("debug_failed_json.txt", "w", encoding="utf-8") as f:
+                f.write(text)
+        except Exception:
+            pass
+            
         return None
 
     def _clean_mermaid_syntax(self, text: str) -> str:
@@ -156,7 +164,7 @@ class AIService:
         
         try:
             extra_body = {
-                "enable_thinking": True
+                "enable_thinking": False
             }
             
             # Select Model
@@ -193,47 +201,11 @@ class AIService:
             return None
 
     async def generate_course(self, keyword: str, difficulty: str = "medium", style: str = "academic", requirements: str = "") -> Dict:
-        system_prompt = f"""
-你是一位资深学科专家和课程架构师，专注于为高等教育和职业发展设计严谨的学术课程体系。
-
-## 课程配置
-- 难度等级：{difficulty} (beginner/medium/advanced)
-- 教学风格：{style}
-- 额外要求：{requirements if requirements else "无"}
-
-## 学术定位
-- 受众：大学本科生、研究生及专业技术人员
-- 目标：构建系统化、理论联系实际的知识体系
-- 标准：符合学术规范和行业标准
-
-## 核心任务
-基于学科关键词，设计完整的课程架构，确保知识体系的系统性和完整性。
-请根据配置的难度和风格调整课程内容的深度和广度。
-
-## 学术要求
-1. **结构层级**
-   - 一级结构：课程名称（体现学科核心）
-   - 二级结构：章节体系（8-12章，覆盖学科全貌）
-   - **严禁生成三级结构**，保持大纲的宏观性
-
-2. **内容规范**
-   - 课程命名：采用学术著作或专业课程的标准命名方式
-   - 章节逻辑：遵循"学科导论→理论基础→核心技术→应用实践→前沿发展"的学术演进路径
-   - 内容摘要：每章50字左右的概述，突出核心概念和知识要点
-   - 风格适配：请确保章节名称和摘要内容符合设定的"{style}"风格。
-
-3. **输出格式**
-   严格按照指定JSON格式输出，确保技术实现的准确性。
-   推荐将 JSON 包裹在 markdown 代码块中（```json ... ```），以便于提取。
-{{
-"course_name":"《关键词：原理与实践》",
-"nodes":[
-{{"node_id":"id_1","parent_node_id":"root","node_name":"《计算机科学导论》","node_level":1,"node_content":"前言与课程综述","node_type":"original"}},
-{{"node_id":"id_2","parent_node_id":"id_1","node_name":"第一章 基础理论","node_level":2,"node_content":"本章阐述...","node_type":"original"}},
-{{"node_id":"id_3","parent_node_id":"id_1","node_name":"第二章 核心机制","node_level":2,"node_content":"本章深入分析...","node_type":"original"}}
-]
-}}
-"""
+        system_prompt = get_prompt("generate_course").format(
+            difficulty=difficulty,
+            style=style,
+            requirements=requirements if requirements else "无"
+        )
         prompt = f"用户想要学习“{keyword}”，请生成一份专业且系统的课程大纲。"
         
         response = await self._call_llm(prompt, system_prompt)
@@ -242,46 +214,11 @@ class AIService:
         return {"course_name": keyword, "nodes": []}
 
     async def generate_quiz(self, content: str, node_name: str = "", difficulty: str = "medium", style: str = "standard", user_persona: str = "", question_count: int = 3) -> List[Dict]:
-        system_prompt = """
-        你是一位专业的教育测量专家，负责设计符合学术标准的评估工具。
-
-        ## 评估目标
-        创建能够有效检验学习者对核心概念理解深度的专业测验。
-
-        ## 技术要求
-        1. **题目设计原则**
-           - 侧重概念理解、原理应用和问题解决能力
-           - 避免简单记忆性题目，强调分析、综合和评价层次
-           - 确保题目具有区分度和效度
-           - **题目数量**：请严格生成 {question_count} 道题目。
-
-        2. **难度控制**
-           - {difficulty}级别：根据难度参数调整题目复杂度
-           - {style}风格：学术风格强调理论深度，实践风格侧重应用场景
-
-        3. **专业标准**
-           - 每个问题提供4个具有学术合理性的选项
-           - 正确答案需基于权威理论或实证研究
-           - 解释说明应引用相关理论依据
-           - **必须返回有效的 JSON 格式**，不要输出任何对话文本。
-           - **格式增强**：在 explanation 字段中，如果需要对比或展示结构化信息，请优先使用 Markdown 表格；如果需要展示流程或逻辑关系，请使用 Mermaid 图表。
-
-        ## 学术规范
-        - 问题表述严谨，避免歧义
-        - 选项设计具有逻辑性和科学性
-        - 解释说明体现专业深度
-
-        Output JSON format:
-        [
-            {{
-                "id": 1,
-                "question": "What is ...?",
-                "options": ["Option A", "Option B", "Option C", "Option D"],
-                "correct_index": 2,
-                "explanation": "Because ..."
-            }}
-        ]
-        """
+        system_prompt = get_prompt("generate_quiz").format(
+            difficulty=difficulty,
+            style=style,
+            question_count=question_count
+        )
         
         content_text = content
         if not content or len(content) < 50:
@@ -290,7 +227,7 @@ class AIService:
         # Explicitly mention question count in the user prompt as well to reinforce it
         prompt = f"Content:\n{content_text}\n\nPlease generate exactly {question_count} questions in JSON format. Remember to use Markdown tables or Mermaid diagrams in 'explanation' if helpful for understanding."
         
-        response = await self._call_llm(prompt, system_prompt.format(difficulty=difficulty, style=style, question_count=question_count))
+        response = await self._call_llm(prompt, system_prompt)
         if response:
             result = self._extract_json(response)
             if result:
@@ -367,50 +304,10 @@ class AIService:
         return fallback_questions[:question_count]
 
     async def generate_sub_nodes(self, node_name: str, node_level: int, node_id: str, course_name: str = "", parent_context: str = "") -> List[Dict]:
-        system_prompt = f"""
-你是一位严谨的学术编辑，负责完善专业著作的章节结构。
-
-## 学术背景
-- 学科领域：{{course_name if course_name else "未知课程"}}
-- 上级章节：{{parent_context if parent_context else "无"}}
-
-## 结构设计任务
-基于当前章节主题，设计符合学术规范的子节结构。
-
-## 学术要求
-1. **逻辑体系**
-   - 遵循知识的内在逻辑关系
-   - 确保内容覆盖的完整性和系统性
-   - 体现从基础到应用的递进关系
-
-2. **数量标准**
-   - 生成5-10个具有学术价值的子节点
-   - 每个子节点代表一个独立的知识模块
-   - 确保内容的深度和广度平衡
-
-3. **内容规范**
-   - 节点名称：采用专业术语，体现学术性
-   - 内容摘要：50字左右的学术性概述，突出核心价值
-   - 风格要求：专业、严谨、简洁
-
-## 质量标准
-- 避免通俗化表达，使用学术语言
-- 确保概念的准确性和专业性
-- 体现学科的前沿性和实用性
-
-4. **输出格式**：
-   - 请返回标准的 JSON 格式。
-   - 推荐将 JSON 包裹在 markdown 代码块中（```json ... ```），以便于提取。
-{{
-"sub_nodes":[
-{{"node_name":"下级节点名 1","node_content":"本节摘要（简洁专业）"}},
-{{"node_name":"下级节点名 2","node_content":"本节摘要"}},
-{{"node_name":"下级节点名 3","node_content":"本节摘要"}},
-{{"node_name":"下级节点名 4","node_content":"本节摘要"}},
-{{"node_name":"下级节点名 5","node_content":"本节摘要"}}
-]
-}}
-"""
+        system_prompt = get_prompt("generate_sub_nodes").format(
+            course_name=course_name if course_name else "未知课程",
+            parent_context=parent_context if parent_context else "无"
+        )
         prompt = f"当前节点信息：名称={node_name}，层级={node_level}。请列出该章节下的所有子小节，确保结构完整且具备专业性。"
         
         response = await self._call_llm(prompt, system_prompt)
@@ -446,7 +343,7 @@ class AIService:
 
         try:
             extra_body = {
-                "enable_thinking": True
+                "enable_thinking": False
             }
             
             # Select Model
@@ -647,7 +544,7 @@ class AIService:
 
         return f"拓展知识点：\n关于 {node_name} 的延伸阅读... {requirement}"
 
-    async def answer_question_stream(self, question: str, context: str, history: List[dict] = [], selection: str = "", user_persona: str = "", course_id: str = None, node_id: str = None):
+    async def answer_question_stream(self, question: str, context: str, history: List[dict] = [], selection: str = "", user_persona: str = "", course_id: str = None, node_id: str = None, user_notes: str = ""):
         """
         Stream answer with metadata appended at the end.
         Structure: [Answer Content] \n\n---METADATA---\n [JSON Metadata]
@@ -757,8 +654,11 @@ DO NOT wrap the JSON in markdown code blocks.
         history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history[-5:]])
         
         prompt = f"""
-课程内容片段：
+课程内容片段（正文知识）：
 {context}
+
+用户笔记（学习足迹）：
+{user_notes if user_notes else "无"}
 
 对话历史：
 {history_text}
@@ -777,14 +677,8 @@ DO NOT wrap the JSON in markdown code blocks.
         """
         Generate a concise title/summary for a note content.
         """
-        system_prompt = """
-你是一位专业的笔记整理员。请为给定的笔记内容生成一个简短、核心的标题（Summary）。
-
-要求：
-1. **精简**：字数控制在 10-20 字以内。
-2. **核心**：直接概括笔记的核心观点或知识点。
-3. **格式**：直接输出标题文本，不要包含任何前缀或符号。
-"""
+        system_prompt = get_prompt("summarize_note").format()
+        
         # If content contains Q&A structure, try to summarize the Question primarily
         prompt = f"笔记内容：\n{content[:2000]}\n\n请生成标题："
         
@@ -793,36 +687,10 @@ DO NOT wrap the JSON in markdown code blocks.
         return response if response else (content[:20] + "...")
 
     async def summarize_chat(self, history: List[dict], course_context: str = "", user_persona: str = "") -> Dict:
-        system_prompt = f"""
-你是一位专业的学习复盘专家。请根据用户的对话历史，生成一份高质量的**学习复盘报告**。
-
-**用户画像**：
-{user_persona if user_persona else "通用学习者"}
-
-**核心要求**：
-1. **真实全面**：忽略寒暄和无用信息，精准捕捉核心内容。
-2. **内容详实**：每个部分都要详细展开，不要简单概括。
-   - 卡点：详细描述用户的问题背景、具体困惑点、尝试过的解决思路
-   - 解答：完整阐述核心知识点，包括原理、逻辑、关键步骤，必要时举例说明
-   - 启发：深入分析延伸思考，提供实际应用场景和学习建议
-3. **结构化输出**：必须包含以下三个部分：
-   - **🔴 卡点 (Stuck Point)**：用户最初遇到的困难、误区或疑惑是什么？
-   - **🟢 解答 (Solution)**：最终解决问题的关键知识点、逻辑或方法是什么？
-   - **✨ 启发 (Inspiration)**：从这个问题中延伸出的思考、举一反三的应用或对未来的指导意义。
-4. **字数要求**：content 字段至少 300-500 字，确保内容充实有价值。
-5. **出题建议**：基于本轮对话的知识点，判断是否有必要进行测验。
-
-**输出格式**：
-直接输出一个 JSON 对象（不要 markdown 代码块）：
-{{
-  "title": "复盘：[核心主题]",
-  "content": "Markdown 格式的详细复盘内容，包含完整的知识点阐述、原理解释和实际应用...",
-  "stuck_point": "详细描述卡点",
-  "solution": "详细描述解答",
-  "inspiration": "详细描述启发",
-  "suggest_quiz": true/false
-}}
-"""
+        system_prompt = get_prompt("summarize_chat").format(
+            user_persona=user_persona if user_persona else "通用学习者"
+        )
+        
         # Convert history to text
         history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
         
@@ -838,17 +706,7 @@ DO NOT wrap the JSON in markdown code blocks.
         """
         Summarizes conversation history using LLM.
         """
-        system_prompt = """
-You are a Conversation Summarizer.
-Your task is to condense the provided conversation history into a concise summary that preserves key context, user intent, and important details.
-The summary will be used as "Long-term Memory" for an AI assistant.
-
-Requirements:
-1. Identify the main topic(s) discussed.
-2. Preserve any specific user questions and the core of the answers.
-3. Keep it dense and information-rich (avoid fluff).
-4. Use third-person perspective (e.g., "User asked about X, AI explained Y").
-"""
+        system_prompt = get_prompt("summarize_history").format()
         history_text = "\n".join([f"{msg.get('role', 'unknown')}: {msg.get('content', '')}" for msg in history])
         
         prompt = f"Please summarize the following conversation:\n\n{history_text}"
@@ -873,12 +731,12 @@ Requirements:
         
         # Build course context summary
         nodes_summary = []
-        for node in nodes[:20]:  # Limit to first 20 nodes to avoid token limit
+        for node in nodes[:50]:  # Increased limit to cover full course structure
             nodes_summary.append({
                 "id": node.get("node_id", ""),
                 "name": node.get("node_name", ""),
                 "level": node.get("node_level", 1),
-                "content": node.get("node_content", "")[:100]  # Truncate content
+                "content": node.get("node_content", "")[:200]  # Increased content context
             })
         
         context_text = f"""
@@ -911,7 +769,39 @@ Requirements:
         
         if response:
             result = self._extract_json(response)
-            if result and "nodes" in result and "edges" in result:
+            if result and "nodes" in result and "edges" in result and len(result["nodes"]) > 0:
+                # Self-Healing: Validate and fix chapter_ids
+                valid_chapter_ids = {n.get("node_id") for n in nodes}
+                
+                for graph_node in result["nodes"]:
+                    chapter_id = graph_node.get("chapter_id")
+                    
+                    # If invalid or missing
+                    if not chapter_id or chapter_id not in valid_chapter_ids:
+                        # Try to find a match by name similarity (simple substring check for now)
+                        node_label = graph_node.get("label", "")
+                        best_match_id = None
+                        
+                        # Priority 1: Exact match
+                        for n in nodes:
+                            if n.get("node_name", "") == node_label:
+                                best_match_id = n.get("node_id")
+                                break
+                                
+                        # Priority 2: Substring match
+                        if not best_match_id:
+                            for n in nodes:
+                                if node_label in n.get("node_name", "") or n.get("node_name", "") in node_label:
+                                    best_match_id = n.get("node_id")
+                                    break
+                        
+                        # Fallback to the first available node if no match found
+                        if not best_match_id and nodes:
+                            best_match_id = nodes[0].get("node_id")
+                            
+                        if best_match_id:
+                            graph_node["chapter_id"] = best_match_id
+                            
                 return result
         
         # Fallback: Generate a simple graph based on node hierarchy
@@ -932,11 +822,9 @@ Requirements:
             
             # Determine node type based on level
             if node_level == 1:
-                node_type = "core"
-            elif node_level == 2:
-                node_type = "basic"
+                node_type = "module"
             else:
-                node_type = "advanced"
+                node_type = "concept"
             
             graph_nodes.append({
                 "id": node_id,
@@ -946,6 +834,26 @@ Requirements:
                 "chapter_id": node_id
             })
         
+        # Add Root Node
+        root_id = "root_" + str(uuid.uuid4())[:8]
+        graph_nodes.insert(0, {
+            "id": root_id,
+            "label": "课程核心",
+            "type": "root",
+            "description": "课程根节点",
+            "chapter_id": nodes[0].get("node_id") if nodes else ""
+        })
+        
+        # Connect Root to Level 1 Modules
+        for node in graph_nodes:
+             if node["type"] == "module":
+                graph_edges.append({
+                    "source": root_id,
+                    "target": node["id"],
+                    "relation": "contains",
+                    "label": "包含"
+                })
+
         # Create edges based on parent-child relationships
         node_map = {n["id"]: n for n in graph_nodes}
         for node in nodes[:15]:

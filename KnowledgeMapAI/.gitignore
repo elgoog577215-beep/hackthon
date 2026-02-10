@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 venv/
-.env
+# .env
 
 # Node
 node_modules/
@@ -15,5 +15,5 @@ dist/
 .idea/
 
 # Data
-backend/data/
+# backend/data/
 data/

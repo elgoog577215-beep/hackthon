@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: './',
   plugins: [vue()],
   build: {
     rollupOptions: {
@@ -17,5 +18,25 @@ export default defineConfig({
       }
     },
     chunkSizeWarningLimit: 1000
+  },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      },
+      '/courses': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      },
+      '/generate_course': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      },
+      '/ask': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      }
+    }
   }
 })

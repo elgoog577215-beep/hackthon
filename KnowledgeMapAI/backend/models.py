@@ -56,6 +56,7 @@ class AskQuestionRequest(BaseModel):
     question: str
     history: List[dict] = []
     selection: Optional[str] = ""
+    user_notes: Optional[str] = ""
     user_persona: Optional[str] = ""
 
 class AddNodeRequest(BaseModel):

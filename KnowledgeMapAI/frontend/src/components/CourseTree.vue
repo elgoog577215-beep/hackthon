@@ -3,33 +3,31 @@
     
     <!-- MODE 1: COURSE LIST -->
     <transition name="fade-slide" mode="out-in">
-      <div v-if="!courseStore.currentCourseId" class="flex flex-col h-full" key="list">
-        <div class="mx-3 mt-3 mb-1 px-4 py-3 flex justify-between items-center flex-shrink-0 glass-panel-tech-floating rounded-xl z-10 relative">
+      <div v-if="!courseStore.currentCourseId" class="flex flex-col h-full bg-white/50" key="list">
+        <!-- Header - Consistent Style -->
+        <div class="sticky top-0 z-20 px-4 py-3 bg-white/80 backdrop-blur-xl border-b border-slate-100 flex items-center justify-between flex-shrink-0">
             <div class="flex items-center gap-2">
                 <button 
-                    class="p-1 -ml-1 text-slate-400 hover:text-primary-600 rounded-lg hover:bg-slate-100 transition-colors"
+                    class="p-1.5 -ml-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition-colors"
                     @click="$emit('toggle-sidebar')"
                     title="收起侧边栏"
                 >
-                    <el-icon :size="16"><Fold /></el-icon>
+                    <el-icon :size="18"><Fold /></el-icon>
                 </button>
-                <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500/10 to-primary-500/10 flex items-center justify-center text-primary-600 ring-1 ring-inset ring-white/60 shadow-sm">
-                    <el-icon :size="16"><Collection /></el-icon>
-                </div>
-                <span class="font-bold text-slate-700 tracking-tight font-display">我的课程</span>
+                <span class="font-bold text-slate-700 tracking-tight text-base">我的课程</span>
             </div>
             
             <button 
-                class="glass-icon-btn bg-white/40 hover:bg-white/80 !border-white/50 text-slate-600 hover:!text-primary-600 group"
+                class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary-50 text-slate-500 hover:text-primary-600 transition-colors"
                 @click="createNewCourse"
                 title="新建课程"
             >
-                <el-icon :size="16" class="transition-transform duration-300 group-hover:rotate-90"><Plus /></el-icon>
+                <el-icon :size="18"><Plus /></el-icon>
             </button>
         </div>
 
         <!-- List Content - Optimized Scrollbar -->
-        <div class="flex-1 overflow-y-auto overflow-x-hidden p-3 sidebar-scroll space-y-2.5 scroll-smooth pr-2">
+        <div class="flex-1 overflow-y-auto overflow-x-hidden p-2 sidebar-scroll space-y-2 scroll-smooth pr-1">
             <div 
                 v-for="(course, index) in courseStore.courseList" 
                 :key="course.course_id" 
@@ -37,7 +35,7 @@
                 :style="{ animationDelay: (index * 50) + 'ms' }"
             >
                 <div 
-                    class="group relative p-3.5 rounded-lg glass-card-tech-hover cursor-pointer overflow-hidden h-full"
+                    class="group relative p-2.5 rounded-lg glass-card-tech-hover cursor-pointer overflow-hidden h-full"
                     @click="handleCourseClick(course.course_id)"
                 >
                  <!-- Hover Gradient -->
@@ -156,74 +154,66 @@
     
 
       <!-- MODE 2: TREE VIEW -->
-      <div v-else class="flex flex-col h-full" key="tree">
+      <div v-else class="flex flex-col h-full bg-white/50" key="tree">
         <!-- Compact Header - Optimized -->
-        <div class="mx-3 mt-3 mb-2 h-14 px-3 flex gap-2 items-center justify-between flex-shrink-0 glass-panel-tech-floating rounded-xl z-10 relative box-border">
-          
-          <div class="flex items-center gap-1">
-            <!-- Collapse Button -->
+        <div class="sticky top-0 z-20 px-3 py-3 bg-white/80 backdrop-blur-xl border-b border-slate-100 flex items-center gap-2 flex-shrink-0">
             <button 
-                class="flex-shrink-0 w-7 h-7 glass-card-tech-hover !p-0 !rounded-lg !border-white/50 text-slate-500 hover:text-primary-600 flex items-center justify-center group"
-                @click="$emit('toggle-sidebar')"
-                title="收起侧边栏"
-            >
-                <el-icon :size="14"><Fold /></el-icon>
-            </button>
-
-            <!-- Back Button -->
-            <button 
-                class="flex-shrink-0 w-7 h-7 glass-card-tech-hover !p-0 !rounded-lg !border-white/50 text-slate-500 hover:text-primary-600 flex items-center justify-center group"
+                class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
                 @click="backToCourses"
                 title="返回课程列表"
             >
-                <el-icon :size="14" class="group-hover:-translate-x-0.5 transition-transform"><ArrowLeft /></el-icon>
+                <el-icon :size="16"><ArrowLeft /></el-icon>
             </button>
 
-            <!-- Notes Button -->
-            <button 
-                class="flex-shrink-0 w-7 h-7 glass-card-tech-hover !p-0 !rounded-lg !border-white/50 text-slate-500 hover:text-amber-500 flex items-center justify-center group"
-                @click="notesDialogVisible = true"
-                title="课程笔记"
-            >
-                <el-icon :size="14"><Document /></el-icon>
-            </button>
-          </div>
-
-          <!-- Search Input - Beautiful Design -->
-          <div class="relative flex-1 min-w-0">
-            <div class="flex items-center bg-white rounded-lg h-8 shadow-sm border border-slate-200/60 transition-all duration-300 focus-within:shadow-[0_0_15px_rgba(139,92,246,0.2)] focus-within:border-primary-300/50 hover:shadow-md hover:border-slate-300/60">
-                <div class="pl-2.5 pr-1.5 text-slate-400 transition-colors duration-300">
+            <div class="flex-1 relative group">
+                <div class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary-500 transition-colors">
                      <el-icon :size="14"><Search /></el-icon>
                 </div>
                 <input 
                     v-model="filterText"
                     type="text"
-                    placeholder="搜索章节..."
-                    class="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-xs text-slate-600 placeholder:text-slate-400/70 h-full pr-7"
+                    placeholder="搜索..."
+                    class="w-full bg-slate-100/50 hover:bg-slate-100 focus:bg-white border border-transparent focus:border-primary-200 rounded-lg py-1.5 pl-8 pr-7 text-xs text-slate-600 placeholder:text-slate-400 outline-none transition-all"
                 />
                 <button 
                     v-if="filterText" 
-                    class="absolute right-1.5 text-slate-400 hover:text-slate-600 transition-colors"
+                    class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                     @click="filterText = ''"
                 >
                     <el-icon :size="12"><CircleClose /></el-icon>
                 </button>
             </div>
-          </div>
+            
+            <div class="flex items-center gap-0.5">
+                 <button 
+                    class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-amber-50 text-slate-500 hover:text-amber-500 transition-colors"
+                    @click="notesDialogVisible = true"
+                    title="课程笔记"
+                >
+                    <el-icon :size="16"><Document /></el-icon>
+                </button>
+                <button 
+                    class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
+                    @click="$emit('toggle-sidebar')"
+                    title="收起侧边栏"
+                >
+                    <el-icon :size="16"><Fold /></el-icon>
+                </button>
+            </div>
         </div>
         
         <!-- Tree Content - Optimized Scrollbar -->
-        <div class="flex-1 overflow-y-auto overflow-x-hidden p-3 sidebar-scroll pr-2">
+        <div class="flex-1 overflow-y-auto overflow-x-hidden p-2 sidebar-scroll">
           <!-- Wrapper must allow shrinking to content width to avoid infinite loop with parent width -->
-          <div class="w-max" ref="treeContentRef">
+          <div class="w-full" ref="treeContentRef">
            <el-tree
             ref="treeRef"
-            :data="courseStore.courseTree"
+            :data="displayTreeData"
             :props="defaultProps"
-            default-expand-all
             node-key="node_id"
             :filter-node-method="filterNode"
             highlight-current
+            default-expand-all
             :expand-on-click-node="false"
             :indent="16"
             @node-click="handleNodeClick"
@@ -231,73 +221,43 @@
           >
             <template #default="{ node, data }">
               <div 
-                class="flex items-center py-2 px-3 w-full rounded-xl transition-all duration-500 group relative overflow-hidden border border-transparent 
-                       hover:bg-white/40 hover:border-white/50 hover:shadow-[0_4px_20px_-4px_rgba(139,92,246,0.1)]
-                       data-[current=true]:bg-gradient-to-r data-[current=true]:from-white/90 data-[current=true]:to-primary-50/80 data-[current=true]:text-primary-900 data-[current=true]:shadow-[0_8px_30px_-6px_rgba(139,92,246,0.2)] data-[current=true]:border-white/60"
+                class="flex-1 min-w-0 flex items-center py-3 px-3 mb-1 rounded-xl transition-all duration-300 group relative border border-transparent overflow-hidden
+                       hover:bg-gradient-to-r hover:from-white/80 hover:to-white/40 hover:shadow-[0_4px_12px_-2px_rgba(0,0,0,0.05)] hover:border-white/60
+                       data-[current=true]:bg-gradient-to-r data-[current=true]:from-white/95 data-[current=true]:to-primary-50/50 data-[current=true]:text-primary-800 data-[current=true]:shadow-[0_8px_20px_-4px_rgba(139,92,246,0.15)] data-[current=true]:border-white/80"
                 :data-current="node.isCurrent"
               >
-                <!-- Active Indicator (Glow) -->
-                <div class="absolute inset-0 bg-gradient-to-r from-primary-500/10 via-transparent to-transparent opacity-0 group-data-[current=true]:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+                <!-- Active Indicator (Left Bar) -->
+                <div class="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-0 bg-gradient-to-b from-primary-400 to-primary-600 rounded-r-full transition-all duration-300 group-data-[current=true]:h-8 opacity-0 group-data-[current=true]:opacity-100 shadow-sm"></div>
                 
-                <!-- Glass Reflection (Diagonal Shine) -->
-                <div class="absolute -inset-full top-0 block h-full w-1/2 -skew-x-12 bg-gradient-to-r from-transparent to-white opacity-20 group-hover:animate-shine pointer-events-none"></div>
+                <!-- Hover Glow Effect -->
+                <div class="absolute inset-0 bg-gradient-to-r from-primary-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
 
-                <!-- Left Accent Pill -->
-                <div class="absolute left-1 top-1/2 -translate-y-1/2 w-1 h-0 bg-gradient-to-b from-primary-400 to-primary-600 rounded-full transition-all duration-300 opacity-0 group-data-[current=true]:opacity-100 group-data-[current=true]:h-5 shadow-[0_0_8px_rgba(139,92,246,0.6)]"></div>
-
-                <!-- Icon Indicator -->
+                <!-- Icon -->
                 <div class="mr-3 flex-shrink-0 w-5 h-5 flex items-center justify-center transition-all duration-300 transform group-hover:scale-110 group-data-[current=true]:scale-110"
-                    :class="data.node_level === 1 
-                        ? 'text-primary-600 drop-shadow-sm' 
-                        : 'text-slate-400 group-hover:text-slate-600 group-data-[current=true]:text-primary-600'">
-                    <component :is="getIcon(data.node_level)" class="w-4 h-4" stroke-width="2.5" />
+                    :class="[
+                        data.node_level <= 2 
+                            ? 'text-slate-700 group-data-[current=true]:text-primary-600' 
+                            : 'text-slate-400 group-hover:text-slate-600 group-data-[current=true]:text-primary-500',
+                        (data.children && data.children.length > 0) ? 'cursor-pointer hover:bg-black/5 rounded-full' : ''
+                    ]"
+                    @click.stop="toggleNode(node, data)">
+                    <component :is="getIcon(data, node.expanded)" class="w-4 h-4" stroke-width="2.5" />
                 </div>
                 
                 <!-- Text -->
-                    <span class="whitespace-nowrap text-sm transition-colors tracking-tight mr-2 truncate max-w-40 lg:max-w-52" 
-                        :class="data.node_level === 1 ? 'font-bold text-slate-800' : 'text-slate-600 font-medium group-hover:text-slate-900 group-data-[current=true]:text-primary-950'">
-                        
-                        <!-- Status Dot / Read Indicator -->
-                        <span class="inline-block w-1.5 h-1.5 rounded-full mr-1.5 mb-0.5 align-middle transition-colors duration-300"
-                              :class="{
-                                  'bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.4)]': 
-                                      (data.node_level <= 2 && data.children && data.children.length > 0) || 
-                                      (data.node_level > 2 && data.node_content && data.node_content.includes('<!-- BODY_START -->')),
-                                  'bg-slate-200 group-hover:bg-slate-300': 
-                                      !((data.node_level <= 2 && data.children && data.children.length > 0) || 
-                                        (data.node_level > 2 && data.node_content && data.node_content.includes('<!-- BODY_START -->')))
-                              }">
-                        </span>
-                        
-                        <span v-html="highlightSearch(node.label)"></span>
-                    </span>
-                
-                <!-- Hover Actions (Next to text) -->
-                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-data-[current=true]:opacity-100 transition-opacity bg-white/50 backdrop-blur-sm rounded-lg px-1 shadow-sm border border-white/40 flex-shrink-0" @click.stop>
-                    <button v-if="data.node_level >= 2" class="p-1 text-slate-400 hover:text-primary-600 hover:bg-white rounded transition-colors" title="生成本章内容" @click="handleGenerate(data)">
-                        <el-icon :size="12"><MagicStick /></el-icon>
-                    </button>
-                    <button class="p-1 text-slate-400 hover:text-primary-600 hover:bg-white rounded transition-colors" title="添加子节点" @click="handleAdd(data)">
-                        <el-icon :size="12"><Plus /></el-icon>
-                    </button>
-                    <button class="p-1 text-slate-400 hover:text-primary-600 hover:bg-white rounded transition-colors" title="重命名" @click="handleRename(data)">
-                        <el-icon :size="12"><Edit /></el-icon>
-                    </button>
+                <span class="whitespace-nowrap text-sm tracking-tight mr-2 truncate flex-1 transition-colors duration-200 font-medium" 
+                    :class="data.node_level <= 2 ? 'font-bold text-slate-800' : 'text-slate-600 group-data-[current=true]:text-primary-800'">
                     
-                    <el-popconfirm
-                        title="确定删除此节点及其子节点吗？"
-                        confirm-button-text="删除"
-                        cancel-button-text="取消"
-                        confirm-button-type="danger"
-                        @confirm="handleDelete(data)"
-                        width="200"
-                    >
-                        <template #reference>
-                            <button class="p-1 text-slate-400 hover:text-red-500 hover:bg-white rounded transition-colors" title="删除">
-                                <el-icon :size="12"><Delete /></el-icon>
-                            </button>
-                        </template>
-                    </el-popconfirm>
+                    <!-- Status Dot (Simplified) -->
+                     <span v-if="(data.node_level <= 2 && data.children && data.children.length > 0) || (data.node_level > 2 && data.node_content && data.node_content.includes('<!-- BODY_START -->'))"
+                          class="inline-block w-1.5 h-1.5 rounded-full mr-2 mb-0.5 align-middle bg-emerald-400/60 group-hover:bg-emerald-400 shadow-sm">
+                    </span>
+                    
+                    <span v-html="highlightSearch(node.label)"></span>
+                </span>
+                
+                <!-- Hover Actions (Subtle) -->
+                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" @click.stop>
                 </div>
               </div>
             </template>
@@ -518,18 +478,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, computed, reactive } from 'vue'
+import { ref, watch, onUnmounted, computed, reactive, nextTick, onMounted } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
 import { Plus, Search, CircleClose, Collection, Delete, Notebook, ArrowLeft, Edit, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled } from '@element-plus/icons-vue'
-import { BookOpen, Hash, FileText, Circle } from 'lucide-vue-next'
+import { BookOpen, Hash, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
 
 const courseStore = useCourseStore()
 const router = useRouter()
 const emit = defineEmits(['update:preferredWidth', 'node-selected', 'toggle-sidebar'])
 
 const filterText = ref('')
+
+// Computed property to skip the root node and show children directly
+const displayTreeData = computed(() => {
+  if (courseStore.courseTree && courseStore.courseTree.length > 0) {
+    // If there is exactly one root node and it has children, peel it off
+    // This handles the "Course Name" -> "Chapter 1", "Chapter 2" structure
+    if (courseStore.courseTree.length === 1 && courseStore.courseTree[0]?.children && courseStore.courseTree[0]?.children?.length > 0) {
+      return courseStore.courseTree[0].children
+    }
+  }
+  return courseStore.courseTree
+})
+
 const notesDialogVisible = ref(false)
 const treeRef = ref<InstanceType<typeof ElTree>>()
 const treeContentRef = ref<HTMLElement | null>(null)
@@ -624,7 +597,7 @@ const calculateOptimalWidth = () => {
 
     // Constrain within reasonable bounds
     // Min: 240px (enough for short names), Max: 380px (prevent too wide)
-    return Math.max(240, Math.min(maxWidth, 380))
+    return Math.max(300, Math.min(maxWidth, 380))
 }
 
 const setupResizeObserver = (el: HTMLElement) => {
@@ -683,10 +656,23 @@ const defaultProps = {
   label: 'node_name',
 }
 
-const getIcon = (level: number) => {
+const toggleNode = (node: any, data: any) => {
+    if (data.children && data.children.length > 0) {
+        node.expanded = !node.expanded
+    }
+}
+
+const getIcon = (data: any, expanded: boolean = false) => {
+    const level = data.node_level;
+    const hasChildren = data.children && data.children.length > 0;
+
     switch(level) {
         case 1: return BookOpen;
-        case 2: return Hash;
+        case 2: 
+            if (hasChildren) {
+                return expanded ? ChevronDown : ChevronRight;
+            }
+            return Circle; // Use Circle for empty chapters instead of # (Hash)
         case 3: return FileText;
         default: return Circle;
     }
@@ -834,10 +820,10 @@ const backToCourses = () => {
 :deep(.el-tree-node__content) {
     height: auto;
     background-color: transparent !important;
-    padding: 6px 0; /* Increased padding */
-    margin-bottom: 6px;
-    border-radius: 12px;
-    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    padding: 0; /* Let template handle padding */
+    margin-bottom: 1px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
 }
 :deep(.el-tree-node:focus > .el-tree-node__content) {
     background-color: transparent !important;
@@ -864,6 +850,15 @@ const backToCourses = () => {
     margin-left: 22px; 
     padding-left: 4px;
     transition: border-color 0.3s;
+}
+
+/* Adjust first level children indentation */
+:deep(.el-tree > .el-tree-node > .el-tree-node__children) {
+    margin-left: 22px;
+}
+
+:deep(.el-tree-node__expand-icon) {
+    display: none;
 }
 
 :deep(.el-tree-node__children:hover) {

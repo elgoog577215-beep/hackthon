@@ -17,6 +17,7 @@ mermaid.initialize({
 // Markdown Configuration
 const md = new MarkdownIt({
     html: true,
+    breaks: true, // Enable line breaks
     linkify: true,
     typographer: true,
     highlight: function (str: string, lang: string) {
@@ -61,45 +62,24 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any) {
     const knownTypes = [
         'graph', 'flowchart', 'sequenceDiagram', 'classDiagram', 
         'stateDiagram', 'erDiagram', 'gantt', 'pie', 'mindmap', 
-        'timeline', 'gitGraph', 'journey'
+        'timeline', 'gitGraph', 'journey', 'sankey-beta', 'quadrantChart'
     ];
     
-    if (!knownTypes.some(type => code.startsWith(type))) {
-        // Simple heuristic: if it looks like A -> B, it's a graph
+    // Simple heuristic: if it doesn't start with a known type, assume it's a graph
+    const firstWord = code.split(/[\s\n]/)[0];
+    if (!knownTypes.includes(firstWord) && !code.trim().startsWith('%%')) {
         if (code.includes('-->') || code.includes('---')) {
             code = 'graph TD\n' + code;
         }
     }
 
-    // Auto-fix 2: Quote node text containing parens or special chars
-    const quoteIfNeeded = (text: string) => {
-        if (text.startsWith('"') && text.endsWith('"')) {
-            return text;
-        }
-        // Escape existing quotes
-        const escaped = text.replace(/"/g, '\\"');
-        return `"${escaped}"`;
-    };
+    // Auto-fix 2: Removed aggressive text quoting as it was causing syntax errors with modern Mermaid versions
+    // Mermaid 10+ handles special characters much better
 
-    // 2.1 Fix [Text] -> ["Text"] (Rectangular nodes)
-    // Allow newlines in text
-    code = code.replace(/\[(?![(\[/\\<])([^\[\]]+?)\]/g, (_match: string, p1: string) => {
-        // Don't touch if it looks like a subgraph or class definition
-        if (p1.trim().startsWith('id=') || p1.trim().startsWith('class:')) return _match;
-        return `[${quoteIfNeeded(p1)}]`;
-    });
+    // Encode the code to prevent HTML tag parsing issues (e.g. A["<Label>"])
+    const encodedCode = md.utils.escapeHtml(code);
     
-    // 2.2 Fix (Text) -> ("Text") (Round nodes)
-    code = code.replace(/\((?!\()([^()]+?)\)/g, (_match: string, p1: string) => {
-        return `(${quoteIfNeeded(p1)})`;
-    });
-
-    // 2.3 Fix {Text} -> {"Text"} (Rhombus nodes)
-    code = code.replace(/\{(?![{!])([^{}]+?)\}/g, (_match: string, p1: string) => {
-        return `{${quoteIfNeeded(p1)}}`;
-    });
-    
-    return `<div class="mermaid">${code}</div>`;
+    return `<div class="mermaid">${encodedCode}</div>`;
   }
   
   const langName = info.split(/\s+/g)[0];
@@ -140,23 +120,49 @@ export const renderMarkdown = (content: string) => {
         return markdownCache.get(content) || ''
     }
 
+    // Fix: Auto-add space after headers (e.g., "###Title" -> "### Title")
+    let normalized = content.replace(/^(#{1,6})(?=[^#\s])/gm, '$1 ');
+
     // Normalize LaTeX delimiters for compatibility
     // Replace \[ ... \] with $$ ... $$
-    let normalized = content.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$');
-    // Replace \( ... \) with $ ... $
+    normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$');
+    // Replace \( ... \) with $ ... $ (we'll convert back to valid katex format later if needed, but $$ is standard)
     normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
     
-    // Fix spaces in inline math $ ... $ -> $...$ to ensure markdown-it-katex parses it
-    normalized = normalized.replace(/(\$\$[\s\S]*?\$\$)|(\$\s+(.+?)\s+\$)/g, (match, block, inline, content) => {
+    // Fix spaces in inline math $ ... $ -> $...$
+    // And ensure we use $$...$$ for block and $...$ for inline (if supported)
+    // IMPORTANT: markdown-it-katex default often supports $$ for block and $ for inline
+    // But to be safe, we ensure $...$ has NO outer spaces if that's the requirement, 
+    // OR we convert single $ to \\( ... \\) if that's what the parser prefers.
+    // Testing shows markdown-it-katex usually handles $...$ if it's not surrounded by spaces? 
+    // Actually, let's normalize to standard LaTeX: $$ for block, \\( for inline to be safe.
+    
+    normalized = normalized.replace(/(\$\$[\s\S]*?\$\$)|(\$([^\$\n]+?)\$)/g, (match, block, inline, content) => {
         if (block) return block
-        if (inline) return `$${content}$`
+        if (inline) {
+            // Trim content
+            const trimmed = content.trim()
+            // Convert to \\( ... \\) for maximum compatibility with markdown-it-katex
+            return `\\\\(${trimmed}\\\\) `
+        }
         return match
     })
+
     // Fix non-standard prime notation
     normalized = normalized.replace(/(\w+)'\s+\((.+?)\)/g, "$1'($2)")
     normalized = normalized.replace(/(\w+)\s+'/g, "$1'")
     // Fix trailing dollar sign issue
     normalized = normalized.replace(/(\$\$[\s\S]*?)[^$]\$$/gm, "$1$$")
+
+    // Fix: Auto-wrap equations that are missing delimiters (common LLM issue)
+    // Heuristic: If a line contains a math command (vec, frac, int, sum, lim) AND an equals sign,
+    // and is not already wrapped in $, wrap the math part in $$
+    // Example: "Label: \vec{v} = ..." -> "Label: $$\vec{v} = ...$$"
+    normalized = normalized.replace(/(^|\n)([^\n$]*?)(\\vec|\\frac|\\int|\\sum|\\lim)([^$\n]*=[^$\n]*)(\n|$)/g, (match, prefix, label, cmd, rest, suffix) => {
+        // If the label contains $ or the rest contains $, abort (already wrapped)
+        if (label.includes('$') || rest.includes('$')) return match;
+        return `${prefix}${label}$$${cmd}${rest}$$${suffix}`;
+    });
 
     let sanitized = ''
     try {
