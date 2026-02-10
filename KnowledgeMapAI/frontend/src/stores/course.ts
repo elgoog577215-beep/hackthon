@@ -53,6 +53,7 @@ export interface Note {
     sourceType?: 'user' | 'ai' | 'format' | 'wrong'
     style?: 'bold' | 'underline' | 'wave' | 'dashed' | 'highlight' | 'solid' | 'wavy'
     title?: string // Optional note title
+    expanded?: boolean
 }
 
 export interface Course {
@@ -98,6 +99,7 @@ export interface AIContent {
         correct_index?: number
         explanation?: string
         node_id?: string
+        isReview?: boolean
     }
     quiz_list?: {
         question: string

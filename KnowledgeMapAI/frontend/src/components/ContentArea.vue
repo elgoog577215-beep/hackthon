@@ -578,7 +578,10 @@
       <div v-else class="py-2">
         <div v-if="quizQuestions && quizQuestions.length > 0">
             <div v-for="(q, idx) in quizQuestions" :key="idx" class="mb-8 last:mb-0">
-            <p class="font-bold text-slate-800 mb-3 text-lg">{{ idx + 1 }}. {{ q.question }}</p>
+            <div class="flex gap-2 font-bold text-slate-800 mb-3 text-lg">
+                <span class="shrink-0">{{ idx + 1 }}.</span>
+                <div v-html="renderMarkdown(q.question)"></div>
+            </div>
             <div class="space-y-2">
                 <div 
                 v-for="(opt, oIdx) in q.options" 
@@ -602,11 +605,12 @@
                     <span v-else-if="quizSubmitted && userAnswers[idx] === opt && opt !== q.answer"><el-icon><Close /></el-icon></span>
                     <span v-else>{{ String.fromCharCode(65 + Number(oIdx)) }}</span>
                 </div>
-                <span class="text-slate-700 font-medium">{{ opt }}</span>
+                <div class="text-slate-700 font-medium" v-html="renderMarkdown(opt)"></div>
                 </div>
             </div>
             <div v-if="quizSubmitted" class="mt-3 text-sm bg-slate-50 p-3 rounded-lg text-slate-600">
-                <span class="font-bold text-slate-800">解析：</span> {{ q.explanation || '暂无解析' }}
+                <span class="font-bold text-slate-800 block mb-1">解析：</span> 
+                <div v-html="renderMarkdown(q.explanation || '暂无解析')"></div>
             </div>
             </div>
         </div>
@@ -1736,7 +1740,7 @@ const formatNoteDetailContent = (note: any) => {
         
         // Check if content starts with the quote
         // We look for the quote at the beginning, possibly wrapped in blockquotes
-        const contentParts = content.split('\n')
+        
         // Heuristic: If the first few non-empty lines match the quote, remove them.
         
         // Simpler approach: Check if normalized content *starts with* normalized quote

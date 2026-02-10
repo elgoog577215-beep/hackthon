@@ -142,8 +142,8 @@ export const renderMarkdown = (content: string) => {
         if (inline) {
             // Trim content
             const trimmed = content.trim()
-            // Convert to \\( ... \\) for maximum compatibility with markdown-it-katex
-            return `\\\\(${trimmed}\\\\) `
+            // Keep as $...$ for markdown-it-katex
+            return `$${trimmed}$`
         }
         return match
     })

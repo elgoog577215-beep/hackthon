@@ -24,7 +24,9 @@
       "node_name": "第三章 静电场的数学描述",
       "node_level": 2,
       "node_content": "推导静电场的微分方程，分析拉普拉斯方程和泊松方程的应用。",
-      "node_type": "original"
+      "node_type": "original",
+      "is_read": true,
+      "quiz_score": 0
     },
     {
       "node_id": "id_4",

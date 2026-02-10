@@ -694,6 +694,7 @@ const connectionLines = computed(() => {
 })
 
 // Learning Report Logic
+const showKnowledgeGraphModal = ref(false)
 const showLearningReport = ref(false)
 
 // Overall score calculation (0-100)

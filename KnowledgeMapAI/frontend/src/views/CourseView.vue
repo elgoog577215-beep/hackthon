@@ -125,12 +125,11 @@ import ChatPanel from '../components/ChatPanel.vue'
 import LearningStats from '../components/LearningStats.vue'
 import { useCourseStore } from '../stores/course'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { Menu, ChatDotRound, Expand, Search, CircleClose, ArrowRight } from '@element-plus/icons-vue'
+import { useRoute } from 'vue-router'
+import { Menu, ChatDotRound, Expand } from '@element-plus/icons-vue'
 
 const courseStore = useCourseStore()
 const route = useRoute()
-const router = useRouter()
 const containerRef = ref<HTMLElement | null>(null)
 
 // Restore state (tasks, logs, etc.) but DO NOT redirect automatically
