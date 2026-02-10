@@ -152,8 +152,14 @@ const mobileShowRight = ref(false)
 const isLeftCollapsed = ref(false)
 
 const checkMobile = () => {
-    isMobile.value = window.innerWidth < 768
+    const width = window.innerWidth
+    isMobile.value = width < 768
+    
     if (!isMobile.value) {
+        // Responsive width adjustment for directory column
+        if (!isResizingLeft.value) {
+            leftSidebarWidth.value = width < 1280 ? 280 : 300
+        }
         mobileShowLeft.value = false
         mobileShowRight.value = false
     }
@@ -181,7 +187,7 @@ const toggleRightSidebar = () => {
 
 // Sidebar Resizing Logic - Compact Width
 // Handles mouse events to resize sidebars with min/max constraints
-const leftSidebarWidth = ref(300) // Fixed width
+const leftSidebarWidth = ref(window.innerWidth < 1280 ? 280 : 300) // Responsive initial width
 const rightSidebarWidth = ref(window.innerWidth < 1440 ? 280 : 340) // Optimized for laptops
 const isResizingLeft = ref(false)
 const isResizingRight = ref(false)
@@ -204,7 +210,7 @@ const startResizeRight = () => {
 }
 
 const resetLeftSidebar = () => { 
-  leftSidebarWidth.value = 300
+  leftSidebarWidth.value = window.innerWidth < 1280 ? 280 : 300
 }
 const resetRightSidebar = () => { rightSidebarWidth.value = 400 }
 
