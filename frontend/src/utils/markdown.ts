@@ -168,7 +168,7 @@ export const renderMarkdown = (content: string) => {
     normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
     
     // Fix: Ensure display math $$...$$ has proper spacing for rendering
-    normalized = normalized.replace(/\$\$([\s\S]*?)\$\$/g, (match, content) => {
+    normalized = normalized.replace(/\$\$([\s\S]*?)\$\$/g, (_match, content) => {
         return `\n$$\n${content.trim()}\n$$\n`;
     });
     
