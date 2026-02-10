@@ -53,7 +53,8 @@
         </button>
     </div>
     
-    <!-- Left Resizer (Desktop Only) - Optimized Position -->
+    <!-- 左侧调整器（仅限桌面端） - 优化位置 -->
+    <!-- 用于调整课程大纲侧边栏大小的可拖动句柄 -->
     <div 
       v-if="!isMobile && !isLeftCollapsed && !courseStore.isFocusMode"
       class="w-1 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative transition-colors hover:w-2 hover:-ml-0.5 transition-all duration-200"

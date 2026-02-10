@@ -4,7 +4,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 
-// --- Utility Constants & Functions ---
+// --- 实用常量和函数 ---
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 const GENERATION_STATE_KEY = 'course-generation-state-v1'
 const sanitizeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').trim()
@@ -19,8 +19,8 @@ const downloadBlob = (blob: Blob, filename: string) => {
     URL.revokeObjectURL(url)
 }
 
-// --- Types & Interfaces ---
-// These define the shape of the data used throughout the application.
+// --- 类型和接口 ---
+// 这些定义了整个应用程序中使用的数据形状。
 
 export interface Node {
   node_id: string
@@ -77,15 +77,16 @@ export interface QueueItem {
     retryCount?: number
 }
 
+// Task 代表一个课程生成过程
 export interface Task {
     id: string // courseId
     courseName: string
     status: 'idle' | 'running' | 'paused' | 'completed' | 'error'
     progress: number
-    currentStep: string // "Generating Chapter X"
+    currentStep: string // "正在生成第 X 章"
     logs: string[]
-    nodes: Node[] // Local copy of nodes for background processing
-    shouldStop: boolean // Flag to signal stop
+    nodes: Node[] // 用于后台处理的节点本地副本
+    shouldStop: boolean // 停止信号标志
     difficulty?: string
     style?: string
     requirements?: string
@@ -126,7 +127,7 @@ export interface ChatMessage {
 }
 
 export const useCourseStore = defineStore('course', {
-  // --- State Definition ---
+  // --- 状态定义 ---
   state: () => ({
     courseList: [] as Course[],
     currentCourseId: '' as string,
@@ -137,18 +138,18 @@ export const useCourseStore = defineStore('course', {
     loading: false,
     chatHistory: [] as ChatMessage[],
     
-    // --- Task Management System ---
-    // Manages the state of long-running generation tasks
+    // --- 任务管理系统 ---
+    // 管理长时间运行的生成任务的状态
     tasks: new Map<string, Task>(), // courseId -> Task
     activeTaskId: null as string | null,
     
-    // --- Queue System (Playlist Style) ---
-    // Handles the sequential processing of generation steps
+    // --- 队列系统（播放列表风格） ---
+    // 处理生成步骤的顺序处理
     queue: [] as QueueItem[],
     isQueueProcessing: false,
 
-    // Legacy/UI Compatibility State (mapped from active task)
-    // These fields are used by the UI components to display progress
+    // 遗留/UI 兼容性状态（从活动任务映射）
+    // UI 组件使用这些字段来显示进度
     isGenerating: false,
     generationStatus: 'idle' as 'idle' | 'generating' | 'paused' | 'error',
     generationLogs: [] as string[],
