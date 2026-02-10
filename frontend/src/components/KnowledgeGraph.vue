@@ -46,50 +46,32 @@
         @mouseup="handleMouseUp"
         @mouseleave="handleMouseUp"
       >
-        <!-- Background Grid -->
         <defs>
+          <!-- Background Grid -->
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
             <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#f1f5f9" stroke-width="1"/>
           </pattern>
+          <!-- Drop Shadow Filter -->
+          <filter id="node-shadow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.1"/>
+          </filter>
+          <!-- Selected Glow -->
+          <filter id="node-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#6366f1" flood-opacity="0.5"/>
+          </filter>
         </defs>
+        
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Edges -->
         <g class="edges">
-          <line
+          <path
             v-for="edge in graphData.edges"
             :key="`${edge.source}-${edge.target}`"
-            :x1="getNodePosition(edge.source).x"
-            :y1="getNodePosition(edge.source).y"
-            :x2="getNodePosition(edge.target).x"
-            :y2="getNodePosition(edge.target).y"
+            :d="getEdgePath(edge)"
             :class="['edge-line', getEdgeClass(edge)]"
-            :stroke-width="selectedNode && (edge.source === selectedNode.id || edge.target === selectedNode.id) ? 3 : 1.5"
+            :stroke-width="selectedNode && (edge.source === selectedNode.id || edge.target === selectedNode.id) ? 3 : 2"
           />
-          <!-- Edge Labels -->
-          <g
-            v-for="edge in graphData.edges"
-            :key="`label-${edge.source}-${edge.target}`"
-            class="edge-label"
-            :transform="`translate(${getEdgeMidpoint(edge).x}, ${getEdgeMidpoint(edge).y})`"
-          >
-            <rect
-              x="-20"
-              y="-10"
-              width="40"
-              height="20"
-              rx="4"
-              fill="white"
-              fill-opacity="0.9"
-            />
-            <text
-              text-anchor="middle"
-              dominant-baseline="middle"
-              class="edge-label-text"
-            >
-              {{ edge.label }}
-            </text>
-          </g>
         </g>
 
         <!-- Nodes -->
@@ -103,25 +85,48 @@
             @mouseenter="hoverNode = node.id"
             @mouseleave="hoverNode = null"
           >
-            <!-- Node Circle -->
-            <circle
-              :r="getNodeRadius(node)"
-              :class="['node-circle', getNodeClass(node)]"
-              :stroke-width="selectedNode?.id === node.id ? 4 : 2"
+            <!-- Invisible Hit Area (Larger than visual) -->
+            <rect
+              :x="-getNodeWidth(node) / 2 - 10"
+              :y="-30"
+              :width="getNodeWidth(node) + 20"
+              height="60"
+              fill="transparent"
             />
-            <!-- Node Icon -->
-            <text
-              class="node-icon"
-              dy="0.35em"
-              text-anchor="middle"
-            >
-              {{ getNodeIcon(node) }}
-            </text>
+
+            <!-- Node Card Background -->
+            <rect
+              :x="-getNodeWidth(node) / 2"
+              :y="-22"
+              :width="getNodeWidth(node)"
+              height="44"
+              rx="6"
+              ry="6"
+              class="node-card-bg"
+              :filter="selectedNode?.id === node.id ? 'url(#node-glow)' : 'url(#node-shadow)'"
+              :stroke="selectedNode?.id === node.id ? '#6366f1' : 'transparent'"
+              stroke-width="2"
+            />
+            
+            <!-- Type Indicator Strip -->
+            <rect
+              :x="-getNodeWidth(node) / 2"
+              :y="-22"
+              width="5"
+              height="44"
+              rx="0"
+              class="node-type-strip"
+              :fill="getNodeColor(node)"
+              style="border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
+            />
+
             <!-- Node Label -->
             <text
               class="node-label"
-              :y="getNodeRadius(node) + 15"
+              x="5"
+              y="6"
               text-anchor="middle"
+              :style="{ fill: '#0f172a' }"
             >
               {{ node.label }}
             </text>
@@ -150,7 +155,7 @@
           <div class="panel-content">
             <div class="info-row">
               <span class="info-label">类型:</span>
-              <span class="info-value" :class="`type-${selectedNode.type}`">
+              <span class="info-value" :style="{ background: getNodeColor(selectedNode) + '20', color: getNodeColor(selectedNode) }">
                 {{ getNodeTypeLabel(selectedNode.type) }}
               </span>
             </div>
@@ -174,7 +179,7 @@
       <div class="legend-title">图例</div>
       <div class="legend-items">
         <div v-for="type in nodeTypes" :key="type.value" class="legend-item">
-          <span class="legend-dot" :class="`type-${type.value}`"></span>
+          <span class="legend-dot" :style="{ background: type.color }"></span>
           <span class="legend-label">{{ type.label }}</span>
         </div>
       </div>
@@ -204,7 +209,7 @@ const hoverNode = ref<string | null>(null)
 const graphContainer = ref<HTMLElement | null>(null)
 
 // ViewBox for zooming and panning
-const viewBox = ref({ x: -400, y: -300, width: 800, height: 600 })
+const viewBox = ref({ x: -100, y: -300, width: 1000, height: 700 })
 const viewBoxString = computed(() => `${viewBox.value.x} ${viewBox.value.y} ${viewBox.value.width} ${viewBox.value.height}`)
 
 const isDragging = ref(false)
@@ -213,16 +218,16 @@ const viewBoxStart = ref({ x: 0, y: 0 })
 
 // Node type configuration
 const nodeTypes = [
-  { value: 'root', label: '课程核心', color: '#6366f1' },
-  { value: 'module', label: '知识模块', color: '#8b5cf6' },
-  { value: 'concept', label: '核心概念', color: '#10b981' },
-  { value: 'theorem', label: '关键定理', color: '#f59e0b' },
-  { value: 'method', label: '核心方法', color: '#ec4899' },
+  { value: 'root', label: '课程核心', color: '#4f46e5' },    // Indigo-600
+  { value: 'module', label: '知识模块', color: '#7c3aed' },  // Violet-600
+  { value: 'concept', label: '核心概念', color: '#059669' }, // Emerald-600
+  { value: 'theorem', label: '关键定理', color: '#d97706' }, // Amber-600
+  { value: 'method', label: '核心方法', color: '#db2777' },  // Pink-600
   // Backward compatibility
-  { value: 'core', label: '核心概念', color: '#6366f1' },
-  { value: 'basic', label: '基础概念', color: '#10b981' },
-  { value: 'advanced', label: '进阶概念', color: '#f59e0b' },
-  { value: 'application', label: '应用场景', color: '#ec4899' }
+  { value: 'core', label: '核心概念', color: '#4f46e5' },
+  { value: 'basic', label: '基础概念', color: '#059669' },
+  { value: 'advanced', label: '进阶概念', color: '#d97706' },
+  { value: 'application', label: '应用场景', color: '#db2777' }
 ]
 
 // Computed
@@ -244,19 +249,14 @@ async function loadGraph() {
   
   try {
     const response = await fetch(`/courses/${courseStore.currentCourseId}/knowledge_graph`)
-    // Check if response is ok and is JSON
     const contentType = response.headers.get("content-type");
     if (response.ok && contentType && contentType.indexOf("application/json") !== -1) {
         const result = await response.json()
         
         if (result.status === 'success' && result.data.nodes.length > 0) {
           graphData.value = result.data
-          // Calculate initial layout
-          calculateLayout()
+          calculateTreeLayout()
         }
-    } else {
-        // Handle non-JSON response (likely HTML error page)
-        console.warn('Received non-JSON response for knowledge graph');
     }
   } catch (error) {
     console.error('Failed to load knowledge graph:', error)
@@ -276,21 +276,18 @@ async function generateGraph() {
       method: 'POST'
     })
     
-    // Check if response is ok and is JSON
     const contentType = response.headers.get("content-type");
     if (response.ok && contentType && contentType.indexOf("application/json") !== -1) {
         const result = await response.json()
         
         if (result.status === 'success') {
           graphData.value = result.data
-          calculateLayout()
+          calculateTreeLayout()
           ElMessage.success('知识图谱生成成功')
         } else {
           ElMessage.error('生成失败: ' + (result.message || 'Unknown error'))
         }
     } else {
-        const text = await response.text();
-        console.error('Server returned non-JSON response:', text.substring(0, 100));
         ElMessage.error('生成失败: 服务器返回错误')
     }
   } catch (error) {
@@ -301,136 +298,169 @@ async function generateGraph() {
   }
 }
 
-// Calculate force-directed layout
-function calculateLayout() {
+// ----------------------------------------------------------------------
+// Tree Layout Algorithm (Left-to-Right)
+// ----------------------------------------------------------------------
+function calculateTreeLayout() {
   const nodes = graphData.value.nodes
   const edges = graphData.value.edges
   
-  // Initialize positions randomly
-  nodes.forEach((node, i) => {
-    if (!node.x || !node.y) {
-      const angle = (i / nodes.length) * 2 * Math.PI
-      const radius = 150 + Math.random() * 50
-      node.x = Math.cos(angle) * radius
-      node.y = Math.sin(angle) * radius
+  if (nodes.length === 0) return
+
+  // 1. Build Adjacency List (Directed)
+  const childrenMap: Record<string, string[]> = {}
+  const parentMap: Record<string, string[]> = {}
+  
+  nodes.forEach(n => {
+    childrenMap[n.id] = []
+    parentMap[n.id] = []
+  })
+  
+  edges.forEach(e => {
+    if (childrenMap[e.source]) {
+      childrenMap[e.source]!.push(e.target)
+    }
+    if (parentMap[e.target]) {
+      parentMap[e.target]!.push(e.source)
+    }
+  })
+
+  // 2. Identify Roots (Nodes with no incoming edges, or specific type)
+  let roots = nodes.filter(n => (parentMap[n.id] || []).length === 0)
+  
+  // If circular or no clear root, fallback to 'root' type or just the first node
+  if (roots.length === 0) {
+    const explicitRoot = nodes.find(n => n.type === 'root')
+    roots = explicitRoot ? [explicitRoot] : [nodes[0]]
+  }
+
+  // 3. DFS for layout
+  const visited = new Set<string>()
+  let currentY = 0
+  const LEVEL_WIDTH = 280
+  const NODE_HEIGHT = 70 // Height + Gap
+
+  // Helper to get node object
+  const getNode = (id: string) => nodes.find(n => n.id === id)
+
+  // Recursive layout function
+  // Returns the Y-center of the subtree rooted at `nodeId`
+  function layoutNode(nodeId: string, depth: number): number {
+    if (visited.has(nodeId)) {
+      // If already visited, we treat it as a cross-link target, 
+      // but we don't move it. It stays where it was first placed.
+      // Or we could return its existing Y? 
+      // For a simple tree layout, we just skip re-layouting.
+      const node = getNode(nodeId)
+      return node ? node.y : currentY
+    }
+    
+    visited.add(nodeId)
+    const node = getNode(nodeId)
+    if (!node) return currentY
+
+    // Position X
+    node.x = depth * LEVEL_WIDTH
+
+    // Process children
+    const childrenIds = childrenMap[nodeId] || []
+    // Filter out already visited children to strictly enforce tree structure for layout
+    const unvisitedChildren = childrenIds.filter(id => !visited.has(id))
+
+    if (unvisitedChildren.length === 0) {
+      // Leaf node
+      node.y = currentY
+      currentY += NODE_HEIGHT
+      return node.y
+    } else {
+      // Parent node: place children, then center self
+      let firstChildY: number | null = null
+      let lastChildY: number | null = null
+
+      unvisitedChildren.forEach((childId, index) => {
+        const childY = layoutNode(childId, depth + 1)
+        if (index === 0) firstChildY = childY
+        lastChildY = childY
+      })
+
+      if (firstChildY !== null && lastChildY !== null) {
+        node.y = (firstChildY + lastChildY) / 2
+      } else {
+        node.y = currentY
+        currentY += NODE_HEIGHT
+      }
+      return node.y
+    }
+  }
+
+  // Layout each root (handles forests)
+  roots.forEach(root => {
+    layoutNode(root.id, 0)
+  })
+
+  // Handle any nodes not reached (disconnected components)
+  nodes.forEach(node => {
+    if (!visited.has(node.id)) {
+      layoutNode(node.id, 0)
     }
   })
   
-  // Simple force simulation (few iterations)
-  for (let iteration = 0; iteration < 150; iteration++) {
-    // Repulsion between nodes
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const dx = nodes[j].x - nodes[i].x
-        const dy = nodes[j].y - nodes[i].y
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1
-        const force = 8000 / (dist * dist)
-        const fx = (dx / dist) * force
-        const fy = (dy / dist) * force
-        
-        nodes[i].x -= fx
-        nodes[i].y -= fy
-        nodes[j].x += fx
-        nodes[j].y += fy
-      }
-    }
-    
-    // Attraction along edges
-    edges.forEach(edge => {
-      const source = nodes.find(n => n.id === edge.source)
-      const target = nodes.find(n => n.id === edge.target)
-      if (source && target) {
-        const dx = target.x - source.x
-        const dy = target.y - source.y
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1
-        const force = (dist - 150) * 0.02
-        const fx = (dx / dist) * force
-        const fy = (dy / dist) * force
-        
-        source.x += fx
-        source.y += fy
-        target.x -= fx
-        target.y -= fy
-      }
-    })
-    
-    // Center gravity (weaker to avoid squeezing)
-    nodes.forEach(node => {
-      node.x *= 0.995
-      node.y *= 0.995
-    })
-  }
-  
-  // Update viewBox to fit graph
   updateViewBox()
 }
 
-// Update viewBox to fit all nodes
+// Update viewBox to fit all nodes with generous padding
 function updateViewBox() {
   if (graphData.value.nodes.length === 0) return
   
-  const padding = 100
+  const paddingX = 300
+  const paddingY = 200
   const xs = graphData.value.nodes.map(n => n.x)
   const ys = graphData.value.nodes.map(n => n.y)
   
-  const minX = Math.min(...xs) - padding
-  const maxX = Math.max(...xs) + padding
-  const minY = Math.min(...ys) - padding
-  const maxY = Math.max(...ys) + padding
+  const minX = Math.min(...xs) - paddingX
+  const maxX = Math.max(...xs) + paddingX
+  const minY = Math.min(...ys) - paddingY
+  const maxY = Math.max(...ys) + paddingY
   
   viewBox.value = {
     x: minX,
     y: minY,
-    width: maxX - minX,
-    height: maxY - minY
+    width: Math.max(maxX - minX, 800),
+    height: Math.max(maxY - minY, 600)
   }
 }
 
-// Get node position
 function getNodePosition(nodeId: string) {
   const node = graphData.value.nodes.find(n => n.id === nodeId)
   return node ? { x: node.x || 0, y: node.y || 0 } : { x: 0, y: 0 }
 }
 
-// Get edge midpoint for label positioning
-function getEdgeMidpoint(edge: any) {
+function getNodeWidth(node: any) {
+  const len = node.label ? node.label.length : 0
+  // slightly wider cards for better text breathing room
+  return Math.max(120, len * 15 + 40)
+}
+
+function getNodeColor(node: any) {
+  const typeInfo = nodeTypes.find(t => t.value === node.type)
+  return typeInfo?.color || '#94a3b8'
+}
+
+function getEdgePath(edge: any) {
   const source = getNodePosition(edge.source)
   const target = getNodePosition(edge.target)
-  return {
-    x: (source.x + target.x) / 2,
-    y: (source.y + target.y) / 2
-  }
-}
-
-// Get node radius based on type
-function getNodeRadius(node: any) {
-  const baseRadius = {
-    root: 45,
-    module: 35,
-    concept: 25,
-    application: 20,
-    // Legacy
-    core: 35,
-    basic: 25,
-    advanced: 25
-  }
-  const radius = baseRadius[node.type as keyof typeof baseRadius] || 25
   
-  // Highlight selected or hovered node
-  if (selectedNode.value?.id === node.id) return radius + 5
-  if (hoverNode.value === node.id) return radius + 3
-  return radius
+  // Bezier Curve (Cubic)
+  // Control points: halfway horizontally
+  const dx = target.x - source.x
+  const cp1x = source.x + dx * 0.5
+  const cp1y = source.y
+  const cp2x = target.x - dx * 0.5
+  const cp2y = target.y
+  
+  return `M ${source.x} ${source.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${target.x} ${target.y}`
 }
 
-// Get node CSS class
-function getNodeClass(node: any) {
-  const classes = [node.type]
-  if (selectedNode.value?.id === node.id) classes.push('selected')
-  if (hoverNode.value === node.id) classes.push('hovered')
-  return classes.join(' ')
-}
-
-// Get edge CSS class
 function getEdgeClass(edge: any) {
   const classes = [edge.relation]
   if (selectedNode.value) {
@@ -442,48 +472,61 @@ function getEdgeClass(edge: any) {
   return classes.join(' ')
 }
 
-// Get node icon
-function getNodeIcon(node: any) {
-  const icons: Record<string, string> = {
-    root: '★',
-    module: '◆',
-    concept: '●',
-    theorem: 'π',
-    method: 'ƒ',
-    application: '⚡',
-    // Legacy
-    core: '★',
-    basic: '●',
-    advanced: '▲'
-  }
-  return icons[node.type] || '●'
-}
-
-// Get node type label
 function getNodeTypeLabel(type: string) {
   const typeInfo = nodeTypes.find(t => t.value === type)
   return typeInfo?.label || type
 }
 
-// Select node
 function selectNode(node: any) {
   selectedNode.value = node
 }
 
-// Deselect node
 function deselectNode() {
   selectedNode.value = null
 }
 
-// Navigate to node in course
 function navigateToNode(nodeId: string) {
   courseStore.scrollToNode(nodeId)
   ElMessage.success('已跳转到对应章节')
 }
 
-// Reset view
 function resetView() {
   updateViewBox()
+}
+
+
+// Download Graph as Image
+function downloadImage() {
+  if (!graphContainer.value) return
+  
+  const svg = graphContainer.value.querySelector('svg')
+  if (!svg) return
+
+  // Serialize SVG
+  const serializer = new XMLSerializer()
+  let source = serializer.serializeToString(svg)
+
+  // Add namespaces
+  if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+      source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"')
+  }
+  if(!source.match(/^<svg[^>]+xmlns:xlink="http\:\/\/www\.w3\.org\/1999\/xlink"/)){
+      source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"')
+  }
+
+  // Create Blob
+  const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"})
+  const url = URL.createObjectURL(blob)
+  
+  // Create link and download
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `knowledge-graph-${courseStore.currentCourseId}.svg`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  
+  ElMessage.success('已导出 SVG 图片')
 }
 
 // Zoom handling
@@ -525,18 +568,21 @@ function handleMouseUp() {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  background: #f8fafc;
   border-radius: 12px;
   overflow: hidden;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 .graph-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: white;
-  border-bottom: 1px solid #e2e8f0;
+  padding: 16px 24px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #f1f5f9;
+  z-index: 10;
 }
 
 .toolbar-left {
@@ -546,9 +592,10 @@ function handleMouseUp() {
 }
 
 .graph-title {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   color: #1e293b;
+  letter-spacing: -0.5px;
 }
 
 .loading-indicator {
@@ -557,11 +604,14 @@ function handleMouseUp() {
   gap: 6px;
   font-size: 13px;
   color: #6366f1;
+  background: #e0e7ff;
+  padding: 4px 10px;
+  border-radius: 20px;
 }
 
 .toolbar-right {
   display: flex;
-  gap: 8px;
+  gap: 10px;
 }
 
 .btn-generate,
@@ -570,47 +620,45 @@ function handleMouseUp() {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: 8px 16px;
+  border-radius: 10px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   border: none;
 }
 
 .btn-generate {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: #1e293b;
   color: white;
+  box-shadow: 0 4px 12px rgba(30, 41, 59, 0.2);
 }
 
 .btn-generate:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 6px 16px rgba(30, 41, 59, 0.3);
 }
 
 .btn-refresh {
-  background: #f1f5f9;
-  color: #475569;
-}
-
-.btn-refresh:hover:not(:disabled) {
-  background: #e2e8f0;
-}
-
-.btn-reset {
   background: white;
-  color: #64748b;
+  color: #475569;
   border: 1px solid #e2e8f0;
 }
 
-.btn-reset:hover {
+.btn-refresh:hover:not(:disabled) {
+  border-color: #cbd5e1;
   background: #f8fafc;
 }
 
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.btn-reset {
+  background: transparent;
+  color: #64748b;
+}
+
+.btn-reset:hover {
+  background: #f1f5f9;
+  color: #334155;
 }
 
 .graph-canvas {
@@ -618,6 +666,7 @@ button:disabled {
   position: relative;
   overflow: hidden;
   cursor: grab;
+  background: #f8fafc;
 }
 
 .graph-canvas:active {
@@ -632,157 +681,89 @@ button:disabled {
 /* Edges */
 .edge-line {
   stroke: #cbd5e1;
-  transition: all 0.3s;
-}
-
-.edge-line.depends_on {
-  stroke: #6366f1;
-  stroke-dasharray: 5, 5;
-}
-
-.edge-line.contains {
-  stroke: #10b981;
-}
-
-.edge-line.related {
-  stroke: #f59e0b;
-  stroke-dasharray: 3, 3;
-}
-
-.edge-line.applies_to {
-  stroke: #ec4899;
+  fill: none;
+  transition: stroke 0.3s ease, opacity 0.3s ease;
 }
 
 .edge-line.highlighted {
-  stroke-width: 3;
-  filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.4));
+  stroke: #6366f1;
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.3));
 }
 
 .edge-line.dimmed {
+  stroke: #e2e8f0;
   opacity: 0.3;
-}
-
-.edge-label-text {
-  font-size: 10px;
-  fill: #64748b;
 }
 
 /* Nodes */
 .node-group {
   cursor: pointer;
-  transition: all 0.3s;
+  /* Removed transform transition to fix jitter */
+  transition: filter 0.2s ease;
 }
 
-.node-circle {
-  transition: all 0.3s;
+/* Hover effect only changes filter/color, not position/scale */
+.node-group:hover .node-card-bg {
+  stroke: #6366f1;
+  filter: url(#node-glow);
 }
 
-.node-circle.root {
-  fill: #6366f1;
-  stroke: #4f46e5;
-}
-
-.node-circle.module {
-  fill: #8b5cf6;
-  stroke: #7c3aed;
-}
-
-.node-circle.concept {
-  fill: #10b981;
-  stroke: #059669;
-}
-
-.node-circle.theorem {
-  fill: #f59e0b;
-  stroke: #d97706;
-}
-
-.node-circle.method {
-  fill: #ec4899;
-  stroke: #db2777;
-}
-
-.node-circle.core {
-  fill: #6366f1;
-  stroke: #4f46e5;
-}
-
-.node-circle.basic {
-  fill: #10b981;
-  stroke: #059669;
-}
-
-.node-circle.advanced {
-  fill: #f59e0b;
-  stroke: #d97706;
-}
-
-.node-circle.application {
-  fill: #ec4899;
-  stroke: #db2777;
-}
-
-.node-circle.selected {
-  filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.6));
-}
-
-.node-circle.hovered {
-  filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.4));
-}
-
-.node-icon {
-  font-size: 16px;
+.node-card-bg {
   fill: white;
-  pointer-events: none;
+  transition: all 0.2s ease;
 }
 
 .node-label {
-  font-size: 11px;
-  fill: #334155;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.3px;
   pointer-events: none;
+  user-select: none;
 }
 
 /* Node Detail Panel */
 .node-detail-panel {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 280px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e2e8f0;
+  top: 24px;
+  right: 24px;
+  width: 320px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(16px);
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   overflow: hidden;
+  z-index: 20;
 }
 
 .panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 16px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border-bottom: 1px solid #e2e8f0;
+  padding: 20px 24px;
+  border-bottom: 1px solid #f1f5f9;
 }
 
 .panel-header h3 {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   color: #1e293b;
   margin: 0;
 }
 
 .btn-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: #f1f5f9;
+  color: #64748b;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: #64748b;
-  cursor: pointer;
   transition: all 0.2s;
 }
 
@@ -792,187 +773,138 @@ button:disabled {
 }
 
 .panel-content {
-  padding: 16px;
+  padding: 24px;
 }
 
 .info-row {
-  margin-bottom: 12px;
-}
-
-.info-row:last-child {
-  margin-bottom: 0;
+  margin-bottom: 16px;
 }
 
 .info-label {
   font-size: 12px;
-  color: #64748b;
-  margin-right: 8px;
+  font-weight: 600;
+  color: #94a3b8;
+  display: block;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .info-value {
+  display: inline-block;
   font-size: 13px;
-  font-weight: 500;
-  padding: 4px 10px;
-  border-radius: 12px;
-}
-
-.type-root {
-  background: #e0e7ff;
-  color: #4338ca;
-}
-
-.type-module {
-  background: #ede9fe;
-  color: #7c3aed;
-}
-
-.type-concept {
-  background: #d1fae5;
-  color: #047857;
-}
-
-.type-theorem {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.type-method {
-  background: #fce7f3;
-  color: #be185d;
-}
-
-.type-core {
-  background: #e0e7ff;
-  color: #4338ca;
-}
-
-.type-basic {
-  background: #d1fae5;
-  color: #047857;
-}
-
-.type-advanced {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.type-application {
-  background: #fce7f3;
-  color: #be185d;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
 }
 
 .info-description {
-  font-size: 13px;
+  font-size: 14px;
   color: #475569;
   line-height: 1.6;
-  margin: 8px 0 0;
+  margin: 0;
+  background: #f8fafc;
+  padding: 12px;
+  border-radius: 8px;
 }
 
 .btn-navigate {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 10px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  padding: 12px;
+  background: #1e293b;
   color: white;
   border: none;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  margin-top: 8px;
 }
 
 .btn-navigate:hover {
+  background: #0f172a;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }
 
 /* Legend */
 .graph-legend {
   position: absolute;
-  bottom: 16px;
-  left: 16px;
-  background: white;
-  border-radius: 10px;
-  padding: 12px 14px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  border: 1px solid #e2e8f0;
+  bottom: 24px;
+  left: 24px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
 .legend-title {
   font-size: 12px;
-  font-weight: 600;
-  color: #334155;
-  margin-bottom: 8px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
 }
 
 .legend-items {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
 }
 
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.legend-dot.type-core {
-  background: #6366f1;
-}
-
-.legend-dot.type-basic {
-  background: #10b981;
-}
-
-.legend-dot.type-advanced {
-  background: #f59e0b;
-}
-
-.legend-dot.type-application {
-  background: #ec4899;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
 }
 
 .legend-label {
-  font-size: 12px;
-  color: #64748b;
+  font-size: 13px;
+  color: #475569;
+  font-weight: 500;
 }
 
 /* Stats */
 .graph-stats {
   position: absolute;
-  bottom: 16px;
-  right: 16px;
+  bottom: 24px;
+  right: 24px;
   display: flex;
-  gap: 12px;
-  background: white;
-  padding: 8px 14px;
-  border-radius: 20px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
+  padding: 10px 16px;
+  border-radius: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
   font-size: 12px;
+  font-weight: 600;
   color: #64748b;
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
 /* Transitions */
 .slide-enter-active,
 .slide-leave-active {
-  transition: all 0.3s ease;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .slide-enter-from,
 .slide-leave-to {
   opacity: 0;
-  transform: translateX(20px);
+  transform: translateX(20px) scale(0.95);
 }
 
 /* Empty State */
@@ -984,36 +916,37 @@ button:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 24px;
   z-index: 10;
 }
 
 .empty-icon {
-  font-size: 48px;
-  color: #cbd5e1;
+  font-size: 64px;
+  color: #e2e8f0;
 }
 
 .empty-text {
-  font-size: 14px;
-  color: #64748b;
+  font-size: 16px;
+  font-weight: 500;
+  color: #94a3b8;
   margin: 0;
 }
 
 .btn-generate-large {
-  padding: 10px 24px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  padding: 14px 32px;
+  background: #1e293b;
   color: white;
   border: none;
-  border-radius: 24px;
-  font-size: 14px;
+  border-radius: 16px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-  transition: all 0.2s;
+  box-shadow: 0 10px 20px rgba(30, 41, 59, 0.2);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .btn-generate-large:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 14px 24px rgba(30, 41, 59, 0.3);
 }
 </style>

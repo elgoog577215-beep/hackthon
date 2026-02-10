@@ -65,11 +65,12 @@ export interface Course {
 export interface QueueItem {
     uuid: string
     courseId: string
-    type: 'structure' | 'content' | 'subchapter'
+    type: 'structure' | 'content' | 'subchapter' | 'knowledge_graph'
     targetNodeId: string
     title: string
     status: 'pending' | 'running' | 'completed' | 'error'
     errorMsg?: string
+    retryCount?: number
 }
 
 export interface Task {
@@ -81,6 +82,9 @@ export interface Task {
     logs: string[]
     nodes: Node[] // Local copy of nodes for background processing
     shouldStop: boolean // Flag to signal stop
+    difficulty?: string
+    style?: string
+    requirements?: string
 }
 
 export interface AIContent {
@@ -484,6 +488,22 @@ export const useCourseStore = defineStore('course', {
         this.tasks.forEach(task => {
             const hasWork = this.queue.some(i => i.courseId === task.id && (i.status === 'pending' || i.status === 'running'))
             if (task.status === 'running' && !hasWork) {
+                // Check if knowledge graph is already generated or in queue
+                const hasGraphTask = this.queue.some(i => i.courseId === task.id && i.type === 'knowledge_graph')
+                
+                if (!hasGraphTask) {
+                    // Add knowledge graph generation task as the final step
+                    this.addToQueue({
+                        courseId: task.id,
+                        type: 'knowledge_graph',
+                        targetNodeId: 'root',
+                        title: '生成知识图谱'
+                    })
+                    // Return early to let processQueue handle the new item
+                    // The task status remains 'running'
+                    return 
+                }
+
                 task.status = 'completed'
                 task.progress = 100
                 task.currentStep = ''
@@ -573,7 +593,7 @@ export const useCourseStore = defineStore('course', {
             }
         }
     },
-    createTask(courseId: string, courseName: string, nodes: Node[]): Task {
+    createTask(courseId: string, courseName: string, nodes: Node[], options: { difficulty?: string } = {}): Task {
         const task: Task = {
             id: courseId,
             courseName: courseName,
@@ -582,7 +602,8 @@ export const useCourseStore = defineStore('course', {
             currentStep: '',
             logs: [],
             nodes: JSON.parse(JSON.stringify(nodes)), // Deep copy for task isolation
-            shouldStop: false
+            shouldStop: false,
+            difficulty: options.difficulty
         }
         this.tasks.set(courseId, task)
         this.persistGenerationState()
@@ -911,8 +932,8 @@ export const useCourseStore = defineStore('course', {
             this.typingBuffer.forEach((buffer, nodeId) => {
                 if (buffer.length > 0) {
                     hasWork = true
-                    // Take a small chunk (1-3 chars) to keep it fast but smooth
-                    const speed = buffer.length > 50 ? 5 : (buffer.length > 20 ? 2 : 1)
+                    // Strictly 1 character at a time for typewriter effect
+                    const speed = 1
                     const chunk = buffer.slice(0, speed)
                     
                     this.typingBuffer.set(nodeId, buffer.slice(speed))
@@ -936,7 +957,7 @@ export const useCourseStore = defineStore('course', {
                     this.typingInterval = null
                 }
             }
-        }, 30) // 30ms per update
+        }, 10) // Faster interval (10ms) for smooth single-char typing
     },
 
     addToBuffer(nodeId: string, content: string) {
@@ -978,7 +999,7 @@ export const useCourseStore = defineStore('course', {
                 const courseName = res.data.course_name
                 
                 // Initialize Task
-                const task = this.createTask(courseId, courseName, res.data.nodes)
+                const task = this.createTask(courseId, courseName, res.data.nodes, options)
                 task.status = 'running'
                 
                 this.currentCourseId = courseId
@@ -1313,6 +1334,18 @@ export const useCourseStore = defineStore('course', {
         this.processQueue()
     },
 
+    retryQueueItem(uuid: string) {
+        const item = this.queue.find(i => i.uuid === uuid)
+        if (item && item.status === 'error') {
+            item.status = 'pending'
+            item.retryCount = 0
+            item.errorMsg = undefined
+            this.addLogToTask(item.courseId, `🔄 手动重试: ${item.title}`)
+            this.persistGenerationState()
+            this.processQueue()
+        }
+    },
+
     async processQueue() {
         if (this.isQueueProcessing) return
         
@@ -1333,10 +1366,14 @@ export const useCourseStore = defineStore('course', {
         try {
             if (task) {
                 task.status = 'running'
+                
+                // Clean up title to avoid redundancy (e.g. "生成正文: 撰写正文: ...")
+                // Use the item title directly as it's already descriptive
                 task.currentStep = nextItem.title
                 
                 if (this.currentCourseId === nextItem.courseId) {
                     this.currentGeneratingNodeId = nextItem.targetNodeId
+                    this.currentGeneratingNode = task.currentStep
                     this.isGenerating = true
                     this.generationStatus = 'generating'
                 }
@@ -1348,25 +1385,45 @@ export const useCourseStore = defineStore('course', {
                 await this.processContentItem(nextItem)
             } else if (nextItem.type === 'subchapter') {
                 await this.processSubchapterItem(nextItem)
+            } else if (nextItem.type === 'knowledge_graph') {
+                await this.processKnowledgeGraphItem(nextItem)
             }
 
             nextItem.status = 'completed'
             if (task) {
                 task.logs.push(`✅ 完成: ${nextItem.title}`)
-                // Update progress based on queue stats?
-                // For now, simple progress
+                // Update progress based on queue stats
                 const total = this.queue.length
-                const completed = this.queue.filter(i => i.status === 'completed').length
+                const completed = this.queue.filter(i => i.status === 'completed' || i.status === 'error').length
                 task.progress = Math.floor((completed / total) * 100)
             }
             this.persistGenerationState()
 
         } catch (e: any) {
             const errorMessage = e instanceof Error ? e.message : String(e)
-            nextItem.status = 'error'
-            nextItem.errorMsg = errorMessage
-            if (task) task.logs.push(`❌ 失败: ${nextItem.title} - ${errorMessage}`)
+            
+            // Retry logic
+            const maxRetries = 2
+            nextItem.retryCount = (nextItem.retryCount || 0) + 1
+            
+            if (nextItem.retryCount <= maxRetries) {
+                nextItem.status = 'pending' // Reset to pending to try again
+                if (task) {
+                    task.logs.push(`⚠️ 任务失败 (尝试 ${nextItem.retryCount}/${maxRetries}): ${nextItem.title} - ${errorMessage}，准备重试...`)
+                }
+            } else {
+                nextItem.status = 'error'
+                nextItem.errorMsg = errorMessage
+                if (task) {
+                    task.logs.push(`❌ 失败: ${nextItem.title} - ${errorMessage}`)
+                    // Update progress even on error to avoid sticking
+                    const total = this.queue.length
+                    const completed = this.queue.filter(i => i.status === 'completed' || i.status === 'error').length
+                    task.progress = Math.floor((completed / total) * 100)
+                }
+            }
             this.persistGenerationState()
+
         } finally {
             if (task && task.shouldStop) {
                 this.isQueueProcessing = false
@@ -1398,14 +1455,41 @@ export const useCourseStore = defineStore('course', {
         if (Array.isArray(newNodes)) {
             task.nodes.push(...newNodes)
             
-            // Auto-queue content generation for new nodes
+            // Auto-queue next step for new nodes
+            const difficulty = task.difficulty || 'expert'
+
             for (const newNode of newNodes) {
-                this.addToQueue({
-                    courseId: item.courseId,
-                    type: 'content',
-                    targetNodeId: newNode.node_id,
-                    title: `撰写正文: ${newNode.node_name}`
-                })
+                // Ensure node_level is a number
+                const level = Number(newNode.node_level)
+                
+                // If we just generated Level 2, decide whether to generate Level 3 based on difficulty
+                if (level === 2) {
+                    if (difficulty === 'beginner' || difficulty === 'intermediate') {
+                        // Beginner/Intermediate: No subchapters (L3), go directly to content
+                        this.addToQueue({
+                            courseId: item.courseId,
+                            type: 'content',
+                            targetNodeId: newNode.node_id,
+                            title: `撰写正文: ${newNode.node_name}`
+                        })
+                    } else {
+                        // Expert: Detailed subchapters
+                        this.addToQueue({
+                            courseId: item.courseId,
+                            type: 'structure',
+                            targetNodeId: newNode.node_id,
+                            title: `细化小节: ${newNode.node_name}`
+                        })
+                    }
+                } else {
+                    // If Level 3 (or deeper), generate content
+                    this.addToQueue({
+                        courseId: item.courseId,
+                        type: 'content',
+                        targetNodeId: newNode.node_id,
+                        title: `撰写正文: ${newNode.node_name}`
+                    })
+                }
             }
 
             if (this.currentCourseId === item.courseId) {
@@ -1468,10 +1552,12 @@ export const useCourseStore = defineStore('course', {
                 if (done) break
                 const chunk = decoder.decode(value, { stream: true })
                 
+                // Always update task node (source of truth)
+                node.node_content = (node.node_content || '') + chunk
+                
+                // If viewing, also update UI node via buffer for effect
                 if (this.currentCourseId === item.courseId) {
                     this.addToBuffer(node.node_id, chunk)
-                } else {
-                    node.node_content = (node.node_content || '') + chunk
                 }
             }
         }
@@ -1544,6 +1630,27 @@ export const useCourseStore = defineStore('course', {
         }
     },
 
+    async processKnowledgeGraphItem(item: QueueItem) {
+        this.addLogToTask(item.courseId, `🕸️ 正在生成知识图谱...`)
+        try {
+            await http.post(`/courses/${item.courseId}/knowledge_graph`)
+            this.addLogToTask(item.courseId, `✅ 知识图谱生成完成`)
+            
+            // If this is the current course, we might want to refresh something or notify
+            if (this.currentCourseId === item.courseId) {
+                // Could set a flag to show the "New Graph Available" indicator
+                // But since we just generated it, the KnowledgeGraph component (if mounted) 
+                // might need to refresh. 
+                // The KnowledgeGraph component usually fetches on mount or button click.
+                // We can't easily force it to refresh from here without global state.
+                // Let's assume the user will navigate to it.
+            }
+        } catch (e) {
+            console.error('Failed to generate knowledge graph', e)
+            throw e
+        }
+    },
+
     async generateSubChapters(node: Node) {
         if (!this.currentCourseId) return
         this.addToQueue({
@@ -1567,9 +1674,9 @@ export const useCourseStore = defineStore('course', {
           this.generationStatus = 'generating'
       }
 
-      // Populate Queue
-      const l2Nodes = task.nodes.filter(n => n.node_level === 2)
-      for (const n of l2Nodes) {
+      // 1. Expand Level 1 -> Level 2 (Chapters -> Sections)
+      const l1Nodes = task.nodes.filter(n => n.node_level === 1)
+      for (const n of l1Nodes) {
           const hasChildren = task.nodes.some(child => child.parent_node_id === n.node_id)
           if (!hasChildren) {
               this.addToQueue({
@@ -1580,7 +1687,35 @@ export const useCourseStore = defineStore('course', {
               })
           }
       }
+
+      // 2. Expand Level 2 -> Level 3 (Sections -> Topics)
+      const l2Nodes = task.nodes.filter(n => n.node_level === 2)
+      const difficulty = task.difficulty || 'expert'
+
+      for (const n of l2Nodes) {
+          const hasChildren = task.nodes.some(child => child.parent_node_id === n.node_id)
+          if (!hasChildren) {
+              if (difficulty === 'beginner' || difficulty === 'intermediate') {
+                  // Skip L3 expansion, queue content generation for L2 directly
+                  this.addToQueue({
+                      courseId: targetCourseId,
+                      type: 'content',
+                      targetNodeId: n.node_id,
+                      title: `撰写正文: ${n.node_name}`
+                  })
+              } else {
+                  // Default/Expert: Expand L3
+                  this.addToQueue({
+                      courseId: targetCourseId,
+                      type: 'structure',
+                      targetNodeId: n.node_id,
+                      title: `细化小节: ${n.node_name}`
+                  })
+              }
+          }
+      }
       
+      // 3. Generate Content for Level 3 (Only if they exist)
       const l3Nodes = task.nodes.filter(n => n.node_level === 3 && (!n.node_content || n.node_content.length < 50))
       for (const n of l3Nodes) {
           this.addToQueue({
@@ -1626,6 +1761,19 @@ export const useCourseStore = defineStore('course', {
                 }
             }
 
+            // Determine requirement based on difficulty
+            const task = this.tasks.get(this.currentCourseId)
+            const difficulty = task?.difficulty || 'expert'
+            
+            let requirement = '教科书级详细正文'
+            if (difficulty === 'beginner') {
+                requirement = '通俗易懂的基础入门教程，重点解释核心概念，多用生活案例类比，避免过于深奥的理论推导。内容要偏基础，适合初学者。'
+            } else if (difficulty === 'intermediate') {
+                requirement = '标准专业教程，理论与实践相结合，包含代码示例或应用场景。不涉及过深的底层原理，但要覆盖核心用法。'
+            } else {
+                requirement = '深度专业的技术文档，包含底层原理、源码分析、性能优化和高级最佳实践。适合专家阅读。'
+            }
+
             const response = await fetch(`${API_BASE}/courses/${this.currentCourseId}/nodes/${nodeId}/redefine_stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1633,7 +1781,7 @@ export const useCourseStore = defineStore('course', {
                    node_id: node.node_id,
                    node_name: node.node_name,
                    original_content: node.node_content || '',
-                   user_requirement: '教科书级详细正文',
+                   user_requirement: requirement,
                    course_context: courseContext,
                    previous_context: previousContext
                 })
@@ -1687,7 +1835,7 @@ export const useCourseStore = defineStore('course', {
       // Deprecated: We now load all annotations for the course at once
       // But we can keep it for specific refresh if needed
       try {
-        const res = await axios.get(`${API_BASE}/nodes/${nodeId}/annotations`)
+        const res = await http.get(`/nodes/${nodeId}/annotations`)
         // Merge into main list (deduplicate)
         const newAnnos = res.data as Annotation[]
         const existingIds = new Set(this.annotations.map(a => a.anno_id))
@@ -1703,7 +1851,7 @@ export const useCourseStore = defineStore('course', {
 
     async fetchCourseAnnotations(courseId: string) {
         try {
-            const res = await axios.get(`${API_BASE}/courses/${courseId}/annotations`)
+            const res = await http.get(`/courses/${courseId}/annotations`)
             this.annotations = res.data
             
             // Unify: Convert legacy annotations to Notes

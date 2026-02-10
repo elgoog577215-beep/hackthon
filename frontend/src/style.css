@@ -839,8 +839,112 @@ html {
 }
 
 /* Status Indicators */
-.status-dot {
-  @apply w-2 h-2 rounded-full;
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+  
+  /* ============================================
+     FORMULA DISPLAY - Free Flow
+     ============================================ */
+  .katex-display {
+    margin: 1.5em 0;
+    overflow-x: auto;
+    overflow-y: visible; /* Allow subscripts to hang */
+    padding-top: 0.8em;
+    padding-bottom: 0.8em;
+    line-height: normal !important; /* Unconstrain line height */
+    text-align: center;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .katex-display > .katex {
+    white-space: normal; /* Allow wrapping if needed */
+    text-align: initial;
+    line-height: normal !important;
+  }
+  
+  .katex-display::-webkit-scrollbar {
+    height: 4px;
+  }
+  
+  .katex-display::-webkit-scrollbar-thumb {
+    background: rgba(139, 92, 246, 0.2);
+    border-radius: 2px;
+  }
+
+/* ============================================
+   KATEX / MATH RENDERING FIXES
+   ============================================ */
+
+/* 
+   Fix for subscripts/superscripts being detached or misaligned.
+   This usually happens when global line-height or font settings interfere with KaTeX's precise layout.
+*/
+.katex {
+  line-height: 1.2 !important; /* Reset line-height to KaTeX default */
+  font-size: 1.1em;            /* Slight boost for readability */
+  text-indent: 0;              /* Prevent paragraph indent from affecting math */
+  white-space: nowrap;         /* Prevent line breaks inside formulas unless necessary */
+}
+
+/* Protect internal KaTeX elements from global resets or typography plugins */
+.katex .base,
+.katex .strut {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* Ensure vlist (vertical list for sub/superscripts) is not broken by global display properties */
+.katex .vlist-t {
+  line-height: normal !important;
+}
+
+.katex .vlist-t2 {
+  margin-right: -2px !important; /* Tweak spacing if needed */
+}
+
+/* Fix for KaTeX in Prose/Tailwind Typography context */
+.prose .katex-display {
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-top: 0.5em; /* Avoid clipping ascenders/descenders */
+  padding-bottom: 0.5em;
+}
+
+/* Fix for inline math alignment */
+.prose .katex {
+  text-decoration: none; /* Remove underlines from links if wrapped */
+}
+
+/* 
+   Specific fix for "subscripts far away" issue:
+   Often caused by 'vertical-align' being overridden or 'display: block' accidentally applied to spans.
+*/
+.katex span {
+  display: inline-block; /* Ensure spans behave as blocks for positioning */
+  vertical-align: baseline; /* Reset to default */
+}
+
+/* Revert specific KaTeX classes to their required display modes if overridden */
+.katex .mord, 
+.katex .mbin, 
+.katex .mrel, 
+.katex .mopen, 
+.katex .mclose, 
+.katex .mpunct {
+  display: inline-block;
+}
+
+.katex .vlist {
+  display: block; /* Vertical lists must be blocks internally */
+}
+
+/* Override Tailwind's sub/sup styles if they leak in (though KaTeX usually uses spans) */
+sub, sup {
+  vertical-align: baseline;
 }
 
 .status-dot--online {
@@ -898,22 +1002,51 @@ html {
 
 /* KaTeX Formula Fixes */
 .katex-display {
-  margin: 1em 0 !important;
+  margin: 1.5em 0 !important;
   overflow-x: auto !important;
   overflow-y: hidden !important;
-  padding: 0.5em 0 !important;
+  padding: 1.25em !important;
+  background: #f8fafc; /* slate-50 */
+  border-radius: 12px;
+  border: 1px solid #e2e8f0; /* slate-200 */
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 
 .katex {
-  font-size: 1.1em !important;
+  font-size: 1.15em !important;
   line-height: normal !important;
   text-indent: 0;
+  color: #1e293b; /* slate-800 */
 }
 
 /* Fix specific KaTeX spacing issues */
 .katex .base {
   margin-top: 2px;
   margin-bottom: 2px;
+}
+
+/* Mermaid Diagrams */
+.mermaid {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid #f1f5f9; /* slate-100 */
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);
+  margin: 2rem 0;
+  overflow-x: auto;
+  min-height: 100px;
+  transition: opacity 0.3s ease-in;
+}
+
+.mermaid:not([data-processed="true"]) {
+  opacity: 0;
+}
+
+.mermaid[data-processed="true"] {
+  opacity: 1;
 }
 
 /* ============================================
@@ -944,4 +1077,50 @@ html {
     border-width: 2px;
     border-color: var(--color-text-primary);
   }
+}
+
+/* ============================================
+   KATEX & FORMULA OVERRIDES
+   ============================================ */
+
+/* Fix: Allow formulas to scroll horizontally if needed, but show vertical content */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-top: 0.5em;
+  padding-bottom: 0.5em;
+  margin: 0.5em 0;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Fix: Ensure subscripts are not cut off */
+.katex-html {
+  overflow: visible !important;
+  padding-bottom: 4px; /* Extra padding for low subscripts */
+}
+
+/* Fix: Line height for inline formulas to prevent clipping */
+.katex {
+  font-size: 1.1em;
+  line-height: 1.3;
+}
+
+.katex .base {
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+/* Improve rendering of fractions and matrices */
+.katex .mord.text {
+  font-family: var(--font-sans);
+}
+
+/* Custom scrollbar for math blocks */
+.katex-display::-webkit-scrollbar {
+  height: 4px;
+}
+.katex-display::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 2px;
 }

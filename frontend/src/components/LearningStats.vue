@@ -465,7 +465,8 @@ const last7Days = computed(() => {
 
 const weeklyData = computed(() => {
   const data = []
-  const maxValue = Math.max(...Object.values(learningStats.value.dailyStudyTime), 30)
+  const values = Object.values(learningStats.value.dailyStudyTime) as number[]
+  const maxValue = Math.max(...values, 30)
 
   for (let i = 6; i >= 0; i--) {
     const date = dayjs().subtract(i, 'day')
@@ -597,8 +598,8 @@ function formatTime(minutes: number): string {
 const isMobile = ref(window.innerWidth < 768)
 
 // Learning Suggestions
-const learningSuggestions = computed(() => {
-  const suggestions = []
+const learningSuggestions = computed<string[]>(() => {
+  const suggestions: string[] = []
   const stats = learningStats.value
   const quizStatsValue = quizStats.value
 
@@ -652,7 +653,12 @@ const handleResize = () => {
 }
 
 // Knowledge nodes for mini preview
-const knowledgeNodes = computed(() => {
+const knowledgeNodes = computed<{
+  id: string
+  name: string
+  completed: boolean
+  quizScore?: number
+}[]>(() => {
   return courseStore.courseTree.map((node: any) => ({
     id: node.node_id,
     name: node.node_name,
