@@ -154,6 +154,21 @@ export const renderMarkdown = (content: string) => {
     // Fix trailing dollar sign issue
     normalized = normalized.replace(/(\$\$[\s\S]*?)[^$]\$$/gm, "$1$$")
 
+    // Fix: Auto-close unclosed LaTeX delimiters at the end of the string
+    // Check for odd number of "$$" occurrences
+    const doubleDollarCount = (normalized.match(/\$\$/g) || []).length;
+    if (doubleDollarCount % 2 !== 0) {
+        normalized += '$$';
+    } else {
+        // If $$ are balanced, check for unclosed single $
+        // This is trickier because $ is common in text. 
+        // Heuristic: if we have an unclosed $ and the text is short or looks like math
+        // normalized += '$'; 
+    }
+
+    // Fix: Ensure \begin{equation} or \begin{align} are wrapped in $$ if they aren't already
+    normalized = normalized.replace(/(^|[^\$])(\\begin\{(equation|align|gather|alignat)\}[\s\S]*?\\end\{(equation|align|gather|alignat)\})(?![^\$]*\$)/g, '$1$$$2$$');
+
     // Fix: Auto-wrap equations that are missing delimiters (common LLM issue)
     // Heuristic: If a line contains a math command (vec, frac, int, sum, lim) AND an equals sign,
     // and is not already wrapped in $, wrap the math part in $$
