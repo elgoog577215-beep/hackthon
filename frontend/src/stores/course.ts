@@ -4,7 +4,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 const GENERATION_STATE_KEY = 'course-generation-state-v1'
 const sanitizeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').trim()
 const downloadBlob = (blob: Blob, filename: string) => {

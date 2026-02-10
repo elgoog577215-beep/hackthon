@@ -1000,31 +1000,6 @@ sub, sup {
   background-color: var(--color-bg);
 }
 
-/* KaTeX Formula Fixes */
-.katex-display {
-  margin: 1.5em 0 !important;
-  overflow-x: auto !important;
-  overflow-y: hidden !important;
-  padding: 1.25em !important;
-  background: #f8fafc; /* slate-50 */
-  border-radius: 12px;
-  border: 1px solid #e2e8f0; /* slate-200 */
-  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-}
-
-.katex {
-  font-size: 1.15em !important;
-  line-height: normal !important;
-  text-indent: 0;
-  color: #1e293b; /* slate-800 */
-}
-
-/* Fix specific KaTeX spacing issues */
-.katex .base {
-  margin-top: 2px;
-  margin-bottom: 2px;
-}
-
 /* Mermaid Diagrams */
 .mermaid {
   display: flex;
@@ -1080,47 +1055,64 @@ sub, sup {
 }
 
 /* ============================================
-   KATEX & FORMULA OVERRIDES
+   KATEX & FORMULA FINAL OVERRIDES
    ============================================ */
 
-/* Fix: Allow formulas to scroll horizontally if needed, but show vertical content */
+/* 1. Container Layout - The "Free Flow" */
 .katex-display {
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-top: 0.5em;
-  padding-bottom: 0.5em;
-  margin: 0.5em 0;
-  max-width: 100%;
+  display: block;
+  margin: 1.5em 0 !important;
+  padding: 1.5em 1em !important;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  
+  /* Critical for preventing cut-off */
+  overflow-x: auto !important;
+  overflow-y: hidden !important; 
   -webkit-overflow-scrolling: touch;
+  max-width: 100%;
 }
 
-/* Fix: Ensure subscripts are not cut off */
-.katex-html {
-  overflow: visible !important;
-  padding-bottom: 4px; /* Extra padding for low subscripts */
-}
-
-/* Fix: Line height for inline formulas to prevent clipping */
-.katex {
-  font-size: 1.1em;
-  line-height: 1.3;
-}
-
-.katex .base {
-  margin-top: 2px;
-  margin-bottom: 2px;
-}
-
-/* Improve rendering of fractions and matrices */
-.katex .mord.text {
-  font-family: var(--font-sans);
-}
-
-/* Custom scrollbar for math blocks */
+/* 2. Scrollbar Styling */
 .katex-display::-webkit-scrollbar {
-  height: 4px;
+  height: 6px !important;
 }
 .katex-display::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.4);
-  border-radius: 2px;
+  background: rgba(148, 163, 184, 0.5) !important;
+  border-radius: 3px;
+}
+
+/* 3. Text & Font Metrics */
+.katex {
+  font-size: 1.2em !important;
+  line-height: 1.6 !important;
+  text-indent: 0;
+  color: #1e293b;
+  white-space: nowrap; /* Prevent breaking inside formula */
+}
+
+/* 4. Internal Spacing (The Subscript Fix) */
+.katex-html {
+  padding-bottom: 0.3em; /* Extra padding for descenders/subscripts */
+  overflow: visible !important;
+}
+
+/* 5. Element Positioning */
+.katex .base {
+  margin-top: 2px !important;
+  margin-bottom: 2px !important;
+}
+
+/* 6. Vertical List (Sub/Sup) Protection */
+.katex .vlist-t {
+  line-height: normal !important;
+}
+
+/* 7. Inline Formula Tweaks */
+p .katex {
+  padding: 0 2px;
+  background: rgba(241, 245, 249, 0.5); /* subtle highlight for inline math */
+  border-radius: 4px;
 }
