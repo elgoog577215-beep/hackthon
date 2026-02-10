@@ -324,7 +324,7 @@
                         "{{ note.quote }}"
                     </div>
                     <div class="text-xs text-slate-600 leading-relaxed max-h-32 overflow-hidden relative group cursor-pointer note-preview-content" @click="note.expanded = !note.expanded">
-                        <div :class="{ 'line-clamp-3': !note.expanded }" v-html="renderMarkdown(note.summary || note.content)"></div>
+                        <div :class="{ 'line-clamp-3': !note.expanded }" v-html="renderMarkdown(note.summary || note.content)" @click="handleNoteClick($event, note)"></div>
                         <div v-if="!note.expanded && (note.summary || note.content).length > 100" class="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white/80 to-transparent flex items-end justify-center">
                             <span class="text-[10px] text-primary-500 bg-white/80 px-2 rounded-full shadow-sm mb-1">展开更多</span>
                         </div>
@@ -506,7 +506,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, computed, reactive } from 'vue'
+import { ref, watch, onUnmounted, computed, reactive, nextTick } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm } from 'element-plus'

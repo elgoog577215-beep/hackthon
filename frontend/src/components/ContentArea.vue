@@ -18,7 +18,7 @@
     </Teleport>
 
     <!-- Content List (Continuous Scroll) -->
-    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp">
+    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
       
         <!-- Selection Menu -->
     <Teleport to="body">

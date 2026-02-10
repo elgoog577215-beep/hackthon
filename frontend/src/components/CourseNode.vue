@@ -128,7 +128,6 @@
 </template>
 
 <script setup lang="ts">
-import { defineProps, defineEmits } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
 import { MagicStick, Reading, Check } from '@element-plus/icons-vue';
 

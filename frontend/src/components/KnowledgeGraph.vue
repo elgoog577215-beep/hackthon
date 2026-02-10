@@ -32,6 +32,10 @@
           <el-icon><FullScreen /></el-icon>
           重置视图
         </button>
+        <button class="btn-reset" @click="downloadImage" title="导出图片">
+          <el-icon><Download /></el-icon>
+          导出
+        </button>
       </div>
     </div>
 
