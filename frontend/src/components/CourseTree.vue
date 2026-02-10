@@ -186,6 +186,23 @@
             
             <div class="flex items-center gap-0.5">
                  <button 
+                    v-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'running'"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-amber-50 text-slate-500 hover:text-amber-500 transition-colors"
+                    title="暂停生成"
+                    @click="courseStore.pauseTask(courseStore.currentCourseId)"
+                >
+                    <el-icon :size="16"><VideoPause /></el-icon>
+                </button>
+                <button 
+                    v-else-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'paused'"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary-50 text-slate-500 hover:text-primary-500 transition-colors"
+                    title="继续生成"
+                    @click="courseStore.startTask(courseStore.currentCourseId)"
+                >
+                    <el-icon :size="16"><VideoPlay /></el-icon>
+                </button>
+
+                 <button 
                     class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-amber-50 text-slate-500 hover:text-amber-500 transition-colors"
                     @click="notesDialogVisible = true"
                     title="课程笔记"
@@ -474,6 +491,17 @@
             </div>
         </div>
       </el-dialog>
+    <!-- Image Lightbox -->
+    <Teleport to="body">
+        <transition name="fade">
+            <div v-if="lightboxVisible" class="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center cursor-zoom-out" @click="lightboxVisible = false">
+                <img :src="lightboxImage" class="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl transition-transform duration-300 scale-100 hover:scale-[1.02]" alt="Full screen preview" />
+                <button class="absolute top-4 right-4 text-white/50 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors">
+                    <el-icon :size="32"><Close /></el-icon>
+                </button>
+            </div>
+        </transition>
+    </Teleport>
   </div>
 </template>
 
@@ -485,6 +513,7 @@ import { ElTree, ElMessage, ElPopconfirm } from 'element-plus'
 import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled } from '@element-plus/icons-vue'
 import { BookOpen, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
 import { renderMarkdown } from '../utils/markdown'
+import mermaid from 'mermaid'
 
 const courseStore = useCourseStore()
 const router = useRouter()
@@ -650,6 +679,10 @@ watch(() => courseStore.courseTree.length, () => {
 
 onUnmounted(() => {
     if (resizeObserver) resizeObserver.disconnect()
+    if (mermaidObserver) {
+        mermaidObserver.disconnect()
+        mermaidObserver = null
+    }
 })
 
 const defaultProps = {
@@ -774,6 +807,115 @@ const handleDeleteCourse = async (courseId: string) => {
 const backToCourses = () => {
     // Navigate back to home (course list)
     router.push('/')
+}
+
+// Lazy rendering for Mermaid diagrams
+const observedMermaidElements = new WeakSet()
+let mermaidObserver: IntersectionObserver | null = null
+
+const initMermaidObserver = () => {
+    if (mermaidObserver) return
+    
+    mermaidObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const target = entry.target as HTMLElement
+                if (target.getAttribute('data-processed')) return
+                
+                // Render mermaid
+                mermaid.run({ nodes: [target] }).then(() => {
+                    target.style.opacity = '1'
+                }).catch(err => {
+                    console.error('Mermaid render error:', err)
+                    target.innerHTML = `<div class="text-red-500 text-sm p-2">图表渲染失败</div>`
+                    target.style.opacity = '1'
+                })
+                
+                mermaidObserver?.unobserve(target)
+            }
+        })
+    }, { rootMargin: '500px 0px' })
+}
+
+const scanMermaidDiagrams = () => {
+    nextTick(() => {
+        const diagrams = document.querySelectorAll('.mermaid')
+        diagrams.forEach(el => {
+            if (!observedMermaidElements.has(el)) {
+                if (!mermaidObserver) initMermaidObserver()
+                mermaidObserver?.observe(el)
+                observedMermaidElements.add(el)
+            }
+        })
+    })
+}
+
+watch(notesDialogVisible, (visible) => {
+    if (visible) {
+        scanMermaidDiagrams()
+    }
+})
+
+watch(() => courseStore.notes, () => {
+    if (notesDialogVisible.value) {
+        scanMermaidDiagrams()
+    }
+}, { deep: true })
+
+// Image Lightbox
+const lightboxVisible = ref(false)
+const lightboxImage = ref('')
+
+const handleNoteClick = (e: MouseEvent, note: any) => {
+    const target = e.target as HTMLElement
+    
+    // Handle Copy Button
+    const btn = target.closest('.copy-btn') as HTMLElement;
+    if (btn) {
+        e.stopPropagation() // Prevent expansion
+        // Check for data-code attribute (utils/markdown.ts style)
+        const codeFromAttr = btn.getAttribute('data-code');
+        if (codeFromAttr) {
+            const decoded = decodeURIComponent(codeFromAttr);
+            navigator.clipboard.writeText(decoded).then(() => {
+                const originalHTML = btn.innerHTML
+                btn.innerHTML = '<span class="text-green-400 font-bold">OK</span>'
+                btn.classList.add('bg-green-500/20')
+                setTimeout(() => {
+                    btn.innerHTML = originalHTML
+                    btn.classList.remove('bg-green-500/20')
+                }, 2000)
+                ElMessage.success('代码已复制')
+            }).catch(() => {
+                ElMessage.error('复制失败')
+            })
+            return;
+        }
+
+        // Fallback for existing/legacy style
+        const wrapper = btn.closest('.code-block-wrapper');
+        const codeEl = wrapper?.querySelector('pre code') || wrapper?.querySelector('pre');
+        if (codeEl) {
+            const text = codeEl.textContent || '';
+            navigator.clipboard.writeText(text).then(() => {
+                ElMessage.success('代码已复制')
+            }).catch(() => {
+                ElMessage.error('复制失败')
+            })
+        }
+        return
+    }
+
+    // Handle Image Click (Lightbox)
+    if (target.tagName === 'IMG') {
+        e.stopPropagation() // Prevent expansion
+        lightboxImage.value = (target as HTMLImageElement).src
+        lightboxVisible.value = true
+        return
+    }
+
+    // Default: Toggle expansion
+    note.expanded = !note.expanded
 }
 </script>
 

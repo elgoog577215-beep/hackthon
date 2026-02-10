@@ -7,10 +7,10 @@
                 <el-icon :size="16" class="sm:!text-[18px]"><ChatDotRound /></el-icon>
             </div>
             <div class="min-w-0 overflow-hidden">
-                <div class="font-semibold text-slate-800 text-xs sm:text-sm truncate">AI 助手</div>
+                <div class="font-semibold text-slate-800 text-sm sm:text-base truncate">AI 助手</div>
                 <div class="flex items-center gap-1">
                     <div class="w-1 h-1 rounded-full bg-emerald-400 flex-shrink-0"></div>
-                    <span class="text-[8px] sm:text-[9px] text-slate-400">在线</span>
+                    <span class="text-xs sm:text-sm text-slate-400">在线</span>
                 </div>
             </div>
         </div>
@@ -126,6 +126,18 @@
     
     <!-- Output Area -->
     <div class="flex-1 m-4 my-2 overflow-hidden relative glass-panel-tech-content rounded-xl flex flex-col shadow-[inset_0_0_20px_rgba(255,255,255,0.5)] border border-white/60">
+        <!-- Image Lightbox -->
+        <Teleport to="body">
+            <transition name="fade">
+                <div v-if="lightboxVisible" class="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center cursor-zoom-out" @click="lightboxVisible = false">
+                    <img :src="lightboxImage" class="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl transition-transform duration-300 scale-100 hover:scale-[1.02]" alt="Full screen preview" />
+                    <button class="absolute top-4 right-4 text-white/50 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors">
+                        <el-icon :size="32"><Close /></el-icon>
+                    </button>
+                </div>
+            </transition>
+        </Teleport>
+
         <div class="flex-1 overflow-auto p-5 space-y-6 custom-scrollbar relative scroll-smooth pb-32" ref="chatContainer" @click="handleChatClick">
             <!-- Background Pattern (Cleaned) -->
             <!-- <div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: radial-gradient(var(--el-color-primary) 1px, transparent 1px); background-size: 24px 24px;"></div> -->
@@ -181,14 +193,14 @@
             <div v-for="(msg, idx) in courseStore.chatHistory" :key="idx"
                 class="flex flex-col gap-1.5 animate-fade-in-up" :style="{ animationDelay: `${idx * 30}ms` }">
 
-                <div :class="['p-3.5 rounded-xl text-sm max-w-[92%] transition-all relative overflow-hidden shadow-sm group',
+                <div :class="['p-4 rounded-xl text-base max-w-[95%] transition-all relative shadow-sm group',
                     msg.type === 'user'
                         ? 'bg-primary-600 text-white self-end rounded-tr-sm'
                         : 'bg-white border border-slate-100 !rounded-tl-sm self-start hover:border-slate-200']">
 
                     <div v-if="msg.type === 'ai' && typeof msg.content === 'object'" class="relative z-10">
                          <!-- Header: AI Icon + Title -->
-                        <div class="flex items-center gap-1.5 mb-2 text-[10px] font-semibold text-primary-600 uppercase tracking-wide border-b border-slate-100/60 pb-1.5 justify-between">
+                        <div class="flex items-center gap-1.5 mb-2 text-xs font-semibold text-primary-600 uppercase tracking-wide border-b border-slate-100/60 pb-1.5 justify-between">
                             <div class="flex items-center gap-1.5">
                                 <div class="w-4 h-4 rounded bg-primary-50 flex items-center justify-center text-primary-500">
                                     <el-icon :size="12"><MagicStick /></el-icon>
@@ -407,12 +419,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, reactive, computed } from 'vue'
+import { ref, watch, nextTick, onMounted, onUnmounted, reactive, computed } from 'vue'
 import { useCourseStore } from '../stores/course'
 import type { AIContent } from '../stores/course'
 import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight, InfoFilled, QuestionFilled, Document, DataLine, Sunny, TrendCharts, Menu as CommandMenu } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown } from '../utils/markdown'
+import mermaid from 'mermaid'
 
 const courseStore = useCourseStore()
 const inputMessage = ref('')
@@ -420,6 +433,56 @@ const chatContainer = ref<HTMLElement | null>(null)
 const personaDialogVisible = ref(false)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const showQuickCommands = ref(false)
+
+// Lazy rendering for Mermaid diagrams
+const observedMermaidElements = new WeakSet()
+let mermaidObserver: IntersectionObserver | null = null
+
+const initMermaidObserver = () => {
+    if (mermaidObserver) return
+    
+    mermaidObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const target = entry.target as HTMLElement
+                if (target.getAttribute('data-processed')) return
+                
+                // Render mermaid
+                mermaid.run({ nodes: [target] }).then(() => {
+                    target.style.opacity = '1'
+                }).catch(err => {
+                    console.error('Mermaid render error:', err)
+                    target.innerHTML = `<div class="text-red-500 text-sm p-2">图表渲染失败</div>`
+                    target.style.opacity = '1'
+                })
+                
+                mermaidObserver?.unobserve(target)
+            }
+        })
+    }, { rootMargin: '500px 0px' }) // Preload well in advance
+}
+
+const scanMermaidDiagrams = () => {
+    nextTick(() => {
+        const diagrams = document.querySelectorAll('.mermaid')
+        diagrams.forEach(el => {
+            if (!observedMermaidElements.has(el)) {
+                if (!mermaidObserver) initMermaidObserver()
+                mermaidObserver?.observe(el)
+                observedMermaidElements.add(el)
+            }
+        })
+    })
+}
+
+// Watch chat history to render mermaid diagrams
+watch(() => courseStore.chatHistory, () => {
+    scanMermaidDiagrams()
+}, { deep: true })
+
+// Lightbox State
+const lightboxVisible = ref(false)
+const lightboxImage = ref('')
 
 // Quick Commands Definition
 const quickCommands = [
@@ -760,13 +823,22 @@ const handleSaveAsNote = async (content: string, msg?: any) => {
 
 const handleChatClick = (e: MouseEvent) => {
     const target = e.target as HTMLElement;
-    const btn = target.closest('.copy-btn');
+    
+    // Handle Copy Button
+    const btn = target.closest('.copy-btn') as HTMLElement;
     if (btn) {
         // Check for data-code attribute (utils/markdown.ts style)
         const codeFromAttr = btn.getAttribute('data-code');
         if (codeFromAttr) {
             const decoded = decodeURIComponent(codeFromAttr);
             navigator.clipboard.writeText(decoded).then(() => {
+                const originalHTML = btn.innerHTML
+                btn.innerHTML = '<span class="text-green-400 font-bold">OK</span>'
+                btn.classList.add('bg-green-500/20')
+                setTimeout(() => {
+                    btn.innerHTML = originalHTML
+                    btn.classList.remove('bg-green-500/20')
+                }, 2000)
                 ElMessage.success('代码已复制')
             }).catch(() => {
                 ElMessage.error('复制失败')
@@ -785,6 +857,13 @@ const handleChatClick = (e: MouseEvent) => {
                 ElMessage.error('复制失败')
             })
         }
+        return
+    }
+
+    // Handle Image Click (Lightbox)
+    if (target.tagName === 'IMG' && target.closest('.prose')) {
+        lightboxImage.value = (target as HTMLImageElement).src
+        lightboxVisible.value = true
     }
 }
 
@@ -889,7 +968,15 @@ onMounted(() => {
     scrollToBottom()
     nextTick(() => {
         inputRef.value?.focus()
+        scanMermaidDiagrams()
     })
+})
+
+onUnmounted(() => {
+    if (mermaidObserver) {
+        mermaidObserver.disconnect()
+        mermaidObserver = null
+    }
 })
 </script>
 

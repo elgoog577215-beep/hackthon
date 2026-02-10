@@ -182,6 +182,8 @@
         :hint="statusHint"
         @close="courseStore.stopGeneration"
         @click="handleStatusClick"
+        @toggle-pause="handleTogglePause"
+        @retry-item="handleRetryItem"
     />
 
     <!-- Knowledge Graph Modal - Full Component -->
@@ -403,7 +405,32 @@ const handleGlobalClick = (e: MouseEvent) => {
 const handleStatusClick = () => {
     if (courseStore.currentCourseId) {
         router.push(`/course/${courseStore.currentCourseId}`)
+        // If generating, navigate to the active node
+        if (courseStore.currentGeneratingNodeId) {
+            courseStore.scrollToNode(courseStore.currentGeneratingNodeId)
+            const node = flatNodes.value.find(n => n.node_id === courseStore.currentGeneratingNodeId)
+            if (node) {
+                courseStore.setCurrentNodeSilent(node)
+            }
+        }
     }
+}
+
+const handleTogglePause = () => {
+    if (courseStore.currentCourseId) {
+        const task = courseStore.getTask(courseStore.currentCourseId)
+        if (task) {
+            if (task.status === 'running') {
+                courseStore.pauseTask(courseStore.currentCourseId)
+            } else {
+                courseStore.startTask(courseStore.currentCourseId)
+            }
+        }
+    }
+}
+
+const handleRetryItem = (uuid: string) => {
+    courseStore.retryQueueItem(uuid)
 }
 
 onMounted(() => {

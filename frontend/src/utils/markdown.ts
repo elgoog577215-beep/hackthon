@@ -9,9 +9,23 @@ import 'highlight.js/styles/atom-one-dark.css';
 // Initialize mermaid
 mermaid.initialize({
     startOnLoad: false,
-    theme: 'default',
+    theme: 'base',
     securityLevel: 'loose',
-    fontFamily: 'ui-sans-serif, system-ui, sans-serif'
+    fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+    themeVariables: {
+        primaryColor: '#8b5cf6', // primary-500
+        primaryTextColor: '#ffffff',
+        primaryBorderColor: '#7c3aed', // primary-600
+        lineColor: '#64748b', // slate-500
+        secondaryColor: '#ede9fe', // primary-100
+        tertiaryColor: '#ffffff',
+        mainBkg: '#f8fafc', // slate-50
+        nodeBorder: '#cbd5e1', // slate-300
+        clusterBkg: '#f1f5f9', // slate-100
+        clusterBorder: '#cbd5e1', // slate-300
+        titleColor: '#1e293b', // slate-800
+        edgeLabelBackground: '#ffffff',
+    }
 });
 
 // Markdown Configuration
@@ -153,6 +167,11 @@ export const renderMarkdown = (content: string) => {
     // Replace \( ... \) with $ ... $ 
     normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
     
+    // Fix: Ensure display math $$...$$ has proper spacing for rendering
+    normalized = normalized.replace(/\$\$([\s\S]*?)\$\$/g, (match, content) => {
+        return `\n$$\n${content.trim()}\n$$\n`;
+    });
+    
     // Fix spaces in inline math $ ... $ -> $...$
     normalized = normalized.replace(/(\$\$[\s\S]*?\$\$)|(\$([^\$\n]+?)\$)/g, (match, block, inline, content) => {
         if (block) return block
@@ -170,13 +189,30 @@ export const renderMarkdown = (content: string) => {
     normalized = normalized.replace(/(\$\$[\s\S]*?)[^$]\$$/gm, "$1$$")
 
     // Fix: Auto-wrap equations that are missing delimiters (common LLM issue)
-    // Heuristic: If a line contains a math command (vec, frac, int, sum, lim) AND an equals sign,
+    // Heuristic: If a line contains a math command (vec, frac, int, sum, lim, etc.) AND an equals sign or typical math operators,
     // and is not already wrapped in $, wrap the math part in $$
     // Example: "Label: \vec{v} = ..." -> "Label: $$\vec{v} = ...$$"
-    normalized = normalized.replace(/(^|\n)([^\n$]*?)(\\vec|\\frac|\\int|\\sum|\\lim)([^$\n]*=[^$\n]*)(\n|$)/g, (match, prefix, label, cmd, rest, suffix) => {
+    normalized = normalized.replace(/(^|\n)([^\n$]*?)(\\vec|\\frac|\\int|\\sum|\\lim|\\mathbb|\\mathcal|\\in|\\times|\\cdot|\\leq|\\geq|\\neq|\\approx|\\equiv|\\forall|\\exists|\\partial|\\nabla|\\alpha|\\beta|\\gamma|\\sigma|\\lambda|\\mu|\\pi)([^$\n]*[=><\u2248\u2260\u2264\u2265\u2208][^$\n]*)(\n|$)/g, (match, prefix, label, cmd, rest, suffix) => {
         // If the label contains $ or the rest contains $, abort (already wrapped)
         if (label.includes('$') || rest.includes('$')) return match;
+        
+        // Don't wrap if it looks like code (e.g. inside `...`) - simple check
+        if (label.includes('`') || rest.includes('`')) return match;
+
         return `${prefix}${label}$$${cmd}${rest}$$${suffix}`;
+    });
+
+    // Heuristic 2: Wrap standalone math lines that start with typical LaTeX commands but miss delimiters
+    // e.g. "A \in \mathbb{R}^{m \times n}"
+    normalized = normalized.replace(/(^|\n)([^\n$]*?)(\\mathbb|\\mathcal|\\in|\\times)([^$\n]*)(\n|$)/g, (match, prefix, label, cmd, rest, suffix) => {
+         if (label.includes('$') || rest.includes('$')) return match;
+         if (label.includes('`') || rest.includes('`')) return match;
+         // Avoid wrapping if it's just text explaining "the symbol \in means..."
+         // But if it looks like a formula (contains super/subscripts or operators), wrap it.
+         if (rest.match(/[\^_{}=]/) || label.match(/[A-Za-z0-9]\s*$/)) {
+             return `${prefix}${label}$$${cmd}${rest}$$${suffix}`;
+         }
+         return match;
     });
 
     let sanitized = ''

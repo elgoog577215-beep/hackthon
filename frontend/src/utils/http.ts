@@ -1,12 +1,12 @@
 import axios from 'axios';
-import type { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import type { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import { ElMessage } from 'element-plus';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 const http: AxiosInstance = axios.create({
   baseURL: API_BASE,
-  timeout: 120000, // 120 seconds for LLM operations
+  timeout: 180000, // 180 seconds for LLM operations
   headers: {
     'Content-Type': 'application/json',
   },
@@ -28,7 +28,7 @@ interface ErrorResponse {
 
 // Response Interceptor
 http.interceptors.response.use(
-  (response) => {
+  (response: AxiosResponse) => {
     return response;
   },
   (error: AxiosError) => {
