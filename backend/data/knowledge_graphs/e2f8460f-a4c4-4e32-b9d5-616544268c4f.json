@@ -1,0 +1,238 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "Python编程：原理、实践与高级应用",
+      "type": "root",
+      "description": "本课程全面讲解Python语言的原理与应用",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_1",
+      "label": "基础语法与数据类型",
+      "type": "module",
+      "description": "介绍变量、表达式、控制结构和基本数据类型的使用方法",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "module_2",
+      "label": "函数与模块化编程",
+      "type": "module",
+      "description": "深入函数定义、作用域以及模块的组织与调用机制",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "module_3",
+      "label": "面向对象编程（OOP）",
+      "type": "module",
+      "description": "讲解类、对象、继承与多态等面向对象编程的核心概念",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "concept_1",
+      "label": "动态类型",
+      "type": "concept",
+      "description": "变量类型在运行时自动确定",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "concept_2",
+      "label": "可变对象",
+      "type": "concept",
+      "description": "对象内容可以修改，不会创建新对象",
+      "chapter_id": "637c05b6-1d25-4a56-a95c-78527f66d990"
+    },
+    {
+      "id": "concept_3",
+      "label": "不可变对象",
+      "type": "concept",
+      "description": "对象内容不能修改，操作会生成新对象",
+      "chapter_id": "637c05b6-1d25-4a56-a95c-78527f66d990"
+    },
+    {
+      "id": "concept_4",
+      "label": "装饰器",
+      "type": "concept",
+      "description": "用于扩展或修改函数行为的高阶函数",
+      "chapter_id": "adc19a0f-07a2-4612-bf87-911a9674ac43"
+    },
+    {
+      "id": "concept_5",
+      "label": "闭包",
+      "type": "concept",
+      "description": "内部函数引用外部函数变量形成的复合结构",
+      "chapter_id": "5e6742b0-f1bc-4ecf-aa6a-58bf47973a02"
+    },
+    {
+      "id": "concept_6",
+      "label": "上下文管理器",
+      "type": "concept",
+      "description": "实现资源分配与释放的自动化机制",
+      "chapter_id": "aad08dcb-e301-4d86-aab8-835adc7265c1"
+    },
+    {
+      "id": "concept_7",
+      "label": "多态",
+      "type": "concept",
+      "description": "不同类对同一方法的不同实现",
+      "chapter_id": "996bf01e-75c9-470a-ab7d-467913301bbe"
+    },
+    {
+      "id": "concept_8",
+      "label": "单例模式",
+      "type": "concept",
+      "description": "确保一个类只有一个实例的设计模式",
+      "chapter_id": "827bc211-d274-417b-8889-33c5d038b1fd"
+    },
+    {
+      "id": "method_1",
+      "label": "venv",
+      "type": "method",
+      "description": "Python内置虚拟环境工具",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "method_2",
+      "label": "pip",
+      "type": "method",
+      "description": "Python包管理工具",
+      "chapter_id": "5349e3c8-81de-48d0-b5b4-565e782fd87a"
+    },
+    {
+      "id": "method_3",
+      "label": "asyncio",
+      "type": "method",
+      "description": "Python异步I/O框架",
+      "chapter_id": "c739bc6f-1b2c-44eb-9335-386c8015b1c9"
+    },
+    {
+      "id": "method_4",
+      "label": "LEGB规则",
+      "type": "method",
+      "description": "作用域查找顺序：Local -> Enclosing -> Global -> Built-in",
+      "chapter_id": "id_1"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "module_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "method_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "method_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "method_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_7",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_8",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_6",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "method_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "concept_4",
+      "target": "concept_5",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_5",
+      "target": "concept_4",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_2",
+      "target": "concept_3",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "method_4",
+      "target": "concept_1",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_1",
+      "target": "method_2",
+      "relation": "related",
+      "label": "相关"
+    }
+  ]
+}

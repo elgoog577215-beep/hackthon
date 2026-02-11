@@ -1,0 +1,614 @@
+{
+  "course_name": "《微积分：理论与应用》",
+  "nodes": [
+    {
+      "node_id": "id_1",
+      "parent_node_id": "root",
+      "node_name": "第一章 函数与极限",
+      "node_level": 1,
+      "node_content": "介绍函数的基本概念、极限的定义及其几何意义。",
+      "node_type": "original"
+    },
+    {
+      "node_id": "id_2",
+      "parent_node_id": "root",
+      "node_name": "第二章 导数与微分",
+      "node_level": 1,
+      "node_content": "讲解导数的定义、计算方法及在变化率分析中的应用。",
+      "node_type": "original"
+    },
+    {
+      "node_id": "id_3",
+      "parent_node_id": "root",
+      "node_name": "第三章 微分中值定理",
+      "node_level": 1,
+      "node_content": "深入理解罗尔定理、拉格朗日中值定理及其推论。",
+      "node_type": "original"
+    },
+    {
+      "node_id": "id_4",
+      "parent_node_id": "root",
+      "node_name": "第四章 积分与不定积分",
+      "node_level": 1,
+      "node_content": "探讨不定积分的概念、基本积分公式和换元积分法。",
+      "node_type": "original"
+    },
+    {
+      "node_id": "id_5",
+      "parent_node_id": "root",
+      "node_name": "第五章 定积分与微积分基本定理",
+      "node_level": 1,
+      "node_content": "解析定积分的定义、性质及微积分基本定理的核心思想。",
+      "node_type": "original"
+    },
+    {
+      "node_id": "id_6",
+      "parent_node_id": "root",
+      "node_name": "第六章 积分的应用",
+      "node_level": 1,
+      "node_content": "展示积分在面积、体积和物理问题中的实际应用。",
+      "node_type": "original"
+    },
+    {
+      "node_id": "id_7",
+      "parent_node_id": "root",
+      "node_name": "第七章 多变量函数的微分",
+      "node_level": 1,
+      "node_content": "介绍多变量函数的偏导数、全微分及其几何解释。",
+      "node_type": "original"
+    },
+    {
+      "node_id": "id_8",
+      "parent_node_id": "root",
+      "node_name": "第八章 多重积分",
+      "node_level": 1,
+      "node_content": "讨论二重积分和三重积分的计算方法及其应用。",
+      "node_type": "original"
+    },
+    {
+      "node_id": "d36f5740-1f34-41b9-a7c3-3a1679daff0f",
+      "parent_node_id": "id_1",
+      "node_name": "1.1 函数的定义与基本性质",
+      "node_level": 2,
+      "node_content": "<!-- BODY_START -->\n\n# 第一章 函数与极限  \n## 1.1 函数的定义与基本性质  \n\n### 💡 核心概念与背景\n\n**函数**（Function）是数学中最基础、最重要的概念之一，它是描述两个变量之间依赖关系的工具。从集合论的角度看，函数是一种特殊的映射（Mapping），它将一个集合中的每个元素唯一地对应到另一个集合中的某个元素。\n\n在微积分中，函数不仅是研究对象，更是分析变化规律、构建模型的核心手段。理解函数的定义及其基本性质，是学习后续章节如极限、导数和积分的基础。\n\n---\n\n### 🔍 深度原理/底层机制\n\n#### **函数的严格定义**\n\n设 $ A $ 和 $ B $ 是两个非空集合，若存在一个规则 $ f $，使得对每一个 $ x \\in A $，都有唯一的 $ y \\in B $ 与之对应，则称 $ f $ 是从 $ A $ 到 $ B $ 的一个函数，记作：\n\n$$\nf: A \\to B, \\quad x \\mapsto f(x)\n$$\n\n其中：\n- $ A $ 称为**定义域**（Domain），\n- $ B $ 称为**值域**（Codomain），\n- 所有 $ f(x) $ 构成的集合称为**函数的像集**（Image Set）或**值域**（Range），记作 $ f(A) = \\{ f(x) \\mid x \\in A \\} \\subseteq B $。\n\n#### **函数的基本性质**\n\n1. **单射**（Injective）：若对于任意 $ x_1, x_2 \\in A $，有 $ x_1 \\neq x_2 $ 蕴含 $ f(x_1) \\neq f(x_2) $，则称 $ f $ 是单射。\n2. **满射**（Surjective）：若对于任意 $ y \\in B $，都存在 $ x \\in A $ 使得 $ f(x) = y $，则称 $ f $ 是满射。\n3. **双射**（Bijective）：若 $ f $ 同时是单射和满射，则称其为双射。\n4. **逆函数**（Inverse Function）：当 $ f $ 是双射时，存在唯一的逆函数 $ f^{-1}: B \\to A $，满足 $ f(f^{-1}(y)) = y $ 且 $ f^{-1}(f(x)) = x $。\n\n---\n\n### 🛠️ 技术实现/方法论\n\n构造一个函数通常包括以下步骤：\n1. 明确定义域 $ A $；\n2. 确定映射规则 $ f $，即给出表达式 $ f(x) $；\n3. 验证该规则是否对所有 $ x \\in A $ 均有效；\n4. 分析函数的性质（如单调性、奇偶性、周期性等）。\n\n以一个具体例子说明：\n\n设函数 $ f: \\mathbb{R} \\to \\mathbb{R} $ 定义为 $ f(x) = 2x + 1 $，则：\n- 定义域 $ A = \\mathbb{R} $；\n- 映射规则为线性变换；\n- 该函数是单射也是满射，因此是双射；\n- 其逆函数为 $ f^{-1}(x) = \\frac{x - 1}{2} $。\n\n---\n\n### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"定义域 A\"] -->|f| B[\"值域 B\"]\n    A --> X1(\"x₁\")\n    A --> X2(\"x₂\")\n    B --> Y1(\"y₁\")\n    B --> Y2(\"y₂\")\n    X1 --> Y1\n    X2 --> Y2\n```\n\n> 图1.1 函数作为集合之间的映射示意图\n\n---\n\n### 🏭 实战案例/行业应用\n\n在计算机科学中，函数是程序设计的核心结构。例如，在 Python 中，函数可以封装一段代码逻辑并多次调用。而在机器学习中，激活函数（如 Sigmoid、ReLU）是神经网络中至关重要的非线性单元，用于建模复杂的数据关系。\n\n在物理学中，函数被广泛用于描述物理量之间的关系，如位移与时间的关系、速度与加速度的关系等。这些函数往往具有严格的数学定义，并通过实验数据进行验证和修正。\n\n---\n\n### ✅ 思考与挑战\n\n1. 若 $ f: A \\to B $ 是一个函数，是否存在这样的情况：$ f $ 不是满射但仍然存在一个“伪逆”函数？请举例说明。\n2. 给定两个函数 $ f: A \\to B $ 和 $ g: B \\to C $，如何定义它们的复合函数 $ g \\circ f $？这种复合操作是否总是可交换的？\n\n---\n\n### 📚 参考文献\n\n- Rudin, W. (1976). *Principles of Mathematical Analysis*. McGraw-Hill.\n- Stewart, J. (2015). *Calculus: Early Transcendentals*. Cengage Learning.\n- Spivak, M. (2008). *Calculus*. Publish or Perish.",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "84a992e6-0a18-467c-b0ef-66ec490fa5b1",
+      "parent_node_id": "id_1",
+      "node_name": "1.2 常见初等函数及其图像",
+      "node_level": 2,
+      "node_content": "<!-- BODY_START -->\n\n# 1.2 常见初等函数及其图像\n\n## 💡 核心概念与背景\n\n在数学分析中，**初等函数**（Elementary Functions）是一类可以通过有限次代数运算、指数运算、对数运算以及三角函数运算构造出来的函数。它们是构建复杂函数和解析表达式的基础，广泛应用于自然科学、工程技术和计算机科学等领域。\n\n本节将系统介绍常见的初等函数类型，包括**幂函数、指数函数、对数函数、三角函数、反三角函数**等，并结合其定义域、值域及图像特性进行深入探讨。理解这些函数的图像行为对于后续微积分理论的学习具有重要意义。\n\n---\n\n## 🔍 深度原理/底层机制\n\n### 1. 幂函数 $ f(x) = x^a $\n\n- **定义**：设 $ a \\in \\mathbb{R} $，则幂函数为 $ f(x) = x^a $。\n- **定义域**：\n  - 若 $ a \\in \\mathbb{Z}^+ $，定义域为 $ \\mathbb{R} $\n  - 若 $ a \\in \\mathbb{Q} $，定义域依赖于分母是否为偶数\n  - 若 $ a \\notin \\mathbb{Q} $，通常定义域为 $ (0, +\\infty) $\n- **图像性质**：\n  - 当 $ a > 0 $ 时，函数在 $ (0, +\\infty) $ 上单调递增\n  - 当 $ a < 0 $ 时，函数在 $ (0, +\\infty) $ 上单调递减\n  - 图像通过点 $ (1, 1) $\n\n---\n\n### 2. 指数函数 $ f(x) = a^x $，其中 $ a > 0, a \\neq 1 $\n\n- **定义**：$ a^x $ 可通过极限或自然对数定义为 $ e^{x \\ln a} $\n- **定义域**：全体实数 $ \\mathbb{R} $\n- **值域**：正实数集 $ (0, +\\infty) $\n- **图像性质**：\n  - 当 $ a > 1 $，函数严格单调递增\n  - 当 $ 0 < a < 1 $，函数严格单调递减\n  - 图像恒过点 $ (0, 1) $\n  - 随着 $ x \\to +\\infty $，函数趋于无穷大或零（取决于底数）\n\n---\n\n### 3. 对数函数 $ f(x) = \\log_a x $，其中 $ a > 0, a \\neq 1 $\n\n- **定义**：对数函数是指数函数的反函数，满足 $ a^{\\log_a x} = x $\n- **定义域**：$ x > 0 $\n- **值域**：全体实数 $ \\mathbb{R} $\n- **图像性质**：\n  - 当 $ a > 1 $，函数严格单调递增\n  - 当 $ 0 < a < 1 $，函数严格单调递减\n  - 图像恒过点 $ (1, 0) $\n  - 对数函数的图像与指数函数关于直线 $ y = x $ 对称\n\n---\n\n### 4. 三角函数（正弦、余弦、正切等）\n\n- **定义**：基于单位圆定义，如 $ \\sin x, \\cos x, \\tan x $ 等\n- **周期性**：\n  - 正弦和余弦函数周期为 $ 2\\pi $\n  - 正切函数周期为 $ \\pi $\n- **图像性质**：\n  - $ \\sin x $ 和 $ \\cos x $ 在区间 $ [-\\pi, \\pi] $ 内呈现波形\n  - $ \\tan x $ 在每个区间 $ (-\\frac{\\pi}{2}, \\frac{\\pi}{2}) $ 上单调递增，且有垂直渐近线\n\n---\n\n### 5. 反三角函数（反正弦、反余弦、反正切等）\n\n- **定义**：为使三角函数可逆，限制其定义域后取反函数\n  - 如 $ \\arcsin x $ 的定义域为 $ [-1, 1] $，值域为 $ [-\\frac{\\pi}{2}, \\frac{\\pi}{2}] $\n- **图像性质**：\n  - 图像为三角函数图像的对称部分\n  - 具有单调性和连续性\n  - 反函数的导数可通过链式法则推导\n\n---\n\n## 🛠️ 技术实现/方法论\n\n绘制初等函数图像的过程通常遵循以下步骤：\n\n1. **确定定义域与值域**\n2. **计算关键点（如极值点、拐点、交点等）**\n3. **利用函数的奇偶性、周期性或对称性简化绘图**\n4. **使用数值方法（如差商法、泰勒展开）估算局部形状**\n5. **借助软件工具（如 MATLAB、GeoGebra 或 Desmos）辅助可视化**\n\n例如，绘制 $ f(x) = \\sin x $ 的图像时，可以先计算若干离散点 $ (x, \\sin x) $，再根据函数的周期性和连续性连接曲线。\n\n---\n\n## 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"常见初等函数分类\"] --> B[\"幂函数\"]\n    A --> C[\"指数函数\"]\n    A --> D[\"对数函数\"]\n    A --> E[\"三角函数\"]\n    A --> F[\"反三角函数\"]\n\n    B --> B1[\"f(\"x\") = x^n\"]\n    C --> C1[\"f(\"x\") = a^x\"]\n    D --> D1[\"f(\"x\") = log_a x\"]\n    E --> E1[\"sin x\"]\n    E --> E2[\"cos x\"]\n    E --> E3[\"tan x\"]\n    F --> F1[\"arcsin x\"]\n    F --> F2[\"arccos x\"]\n    F --> F3[\"arctan x\"]\n```\n\n---\n\n## 🏭 实战案例/行业应用\n\n在信号处理领域，**正弦函数**常用于建模周期性信号（如音频波形），而**指数函数**在电路分析中描述电容充放电过程。在金融模型中，**对数函数**被广泛用于计算复利增长和风险回报比。此外，在计算机图形学中，**反三角函数**用于计算角度和方向，支持三维空间中的旋转操作。\n\n---\n\n## ✅ 思考与挑战\n\n1. **为什么反三角函数需要限制定义域？如果不加限制，能否构造出全局可逆的三角函数？**\n2. **在哪些应用场景下，选择幂函数而非指数函数更为合适？请从数学特性和物理意义两个角度进行分析。**\n\n---\n\n## 📚 参考文献\n\n- Rudin, W. (1976). *Principles of Mathematical Analysis*. McGraw-Hill.\n- Stewart, J. (2015). *Calculus: Early Transcendentals*. Cengage Learning.\n- Spivak, M. (2008). *Calculus*. Publish or Perish.",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "df877a32-c1b0-45b0-abd6-2267314aa181",
+      "parent_node_id": "id_1",
+      "node_name": "1.3 复合函数与反函数",
+      "node_level": 2,
+      "node_content": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n**复合函数**（Composite Function）与**反函数**（Inverse Function）是函数论中的核心内容，它们在数学建模、微积分、信号处理等领域中具有广泛的应用价值。**复合函数**是指将一个函数的输出作为另一个函数的输入所形成的函数结构，形式为 $ f(g(x)) $；而**反函数**则是对原函数进行“逆向操作”的函数，即若 $ y = f(x) $，则其反函数为 $ x = f^{-1}(y) $，前提是原函数在其定义域内是**一一对应**且**单调**的。\n\n本节旨在系统阐述这两个函数类别的定义、存在性条件、构造方法及其在实际问题中的应用意义。\n\n---\n\n### 🔍 深度原理/底层机制\n\n#### 1. 复合函数的构成原理\n\n设 $ f: A \\to B $ 和 $ g: C \\to D $ 是两个函数，如果 $ g(C) \\subseteq A $，那么我们可以定义复合函数 $ h = f \\circ g $，满足：\n\n$$\nh(x) = f(g(x)), \\quad \\text{其中 } x \\in C.\n$$\n\n该定义的关键在于：**函数 $ g $ 的值域必须包含于函数 $ f $ 的定义域**，否则无法定义 $ f(g(x)) $。\n\n- **数学基础**：复合函数的本质是映射的组合。从集合论角度看，它是两个映射的连续作用。\n- **运算顺序**：注意复合函数的书写顺序是从右向左，即先执行 $ g $，再执行 $ f $。\n\n#### 2. 反函数的存在性条件\n\n给定函数 $ f: A \\to B $，若其满足以下两个条件，则存在反函数 $ f^{-1}: B \\to A $：\n\n- **一对一（Injective）**：$ f(x_1) = f(x_2) \\Rightarrow x_1 = x_2 $\n- **满射（Surjective）**：对于任意 $ y \\in B $，存在 $ x \\in A $ 使得 $ f(x) = y $\n\n当函数同时满足上述两个条件时，称为**双射**（Bijective），此时反函数存在。\n\n- **严格单调性**是保证一一对应的常用手段之一。例如，指数函数 $ e^x $ 在实数域上是严格递增的，因此存在反函数 $ \\ln(x) $。\n- **几何解释**：反函数图像关于直线 $ y = x $ 对称。\n\n---\n\n### 🛠️ 技术实现/方法论\n\n#### 1. 构造复合函数\n\n构造复合函数的基本步骤如下：\n\n1. 确定两个函数 $ f $ 和 $ g $ 的定义域和值域；\n2. 验证 $ g(x) $ 的值域是否属于 $ f $ 的定义域；\n3. 定义复合函数 $ h(x) = f(g(x)) $；\n4. 计算并简化表达式（如可能）。\n\n**示例**：\n设 $ f(x) = \\sin(x) $，$ g(x) = x^2 $，则 $ h(x) = f(g(x)) = \\sin(x^2) $。\n\n#### 2. 构造反函数\n\n构造反函数的一般步骤为：\n\n1. 设 $ y = f(x) $；\n2. 解方程 $ x = f^{-1}(y) $；\n3. 验证解出的函数是否满足反函数的定义；\n4. 域限制（必要时）以确保一一对应关系。\n\n**示例**：\n设 $ f(x) = 2x + 3 $，求反函数：\n\n$$\ny = 2x + 3 \\Rightarrow x = \\frac{y - 3}{2} \\Rightarrow f^{-1}(y) = \\frac{y - 3}{2}\n$$\n\n---\n\n### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"Input x\"] -->|g(\"x\")| B[\"g(\"x\")\"]\n    B -->|f(g(\"x\"))| C[\"h(\"x\") = f(g(\"x\"))\"]\n    D[\"y = f(\"x\")\"] --> E[\"x = f⁻¹(\"y\")\"]\n    E --> F[\"反函数\"]\n```\n\n---\n\n### 🏭 实战案例/行业应用\n\n1. **信号处理中的滤波器设计**：  \n   在数字信号处理中，常使用复合函数构建多级滤波器。例如，先通过低通滤波器提取基频，再通过非线性变换增强特定频率成分。\n\n2. **密码学中的加密与解密**：  \n   加密算法本质上是一个复杂的函数，而解密过程就是它的反函数。只有当加密函数是可逆的（即双射），才能保证信息可以无损还原。\n\n3. **经济学中的价格弹性分析**：  \n   需求函数与其反函数（供给函数）共同描述市场均衡点，帮助预测价格变化对需求量的影响。\n\n---\n\n### ✅ 思考与挑战\n\n1. **如果不加限制，能否构造出全局可逆的三角函数？**\n   - 提示：考虑三角函数的周期性和重复性，以及如何通过限制定义域使其成为一一映射。\n\n2. **在哪些应用场景下，选择幂函数而非指数函数更为合适？请从数学特性和物理意义两个角度进行分析。**\n   - 提示：幂函数在描述几何增长、面积体积等问题时更自然；指数函数则更适合描述衰减、复利、放射性衰变等现象。\n\n---\n\n### 📚 参考文献\n\n- Rudin, W. (1976). *Principles of Mathematical Analysis*. McGraw-Hill.\n- Stewart, J. (2015). *Calculus: Early Transcendentals*. Cengage Learning.\n- Spivak, M. (2008). *Calculus*. Publish or Perish.",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "0e69642c-2df0-434e-b541-ef57c1df7193",
+      "parent_node_id": "id_1",
+      "node_name": "1.4 数列的极限初步",
+      "node_level": 2,
+      "node_content": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n数列的极限是分析学的基础，也是函数极限、连续性、导数等后续内容的重要铺垫。**数列**（sequence）是一种定义在自然数集上的函数，其研究对象为离散点上的数值变化趋势。而**数列的极限**（limit of a sequence）描述了当序号趋于无穷时，数列项趋于某个确定值的行为。理解这一概念对于掌握数学分析中的收敛性、稳定性以及渐近行为至关重要。\n\n---\n\n### 🔍 深度原理/底层机制\n\n设数列 $\\{a_n\\}$ 由正整数 $n$ 定义，若存在一个实数 $L$，使得对任意给定的 $\\varepsilon > 0$，总存在正整数 $N$，使得当 $n > N$ 时，有：\n\n$$\n|a_n - L| < \\varepsilon\n$$\n\n则称 $L$ 是该数列的极限，记作：\n\n$$\n\\lim_{n \\to \\infty} a_n = L\n$$\n\n这是**ε-N 定义**的核心思想，它严格刻画了“无限趋近”的直觉，并为后续 ε-δ 极限定义奠定了基础。\n\n---\n\n### 🛠️ 技术实现/方法论\n\n#### 数列极限的基本性质\n\n1. **唯一性**：若极限存在，则必唯一。\n2. **局部有界性**：若 $\\lim a_n = L$，则存在 $N$ 使得 $n > N$ 时，$a_n$ 在某个有限区间内。\n3. **保序性**：若 $a_n \\leq b_n$ 对足够大的 $n$ 成立，且 $\\lim a_n = A$, $\\lim b_n = B$，则 $A \\leq B$。\n4. **四则运算**：若 $\\lim a_n = A$, $\\lim b_n = B$，则：\n   - $\\lim (a_n + b_n) = A + B$\n   - $\\lim (a_n \\cdot b_n) = A \\cdot B$\n   - 若 $b_n \\neq 0$ 且 $B \\neq 0$，则 $\\lim \\frac{a_n}{b_n} = \\frac{A}{B}$\n\n#### 常见数列及其极限\n\n- **等差数列**：$a_n = a_0 + nd$，一般无极限（除非 $d=0$）\n- **等比数列**：$a_n = ar^n$，若 $|r| < 1$，则 $\\lim a_n = 0$\n- **调和数列**：$a_n = \\sum_{k=1}^n \\frac{1}{k}$，发散至无穷\n- **递推数列**：如 $a_{n+1} = f(a_n)$，可使用单调有界定理判断极限是否存在\n\n---\n\n### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"开始\"] --> B[\"输入数列 {\"a_n\"}\"]\n    B --> C[\"设定精度 ε > 0\"]\n    C --> D[\"寻找 N ∈ ℕ\"]\n    D --> E[\"验证 |a_n - L| < ε 当 n > N\"]\n    E --> F{\"满足吗？\"}\n    F -->|是| G[\"输出极限 L\"]\n    F -->|否| H[\"调整 N 或重新选择 L\"]\n```\n\n---\n\n### 🏭 实战案例/行业应用\n\n在信号处理中，**离散时间信号**可以视为数列，其稳定性常通过极限分析来判断。例如，在数字滤波器设计中，单位脉冲响应序列 $\\{h[n]\\}$ 的极限行为决定了系统的因果性和稳定性。若 $\\lim_{n \\to \\infty} h[n] = 0$，系统可能稳定；否则可能导致溢出或震荡。\n\n在金融建模中，复利计算本质上是一个数列问题：\n\n$$\na_n = P(1 + r)^n\n$$\n\n其中 $P$ 为本金，$r$ 为利率。若 $r > 0$，则 $\\lim_{n \\to \\infty} a_n = \\infty$，这反映了指数增长的长期效应。\n\n---\n\n### ✅ 思考与挑战\n\n1. 如何证明单调有界数列必有极限？请结合 Bolzano–Weierstrass 定理进行讨论。\n2. 给定一个递推公式 $a_{n+1} = \\sqrt{a_n + 2}$，初始值 $a_1 = 1$，试分析其极限是否存在，并求出极限值。\n\n---\n\n### 📚 参考文献\n\n- Rudin, W. (1976). *Principles of Mathematical Analysis*. McGraw-Hill.\n- Stewart, J. (2015). *Calculus: Early Transcendentals*. Cengage Learning.\n- Spivak, M. (2008). *Calculus*. Publish or Perish.",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "2c88fa5b-a5c5-4100-b2bb-021a820e6ace",
+      "parent_node_id": "id_1",
+      "node_name": "1.5 极限的严格定义（ε-δ语言）",
+      "node_level": 2,
+      "node_content": "<!-- BODY_START -->\n\n# 1.5 极限的严格定义（ε-δ语言）\n\n## 💡 核心概念与背景\n\n极限是微积分理论的核心基石，其**严格定义**由柯西和魏尔斯特拉斯等人在19世纪提出，称为 **ε-δ 定义**（epsilon-delta definition）。它摆脱了“趋近”这一模糊的语言描述，转而使用数学上严谨的逻辑语言来刻画函数在某点附近的行为。这一定义为后续导数、连续性、积分等概念奠定了严密的理论基础。\n\n在本节中，我们将聚焦于单变量函数的极限定义，并探讨其形式化表达、几何意义及应用边界。\n\n---\n\n## 🔍 深度原理/底层机制\n\n### 函数极限的 ε-δ 定义\n\n设函数 $ f: D \\subseteq \\mathbb{R} \\to \\mathbb{R} $，且 $ a $ 是 $ D $ 的一个聚点。我们说：\n\n> $$ \\lim_{x \\to a} f(x) = L $$\n\n当且仅当：对于任意给定的正实数 $ \\varepsilon > 0 $，存在正实数 $ \\delta > 0 $，使得对所有满足 $ 0 < |x - a| < \\delta $ 的 $ x \\in D $，都有：\n$$\n|f(x) - L| < \\varepsilon\n$$\n\n这个定义强调的是：**通过控制输入的接近程度（δ），可以确保输出足够接近目标值（L）**。\n\n---\n\n### 数学逻辑结构解析\n\n该定义本质上是一个**量化逻辑语句**，涉及两个嵌套的量词：\n\n- 对于所有的 $ \\varepsilon > 0 $，\n- 存在一个 $ \\delta > 0 $，\n- 对于所有满足 $ 0 < |x - a| < \\delta $ 的 $ x $，\n- 成立 $ |f(x) - L| < \\varepsilon $\n\n这体现了数学分析中“任意精度控制”的思想。\n\n---\n\n## 🛠️ 技术实现/方法论\n\n### 使用 ε-δ 定义验证极限\n\n以一个具体例子说明如何利用 ε-δ 定义验证极限的存在性：\n\n**例题**：证明  \n$$\n\\lim_{x \\to 2} (3x + 1) = 7\n$$\n\n**证明步骤**：\n\n1. 给定 $ \\varepsilon > 0 $。\n2. 要找到 $ \\delta > 0 $，使得 $ 0 < |x - 2| < \\delta \\Rightarrow |(3x + 1) - 7| < \\varepsilon $。\n3. 化简不等式：\n   $$\n   |(3x + 1) - 7| = |3x - 6| = 3|x - 2|\n   $$\n4. 令 $ 3|x - 2| < \\varepsilon \\Rightarrow |x - 2| < \\frac{\\varepsilon}{3} $\n5. 取 $ \\delta = \\frac{\\varepsilon}{3} $，则命题成立。\n\n---\n\n## 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"给定 ε > 0\"] --> B[\"找 δ > 0\"]\n    B --> C[\"使 0 < |x - a| < δ\"]\n    C --> D[\"保证 |f(\"x\") - L| < ε\"]\n```\n\n---\n\n## 🏭 实战案例/行业应用\n\n在实际工程中，ε-δ 定义虽然不直接用于数值计算，但它是构建**误差控制模型**和**系统稳定性分析**的基础。例如，在控制系统设计中，工程师需要确保输入扰动不会导致输出超出允许范围，这就需要用到类似 ε-δ 的思路进行建模和验证。\n\n---\n\n## ✅ 思考与挑战\n\n1. 为什么 ε-δ 定义中要求 $ 0 < |x - a| < \\delta $？如果允许 $ x = a $，会带来什么影响？\n2. 在多变量函数中，能否用类似的 ε-δ 定义来刻画极限？若不能，试说明原因。\n\n---\n\n## 📌 小结\n\nε-δ 定义不仅是数学分析中极限的严格表述方式，更是现代科学与工程中精确推理的基本工具。它帮助我们从直觉走向逻辑，从经验走向理论。理解并掌握这一定义，是学习后续导数、积分乃至泛函分析的重要前提。\n\n---\n\n### 📚 参考文献\n\n- Rudin, W. (1976). *Principles of Mathematical Analysis*. McGraw-Hill.\n- Stewart, J. (2015). *Calculus: Early Transcendentals*. Cengage Learning.\n- Spivak, M. (2008). *Calculus*. Publish or Perish.",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "7efb4652-fa8b-4d3d-8b29-4714f4fdb1f2",
+      "parent_node_id": "id_1",
+      "node_name": "1.6 单侧极限与极限的存在性准则",
+      "node_level": 2,
+      "node_content": "<!-- BODY_START -->\n\n# 1.6 单侧极限与极限的存在性准则\n\n## 💡 核心概念与背景\n\n在分析函数的极限行为时，我们通常关注的是当自变量趋近于某一点时函数值的变化趋势。然而，在某些情况下，从该点的左侧或右侧趋近可能会产生不同的结果。这种情形引出了**单侧极限**（one-sided limits）的概念：**左极限**（left-hand limit）和**右极限**（right-hand limit）。理解单侧极限不仅有助于处理不连续函数的行为，也为判断函数在某点是否存在极限提供了关键依据。\n\n## 🔍 深度原理/底层机制\n\n### 单侧极限的定义\n\n设函数 $ f(x) $ 在区间 $ (a, x_0) $ 上有定义。如果对于任意给定的正数 $ \\varepsilon > 0 $，存在一个正数 $ \\delta > 0 $，使得当 $ x \\in (x_0 - \\delta, x_0) $ 时，都有：\n\n$$\n|f(x) - L| < \\varepsilon,\n$$\n\n则称 $ L $ 为 $ f(x) $ 在 $ x_0 $ 处的**左极限**，记作：\n\n$$\n\\lim_{x \\to x_0^-} f(x) = L.\n$$\n\n类似地，若 $ f(x) $ 在 $ (x_0, b) $ 上有定义，并且对任意 $ \\varepsilon > 0 $，存在 $ \\delta > 0 $，使得当 $ x \\in (x_0, x_0 + \\delta) $ 时，满足：\n\n$$\n|f(x) - M| < \\varepsilon,\n$$\n\n则称 $ M $ 为 $ f(x) $ 在 $ x_0 $ 处的**右极限**，记作：\n\n$$\n\\lim_{x \\to x_0^+} f(x) = M.\n$$\n\n### 极限存在的充要条件\n\n函数 $ f(x) $ 在 $ x_0 $ 处存在极限的充分必要条件是其左右极限都存在并且相等。即：\n\n$$\n\\lim_{x \\to x_0} f(x) = L \\iff \\lim_{x \\to x_0^-} f(x) = \\lim_{x \\to x_0^+} f(x) = L.\n$$\n\n这是极限理论中的一个重要结论，也是后续讨论函数连续性和可导性的基础。\n\n## 🛠️ 技术实现/方法论\n\n在实际计算中，求解单侧极限通常需要考虑函数在靠近目标点一侧的表达式形式。例如，分段函数、绝对值函数或含根号的函数常常表现出不对称的极限行为。\n\n**示例**：  \n考虑函数\n\n$$\nf(x) = \n\n$$\n\\begin{cases}\nx^2 & \\text{if } x < 0 \\\\\nx + 1 & \\text{if } x \\geq 0\n\\end{cases}\n$$\n\n$$\n\n求 $ \\lim_{x \\to 0^-} f(x) $ 和 $ \\lim_{x \\to 0^+} f(x) $。\n\n- 当 $ x \\to 0^- $ 时，使用第一种情况，$ f(x) = x^2 $，因此：\n  $$\n  \\lim_{x \\to 0^-} f(x) = 0^2 = 0.\n  $$\n\n- 当 $ x \\to 0^+ $ 时，使用第二种情况，$ f(x) = x + 1 $，因此：\n  $$\n  \\lim_{x \\to 0^+} f(x) = 0 + 1 = 1.\n  $$\n\n由于左右极限不相等，故 $ \\lim_{x \\to 0} f(x) $ 不存在。\n\n## 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"x → x₀⁻\"] --> B[\"f(\"x\") → L\"]\n    C[\"x → x₀⁺\"] --> D[\"f(\"x\") → M\"]\n    E[\"L ≠ M\"] --> F[\"Limit at x₀ does NOT exist\"]\n    G[\"L = M\"] --> H[\"Limit at x₀ exists and equals L\"]\n\n    style A fill:#98FB98,stroke:#363\n    style B fill:#98FB98,stroke:#363\n    style C fill:#FFB6C1,stroke:#D33\n    style D fill:#FFB6C1,stroke:#D33\n    style E fill:#F5DEB3,stroke:#8B4513\n    style F fill:#F5DEB3,stroke:#8B4513\n    style G fill:#ADD8E6,stroke:#00BFFF\n    style H fill:#ADD8E6,stroke:#00BFFF\n```\n\n## 🏭 实战案例/行业应用\n\n在信号处理和控制系统中，许多物理过程具有方向性，例如阶跃响应、脉冲响应或开关行为。这些场景下，系统状态往往依赖于输入信号的“上升沿”或“下降沿”，从而导致输出函数在特定时刻表现出不同的单侧极限行为。\n\n例如，在电子工程中，一个二极管的电流-电压特性曲线在其开启点附近是非线性的，并且电流仅在电压超过某一阈值后才显著增加。这种非对称性可以通过分析单侧极限来建模，以确保电路设计的稳定性和可靠性。\n\n## ✅ 思考与挑战\n\n1. 如果一个函数在某点的左右极限均存在但不相等，是否意味着该函数在该点不可微？请结合函数连续性与可导性之间的关系进行分析。\n2. 考虑函数 $ f(x) = \\frac{|x|}{x} $ 在 $ x = 0 $ 附近的极限行为。试解释为什么该函数在原点处没有定义，但仍然可以讨论其单侧极限。\n\n---\n\n## 📚 参考文献\n\n- Rudin, W. (1976). *Principles of Mathematical Analysis*. McGraw-Hill.\n- Stewart, J. (2015). *Calculus: Early Transcendentals*. Cengage Learning.\n- Spivak, M. (2008). *Calculus*. Publish or Perish.",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "cc2f9631-a795-4bf9-8d1f-bcb652259791",
+      "parent_node_id": "id_1",
+      "node_name": "1.7 无穷小量与无穷大量的比较",
+      "node_level": 2,
+      "node_content": "<!-- BODY_START -->\n\n# 1.7 无穷小量与无穷大量的比较\n\n## 💡 核心概念与背景\n\n在分析函数极限行为时，**无穷小量**（infinitesimal）和**无穷大量**（infinite quantity）是两个关键的概念。它们用于描述变量趋于某一点或趋于无穷时的“快慢”程度，从而为极限计算提供更精细的工具。例如，在研究 $ \\lim_{x \\to 0} \\frac{\\sin x}{x} = 1 $ 时，$ \\sin x $ 和 $ x $ 在 $ x \\to 0 $ 附近都是无穷小量，但它们的变化速率不同，这种差异决定了极限的结果。\n\n本节将从严格的数学角度出发，定义无穷小量与无穷大量的基本性质，并探讨它们之间的相对变化率（阶数），以及如何利用这些概念进行函数逼近和误差估计。\n\n---\n\n## 🔍 深度原理/底层机制\n\n### **无穷小量的严格定义**\n\n设函数 $ f(x) $ 在某点 $ a $ 的某个去心邻域内有定义，若  \n$$\n\\lim_{x \\to a} f(x) = 0,\n$$  \n则称 $ f(x) $ 为当 $ x \\to a $ 时的**无穷小量**。特别地，若 $ a = 0 $ 或 $ a = \\infty $，我们也说 $ f(x) $ 是无穷小量。\n\n### **无穷大量的严格定义**\n\n类似地，若  \n$$\n\\lim_{x \\to a} f(x) = \\infty,\n$$  \n则称 $ f(x) $ 为当 $ x \\to a $ 时的**无穷大量**。\n\n---\n\n### **无穷小量的阶数比较**\n\n设 $ \\alpha(x), \\beta(x) $ 都是当 $ x \\to a $ 时的无穷小量，则可以按其趋近于零的速度来分类：\n\n- 若  \n  $$\n  \\lim_{x \\to a} \\frac{\\alpha(x)}{\\beta(x)} = 0,\n  $$  \n  则称 $ \\alpha(x) $ 是比 $ \\beta(x) $ **高阶**的无穷小量，记作 $ \\alpha(x) = o(\\beta(x)) $。\n\n- 若  \n  $$\n  \\lim_{x \\to a} \\frac{\\alpha(x)}{\\beta(x)} = c \\neq 0,\n  $$  \n  则称 $ \\alpha(x) $ 与 $ \\beta(x) $ 是**同阶**无穷小量；若 $ c = 1 $，则称它们是**等价无穷小量**，记作 $ \\alpha(x) \\sim \\beta(x) $。\n\n- 若  \n  $$\n  \\lim_{x \\to a} \\frac{\\alpha(x)}{\\beta(x)} = \\infty,\n  $$  \n  则称 $ \\alpha(x) $ 是比 $ \\beta(x) $ **低阶**的无穷小量。\n\n---\n\n### **无穷大量的阶数比较**\n\n设 $ A(x), B(x) $ 都是当 $ x \\to a $ 时的无穷大量，同样可以比较其增长速度：\n\n- 若  \n  $$\n  \\lim_{x \\to a} \\frac{A(x)}{B(x)} = 0,\n  $$  \n  则称 $ A(x) $ 是比 $ B(x) $ **低阶**的无穷大量，记作 $ A(x) = o(B(x)) $。\n\n- 若  \n  $$\n  \\lim_{x \\to a} \\frac{A(x)}{B(x)} = c \\neq 0,\n  $$  \n  则称 $ A(x) $ 与 $ B(x) $ 是**同阶**无穷大量。\n\n- 若  \n  $$\n  \\lim_{x \\to a} \\frac{A(x)}{B(x)} = \\infty,\n  $$  \n  则称 $ A(x) $ 是比 $ B(x) $ **高阶**的无穷大量。\n\n---\n\n## 🛠️ 技术实现/方法论\n\n### 等价无穷小的代换原则\n\n在极限计算中，若 $ \\alpha(x) \\sim \\beta(x) $，且 $ \\gamma(x) \\sim \\delta(x) $，则  \n$$\n\\lim_{x \\to a} \\frac{\\alpha(x)}{\\gamma(x)} = \\lim_{x \\to a} \\frac{\\beta(x)}{\\delta(x)},\n$$  \n前提是右边极限存在。\n\n此原则常用于简化极限表达式，例如：\n$$\n\\lim_{x \\to 0} \\frac{\\tan x - \\sin x}{x^3} = \\lim_{x \\to 0} \\frac{x + \\frac{x^3}{3} - (x - \\frac{x^3}{6})}{x^3} = \\lim_{x \\to 0} \\frac{\\frac{x^3}{2}}{x^3} = \\frac{1}{2}.\n$$\n\n---\n\n## 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"α(\"x\")\"] -->|α(\"x\") = o(β(\"x\"))| B[\"β(\"x\")\"]\n    C[\"α(\"x\")\"] -->|α(\"x\") ~ β(\"x\")| D[\"β(\"x\")\"]\n    E[\"α(\"x\")\"] -->|α(\"x\")/β(\"x\") → ∞| F[\"β(\"x\")\"]\n\n    G[\"A(\"x\")\"] -->|A(\"x\") = o(B(\"x\"))| H[\"B(\"x\")\"]\n    I[\"A(\"x\")\"] -->|A(\"x\") ~ B(\"x\")| J[\"B(\"x\")\"]\n    K[\"A(\"x\")\"] -->|A(\"x\")/B(\"x\") → ∞| L[\"B(\"x\")\"]\n```\n\n---\n\n## 🏭 实战案例/行业应用\n\n### 工程中的误差传播分析\n\n在传感器测量系统中，输入信号 $ x $ 经过非线性处理后输出 $ y = f(x) $。假设 $ x $ 存在一个微小误差 $ \\Delta x $，那么输出误差为：\n$$\n\\Delta y \\approx f'(x) \\cdot \\Delta x.\n$$\n这里 $ \\Delta x $ 是一个无穷小量，而 $ \\Delta y $ 的大小取决于导数 $ f'(x) $，即无穷小量的放大系数。\n\n### 数值积分中的截断误差\n\n在使用梯形法或辛普森法则进行数值积分时，截断误差通常以无穷小的形式表示。例如，梯形法则的局部截断误差为 $ O(h^3) $，其中 $ h $ 是步长，是一个无穷小量。\n\n---\n\n## ✅ 思考与挑战\n\n1. 假设 $ f(x) = x^2 \\sin(1/x) $ 当 $ x \\to 0 $ 时，讨论该函数是否为无穷小量？如果是，它与 $ x $ 是否为同阶无穷小？\n\n2. 设 $ A(x) = e^{1/x} $, $ B(x) = x^{-n} $，试分析当 $ x \\to 0^+ $ 时，$ A(x) $ 与 $ B(x) $ 的无穷大量阶数关系。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "93e4c1c0-8988-4fe1-9417-1ef5f720b95e",
+      "parent_node_id": "id_1",
+      "node_name": "1.8 连续函数的定义与性质",
+      "node_level": 2,
+      "node_content": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n**连续函数**是数学分析中的核心概念之一，其定义基于极限理论，并在实变函数、微积分及泛函分析中占据基础地位。直观上，连续函数表示“图像无跳跃”的函数，即自变量的微小变化不会导致函数值的剧烈变化。从形式上看，**连续性**严格依赖于 **极限** 的 ε-δ 定义，从而使得连续性的讨论具备严格的数学基础。\n\n研究连续函数的性质不仅有助于理解函数的行为特征（如保号性、有界性、中间值定理等），也为后续导数与积分的理论奠定了坚实基础。\n\n---\n\n### 🔍 深度原理/底层机制\n\n#### 1. 连续性的定义\n\n设函数 $ f(x) $ 在点 $ x_0 $ 的某个邻域内有定义，则称 $ f(x) $ 在 $ x_0 $ 处 **连续**，如果满足：\n\n$$\n\\lim_{x \\to x_0} f(x) = f(x_0)\n$$\n\n等价地，根据 ε-δ 定义，对任意给定的 $ \\varepsilon > 0 $，存在 $ \\delta > 0 $，使得当 $ |x - x_0| < \\delta $ 时，有：\n\n$$\n|f(x) - f(x_0)| < \\varepsilon\n$$\n\n若 $ f(x) $ 在区间 $ I $ 上每一点都连续，则称 $ f(x) $ 在 $ I $ 上连续。\n\n#### 2. 单侧连续性\n\n在端点或不可达点处，我们引入单侧连续的概念：\n\n- **左连续**：$ \\lim_{x \\to x_0^-} f(x) = f(x_0) $\n- **右连续**：$ \\lim_{x \\to x_0^+} f(x) = f(x_0) $\n\n若函数在某点同时左连续和右连续，则在该点连续。\n\n---\n\n### 🛠️ 技术实现/方法论\n\n#### 判断连续性的步骤\n\n1. 确认函数在 $ x_0 $ 处有定义。\n2. 计算极限 $ \\lim_{x \\to x_0} f(x) $。\n3. 比较极限值与函数值 $ f(x_0) $：\n   - 若相等，则连续；\n   - 否则不连续。\n\n#### 常见连续函数类\n\n- 多项式函数在其定义域内处处连续。\n- 三角函数（如 $ \\sin x, \\cos x $）在其定义域内连续。\n- 指数函数 $ e^x $ 及对数函数 $ \\log x $ 在各自定义域内连续。\n- 有理函数在其分母不为零的区域连续。\n\n---\n\n### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"函数 f(\"x\")\"] --> B[\"定义在 x₀ 邻域\"]\n    B --> C[\"计算极限 lim f(\"x\") as x→x₀\"]\n    C --> D[\"比较极限值与 f(\"x₀\")\"]\n    D --> E[\"是否相等?\"]\n    E -- 是 --> F[\"f(\"x\") 在 x₀ 连续\"]\n    E -- 否 --> G[\"f(\"x\") 在 x₀ 不连续\"]\n```\n\n---\n\n### 🏭 实战案例/行业应用\n\n在信号处理领域，连续函数模型常用于描述物理系统随时间平滑变化的过程。例如，在音频信号数字化过程中，采样率的选择需确保模拟信号的连续性被合理近似，以避免混叠现象。若采样间隔过大，可能造成信号失真，体现为函数在离散点之间的“跳跃”，即不连续。\n\n此外，在控制系统设计中，连续函数的稳定性分析依赖于系统的连续响应特性，这直接影响控制器的设计与性能评估。\n\n---\n\n### ✅ 思考与挑战\n\n1. 考察函数 $ f(x) = \n$$\n\\begin{cases} \nx \\sin(1/x), & x \\neq 0 \\\\\n0, & x = 0 \n\\end{cases}\n$$\n $ 在 $ x = 0 $ 处是否连续？请使用极限定义严格证明。\n\n2. 设 $ f(x) $ 在闭区间 $ [a,b] $ 上连续，是否存在某个点 $ c \\in [a,b] $ 使得 $ f(c) = \\frac{1}{b-a} \\int_a^b f(x) dx $？解释这一结论的几何意义及其在数值积分中的潜在价值。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "a104f7c4-7018-42c7-873f-0bd04bace8b5",
+      "parent_node_id": "id_2",
+      "node_name": "2.1 导数的定义与极限基础",
+      "node_level": 2,
+      "node_content": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n**导数**是微积分的核心工具之一，用于描述函数在某一点处的瞬时变化率。其本质来源于极限理论，是对函数局部线性逼近能力的量化。在物理、工程和经济学等领域，导数被广泛用于建模动态系统的行为、优化问题以及非线性关系的线性化分析。\n\n本节将从极限的视角出发，严格定义导数，并探讨其数学基础，为后续章节中更复杂的求导法则和应用打下坚实基础。\n\n---\n\n### 🔍 深度原理/底层机制\n\n#### 1. 导数的直观理解\n\n设函数 $ f(x) $ 在点 $ x_0 $ 的邻域内有定义，若极限  \n$$\n\\lim_{h \\to 0} \\frac{f(x_0 + h) - f(x_0)}{h}\n$$  \n存在，则称该极限为函数 $ f $ 在 $ x_0 $ 处的**导数**，记作 $ f'(x_0) $ 或 $ \\frac{df}{dx}(x_0) $。\n\n此定义的本质在于：我们试图用一个斜率为 $ f'(x_0) $ 的直线来“拟合”函数 $ f $ 在 $ x_0 $ 附近的变化趋势。当 $ h \\to 0 $ 时，差商趋近于该点的切线斜率。\n\n#### 2. 极限语言下的形式化定义\n\n根据极限的严格定义（ε-δ语言），导数可以形式化地表述如下：\n\n> 函数 $ f $ 在 $ x_0 $ 处可导，当且仅当存在实数 $ L $，使得对任意 $ \\varepsilon > 0 $，存在 $ \\delta > 0 $，满足：\n> $$\n\\varepsilon > \\left| \\frac{f(x_0 + h) - f(x_0)}{h} - L \\right|, \\quad \\text{当 } 0 < |h| < \\delta.\n$$\n\n此处的 $ L $ 即为 $ f'(x_0) $。\n\n#### 3. 可导性与连续性的关系\n\n值得注意的是，**可导性蕴含连续性**，但反之不成立。即：\n\n- 若 $ f $ 在 $ x_0 $ 可导，则必有 $ f $ 在 $ x_0 $ 连续；\n- 但即使 $ f $ 在 $ x_0 $ 连续，也可能不可导（如 $ f(x) = |x| $ 在 $ x=0 $ 不可导）。\n\n这是因为连续性仅要求函数值趋于一致，而可导性则进一步要求函数具有良好的局部线性结构。\n\n---\n\n### 🛠️ 技术实现/方法论\n\n#### 1. 利用极限计算导数的步骤\n\n给定函数 $ f(x) $，欲计算其在 $ x_0 $ 处的导数，通常遵循以下步骤：\n\n1. 写出差商表达式：\n   $$\n   \\frac{f(x_0 + h) - f(x_0)}{h}\n   $$\n\n2. 对差商进行代数化简或展开；\n\n3. 计算极限：\n   $$\n   f'(x_0) = \\lim_{h \\to 0} \\frac{f(x_0 + h) - f(x_0)}{h}.\n   $$\n\n#### 2. 示例推导：幂函数的导数\n\n以 $ f(x) = x^n $（$ n \\in \\mathbb{N} $）为例：\n\n$$\nf'(x) = \\lim_{h \\to 0} \\frac{(x+h)^n - x^n}{h}.\n$$\n\n利用二项式展开：\n\n$$\n(x+h)^n = x^n + nx^{n-1}h + \\binom{n}{2}x^{n-2}h^2 + \\cdots + h^n,\n$$\n\n于是：\n\n$$\n\\frac{(x+h)^n - x^n}{h} = nx^{n-1} + \\binom{n}{2}x^{n-2}h + \\cdots + h^{n-1}.\n$$\n\n令 $ h \\to 0 $，其余高阶项消失，得：\n\n$$\nf'(x) = nx^{n-1}.\n$$\n\n---\n\n### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"输入: x_0\"] --> B[\"构造差商 (f(\"x_0 + h\") - f(\"x_0\"))/h\"]\n    B --> C[\"化简差商\"]\n    C --> D[\"取极限 h → 0\"]\n    D --> E[\"输出: f'(\"x_0\")\"]\n```\n\n---\n\n### 🏭 实战案例/行业应用\n\n在控制系统设计中，导数常用于状态变量的变化率建模。例如，在自动驾驶汽车的轨迹规划中，车辆的位置 $ s(t) $ 是时间 $ t $ 的函数，其一阶导数 $ s'(t) $ 表示速度，二阶导数 $ s''(t) $ 表示加速度。通过实时计算这些导数，控制器能够做出快速响应并保持系统的稳定性。\n\n此外，在金融领域，期权价格随标的资产价格的变化率（希腊字母 Delta）就是导数的应用实例，它衡量了期权价格对标的资产价格变动的敏感程度。\n\n---\n\n### ✅ 思考与挑战\n\n1. 设 $ f(x) = \\sqrt{x} $，试计算其在 $ x = 4 $ 处的导数，并验证是否与已知公式 $ f'(x) = \\frac{1}{2\\sqrt{x}} $ 一致。\n\n2. 考虑函数 $ f(x) = |x| $，讨论其在 $ x = 0 $ 处的左导数与右导数是否存在，并解释为何该点不可导。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "48186787-28f7-47ba-be17-a940f6767262",
+      "parent_node_id": "id_2",
+      "node_name": "2.2 单侧导数与可导性分析",
+      "node_level": 2,
+      "node_content": "<!-- BODY_START -->\n\n### 2.2 单侧导数与可导性分析\n\n#### 💡 核心概念与背景\n\n在微积分中，**导数**刻画了函数在某一点的瞬时变化率。然而，并非所有函数在每一点都存在导数，尤其是当函数在该点附近表现出不对称行为时。为此，我们引入了**左导数**和**右导数**的概念，它们分别描述了从左侧和右侧趋近于某一点时的变化率。理解单侧导数对于分析函数的**可导性**至关重要。\n\n#### 🔍 深度原理/底层机制\n\n设函数 $ f(x) $ 在区间 $ (a, b) $ 上定义，且 $ x_0 \\in (a, b) $。如果极限\n$$\nf'_-(x_0) = \\lim_{h \\to 0^-} \\frac{f(x_0 + h) - f(x_0)}{h}\n$$\n存在，则称其为 $ f $ 在 $ x_0 $ 处的**左导数**；同理，\n$$\nf'_+(x_0) = \\lim_{h \\to 0^+} \\frac{f(x_0 + h) - f(x_0)}{h}\n$$\n称为**右导数**。若左右导数都存在且相等，则 $ f $ 在 $ x_0 $ 处可导，导数值为\n$$\nf'(x_0) = f'_-(x_0) = f'_+(x_0)\n$$\n\n这一定义基于极限理论，特别强调了“趋近方向”的重要性。从数学结构上看，单侧导数是通过限制极限过程的方向来构造的，因此本质上是对函数局部行为的更精细刻画。\n\n#### 🛠️ 技术实现/方法论\n\n计算单侧导数的一般步骤如下：\n\n1. **确定函数定义域**：确认 $ x_0 $ 是否属于定义域。\n2. **构造差商表达式**：\n   $$\n   \\frac{f(x_0 + h) - f(x_0)}{h}\n   $$\n3. **分别计算左、右极限**：\n   - 左导数：令 $ h \\to 0^- $\n   - 右导数：令 $ h \\to 0^+ $\n4. **判断是否相等**：若相等，则函数在该点可导；否则不可导。\n\n#### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"函数 f(\"x\") 在 x0 处\"] --> B[\"计算左导数\"]\n    A --> C[\"计算右导数\"]\n    B --> D[\"求极限 h → 0⁻\"]\n    C --> E[\"求极限 h → 0⁺\"]\n    D --> F[\"左导数 f'⁻(\"x₀\")\"]\n    E --> G[\"右导数 f'⁺(\"x₀\")\"]\n    F --> H{\"比较结果\"}\n    G --> H\n    H -->|相等| I[\"函数在 x₀ 处可导\"]\n    H -->|不相等| J[\"函数在 x₀ 处不可导\"]\n```\n\n#### 🏭 实战案例/行业应用\n\n在信号处理领域，许多物理信号（如脉冲、阶跃信号）在某些点上具有明显的跳跃或不连续行为。例如，一个典型的**矩形波**函数在其跳变点处并不可导，但可以通过计算其左右导数来更好地理解其动态特性。此外，在优化问题中，特别是在约束条件边界处，使用单侧导数可以避免因不可导而导致的梯度失效问题。\n\n#### ✅ 思考与挑战\n\n1. 设函数 $ f(x) = |x - 1| $，试分别计算其在 $ x = 1 $ 处的左导数和右导数，并判断该点是否可导。\n\n2. 若函数 $ f(x) $ 在 $ x = a $ 处存在右导数但不存在左导数，能否说明该点不可导？请解释原因。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "9a51f385-e676-41b4-b0f8-cfc3dbca0b94",
+      "parent_node_id": "id_2",
+      "node_name": "2.3 基本初等函数的导数公式推导",
+      "node_level": 2,
+      "node_content": "系统推导常数、幂函数、指数函数、对数函数、三角函数的导数表达式。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "5f059eb5-dd10-47d8-a789-6e52aacf2001",
+      "parent_node_id": "id_2",
+      "node_name": "2.4 导数的四则运算法则",
+      "node_level": 2,
+      "node_content": "掌握求导法则：和差积商规则，并通过实例加深其应用理解。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "f1440ab9-deb8-4740-95c5-839f02dace25",
+      "parent_node_id": "id_2",
+      "node_name": "2.5 链式法则与复合函数求导",
+      "node_level": 2,
+      "node_content": "深入讲解链式法则的原理及其在处理嵌套函数中的关键作用。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "61959e36-9d2d-4eb2-8cbe-833f41e7ef71",
+      "parent_node_id": "id_2",
+      "node_name": "隐函数与参数方程的导数计算",
+      "node_level": 2,
+      "node_content": "介绍隐函数求导法和参数方程下的导数推导过程及应用场景。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "f759733c-7bc9-49e4-b5a8-01b6f155e199",
+      "parent_node_id": "id_2",
+      "node_name": "2.7 高阶导数与泰勒展开初步",
+      "node_level": 2,
+      "node_content": "定义高阶导数，引入泰勒多项式的概念并讨论其在局部逼近中的意义。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "e161f866-6f7f-41be-80e4-03a021137c84",
+      "parent_node_id": "id_2",
+      "node_name": "2.8 微分的定义与几何解释",
+      "node_level": 2,
+      "node_content": "从导数引出微分的概念，结合切线斜率进行直观的几何诠释。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "acd09346-f225-449a-ac94-b241f7bcb90f",
+      "parent_node_id": "id_2",
+      "node_name": "2.9 微分中值定理及其应用",
+      "node_level": 2,
+      "node_content": "阐述罗尔定理与拉格朗日中值定理，并展示其在函数性质分析中的实际用途。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "3a0ef45f-beee-4e67-bd0a-c23055645c65",
+      "parent_node_id": "id_2",
+      "node_name": "2.10 导数在变化率问题中的工程应用",
+      "node_level": 2,
+      "node_content": "通过物理与工程中的典型例子，展示导数如何用于描述动态系统的瞬时变化率。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "480af6f0-900f-479d-a43a-61ed4ba21c45",
+      "parent_node_id": "id_3",
+      "node_name": "3.1 罗尔定理的数学表述与几何意义",
+      "node_level": 2,
+      "node_content": "罗尔定理的基本条件及其在函数图像上的直观解释，强调连续性、可导性和端点值相等的必要性。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "b639860d-c7e2-4192-8781-cea6c29f81b6",
+      "parent_node_id": "id_3",
+      "node_name": "3.2 罗尔定理的严格证明过程",
+      "node_level": 2,
+      "node_content": "从极限定义出发，通过构造辅助函数，严谨推导罗尔定理的结论，展示分析推理的逻辑严密性。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "50b89bcc-a304-4a02-b81c-b57129976183",
+      "parent_node_id": "id_3",
+      "node_name": "3.3 拉格朗日中值定理的引入与基本形式",
+      "node_level": 2,
+      "node_content": "基于罗尔定理，介绍拉格朗日中值定理的一般形式，并阐述其在微分学中的核心地位。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "22e4b741-ea92-4686-8e90-abd801100da3",
+      "parent_node_id": "id_3",
+      "node_name": "3.4 拉格朗日中值定理的几何解释与物理应用",
+      "node_level": 2,
+      "node_content": "结合切线斜率与平均变化率的概念，讨论定理的几何意义及其在速度问题中的实际应用。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "898677fe-0b2f-4b47-be1e-b79afdaabb99",
+      "parent_node_id": "id_3",
+      "node_name": "3.5 拉格朗日中值定理的严格证明",
+      "node_level": 2,
+      "node_content": "构建辅助函数并利用罗尔定理进行证明，突出定理之间的内在联系与逻辑结构。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "c87d5500-68de-43ce-93e6-29fea6c23e6a",
+      "parent_node_id": "id_3",
+      "node_name": "3.6 微分中值定理的推论与扩展",
+      "node_level": 2,
+      "node_content": "探讨中值定理的若干推论，如单调性判定、导数恒为零的函数性质等，深化对定理的应用理解。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "07b99375-67f3-4659-91ca-03214c34fbcb",
+      "parent_node_id": "id_3",
+      "node_name": "3.7 利用中值定理研究函数的增长性与凹凸性",
+      "node_level": 2,
+      "node_content": "结合一阶和二阶导数信息，说明中值定理如何用于判断函数的增减趋势与曲线形状。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "1a240028-2982-4a71-9d91-f2335b68d819",
+      "parent_node_id": "id_3",
+      "node_name": "3.8 中值定理在泰勒公式中的作用",
+      "node_level": 2,
+      "node_content": "揭示中值定理在构造泰勒展开式时的关键角色，包括余项估计与局部逼近思想。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "01a4f775-e05a-48dd-b3d5-09d7576369f7",
+      "parent_node_id": "id_3",
+      "node_name": "3.9 应用实例：误差估计与数值方法",
+      "node_level": 2,
+      "node_content": "通过具体例子说明中值定理在误差分析、插值法及数值积分中的实际价值。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "db9aaf4a-16a6-4b27-9091-38e557a22863",
+      "parent_node_id": "id_3",
+      "node_name": "3.10 中值定理的局限性与多变量推广概述",
+      "node_level": 2,
+      "node_content": "分析定理适用范围的限制，并简要介绍其在多元函数背景下的拓展形式。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "96b9825b-ed94-4830-9e14-d8a69309eee9",
+      "parent_node_id": "id_4",
+      "node_name": "4.1 积分的起源与基本概念",
+      "node_level": 2,
+      "node_content": "介绍积分的历史背景，定义积分的基本思想及其在数学和物理中的意义。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "a62ac231-cbb4-40b0-820c-c3a91d06706c",
+      "parent_node_id": "id_4",
+      "node_name": "4.2 不定积分的定义与性质",
+      "node_level": 2,
+      "node_content": "严格定义不定积分的概念，并推导其线性性、可加性和常数倍性等基本性质。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "91ae5b8e-60b7-4efc-8278-fa3ad6e24888",
+      "parent_node_id": "id_4",
+      "node_name": "4.3 基本积分公式与常见函数的积分",
+      "node_level": 2,
+      "node_content": "列出并证明多项式、三角函数、指数函数和对数函数的基本积分公式。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "a992d99d-44ba-47aa-a373-20ca70eb73c0",
+      "parent_node_id": "id_4",
+      "node_name": "4.4 换元积分法（第一类）",
+      "node_level": 2,
+      "node_content": "通过变量替换简化积分形式，重点讲解换元法的理论依据及应用技巧。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "12dc0271-2a7e-4b30-9646-bbfc7f102959",
+      "parent_node_id": "id_4",
+      "node_name": "4.5 换元积分法（第二类）",
+      "node_level": 2,
+      "node_content": "进一步拓展换元法的应用范围，包括反向代入和复杂表达式的处理方法。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "f5e80370-ec69-4155-b6be-c14c53c48a72",
+      "parent_node_id": "id_4",
+      "node_name": "4.6 分部积分法的原理与应用",
+      "node_level": 2,
+      "node_content": "基于乘积求导法则推导分部积分法，并通过典型例题展示其使用场景。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "1813d96d-bba9-4a35-b92a-eac029a04ffd",
+      "parent_node_id": "id_4",
+      "node_name": "4.7 有理函数的积分与部分分式分解",
+      "node_level": 2,
+      "node_content": "研究如何将有理函数分解为部分分式，从而转化为基本积分形式进行计算。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "b07f177b-1725-4fe7-9066-ead30c5d3823",
+      "parent_node_id": "id_4",
+      "node_name": "4.8 特殊函数的积分技巧",
+      "node_level": 2,
+      "node_content": "探讨如三角函数幂次、指数-三角组合等特殊类型函数的积分策略。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "05c74145-bea7-4e53-8d45-cc41887a265a",
+      "parent_node_id": "id_4",
+      "node_name": "4.9 数值积分简介",
+      "node_level": 2,
+      "node_content": "简要介绍数值积分的思想，包括梯形法则和辛普森法则的基本原理。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "498c5dd3-3748-4735-a558-e23eb01ed1aa",
+      "parent_node_id": "id_4",
+      "node_name": "4.10 不定积分的几何解释与物理应用",
+      "node_level": 2,
+      "node_content": "结合曲线下的面积和物理问题（如速度到位移）说明不定积分的实际意义。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "5f64ee73-4359-4906-9e32-1ed825ff4b8c",
+      "parent_node_id": "id_5",
+      "node_name": "5.1 定积分的定义与几何意义",
+      "node_level": 2,
+      "node_content": "从黎曼和出发，严格定义定积分并解释其在面积计算中的几何意义。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "0ad74933-80ba-4002-bc3c-5ed1ca547fcc",
+      "parent_node_id": "id_5",
+      "node_name": "5.2 可积函数类及其性质",
+      "node_level": 2,
+      "node_content": "讨论连续函数、单调函数及有界变差函数的可积性条件与基本性质。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "a10a1f37-390f-44be-936c-e2391d9ee41c",
+      "parent_node_id": "id_5",
+      "node_name": "5.3 积分中值定理及其应用",
+      "node_level": 2,
+      "node_content": "推导第一类与第二类积分中值定理，并展示其在平均值分析中的作用。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "29a3ccec-2f2c-4f25-8aae-927a96a514a8",
+      "parent_node_id": "id_5",
+      "node_name": "5.4 微积分基本定理（第一部分）",
+      "node_level": 2,
+      "node_content": "证明原函数的存在性，并建立不定积分与定积分之间的关系。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "b1ff40f6-1845-44de-862b-fa4e649e8e8f",
+      "parent_node_id": "id_5",
+      "node_name": "5.5 微积分基本定理（第二部分）",
+      "node_level": 2,
+      "node_content": "利用原函数求解定积分，强调牛顿-莱布尼茨公式的计算价值。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "61fc08ec-64ef-4ffa-b331-7633521b2412",
+      "parent_node_id": "id_5",
+      "node_name": "5.6 换元积分法在定积分中的应用",
+      "node_level": 2,
+      "node_content": "推广不定积分换元法至定积分，特别注意上下限变换规则。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "fe8339a2-5351-4484-86f8-d1889de18d07",
+      "parent_node_id": "id_5",
+      "node_name": "5.7 分部积分法与递推公式",
+      "node_level": 2,
+      "node_content": "介绍定积分的分部积分技巧，并通过实例推导递推关系式。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "6efa0e0d-f44f-41ad-b660-b8225553dd48",
+      "parent_node_id": "id_5",
+      "node_name": "5.8 定积分的近似计算方法",
+      "node_level": 2,
+      "node_content": "讲解梯形法、辛普森法等数值积分技术及其误差估计。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "798e970d-8867-4878-a5dc-86decc458ee8",
+      "parent_node_id": "id_5",
+      "node_name": "5.9 广义积分初步：无穷区间上的积分",
+      "node_level": 2,
+      "node_content": "引入广义积分的概念，重点分析无穷区间的收敛性判别准则。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "3c8be1f9-987c-4fed-8d30-10ec27bf0eca",
+      "parent_node_id": "id_6",
+      "node_name": "第六章 积分的应用 - 子节点 1",
+      "node_level": 2,
+      "node_content": "",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "9e3951ae-db36-44b9-a928-a27070256e9b",
+      "parent_node_id": "id_6",
+      "node_name": "第六章 积分的应用 - 子节点 2",
+      "node_level": 2,
+      "node_content": "",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "7da6b793-409f-4f72-98a2-0e51f1d86f76",
+      "parent_node_id": "id_7",
+      "node_name": "7.1 多变量函数的基本概念",
+      "node_level": 2,
+      "node_content": "定义多变量函数的域与值域，介绍多元函数的极限和连续性基本性质。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "df308080-1c88-4578-a460-bb31d408d8d8",
+      "parent_node_id": "id_7",
+      "node_name": "7.2 偏导数的定义与计算",
+      "node_level": 2,
+      "node_content": "系统讲解偏导数的数学定义、几何意义及在不同坐标系下的计算方法。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "2ceee734-c0d7-4415-aab1-c7a0c7f36ed6",
+      "parent_node_id": "id_7",
+      "node_name": "7.3 高阶偏导数及其混合偏导数定理",
+      "node_level": 2,
+      "node_content": "探讨二阶及以上偏导数的存在性、对称性以及Clairaut定理的应用条件。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "6f35030a-7bb2-41e2-8822-675bd42285b2",
+      "parent_node_id": "id_7",
+      "node_name": "7.4 全微分与可微性条件",
+      "node_level": 2,
+      "node_content": "分析全微分的定义、必要条件与充分条件，并讨论其与偏导数之间的关系。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "bd647f9c-7a43-45c8-98aa-bed440387d76",
+      "parent_node_id": "id_7",
+      "node_name": "7.5 方向导数与梯度向量",
+      "node_level": 2,
+      "node_content": "推导方向导数的表达式，解释梯度的方向性和大小含义，并给出其物理应用示例。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "7ab3b39b-467c-48eb-a6b6-000f890c301c",
+      "parent_node_id": "id_7",
+      "node_name": "7.6 多元复合函数求导法则（链式法则）",
+      "node_level": 2,
+      "node_content": "详细阐述链式法则在多元函数中的形式及其在参数变换中的关键作用。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "d27baa37-b543-49f2-94c5-4bf1614068c7",
+      "parent_node_id": "id_7",
+      "node_name": "7.7 隐函数存在定理与隐函数求导",
+      "node_level": 2,
+      "node_content": "介绍隐函数定理的数学表述及其在解方程组和求导中的实际应用。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "0f8e5b01-b62f-47c4-9fed-5a1d2ef32f6e",
+      "parent_node_id": "id_7",
+      "node_name": "7.8 多变量函数的泰勒展开",
+      "node_level": 2,
+      "node_content": "",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "8236941f-ee5f-42b8-96f4-c150eaadd79f",
+      "parent_node_id": "id_7",
+      "node_name": "7.9 极值问题与拉格朗日乘数法",
+      "node_level": 2,
+      "node_content": "研究无约束与有约束极值问题，重点讲解拉格朗日乘数法的原理和应用技巧。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "271dd17e-a963-4bf9-8667-1b9be692eddc",
+      "parent_node_id": "id_8",
+      "node_name": "1.1 多重积分的定义与几何意义",
+      "node_level": 2,
+      "node_content": "介绍二重积分和三重积分的严格数学定义，并解释其在体积、质量等物理问题中的几何意义。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "f74f73b8-31db-4469-9046-0d85e5422009",
+      "parent_node_id": "id_8",
+      "node_name": "1.2 直角坐标系下的二重积分计算",
+      "node_level": 2,
+      "node_content": "讲解如何通过直角坐标系对简单区域上的函数进行二重积分的计算，包括逐次积分方法。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "f84827a7-b54e-446d-b74f-553d52e0e92a",
+      "parent_node_id": "id_8",
+      "node_name": "1.3 极坐标系下的二重积分转换",
+      "node_level": 2,
+      "node_content": "推导极坐标变换公式，并讨论适用于圆形或扇形区域的积分计算技巧。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "f3c3a22e-ea79-4ae5-baa3-4e2f6387964f",
+      "parent_node_id": "id_8",
+      "node_name": "1.4 直角坐标系下的三重积分计算",
+      "node_level": 2,
+      "node_content": "扩展到三维空间，详细说明三重积分在直角坐标系中的积分顺序选择与计算过程。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "a0ae5976-dd31-4b7d-8fb2-5ac55affffb3",
+      "parent_node_id": "id_8",
+      "node_name": "1.5 柱面坐标系与球面坐标系的三重积分",
+      "node_level": 2,
+      "node_content": "介绍柱面坐标和球面坐标的变换关系，并演示其在圆柱体和球体区域中的积分应用。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "107c5d81-69b1-4bf3-be77-9b6ada12844d",
+      "parent_node_id": "id_8",
+      "node_name": "1.6 变量代换法与雅可比行列式",
+      "node_level": 2,
+      "node_content": "系统讲解多重积分变量替换的理论基础，强调雅可比行列式的作用及其计算方法。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "e1646604-f9b9-4ac8-ad31-ca84611b67a1",
+      "parent_node_id": "id_8",
+      "node_name": "1.7 对称性在多重积分中的应用",
+      "node_level": 2,
+      "node_content": "探讨如何利用区域和被积函数的对称性简化积分计算，提高运算效率。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "306a6552-793a-499b-9e10-e2e26deca0b8",
+      "parent_node_id": "id_8",
+      "node_name": "1.8 多重积分的应用：质量与质心",
+      "node_level": 2,
+      "node_content": "结合物理模型，分析如何使用多重积分求解物体的质量分布和质心位置。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "1de5a0f4-6369-42b5-aab4-f1e73339357c",
+      "parent_node_id": "id_8",
+      "node_name": "1.9 多重积分的应用：引力势能与流体压力",
+      "node_level": 2,
+      "node_content": "介绍多重积分在引力场、流体力学等工程和物理问题中的实际应用案例。",
+      "node_type": "custom"
+    },
+    {
+      "node_id": "bacccb86-f4b8-448b-9387-8b890fa1eaaf",
+      "parent_node_id": "id_8",
+      "node_name": "1.10 数值方法简介：多重积分的近似计算",
+      "node_level": 2,
+      "node_content": "简要介绍多重积分在无法解析求解时的数值近似方法，如蒙特卡洛积分和网格划分法。",
+      "node_type": "custom"
+    }
+  ],
+  "course_id": "54c81962-57bb-42b6-8016-14f7495d57ee"
+}
