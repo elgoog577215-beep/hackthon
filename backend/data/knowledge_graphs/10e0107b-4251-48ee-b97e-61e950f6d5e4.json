@@ -1,0 +1,286 @@
+{
+  "nodes": [
+    {
+      "id": "root_b59a6155",
+      "label": "课程核心",
+      "type": "root",
+      "description": "课程根节点",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "id_1",
+      "label": "第一章 C语言基础语法体系",
+      "type": "module",
+      "description": "掌握变量、常量、运算符及基本数据类型，理解语法规则和表达式构造。",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "id_2",
+      "label": "第二章 控制结构与函数设计",
+      "type": "module",
+      "description": "学习条件判断、循环控制和函数定义，实现模块化编程能力。",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "id_3",
+      "label": "第三章 数组与字符串处理",
+      "type": "module",
+      "description": "深入数组操作与字符串管理，掌握内存布局与性能优化技巧。",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "id_4",
+      "label": "第四章 指针与内存管理",
+      "type": "module",
+      "description": "理解指针机制，熟练使用动态内存分配与释放技术。",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "id_5",
+      "label": "第五章 结构体与联合体应用",
+      "type": "module",
+      "description": "构建复杂数据结构，提升数据组织与访问效率。",
+      "chapter_id": "id_5"
+    },
+    {
+      "id": "id_6",
+      "label": "第六章 文件输入输出与流处理",
+      "type": "module",
+      "description": "掌握文件读写、缓冲区管理和标准I/O库的高级用法。",
+      "chapter_id": "id_6"
+    },
+    {
+      "id": "id_7",
+      "label": "第七章 预处理器与宏编程",
+      "type": "module",
+      "description": "了解宏定义、条件编译和头文件管理在实际开发中的作用。",
+      "chapter_id": "id_7"
+    },
+    {
+      "id": "id_8",
+      "label": "第八章 编译过程与调试技术",
+      "type": "module",
+      "description": "熟悉编译流程、静态分析工具与常见调试方法，提高代码质量。",
+      "chapter_id": "id_8"
+    },
+    {
+      "id": "id_9",
+      "label": "第九章 标准库与常用算法实现",
+      "type": "module",
+      "description": "基于标准库编写实用程序，实现排序、查找等核心算法。",
+      "chapter_id": "id_9"
+    },
+    {
+      "id": "id_10",
+      "label": "第十章 多文件项目构建与Makefile",
+      "type": "module",
+      "description": "掌握多模块开发模式，学会使用Makefile进行自动化构建。",
+      "chapter_id": "id_10"
+    },
+    {
+      "id": "590071af-dd99-4ab3-8996-ee25a83aa2cb",
+      "label": "第一章 C语言基础语法体系 - 子节点 1",
+      "type": "concept",
+      "description": "[Error: Connection error.]",
+      "chapter_id": "590071af-dd99-4ab3-8996-ee25a83aa2cb"
+    },
+    {
+      "id": "b7af5249-bc78-469f-b262-8ba1fdfd5a94",
+      "label": "第一章 C语言基础语法体系 - 子节点 2",
+      "type": "concept",
+      "description": "[Error: Connection error.]",
+      "chapter_id": "b7af5249-bc78-469f-b262-8ba1fdfd5a94"
+    },
+    {
+      "id": "30b7334d-7c53-4348-8acf-0cf72c92352a",
+      "label": "第二章 控制结构与函数设计 - 子节点 1",
+      "type": "concept",
+      "description": "[Error: Connection error.]",
+      "chapter_id": "30b7334d-7c53-4348-8acf-0cf72c92352a"
+    },
+    {
+      "id": "259dff5e-7ad4-4cd2-aa77-5e2c2ad0a0a9",
+      "label": "第二章 控制结构与函数设计 - 子节点 2",
+      "type": "concept",
+      "description": "[Error: Connection error.]",
+      "chapter_id": "259dff5e-7ad4-4cd2-aa77-5e2c2ad0a0a9"
+    },
+    {
+      "id": "5913e5a4-2e49-4653-8b54-b89a0a812bf9",
+      "label": "第三章 数组与字符串处理 - 子节点 1",
+      "type": "concept",
+      "description": "[Error: Connection error.]",
+      "chapter_id": "5913e5a4-2e49-4653-8b54-b89a0a812bf9"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root_b59a6155",
+      "target": "id_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_b59a6155",
+      "target": "id_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_b59a6155",
+      "target": "id_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_b59a6155",
+      "target": "id_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_b59a6155",
+      "target": "id_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_b59a6155",
+      "target": "id_6",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_b59a6155",
+      "target": "id_7",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_b59a6155",
+      "target": "id_8",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_b59a6155",
+      "target": "id_9",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_b59a6155",
+      "target": "id_10",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "id_1",
+      "target": "590071af-dd99-4ab3-8996-ee25a83aa2cb",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "id_1",
+      "target": "b7af5249-bc78-469f-b262-8ba1fdfd5a94",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "id_2",
+      "target": "30b7334d-7c53-4348-8acf-0cf72c92352a",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "id_2",
+      "target": "259dff5e-7ad4-4cd2-aa77-5e2c2ad0a0a9",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "id_3",
+      "target": "5913e5a4-2e49-4653-8b54-b89a0a812bf9",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "id_1",
+      "target": "id_2",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "id_2",
+      "target": "id_3",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "id_3",
+      "target": "id_4",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "id_4",
+      "target": "id_5",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "id_5",
+      "target": "id_6",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "id_6",
+      "target": "id_7",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "id_7",
+      "target": "id_8",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "id_8",
+      "target": "id_9",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "id_9",
+      "target": "id_10",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "590071af-dd99-4ab3-8996-ee25a83aa2cb",
+      "target": "b7af5249-bc78-469f-b262-8ba1fdfd5a94",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "b7af5249-bc78-469f-b262-8ba1fdfd5a94",
+      "target": "30b7334d-7c53-4348-8acf-0cf72c92352a",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "30b7334d-7c53-4348-8acf-0cf72c92352a",
+      "target": "259dff5e-7ad4-4cd2-aa77-5e2c2ad0a0a9",
+      "relation": "related",
+      "label": "关联"
+    },
+    {
+      "source": "259dff5e-7ad4-4cd2-aa77-5e2c2ad0a0a9",
+      "target": "5913e5a4-2e49-4653-8b54-b89a0a812bf9",
+      "relation": "related",
+      "label": "关联"
+    }
+  ]
+}

@@ -7,7 +7,9 @@ from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = "data"
+# Use absolute path relative to this file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
 COURSES_DIR = os.path.join(DATA_DIR, "courses")
 ANNOTATIONS_FILE = os.path.join(DATA_DIR, "annotations.json")
 KNOWLEDGE_GRAPH_DIR = os.path.join(DATA_DIR, "knowledge_graphs")

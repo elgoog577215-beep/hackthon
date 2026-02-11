@@ -1,0 +1,295 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "现代礼仪：理论与实践",
+      "type": "root",
+      "description": "系统讲解礼仪的哲学基础与实践应用",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_1",
+      "label": "礼仪哲学基础",
+      "type": "module",
+      "description": "探讨礼仪的文化与道德逻辑",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_2",
+      "label": "沟通礼仪的艺术",
+      "type": "module",
+      "description": "语言与非语言交流的礼仪规范",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "module_3",
+      "label": "商务礼仪实战指南",
+      "type": "module",
+      "description": "商务场合中的社交行为准则",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "concept_1",
+      "label": "礼仪的本质",
+      "type": "concept",
+      "description": "外在行为表达内在道德秩序",
+      "chapter_id": "42c98e77-6418-46c8-809f-838c88de01a6"
+    },
+    {
+      "id": "concept_2",
+      "label": "孔子‘礼’思想",
+      "type": "concept",
+      "description": "儒家伦理中实现社会和谐的核心",
+      "chapter_id": "f180c276-5c3e-4cdb-b3ab-777961725b84"
+    },
+    {
+      "id": "concept_3",
+      "label": "康德道德律令",
+      "type": "concept",
+      "description": "礼仪作为道德自律的外化形式",
+      "chapter_id": "14fd3d7a-8546-4701-b337-375d0ea0a622"
+    },
+    {
+      "id": "concept_4",
+      "label": "西方礼仪传统",
+      "type": "concept",
+      "description": "从古希腊到近代的社会规范演变",
+      "chapter_id": "e3bf7801-1652-4b4b-b926-e6fe0e5b5279"
+    },
+    {
+      "id": "concept_5",
+      "label": "东西方礼仪比较",
+      "type": "concept",
+      "description": "文化体系下礼仪差异分析",
+      "chapter_id": "8242b6b7-a237-410f-a38b-6842aff37a0f"
+    },
+    {
+      "id": "concept_6",
+      "label": "沟通礼仪",
+      "type": "concept",
+      "description": "语言与非语言行为协调的规则",
+      "chapter_id": "86d7e02b-dcc2-4897-9c6f-9eb6c31808cf"
+    },
+    {
+      "id": "concept_7",
+      "label": "礼貌原则",
+      "type": "theorem",
+      "description": "Leech提出的言语表达指导框架",
+      "chapter_id": "70eeb6b1-8150-490c-b5e7-1ca7b1e07e1e"
+    },
+    {
+      "id": "concept_8",
+      "label": "非言语行为",
+      "type": "concept",
+      "description": "肢体语言、表情等无声信息传递",
+      "chapter_id": "03ecf01d-0595-4aad-8034-e30d2e843b64"
+    },
+    {
+      "id": "concept_9",
+      "label": "跨文化礼仪差异",
+      "type": "concept",
+      "description": "文化背景对行为规范的影响",
+      "chapter_id": "02380378-eb99-41a2-9b82-441decc66a73"
+    },
+    {
+      "id": "concept_10",
+      "label": "倾听技能",
+      "type": "method",
+      "description": "主动构建理解与信任的行为机制",
+      "chapter_id": "1c53991f-5f31-488d-adce-8f3a21277e26"
+    },
+    {
+      "id": "concept_11",
+      "label": "反馈技巧",
+      "type": "method",
+      "description": "结构化沟通与冲突管理工具",
+      "chapter_id": "b16c0147-96c6-4b9e-8ae4-3af10ef06563"
+    },
+    {
+      "id": "concept_12",
+      "label": "数字礼仪",
+      "type": "concept",
+      "description": "社交媒体与虚拟空间中的行为准则",
+      "chapter_id": "ba94eedd-9b58-43f6-a386-7bf8bdc824c7"
+    },
+    {
+      "id": "concept_13",
+      "label": "商务邮件礼仪",
+      "type": "method",
+      "description": "专业撰写与跨文化适应策略",
+      "chapter_id": "d96146f7-9df7-4604-82e6-14982f267c68"
+    },
+    {
+      "id": "concept_14",
+      "label": "餐桌礼仪",
+      "type": "concept",
+      "description": "用餐场景中的行为规范体系",
+      "chapter_id": "7ba33687-5703-4ed7-a15e-d10c01d3b7c0"
+    },
+    {
+      "id": "concept_15",
+      "label": "公共空间礼仪",
+      "type": "concept",
+      "description": "公共场所共享行为准则",
+      "chapter_id": "b27c29a6-3017-4728-a7b8-f2e2ed155bf5"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "module_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_6",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_7",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_8",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_9",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_10",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_11",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_12",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_13",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_14",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_15",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "concept_1",
+      "target": "concept_2",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_1",
+      "target": "concept_3",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_6",
+      "target": "concept_7",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_6",
+      "target": "concept_8",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_6",
+      "target": "concept_10",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "concept_9",
+      "target": "concept_12",
+      "relation": "leads_to",
+      "label": "推导"
+    },
+    {
+      "source": "concept_13",
+      "target": "concept_14",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_14",
+      "target": "concept_15",
+      "relation": "related",
+      "label": "相关"
+    }
+  ]
+}

@@ -1,0 +1,313 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "线性代数：理论与应用",
+      "type": "root",
+      "description": "课程名称",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_1",
+      "label": "向量空间与子空间",
+      "type": "module",
+      "description": "向量空间的基本理论",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_2",
+      "label": "线性映射与矩阵表示",
+      "type": "module",
+      "description": "线性映射及其矩阵形式",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "module_3",
+      "label": "行列式与逆矩阵",
+      "type": "module",
+      "description": "行列式的性质与逆矩阵计算",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "module_4",
+      "label": "特征值与特征向量",
+      "type": "module",
+      "description": "线性变换的特征分析",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "module_5",
+      "label": "正交性与内积空间",
+      "type": "module",
+      "description": "正交基与内积结构",
+      "chapter_id": "id_5"
+    },
+    {
+      "id": "concept_1",
+      "label": "向量空间",
+      "type": "concept",
+      "description": "满足8条公理的集合",
+      "chapter_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d"
+    },
+    {
+      "id": "concept_2",
+      "label": "子空间",
+      "type": "concept",
+      "description": "向量空间中的部分集合",
+      "chapter_id": "86065096-c309-4f81-8a76-28d6d7056736"
+    },
+    {
+      "id": "concept_3",
+      "label": "线性组合",
+      "type": "concept",
+      "description": "向量的标量乘和加法",
+      "chapter_id": "9d4aef8f-d52d-4c69-9de6-3c10c83a62f6"
+    },
+    {
+      "id": "concept_4",
+      "label": "线性无关性",
+      "type": "concept",
+      "description": "一组向量无冗余",
+      "chapter_id": "0243ac00-3ed8-4337-aea9-c7e6859c572e"
+    },
+    {
+      "id": "concept_5",
+      "label": "基底",
+      "type": "concept",
+      "description": "生成空间的最小集",
+      "chapter_id": "ff2bcddf-5c7b-401e-87b3-e5f76d11f6e4"
+    },
+    {
+      "id": "concept_6",
+      "label": "维数",
+      "type": "concept",
+      "description": "向量空间中基底数量",
+      "chapter_id": "ff2bcddf-5c7b-401e-87b3-e5f76d11f6e4"
+    },
+    {
+      "id": "concept_7",
+      "label": "线性映射",
+      "type": "concept",
+      "description": "保持线性的函数",
+      "chapter_id": "a41fb927-e436-4147-8f0a-7a6e6831a74e"
+    },
+    {
+      "id": "concept_8",
+      "label": "矩阵表示",
+      "type": "concept",
+      "description": "线性映射的数值化表达",
+      "chapter_id": "e54a51f9-d1b3-4f7b-b1b8-0ac9391f9a89"
+    },
+    {
+      "id": "concept_9",
+      "label": "行列式",
+      "type": "concept",
+      "description": "衡量矩阵缩放因子",
+      "chapter_id": "a49ca7d7-511b-437f-a13e-39f7196081d3"
+    },
+    {
+      "id": "concept_10",
+      "label": "特征值",
+      "type": "concept",
+      "description": "线性变换的固有比例",
+      "chapter_id": "90633e0f-a994-48d8-a6a0-be7c2207c923"
+    },
+    {
+      "id": "concept_11",
+      "label": "特征向量",
+      "type": "concept",
+      "description": "方向不变的向量",
+      "chapter_id": "90633e0f-a994-48d8-a6a0-be7c2207c923"
+    },
+    {
+      "id": "method_1",
+      "label": "Gram-Schmidt 正交化",
+      "type": "method",
+      "description": "构造正交基的算法",
+      "chapter_id": "0731848c-c311-4c0e-8f06-3875349c9063"
+    },
+    {
+      "id": "method_2",
+      "label": "最小二乘法",
+      "type": "method",
+      "description": "求解超定系统的最优近似",
+      "chapter_id": "770752ee-a621-4756-ba8c-4600ad0487fb"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "module_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_6",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_7",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_8",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_9",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "concept_10",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "concept_11",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_5",
+      "target": "method_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_5",
+      "target": "method_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "concept_1",
+      "target": "concept_2",
+      "relation": "leads_to",
+      "label": "推导出"
+    },
+    {
+      "source": "concept_2",
+      "target": "concept_3",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_3",
+      "target": "concept_4",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_4",
+      "target": "concept_5",
+      "relation": "leads_to",
+      "label": "推导出"
+    },
+    {
+      "source": "concept_5",
+      "target": "concept_6",
+      "relation": "leads_to",
+      "label": "定义"
+    },
+    {
+      "source": "concept_7",
+      "target": "concept_8",
+      "relation": "leads_to",
+      "label": "表示为"
+    },
+    {
+      "source": "concept_8",
+      "target": "concept_9",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_9",
+      "target": "concept_10",
+      "relation": "leads_to",
+      "label": "关联"
+    },
+    {
+      "source": "concept_10",
+      "target": "concept_11",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "method_1",
+      "target": "concept_5",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_2",
+      "target": "concept_7",
+      "relation": "applies_to",
+      "label": "应用于"
+    }
+  ]
+}
