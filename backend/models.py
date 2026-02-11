@@ -66,6 +66,7 @@ class AddNodeRequest(BaseModel):
 class SaveAnnotationRequest(BaseModel):
     anno_id: Optional[str] = None
     node_id: str
+    course_id: Optional[str] = None
     question: str
     answer: str
     anno_summary: str

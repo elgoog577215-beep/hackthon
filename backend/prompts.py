@@ -191,7 +191,8 @@ GENERATE_COURSE = PromptTemplate(
 
 2. **内容规范**
    - **课程命名**：采用学术著作或专业课程的标准命名方式
-   - **章节逻辑**：直接切入核心主题，遵循"理论基础→核心技术→应用实践→前沿发展"的演进路径，**严禁包含"导论"、"概述"或"Introduction"章节**
+   - **章节逻辑**：遵循"基础理论→核心机制→关键技术→应用实践→前沿展望"的演进路径。
+   - **避免废话**：除非是零基础课程，否则尽量避免通用的"导论"章节，直接切入核心概念。
    - **内容摘要**：每章50字左右的概述，突出核心概念和知识要点
    - **风格适配**：确保章节名称和摘要内容符合设定的"{{style}}"风格
 
@@ -201,6 +202,7 @@ GENERATE_COURSE = PromptTemplate(
 ```json
 {{{{
   "course_name": "《关键词：原理与实践》",
+  "logic_flow": "本课程设计遵循从原理到实践的路径，首先建立...的基础，然后深入...",
   "nodes": [
     {{{{"node_id": "id_1", "parent_node_id": "root", "node_name": "第一章 基础理论", "node_level": 1, "node_content": "前言与课程综述", "node_type": "original"}}}},
     {{{{"node_id": "id_2", "parent_node_id": "root", "node_name": "第二章 核心机制", "node_level": 1, "node_content": "本章深入分析...", "node_type": "original"}}}}
@@ -268,21 +270,24 @@ GENERATE_QUIZ = PromptTemplate(
 # -----------------------------------------------------------------------------
 GENERATE_SUB_NODES = PromptTemplate(
     name="generate_sub_nodes",
-    version="2.0.0",
-    description="Generate detailed sub-sections for a chapter",
-    parameters=["course_name", "parent_context"],
+    version="2.1.0",
+    description="Generate detailed sub-sections for a chapter with full course context",
+    parameters=["course_name", "parent_context", "course_outline"],
     tags=["content", "sub-nodes", "expansion"],
     system_prompt=f"""{ACADEMIC_IDENTITY}
 
 ## 任务背景
 - **所属课程**：{{course_name}}
 - **父节点上下文**：{{parent_context}}
+- **全书大纲**：
+{{course_outline}}
 
 ## 核心任务
 为当前章节生成**5-10个**细化的子小节，严禁只生成 2-3 个。每个小节应：
 1. **聚焦具体知识点**：从父章节中拆分出独立、完整的知识单元
 2. **保持逻辑连贯**：子小节之间应有清晰的知识递进关系
-3. **控制粒度**：每个子小节适合5-10分钟的深度学习
+3. **全局视野**：参考全书大纲，确保当前子小节的内容专注于本章主题，**避免与其他章节的核心内容重复**。
+4. **控制粒度**：每个子小节适合5-10分钟的深度学习
 
 ## 内容规范
 - **命名规范**：使用"1.1 小节标题"或"1.1.1 知识点"格式

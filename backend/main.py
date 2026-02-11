@@ -25,17 +25,37 @@ try:
 )
     from storage import storage
     from ai_service import ai_service
+    from task_manager import TaskManager
 except ImportError:
     # 当从父目录运行时回退
     from backend.models import *
     from backend.storage import storage
     from backend.ai_service import ai_service
+    from backend.task_manager import TaskManager
+    from backend.task_manager import TaskManager
 
 import uuid
 from datetime import datetime
 import json
 
 app = FastAPI()
+
+# Initialize Task Manager
+try:
+    task_manager = TaskManager(storage, ai_service)
+except NameError:
+    # In case imports failed completely (unlikely)
+    task_manager = None
+
+@app.on_event("startup")
+async def startup_event():
+    if task_manager:
+        task_manager.start_worker()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    if task_manager:
+        task_manager.stop_worker()
 
 app.add_middleware(
     GZipMiddleware,
@@ -53,6 +73,63 @@ app.add_middleware(
 @app.get("/api/health")
 def read_root():
     return {"message": "KnowledgeMap AI API"}
+
+@app.post("/courses/{course_id}/auto_generate")
+def start_auto_generation(course_id: str):
+    if not task_manager:
+        raise HTTPException(status_code=500, detail="Task Manager not initialized")
+    
+    # Check if there is already a running or paused task
+    tasks = task_manager.get_tasks_by_course(course_id)
+    existing = [t for t in tasks if t["status"] in ["pending", "running", "paused"]]
+    if existing:
+        # If paused, we could auto-resume it? Or just return it.
+        # Let's return it so frontend can decide, or auto-resume if requested?
+        # For auto_generate, we probably want to ensure it's running.
+        task = existing[0]
+        if task["status"] == "paused":
+            task_manager.resume_task(task["id"])
+        return {"task_id": task["id"], "status": "exists"}
+    
+    task_id = task_manager.create_task(course_id)
+    return {"task_id": task_id, "status": "created"}
+
+@app.get("/courses/{course_id}/task")
+def get_course_task(course_id: str):
+    if not task_manager:
+        return {"status": "error"}
+    
+    tasks = task_manager.get_tasks_by_course(course_id)
+    if not tasks:
+        return {"status": "none"}
+    
+    # Return the most relevant task (running or last updated)
+    # Sort by updated_at desc
+    tasks.sort(key=lambda x: x["updated_at"], reverse=True)
+    return tasks[0]
+
+@app.get("/tasks/{task_id}")
+def get_task(task_id: str):
+    if not task_manager:
+        raise HTTPException(status_code=500, detail="Task Manager not initialized")
+    task = task_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+@app.post("/tasks/{task_id}/pause")
+def pause_task(task_id: str):
+    if not task_manager:
+        raise HTTPException(status_code=500, detail="Task Manager not initialized")
+    task_manager.pause_task(task_id)
+    return {"status": "paused"}
+
+@app.post("/tasks/{task_id}/resume")
+def resume_task(task_id: str):
+    if not task_manager:
+        raise HTTPException(status_code=500, detail="Task Manager not initialized")
+    task_manager.resume_task(task_id)
+    return {"status": "resumed"}
 
 # --- Course Management ---
 
@@ -146,13 +223,20 @@ async def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesR
     
     # Find current node to get context (summary)
     parent_context = ""
+    course_outline = ""
+    
     if "nodes" in tree_data:
+        # Build course outline for context
+        l1_nodes = [n for n in tree_data["nodes"] if n.get("node_level", 1) == 1]
+        for i, node in enumerate(l1_nodes):
+            course_outline += f"{i+1}. {node.get('node_name', '')}: {node.get('node_content', '')[:50]}...\n"
+            
         for node in tree_data["nodes"]:
             if node["node_id"] == node_id:
                 parent_context = node.get("node_content", "")
                 break
     
-    new_nodes = await ai_service.generate_sub_nodes(req.node_name, req.node_level, node_id, course_name, parent_context)
+    new_nodes = await ai_service.generate_sub_nodes(req.node_name, req.node_level, node_id, course_name, parent_context, course_outline)
     
     if "nodes" in tree_data:
         for node in new_nodes:
@@ -379,7 +463,20 @@ def get_course_annotations(course_id: str):
     
     # 2. 获取所有批注并过滤
     all_annos = storage.load_annotations()
-    return [a for a in all_annos if a.get("node_id") in node_ids]
+    results = []
+    for a in all_annos:
+        # 如果批注有 course_id，则必须匹配
+        if a.get("course_id"):
+            if a.get("course_id") == course_id:
+                results.append(a)
+        # 如果批注没有 course_id，则回退到 node_id 检查
+        elif a.get("node_id") in node_ids:
+            # 避免通用 ID (如 "id_1") 导致的跨课程泄露
+            # 仅保留 ID 长度较长（看似 UUID）的旧笔记
+            if len(a.get("node_id", "")) > 10:
+                results.append(a)
+                
+    return results
 
 
 @app.post("/courses/{course_id}/locate")
