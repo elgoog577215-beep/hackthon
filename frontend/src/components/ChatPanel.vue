@@ -211,7 +211,7 @@
                                 <!-- Quote Preview (Enhanced Locate) -->
                                 <el-popover
                                     v-if="msg.content.quote"
-                                    placement="top"
+                                    placement="left"
                                     :width="300"
                                     trigger="hover"
                                     popper-class="glass-popover"
