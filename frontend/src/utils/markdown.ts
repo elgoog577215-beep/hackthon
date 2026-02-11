@@ -288,7 +288,7 @@ export const renderMarkdown = (content: string) => {
     // Normalize LaTeX delimiters for compatibility
     // Replace \[ ... \] with $$ ... $$
     normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, '\n$$\n$1\n$$\n');
-    // Replace \( ... \) with $ ... $ 
+    // Replace \( ... \) with $ ... $ (Inline math)
     normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
     
     // Fix: Ensure display math $$...$$ has proper spacing for rendering
@@ -316,25 +316,54 @@ export const renderMarkdown = (content: string) => {
     // Heuristic: If a line contains a math command (vec, frac, int, sum, lim, etc.) AND an equals sign or typical math operators,
     // and is not already wrapped in $, wrap the math part in $$
     // Example: "Label: \vec{v} = ..." -> "Label: $$\vec{v} = ...$$"
-    normalized = normalized.replace(/(^|\n)([^\n$]*?)(\\vec|\\frac|\\int|\\sum|\\lim|\\mathbb|\\mathcal|\\in|\\times|\\cdot|\\leq|\\geq|\\neq|\\approx|\\equiv|\\forall|\\exists|\\partial|\\nabla|\\alpha|\\beta|\\gamma|\\sigma|\\lambda|\\mu|\\pi)([^$\n]*[=><\u2248\u2260\u2264\u2265\u2208][^$\n]*)(\n|$)/g, (match, prefix, label, cmd, rest, suffix) => {
+    // Added boundary check (?![a-zA-Z]) to prevent partial matches (e.g. \in matching \infty)
+    const mathCmds = [
+        'vec', 'frac', 'int', 'sum', 'lim', 'mathbb', 'mathcal', 'in', 'times', 'cdot', 
+        'leq', 'geq', 'neq', 'approx', 'equiv', 'forall', 'exists', 'partial', 'nabla', 
+        'alpha', 'beta', 'gamma', 'sigma', 'lambda', 'mu', 'pi', 'infty', 'ell', 'mid', 
+        'langle', 'rangle', 'lVert', 'rVert', 'left', 'right'
+    ].join('|');
+    
+    const mathCmdRegex = new RegExp(`(^|\\n)([^\\n$]*?)(\\\\(${mathCmds}))(?![a-zA-Z])([^$\\n]*[=><\\u2248\\u2260\\u2264\\u2265\\u2208][^$\\n]*)(\\n|$)`, 'g');
+
+    normalized = normalized.replace(mathCmdRegex, (match, prefix, label, cmdFull, cmdName, rest, suffix) => {
         // If the label contains $ or the rest contains $, abort (already wrapped)
         if (label.includes('$') || rest.includes('$')) return match;
         
         // Don't wrap if it looks like code (e.g. inside `...`) - simple check
         if (label.includes('`') || rest.includes('`')) return match;
 
-        return `${prefix}${label}$$${cmd}${rest}$$${suffix}`;
+        // Try to capture preceding math content in label (e.g. "f(x) = " or "\ell^2 = ")
+        // This is a simple heuristic to include "x =" or "f(x) =" into the math block
+        // We look for a suffix of label that looks like math
+        const labelMatch = label.match(/([a-zA-Z0-9_{}\(\)\^\|\s]+(=|:)\s*)$/);
+        let preMath = '';
+        let textLabel = label;
+        
+        if (labelMatch) {
+             preMath = labelMatch[0];
+             textLabel = label.substring(0, label.length - preMath.length);
+        } else if (label.trim().length < 10 && !label.match(/[.,;!?]$/)) {
+             // If label is short and doesn't look like a sentence ending, assume it's part of math
+             // e.g. "\ell^2 = "
+             preMath = label;
+             textLabel = '';
+        }
+
+        return `${prefix}${textLabel}$$${preMath}${cmdFull}${rest}$$${suffix}`;
     });
 
     // Heuristic 2: Wrap standalone math lines that start with typical LaTeX commands but miss delimiters
     // e.g. "A \in \mathbb{R}^{m \times n}"
-    normalized = normalized.replace(/(^|\n)([^\n$]*?)(\\mathbb|\\mathcal|\\in|\\times)([^$\n]*)(\n|$)/g, (match, prefix, label, cmd, rest, suffix) => {
+    const standaloneCmds = ['mathbb', 'mathcal', 'in', 'times', 'ell', 'infty', 'sum', 'int'].join('|');
+    const standaloneRegex = new RegExp(`(^|\\n)([^\\n$]*?)(\\\\(${standaloneCmds}))(?![a-zA-Z])([^$\\n]*)(\\n|$)`, 'g');
+    
+    normalized = normalized.replace(standaloneRegex, (match, prefix, label, cmdFull, cmdName, rest, suffix) => {
          if (label.includes('$') || rest.includes('$')) return match;
          if (label.includes('`') || rest.includes('`')) return match;
-         // Avoid wrapping if it's just text explaining "the symbol \in means..."
-         // But if it looks like a formula (contains super/subscripts or operators), wrap it.
+         
          if (rest.match(/[\^_{}=]/) || label.match(/[A-Za-z0-9]\s*$/)) {
-             return `${prefix}${label}$$${cmd}${rest}$$${suffix}`;
+             return `${prefix}${label}$$${cmdFull}${rest}$$${suffix}`;
          }
          return match;
     });
