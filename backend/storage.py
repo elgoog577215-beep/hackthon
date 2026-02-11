@@ -3,6 +3,9 @@ import os
 import uuid
 import shutil
 import logging
+import threading
+import time
+import subprocess
 from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -50,6 +53,32 @@ class Storage:
         if not os.path.exists(ANNOTATIONS_FILE):
             with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
                 json.dump([], f)
+        
+        # Git Auto-Sync
+        self.dirty = False
+        self.running = True
+        self.sync_thread = threading.Thread(target=self._auto_sync_loop, daemon=True)
+        self.sync_thread.start()
+
+    def _auto_sync_loop(self):
+        """Background thread to auto-commit data changes"""
+        logger.info("Git Auto-Sync started")
+        while self.running:
+            time.sleep(30) # Check every 30 seconds
+            if self.dirty:
+                try:
+                    logger.info("Auto-saving data to git...")
+                    # Add data directory
+                    subprocess.run(["git", "add", "backend/data"], check=False)
+                    # Commit (will trigger post-commit hook for push)
+                    # We use check=False because if nothing changed, commit returns 1
+                    subprocess.run(["git", "commit", "-m", "Auto-save: update course data"], check=False)
+                    self.dirty = False
+                except Exception as e:
+                    logger.error(f"Git Auto-Sync failed: {e}")
+
+    def _mark_dirty(self):
+        self.dirty = True
     
     def _ensure_cache(self):
         """Load all courses into cache if not initialized"""
@@ -90,6 +119,8 @@ class Storage:
         filepath = os.path.join(COURSES_DIR, f"{course_id}.json")
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(tree, f, ensure_ascii=False, indent=2)
+        
+        self._mark_dirty()
 
     def load_course(self, course_id: str) -> dict:
         self._ensure_cache()
@@ -103,6 +134,8 @@ class Storage:
         filepath = os.path.join(COURSES_DIR, f"{course_id}.json")
         if os.path.exists(filepath):
             os.remove(filepath)
+            
+        self._mark_dirty()
 
     def save_annotation(self, annotation: dict):
         annotations = self.load_annotations()
@@ -121,6 +154,8 @@ class Storage:
         
         with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
             json.dump(annotations, f, ensure_ascii=False, indent=2)
+            
+        self._mark_dirty()
 
     def load_annotations(self) -> List[dict]:
         if self.annotations_cache is not None:
@@ -145,6 +180,8 @@ class Storage:
         
         with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
             json.dump(new_annotations, f, ensure_ascii=False, indent=2)
+            
+        self._mark_dirty()
 
     def update_annotation(self, anno_id: str, content: str):
         annotations = self.load_annotations()
@@ -161,6 +198,8 @@ class Storage:
             self.annotations_cache = annotations
             with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(annotations, f, ensure_ascii=False, indent=2)
+            
+            self._mark_dirty()
 
     def save_knowledge_graph(self, course_id: str, graph_data: dict):
         """Save knowledge graph to disk and cache"""
@@ -168,6 +207,8 @@ class Storage:
         filepath = os.path.join(KNOWLEDGE_GRAPH_DIR, f"{course_id}.json")
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(graph_data, f, ensure_ascii=False, indent=2)
+            
+        self._mark_dirty()
 
     def load_knowledge_graph(self, course_id: str) -> Optional[dict]:
         """Load knowledge graph from cache or disk"""
