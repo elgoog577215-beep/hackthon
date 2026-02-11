@@ -217,10 +217,23 @@ class TaskManager:
         total_steps = len(l1_nodes)
         completed_steps = 0
         
-        # 1. Check for missing subnodes (Priority)
+        # Get difficulty from course data, default to medium
+        difficulty = course_data.get("difficulty", "medium").lower()
+        
+        # Helper to check if content is "full" (not just summary)
+        def is_content_complete(node):
+            content = node.get("node_content", "")
+            return len(content) > 300
+
         for l1 in l1_nodes:
             children = [n for n in nodes if n.get("parent_node_id") == l1["node_id"]]
-            if not children:
+            
+            # Determine if we should generate subnodes
+            # If difficulty is beginner/basic, we treat L1 as leaf nodes and skip subnodes
+            should_have_subnodes = (difficulty not in ["beginner", "basic"])
+
+            if should_have_subnodes and not children:
+                # Needs subnodes
                 actions.append(("subnodes", l1))
                 if len(actions) >= BATCH_SIZE:
                     break
@@ -228,24 +241,33 @@ class TaskManager:
                 # If has children, check if they need content
                 # Only check content if we aren't already full of subnode tasks
                 if len(actions) < BATCH_SIZE:
-                    l2_incomplete = [
-                        c for c in children 
-                        if not c.get("node_content") or len(c.get("node_content", "")) < 100
-                    ]
-                    for child in l2_incomplete:
-                        actions.append(("content", child))
-                        if len(actions) >= BATCH_SIZE:
-                            break
+                    if children:
+                        l2_incomplete = [
+                            c for c in children 
+                            if not is_content_complete(c)
+                        ]
+                        for child in l2_incomplete:
+                            actions.append(("content", child))
+                            if len(actions) >= BATCH_SIZE:
+                                break
+                    elif not should_have_subnodes:
+                        # No children and shouldn't have them -> L1 content needed
+                        if not is_content_complete(l1):
+                            actions.append(("content", l1))
+                            if len(actions) >= BATCH_SIZE:
+                                break
             
             if len(actions) >= BATCH_SIZE:
                 break
             
-            # Count completion only if fully done (has children AND all children have content)
-            # This is a bit complex for progress, so we stick to L1 completion roughly
+            # Count completion
             has_children = len(children) > 0
-            all_children_content = all(len(c.get("node_content", "")) >= 100 for c in children)
-            if has_children and all_children_content:
-                completed_steps += 1
+            if has_children:
+                if all(is_content_complete(c) for c in children):
+                    completed_steps += 1
+            elif not should_have_subnodes:
+                 if is_content_complete(l1):
+                     completed_steps += 1
 
         if not actions:
             # All done!
@@ -362,5 +384,3 @@ class TaskManager:
             logger.error(f"Error in task batch: {e}")
             task["error"] = str(e)
             # Retry next time
-
-
