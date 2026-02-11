@@ -1028,4 +1028,8 @@ onUnmounted(() => {
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.4);
 }
+
+:deep(.glass-popover) {
+    z-index: 9999 !important;
+}
 </style>
