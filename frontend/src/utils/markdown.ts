@@ -325,7 +325,8 @@ const expandPrefix = (text: string, startPos: number): number => {
           const matchStr = eqMatch[1];
           if (!matchStr) return currentPos; // Safety check
           
-          const varPart = matchStr.split('=')[0].trim();
+          const parts = matchStr.split('=');
+          const varPart = parts[0] ? parts[0].trim() : '';
           // Simple stop list for common text words ending with = (rare but possible)
           const stopWords = ['Then', 'If', 'So', 'Hence', 'Therefore', 'Where', 'Thus', 'Here'];
           // If the captured part consists ONLY of a stop word, ignore it.
@@ -692,7 +693,7 @@ export const renderMarkdown = (content: string) => {
     
     const mathCmdRegex = new RegExp(`(^|\\n)([^\\n$]*?)(\\\\(${mathCmds}))(?![a-zA-Z])([^$\\n]*[=><\\u2248\\u2260\\u2264\\u2265\\u2208][^$\\n]*)(\\n|$)`, 'g');
 
-    normalized = normalized.replace(mathCmdRegex, (match, prefix, label, cmdFull, cmdName, rest, suffix) => {
+    normalized = normalized.replace(mathCmdRegex, (match, prefix, label, cmdFull, _cmdName, rest, suffix) => {
         // If the label contains $ or the rest contains $, abort (already wrapped)
         if (label.includes('$') || rest.includes('$')) return match;
         
@@ -752,7 +753,7 @@ export const renderMarkdown = (content: string) => {
     const standaloneCmds = ['mathbb', 'mathcal', 'in', 'times', 'ell', 'infty', 'sum', 'int'].join('|');
     const standaloneRegex = new RegExp(`(^|\\n)([^\\n$]*?)(\\\\(${standaloneCmds}))(?![a-zA-Z])([^$\\n]*)(\\n|$)`, 'g');
     
-    normalized = normalized.replace(standaloneRegex, (match, prefix, label, cmdFull, cmdName, rest, suffix) => {
+    normalized = normalized.replace(standaloneRegex, (match, prefix, label, cmdFull, _cmdName, rest, suffix) => {
          if (label.includes('$') || rest.includes('$')) return match;
          if (label.includes('`') || rest.includes('`')) return match;
          
