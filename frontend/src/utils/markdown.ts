@@ -431,6 +431,89 @@ const detectAndWrapComplexMath = (content: string, maskIdRef: {val: number}, mas
     return result;
 };
 
+// Universal Line-Based Math Detector
+// Scans for lines that look like math equations but lack delimiters.
+const detectAndWrapNakedMathLines = (content: string, maskIdRef: {val: number}, maskMap: Map<string, string>): string => {
+    return content.split('\n').map(line => {
+        // Skip masked lines or empty lines
+        if (line.trim().startsWith('__MATH') || line.trim().startsWith('__CODE') || !line.trim()) return line;
+        
+        // Skip lines that look like headers, lists, or blockquotes
+        if (line.match(/^(\s*)(#{1,6}|-|\*|\d+\.|>)\s/)) {
+            // But sometimes a list item IS a formula: "1. x = y"
+            // We should strip the marker and check the rest.
+            // Let's implement a "content only" check.
+            const contentMatch = line.match(/^(\s*(?:#{1,6}|-|\*|\d+\.|>)\s+)(.*)$/);
+            if (contentMatch) {
+                const marker = contentMatch[1];
+                const rest = contentMatch[2];
+                if (marker && rest && isLikelyMath(rest)) {
+                     const id = `__MATH_INLINE_AUTO_${maskIdRef.val++}__`;
+                     maskMap.set(id, `$${rest}$`);
+                     return marker + id;
+                }
+            }
+            return line;
+        }
+
+        if (isLikelyMath(line)) {
+            const id = `__MATH_BLOCK_AUTO_${maskIdRef.val++}__`;
+            // If it's a full line, treat as block math
+            maskMap.set(id, `\n$$\n${line.trim()}\n$$\n`);
+            return id;
+        }
+        
+        return line;
+    }).join('\n');
+};
+
+// Heuristic to check if a string is likely a math formula
+const isLikelyMath = (text: string): boolean => {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    
+    // Must contain at least one "strong" math signal or multiple "weak" ones
+    // Strong: \, =, ^, _, { }
+    // Weak: +, -, *, /, (, ), numbers
+    
+    // Filter out common text patterns
+    // If it contains too many english words, it's prose.
+    // Word definition: sequence of a-z chars > 2 length.
+    const words = trimmed.match(/[a-zA-Z]{3,}/g) || [];
+    // Filter out math commands from words (e.g. "frac", "text", "left")
+    const mathCmds = ['frac', 'text', 'left', 'right', 'begin', 'end', 'sqrt', 'sum', 'int', 'prod', 'lim', 'vec', 'hat', 'bar', 'tilde', 'alpha', 'beta', 'gamma', 'delta', 'theta', 'lambda', 'sigma', 'omega', 'phi', 'psi', 'rho', 'mu', 'nu', 'tau', 'epsilon', 'eta', 'zeta', 'xi', 'chi', 'pi', 'span', 'rank', 'dim', 'ker', 'im', 'det', 'tr', 'log', 'ln', 'sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin', 'arccos', 'arctan'];
+    const nonMathWords = words.filter(w => !mathCmds.includes(w.toLowerCase()));
+    
+    // If text is mostly words, it's prose.
+    if (nonMathWords.length > trimmed.length / 10 && nonMathWords.length > 3) return false;
+    
+    // Indicators
+    const hasBackslash = /\\/.test(trimmed);
+    const hasEquals = /=/.test(trimmed);
+    const hasStructure = /[\^_{}\[\]]/.test(trimmed);
+    const hasOps = /[+\-*\/]/.test(trimmed);
+    
+    // Decision Tree
+    if (hasBackslash && (hasEquals || hasStructure || hasOps)) return true;
+    if (hasEquals && hasStructure) return true;
+    if (hasEquals && hasOps && trimmed.length < 50) return true; // Simple equation "y = x + 1"
+    
+    // Special case: "Variable = Expression" (even without backslash)
+    // e.g. "E = mc^2"
+    if (hasEquals && trimmed.split('=').length === 2) {
+        // Check LHS and RHS
+        // If LHS is short and RHS looks mathy
+        const parts = trimmed.split('=');
+        const lhs = parts[0];
+        const rhs = parts[1];
+        if (lhs && rhs && lhs.trim().length < 10 && (rhs.match(/[0-9\^_{}]/) || rhs.match(/[+\-*\/]/))) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
 export const renderMarkdown = (content: string) => {
     if (!content) return '';
     
@@ -501,12 +584,19 @@ export const renderMarkdown = (content: string) => {
         return id;
     });
 
-    // 3. Smart Detection of Complex Math (LLM Fix)
-    // Detects \left...\right, \text{...}\left, and \begin...\end blocks
-    // and wraps them in $$...$$ if they are not already wrapped.
+    // 3. Smart Detection of Complex Math (Universal Fix)
+    // Replaces rigid command lists with a robust structural detector.
+    // Detects any \command or structure that looks like math and wraps it.
     // This runs BEFORE the simpler heuristics but AFTER masking existing math.
     const maskIdRef = { val: mathMaskId };
     normalized = detectAndWrapComplexMath(normalized, maskIdRef, mathMaskMap);
+    mathMaskId = maskIdRef.val;
+    
+    // 4. Universal Line-Based Math Detector (New "Intelligence")
+    // Scans lines for high density of math tokens.
+    // If a line is predominantly math-like but missed by specific triggers, wrap it.
+    // This catches "broken" LLM output like: "x^2 + y^2 = z^2" (no delimiters)
+    normalized = detectAndWrapNakedMathLines(normalized, maskIdRef, mathMaskMap);
     mathMaskId = maskIdRef.val;
 
     // 1. Fix unclosed block math $$ ... (Only for unmasked new additions if any, but mostly irrelevant now)
