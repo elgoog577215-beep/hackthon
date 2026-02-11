@@ -250,6 +250,131 @@ md.renderer.rules.image = function (tokens, idx, options, _env, self) {
 // Memoization cache
 const markdownCache = new Map<string, string>()
 
+// --- Math Detection Helpers ---
+
+// Helper to find the matching closing bracket/paren/brace for \left
+const findMatchingRight = (text: string, startIdx: number): number => {
+    let depth = 0;
+    // Regex to find \left or \right commands
+    // We strictly look for \left followed by delimiter or \right followed by delimiter.
+    // Delimiters can be anything non-alphanumeric (roughly).
+    const re = /(\\left\s*[^a-zA-Z0-9\s]|\\right\s*[^a-zA-Z0-9\s])/g;
+    re.lastIndex = startIdx;
+    
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(text)) !== null) {
+        if (match[0] && match[0].startsWith('\\left')) {
+            depth++;
+        } else if (match[0] && match[0].startsWith('\\right')) {
+            depth--;
+        }
+        
+        if (depth === 0) {
+            // Found the matching right. Return index AFTER this match.
+            return re.lastIndex;
+        }
+    }
+    return -1; // Unbalanced
+};
+
+// Helper to find matching \end{env} for \begin{env}
+const findBalancedEnvironment = (text: string, startIdx: number, envName: string): number => {
+    let depth = 0;
+    const re = new RegExp(`(\\\\begin\\{${envName}\\})|(\\\\end\\{${envName}\\})`, 'g');
+    re.lastIndex = startIdx;
+    
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(text)) !== null) {
+        if (match[1]) { // begin
+            depth++;
+        } else if (match[2]) { // end
+            depth--;
+        }
+        
+        if (depth === 0) {
+            return re.lastIndex;
+        }
+    }
+    return -1;
+};
+
+// Helper to expand math block backwards to include prefixes like "U = " or "\text{span}"
+const expandPrefix = (text: string, startPos: number): number => {
+    let currentPos = startPos;
+    
+    // Check for "U = " or "var =" or "dim(U) ="
+    const suffix = text.substring(0, currentPos);
+    // Regex looks for: (Word or Function) = 
+    // We allow letters, numbers, _, {, }, (, ), ^, |, \
+    const eqMatch = suffix.match(/([a-zA-Z0-9_{}()\^\|\\]+\s*=\s*)$/);
+    if (eqMatch && eqMatch[1]) {
+         // Check if it's a real variable and not just "Then ="
+         const varPart = eqMatch[1].split('=')[0].trim();
+         // Simple stop list for common text words ending with = (rare but possible)
+         if (!['Then', 'If', 'So', 'Hence', 'Therefore'].includes(varPart)) {
+             return currentPos - eqMatch[1].length;
+         }
+    }
+    
+    return currentPos;
+};
+
+// Main function to detect and wrap complex math
+const detectAndWrapComplexMath = (content: string, maskIdRef: {val: number}, maskMap: Map<string, string>): string => {
+    // Regex to find POTENTIAL starts:
+    // 1. \text{...}\left... (Group 1)
+    // 2. \left... (Group 2)
+    // 3. \begin{...} (Group 3, env name in Group 4)
+    const startRegex = /(\\text\{[^}]+\}\s*\\left[\(\[\{])|(\\left\s*[\(\[\{])|(\\begin\{([a-zA-Z0-9*]+)\})/g;
+    
+    let result = '';
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    
+    while ((match = startRegex.exec(content)) !== null) {
+        if (match.index < lastIndex) continue; 
+        
+        const startPos = match.index;
+        const matchedStr = match[0];
+        let endPos = -1;
+        
+        if (matchedStr.includes('\\begin')) {
+             const envName = match[4];
+             if (envName) {
+                 endPos = findBalancedEnvironment(content, startPos, envName);
+             }
+        } else {
+             // \left case
+             const leftIdx = matchedStr.indexOf('\\left');
+             const absLeftIdx = startPos + leftIdx;
+             endPos = findMatchingRight(content, absLeftIdx);
+        }
+        
+        if (endPos !== -1) {
+            // Check for prefix (e.g. "U = ")
+            const prefixStart = expandPrefix(content, startPos);
+            
+            // Extract block
+            const fullBlock = content.substring(prefixStart, endPos);
+            
+            // Mask it
+            const id = `__MATH_BLOCK_COMPLEX_${maskIdRef.val++}__`;
+            // Heuristic: if it contains newlines or \begin, make it display math
+            const isDisplay = fullBlock.includes('\n') || fullBlock.includes('\\\\') || fullBlock.includes('\\begin');
+            const wrapped = isDisplay ? `\n$$\n${fullBlock}\n$$\n` : `$${fullBlock}$`;
+            
+            maskMap.set(id, wrapped);
+            
+            result += content.substring(lastIndex, prefixStart) + id;
+            lastIndex = endPos;
+            startRegex.lastIndex = endPos;
+        }
+    }
+    
+    result += content.substring(lastIndex);
+    return result;
+};
+
 export const renderMarkdown = (content: string) => {
     if (!content) return '';
     
@@ -319,6 +444,14 @@ export const renderMarkdown = (content: string) => {
         mathMaskMap.set(id, match);
         return id;
     });
+
+    // 3. Smart Detection of Complex Math (LLM Fix)
+    // Detects \left...\right, \text{...}\left, and \begin...\end blocks
+    // and wraps them in $$...$$ if they are not already wrapped.
+    // This runs BEFORE the simpler heuristics but AFTER masking existing math.
+    const maskIdRef = { val: mathMaskId };
+    normalized = detectAndWrapComplexMath(normalized, maskIdRef, mathMaskMap);
+    mathMaskId = maskIdRef.val;
 
     // 1. Fix unclosed block math $$ ... (Only for unmasked new additions if any, but mostly irrelevant now)
     const blockMathCount = (normalized.match(/\$\$/g) || []).length;
