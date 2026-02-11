@@ -215,6 +215,12 @@
                                     :width="300"
                                     trigger="hover"
                                     popper-class="glass-popover !z-[9999]"
+                                    :popper-options="{
+                                        strategy: 'fixed',
+                                        modifiers: [
+                                            { name: 'computeStyles', options: { gpuAcceleration: false } }
+                                        ]
+                                    }"
                                 >
                                     <template #reference>
                                         <button 
