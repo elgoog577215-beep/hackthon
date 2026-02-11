@@ -1,0 +1,259 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "C语言：原理、编程与系统开发",
+      "type": "root",
+      "description": "课程整体知识体系",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_1",
+      "label": "基础语法体系",
+      "type": "module",
+      "description": "涵盖变量、常量、运算符及基本控制结构",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_2",
+      "label": "函数与模块化设计",
+      "type": "module",
+      "description": "讲解函数定义、参数传递机制及模块化程序设计原则",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "module_3",
+      "label": "指针与内存管理",
+      "type": "module",
+      "description": "深入解析指针操作、动态内存分配与常见内存错误处理",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "module_4",
+      "label": "数组与字符串处理",
+      "type": "module",
+      "description": "探讨多维数组、字符数组及标准库函数在字符串操作中的应用",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "concept_1",
+      "label": "变量与常量",
+      "type": "concept",
+      "description": "存储数据的基本单元和不可变值",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "concept_2",
+      "label": "控制结构",
+      "type": "concept",
+      "description": "包括条件语句和循环语句",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "method_1",
+      "label": "函数定义与调用",
+      "type": "method",
+      "description": "实现代码复用与模块化的核心技术",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "method_2",
+      "label": "参数传递机制",
+      "type": "method",
+      "description": "值传递与地址传递的区别与应用",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "concept_3",
+      "label": "指针",
+      "type": "concept",
+      "description": "用于直接访问内存地址的变量类型",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "method_3",
+      "label": "动态内存分配",
+      "type": "method",
+      "description": "使用malloc/free等函数管理堆内存",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "concept_4",
+      "label": "多维数组",
+      "type": "concept",
+      "description": "用于组织复杂数据结构的数组形式",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "method_4",
+      "label": "字符串处理函数",
+      "type": "method",
+      "description": "如strcpy/strlen等标准库函数的应用",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "concept_5",
+      "label": "结构体",
+      "type": "concept",
+      "description": "用户自定义复合数据类型的实现方式",
+      "chapter_id": "id_5"
+    },
+    {
+      "id": "concept_6",
+      "label": "文件流",
+      "type": "concept",
+      "description": "用于文件读写操作的数据流模型",
+      "chapter_id": "id_6"
+    },
+    {
+      "id": "method_5",
+      "label": "宏定义与条件编译",
+      "type": "method",
+      "description": "预处理器指令的高级应用",
+      "chapter_id": "id_7"
+    },
+    {
+      "id": "method_6",
+      "label": "GDB调试技术",
+      "type": "method",
+      "description": "用于定位和修复程序错误的调试工具",
+      "chapter_id": "id_8"
+    },
+    {
+      "id": "method_7",
+      "label": "系统接口调用",
+      "type": "method",
+      "description": "通过API实现操作系统功能调用",
+      "chapter_id": "id_9"
+    },
+    {
+      "id": "method_8",
+      "label": "内联汇编优化",
+      "type": "method",
+      "description": "提高关键算法性能的技术手段",
+      "chapter_id": "id_10"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "module_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "method_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "method_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "method_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "concept_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "method_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "method_1",
+      "target": "method_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_3",
+      "target": "concept_3",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_4",
+      "target": "concept_4",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_6",
+      "target": "method_1",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_7",
+      "target": "concept_6",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_8",
+      "target": "method_1",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_5",
+      "target": "concept_1",
+      "relation": "leads_to",
+      "label": "推导出"
+    },
+    {
+      "source": "concept_6",
+      "target": "method_1",
+      "relation": "related",
+      "label": "相关"
+    }
+  ]
+}

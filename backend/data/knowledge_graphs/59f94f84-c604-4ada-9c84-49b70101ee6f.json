@@ -1,0 +1,238 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "C语言程序设计：原理与工程实践",
+      "type": "root",
+      "description": "课程总纲",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_1",
+      "label": "基础语法与编程规范",
+      "type": "module",
+      "description": "掌握基本语法和编码规范",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_2",
+      "label": "控制结构与函数设计",
+      "type": "module",
+      "description": "学习流程控制和模块化编程",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "module_3",
+      "label": "指针与内存管理",
+      "type": "module",
+      "description": "理解指针和动态内存机制",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "module_4",
+      "label": "数组与字符串处理",
+      "type": "module",
+      "description": "掌握数组及字符串操作方法",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "module_5",
+      "label": "结构体与联合体",
+      "type": "module",
+      "description": "学习自定义数据类型的设计",
+      "chapter_id": "id_5"
+    },
+    {
+      "id": "concept_1",
+      "label": "变量与常量",
+      "type": "concept",
+      "description": "程序中存储数据的基本单元",
+      "chapter_id": "60825217-b794-43a4-8725-35dbfbabf030"
+    },
+    {
+      "id": "concept_2",
+      "label": "运算符优先级",
+      "type": "concept",
+      "description": "表达式求值顺序的规则体系",
+      "chapter_id": "0d6d8e02-f862-4ef7-90cd-b286545d46ca"
+    },
+    {
+      "id": "method_1",
+      "label": "条件判断逻辑优化",
+      "type": "method",
+      "description": "通过逻辑运算符简化判断结构",
+      "chapter_id": "ae0f6e09-9192-41a3-b508-e435183a13f5"
+    },
+    {
+      "id": "concept_3",
+      "label": "函数参数传递",
+      "type": "concept",
+      "description": "传值与引用（指针）的区别",
+      "chapter_id": "6a64be62-d0e9-4491-95fa-1e999ad3d0a3"
+    },
+    {
+      "id": "method_2",
+      "label": "递归函数设计",
+      "type": "method",
+      "description": "基于栈结构实现循环替代",
+      "chapter_id": "d0c336aa-5d18-49b4-a381-e54a69afcdca"
+    },
+    {
+      "id": "concept_4",
+      "label": "指针与地址",
+      "type": "concept",
+      "description": "访问内存位置的核心机制",
+      "chapter_id": "97ab655b-6f0d-4481-b5ee-7b4a08af3600"
+    },
+    {
+      "id": "method_3",
+      "label": "动态内存分配",
+      "type": "method",
+      "description": "使用malloc/free管理堆空间",
+      "chapter_id": "3e4dc7d7-3dfb-4ebc-8128-09de60217417"
+    },
+    {
+      "id": "concept_5",
+      "label": "多维数组布局",
+      "type": "concept",
+      "description": "行优先存储模式及索引计算",
+      "chapter_id": "ebecbc6d-df56-4469-af82-6cd77981d53c"
+    },
+    {
+      "id": "method_4",
+      "label": "字符串处理函数",
+      "type": "method",
+      "description": "标准库函数如strcpy/strcmp",
+      "chapter_id": "f151d9c1-cd84-41d2-ba58-54a2ac8ddee3"
+    },
+    {
+      "id": "concept_6",
+      "label": "结构体成员访问",
+      "type": "concept",
+      "description": "通过点操作符或指针访问",
+      "chapter_id": "62df6ab8-47e9-46c3-8756-1527f7ae97e0"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "module_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "method_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "method_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "method_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "concept_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "method_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_5",
+      "target": "concept_6",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "concept_1",
+      "target": "concept_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_3",
+      "target": "concept_4",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "method_2",
+      "target": "concept_3",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "method_3",
+      "target": "concept_4",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "method_4",
+      "target": "concept_5",
+      "relation": "related",
+      "label": "相关"
+    }
+  ]
+}

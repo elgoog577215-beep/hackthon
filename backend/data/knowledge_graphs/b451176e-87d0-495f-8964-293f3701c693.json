@@ -1,0 +1,495 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "机器学习：原理、算法与实践",
+      "type": "root",
+      "description": "机器学习课程的核心知识体系",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_1",
+      "label": "概率论与统计基础",
+      "type": "module",
+      "description": "介绍概率分布、期望与方差等核心概念",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_2",
+      "label": "线性代数与优化基础",
+      "type": "module",
+      "description": "讲解向量空间、矩阵运算和梯度下降等优化方法的基本原理",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "module_3",
+      "label": "监督学习基础模型",
+      "type": "module",
+      "description": "涵盖线性回归、逻辑回归和最小二乘法的核心思想与实现方式",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "concept_1",
+      "label": "概率空间",
+      "type": "concept",
+      "description": "样本空间、σ-代数和概率测度的三元组构成",
+      "chapter_id": "592d339c-24f2-41ec-bc38-131aedb0a364"
+    },
+    {
+      "id": "concept_2",
+      "label": "随机变量",
+      "type": "concept",
+      "description": "定义为从样本空间到实数集的映射函数",
+      "chapter_id": "592d339c-24f2-41ec-bc38-131aedb0a364"
+    },
+    {
+      "id": "concept_3",
+      "label": "概率分布函数",
+      "type": "concept",
+      "description": "描述随机变量取值规律的密度或质量函数",
+      "chapter_id": "180802bf-2afc-4e7c-828a-9d1d94938db7"
+    },
+    {
+      "id": "concept_4",
+      "label": "联合概率分布",
+      "type": "concept",
+      "description": "多个随机变量共同取值的概率分布",
+      "chapter_id": "b24e80d6-0101-4399-a344-bd2ae7246603"
+    },
+    {
+      "id": "concept_5",
+      "label": "条件概率分布",
+      "type": "concept",
+      "description": "在某一事件已发生的条件下其他事件的概率分布",
+      "chapter_id": "b24e80d6-0101-4399-a344-bd2ae7246603"
+    },
+    {
+      "id": "method_1",
+      "label": "最大似然估计",
+      "type": "method",
+      "description": "通过最大化似然函数进行参数估计的方法",
+      "chapter_id": "ec838918-de2b-453f-bcba-7c7bd49321a7"
+    },
+    {
+      "id": "theorem_1",
+      "label": "大数定律",
+      "type": "theorem",
+      "description": "随着样本数量增加，样本均值趋于期望值",
+      "chapter_id": "1ec5725d-5f38-4970-96a9-97bc7e6603d1"
+    },
+    {
+      "id": "theorem_2",
+      "label": "中心极限定理",
+      "type": "theorem",
+      "description": "独立同分布样本均值近似服从正态分布",
+      "chapter_id": "1ec5725d-5f38-4970-96a9-97bc7e6603d1"
+    },
+    {
+      "id": "concept_6",
+      "label": "协方差",
+      "type": "concept",
+      "description": "衡量两个随机变量之间的线性相关程度",
+      "chapter_id": "fc9ab967-a38d-4d63-aed1-6c0bf3829c51"
+    },
+    {
+      "id": "concept_7",
+      "label": "相关系数",
+      "type": "concept",
+      "description": "标准化后的协方差，范围在[-1,1]之间",
+      "chapter_id": "fc9ab967-a38d-4d63-aed1-6c0bf3829c51"
+    },
+    {
+      "id": "method_2",
+      "label": "梯度下降法",
+      "type": "method",
+      "description": "通过迭代更新参数以最小化目标函数",
+      "chapter_id": "7ffb26df-452a-4038-9e86-bbe7ee3f4f68"
+    },
+    {
+      "id": "method_3",
+      "label": "随机梯度下降（SGD）",
+      "type": "method",
+      "description": "每次迭代仅使用一个样本来更新参数",
+      "chapter_id": "ad141807-fe42-44b3-899f-8ce6ed08dc02"
+    },
+    {
+      "id": "method_4",
+      "label": "支持向量机（SVM）",
+      "type": "method",
+      "description": "基于最大间隔原则的分类器",
+      "chapter_id": "c9bfb027-d928-4055-9e92-facf9fba9334"
+    },
+    {
+      "id": "method_5",
+      "label": "决策树",
+      "type": "method",
+      "description": "通过特征划分构建树状结构进行预测",
+      "chapter_id": "4469da7c-dcd3-45ea-9ae8-4abb00a8cdb1"
+    },
+    {
+      "id": "method_6",
+      "label": "随机森林",
+      "type": "method",
+      "description": "基于Bagging机制的集成学习方法",
+      "chapter_id": "2d6dafe1-6633-47ad-a257-55aa045e2625"
+    },
+    {
+      "id": "method_7",
+      "label": "AdaBoost",
+      "type": "method",
+      "description": "通过调整样本权重提升弱分类器性能",
+      "chapter_id": "322142bf-708e-463b-b2a8-ab13d3d7b8c6"
+    },
+    {
+      "id": "method_8",
+      "label": "K-Means",
+      "type": "method",
+      "description": "基于欧氏距离的聚类算法",
+      "chapter_id": "fee2a81a-d9c1-4463-b00b-650c2778a227"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "module_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "method_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "theorem_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "theorem_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_6",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_7",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "method_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "method_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "method_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "method_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "method_6",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "method_7",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "method_8",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "method_4",
+      "target": "method_5",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "method_4",
+      "target": "method_6",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "method_4",
+      "target": "method_7",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "method_5",
+      "target": "method_6",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "method_5",
+      "target": "method_8",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "method_6",
+      "target": "method_7",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "method_2",
+      "target": "method_3",
+      "relation": "leads_to",
+      "label": "推导出"
+    },
+    {
+      "source": "method_1",
+      "target": "method_4",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_1",
+      "target": "method_5",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_1",
+      "target": "method_6",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_1",
+      "target": "method_7",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_1",
+      "target": "method_8",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_2",
+      "target": "method_4",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_2",
+      "target": "method_5",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_2",
+      "target": "method_6",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_2",
+      "target": "method_7",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_2",
+      "target": "method_8",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_3",
+      "target": "method_4",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_3",
+      "target": "method_5",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_3",
+      "target": "method_6",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_3",
+      "target": "method_7",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "method_3",
+      "target": "method_8",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "concept_1",
+      "target": "concept_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_3",
+      "target": "concept_4",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_3",
+      "target": "concept_5",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_6",
+      "target": "concept_7",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_1",
+      "target": "concept_1",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_1",
+      "target": "concept_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_1",
+      "target": "concept_3",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_2",
+      "target": "concept_6",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_2",
+      "target": "concept_7",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_3",
+      "target": "method_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_4",
+      "target": "method_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_5",
+      "target": "method_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_6",
+      "target": "method_5",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_7",
+      "target": "method_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "method_8",
+      "target": "method_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    }
+  ]
+}

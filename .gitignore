@@ -16,6 +16,6 @@ dist/
 
 # Data
 # backend/data/
-data/
-backend/tasks.json
+# data/
+# backend/tasks.json
 backend/debug_failed_json.txt

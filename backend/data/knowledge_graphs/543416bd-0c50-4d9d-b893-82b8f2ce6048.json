@@ -1,0 +1,290 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "C语言：原理、实现与应用",
+      "type": "root",
+      "description": "C语言的系统性课程",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_1",
+      "label": "语法基础与控制结构",
+      "type": "module",
+      "description": "涵盖基本语法和程序控制流",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_2",
+      "type": "module",
+      "label": "函数与数据类型",
+      "description": "包括函数设计及复杂数据类型",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_3",
+      "type": "module",
+      "label": "内存管理与高级特性",
+      "description": "涉及指针、内存模型与预处理",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "node_1",
+      "type": "concept",
+      "label": "变量与常量",
+      "description": "存储程序运行时的数据值",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "node_2",
+      "type": "concept",
+      "label": "运算符与表达式",
+      "description": "执行基本计算和逻辑判断",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "node_3",
+      "type": "concept",
+      "label": "顺序结构",
+      "description": "按代码书写顺序执行语句",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "node_4",
+      "type": "concept",
+      "label": "分支结构",
+      "description": "根据条件选择执行路径",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "node_5",
+      "type": "concept",
+      "label": "循环结构",
+      "description": "重复执行特定代码段",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "node_6",
+      "type": "concept",
+      "label": "函数定义与调用",
+      "description": "封装可复用的代码模块",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "node_7",
+      "type": "method",
+      "label": "数组操作",
+      "description": "用于存储同类型元素集合",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "node_8",
+      "type": "method",
+      "label": "字符串处理",
+      "description": "基于字符数组进行文本操作",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "node_9",
+      "type": "concept",
+      "label": "指针",
+      "description": "存储内存地址的变量",
+      "chapter_id": "id_5"
+    },
+    {
+      "id": "node_10",
+      "type": "method",
+      "label": "动态内存分配",
+      "description": "使用malloc/free管理堆内存",
+      "chapter_id": "id_5"
+    },
+    {
+      "id": "node_11",
+      "type": "concept",
+      "label": "结构体",
+      "description": "自定义复合数据类型",
+      "chapter_id": "id_6"
+    },
+    {
+      "id": "node_12",
+      "type": "concept",
+      "label": "联合体",
+      "description": "共享同一内存空间的复合类型",
+      "chapter_id": "id_6"
+    },
+    {
+      "id": "node_13",
+      "type": "method",
+      "label": "文件读写",
+      "description": "通过fopen/fread/fwrite等操作文件",
+      "chapter_id": "id_7"
+    },
+    {
+      "id": "node_14",
+      "type": "method",
+      "label": "宏定义",
+      "description": "在编译前替换代码片段",
+      "chapter_id": "id_8"
+    },
+    {
+      "id": "node_15",
+      "type": "concept",
+      "label": "内存布局",
+      "description": "包含栈、堆、静态区等区域",
+      "chapter_id": "id_9"
+    },
+    {
+      "id": "node_16",
+      "type": "method",
+      "label": "调试技巧",
+      "description": "使用GDB等工具排查错误",
+      "chapter_id": "id_10"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "module_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "node_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "node_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "node_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "node_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "node_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "node_6",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "node_7",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "node_8",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "node_11",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "node_12",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "node_9",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "node_10",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "node_13",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "node_14",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "node_15",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "node_16",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "node_9",
+      "target": "node_10",
+      "relation": "leads_to",
+      "label": "引导"
+    },
+    {
+      "source": "node_6",
+      "target": "node_11",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "node_7",
+      "target": "node_8",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "node_10",
+      "target": "node_15",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "node_15",
+      "target": "node_16",
+      "relation": "related",
+      "label": "相关"
+    }
+  ]
+}
