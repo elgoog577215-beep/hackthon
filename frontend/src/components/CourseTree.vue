@@ -63,6 +63,10 @@
                                     <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
                                     已暂停 {{ courseStore.getTask(course.course_id)?.progress }}%
                                 </span>
+                                <span v-else-if="courseStore.getTask(course.course_id)?.status === 'pending'" class="flex items-center gap-1 text-blue-500 font-bold">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                                    排队中
+                                </span>
                                 <span v-else-if="courseStore.getTask(course.course_id)?.status === 'completed'" class="flex items-center gap-1 text-emerald-500 font-bold">
                                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                                     已完成
@@ -75,7 +79,7 @@
                      <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-2 group-hover:translate-x-0" @click.stop>
                         <!-- Control Button -->
                         <button 
-                            v-if="courseStore.getTask(course.course_id)?.status === 'running'"
+                            v-if="courseStore.getTask(course.course_id)?.status === 'running' || courseStore.getTask(course.course_id)?.status === 'pending'"
                             class="p-1.5 hover:bg-amber-50 text-slate-400 hover:text-amber-500 rounded-lg transition-colors"
                             title="暂停生成"
                             @click.stop="courseStore.pauseTask(course.course_id)"
@@ -258,7 +262,10 @@
                         (data.children && data.children.length > 0) ? 'cursor-pointer hover:bg-black/5 rounded-full' : ''
                     ]"
                     @click.stop="toggleNode(node, data)">
-                    <component :is="getIcon(data, node.expanded)" class="w-4 h-4" stroke-width="2.5" />
+                    <template v-if="getIcon(data, node.expanded) === 'Dot'">
+                        <div class="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                    </template>
+                    <component v-else :is="getIcon(data, node.expanded)" class="w-4 h-4" stroke-width="2.5" />
                 </div>
                 
                 <!-- Text -->
@@ -706,7 +713,7 @@ const getIcon = (data: any, expanded: boolean = false) => {
             if (hasChildren) {
                 return expanded ? ChevronDown : ChevronRight;
             }
-            return Circle; // Use Circle for empty chapters instead of # (Hash)
+            return 'Dot'; // Use Dot for empty chapters
         case 3: return FileText;
         default: return Circle;
     }

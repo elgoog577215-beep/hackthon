@@ -538,6 +538,19 @@ class AIService:
                 
         return f"基于需求 '{requirement}' 重定义的 {node_name} 内容。\n\n1. 核心点一：...\n2. 核心点二：...\n(参考来源：权威资料)"
 
+    async def generate_node_content(self, node_name: str, node_context: str = "", node_id: str = "", course_name: str = "") -> str:
+        """
+        Generate initial content for a node.
+        Wraps redefine_content with a standard prompt for new content generation.
+        """
+        return await self.redefine_content(
+            node_name=node_name,
+            requirement="请生成详细的教科书内容，包含理论解释、示例和总结。内容应详实、专业。",
+            original_content="",
+            course_context=f"课程名称：{course_name}\n上下文线索：{node_context}",
+            previous_context=""
+        )
+
     async def extend_content(self, node_name: str, requirement: str) -> str:
         system_prompt = """
 你是学术视野拓展专家，需为当前教科书章节补充具有深度的延伸阅读材料。
