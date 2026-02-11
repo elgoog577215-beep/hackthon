@@ -56,12 +56,12 @@
     "course_id": "eb1b58a9-ef99-46d6-8538-daf161e7036b",
     "type": "auto_generate",
     "status": "running",
-    "progress": 14,
+    "progress": 28,
     "total": 0,
     "current_node_name": "",
-    "message": "正文: 2.6 类装饰器与元类的... | 正文: 2.7 装饰器在实际项目... | 正文: 2.8 函数式编程...",
+    "message": "正文: 3.10 工业级并发应用... | 大纲: 第四章 类与元类的深度解析 | 大纲: 第五章 性能调优与 C...",
     "created_at": "2026-02-11T23:42:52.823757",
-    "updated_at": "2026-02-11T23:46:59.040007",
+    "updated_at": "2026-02-11T23:50:21.527043",
     "error": null
   }
 }
