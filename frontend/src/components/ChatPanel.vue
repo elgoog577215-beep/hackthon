@@ -211,11 +211,10 @@
                                 <!-- Quote Preview (Enhanced Locate) -->
                                 <el-popover
                                     v-if="msg.content.quote"
-                                    placement="left"
+                                    placement="top"
                                     :width="300"
                                     trigger="hover"
-                                    popper-class="glass-popover"
-                                    :teleported="false"
+                                    popper-class="glass-popover !z-[9999]"
                                 >
                                     <template #reference>
                                         <button 
