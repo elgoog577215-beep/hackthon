@@ -369,7 +369,9 @@ const detectAndWrapComplexMath = (content: string, maskIdRef: {val: number}, mas
     // 1. \text{...}\left... (Group 1)
     // 2. \left... (Group 2)
     // 3. \begin{...} (Group 3, env name in Group 4)
-    const startRegex = /(\\text\{[^}]+\}\s*\\left[\(\[\{])|(\\left\s*[\(\[\{])|(\\begin\{([a-zA-Z0-9*]+)\})/g;
+    // UPDATED: Allow \left followed by ANY character that looks like a delimiter (including \ for \{, \|)
+    // We match \left followed by optional space, then either a backslash (for \{, \|, etc.) or a non-word char (for (, [, |)
+    const startRegex = /(\\text\{[^}]+\}\s*\\left)|(\\left)|(\\begin\{([a-zA-Z0-9*]+)\})/g;
     
     let result = '';
     let lastIndex = 0;
@@ -389,8 +391,18 @@ const detectAndWrapComplexMath = (content: string, maskIdRef: {val: number}, mas
              }
         } else {
              // \left case
-             const leftIdx = matchedStr.indexOf('\\left');
-             const absLeftIdx = startPos + leftIdx;
+             // We need to verify if it's a valid \left... start
+             // findMatchingRight will check this.
+             // match[0] is just "\left" (or with prefix).
+             
+             // If we matched via group 1 (\text... \left), startPos is at \text.
+             // We need to find where \left is.
+             let absLeftIdx = startPos;
+             if (matchedStr.startsWith('\\text')) {
+                 const leftIdx = matchedStr.indexOf('\\left');
+                 absLeftIdx = startPos + leftIdx;
+             }
+             
              endPos = findMatchingRight(content, absLeftIdx);
         }
         
