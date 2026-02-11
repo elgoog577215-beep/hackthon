@@ -680,7 +680,7 @@ export const useCourseStore = defineStore('course', {
     async startBackendTask(courseId: string) {
         try {
             const res = await http.post(`/courses/${courseId}/auto_generate`)
-            const { task_id, status } = res.data
+            const { task_id } = res.data
             
             // Update or create local task
             let task = this.tasks.get(courseId)
@@ -713,7 +713,7 @@ export const useCourseStore = defineStore('course', {
         this.pollingInterval = setInterval(async () => {
             try {
                 const res = await http.get(`/tasks/${taskId}`)
-                const { status, progress, current_node, logs, error } = res.data
+                const { status, progress, current_node, error } = res.data
                 
                 const task = this.tasks.get(courseId)
                 if (!task) {
@@ -1209,7 +1209,7 @@ export const useCourseStore = defineStore('course', {
         this.fetchCourseAnnotations(courseId)
         
         // Check if there is an active task for this course
-        const task = this.tasks.get(courseId)
+        // const task = this.tasks.get(courseId)
         
         try {
             // Check if backend has a task running for this course
