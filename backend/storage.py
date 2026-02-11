@@ -62,17 +62,35 @@ class Storage:
 
     def _auto_sync_loop(self):
         """Background thread to auto-commit data changes"""
+        # Only enable git sync if .git exists
+        if not os.path.exists(".git"):
+            logger.info("Git Auto-Sync disabled: .git directory not found")
+            return
+            
         logger.info("Git Auto-Sync started")
+        
+        # Configure git user if needed (for cloud environments)
+        try:
+            # Check if user.email is set
+            res = subprocess.run(["git", "config", "user.email"], capture_output=True, text=True)
+            if res.returncode != 0 or not res.stdout.strip():
+                logger.info("Configuring temporary git user for auto-sync...")
+                subprocess.run(["git", "config", "--local", "user.email", "ai-service@local"], check=False, capture_output=True)
+                subprocess.run(["git", "config", "--local", "user.name", "AI Service"], check=False, capture_output=True)
+        except Exception as e:
+            logger.warning(f"Failed to check/set git config: {e}")
+
         while self.running:
             time.sleep(30) # Check every 30 seconds
             if self.dirty:
                 try:
                     logger.info("Auto-saving data to git...")
                     # Add data directory
-                    subprocess.run(["git", "add", "backend/data"], check=False)
-                    # Commit (will trigger post-commit hook for push)
+                    subprocess.run(["git", "add", "backend/data"], check=False, capture_output=True)
+                    # Commit (will trigger post-commit hook for push if exists)
                     # We use check=False because if nothing changed, commit returns 1
-                    subprocess.run(["git", "commit", "-m", "Auto-save: update course data"], check=False)
+                    # Capture output to avoid log spam
+                    subprocess.run(["git", "commit", "-m", "Auto-save: update course data"], check=False, capture_output=True)
                     self.dirty = False
                 except Exception as e:
                     logger.error(f"Git Auto-Sync failed: {e}")
