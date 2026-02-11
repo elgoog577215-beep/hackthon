@@ -155,13 +155,14 @@ const mathPlugin = (md: any) => {
     const renderMath = (content: string, displayMode: boolean) => {
         try {
             return katex.renderToString(content, { 
-                throwOnError: false, 
+                throwOnError: true, // Throw error to catch it
                 displayMode,
-                errorColor: '#cc0000',
                 output: 'html' // Render to HTML
             });
         } catch (e) {
-            return `<span style="color:red">Error: ${e}</span>`;
+            // Fallback to text if rendering fails
+            // This prevents red error blocks for invalid LaTeX (like incomplete formulas from LLM)
+            return `<span class="math-error">${content}</span>`;
         }
     };
 
@@ -280,7 +281,46 @@ export const renderMarkdown = (content: string) => {
         return id;
     });
 
-    // 1. Fix unclosed block math $$ ...
+    // Protection: Mask Existing Math to prevent double wrapping or corrupting valid math
+    // We mask $$...$$, \[...\], \(...\), and $...$
+    const mathMaskMap = new Map<string, string>();
+    let mathMaskId = 0;
+
+    // Mask $$...$$ (Block)
+    normalized = normalized.replace(/\$\$([\s\S]*?)\$\$/g, (match) => {
+        const id = `__MATH_BLOCK_${mathMaskId++}__`;
+        mathMaskMap.set(id, match);
+        return id;
+    });
+
+    // Mask \[...\] (LaTeX Block)
+    normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, (match) => {
+        const id = `__LATEX_BLOCK_${mathMaskId++}__`;
+        mathMaskMap.set(id, match);
+        return id;
+    });
+
+    // Mask \(...\) (LaTeX Inline)
+    normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, (match) => {
+        const id = `__LATEX_INLINE_${mathMaskId++}__`;
+        mathMaskMap.set(id, match);
+        return id;
+    });
+
+    // Mask $...$ (Inline - careful with currency)
+    // We reuse the currency protection logic here to only mask VALID math
+    normalized = normalized.replace(/\$([^\$\n]+?)\$/g, (match, content) => {
+        // Currency check
+        if (content.match(/\s(and|or|with|for)\s/)) return match;
+        // If it looks like a price (e.g. $100.00), skip
+        if (content.match(/^\s*\d+(\.\d+)?\s*$/)) return match;
+        
+        const id = `__MATH_INLINE_${mathMaskId++}__`;
+        mathMaskMap.set(id, match);
+        return id;
+    });
+
+    // 1. Fix unclosed block math $$ ... (Only for unmasked new additions if any, but mostly irrelevant now)
     const blockMathCount = (normalized.match(/\$\$/g) || []).length;
     if (blockMathCount % 2 !== 0) {
         normalized += '\n$$';
@@ -320,6 +360,12 @@ export const renderMarkdown = (content: string) => {
     // Fix: Auto-add space after headers (e.g., "###Title" -> "### Title")
     normalized = normalized.replace(/^(#{1,6})(?=[^#\s])/gm, '$1 ');
 
+    // --- Unmask Math ---
+    // Now that heuristics have run on "naked" content, we restore the original math blocks.
+    mathMaskMap.forEach((value, key) => {
+         normalized = normalized.replace(key, value);
+    });
+
     // Normalize LaTeX delimiters for compatibility
     // Replace \[ ... \] with $$ ... $$
     normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, '\n$$\n$1\n$$\n');
@@ -331,30 +377,14 @@ export const renderMarkdown = (content: string) => {
         return `\n$$\n${content.trim()}\n$$\n`;
     });
     
-    // Currency Protection:
-    // If we have $100 and $200, regex might mistake it for math.
-    // Real math usually doesn't have a digit immediately after the first $ (unless it's $1+1$, but usually there's a space or letter or command).
-    // Actually $1+1$ is valid math.
-    // Better heuristic: Math $ usually isn't followed by a space (unless it's just one space and then valid math?)
-    // Standard markdown-it-math requires NO space after opening $ and NO space before closing $.
-    // Let's adopt that strictness for our custom replacements to avoid currency issues.
-    
     // Fix spaces in inline math $ ... $ -> $...$ (ONLY if it looks like math, not currency)
+    // We run this again because we unmasked original math which might need spacing fixes
     normalized = normalized.replace(/(\$\$[\s\S]*?\$\$)|(\$([^\$\n]+?)\$)/g, (match, block, inline, content) => {
         if (block) return block
         if (inline) {
-            // Check if it looks like currency
-            // If it starts with a digit or space, or ends with a space, be careful.
-            // But we want to fix spacing! "$ x $" -> "$x$"
-            
-            // If content matches currency pattern e.g. "100.00" or " 100 " -> probably not math.
-            // But "$ 1 + 2 $" is math.
-            
-            // Let's assume if the USER put $...$ they might mean math, unless it's clearly currency text.
-            // Text: "I have $100 and you have $200." -> matches "$100 and you have $".
-            // Content: "100 and you have "
-            // If content contains " and " or " or " -> likely text.
+            // Currency check (redundant if we masked correctly, but good for safety)
             if (content.match(/\s(and|or|with|for)\s/)) return match;
+            if (content.match(/^\s*\d+(\.\d+)?\s*$/)) return match;
             
             const trimmed = content.trim()
             return `$${trimmed}$`
@@ -367,6 +397,7 @@ export const renderMarkdown = (content: string) => {
     normalized = normalized.replace(/(\w+)\s+'/g, "$1'")
     // Fix trailing dollar sign issue
     normalized = normalized.replace(/(\$\$[\s\S]*?)[^$]\$$/gm, "$1$$")
+
 
     // Fix: Auto-wrap equations that are missing delimiters (common LLM issue)
     // Heuristic: If a line contains a math command (vec, frac, int, sum, lim, etc.) AND an equals sign or typical math operators,
