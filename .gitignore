@@ -7,15 +7,7 @@ venv/
 
 # Node
 node_modules/
-dist/
-.DS_Store
-
-# IDE
-.vscode/
-.idea/
-
-# Data
-# backend/data/
-data/
+# dist/
+# data/
 backend/tasks.json
 backend/debug_failed_json.txt

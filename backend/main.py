@@ -40,6 +40,17 @@ import json
 
 app = FastAPI()
 
+# Mount static files
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+if os.path.exists(STATIC_DIR):
+    app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
+
+    @app.get("/")
+    async def serve_index():
+        return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
 # Initialize Task Manager
 try:
     task_manager = TaskManager(storage, ai_service)
@@ -247,10 +258,10 @@ async def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesR
 
 @app.post("/courses/{course_id}/nodes/{node_id}/redefine_stream")
 async def redefine_node_stream(course_id: str, node_id: str, req: RedefineContentRequest):
-    """
+    \"\"\"
     Streams the content generation for a specific node.
     This provides a real-time typing effect on the frontend.
-    """
+    \"\"\"
     # Verify existence
     tree_data = storage.load_course(course_id)
     if not tree_data:
@@ -321,9 +332,9 @@ class KnowledgeGraphRequest(BaseModel):
 
 @app.post("/courses/{course_id}/knowledge_graph")
 async def generate_knowledge_graph(course_id: str):
-    """
+    \"\"\"
     Generate a knowledge graph for the course using AI.
-    """
+    \"\"\"
     tree_data = storage.load_course(course_id)
     if not tree_data or "nodes" not in tree_data:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -354,9 +365,9 @@ async def generate_knowledge_graph(course_id: str):
 
 @app.get("/courses/{course_id}/knowledge_graph")
 def get_knowledge_graph(course_id: str):
-    """
+    \"\"\"
     Get the cached knowledge graph for a course.
-    """
+    \"\"\"
     graph_data = storage.load_knowledge_graph(course_id)
     if graph_data:
         return {
@@ -547,28 +558,14 @@ def update_node(course_id: str, node_id: str, node_update: UpdateNodeRequest):
 # 部署时提供前端静态资源（Vue.js 应用）。
 # 这允许后端作为一个单元提供整个应用程序。
 
-# 检查 'static' 目录是否存在（前端构建应在此处）
-static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-
-if os.path.exists(static_dir):
-    # 挂载资产（CSS、JS、图像）
-    app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
-    
-    # SPA（Vue Router）的捕获所有路由
-    @app.get("/{full_path:path}")
-    async def serve_frontend(full_path: str):
-        # 允许 API 调用通过（应由上述路由处理，但以防万一）
-        if full_path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="API endpoint not found")
-            
-        # 检查特定文件是否存在（例如 favicon.ico, robots.txt）
-        file_path = os.path.join(static_dir, full_path)
-        if os.path.exists(file_path) and os.path.isfile(file_path):
+if os.path.exists(STATIC_DIR):
+    @app.get("/{rest_of_path:path}")
+    async def serve_frontend(rest_of_path: str):
+        # Fallback to index.html for SPA routing
+        # API routes are already handled above, so we don't need to check them explicitly
+        # But for safety, we can check file existence
+        
+        file_path = os.path.join(STATIC_DIR, rest_of_path)
+        if os.path.isfile(file_path):
             return FileResponse(file_path)
-            
-        # 回退到 Vue Router 历史模式的 index.html
-        return FileResponse(os.path.join(static_dir, "index.html"))
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+        return FileResponse(os.path.join(STATIC_DIR, "index.html"))
