@@ -841,7 +841,7 @@ const initMermaidObserver = () => {
                 mermaidObserver?.unobserve(target)
             }
         })
-    }, { rootMargin: '500px 0px' })
+    }, { rootMargin: '200px 0px' })
 }
 
 const scanMermaidDiagrams = () => {

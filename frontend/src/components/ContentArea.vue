@@ -276,17 +276,17 @@
                     <!-- Quoted Notes (Absolute Positioning) -->
                     <transition-group name="list">
                         <div v-for="note in displayedQuotedNotes" :key="note.id" :id="note.id"
-                             class="absolute left-2 right-2 transition-all duration-500 ease-out"
+                             class="absolute left-2 right-2 transition-all duration-200 ease-out will-change-[top]"
                              :style="{ top: (note.top || 0) + 'px' }">
                             
                              <!-- Connector Line -->
-                             <div class="absolute -left-4 top-5 w-4 h-px transition-colors duration-300" 
+                             <div class="absolute -left-4 top-5 w-4 h-px transition-colors duration-200" 
                                   :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-300' : 'bg-slate-200'"></div>
-                             <div class="absolute -left-[18px] top-[17px] w-2 h-2 rounded-full shadow-sm ring-2 ring-white transition-all duration-300"
+                             <div class="absolute -left-[18px] top-[17px] w-2 h-2 rounded-full shadow-sm ring-2 ring-white transition-all duration-200"
                                   :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-500 scale-125' : (note.sourceType === 'ai' ? 'bg-purple-400' : 'bg-slate-300')"></div>
 
                              <!-- Note Bubble -->
-                             <div class="bg-white rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] border border-slate-200/60 p-0 group hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.12)] hover:border-primary-200/80 hover:-translate-y-1 transition-all duration-300 cursor-pointer overflow-hidden relative"
+                             <div class="bg-white rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] border border-slate-200/60 p-0 group hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.12)] hover:border-primary-200/80 hover:-translate-y-1 transition-all duration-200 cursor-pointer overflow-hidden relative"
                                   :class="[noteCardBorderClass(note), {'ring-2 ring-primary-200 ring-offset-2 shadow-lg': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !bg-purple-50/10': note.sourceType === 'ai'}]"
                                  @click="handleNoteClick(note)"
                                   @mouseenter="setHovered(note.id)"
@@ -663,7 +663,7 @@ const initMermaidObserver = () => {
                 mermaidObserver?.unobserve(target)
             }
         })
-    }, { rootMargin: '500px 0px' }) // Preload well in advance
+    }, { rootMargin: '200px 0px' }) // Reduced preload margin for performance
 }
 
 const scanMermaidDiagrams = () => {

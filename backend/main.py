@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 import sys
 import os
@@ -134,19 +135,19 @@ def resume_task(task_id: str):
 # --- Course Management ---
 
 @app.get("/courses")
-def list_courses():
-    return storage.list_courses()
+async def list_courses():
+    return await run_in_threadpool(storage.list_courses)
 
 @app.get("/courses/{course_id}")
-def get_course(course_id: str):
-    data = storage.load_course(course_id)
+async def get_course(course_id: str):
+    data = await run_in_threadpool(storage.load_course, course_id)
     if not data:
         raise HTTPException(status_code=404, detail="Course not found")
     return data
 
 @app.delete("/courses/{course_id}")
-def delete_course(course_id: str):
-    storage.delete_course(course_id)
+async def delete_course(course_id: str):
+    await run_in_threadpool(storage.delete_course, course_id)
     return {"status": "success"}
 
 @app.post("/generate_course")
@@ -163,7 +164,7 @@ async def generate_course(req: GenerateCourseRequest):
     course_id = str(uuid.uuid4())
     data["course_id"] = course_id
     
-    storage.save_course(course_id, data)
+    await run_in_threadpool(storage.save_course, course_id, data)
 
     # Note: We return the initial structure immediately.
     # The frontend's 'generateFullDetails' and 'queue' system will handle
@@ -174,9 +175,9 @@ async def generate_course(req: GenerateCourseRequest):
 # --- Node Operations (Scoped by Course) ---
 
 @app.post("/courses/{course_id}/nodes")
-def add_custom_node(course_id: str, req: AddNodeRequest):
+async def add_custom_node(course_id: str, req: AddNodeRequest):
     # Expects parent_node_id, node_name
-    tree_data = storage.load_course(course_id)
+    tree_data = await run_in_threadpool(storage.load_course, course_id)
     if not tree_data:
         raise HTTPException(status_code=404, detail="Course not found")
     
@@ -200,12 +201,12 @@ def add_custom_node(course_id: str, req: AddNodeRequest):
         tree_data["nodes"] = []
     
     tree_data["nodes"].append(new_node)
-    storage.save_course(course_id, tree_data)
+    await run_in_threadpool(storage.save_course, course_id, tree_data)
     return new_node
 
 @app.post("/courses/{course_id}/nodes/{node_id}/subnodes")
 async def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesRequest):
-    tree_data = storage.load_course(course_id)
+    tree_data = await run_in_threadpool(storage.load_course, course_id)
     if not tree_data:
         raise HTTPException(status_code=404, detail="Course not found")
     
@@ -241,7 +242,7 @@ async def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesR
     if "nodes" in tree_data:
         for node in new_nodes:
             tree_data["nodes"].append(node)
-        storage.save_course(course_id, tree_data)
+        await run_in_threadpool(storage.save_course, course_id, tree_data)
     
     return new_nodes
 
@@ -252,7 +253,7 @@ async def redefine_node_stream(course_id: str, node_id: str, req: RedefineConten
     This provides a real-time typing effect on the frontend.
     """
     # Verify existence
-    tree_data = storage.load_course(course_id)
+    tree_data = await run_in_threadpool(storage.load_course, course_id)
     if not tree_data:
         raise HTTPException(status_code=404, detail="Course not found")
     
@@ -272,20 +273,20 @@ async def redefine_node_stream(course_id: str, node_id: str, req: RedefineConten
         
         # After streaming, save to storage
         # Reload to minimize race conditions (though simple file lock is not here)
-        current_data = storage.load_course(course_id)
+        current_data = await run_in_threadpool(storage.load_course, course_id)
         if "nodes" in current_data:
             for node in current_data["nodes"]:
                 if node["node_id"] == node_id:
                     node["node_content"] = ai_service.clean_response_text(full_content)
                     node["node_type"] = "custom"
                     break
-            storage.save_course(course_id, current_data)
+            await run_in_threadpool(storage.save_course, course_id, current_data)
             
     return StreamingResponse(stream_generator(), media_type="text/plain")
 
 @app.post("/courses/{course_id}/nodes/{node_id}/redefine")
-def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest):
-    new_content = ai_service.redefine_content(
+async def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest):
+    new_content = await ai_service.redefine_content(
         req.node_name, 
         req.user_requirement,
         req.original_content,
@@ -293,7 +294,7 @@ def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest):
         req.previous_context
     )
     
-    tree_data = storage.load_course(course_id)
+    tree_data = await run_in_threadpool(storage.load_course, course_id)
     if not tree_data:
         raise HTTPException(status_code=404, detail="Course not found")
 
@@ -307,7 +308,7 @@ def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest):
                 break
     
     if found:
-        storage.save_course(course_id, tree_data)
+        await run_in_threadpool(storage.save_course, course_id, tree_data)
         return {"node_content": new_content}
     raise HTTPException(status_code=404, detail="Node not found")
 
@@ -324,7 +325,7 @@ async def generate_knowledge_graph(course_id: str):
     """
     Generate a knowledge graph for the course using AI.
     """
-    tree_data = storage.load_course(course_id)
+    tree_data = await run_in_threadpool(storage.load_course, course_id)
     if not tree_data or "nodes" not in tree_data:
         raise HTTPException(status_code=404, detail="Course not found")
     
@@ -344,7 +345,7 @@ async def generate_knowledge_graph(course_id: str):
     )
     
     # Cache the graph in storage
-    storage.save_knowledge_graph(course_id, graph_data)
+    await run_in_threadpool(storage.save_knowledge_graph, course_id, graph_data)
     
     return {
         "status": "success",
@@ -353,11 +354,11 @@ async def generate_knowledge_graph(course_id: str):
 
 
 @app.get("/courses/{course_id}/knowledge_graph")
-def get_knowledge_graph(course_id: str):
+async def get_knowledge_graph(course_id: str):
     """
     Get the cached knowledge graph for a course.
     """
-    graph_data = storage.load_knowledge_graph(course_id)
+    graph_data = await run_in_threadpool(storage.load_knowledge_graph, course_id)
     if graph_data:
         return {
             "status": "success",
@@ -409,8 +410,8 @@ def ask_question(req: AskQuestionRequest):
     )
 
 @app.get("/nodes/{node_id}/annotations")
-def get_annotations(node_id: str):
-    return storage.get_annotations_by_node(node_id)
+async def get_annotations(node_id: str):
+    return await run_in_threadpool(storage.get_annotations_by_node, node_id)
 
 @app.post("/annotations")
 async def save_annotation(req: SaveAnnotationRequest):
@@ -438,31 +439,31 @@ async def save_annotation(req: SaveAnnotationRequest):
              except Exception as e:
                  print(f"Failed to generate AI summary for note: {e}")
 
-    storage.save_annotation(data)
+    await run_in_threadpool(storage.save_annotation, data)
     return data
 
 @app.delete("/annotations/{anno_id}")
-def delete_annotation(anno_id: str):
-    storage.delete_annotation(anno_id)
+async def delete_annotation(anno_id: str):
+    await run_in_threadpool(storage.delete_annotation, anno_id)
     return {"status": "success"}
 
 @app.put("/annotations/{anno_id}")
-def update_annotation(anno_id: str, req: UpdateAnnotationRequest):
-    storage.update_annotation(anno_id, req.content)
+async def update_annotation(anno_id: str, req: UpdateAnnotationRequest):
+    await run_in_threadpool(storage.update_annotation, anno_id, req.content)
     return {"status": "success"}
 
 @app.get("/courses/{course_id}/annotations")
-def get_course_annotations(course_id: str):
+async def get_course_annotations(course_id: str):
     # 返回课程的所有批注（需要通过该课程中的节点进行过滤）
     # 1. 获取课程中的所有节点
-    course_data = storage.load_course(course_id)
+    course_data = await run_in_threadpool(storage.load_course, course_id)
     if not course_data or "nodes" not in course_data:
         return []
     
     node_ids = set(n["node_id"] for n in course_data["nodes"])
     
     # 2. 获取所有批注并过滤
-    all_annos = storage.load_annotations()
+    all_annos = await run_in_threadpool(storage.load_annotations)
     results = []
     for a in all_annos:
         # 如果批注有 course_id，则必须匹配
@@ -480,11 +481,11 @@ def get_course_annotations(course_id: str):
 
 
 @app.post("/courses/{course_id}/locate")
-def locate_node(course_id: str, req: LocateNodeRequest):
-    tree_data = storage.load_course(course_id)
+async def locate_node(course_id: str, req: LocateNodeRequest):
+    tree_data = await run_in_threadpool(storage.load_course, course_id)
     if "nodes" not in tree_data:
          return {}
-    return ai_service.locate_node(req.keyword, tree_data["nodes"])
+    return await ai_service.locate_node(req.keyword, tree_data["nodes"])
 
 @app.post("/generate_quiz")
 async def generate_quiz(req: GenerateQuizRequest):
@@ -501,8 +502,8 @@ async def summarize_chat(req: SummarizeChatRequest):
     return await ai_service.summarize_chat(req.history, req.course_context, req.user_persona)
 
 @app.delete("/courses/{course_id}/nodes/{node_id}")
-def delete_node(course_id: str, node_id: str):
-    tree_data = storage.load_course(course_id)
+async def delete_node(course_id: str, node_id: str):
+    tree_data = await run_in_threadpool(storage.load_course, course_id)
     if "nodes" in tree_data:
         original_len = len(tree_data["nodes"])
         
@@ -519,14 +520,14 @@ def delete_node(course_id: str, node_id: str):
         tree_data["nodes"] = [n for n in tree_data["nodes"] if n["node_id"] not in to_delete]
         
         if len(tree_data["nodes"]) < original_len:
-            storage.save_course(course_id, tree_data)
+            await run_in_threadpool(storage.save_course, course_id, tree_data)
             return {"status": "success"}
             
     raise HTTPException(status_code=404, detail="Node not found")
 
 @app.put("/courses/{course_id}/nodes/{node_id}")
-def update_node(course_id: str, node_id: str, node_update: UpdateNodeRequest):
-    tree_data = storage.load_course(course_id)
+async def update_node(course_id: str, node_id: str, node_update: UpdateNodeRequest):
+    tree_data = await run_in_threadpool(storage.load_course, course_id)
     if "nodes" in tree_data:
         for node in tree_data["nodes"]:
             if node["node_id"] == node_id:
@@ -538,7 +539,7 @@ def update_node(course_id: str, node_id: str, node_update: UpdateNodeRequest):
                     node["is_read"] = node_update.is_read
                 if node_update.quiz_score is not None:
                     node["quiz_score"] = node_update.quiz_score
-                storage.save_course(course_id, tree_data)
+                await run_in_threadpool(storage.save_course, course_id, tree_data)
                 return node
     raise HTTPException(status_code=404, detail="Node not found")
 

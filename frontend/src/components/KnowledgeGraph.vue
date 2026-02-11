@@ -63,6 +63,18 @@
           <filter id="node-glow" x="-50%" y="-50%" width="200%" height="200%">
             <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#6366f1" flood-opacity="0.5"/>
           </filter>
+          <!-- Arrowhead Marker -->
+          <marker
+            id="arrowhead"
+            viewBox="0 0 10 10"
+            refX="28" 
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
+          </marker>
         </defs>
         
         <rect width="100%" height="100%" fill="url(#grid)" />
@@ -75,6 +87,7 @@
             :d="getEdgePath(edge)"
             :class="['edge-line', getEdgeClass(edge)]"
             :stroke-width="selectedNode && (edge.source === selectedNode.id || edge.target === selectedNode.id) ? 3 : 2"
+            marker-end="url(#arrowhead)"
           />
         </g>
 
@@ -86,6 +99,7 @@
             class="node-group"
             :transform="`translate(${getNodePosition(node.id).x}, ${getNodePosition(node.id).y})`"
             @click.stop="selectNode(node)"
+            @mousedown.stop="handleNodeMouseDown($event, node)"
             @mouseenter="hoverNode = node.id"
             @mouseleave="hoverNode = null"
           >
@@ -219,6 +233,10 @@ const viewBoxString = computed(() => `${viewBox.value.x} ${viewBox.value.y} ${vi
 const isDragging = ref(false)
 const dragStart = ref({ x: 0, y: 0 })
 const viewBoxStart = ref({ x: 0, y: 0 })
+
+// Node Dragging State
+const draggingNode = ref<any>(null)
+const dragOffset = ref({ x: 0, y: 0 })
 
 // Node type configuration
 const nodeTypes = [
@@ -545,25 +563,61 @@ function handleWheel(e: WheelEvent) {
   viewBox.value.y = centerY - viewBox.value.height / 2
 }
 
+// Helper to convert screen coordinates to SVG coordinates
+function getSvgPoint(clientX: number, clientY: number) {
+  if (!graphContainer.value) return { x: 0, y: 0 }
+  const rect = graphContainer.value.getBoundingClientRect()
+  const x = viewBox.value.x + (clientX - rect.left) * (viewBox.value.width / rect.width)
+  const y = viewBox.value.y + (clientY - rect.top) * (viewBox.value.height / rect.height)
+  return { x, y }
+}
+
+function handleNodeMouseDown(e: MouseEvent, node: any) {
+  // Prevent canvas panning
+  draggingNode.value = node
+  const mousePos = getSvgPoint(e.clientX, e.clientY)
+  dragOffset.value = {
+    x: node.x - mousePos.x,
+    y: node.y - mousePos.y
+  }
+}
+
 // Pan handling
 function handleMouseDown(e: MouseEvent) {
+  if (draggingNode.value) return
   isDragging.value = true
   dragStart.value = { x: e.clientX, y: e.clientY }
   viewBoxStart.value = { x: viewBox.value.x, y: viewBox.value.y }
 }
 
+let animationFrameId: number | null = null
+
 function handleMouseMove(e: MouseEvent) {
-  if (!isDragging.value) return
-  
-  const dx = (e.clientX - dragStart.value.x) * viewBox.value.width / (graphContainer.value?.clientWidth || 800)
-  const dy = (e.clientY - dragStart.value.y) * viewBox.value.height / (graphContainer.value?.clientHeight || 600)
-  
-  viewBox.value.x = viewBoxStart.value.x - dx
-  viewBox.value.y = viewBoxStart.value.y - dy
+  if (animationFrameId) return
+
+  animationFrameId = requestAnimationFrame(() => {
+    animationFrameId = null
+    
+    if (draggingNode.value) {
+      const mousePos = getSvgPoint(e.clientX, e.clientY)
+      draggingNode.value.x = mousePos.x + dragOffset.value.x
+      draggingNode.value.y = mousePos.y + dragOffset.value.y
+      return
+    }
+
+    if (!isDragging.value) return
+    
+    const dx = (e.clientX - dragStart.value.x) * viewBox.value.width / (graphContainer.value?.clientWidth || 800)
+    const dy = (e.clientY - dragStart.value.y) * viewBox.value.height / (graphContainer.value?.clientHeight || 600)
+    
+    viewBox.value.x = viewBoxStart.value.x - dx
+    viewBox.value.y = viewBoxStart.value.y - dy
+  })
 }
 
 function handleMouseUp() {
   isDragging.value = false
+  draggingNode.value = null
 }
 </script>
 
@@ -684,7 +738,7 @@ function handleMouseUp() {
 
 /* Edges */
 .edge-line {
-  stroke: #cbd5e1;
+  stroke: #64748b;
   fill: none;
   transition: stroke 0.3s ease, opacity 0.3s ease;
 }
@@ -696,7 +750,7 @@ function handleMouseUp() {
 }
 
 .edge-line.dimmed {
-  stroke: #e2e8f0;
+  stroke: #cbd5e1;
   opacity: 0.3;
 }
 
