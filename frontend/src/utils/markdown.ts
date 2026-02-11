@@ -277,9 +277,20 @@ export const renderMarkdown = (content: string) => {
     // and wraps them in $$ ... $$ for proper display.
     // Excludes blocks that are already part of a $$ ... $$ sequence (via regex logic).
     const blockEnvs = "bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|aligned|split|cases|equation|gather";
-    const blockRe = new RegExp(`(^|[^\\$])\\s*(\\$?)\\s*(\\\\begin\\{(${blockEnvs})\\}[\\s\\S]*?\\\\end\\{\\4\\})\\s*(\\$?)`, 'gm');
-    normalized = normalized.replace(blockRe, (_match, prefix, _left, envContent, _name, _right) => {
-        return `${prefix}\n$$\n${envContent}\n$$\n`;
+    // Modified regex to allow arbitrary prefix (like "A = ") before \begin, as long as it's not inside existing $$
+    const blockRe = new RegExp(`(^|[^\\$])([\\s\\S]*?)(\\\\begin\\{(${blockEnvs})\\}[\\s\\S]*?\\\\end\\{\\4\\})`, 'gm');
+    normalized = normalized.replace(blockRe, (match, prefixChar, preText, envContent) => {
+        // If the match contains $$, it might be already wrapped. 
+        // But our regex start (^|[^$]) tries to avoid starting inside $$.
+        // However, [^$] only checks the char immediately before. 
+        // preText might contain $$.
+        if (preText.includes('$$') || envContent.includes('$$')) return match;
+        
+        // If it's already inside $...$ (inline), we shouldn't touch it?
+        // But block environments inside inline math are usually bad style or broken.
+        // We assume block environments should be display math.
+        
+        return `${prefixChar}${preText}\n$$\n${envContent}\n$$\n`;
     });
 
     // Fix: Auto-add space after headers (e.g., "###Title" -> "### Title")
@@ -336,18 +347,46 @@ export const renderMarkdown = (content: string) => {
         // Try to capture preceding math content in label (e.g. "f(x) = " or "\ell^2 = ")
         // This is a simple heuristic to include "x =" or "f(x) =" into the math block
         // We look for a suffix of label that looks like math
-        const labelMatch = label.match(/([a-zA-Z0-9_{}\(\)\^\|\s]+(=|:)\s*)$/);
+        
+        // Revised Logic:
+        // 1. If label contains any LaTeX-like commands (backslashes), treat the whole label as part of the formula.
+        //    (Except if it looks like typical text, but checking for \ is a strong signal).
+        // 2. If label ends with typical math structure (A = , f(x) = ), capture it.
+        
         let preMath = '';
         let textLabel = label;
-        
-        if (labelMatch) {
-             preMath = labelMatch[0];
-             textLabel = label.substring(0, label.length - preMath.length);
-        } else if (label.trim().length < 10 && !label.match(/[.,;!?]$/)) {
-             // If label is short and doesn't look like a sentence ending, assume it's part of math
-             // e.g. "\ell^2 = "
-             preMath = label;
-             textLabel = '';
+
+        if (label.includes('\\') || label.match(/[=><]\s*$/)) {
+             // Strong signal: Label contains LaTeX or ends with operator.
+             // We should probably wrap the whole thing, or at least from the first math-char.
+             // Let's try to find the split point between "Text: " and "Math".
+             // We look for the last occurrence of common text punctuation (: or .) followed by space.
+             const splitMatch = label.match(/^(.*[:。，,]\s*)(.*)$/);
+             if (splitMatch) {
+                 textLabel = splitMatch[1];
+                 preMath = splitMatch[2];
+             } else {
+                 // No punctuation split, assume it's all math if it has backslash?
+                 // Or maybe it's just "Therefore " + math.
+                 // Let's use a safe heuristic: if it has backslash, wrap it all.
+                 if (label.includes('\\')) {
+                     preMath = label;
+                     textLabel = '';
+                 } else {
+                     // Just text ending in = ?
+                     const labelMatch = label.match(/([a-zA-Z0-9_{}\(\)\^\|\s]+(=|:)\s*)$/);
+                     if (labelMatch) {
+                        preMath = labelMatch[0];
+                        textLabel = label.substring(0, label.length - preMath.length);
+                     }
+                 }
+             }
+        } else {
+             // Standard short label check
+             if (label.trim().length < 10 && !label.match(/[.,;!?]$/)) {
+                 preMath = label;
+                 textLabel = '';
+             }
         }
 
         return `${prefix}${textLabel}$$${preMath}${cmdFull}${rest}$$${suffix}`;
