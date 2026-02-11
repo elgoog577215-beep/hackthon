@@ -790,7 +790,7 @@ DO NOT wrap the JSON in markdown code blocks.
 课程名称：{course_name}
 
 主要章节：
-{chr(10).join([f"- {n.get('node_name', '')}: {n.get('node_content', '')[:50]}..." for n in nodes_summary[:15]])}
+{chr(10).join([f"- [ID: {n.get('id', '')}] {n.get('name', '')}: {n.get('content', '')[:50]}..." for n in nodes_summary[:15]])}
 
 请生成包含节点和关系的知识图谱JSON。"""
         
@@ -801,24 +801,30 @@ DO NOT wrap the JSON in markdown code blocks.
             if result and "nodes" in result and "edges" in result and len(result["nodes"]) > 0:
                 # Self-Healing: Validate and fix chapter_ids
                 valid_chapter_ids = {n.get("node_id") for n in nodes}
+                node_name_to_id = {n.get("node_name"): n.get("node_id") for n in nodes}
                 
                 for graph_node in result["nodes"]:
                     chapter_id = graph_node.get("chapter_id")
                     
                     # If invalid or missing
                     if not chapter_id or chapter_id not in valid_chapter_ids:
-                        # Try to find a match by name similarity (simple substring check for now)
-                        node_label = graph_node.get("label", "")
                         best_match_id = None
                         
-                        # Priority 1: Exact match
-                        for n in nodes:
-                            if n.get("node_name", "") == node_label:
-                                best_match_id = n.get("node_id")
-                                break
-                                
-                        # Priority 2: Substring match
+                        # Priority 0: Check if chapter_id is actually a node name
+                        if chapter_id in node_name_to_id:
+                            best_match_id = node_name_to_id[chapter_id]
+
+                        # Priority 1: Match by Node Label (Exact)
                         if not best_match_id:
+                            node_label = graph_node.get("label", "")
+                            for n in nodes:
+                                if n.get("node_name", "") == node_label:
+                                    best_match_id = n.get("node_id")
+                                    break
+                                    
+                        # Priority 2: Match by Node Label (Substring)
+                        if not best_match_id:
+                            node_label = graph_node.get("label", "")
                             for n in nodes:
                                 if node_label in n.get("node_name", "") or n.get("node_name", "") in node_label:
                                     best_match_id = n.get("node_id")

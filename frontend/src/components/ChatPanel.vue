@@ -190,10 +190,11 @@
             </div>
 
             <!-- QA History -->
-            <div v-for="(msg, idx) in courseStore.chatHistory" :key="idx"
-                class="flex flex-col gap-1.5 animate-fade-in-up" :style="{ animationDelay: `${idx * 30}ms` }">
+            <transition-group name="message-list">
+                <div v-for="(msg, idx) in courseStore.chatHistory" :key="idx"
+                    class="flex flex-col gap-1.5 message-item">
 
-                <div :class="['p-4 rounded-xl text-base max-w-[95%] transition-all relative shadow-sm group',
+                    <div :class="['p-4 rounded-xl text-base max-w-[95%] transition-all relative shadow-sm group',
                     msg.type === 'user'
                         ? 'bg-primary-600 text-white self-end rounded-tr-sm'
                         : 'bg-white border border-slate-100 !rounded-tl-sm self-start hover:border-slate-200']">
@@ -352,6 +353,7 @@
                     </div>
                 </div>
             </div>
+            </transition-group>
             
             <div v-if="courseStore.chatLoading" class="flex gap-2 p-4 animate-pulse items-center">
                 <div class="w-8 h-8 rounded-full bg-slate-200"></div>
@@ -465,7 +467,7 @@ const initMermaidObserver = () => {
                 mermaidObserver?.unobserve(target)
             }
         })
-    }, { rootMargin: '500px 0px' }) // Preload well in advance
+    }, { rootMargin: '200px 0px' }) // Reduced preload margin for performance
 }
 
 const scanMermaidDiagrams = () => {
@@ -1036,5 +1038,16 @@ onUnmounted(() => {
 
 :deep(.glass-popover) {
     z-index: 9999 !important;
+}
+
+.message-list-enter-active,
+.message-list-leave-active {
+  transition: all 0.4s ease-out;
+}
+
+.message-list-enter-from,
+.message-list-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
 }
 </style>

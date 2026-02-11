@@ -247,7 +247,8 @@ md.renderer.rules.image = function (tokens, idx, options, _env, self) {
   return self.renderToken(tokens, idx, options);
 };
 
-// Memoization cache
+// Memoization cache with simple LRU strategy
+const MAX_CACHE_SIZE = 500;
 const markdownCache = new Map<string, string>()
 
 // --- Math Detection Helpers ---
@@ -523,6 +524,35 @@ export const renderMarkdown = (content: string) => {
         return markdownCache.get(content) || ''
     }
 
+    // Fast path: If content looks simple (no code, no math delimiters, no obvious math symbols), 
+    // skip the heavy robust preprocessing.
+    // We check for:
+    // 1. Code blocks (``` or `)
+    // 2. Math delimiters ($ or \)
+    // 3. Math operators often used in naked equations (=, ^, {)
+    // If none of these exist, it's likely plain text.
+    if (!content.includes('`') && 
+        !content.includes('$') && 
+        !content.includes('\\') && 
+        !content.includes('=') && 
+        !content.includes('{') &&
+        !content.includes('^')) {
+        
+        const html = md.render(content);
+        const result = DOMPurify.sanitize(html, {
+            ADD_TAGS: ['math-field', 'iframe'], 
+            ADD_ATTR: ['target', 'allow', 'allowfullscreen', 'frameborder', 'scrolling']
+        });
+        
+        // Cache management
+        if (markdownCache.size > MAX_CACHE_SIZE) {
+            const firstKey = markdownCache.keys().next().value;
+            if (firstKey) markdownCache.delete(firstKey);
+        }
+        markdownCache.set(content, result);
+        return result;
+    }
+
     // --- Pre-processing for Robustness ---
     let normalized = content;
 
@@ -782,7 +812,7 @@ export const renderMarkdown = (content: string) => {
     }
 
     // Cache result (limit cache size)
-    if (markdownCache.size > 500) {
+    if (markdownCache.size > MAX_CACHE_SIZE) {
         const firstKey = markdownCache.keys().next().value
         if (firstKey) markdownCache.delete(firstKey)
     }
