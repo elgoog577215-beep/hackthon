@@ -15,16 +15,16 @@ mermaid.initialize({
     fontFamily: 'ui-sans-serif, system-ui, sans-serif',
     themeVariables: {
         primaryColor: '#8b5cf6', // primary-500
-        primaryTextColor: '#ffffff',
+        primaryTextColor: '#0f172a', // slate-900 (Black text for better visibility)
         primaryBorderColor: '#7c3aed', // primary-600
-        lineColor: '#64748b', // slate-500
+        lineColor: '#334155', // slate-700
         secondaryColor: '#ede9fe', // primary-100
         tertiaryColor: '#ffffff',
         mainBkg: '#f8fafc', // slate-50
         nodeBorder: '#cbd5e1', // slate-300
         clusterBkg: '#f1f5f9', // slate-100
         clusterBorder: '#cbd5e1', // slate-300
-        titleColor: '#1e293b', // slate-800
+        titleColor: '#0f172a', // slate-900
         edgeLabelBackground: '#ffffff',
     }
 });
@@ -304,17 +304,61 @@ const expandPrefix = (text: string, startPos: number): number => {
     
     // Check for "U = " or "var =" or "dim(U) ="
     const suffix = text.substring(0, currentPos);
+    
     // Regex looks for: (Word or Function) = 
-    // We allow letters, numbers, _, {, }, (, ), ^, |, \
-    const eqMatch = suffix.match(/([a-zA-Z0-9_{}()\^\|\\]+\s*=\s*)$/);
-    if (eqMatch && eqMatch[1]) {
-         // Check if it's a real variable and not just "Then ="
-         const varPart = eqMatch[1].split('=')[0].trim();
-         // Simple stop list for common text words ending with = (rare but possible)
-         if (!['Then', 'If', 'So', 'Hence', 'Therefore'].includes(varPart)) {
-             return currentPos - eqMatch[1].length;
-         }
-    }
+    // Relaxed to allow spaces between tokens to handle cases like "\text{span} (S) ="
+    // We match a sequence of allowed characters, optionally separated by spaces, ending with =
+    // Allowed chars: letters, numbers, _, {, }, (, ), ^, |, \, [, ], space
+    
+    // Heuristic: We capture everything from the last newline or clear text break up to the equals sign.
+    // But we need to be careful not to capture plain text like "The value of x ="
+    // Let's try to match a pattern that looks like math/variable/function.
+    
+    // Pattern: 
+    // 1. Ends with "=" (and optional spaces)
+    // 2. Preceded by "allowed chars" (including \text{...})
+    
+    const eqMatch = suffix.match(/((?:[a-zA-Z0-9_{}()\^\|\\[\]]+|\\text\{[^}]+\})(?:\s+(?:[a-zA-Z0-9_{}()\^\|\\[\]]+|\\text\{[^}]+\}))*\s*=\s*)$/);
+     
+     if (eqMatch && eqMatch[1]) {
+          // Check if it's a real variable and not just "Then ="
+          const matchStr = eqMatch[1];
+          if (!matchStr) return currentPos; // Safety check
+          
+          const varPart = matchStr.split('=')[0].trim();
+          // Simple stop list for common text words ending with = (rare but possible)
+          const stopWords = ['Then', 'If', 'So', 'Hence', 'Therefore', 'Where', 'Thus', 'Here'];
+          // If the captured part consists ONLY of a stop word, ignore it.
+          // But "If x =" should be captured as "x =".
+          // The regex is greedy, so it might capture "If x =".
+          // We should refine the regex to NOT capture starting stop words?
+          // Or just check the first word.
+          
+          const firstWord = varPart.split(/\s+/)[0];
+          if (firstWord && stopWords.includes(firstWord) && varPart.split(/\s+/).length === 1) {
+              // Only a stop word, e.g. "Then =" (unlikely but possible)
+              return currentPos;
+          }
+         
+         // If it starts with a stop word, we might want to trim it?
+          // E.g. "Then x =" -> "x ="
+          // But the regex anchors to the end ($).
+          // It might be safer to just take the match.
+          // The regex ensures it's composed of "math-like" chars.
+          // "Then" contains only letters. It matches.
+          // But we probably want to include "Then" in the math block? "Then $x=...$"
+          // No, usually "Then" is text.
+          
+          // Let's rely on the user's intent. If they wrote "Then x = \left...", they probably want "Then $x = \left...$"
+          // So wrapping "x =" is good. Wrapping "Then x =" is weird ($Then x = ...$).
+          
+          // Refined Strategy:
+          // Look for the last "="
+          // Capture backwards until we hit something that IS NOT math-like.
+          // Spaces are allowed between math tokens.
+          
+          return currentPos - matchStr.length;
+     }
     
     return currentPos;
 };
