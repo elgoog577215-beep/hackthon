@@ -149,16 +149,14 @@ export const renderMarkdown = (content: string) => {
         normalized += '\n```';
     }
 
-    // 3. Fix bare LaTeX environments (wrap in $$ if not already)
-    // Matches \begin{matrix}... \end{matrix} that are NOT surrounded by $$
-    // We use a simplified check: if we see \begin{...} and it's not preceded by $$, wrap it.
-    // This is heuristic and might be risky, but addresses the specific issue.
-    // Better approach: Let's assume block environments starting at newline.
-    normalized = normalized.replace(/(^|\n)\\begin\{([a-z*]+)\}([\s\S]*?)\\end\{\2\}/gm, (match) => {
-        // If the match is already inside $$, don't touch it. 
-        // But regex can't easily know global context.
-        // We assume that if it starts at a newline, it's a candidate for block math.
-        return `\n$$\n${match.trim()}\n$$\n`;
+    // 3. Robust Fix for Block Math Environments
+    // Detects \begin{...} blocks that are naked or wrapped in single $ (broken if multiline)
+    // and wraps them in $$ ... $$ for proper display.
+    // Excludes blocks that are already part of a $$ ... $$ sequence (via regex logic).
+    const blockEnvs = "bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|aligned|split|cases|equation|gather";
+    const blockRe = new RegExp(`(^|[^\\$])\\s*(\\$?)\\s*(\\\\begin\\{(${blockEnvs})\\}[\\s\\S]*?\\\\end\\{\\4\\})\\s*(\\$?)`, 'gm');
+    normalized = normalized.replace(blockRe, (_match, prefix, _left, envContent, _name, _right) => {
+        return `${prefix}\n$$\n${envContent}\n$$\n`;
     });
 
     // Fix: Auto-add space after headers (e.g., "###Title" -> "### Title")
