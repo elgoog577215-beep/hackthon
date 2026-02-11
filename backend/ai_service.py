@@ -5,7 +5,7 @@ import json
 import re
 import logging
 from dotenv import load_dotenv
-from openai import AsyncOpenAI, APIStatusError
+from openai import AsyncOpenAI
 from typing import List, Dict, Optional
 
 # 导入提示模板
@@ -27,60 +27,31 @@ class AIService:
     """
     AI 模型交互的抽象层。
     支持根据任务复杂性在不同模型之间切换。
-    支持多 Token 自动故障转移（Auto-Failover）。
     """
     def __init__(self):
-        # 1. 优先加载 Token 列表（支持多 Token 轮询）
-        keys_str = os.getenv("AI_API_KEYS", "")
-        if keys_str:
-            self.api_keys = [k.strip() for k in keys_str.split(",") if k.strip()]
-        else:
-            # 2. 回退到单 Token 模式
-            single_key = os.getenv("AI_API_KEY")
-            self.api_keys = [single_key] if single_key else []
-
-        self.current_key_index = 0
+        # 通过环境变量配置 API 密钥
+        self.api_key = os.getenv("AI_API_KEY")
         self.api_base = os.getenv("AI_API_BASE", "https://api-inference.modelscope.cn/v1")
         
         # 混合模型策略
+        # 智能模型：用于复杂推理、创意写作和详细解释。
         self.model_smart = os.getenv("AI_MODEL", "Qwen/Qwen3-32B")
-        self.model_fast = os.getenv("AI_MODEL_FAST", "Qwen/Qwen3-32B")
         
-        self.client = None
-        self._refresh_client()
-
-    def _refresh_client(self):
-        """根据当前索引刷新 OpenAI 客户端"""
-        if not self.api_keys:
-            self.client = None
-            logger.warning("No API Keys configured.")
-            return
-
-        current_key = self.api_keys[self.current_key_index]
-        # logger.info(f"Using API Key index: {self.current_key_index} (Ends with {current_key[-4:]})")
+        # 快速模型：用于摘要、分类和简单任务。
+        # 如果未指定，默认使用更小、更快的模型。
+        self.model_fast = os.getenv("AI_MODEL_FAST", "Qwen/Qwen3-32B")
         
         self.client = AsyncOpenAI(
             base_url=self.api_base,
-            api_key=current_key,
+            api_key=self.api_key,
         )
-
-    def _rotate_key(self):
-        """切换到下一个 API Key"""
-        if len(self.api_keys) <= 1:
-            return False # 只有一个 key，无法切换
-
-        old_index = self.current_key_index
-        self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
-        logger.warning(f"⚠️ Switching API Key: {old_index} -> {self.current_key_index}")
-        self._refresh_client()
-        return True
 
     def _extract_json(self, text: str) -> Optional[Dict]:
         """
         从 LLM 响应中稳健地提取 JSON。
         处理 Markdown 块、纯文本和潜在的干扰信息。
         """
-        # logger.info(f"Raw AI Response for JSON extraction: {text[:200]}...")
+        logger.info(f"Raw AI Response for JSON extraction: {text[:200]}...")
 
         try:
             # 首先尝试直接解析
@@ -160,7 +131,7 @@ class AIService:
                              content)
             
             # Fix 3: {Text} -> {"Text"} (Rhombus nodes)
-            # Exclude content starting with {{Hexagon}}
+            # Exclude {{Hexagon}}
             content = re.sub(r'\{(?![{!])([^{}\n]+?)\}', 
                              lambda m: f'{{{quote_if_needed(m.group(1), "{")}}}', 
                              content)
@@ -190,71 +161,53 @@ class AIService:
     async def _call_llm(self, prompt: str, system_prompt: str = "You are a helpful assistant.", use_fast_model: bool = False) -> str:
         """
         Generic function to call LLM using OpenAI client.
-        Supports Auto-Failover for Rate Limits (429) or Auth Errors (401/403).
+        Supports Model Routing (Smart vs Fast).
+        
+        Args:
+            prompt: User input prompt
+            system_prompt: System instruction
+            use_fast_model: If True, uses the lighter/faster model (e.g. for simple summaries)
         """
-        if not self.client:
-            return None 
+        if not self.api_key:
+            return None # Signal to use mock fallback
         
-        max_retries = len(self.api_keys)
-        # 如果只有一个 key，重试一次即可（或者不重试，直接报错）
-        # 这里设置为 max(1, len) 确保至少尝试一次
-        attempts = 0
-        
-        while attempts < max_retries:
-            attempts += 1
-            try:
-                extra_body = {
-                    "enable_thinking": False
-                }
-                
-                # Select Model
-                model_id = self.model_fast if use_fast_model else self.model_smart
-                
-                response = await self.client.chat.completions.create(
-                    model=model_id,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    stream=True,
-                    extra_body=extra_body
-                )
-                
-                full_content = ""
-                async for chunk in response:
-                    if chunk.choices:
-                        # Handle reasoning content if available (for logging/debugging)
-                        if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                            reasoning = chunk.choices[0].delta.reasoning_content
-                            if reasoning:
-                                # Log thinking process to console
-                                print(reasoning, end='', flush=True)
-                                
-                        delta = chunk.choices[0].delta
-                        if delta.content:
-                            full_content += delta.content
-                
-                logger.info(f"AI Response Complete (Model: {model_id})")
-                return full_content
-
-            except APIStatusError as e:
-                # 只在遇到限流(429)或权限(401/403)错误时切换 Token
-                if e.status_code in [429, 401, 403]:
-                    logger.error(f"⚠️ API Error ({e.status_code}): {e.message}. Trying next token...")
-                    if self._rotate_key():
-                        continue # Retry with new key
-                    else:
-                        logger.error("❌ All tokens exhausted or only one token available.")
-                        raise e # No more tokens to try
-                else:
-                    # 其他错误（如 500, 400）直接抛出，不浪费 Token
-                    logger.error(f"AI API Call Error (Non-retryable): {e}")
-                    raise e
-            except Exception as e:
-                logger.error(f"AI API Unexpected Error: {e}")
-                return None
-        
-        return None
+        try:
+            extra_body = {
+                "enable_thinking": False
+            }
+            
+            # Select Model
+            model_id = self.model_fast if use_fast_model else self.model_smart
+            
+            response = await self.client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                stream=True,
+                extra_body=extra_body
+            )
+            
+            full_content = ""
+            async for chunk in response:
+                if chunk.choices:
+                    # Handle reasoning content if available (for logging/debugging)
+                    if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+                        reasoning = chunk.choices[0].delta.reasoning_content
+                        if reasoning:
+                            # Log thinking process to console to match user expectation
+                            print(reasoning, end='', flush=True)
+                            
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        full_content += delta.content
+            
+            logger.info(f"AI Response Complete (Model: {model_id})")
+            return full_content
+        except Exception as e:
+            logger.error(f"AI API Call Error: {e}")
+            return None
 
     async def generate_course(self, keyword: str, difficulty: str = "medium", style: str = "academic", requirements: str = "") -> Dict:
         system_prompt = get_prompt("generate_course").format(
@@ -264,18 +217,14 @@ class AIService:
         )
         prompt = f"用户想要学习“{keyword}”，请生成一份专业且系统的课程大纲。"
         
-        try:
-            response = await self._call_llm(prompt, system_prompt)
-            if response:
-                data = self._extract_json(response)
-                if data and "nodes" in data:
-                    # Ensure unique UUIDs for nodes to prevent collision between courses
-                    for node in data["nodes"]:
-                        node["node_id"] = str(uuid.uuid4())
-                return data
-        except Exception:
-            pass
-            
+        response = await self._call_llm(prompt, system_prompt)
+        if response:
+            data = self._extract_json(response)
+            if data and "nodes" in data:
+                # Ensure unique UUIDs for nodes to prevent collision between courses
+                for node in data["nodes"]:
+                    node["node_id"] = str(uuid.uuid4())
+            return data
         return {"course_name": keyword, "nodes": []}
 
     async def generate_quiz(self, content: str, node_name: str = "", difficulty: str = "medium", style: str = "standard", user_persona: str = "", question_count: int = 3) -> List[Dict]:
@@ -292,14 +241,11 @@ class AIService:
         # Explicitly mention question count in the user prompt as well to reinforce it
         prompt = f"Content:\n{content_text}\n\nPlease generate exactly {question_count} questions in JSON format. Remember to use Markdown tables or Mermaid diagrams in 'explanation' if helpful for understanding."
         
-        try:
-            response = await self._call_llm(prompt, system_prompt)
-            if response:
-                result = self._extract_json(response)
-                if result:
-                    return result
-        except Exception:
-            pass
+        response = await self._call_llm(prompt, system_prompt)
+        if response:
+            result = self._extract_json(response)
+            if result:
+                return result
 
         
         # Hard Fallback: If AI fails or returns empty, generate template questions
@@ -379,28 +325,24 @@ class AIService:
         )
         prompt = f"当前节点信息：名称={node_name}，层级={node_level}。请列出该章节下的所有子小节，确保结构完整且具备专业性。"
         
-        try:
-            response = await self._call_llm(prompt, system_prompt)
-            new_level = node_level + 1
-            
-            if response:
-                data = self._extract_json(response)
-                if data:
-                    result = []
-                    for item in data.get("sub_nodes", []):
-                        result.append({
-                            "node_id": str(uuid.uuid4()),
-                            "parent_node_id": node_id,
-                            "node_name": item.get("node_name", "新节点"),
-                            "node_level": new_level,
-                            "node_content": item.get("node_content", ""),
-                            "node_type": "custom"
-                        })
-                    return result
-        except Exception:
-            pass
-
+        response = await self._call_llm(prompt, system_prompt)
         new_level = node_level + 1
+        
+        if response:
+            data = self._extract_json(response)
+            if data:
+                result = []
+                for item in data.get("sub_nodes", []):
+                    result.append({
+                        "node_id": str(uuid.uuid4()),
+                        "parent_node_id": node_id,
+                        "node_name": item.get("node_name", "新节点"),
+                        "node_level": new_level,
+                        "node_content": item.get("node_content", ""),
+                        "node_type": "custom"
+                    })
+                return result
+
         return [
             {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{node_name} - 子节点 1", "node_level": new_level, "node_content": "", "node_type": "custom"},
             {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{node_name} - 子节点 2", "node_level": new_level, "node_content": "", "node_type": "custom"}
@@ -409,68 +351,44 @@ class AIService:
     async def _stream_llm(self, prompt: str, system_prompt: str = "You are a helpful assistant.", use_fast_model: bool = False):
         """
         Generator function to stream LLM response chunks.
-        Supports Auto-Failover.
         """
-        if not self.client:
+        if not self.api_key:
             yield "AI Service not configured."
             return
 
-        max_retries = len(self.api_keys)
-        attempts = 0
+        try:
+            extra_body = {
+                "enable_thinking": False
+            }
+            
+            # Select Model
+            model_id = self.model_fast if use_fast_model else self.model_smart
 
-        while attempts < max_retries:
-            attempts += 1
-            try:
-                extra_body = {
-                    "enable_thinking": False
-                }
-                
-                # Select Model
-                model_id = self.model_fast if use_fast_model else self.model_smart
-
-                response = await self.client.chat.completions.create(
-                    model=model_id,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    stream=True,
-                    extra_body=extra_body
-                )
-                
-                async for chunk in response:
-                    if chunk.choices:
-                        # Handle reasoning content if available (for logging/debugging)
-                        if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                            reasoning = chunk.choices[0].delta.reasoning_content
-                            if reasoning:
-                                 # We can log thinking process or just ignore it for now
-                                 pass
-                        
-                        delta = chunk.choices[0].delta
-                        if delta.content:
-                            yield delta.content
-                
-                # Success! Break loop.
-                return 
-
-            except APIStatusError as e:
-                # 只在遇到限流(429)或权限(401/403)错误时切换 Token
-                if e.status_code in [429, 401, 403]:
-                    logger.error(f"⚠️ Stream API Error ({e.status_code}): {e.message}. Trying next token...")
-                    if self._rotate_key():
-                        continue # Retry with new key
-                    else:
-                        yield f"\n[Error: Token Exhausted - {str(e)}]"
-                        return
-                else:
-                    logger.error(f"Stream API Error (Non-retryable): {e}")
-                    yield f"\n[Error: {str(e)}]"
-                    return
-            except Exception as e:
-                logger.error(f"Stream Error: {e}")
-                yield f"\n[Error: {str(e)}]"
-                return
+            response = await self.client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                stream=True,
+                extra_body=extra_body
+            )
+            
+            async for chunk in response:
+                if chunk.choices:
+                    # Handle reasoning content if available (for logging/debugging)
+                    if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+                        reasoning = chunk.choices[0].delta.reasoning_content
+                        if reasoning:
+                             # We can log thinking process or just ignore it for now
+                             pass
+                    
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        yield delta.content
+        except Exception as e:
+            logger.error(f"Stream Error: {e}")
+            yield f"\n[Error: {str(e)}]"
 
     async def redefine_node_content(self, node_name: str, original_content: str, requirement: str, course_context: str = "", previous_context: str = ""):
         """
@@ -551,14 +469,216 @@ class AIService:
         async for chunk in self._stream_llm(prompt, system_prompt):
             yield chunk
 
-    async def chat_with_tutor(self, message: str, history: List[Dict], context: str = "", user_notes: str = "", selection: str = "", user_persona: str = "") -> str:
+    async def redefine_content(self, node_name: str, requirement: str, original_content: str = "", course_context: str = "", previous_context: str = "") -> str:
         """
-        Chat with AI tutor.
+        Refine the content of a node based on specific requirements.
+        Uses advanced prompt engineering for better structure and clarity.
         """
-        system_prompt = TUTOR_SYSTEM_BASE.format(
-            user_persona=user_persona if user_persona else "通用学习者"
-        )
+        system_prompt = """
+你是一位资深学科专家、世界顶尖大学的终身教授，并拥有一线大厂的首席架构师背景。
+
+## 学术定位
+- **受众**：大学本科生、研究生及专业技术人员
+- **目标**：构建系统化、理论联系实际的知识体系，不仅讲“是什么”，更讲“为什么”和“怎么做”
+- **标准**：符合学术规范和行业标准
+- **风格**：专业严谨，深入浅出，拒绝科普性质的浅层介绍
+
+## 核心任务
+根据用户的特定需求，重新撰写或调整章节内容。
+
+## 处理原则
+1. **保持学术严谨性**：即使调整风格，也不降低内容质量
+2. **响应用户需求**：优先满足用户的明确要求
+3. **维持结构完整性**：保持原有的章节结构和逻辑框架
+4. **衔接上下文**：确保与前后章节内容的连贯性
+
+## 内容质量标准
+1. **专业严谨**：准确使用学术术语，定义清晰，推导严密
+2. **深度解析**：不仅停留在表面定义，深入剖析背后的原理和机制
+3. **场景化解释**：使用具体的行业应用场景或技术场景辅助解释，而非简单的生活类比
+4. **逻辑连贯**：段落之间过渡自然，论证严密
+
+## 结构化写作要求
+- **### 💡 核心概念与背景**：清晰定义 + 产生背景/核心价值（关键名词使用 **加粗** 强调）
+- **### 🔍 深度原理/底层机制**：深入剖析工作原理、底层逻辑、数学模型或演化逻辑（重中之重）
+- **### 🛠️ 技术实现/方法论**：具体的推导过程、算法步骤或执行细节
+- **### 🎨 可视化图解**：**必须**包含至少一个 Mermaid 图表（流程图或时序图）。ID纯英文无空格，文本双引号包裹。
+- **### 🏭 实战案例/行业应用**：结合真实产业界的落地案例进行分析
+- **### ✅ 思考与挑战**：提供 1-2 个能引发深度思考的问题
+
+## 技术规范
+- **图表（强制要求）**：每章**必须**包含至少一张 Mermaid 图表。
+- **公式规范（绝对严格执行）**
+  - 行内公式：必须使用 `$公式$` 格式，内部不要有空格（例如 `$E=mc^2$`）
+  - 块级公式：必须使用 `$$` 包裹，且独占一行
+  - 严禁裸写 LaTeX 命令
+
+## 篇幅要求
+**800-1500字**，根据用户需求可适当调整。
+
+## 输出格式
+- 直接输出 **Markdown 正文**。
+"""
+        prompt_parts = [f"当前章节标题：{node_name}"]
+        if course_context:
+            prompt_parts.append(f"全书大纲：\n{course_context}")
+        if previous_context:
+            prompt_parts.append(f"上文摘要：\n{previous_context}")
+        if original_content:
+            prompt_parts.append(f"原始简介（参考）：\n{original_content}")
+            
+        prompt_parts.append(f"用户额外需求：{requirement}（请保持专业、简洁、流畅，适合大学生阅读）")
+        prompt_parts.append("请开始撰写正文：")
         
+        prompt = "\n\n".join(prompt_parts)
+        
+        response = await self._call_llm(prompt, system_prompt)
+        if response:
+            return self.clean_response_text(response)
+                
+        return f"基于需求 '{requirement}' 重定义的 {node_name} 内容。\n\n1. 核心点一：...\n2. 核心点二：...\n(参考来源：权威资料)"
+
+    async def generate_node_content(self, node_name: str, node_context: str = "", node_id: str = "", course_name: str = "") -> str:
+        """
+        Generate initial content for a node.
+        Wraps redefine_content with a standard prompt for new content generation.
+        """
+        return await self.redefine_content(
+            node_name=node_name,
+            requirement="请生成详细的教科书内容，包含理论解释、示例和总结。内容应详实、专业。",
+            original_content="",
+            course_context=f"课程名称：{course_name}\n上下文线索：{node_context}",
+            previous_context=""
+        )
+
+    async def extend_content(self, node_name: str, requirement: str) -> str:
+        system_prompt = """
+你是学术视野拓展专家，需为当前教科书章节补充具有深度的延伸阅读材料。
+要求：
+1. **受众定位**：面向大学生及专业人士，拒绝科普性质的浅层介绍。
+2. **拓展方向**：重点补充学术界的前沿研究、工业界的工程陷阱、底层数学原理或跨学科的深度关联。
+3. **内容风格**：专业、干练、逻辑严密。
+4. **格式规范**：内容充实（300-500 字），可使用“延伸阅读”或“深度思考”作为标题。
+5. **公式规范**：
+   - 行内公式用 `$公式$`（**内部不要有空格**）。
+   - 块级公式用 `$$` 包裹。
+   - 严禁裸写 LaTeX 命令。
+6. **输出格式**：直接输出 **Markdown 格式的内容**，**不需要**包含在 JSON 对象中。
+"""
+        prompt = f"当前章节：{node_name}\n拓展方向：{requirement}"
+
+        response = await self._call_llm(prompt, system_prompt)
+        if response:
+            return self.clean_response_text(response)
+
+        return f"拓展知识点：\n关于 {node_name} 的延伸阅读... {requirement}"
+
+    async def answer_question_stream(self, question: str, context: str, history: List[dict] = [], selection: str = "", user_persona: str = "", course_id: str = None, node_id: str = None, user_notes: str = ""):
+        """
+        Stream answer with metadata appended at the end.
+        Structure: [Answer Content] \n\n---METADATA---\n [JSON Metadata]
+        """
+        system_prompt = ""
+        
+        # Try to use Dual Memory System if context is available
+        if course_id and node_id:
+            try:
+                # Local import to avoid circular dependency if any
+                from memory import memory_controller
+                
+                # 1. Optimize History (Context Compression)
+                # Pass the summarizer method from this instance to avoid circular dependency
+                optimized_history = await memory_controller.optimize_history(history, self.summarize_history)
+                
+                # 2. Build Dual Memory Prompt
+                system_prompt = memory_controller.build_tutor_prompt(course_id, node_id, question, optimized_history)
+                
+                # Use optimized history for prompt construction
+                history = optimized_history
+                
+                # Append the metadata instruction which is critical for frontend parsing
+                # We inject the current node_id as default if AI doesn't find a better one
+                system_prompt += f"""
+
+=== METADATA OUTPUT RULE (MANDATORY) ===
+You MUST output the metadata at the very end of your response.
+
+**Format**:
+[Your Answer Content Here]
+
+---METADATA---
+{{"node_id": "{node_id}", "quote": "quote from text if any", "anno_summary": "Core knowledge points summary in Markdown bullet points (3-5 points)"}}
+
+DO NOT wrap the JSON in markdown code blocks.
+"""
+            except Exception as e:
+                logger.error(f"Dual Memory Error: {e}")
+                # Fallback will be handled below
+        
+        if not system_prompt:
+            # Fallback / Standard Prompt
+            system_prompt = f"""
+你是学术助手，请根据提供的课程内容、对话历史和选中的文本回答用户的问题。
+
+**用户画像（个性化设定）**：
+{user_persona if user_persona else "通用学习者"}
+请根据用户画像调整你的回答风格、深度和举例方式。例如，如果用户是初学者，请多用生活类比；如果是专家，请深入底层原理。
+
+**核心任务**：
+1. **回答问题**：直接、专业、简洁地回答用户问题。
+2. **定位上下文**：识别答案关联的课程章节或原文。
+3. **格式化输出**：
+   - **表格**：凡是涉及对比、数据列举、步骤说明的内容，**必须使用 Markdown 表格**展示。
+   - **图表**：凡是涉及流程、架构、思维导图的内容，**必须使用 Mermaid 代码块**展示。
+   - **代码**：代码片段请使用标准代码块。
+
+**教师模式（TEACHER MODE - 增强版）**：
+请像一位真实的苏格拉底式导师（Socratic Tutor）一样：
+1. **启发式教学**：
+   - 不要直接给出一层不变的答案。
+   - 回答完问题后，**必须**主动提出一个相关的、有深度的后续问题（Follow-up Question），引导用户进一步思考。
+   - 问题应该基于当前的知识点，或者是将理论联系实际的场景题。
+2. **关联记忆（Memory Recall）**：
+   - 如果用户之前问过类似问题或犯过类似错误（参考对话历史），请在回答中明确指出：“正如我们之前讨论的...”或“注意不要混淆...”。
+3. **定位原文（Locate）**：
+   - 尽量在提供的课程内容中找到能够支持你回答的**原句**。
+   - 将找到的原句放入 metadata 的 `quote` 字段中。前端界面会自动高亮显示这句话，就像老师在课本上划线一样。
+   - 如果找不到精确原句，不要编造。
+4. **总结笔记（Note Taking）**：
+   - 在 `anno_summary` 中生成一个核心知识点概括（Markdown 列表，3-5点），方便用户快速回顾。
+
+**创新想法捕捉（Innovation Capture）**：
+- 如果用户提出了新的解法、思路或独特的见解，请予以积极反馈。
+- 帮助用户完善思路，并标记这是一个“创新想法”。
+- 在 metadata 的 `anno_summary` 中，使用 `💡 想法：` 开头。
+
+**输出格式规范（严格执行）**：
+为了支持流式输出和后续处理，输出必须分为两部分，用 `---METADATA---` 分隔。
+
+**第一部分：回答正文**
+- 直接输出 Markdown 格式的回答内容。
+- **表格支持（强制要求）**：凡是涉及对比（VS）、参数列表、步骤说明或数据展示的内容，**必须**使用 Markdown 表格呈现。
+- **图表支持（强烈推荐）**：凡是涉及流程、时序、类关系或思维导图，请使用 Mermaid 代码块（```mermaid ... ```）展示。
+- **严禁**将整个回答包裹在代码块中。
+- 回答结束后，**另起一段**，用加粗字体写出你的后续提问：**思考题：...**
+
+**第二部分：元数据**
+- 正文结束后，**另起一行**输出分隔符：`---METADATA---`
+- 紧接着输出一个标准的 JSON 对象（不要用 markdown 代码块包裹），包含：
+  - `node_id`: (string) 答案主要参考的章节ID。如果无法确定，返回 null。
+  - `quote`: (string) 答案引用的原文片段（必须是原文中存在的句子）。如果没有引用，返回 null。
+  - `anno_summary`: (string) 核心知识点概括，使用 Markdown 无序列表格式（3-5点）。
+
+**示例**：
+什么是递归？
+递归是指函数调用自身的编程技巧...（解释内容）
+
+**思考题：你能想到生活中有什么现象是类似于递归的吗？**
+
+---METADATA---
+{{"node_id": "uuid-123", "quote": "递归是...", "anno_summary": "递归的概念"}}
+"""
+
         # Build prompt
         history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history[-5:]])
         
@@ -575,39 +695,96 @@ class AIService:
 选中内容（用户针对这段文字提问）：
 {selection if selection else "无"}
 
-用户问题：{message}
+用户问题：{question}
 
 请开始回答（记得在最后附加元数据）：
 """
         async for chunk in self._stream_llm(prompt, system_prompt):
             yield chunk
 
+    async def summarize_note(self, content: str) -> str:
+        """
+        Generate a concise title/summary for a note content.
+        """
+        system_prompt = get_prompt("summarize_note").format()
+        
+        # If content contains Q&A structure, try to summarize the Question primarily
+        prompt = f"笔记内容：\n{content[:2000]}\n\n请生成标题："
+        
+        # Use Fast Model
+        response = await self._call_llm(prompt, system_prompt, use_fast_model=True)
+        return response if response else (content[:20] + "...")
+
+    async def summarize_chat(self, history: List[dict], course_context: str = "", user_persona: str = "") -> Dict:
+        system_prompt = get_prompt("summarize_chat").format(
+            user_persona=user_persona if user_persona else "通用学习者"
+        )
+        
+        # Convert history to text
+        history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+        
+        prompt = f"课程背景：\n{course_context}\n\n对话历史：\n{history_text}\n\n请生成详细的复盘报告，确保内容丰富充实："
+        
+        # Use standard model for better quality summary
+        response = await self._call_llm(prompt, system_prompt, use_fast_model=False)
+        if response:
+            return self._extract_json(response) or {"title": "对话总结", "content": response}
+        return {"title": "总结失败", "content": "无法生成总结。"}
+
+    async def summarize_history(self, history: List[Dict]) -> str:
+        """
+        Summarizes conversation history using LLM.
+        """
+        system_prompt = get_prompt("summarize_history").format()
+        history_text = "\n".join([f"{msg.get('role', 'unknown')}: {msg.get('content', '')}" for msg in history])
+        
+        prompt = f"Please summarize the following conversation:\n\n{history_text}"
+        
+        # Use Fast Model for summarization
+        response = await self._call_llm(prompt, system_prompt, use_fast_model=True)
+        return response if response else "Previous conversation summary (auto-generated failed)."
+
     async def generate_knowledge_graph(self, course_name: str, course_context: str, nodes: List[Dict]) -> Dict:
         """
-        Generate a knowledge graph for the course.
+        Generate a knowledge graph structure based on course content.
+        
+        Args:
+            course_name: Name of the course
+            course_context: Full course outline/context
+            nodes: List of course nodes with their content
+            
+        Returns:
+            Dictionary containing nodes and edges for the knowledge graph
         """
-        system_prompt = """
-你是一个知识图谱专家。请根据提供的课程内容，构建一个结构化的知识图谱。
-输出必须是合法的 JSON 格式，包含 'nodes' 和 'edges' 两个数组。
+        from prompts import get_prompt
+        
+        # Build course context summary
+        nodes_summary = []
+        for node in nodes[:50]:  # Increased limit to cover full course structure
+            nodes_summary.append({
+                "id": node.get("node_id", ""),
+                "name": node.get("node_name", ""),
+                "level": node.get("node_level", 1),
+                "content": node.get("node_content", "")[:200]  # Increased content context
+            })
+        
+        context_text = f"""
+课程名称：{course_name}
 
-Nodes 格式: { "id": "uuid", "label": "概念名称", "category": "概念类型", "chapter_id": "对应章节ID" }
-Edges 格式: { "source": "source_id", "target": "target_id", "relation": "关系描述" }
+课程大纲：
+{course_context}
 
-重要：
-1. 尽量复用已有的章节作为核心节点。
-2. 自动提取章节内容中的关键概念作为子节点。
-3. 确保 JSON 格式正确，不要包含 Markdown 标记。
+章节列表：
+{json.dumps(nodes_summary, ensure_ascii=False, indent=2)}
 """
         
-        # Simplify nodes for context to save tokens
-        nodes_summary = []
-        for n in nodes:
-            nodes_summary.append({
-                "node_id": n.get("node_id"),
-                "node_name": n.get("node_name"),
-                "node_content": n.get("node_content", "")[:100]
-            })
-            
+        # Get the knowledge graph prompt template
+        prompt_template = get_prompt("generate_knowledge_graph")
+        system_prompt = prompt_template.format(
+            course_name=course_name,
+            course_context=context_text
+        )
+        
         user_prompt = f"""请基于以下课程内容生成知识图谱：
 
 课程名称：{course_name}
@@ -617,49 +794,132 @@ Edges 格式: { "source": "source_id", "target": "target_id", "relation": "关�
 
 请生成包含节点和关系的知识图谱JSON。"""
         
-        try:
-            response = await self._call_llm(user_prompt, system_prompt)
-            
-            if response:
-                result = self._extract_json(response)
-                if result and "nodes" in result and "edges" in result and len(result["nodes"]) > 0:
-                    # Self-Healing: Validate and fix chapter_ids
-                    valid_chapter_ids = {n.get("node_id") for n in nodes}
+        response = await self._call_llm(user_prompt, system_prompt)
+        
+        if response:
+            result = self._extract_json(response)
+            if result and "nodes" in result and "edges" in result and len(result["nodes"]) > 0:
+                # Self-Healing: Validate and fix chapter_ids
+                valid_chapter_ids = {n.get("node_id") for n in nodes}
+                
+                for graph_node in result["nodes"]:
+                    chapter_id = graph_node.get("chapter_id")
                     
-                    for graph_node in result["nodes"]:
-                        chapter_id = graph_node.get("chapter_id")
+                    # If invalid or missing
+                    if not chapter_id or chapter_id not in valid_chapter_ids:
+                        # Try to find a match by name similarity (simple substring check for now)
+                        node_label = graph_node.get("label", "")
+                        best_match_id = None
                         
-                        # If invalid or missing
-                        if not chapter_id or chapter_id not in valid_chapter_ids:
-                            # Try to find a match by name similarity (simple substring check for now)
-                            node_label = graph_node.get("label", "")
-                            best_match_id = None
-                            
-                            # Priority 1: Exact match
+                        # Priority 1: Exact match
+                        for n in nodes:
+                            if n.get("node_name", "") == node_label:
+                                best_match_id = n.get("node_id")
+                                break
+                                
+                        # Priority 2: Substring match
+                        if not best_match_id:
                             for n in nodes:
-                                if n.get("node_name", "") == node_label:
+                                if node_label in n.get("node_name", "") or n.get("node_name", "") in node_label:
                                     best_match_id = n.get("node_id")
                                     break
-                                    
-                            # Priority 2: Substring match
-                            if not best_match_id:
-                                for n in nodes:
-                                    if node_label in n.get("node_name", "") or n.get("node_name", "") in node_label:
-                                        best_match_id = n.get("node_id")
-                                        break
+                        
+                        # Fallback to the first available node if no match found
+                        if not best_match_id and nodes:
+                            best_match_id = nodes[0].get("node_id")
                             
-                            # If match found, update chapter_id
-                            if best_match_id:
-                                graph_node["chapter_id"] = best_match_id
-                            # If still no match, maybe it's a sub-concept, link to nearest parent? 
-                            # For now, leave as is or assign to root? 
-                            # Let's leave it, frontend handles missing links gracefully.
-
-                    return result
-        except Exception:
-            pass
+                        if best_match_id:
+                            graph_node["chapter_id"] = best_match_id
+                            
+                return result
+        
+        # Fallback: Generate a simple graph based on node hierarchy
+        logger.warning("Knowledge graph generation failed, using fallback")
+        return self._generate_fallback_knowledge_graph(nodes)
+    
+    def _generate_fallback_knowledge_graph(self, nodes: List[Dict]) -> Dict:
+        """
+        Generate a simple fallback knowledge graph based on node hierarchy.
+        """
+        graph_nodes = []
+        graph_edges = []
+        
+        # Create nodes
+        for node in nodes[:15]:
+            node_id = node.get("node_id", str(uuid.uuid4()))
+            node_level = node.get("node_level", 1)
             
-        return {"nodes": [], "edges": []}
+            # Determine node type based on level
+            if node_level == 1:
+                node_type = "module"
+            else:
+                node_type = "concept"
+            
+            graph_nodes.append({
+                "id": node_id,
+                "label": node.get("node_name", "Unknown"),
+                "type": node_type,
+                "description": node.get("node_content", "")[:50],
+                "chapter_id": node_id
+            })
+        
+        # Add Root Node
+        root_id = "root_" + str(uuid.uuid4())[:8]
+        graph_nodes.insert(0, {
+            "id": root_id,
+            "label": "课程核心",
+            "type": "root",
+            "description": "课程根节点",
+            "chapter_id": nodes[0].get("node_id") if nodes else ""
+        })
+        
+        # Connect Root to Level 1 Modules
+        for node in graph_nodes:
+             if node["type"] == "module":
+                graph_edges.append({
+                    "source": root_id,
+                    "target": node["id"],
+                    "relation": "contains",
+                    "label": "包含"
+                })
+
+        # Create edges based on parent-child relationships
+        node_map = {n["id"]: n for n in graph_nodes}
+        for node in nodes[:15]:
+            node_id = node.get("node_id", "")
+            parent_id = node.get("parent_node_id", "")
+            
+            if parent_id and parent_id in node_map and node_id in node_map:
+                graph_edges.append({
+                    "source": parent_id,
+                    "target": node_id,
+                    "relation": "contains",
+                    "label": "包含"
+                })
+        
+        # Add some cross-references between same-level nodes
+        level_groups = {}
+        for node in graph_nodes:
+            level = node.get("type", "basic")
+            if level not in level_groups:
+                level_groups[level] = []
+            level_groups[level].append(node)
+        
+        # Connect nodes within same level
+        for level, group in level_groups.items():
+            for i in range(len(group) - 1):
+                if len(graph_edges) < 30:  # Limit total edges
+                    graph_edges.append({
+                        "source": group[i]["id"],
+                        "target": group[i + 1]["id"],
+                        "relation": "related",
+                        "label": "关联"
+                    })
+        
+        return {
+            "nodes": graph_nodes,
+            "edges": graph_edges
+        }
 
     def locate_node(self, keyword: str, all_nodes: List[Dict]) -> Dict:
         # Simple mock search - Semantic search requires embedding, sticking to keyword match for now
