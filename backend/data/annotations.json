@@ -89,5 +89,15 @@
     "anno_summary": "999",
     "source_type": "user",
     "quote": "是线性代数的基石"
+  },
+  {
+    "anno_id": "note-jri992g10",
+    "node_id": "d36f5740-1f34-41b9-a7c3-3a1679daff0f",
+    "course_id": "54c81962-57bb-42b6-8016-14f7495d57ee",
+    "question": "User Note",
+    "answer": "666666",
+    "anno_summary": "666666",
+    "source_type": "user",
+    "quote": "在微积分中，函数不仅是研究对象，更是分析变化规律、构建模型的核心手段。理解函数的定义及其基本性质，是学习后续章节如极限、导数和积分的基础。"
   }
 ]
