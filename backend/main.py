@@ -183,7 +183,11 @@ async def generate_course(req: GenerateCourseRequest):
     # Create new Course ID
     course_id = str(uuid.uuid4())
     data["course_id"] = course_id
-    data["difficulty"] = req.difficulty # Save difficulty for task manager
+    
+    # Store metadata
+    data["difficulty"] = req.difficulty
+    data["style"] = req.style
+    data["requirements"] = req.requirements
     
     await run_in_threadpool(storage.save_course, course_id, data)
 
