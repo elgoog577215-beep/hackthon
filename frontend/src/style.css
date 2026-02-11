@@ -882,7 +882,7 @@ html {
    This usually happens when global line-height or font settings interfere with KaTeX's precise layout.
 */
 .katex {
-  line-height: 1.2 !important; /* Reset line-height to KaTeX default */
+  line-height: normal !important; /* Reset line-height to KaTeX default */
   font-size: 1.1em;            /* Slight boost for readability */
   text-indent: 0;              /* Prevent paragraph indent from affecting math */
   white-space: nowrap;         /* Prevent line breaks inside formulas unless necessary */
@@ -923,10 +923,8 @@ html {
    Specific fix for "subscripts far away" issue:
    Often caused by 'vertical-align' being overridden or 'display: block' accidentally applied to spans.
 */
-.katex span {
-  display: inline-block; /* Ensure spans behave as blocks for positioning */
-  vertical-align: baseline; /* Reset to default */
-}
+/* REMOVED: .katex span { display: inline-block; } as it breaks complex layouts */
+
 
 /* Revert specific KaTeX classes to their required display modes if overridden */
 .katex .mord, 
@@ -1086,8 +1084,8 @@ sub, sup {
 
 /* 3. Text & Font Metrics */
 .katex {
-  font-size: 1.2em !important;
-  line-height: 1.6 !important;
+  font-size: 1.15em !important;
+  line-height: normal !important;
   text-indent: 0;
   color: #1e293b;
   white-space: nowrap; /* Prevent breaking inside formula */
