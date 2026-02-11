@@ -55,13 +55,13 @@
     "id": "e2b80dea-6b4b-46bb-8381-344d9e4708cf",
     "course_id": "eb1b58a9-ef99-46d6-8538-daf161e7036b",
     "type": "auto_generate",
-    "status": "running",
-    "progress": 28,
+    "status": "completed",
+    "progress": 100,
     "total": 0,
     "current_node_name": "",
-    "message": "正文: 3.10 工业级并发应用... | 大纲: 第四章 类与元类的深度解析 | 大纲: 第五章 性能调优与 C...",
+    "message": "All steps completed",
     "created_at": "2026-02-11T23:42:52.823757",
-    "updated_at": "2026-02-11T23:50:21.527043",
+    "updated_at": "2026-02-11T23:59:54.090651",
     "error": null
   }
 }

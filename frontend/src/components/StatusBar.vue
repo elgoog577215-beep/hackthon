@@ -9,40 +9,30 @@
             <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100 bg-slate-50/50">
                 <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">任务队列</span>
                 <span class="text-xs font-medium text-slate-400">
-                    剩余 {{ queue.filter(i => i.status !== 'completed').length }} 项
+                    剩余 {{ queue.filter(i => i.status !== 'completed' && i.status !== 'error').length }} 项
                 </span>
             </div>
             
             <div class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-                <div v-if="queue.filter(i => i.status === 'running' || i.status === 'pending' || i.status === 'error').length === 0" class="flex flex-col items-center justify-center h-24 text-slate-400 gap-2">
+                <div v-if="queue.filter(i => i.status === 'running' || i.status === 'pending').length === 0" class="flex flex-col items-center justify-center h-24 text-slate-400 gap-2">
                     <span class="text-sm">队列空闲</span>
                 </div>
                 
-                <div v-for="item in queue.filter(i => i.status === 'running' || i.status === 'pending' || i.status === 'error')" :key="item.uuid" 
+                <div v-for="item in queue.filter(i => i.status === 'running' || i.status === 'pending')" :key="item.uuid" 
                      class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm"
                      :class="[
-                        item.status === 'running' ? 'bg-blue-50 text-blue-700' : 'text-slate-600',
-                        item.status === 'error' ? 'text-red-600 bg-red-50' : ''
+                        item.status === 'running' ? 'bg-blue-50 text-blue-700' : 'text-slate-600'
                      ]"
                 >
                     <!-- Status Icon -->
                     <div class="w-4 h-4 flex items-center justify-center shrink-0">
                         <el-icon v-if="item.status === 'running'" class="animate-spin text-blue-500"><Loading /></el-icon>
-                        <el-icon v-else-if="item.status === 'error'" class="text-red-500"><Close /></el-icon>
                         <div v-else class="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
                     </div>
                     
                     <span class="truncate flex-1 font-medium">{{ item.title }}</span>
                     
                     <span class="text-xs opacity-70 whitespace-nowrap" v-if="item.status === 'running'">进行中...</span>
-                    <span class="text-xs text-red-500 whitespace-nowrap" v-if="item.errorMsg">失败</span>
-                    
-                    <button v-if="item.status === 'error'" @click.stop="$emit('retry-item', item.uuid)" 
-                        class="p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-blue-500 transition-colors ml-2"
-                        title="重新生成"
-                    >
-                        <el-icon><Refresh /></el-icon>
-                    </button>
                 </div>
             </div>
         </div>
