@@ -1,5 +1,6 @@
 import MarkdownIt from 'markdown-it';
-import markdownItKatex from 'markdown-it-katex';
+// import markdownItKatex from 'markdown-it-katex'; // Replaced by custom implementation
+import katex from 'katex';
 import mermaid from 'mermaid';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
@@ -52,11 +53,133 @@ md.use(linkAttributes, {
   }
 });
 
-// Use standard katex plugin
-md.use(markdownItKatex, {
-    throwOnError: false,
-    errorColor: '#cc0000'
-});
+// Custom Math Plugin for KaTeX
+const mathPlugin = (md: any) => {
+    // Inline math rule ($...$ and $$...$$)
+    md.inline.ruler.after('escape', 'math_inline', (state: any, silent: boolean) => {
+        const start = state.pos;
+        if (state.src[start] !== '$') return false;
+
+        let isDisplay = false;
+        let marker = '$';
+        
+        if (start + 1 < state.posMax && state.src[start + 1] === '$') {
+            isDisplay = true;
+            marker = '$$';
+        }
+
+        const markerLen = marker.length;
+        let pos = start + markerLen;
+        let found = false;
+
+        while (pos < state.posMax) {
+            if (state.src.startsWith(marker, pos)) {
+                // Check for escaped $ (not perfect but good enough)
+                if (pos > 0 && state.src[pos - 1] === '\\') {
+                    pos++;
+                    continue;
+                }
+                found = true;
+                break;
+            }
+            pos++;
+        }
+
+        if (!found) {
+            if (!silent) state.pending += marker;
+            state.pos += markerLen;
+            return true;
+        }
+
+        if (silent) return true;
+
+        const content = state.src.slice(start + markerLen, pos);
+        
+        // Heuristic: If content contains newlines, it might be a broken block.
+        // But markdown-it inline usually doesn't span newlines unless breaks enabled.
+        // My robust preprocessing ensures blocks are clean.
+        
+        const token = state.push(isDisplay ? 'math_display' : 'math_inline', 'math', 0);
+        token.content = content.trim();
+        token.markup = marker;
+
+        state.pos = pos + markerLen;
+        return true;
+    });
+
+    // Block math rule for top-level $$...$$
+    // (Optional if inline rule catches it, but better for structure)
+    md.block.ruler.after('blockquote', 'math_block', (state: any, start: number, end: number, silent: boolean) => {
+        const firstLine = state.src.slice(state.bMarks[start] + state.tShift[start], state.eMarks[start]);
+        if (!firstLine.trim().startsWith('$$')) return false;
+
+        // Search for end
+        let next = start;
+        let found = false;
+        
+        // If single line $$...$$
+        if (firstLine.trim().length > 2 && firstLine.trim().endsWith('$$')) {
+            found = true;
+        } else {
+            // Multiline
+            next++;
+            while (next < end) {
+                const line = state.src.slice(state.bMarks[next] + state.tShift[next], state.eMarks[next]);
+                if (line.trim().endsWith('$$')) {
+                    found = true;
+                    break;
+                }
+                next++;
+            }
+        }
+
+        if (!found) return false;
+        if (silent) return true;
+
+        const token = state.push('math_display_block', 'math', 0);
+        // Extract content
+        const lines = state.getLines(start, next + 1, state.tShift[start], false);
+        let content = lines.trim();
+        if (content.startsWith('$$')) content = content.slice(2);
+        if (content.endsWith('$$')) content = content.slice(0, -2);
+        
+        token.content = content.trim();
+        token.map = [start, next + 1];
+        token.markup = '$$';
+
+        state.line = next + 1;
+        return true;
+    }, { alt: ['paragraph', 'reference', 'blockquote', 'list'] });
+
+    // Renderers
+    const renderMath = (content: string, displayMode: boolean) => {
+        try {
+            return katex.renderToString(content, { 
+                throwOnError: false, 
+                displayMode,
+                errorColor: '#cc0000',
+                output: 'html' // Render to HTML
+            });
+        } catch (e) {
+            return `<span style="color:red">Error: ${e}</span>`;
+        }
+    };
+
+    md.renderer.rules.math_inline = (tokens: any, idx: number) => {
+        return renderMath(tokens[idx].content, false);
+    };
+    
+    md.renderer.rules.math_display = (tokens: any, idx: number) => {
+        return renderMath(tokens[idx].content, true);
+    };
+
+    md.renderer.rules.math_display_block = (tokens: any, idx: number) => {
+        return '<div class="katex-display">' + renderMath(tokens[idx].content, true) + '</div>';
+    };
+};
+
+// Use custom math plugin
+md.use(mathPlugin);
 
 // Custom renderer for mermaid code blocks
 // @ts-ignore
