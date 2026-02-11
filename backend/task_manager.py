@@ -102,38 +102,61 @@ class TaskManager:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
+        # Run the async manager
+        loop.run_until_complete(self._async_manager())
+
+    async def _async_manager(self):
+        MAX_CONCURRENT = 2
+        # Map task_id -> Task (Future)
+        running_tasks = {} 
+        
+        logger.info(f"Async worker manager started. Max concurrent: {MAX_CONCURRENT}")
+
         while self.running:
-            # Find a pending task
-            # We prioritize running tasks first, then pending
-            active_task_id = None
+            # 1. Cleanup finished tasks
+            # Check statuses of running tasks
+            done_ids = []
+            for tid, task in running_tasks.items():
+                if task.done():
+                    done_ids.append(tid)
+                    # Handle exceptions
+                    try:
+                        await task
+                    except Exception as e:
+                        logger.error(f"Task {tid} raised exception: {e}")
+                        with self.lock:
+                            if tid in self.tasks:
+                                self.tasks[tid]["status"] = "failed"
+                                self.tasks[tid]["error"] = str(e)
+                                self.save_tasks()
             
-            with self.lock:
-                # First check if any task is 'running' (maybe interrupted by restart)
-                # Or 'pending'
-                candidates = [
-                    tid for tid, t in self.tasks.items() 
-                    if t["status"] in ["pending", "running"]
-                ]
-                if candidates:
-                    # Pick the first one for now (FIFO)
-                    # Ideally we might want round-robin or priority, but simple is fine
-                    active_task_id = candidates[0]
+            for tid in done_ids:
+                del running_tasks[tid]
+
+            # 2. Fill slots
+            free_slots = MAX_CONCURRENT - len(running_tasks)
+            if free_slots > 0:
+                with self.lock:
+                    # Find candidates not already running
+                    # We look for pending OR running (which means "ready to run next step")
+                    candidates = [
+                        (tid, t) for tid, t in self.tasks.items() 
+                        if t["status"] in ["pending", "running"] 
+                        and tid not in running_tasks
+                        and t.get("status") != "paused"
+                    ]
+                    
+                    # Sort by updated_at ASC (Oldest updated first -> Round Robin / FIFO)
+                    candidates.sort(key=lambda x: x[1].get("updated_at", ""))
+                    
+                    for i in range(min(free_slots, len(candidates))):
+                        tid = candidates[i][0]
+                        # Launch task
+                        future = asyncio.create_task(self._process_task(tid))
+                        running_tasks[tid] = future
+                        logger.info(f"Started task chunk: {tid}")
             
-            if active_task_id:
-                try:
-                    loop.run_until_complete(self._process_task(active_task_id))
-                except Exception as e:
-                    logger.error(f"Error processing task {active_task_id}: {e}")
-                    with self.lock:
-                        self.tasks[active_task_id]["status"] = "failed"
-                        self.tasks[active_task_id]["error"] = str(e)
-                        self.save_tasks()
-                
-                # Sleep a bit to prevent tight loop if no work is actually done or after a step
-                time.sleep(1) 
-            else:
-                # No tasks, sleep longer
-                time.sleep(2)
+            await asyncio.sleep(1)
 
     async def _process_task(self, task_id: str):
         task = self.tasks.get(task_id)
@@ -236,60 +259,34 @@ class TaskManager:
                     course_outline
                 )
                 
-                # Save to course
-                if "nodes" not in course_data:
-                    course_data["nodes"] = []
-                course_data["nodes"].extend(new_nodes)
+                # Add to nodes
+                nodes.extend(new_nodes)
+                course_data["nodes"] = nodes
                 self.storage.save_course(course_id, course_data)
                 
             elif action_type == "content":
                 # Generate Content
-                # Need context
-                # Find siblings for context
-                siblings = [n for n in nodes if n.get("parent_node_id") == target_node.get("parent_node_id")]
-                # Find previous sibling
-                prev_context = ""
-                try:
-                    idx = next(i for i, n in enumerate(siblings) if n["node_id"] == target_node["node_id"])
-                    if idx > 0:
-                        prev_node = siblings[idx-1]
-                        prev_context = f"Previous section ({prev_node['node_name']}): {prev_node.get('node_content', '')[-300:]}"
-                except StopIteration:
-                    pass
-                
-                # Course context (L1 nodes)
-                course_context = "\n".join([f"- {n['node_name']}" for n in l1_nodes])
-
-                content = await self.ai_service.redefine_content(
+                content = await self.ai_service.generate_node_content(
                     target_node["node_name"],
-                    "", # user_requirement
-                    "", # original_content
-                    course_context,
-                    prev_context
+                    target_node.get("node_context", ""), # If available
+                    target_node["node_id"],
+                    course_data.get("course_name", "")
                 )
                 
-                # Save
+                # Update Node
                 target_node["node_content"] = content
-                target_node["node_type"] = "custom" # Mark as generated
-                
-                # Update node in the list (reference modification might not work if dict was copied, but usually works for mutable objs in list)
-                # But to be safe, find index and replace
-                for i, n in enumerate(course_data["nodes"]):
-                    if n["node_id"] == target_node["node_id"]:
-                        course_data["nodes"][i] = target_node
-                        break
-                
                 self.storage.save_course(course_id, course_data)
 
-            # Update task timestamp
+            # Update Progress (Crude)
+            task["progress"] = min(95, int((completed_steps + 1) / total_steps * 100))
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
 
         except Exception as e:
-            logger.error(f"Task execution failed: {e}")
-            # Don't fail the whole task immediately? 
-            # Maybe retry count? For now, fail.
-            task["status"] = "failed"
+            logger.error(f"Error in task step: {e}")
             task["error"] = str(e)
+            # Don't fail the whole task immediately? Retry?
+            # For now, mark failed
+            task["status"] = "failed"
             self.save_tasks()
 

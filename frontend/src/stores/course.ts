@@ -82,7 +82,7 @@ export interface QueueItem {
 export interface Task {
     id: string // courseId
     courseName: string
-    status: 'idle' | 'running' | 'paused' | 'completed' | 'error'
+    status: 'idle' | 'running' | 'paused' | 'completed' | 'error' | 'pending'
     progress: number
     currentStep: string // "正在生成第 X 章"
     logs: string[]
@@ -726,6 +726,7 @@ export const useCourseStore = defineStore('course', {
                 else if (status === 'paused') task.status = 'paused'
                 else if (status === 'completed') task.status = 'completed'
                 else if (status === 'error') task.status = 'error'
+                else if (status === 'pending') task.status = 'pending'
 
                 task.progress = progress
                 if (current_node) {

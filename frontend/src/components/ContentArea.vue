@@ -106,7 +106,7 @@
         <!-- Main Content Column -->
         <div class="flex-1 min-w-0 px-2 sm:px-3 lg:px-4 xl:px-6 space-y-8 sm:space-y-10 lg:space-y-12 pb-24 sm:pb-28 lg:pb-32 pt-2 sm:pt-3 lg:pt-4">
             <CourseNode 
-                v-for="(node, index) in flatNodes" 
+                v-for="(node, index) in visibleNodes" 
                 :key="node.node_id"
                 :node="node"
                 :index="index"
@@ -115,6 +115,13 @@
                 :line-height="lineHeight"
                 @start-quiz="handleStartQuiz"
             />
+            
+            <!-- Sentinel for Lazy Loading -->
+            <div ref="sentinelRef" class="h-10 w-full flex items-center justify-center">
+                <div v-if="renderedCount < flatNodes.length" class="text-slate-400 text-xs flex items-center gap-2 py-2 opacity-50">
+                    <el-icon class="is-loading"><Loading /></el-icon>
+                </div>
+            </div>
         </div>
 
         <!-- Note Column (Desktop Only) - Responsive width -->
@@ -750,8 +757,15 @@ const debounce = (fn: Function, delay: number) => {
 const debouncedUpdatePositions = debounce(() => updateNotePositions(), 100)
 
 // Watch for scroll requests from sidebar
-watch(() => courseStore.scrollToNodeId, (nodeId) => {
+watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     if (!nodeId) return
+    
+    // Ensure node is rendered if it's outside the current view
+    const index = flatNodes.value.findIndex(n => n.node_id === nodeId)
+    if (index !== -1 && index >= renderedCount.value) {
+        renderedCount.value = index + 5
+        await nextTick()
+    }
     
     const element = document.getElementById(`node-${nodeId}`)
     if (element) {
@@ -851,6 +865,53 @@ const flatNodes = computed(() => {
     traverse(courseStore.treeData)
     return nodes
 })
+
+// --- Performance Optimization: Lazy Rendering ---
+const renderedCount = ref(20)
+const sentinelRef = ref<HTMLElement | null>(null)
+let sentinelObserver: IntersectionObserver | null = null
+
+const visibleNodes = computed(() => {
+    if (!flatNodes.value) return []
+    return flatNodes.value.slice(0, renderedCount.value)
+})
+
+const initSentinelObserver = () => {
+    if (sentinelObserver) sentinelObserver.disconnect()
+    
+    sentinelObserver = new IntersectionObserver((entries: IntersectionObserverEntry[]) => {
+        if (!entries || entries.length === 0) return
+        const entry = entries[0]
+        if (entry && entry.isIntersecting) {
+            const allNodes = flatNodes.value || []
+            if (renderedCount.value < allNodes.length) {
+                renderedCount.value = Math.min(renderedCount.value + 10, allNodes.length)
+            }
+        }
+    }, { rootMargin: '600px' }) // Load well in advance
+    
+    if (sentinelRef.value) {
+        sentinelObserver.observe(sentinelRef.value)
+    }
+}
+
+watch(sentinelRef, (el) => {
+    if (el) initSentinelObserver()
+})
+
+watch(() => flatNodes.value.length, (newLen, oldLen) => {
+    // If we were showing everything, keep showing everything (for new nodes generated at the end)
+    if (renderedCount.value >= oldLen) {
+        renderedCount.value = newLen
+    }
+})
+
+// Reset when course changes significantly
+watch(() => courseStore.currentCourseId, () => {
+    renderedCount.value = 20
+})
+// ------------------------------------------------
+
 const nodeNameMap = computed(() => new Map(flatNodes.value.map(n => [n.node_id, n.node_name])))
 
 const exportContent = async () => {
