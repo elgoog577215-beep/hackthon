@@ -1,16 +1,5 @@
-# Stage 1: Build Frontend
-FROM node:20-slim AS frontend-builder
-WORKDIR /app/frontend
-
-# Copy package files and install dependencies
-COPY frontend/package*.json ./
-RUN npm install
-
-# Copy source code and build
-COPY frontend/ .
-RUN npm run build
-
-# Stage 2: Setup Backend and Runtime
+# Use pre-built frontend assets instead of building in Docker
+# This ensures consistency and speeds up deployment
 FROM python:3.10-slim
 WORKDIR /app
 
@@ -21,9 +10,9 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 # Copy backend source code
 COPY backend/ ./backend/
 
-# Copy built frontend assets from builder stage
-# We'll place them in a 'static' directory inside backend for easy serving
-COPY --from=frontend-builder /app/frontend/dist /app/backend/static
+# Copy pre-built frontend assets
+# Note: frontend/dist must be present in the build context
+COPY frontend/dist /app/backend/static
 
 # Set environment variables
 ENV PYTHONPATH=/app
