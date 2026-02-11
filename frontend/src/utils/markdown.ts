@@ -260,13 +260,37 @@ export const renderMarkdown = (content: string) => {
     // --- Pre-processing for Robustness ---
     let normalized = content;
 
+    // Protection: Mask code blocks to prevent math heuristics from messing up code
+    // We replace code blocks with placeholders, then restore them at the end.
+    const codeBlockMap = new Map<string, string>();
+    let codeBlockId = 0;
+    
+    // Mask fenced code blocks (```...```)
+    normalized = normalized.replace(/^```[\s\S]*?^```/gm, (match) => {
+        const id = `__CODE_BLOCK_${codeBlockId++}__`;
+        codeBlockMap.set(id, match);
+        return id;
+    });
+
+    // Mask inline code (`...`)
+    // Note: This regex is simple and might not handle escaped backticks perfectly, but good enough for protection
+    normalized = normalized.replace(/`[^`\n]+`/g, (match) => {
+        const id = `__INLINE_CODE_${codeBlockId++}__`;
+        codeBlockMap.set(id, match);
+        return id;
+    });
+
     // 1. Fix unclosed block math $$ ...
     const blockMathCount = (normalized.match(/\$\$/g) || []).length;
     if (blockMathCount % 2 !== 0) {
         normalized += '\n$$';
     }
 
-    // 2. Fix unclosed code blocks ``` ...
+    // 2. Fix unclosed code blocks ``` ... (Only if not masked? But we masked valid ones)
+    // If we masked them, this check might be irrelevant for valid blocks, 
+    // but if the user has an open block at the very end that wasn't matched by the regex (because no closing fence),
+    // we might need to handle it.
+    // However, since we mask *valid* blocks, any remaining ``` are unclosed.
     const fenceCount = (normalized.match(/^```/gm) || []).length;
     if (fenceCount % 2 !== 0) {
         normalized += '\n```';
@@ -307,10 +331,31 @@ export const renderMarkdown = (content: string) => {
         return `\n$$\n${content.trim()}\n$$\n`;
     });
     
-    // Fix spaces in inline math $ ... $ -> $...$
+    // Currency Protection:
+    // If we have $100 and $200, regex might mistake it for math.
+    // Real math usually doesn't have a digit immediately after the first $ (unless it's $1+1$, but usually there's a space or letter or command).
+    // Actually $1+1$ is valid math.
+    // Better heuristic: Math $ usually isn't followed by a space (unless it's just one space and then valid math?)
+    // Standard markdown-it-math requires NO space after opening $ and NO space before closing $.
+    // Let's adopt that strictness for our custom replacements to avoid currency issues.
+    
+    // Fix spaces in inline math $ ... $ -> $...$ (ONLY if it looks like math, not currency)
     normalized = normalized.replace(/(\$\$[\s\S]*?\$\$)|(\$([^\$\n]+?)\$)/g, (match, block, inline, content) => {
         if (block) return block
         if (inline) {
+            // Check if it looks like currency
+            // If it starts with a digit or space, or ends with a space, be careful.
+            // But we want to fix spacing! "$ x $" -> "$x$"
+            
+            // If content matches currency pattern e.g. "100.00" or " 100 " -> probably not math.
+            // But "$ 1 + 2 $" is math.
+            
+            // Let's assume if the USER put $...$ they might mean math, unless it's clearly currency text.
+            // Text: "I have $100 and you have $200." -> matches "$100 and you have $".
+            // Content: "100 and you have "
+            // If content contains " and " or " or " -> likely text.
+            if (content.match(/\s(and|or|with|for)\s/)) return match;
+            
             const trimmed = content.trim()
             return `$${trimmed}$`
         }
@@ -409,6 +454,13 @@ export const renderMarkdown = (content: string) => {
 
     let sanitized = ''
     try {
+        // Restore code blocks before rendering? 
+        // No, markdown-it needs to see the code blocks to render them as code.
+        // So we must restore them now.
+        codeBlockMap.forEach((value, key) => {
+             normalized = normalized.replace(key, value);
+        });
+
         const rawHtml = md.render(normalized);
         sanitized = DOMPurify.sanitize(rawHtml, {
             ADD_TAGS: ['iframe', 'span', 'div', 'p', 'button', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtable', 'mtr', 'mtd', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
