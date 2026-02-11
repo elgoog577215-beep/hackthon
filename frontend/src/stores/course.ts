@@ -37,6 +37,7 @@ export interface Node {
 export interface Annotation {
   anno_id: string
   node_id: string
+  course_id?: string
   question: string
   answer: string
   anno_summary: string
@@ -90,6 +91,7 @@ export interface Task {
     difficulty?: string
     style?: string
     requirements?: string
+    backendTaskId?: string // Backend Task ID
 }
 
 export interface AIContent {
@@ -672,6 +674,147 @@ export const useCourseStore = defineStore('course', {
         this.pendingChatInput = text
     },
 
+    // --- Backend Task Management ---
+    pollingInterval: null as number | null,
+
+    async startBackendTask(courseId: string) {
+        try {
+            const res = await http.post(`/courses/${courseId}/auto_generate`)
+            const { task_id, status } = res.data
+            
+            // Update or create local task
+            let task = this.tasks.get(courseId)
+            if (!task) {
+                // If task doesn't exist locally, create a shell one
+                // We might need courseName and nodes if not loaded
+                const course = this.courseList.find(c => c.course_id === courseId)
+                task = this.createTask(courseId, course?.course_name || 'Unknown Course', [])
+            }
+            
+            task.backendTaskId = task_id
+            task.status = 'running'
+            task.shouldStop = false
+            
+            this.addLogToTask(courseId, `🚀 后台任务已启动 (ID: ${task_id})`)
+            this.persistGenerationState()
+            
+            // Start polling
+            this.startPolling(task_id, courseId)
+            
+        } catch (error) {
+            console.error('Failed to start backend task', error)
+            ElMessage.error('启动后台生成失败')
+        }
+    },
+
+    startPolling(taskId: string, courseId: string) {
+        if (this.pollingInterval) clearInterval(this.pollingInterval)
+        
+        this.pollingInterval = setInterval(async () => {
+            try {
+                const res = await http.get(`/tasks/${taskId}`)
+                const { status, progress, current_node, logs, error } = res.data
+                
+                const task = this.tasks.get(courseId)
+                if (!task) {
+                    this.stopPolling()
+                    return
+                }
+
+                // Sync status
+                if (status === 'running') task.status = 'running'
+                else if (status === 'paused') task.status = 'paused'
+                else if (status === 'completed') task.status = 'completed'
+                else if (status === 'error') task.status = 'error'
+
+                task.progress = progress
+                if (current_node) {
+                    const node = this.nodes.find(n => n.node_id === current_node)
+                    const nodeName = node ? node.node_name : current_node
+                    task.currentStep = `正在生成: ${nodeName}`
+                    
+                    // Optionally refresh course data to show content updates
+                    // We can throttle this to avoid too many requests
+                    if (Math.random() < 0.2) { // 20% chance per poll (approx every 5-10s)
+                        await this.refreshCourseData(courseId)
+                    }
+                }
+                
+                // Sync logs (append new ones)
+                // Backend logs might be full history or recent?
+                // Assuming backend sends full list or we handle it.
+                // For now, let's just use the last log as status
+                // if (logs && logs.length > 0) {
+                //    const lastLog = logs[logs.length - 1]
+                //    if (!task.logs.includes(lastLog)) {
+                //        task.logs.push(lastLog)
+                //    }
+                // }
+
+                if (status === 'completed' || status === 'error') {
+                    this.stopPolling()
+                    await this.refreshCourseData(courseId) // Final refresh
+                    if (status === 'completed') {
+                        ElMessage.success('课程生成完成')
+                    } else {
+                        ElMessage.error(`生成出错: ${error}`)
+                    }
+                }
+
+            } catch (error) {
+                console.error('Polling failed', error)
+                // Don't stop polling immediately on transient network errors
+            }
+        }, 2000) // Poll every 2 seconds
+    },
+
+    stopPolling() {
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval)
+            this.pollingInterval = null
+        }
+    },
+
+    async pauseBackendTask(courseId: string) {
+        const task = this.tasks.get(courseId)
+        if (!task || !task.backendTaskId) return
+
+        try {
+            await http.post(`/tasks/${task.backendTaskId}/pause`)
+            task.status = 'paused'
+            this.addLogToTask(courseId, '⏸️ 后台任务已暂停')
+        } catch (error) {
+            console.error('Failed to pause task', error)
+        }
+    },
+
+    async resumeBackendTask(courseId: string) {
+        const task = this.tasks.get(courseId)
+        if (!task || !task.backendTaskId) return
+
+        try {
+            await http.post(`/tasks/${task.backendTaskId}/resume`)
+            task.status = 'running'
+            this.addLogToTask(courseId, '▶️ 后台任务已恢复')
+            this.startPolling(task.backendTaskId, courseId)
+        } catch (error) {
+            console.error('Failed to resume task', error)
+        }
+    },
+    
+    async refreshCourseData(courseId: string) {
+        if (this.currentCourseId !== courseId) return
+        try {
+            const res = await http.get(`/courses/${courseId}`)
+            if (res.data && res.data.nodes) {
+                this.nodes = res.data.nodes
+                this.courseTree = this.buildTree(this.nodes)
+            }
+        } catch (e) {
+            console.error('Failed to refresh course data', e)
+        }
+    },
+
     // --- Task Actions ---
     getTask(courseId: string) {
         return this.tasks.get(courseId)
@@ -680,6 +823,13 @@ export const useCourseStore = defineStore('course', {
     pauseTask(courseId: string) {
         const task = this.tasks.get(courseId)
         if (task) {
+            // New Backend Logic
+            if (task.backendTaskId) {
+                this.pauseBackendTask(courseId)
+                return
+            }
+            
+            // Legacy Logic
             task.status = 'paused'
             task.shouldStop = true
             this.addLogToTask(courseId, '⏸️ 任务已暂停')
@@ -690,20 +840,15 @@ export const useCourseStore = defineStore('course', {
     startTask(courseId: string) {
         const task = this.tasks.get(courseId)
         if (task) {
-            task.status = 'running'
-            task.shouldStop = false
-            this.addLogToTask(courseId, '▶️ 任务继续')
-            
-            // Check if queue needs repopulation (e.g. after restart)
-            const hasPending = this.queue.some(i => i.courseId === courseId && (i.status === 'pending' || i.status === 'running'))
-            if (!hasPending) {
-                 this.addLogToTask(courseId, '🔄 正在检查未完成章节...')
-                 this.generateFullDetails(courseId)
+            // New Backend Logic: Try to resume if we know it's a backend task
+            if (task.backendTaskId) {
+                this.resumeBackendTask(courseId)
+                return
             }
-
-            this.persistGenerationState()
-            // Trigger queue processing if it was stopped
-            this.processQueue()
+            
+            // If no backendTaskId, it might be a "legacy" task or a lost state.
+            // Try to start/resume via backend anyway.
+            this.startBackendTask(courseId)
         }
     },
     
@@ -1025,8 +1170,8 @@ export const useCourseStore = defineStore('course', {
                 // Actually, simpler: generateFullDetails uses task.nodes.
                 // If courseId == currentCourseId, we verify if we need to copy back.
                 
-                // Step 2: Auto-expand Details
-                await this.generateFullDetails(courseId)
+                // Step 2: Auto-expand Details using Backend Task
+                await this.startBackendTask(courseId)
             }
         } catch (error) {
             this.addLog(`❌ 生成失败: ${error}`)
@@ -1066,32 +1211,64 @@ export const useCourseStore = defineStore('course', {
         const task = this.tasks.get(courseId)
         
         try {
+            // Check if backend has a task running for this course
+            try {
+                 const taskRes = await http.get(`/courses/${courseId}/task`)
+                 if (taskRes.data && taskRes.data.status !== 'none' && taskRes.data.status !== 'error') {
+                     const backendTask = taskRes.data
+                     // Ensure local task exists
+                     let localTask = this.tasks.get(courseId)
+                     if (!localTask) {
+                         // We don't have course details yet, so wait for get course response or use placeholder
+                         localTask = this.createTask(courseId, 'Loading...', [])
+                     }
+                     localTask.backendTaskId = backendTask.id
+                     localTask.status = backendTask.status
+                     localTask.progress = backendTask.progress
+                     
+                     // If running or pending, start polling
+                     if (backendTask.status === 'running' || backendTask.status === 'pending') {
+                         this.startPolling(backendTask.id, courseId)
+                     }
+                 }
+            } catch (ignore) {
+                // It's fine if no task exists
+            }
+
             const res = await http.get(`/courses/${courseId}`)
             if (res.data && res.data.nodes) {
                 this.nodes = res.data.nodes
                 this.courseTree = this.buildTree(this.nodes)
                 
-                // If task exists, update its local nodes to match server state (which might be newer if we reloaded)
-                // BUT, if task is running, its local nodes are the truth.
-                // If task is running, we should trust the task?
-                // Actually, if task is running, we shouldn't have reloaded the page.
-                // If we switched courses and came back, the task might have updated backend.
-                // If task is paused/idle, we can update task nodes.
-                if (task && task.status !== 'running') {
-                    task.nodes = JSON.parse(JSON.stringify(this.nodes))
+                // Update local task name if we created a placeholder
+                const localTask = this.tasks.get(courseId)
+                if (localTask && localTask.courseName === 'Loading...') {
+                    localTask.courseName = res.data.course_name
+                }
+                
+                // If task exists, update its local nodes to match server state
+                if (localTask && localTask.status !== 'running') {
+                    localTask.nodes = JSON.parse(JSON.stringify(this.nodes))
                 }
                 
                 // Sync UI state with task state
-                if (task && task.status === 'running') {
+                if (localTask && localTask.status === 'running') {
                     this.isGenerating = true
-                    this.generationProgress = task.progress
-                    this.currentGeneratingNode = task.currentStep
-                    this.generationLogs = task.logs
+                    this.generationProgress = localTask.progress
+                    this.currentGeneratingNode = localTask.currentStep
+                    this.generationLogs = localTask.logs
                 } else {
                     this.isGenerating = false
-                    this.generationProgress = task ? task.progress : 100
-                    this.generationLogs = task ? task.logs : []
+                    this.generationProgress = localTask ? localTask.progress : 100
+                    this.generationLogs = localTask ? localTask.logs : []
                 }
+                
+                // Restore reading position
+                const pos = this.getReadingPosition(courseId)
+                if (pos) {
+                   this.scrollToNodeId = pos.nodeId
+                }
+
             } else {
                 throw new Error('课程数据为空')
             }
@@ -1903,6 +2080,7 @@ export const useCourseStore = defineStore('course', {
         const newAnno: Annotation = {
             anno_id: anno.anno_id || `anno_${crypto.randomUUID()}`,
             node_id: anno.node_id!,
+            course_id: this.currentCourseId,
             question: anno.question || 'User Note',
             answer: anno.answer || '',
             anno_summary: anno.anno_summary || 'Note',

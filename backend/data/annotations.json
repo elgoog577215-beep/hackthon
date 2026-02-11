@@ -70,5 +70,14 @@
     "anno_summary": "666",
     "source_type": "user",
     "quote": "理系统构成了向量空间的代数结构基础，它们确保了我们可以在该空间中进行加法和标量"
+  },
+  {
+    "anno_id": "note-4052fgvkd",
+    "node_id": "id_1",
+    "question": "User Note",
+    "answer": "666",
+    "anno_summary": "666",
+    "source_type": "user",
+    "quote": "生成集和线性无关性"
   }
 ]

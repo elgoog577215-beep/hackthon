@@ -219,7 +219,12 @@ class AIService:
         
         response = await self._call_llm(prompt, system_prompt)
         if response:
-            return self._extract_json(response)
+            data = self._extract_json(response)
+            if data and "nodes" in data:
+                # Ensure unique UUIDs for nodes to prevent collision between courses
+                for node in data["nodes"]:
+                    node["node_id"] = str(uuid.uuid4())
+            return data
         return {"course_name": keyword, "nodes": []}
 
     async def generate_quiz(self, content: str, node_name: str = "", difficulty: str = "medium", style: str = "standard", user_persona: str = "", question_count: int = 3) -> List[Dict]:
@@ -312,10 +317,11 @@ class AIService:
         
         return fallback_questions[:question_count]
 
-    async def generate_sub_nodes(self, node_name: str, node_level: int, node_id: str, course_name: str = "", parent_context: str = "") -> List[Dict]:
+    async def generate_sub_nodes(self, node_name: str, node_level: int, node_id: str, course_name: str = "", parent_context: str = "", course_outline: str = "") -> List[Dict]:
         system_prompt = get_prompt("generate_sub_nodes").format(
             course_name=course_name if course_name else "未知课程",
-            parent_context=parent_context if parent_context else "无"
+            parent_context=parent_context if parent_context else "无",
+            course_outline=course_outline if course_outline else "无"
         )
         prompt = f"当前节点信息：名称={node_name}，层级={node_level}。请列出该章节下的所有子小节，确保结构完整且具备专业性。"
         
