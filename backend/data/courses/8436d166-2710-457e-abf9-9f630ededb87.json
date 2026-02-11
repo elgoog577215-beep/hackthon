@@ -72,7 +72,8 @@
       "node_level": 2,
       "node_content": "介绍向量空间的8条基本公理，包括加法与数乘运算的封闭性、结合律和分配律等性质。",
       "node_type": "custom",
-      "is_read": true
+      "is_read": true,
+      "quiz_score": 0
     },
     {
       "node_id": "fb13000f-de45-45ad-8532-2155b36b8fb9",

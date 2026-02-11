@@ -25,7 +25,7 @@ class Annotation(BaseModel):
 
 class GenerateCourseRequest(BaseModel):
     keyword: str
-    difficulty: Optional[str] = "medium"
+    difficulty: Optional[str] = "intermediate"
     style: Optional[str] = "academic"
     requirements: Optional[str] = ""
 
@@ -41,6 +41,8 @@ class RedefineContentRequest(BaseModel):
     user_requirement: str
     course_context: Optional[str] = ""
     previous_context: Optional[str] = ""
+    difficulty: Optional[str] = "expert"
+    style: Optional[str] = "academic"
 
 class ExtendContentRequest(BaseModel):
     node_id: str
@@ -85,8 +87,8 @@ class UpdateAnnotationRequest(BaseModel):
 class GenerateQuizRequest(BaseModel):
     node_content: str
     node_name: Optional[str] = ""
-    difficulty: str = "medium"
-    style: Optional[str] = "standard"
+    difficulty: str = "intermediate"
+    style: Optional[str] = "academic"
     user_persona: Optional[str] = ""
     question_count: int = 3
 

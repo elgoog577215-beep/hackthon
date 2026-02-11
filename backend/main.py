@@ -109,6 +109,12 @@ def get_course_task(course_id: str):
     tasks.sort(key=lambda x: x["updated_at"], reverse=True)
     return tasks[0]
 
+@app.get("/tasks")
+def list_tasks(limit: int = 100):
+    if not task_manager:
+        raise HTTPException(status_code=500, detail="Task Manager not initialized")
+    return task_manager.get_all_tasks(limit)
+
 @app.get("/tasks/{task_id}")
 def get_task(task_id: str):
     if not task_manager:
@@ -131,6 +137,20 @@ def resume_task(task_id: str):
         raise HTTPException(status_code=500, detail="Task Manager not initialized")
     task_manager.resume_task(task_id)
     return {"status": "resumed"}
+
+@app.delete("/tasks/failed")
+def clear_failed_tasks():
+    if not task_manager:
+        raise HTTPException(status_code=500, detail="Task Manager not initialized")
+    removed_count = task_manager.clear_failed_tasks()
+    return {"status": "success", "removed": removed_count}
+
+@app.delete("/tasks/{task_id}")
+def delete_task(task_id: str):
+    if not task_manager:
+        raise HTTPException(status_code=500, detail="Task Manager not initialized")
+    task_manager.delete_task(task_id)
+    return {"status": "deleted"}
 
 # --- Course Management ---
 
@@ -163,6 +183,7 @@ async def generate_course(req: GenerateCourseRequest):
     # Create new Course ID
     course_id = str(uuid.uuid4())
     data["course_id"] = course_id
+    data["difficulty"] = req.difficulty # Save difficulty for task manager
     
     await run_in_threadpool(storage.save_course, course_id, data)
 
@@ -265,7 +286,15 @@ async def redefine_node_stream(course_id: str, node_id: str, req: RedefineConten
     async def stream_generator():
         full_content = ""
         try:
-            async for chunk in ai_service.redefine_node_content(req.node_name, req.original_content, req.user_requirement, req.course_context, req.previous_context):
+            async for chunk in ai_service.redefine_node_content(
+                node_name=req.node_name,
+                original_content=req.original_content,
+                requirement=req.user_requirement,
+                course_context=req.course_context,
+                previous_context=req.previous_context,
+                difficulty=req.difficulty,
+                style=req.style
+            ):
                 full_content += chunk
                 yield chunk
         except Exception as e:
@@ -287,11 +316,13 @@ async def redefine_node_stream(course_id: str, node_id: str, req: RedefineConten
 @app.post("/courses/{course_id}/nodes/{node_id}/redefine")
 async def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest):
     new_content = await ai_service.redefine_content(
-        req.node_name, 
-        req.user_requirement,
-        req.original_content,
-        req.course_context,
-        req.previous_context
+        node_name=req.node_name, 
+        requirement=req.user_requirement,
+        original_content=req.original_content,
+        course_context=req.course_context,
+        previous_context=req.previous_context,
+        difficulty=req.difficulty,
+        style=req.style
     )
     
     tree_data = await run_in_threadpool(storage.load_course, course_id)

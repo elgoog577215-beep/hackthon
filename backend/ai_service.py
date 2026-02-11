@@ -209,8 +209,9 @@ class AIService:
             logger.error(f"AI API Call Error: {e}")
             return None
 
-    async def generate_course(self, keyword: str, difficulty: str = "medium", style: str = "academic", requirements: str = "") -> Dict:
+    async def generate_course(self, keyword: str, difficulty: str = "intermediate", style: str = "academic", requirements: str = "") -> Dict:
         system_prompt = get_prompt("generate_course").format(
+            keyword=keyword,
             difficulty=difficulty,
             style=style,
             requirements=requirements if requirements else "无"
@@ -221,13 +222,32 @@ class AIService:
         if response:
             data = self._extract_json(response)
             if data and "nodes" in data:
-                # Ensure unique UUIDs for nodes to prevent collision between courses
+                # Ensure unique UUIDs and process nested structure
+                processed_nodes = []
                 for node in data["nodes"]:
-                    node["node_id"] = str(uuid.uuid4())
+                    # L1 Node
+                    node_id = str(uuid.uuid4())
+                    node["node_id"] = node_id
+                    node["node_level"] = 1
+                    
+                    sub_nodes = node.pop("sub_nodes", [])
+                    processed_nodes.append(node)
+                    
+                    # L2 Nodes
+                    for sub in sub_nodes:
+                        sub["node_id"] = str(uuid.uuid4())
+                        sub["parent_node_id"] = node_id
+                        sub["node_level"] = 2
+                        sub["node_type"] = "original"
+                        if "node_content" not in sub:
+                            sub["node_content"] = ""
+                        processed_nodes.append(sub)
+                
+                data["nodes"] = processed_nodes
             return data
         return {"course_name": keyword, "nodes": []}
 
-    async def generate_quiz(self, content: str, node_name: str = "", difficulty: str = "medium", style: str = "standard", user_persona: str = "", question_count: int = 3) -> List[Dict]:
+    async def generate_quiz(self, content: str, node_name: str = "", difficulty: str = "intermediate", style: str = "academic", user_persona: str = "", question_count: int = 3) -> List[Dict]:
         system_prompt = get_prompt("generate_quiz").format(
             difficulty=difficulty,
             style=style,
@@ -390,147 +410,40 @@ class AIService:
             logger.error(f"Stream Error: {e}")
             yield f"\n[Error: {str(e)}]"
 
-    async def redefine_node_content(self, node_name: str, original_content: str, requirement: str, course_context: str = "", previous_context: str = ""):
+    async def redefine_node_content(self, node_name: str, original_content: str, requirement: str, course_context: str = "", previous_context: str = "", difficulty: str = "expert", style: str = "academic"):
         """
         Stream version of redefine_content with book-level context awareness.
         """
-        system_prompt = """
-你是一位资深学科专家、世界顶尖大学的终身教授，并拥有一线大厂的首席架构师背景。
-
-## 学术定位
-- **受众**：大学本科生、研究生及专业技术人员
-- **目标**：构建系统化、理论联系实际的知识体系，不仅讲“是什么”，更讲“为什么”和“怎么做”
-- **标准**：符合学术规范和行业标准
-- **风格**：专业严谨，深入浅出，拒绝科普性质的浅层介绍
-
-## 内容架构要求
-### 核心输出结构（必须严格遵守）
-你的输出必须包含两部分，并用 `<!-- BODY_START -->` 分隔：
-1. **第一部分：学术性导言（Annotation）**
-   - 简短的导读或批注（100字以内）。
-   - 阐述本章在学科体系中的地位和价值，概述核心问题和研究意义。
-   - 必须放在 `<!-- BODY_START -->` 之前。
-2. **分隔符**
-   - 必须严格输出 `<!-- BODY_START -->` 字符串。
-3. **第二部分：专业正文内容（Main Body）**
-   - 详细的教科书内容（Markdown格式）。
-   - 必须放在 `<!-- BODY_START -->` 之后。
-
-### 内容质量标准
-1. **学术深度**
-   - 深入剖析概念的理论基础和历史渊源
-   - 分析技术原理的数学或逻辑基础
-   - 探讨方法的适用范围和局限性
-
-2. **专业表达**
-   - 使用规范的学术术语和表达方式
-   - 避免生活化比喻，采用专业类比
-   - 引用权威研究和实证数据
-
-3. **结构严谨性**
-   - 正文结构应包含：
-     - **### 💡 核心概念与背景**：清晰定义 + 产生背景/核心价值（关键名词使用 **加粗** 强调）
-     - **### 🔍 深度原理/底层机制**：深入剖析工作原理、底层逻辑、数学模型或演化逻辑（重中之重）
-     - **### 🛠️ 技术实现/方法论**：具体的推导过程、算法步骤或执行细节
-     - **### 🎨 可视化图解**：**必须**包含至少一个 Mermaid 图表（流程图或时序图）。ID纯英文无空格，文本双引号包裹。
-     - **### 🏭 实战案例/行业应用**：结合真实产业界的落地案例进行分析
-     - **### ✅ 思考与挑战**：提供 1-2 个能引发深度思考的问题
-
-### 技术规范
-- **图表（强制要求）**：每章**必须**包含至少一张 Mermaid 图表（如流程图、时序图、类图或思维导图），用于直观解释核心概念或流程。
-  - 节点 ID 必须纯英文，严禁中文或特殊符号。
-  - 节点文本必须双引号包裹。
-- **公式规范（绝对严格执行）**
-  - 行内公式：必须使用 `$公式$` 格式，内部不要有空格（例如 `$E=mc^2$`）
-  - 块级公式：必须使用 `$$` 包裹，且独占一行
-  - 严禁裸写 LaTeX 命令
-- **参考文献**：符合学术引用规范
-
-### 篇幅与输出
-- **字数**：800-1500 字，确保解释透彻。
-- **输出**：直接输出 Markdown 内容，包含分隔符。
-"""
-        # 如果可能，从需求字符串中注入样式和难度上下文
-        # 由于 'requirement' 只是一个字符串，我们直接附加它。
+        system_prompt = get_prompt("redefine_content").format(
+            node_name=node_name,
+            course_context=course_context if course_context else "无",
+            previous_context=previous_context if previous_context else "无",
+            original_content=original_content if original_content else "无",
+            requirement=requirement if requirement else "无",
+            difficulty=difficulty,
+            style=style
+        )
         
-        prompt = f"""
-全书大纲：
-{course_context}
-
-上文摘要（用于承接）：
-{previous_context}
-
-当前章节标题：{node_name}
-原始简介（参考）：{original_content}
-用户额外需求：{requirement}
-
-请开始撰写（记得包含 <!-- BODY_START --> 分隔符）：
-"""
+        prompt = "请开始撰写正文（请务必包含 <!-- BODY_START --> 分隔符）。"
         async for chunk in self._stream_llm(prompt, system_prompt):
             yield chunk
 
-    async def redefine_content(self, node_name: str, requirement: str, original_content: str = "", course_context: str = "", previous_context: str = "") -> str:
+    async def redefine_content(self, node_name: str, requirement: str, original_content: str = "", course_context: str = "", previous_context: str = "", difficulty: str = "expert", style: str = "academic") -> str:
         """
         Refine the content of a node based on specific requirements.
         Uses advanced prompt engineering for better structure and clarity.
         """
-        system_prompt = """
-你是一位资深学科专家、世界顶尖大学的终身教授，并拥有一线大厂的首席架构师背景。
-
-## 学术定位
-- **受众**：大学本科生、研究生及专业技术人员
-- **目标**：构建系统化、理论联系实际的知识体系，不仅讲“是什么”，更讲“为什么”和“怎么做”
-- **标准**：符合学术规范和行业标准
-- **风格**：专业严谨，深入浅出，拒绝科普性质的浅层介绍
-
-## 核心任务
-根据用户的特定需求，重新撰写或调整章节内容。
-
-## 处理原则
-1. **保持学术严谨性**：即使调整风格，也不降低内容质量
-2. **响应用户需求**：优先满足用户的明确要求
-3. **维持结构完整性**：保持原有的章节结构和逻辑框架
-4. **衔接上下文**：确保与前后章节内容的连贯性
-
-## 内容质量标准
-1. **专业严谨**：准确使用学术术语，定义清晰，推导严密
-2. **深度解析**：不仅停留在表面定义，深入剖析背后的原理和机制
-3. **场景化解释**：使用具体的行业应用场景或技术场景辅助解释，而非简单的生活类比
-4. **逻辑连贯**：段落之间过渡自然，论证严密
-
-## 结构化写作要求
-- **### 💡 核心概念与背景**：清晰定义 + 产生背景/核心价值（关键名词使用 **加粗** 强调）
-- **### 🔍 深度原理/底层机制**：深入剖析工作原理、底层逻辑、数学模型或演化逻辑（重中之重）
-- **### 🛠️ 技术实现/方法论**：具体的推导过程、算法步骤或执行细节
-- **### 🎨 可视化图解**：**必须**包含至少一个 Mermaid 图表（流程图或时序图）。ID纯英文无空格，文本双引号包裹。
-- **### 🏭 实战案例/行业应用**：结合真实产业界的落地案例进行分析
-- **### ✅ 思考与挑战**：提供 1-2 个能引发深度思考的问题
-
-## 技术规范
-- **图表（强制要求）**：每章**必须**包含至少一张 Mermaid 图表。
-- **公式规范（绝对严格执行）**
-  - 行内公式：必须使用 `$公式$` 格式，内部不要有空格（例如 `$E=mc^2$`）
-  - 块级公式：必须使用 `$$` 包裹，且独占一行
-  - 严禁裸写 LaTeX 命令
-
-## 篇幅要求
-**800-1500字**，根据用户需求可适当调整。
-
-## 输出格式
-- 直接输出 **Markdown 正文**。
-"""
-        prompt_parts = [f"当前章节标题：{node_name}"]
-        if course_context:
-            prompt_parts.append(f"全书大纲：\n{course_context}")
-        if previous_context:
-            prompt_parts.append(f"上文摘要：\n{previous_context}")
-        if original_content:
-            prompt_parts.append(f"原始简介（参考）：\n{original_content}")
-            
-        prompt_parts.append(f"用户额外需求：{requirement}（请保持专业、简洁、流畅，适合大学生阅读）")
-        prompt_parts.append("请开始撰写正文：")
+        system_prompt = get_prompt("redefine_content").format(
+            node_name=node_name,
+            course_context=course_context if course_context else "无",
+            previous_context=previous_context if previous_context else "无",
+            original_content=original_content if original_content else "无",
+            requirement=requirement if requirement else "无",
+            difficulty=difficulty,
+            style=style
+        )
         
-        prompt = "\n\n".join(prompt_parts)
+        prompt = "请开始撰写正文（请务必包含 <!-- BODY_START --> 分隔符）。"
         
         response = await self._call_llm(prompt, system_prompt)
         if response:
@@ -538,17 +451,28 @@ class AIService:
                 
         return f"基于需求 '{requirement}' 重定义的 {node_name} 内容。\n\n1. 核心点一：...\n2. 核心点二：...\n(参考来源：权威资料)"
 
-    async def generate_node_content(self, node_name: str, node_context: str = "", node_id: str = "", course_name: str = "") -> str:
+    async def generate_node_content(self, node_name: str, node_context: str = "", node_id: str = "", course_name: str = "", difficulty: str = "expert", style: str = "academic") -> str:
         """
         Generate initial content for a node.
         Wraps redefine_content with a standard prompt for new content generation.
         """
+        # Note: We keep the old requirement construction for backward compatibility or simple generation,
+        # but redefine_content now handles difficulty/style better if passed.
+        
+        requirement = "请生成详细的教科书内容，包含理论解释、示例和总结。内容应详实、专业。必须深入剖析每一个核心概念与核心定理、公式。"
+        if difficulty == "beginner":
+            requirement = "通俗易懂的基础入门教程，重点解释核心概念，多用生活案例类比，避免过于深奥的理论推导。内容要偏基础，适合初学者。"
+        elif difficulty == "intermediate":
+            requirement = "标准专业教程，理论与实践相结合，包含代码示例或应用场景。不涉及过深的底层原理，但要覆盖核心用法。"
+            
         return await self.redefine_content(
             node_name=node_name,
-            requirement="请生成详细的教科书内容，包含理论解释、示例和总结。内容应详实、专业。",
+            requirement=requirement,
             original_content="",
             course_context=f"课程名称：{course_name}\n上下文线索：{node_context}",
-            previous_context=""
+            previous_context="",
+            difficulty=difficulty,
+            style=style
         )
 
     async def extend_content(self, node_name: str, requirement: str) -> str:

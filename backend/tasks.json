@@ -1,0 +1,67 @@
+{
+  "c88b0a38-5f74-47d4-8dc7-951f08f4f6a0": {
+    "id": "c88b0a38-5f74-47d4-8dc7-951f08f4f6a0",
+    "course_id": "8c119052-47df-402d-8932-6d156a3848b6",
+    "type": "auto_generate",
+    "status": "completed",
+    "progress": 100,
+    "total": 0,
+    "current_node_name": "第八章 多样场景下的演讲实践",
+    "message": "All steps completed",
+    "created_at": "2026-02-11T22:01:50.083794",
+    "updated_at": "2026-02-11T22:04:11.088045",
+    "error": null
+  },
+  "60a3a48d-49f5-4872-b613-d5ceb312bce7": {
+    "id": "60a3a48d-49f5-4872-b613-d5ceb312bce7",
+    "course_id": "db03dfc5-45bf-4650-b612-fa9dc7235bba",
+    "type": "auto_generate",
+    "status": "completed",
+    "progress": 100,
+    "total": 0,
+    "current_node_name": "",
+    "message": "All steps completed",
+    "created_at": "2026-02-11T22:33:33.304146",
+    "updated_at": "2026-02-11T22:46:05.844729",
+    "error": null
+  },
+  "2df4a6e6-68f7-494e-bdb7-ba4842efaac5": {
+    "id": "2df4a6e6-68f7-494e-bdb7-ba4842efaac5",
+    "course_id": "d7689f20-94cf-4aaa-9049-d52ad46257c0",
+    "type": "auto_generate",
+    "status": "completed",
+    "progress": 100,
+    "total": 0,
+    "current_node_name": "",
+    "message": "All steps completed",
+    "created_at": "2026-02-11T22:50:33.467003",
+    "updated_at": "2026-02-11T22:55:43.538637",
+    "error": null
+  },
+  "cbc5fbcf-ba21-452f-afa3-7c3f88fc14f7": {
+    "id": "cbc5fbcf-ba21-452f-afa3-7c3f88fc14f7",
+    "course_id": "cc7aed72-ad8e-48cd-922a-08ed0354b0a7",
+    "type": "auto_generate",
+    "status": "completed",
+    "progress": 100,
+    "total": 0,
+    "current_node_name": "",
+    "message": "All steps completed",
+    "created_at": "2026-02-11T23:18:13.116208",
+    "updated_at": "2026-02-11T23:23:44.702214",
+    "error": null
+  },
+  "e2b80dea-6b4b-46bb-8381-344d9e4708cf": {
+    "id": "e2b80dea-6b4b-46bb-8381-344d9e4708cf",
+    "course_id": "eb1b58a9-ef99-46d6-8538-daf161e7036b",
+    "type": "auto_generate",
+    "status": "running",
+    "progress": 14,
+    "total": 0,
+    "current_node_name": "",
+    "message": "正文: 2.6 类装饰器与元类的... | 正文: 2.7 装饰器在实际项目... | 正文: 2.8 函数式编程...",
+    "created_at": "2026-02-11T23:42:52.823757",
+    "updated_at": "2026-02-11T23:46:59.040007",
+    "error": null
+  }
+}
