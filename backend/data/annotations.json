@@ -79,5 +79,15 @@
     "anno_summary": "666",
     "source_type": "user",
     "quote": "生成集和线性无关性"
+  },
+  {
+    "anno_id": "note-cv0zvftu7",
+    "node_id": "98758984-0268-4cf1-85ba-06d740d4fb25",
+    "course_id": null,
+    "question": "User Note",
+    "answer": "999",
+    "anno_summary": "999",
+    "source_type": "user",
+    "quote": "是线性代数的基石"
   }
 ]

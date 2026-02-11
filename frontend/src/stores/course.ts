@@ -2091,18 +2091,20 @@ export const useCourseStore = defineStore('course', {
             
         try {
             // Save to backend
+            if (newAnno.source_type !== 'format') {
                 await http.post(`/annotations`, newAnno)
+            }
                 
-                this.annotations.push(newAnno)
-                
-                // Suppress toast for pure formatting actions (highlight, bold, etc)
-                if (anno.source_type !== 'format') {
-                    ElMessage.success('笔记已保存')
-                }
-                
-                // Also update active annotation to highlight immediately
-                this.activeAnnotation = newAnno
-            } catch (e) {
+            this.annotations.push(newAnno)
+            
+            // Suppress toast for pure formatting actions (highlight, bold, etc)
+            if (newAnno.source_type !== 'format') {
+                ElMessage.success('笔记已保存')
+            }
+            
+            // Also update active annotation to highlight immediately
+            this.activeAnnotation = newAnno
+        } catch (e) {
                 ElMessage.error('保存失败')
                 console.error(e)
             }
