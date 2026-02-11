@@ -98,6 +98,22 @@ STRUCTURE_REQUIREMENTS = """
 - **### ✅ 思考与挑战**：提供 1-2 个能引发深度思考的问题"""
 
 
+DIFFICULTY_LEVELS = """
+## 难度等级定义 (Difficulty Levels)
+1. **Beginner (入门)**：
+   - **目标受众**：零基础或仅有模糊概念的学习者。
+   - **内容深度**：侧重核心概念的直观理解（Intuition），多用生活类比，少用复杂公式。
+   - **关键词**：What, Basic Concepts, High-level Overview.
+2. **Intermediate / Medium (进阶)**：
+   - **目标受众**：具备基础知识，希望掌握系统原理和工程实践的从业者。
+   - **内容深度**：侧重工作原理（How it works）、标准流程和最佳实践。
+   - **关键词**：Architecture, Best Practices, Implementation Details.
+3. **Advanced (专家)**：
+   - **目标受众**：领域专家、资深架构师或研究人员。
+   - **内容深度**：侧重底层内核（Under the hood）、数学证明、性能调优和前沿探索。
+   - **关键词**：Source Code Analysis, Mathematical Proof, Performance Tuning, Edge Cases."""
+
+
 # =============================================================================
 # Prompt Template Class
 # =============================================================================
@@ -168,33 +184,38 @@ class PromptTemplate:
 # -----------------------------------------------------------------------------
 GENERATE_COURSE = PromptTemplate(
     name="generate_course",
-    version="2.0.0",
+    version="2.3.0",
     description="Generate comprehensive course structure based on keyword",
-    parameters=["difficulty", "style", "requirements"],
+    parameters=["keyword", "difficulty", "style", "requirements"],
     tags=["course", "generation", "structure"],
     system_prompt=f"""{ACADEMIC_IDENTITY}
 
+## 任务目标
+为“{{keyword}}”设计一份世界级的课程大纲。这份大纲将成为该领域最权威的学习路径。
+
 ## 课程配置
-- **难度等级**：{{difficulty}} (beginner/medium/advanced)
-- **教学风格**：{{style}}
-- **额外要求**：{{requirements}}
+- **难度**：{{difficulty}}
+- **风格**：{{style}}
+- **约束**：{{requirements}}
 
-## 核心任务
-基于学科关键词，设计完整的课程架构，确保知识体系的系统性和完整性。
-请根据配置的难度和风格调整课程内容的深度和广度。
+{DIFFICULTY_LEVELS}
 
-## 学术要求
-1. **结构层级**
-   - **一级结构**：课程名称（体现学科核心）
-   - **二级结构**：章节体系（8-12章，覆盖学科全貌）
-   - **严禁生成三级结构**，保持大纲的宏观性
-
-2. **内容规范**
-   - **课程命名**：采用学术著作或专业课程的标准命名方式
-   - **章节逻辑**：遵循"基础理论→核心机制→关键技术→应用实践→前沿展望"的演进路径。
+## 核心产出要求
+1. **课程名称**：必须极具专业感（如《深度学习：从理论到内核实战》），拒绝平庸命名。
+2. **章节规划**：
+   - 根据主流权威书籍确定章节数量，**一般不少于 7 个核心章节**。
+   - 每一章必须有一个清晰的**核心主题**。
+   - **严禁**出现“杂项”、“其他”这种凑数的章节。
    - **避免废话**：除非是零基础课程，否则尽量避免通用的"导论"章节，直接切入核心概念。
-   - **内容摘要**：每章50字左右的概述，突出核心概念和知识要点
-   - **风格适配**：确保章节名称和摘要内容符合设定的"{{style}}"风格
+3. **子章节策略（关键）**：
+   - **如果难度是 Beginner (入门) 或 Intermediate / Medium (进阶)**：
+     - **严禁生成子章节**（sub_nodes 为空数组）。
+     - 保持目录结构扁平，只生成一级章节（Chapter）。
+     - 所有的核心概念、原理和实践内容都将在该章节的正文中详细展开。
+   - **如果难度是 Advanced (专家)**：
+     - 每个章节下必须生成 **一般不少于 5 个子小节**。
+     - 目的是为了**深入剖析每一个核心概念与核心定理、公式**。
+     - 子小节标题必须具体，一眼就能看出要讲什么知识点（如“Transformer 的注意力机制详解”优于“注意力机制”）。
 
 {OUTPUT_FORMAT_JSON}
 
@@ -204,8 +225,17 @@ GENERATE_COURSE = PromptTemplate(
   "course_name": "《关键词：原理与实践》",
   "logic_flow": "本课程设计遵循从原理到实践的路径，首先建立...的基础，然后深入...",
   "nodes": [
-    {{{{"node_id": "id_1", "parent_node_id": "root", "node_name": "第一章 基础理论", "node_level": 1, "node_content": "前言与课程综述", "node_type": "original"}}}},
-    {{{{"node_id": "id_2", "parent_node_id": "root", "node_name": "第二章 核心机制", "node_level": 1, "node_content": "本章深入分析...", "node_type": "original"}}}}
+    {{{{
+      "node_id": "id_1", 
+      "parent_node_id": "root", 
+      "node_name": "第一章 基础理论", 
+      "node_level": 1, 
+      "node_content": "前言与课程综述", 
+      "node_type": "original",
+      "sub_nodes": [
+         // 如果是 Advanced 难度，此处应包含 5+ 个子节点；否则为空
+      ]
+    }}}}
   ]
 }}}}
 ```"""
@@ -315,25 +345,31 @@ GENERATE_SUB_NODES = PromptTemplate(
 # -----------------------------------------------------------------------------
 GENERATE_CONTENT = PromptTemplate(
     name="generate_content",
-    version="2.0.0",
+    version="2.3.0",
     description="Generate comprehensive chapter content with structured format",
     parameters=[],
     tags=["content", "generation", "chapter"],
     system_prompt=f"""{ACADEMIC_IDENTITY}
 
-## 核心任务
-撰写教科书级别的章节正文，内容需**专业、深入、结构清晰**。
+## 任务目标
+撰写章节“{{node_name}}”的教科书正文。这不应该是一篇普通的网文，而应该是一篇能被引用为参考文献的学术著作。
 
 {CONTENT_QUALITY_STANDARDS}
 
 {STRUCTURE_REQUIREMENTS}
+
+## 写作心法
+1. **开篇即硬核**：不要写“本章我们将介绍...”，直接给出核心定义或提出核心问题。
+2. **举例要高级**：不要用“苹果和梨”做比喻，要用该领域的经典案例（如计算机领域的缓存一致性、物理领域的薛定谔猫）。
+3. **数学是语言**：不要回避公式，但要解释公式背后的物理/逻辑含义。
+4. **深度剖析**：必须深入剖析每一个核心概念与核心定理、公式，不能浅尝辄止。
 
 {FORMULA_STANDARDS}
 
 {MERMAID_STANDARDS}
 
 ## 篇幅要求
-**800-1500字**，内容详实且有深度。
+**1500-2500字**，内容详实且有深度。
 
 {OUTPUT_FORMAT_MARKDOWN}
 
@@ -355,33 +391,55 @@ GENERATE_CONTENT = PromptTemplate(
 # -----------------------------------------------------------------------------
 REDEFINE_CONTENT = PromptTemplate(
     name="redefine_content",
-    version="2.0.0",
+    version="2.3.0",
     description="Refine or regenerate content based on user requirements",
-    parameters=[],
+    parameters=["node_name", "course_context", "previous_context", "original_content", "requirement", "difficulty", "style"],
     tags=["content", "refinement", "customization"],
     system_prompt=f"""{ACADEMIC_IDENTITY}
 
-## 核心任务
-根据用户的特定需求，重新撰写或调整章节内容。
+## 任务目标
+根据用户的特定需求，重新撰写章节“{{node_name}}”的内容。
+
+## 课程配置
+- **难度**：{{difficulty}}
+- **风格**：{{style}}
+
+{DIFFICULTY_LEVELS}
 
 ## 处理原则
-1. **保持学术严谨性**：即使调整风格，也不降低内容质量
-2. **响应用户需求**：优先满足用户的明确要求
-3. **维持结构完整性**：保持原有的章节结构和逻辑框架
-4. **衔接上下文**：确保与前后章节内容的连贯性
+1. **保持学术严谨性**：即使调整风格，也不降低内容质量。
+2. **响应用户需求**：优先满足用户的明确要求（如“更通俗”、“更深度”、“加案例”）。
+3. **维持结构完整性**：保持原有的章节结构和逻辑框架。
 
 {CONTENT_QUALITY_STANDARDS}
 
 {STRUCTURE_REQUIREMENTS}
+
+## 写作心法
+1. **开篇即硬核**：不要写“本章我们将介绍...”，直接给出核心定义或提出核心问题。
+2. **举例要高级**：不要用“苹果和梨”做比喻，要用该领域的经典案例。
+3. **数学是语言**：不要回避公式，但要解释公式背后的物理/逻辑含义。
+4. **深度剖析**：必须深入剖析每一个核心概念与核心定理、公式。
 
 {FORMULA_STANDARDS}
 
 {MERMAID_STANDARDS}
 
 ## 篇幅要求
-**800-1500字**，根据用户需求可适当调整。
+**1500-2500字**，根据用户需求可适当调整。
 
-{OUTPUT_FORMAT_MARKDOWN}"""
+{OUTPUT_FORMAT_MARKDOWN}
+
+## 特殊标记
+- 使用 `<!-- BODY_START -->` 标记正文开始位置
+- 使用 `<!-- BODY_END -->` 标记正文结束位置（可选）
+
+## 输入信息
+- **当前章节标题**：{{node_name}}
+- **全书大纲**：{{course_context}}
+- **上文摘要**：{{previous_context}}
+- **原始简介**：{{original_content}}
+- **用户额外需求**：{{requirement}}"""
 )
 
 

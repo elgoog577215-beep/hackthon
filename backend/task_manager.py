@@ -63,6 +63,27 @@ class TaskManager:
     def get_task(self, task_id: str) -> Optional[Dict]:
         return self.tasks.get(task_id)
 
+    def get_all_tasks(self, limit: int = 100) -> List[Dict]:
+        # Define status priority (lower value = higher priority)
+        status_priority = {
+            "running": 0,
+            "pending": 1,
+            "paused": 2,
+            "failed": 3,
+            "completed": 4
+        }
+        
+        tasks_list = list(self.tasks.values())
+        
+        # 1. Sort by updated_at DESC (newest first)
+        tasks_list.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+        
+        # 2. Sort by priority ASC (Running > Pending > Paused > Failed > Completed)
+        # Python's sort is stable, so it preserves the relative time order within each group
+        tasks_list.sort(key=lambda x: status_priority.get(x.get("status", ""), 5))
+        
+        return tasks_list[:limit]
+
     def get_tasks_by_course(self, course_id: str) -> List[Dict]:
         return [t for t in self.tasks.values() if t["course_id"] == course_id]
 
@@ -85,6 +106,14 @@ class TaskManager:
             del self.tasks[task_id]
             self.save_tasks()
 
+    def clear_failed_tasks(self):
+        with self.lock:
+            initial_count = len(self.tasks)
+            self.tasks = {tid: t for tid, t in self.tasks.items() if t.get("status") != "failed"}
+            if len(self.tasks) < initial_count:
+                self.save_tasks()
+            return initial_count - len(self.tasks)
+
     def start_worker(self):
         if not self.running:
             self.running = True
@@ -106,7 +135,7 @@ class TaskManager:
         loop.run_until_complete(self._async_manager())
 
     async def _async_manager(self):
-        MAX_CONCURRENT = 2
+        MAX_CONCURRENT = 5  # Increased concurrency
         # Map task_id -> Task (Future)
         running_tasks = {} 
         
@@ -156,7 +185,7 @@ class TaskManager:
                         running_tasks[tid] = future
                         logger.info(f"Started task chunk: {tid}")
             
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.1)  # Faster polling
 
     async def _process_task(self, task_id: str):
         task = self.tasks.get(task_id)
@@ -170,7 +199,7 @@ class TaskManager:
             task["status"] = "running"
             self.save_tasks()
 
-        # Load Course
+        # Load Course (Initial check)
         course_data = self.storage.load_course(course_id)
         if not course_data:
             task["status"] = "failed"
@@ -178,48 +207,47 @@ class TaskManager:
             self.save_tasks()
             return
 
-        # --- LOGIC: Identify Next Step ---
-        # Strategy: Depth-First Traversal
-        # 1. Find Level 1 nodes.
-        # 2. For each Level 1 node:
-        #    a. If no children -> Generate Subnodes (Level 2).
-        #    b. If children -> Check each child (Level 2).
-        #       i. If content empty -> Generate Content.
-        
+        # --- LOGIC: Identify Next Step (Batching) ---
         nodes = course_data.get("nodes", [])
-        
-        # Build hierarchy
         l1_nodes = [n for n in nodes if n.get("node_level", 1) == 1]
-        # Sort by some index if available? For now assume array order is correct.
         
-        next_action = None # (type, node)
+        actions = [] # List of (type, node)
+        BATCH_SIZE = 3 # Process up to 3 items in parallel
         
-        total_steps = len(l1_nodes) # Crude approximation: L1 count
+        total_steps = len(l1_nodes)
         completed_steps = 0
         
+        # 1. Check for missing subnodes (Priority)
         for l1 in l1_nodes:
-            # Check if it has children
             children = [n for n in nodes if n.get("parent_node_id") == l1["node_id"]]
-            
             if not children:
-                # Needs subnodes
-                next_action = ("subnodes", l1)
+                actions.append(("subnodes", l1))
+                if len(actions) >= BATCH_SIZE:
+                    break
+            else:
+                # If has children, check if they need content
+                # Only check content if we aren't already full of subnode tasks
+                if len(actions) < BATCH_SIZE:
+                    l2_incomplete = [
+                        c for c in children 
+                        if not c.get("node_content") or len(c.get("node_content", "")) < 100
+                    ]
+                    for child in l2_incomplete:
+                        actions.append(("content", child))
+                        if len(actions) >= BATCH_SIZE:
+                            break
+            
+            if len(actions) >= BATCH_SIZE:
                 break
             
-            # Check children content
-            l2_incomplete = [c for c in children if not c.get("node_content")]
-            if l2_incomplete:
-                # Needs content
-                next_action = ("content", l2_incomplete[0])
-                break
-            
-            completed_steps += 1
+            # Count completion only if fully done (has children AND all children have content)
+            # This is a bit complex for progress, so we stick to L1 completion roughly
+            has_children = len(children) > 0
+            all_children_content = all(len(c.get("node_content", "")) >= 100 for c in children)
+            if has_children and all_children_content:
+                completed_steps += 1
 
-        # Update progress (rough estimate)
-        # Better progress: Count all potential L2 nodes? 
-        # Let's keep it simple: progress is just for UI feedback.
-        
-        if not next_action:
+        if not actions:
             # All done!
             task["status"] = "completed"
             task["progress"] = 100
@@ -228,65 +256,111 @@ class TaskManager:
             self.save_tasks()
             return
 
-        action_type, target_node = next_action
-        
-        # Check pause again before starting expensive operation
+        # Check pause again
         if self.tasks[task_id]["status"] == "paused":
             return
 
-        # Execute Action
+        # Execute Actions in Parallel
         try:
-            task["message"] = f"Processing {target_node.get('node_name')} ({action_type})..."
-            task["current_node_name"] = target_node.get("node_name")
-            self.save_tasks()
+            # Construct detailed message
+            msg_parts = []
+            for action_type, target_node in actions:
+                node_name = target_node.get("node_name", "Unknown")
+                # Truncate very long node names
+                if len(node_name) > 15:
+                    node_name = node_name[:12] + "..."
+                    
+                if action_type == "subnodes":
+                    msg_parts.append(f"大纲: {node_name}")
+                elif action_type == "content":
+                    msg_parts.append(f"正文: {node_name}")
             
-            if action_type == "subnodes":
-                # Generate Subnodes
-                # We need context
-                parent_context = target_node.get("node_content", "")
-                course_outline = "" # Construct if needed, similar to main.py
-                
-                # Construct simple outline
-                for i, node in enumerate(l1_nodes):
-                    course_outline += f"{i+1}. {node.get('node_name', '')}\n"
-
-                new_nodes = await self.ai_service.generate_sub_nodes(
-                    target_node["node_name"], 
-                    target_node["node_level"], 
-                    target_node["node_id"], 
-                    course_data.get("course_name", ""),
-                    parent_context,
-                    course_outline
-                )
-                
-                # Add to nodes
-                nodes.extend(new_nodes)
-                course_data["nodes"] = nodes
-                self.storage.save_course(course_id, course_data)
-                
-            elif action_type == "content":
-                # Generate Content
-                content = await self.ai_service.generate_node_content(
-                    target_node["node_name"],
-                    target_node.get("node_context", ""), # If available
-                    target_node["node_id"],
-                    course_data.get("course_name", "")
-                )
-                
-                # Update Node
-                target_node["node_content"] = content
-                self.storage.save_course(course_id, course_data)
-
-            # Update Progress (Crude)
-            task["progress"] = min(95, int((completed_steps + 1) / total_steps * 100))
+            task["message"] = " | ".join(msg_parts)
+            # If still too long, truncate the whole message
+            if len(task["message"]) > 60:
+                task["message"] = task["message"][:57] + "..."
+            
+            # Update progress based on estimate
+            task["progress"] = min(95, int((completed_steps) / total_steps * 100))
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
-
+            
+            # Prepare coroutines
+            coroutines = []
+            for action_type, target_node in actions:
+                if action_type == "subnodes":
+                    # Context building
+                    parent_context = target_node.get("node_content", "")
+                    course_outline = ""
+                    for i, node in enumerate(l1_nodes):
+                        course_outline += f"{i+1}. {node.get('node_name', '')}\n"
+                    
+                    coro = self.ai_service.generate_sub_nodes(
+                        target_node["node_name"], 
+                        target_node["node_level"], 
+                        target_node["node_id"], 
+                        course_data.get("course_name", ""),
+                        parent_context,
+                        course_outline
+                    )
+                    coroutines.append(("subnodes", target_node["node_id"], coro))
+                    
+                elif action_type == "content":
+                    difficulty = course_data.get("difficulty", "expert")
+                    style = course_data.get("style", "academic")
+                    coro = self.ai_service.generate_node_content(
+                        target_node["node_name"],
+                        target_node.get("node_context", ""),
+                        target_node["node_id"],
+                        course_data.get("course_name", ""),
+                        difficulty=difficulty,
+                        style=style
+                    )
+                    coroutines.append(("content", target_node["node_id"], coro))
+            
+            # Run parallel
+            results = await asyncio.gather(*[c[2] for c in coroutines], return_exceptions=True)
+            
+            # --- CRITICAL SECTION: RE-LOAD AND PATCH ---
+            # Re-load fresh data to avoid overwriting user edits
+            fresh_data = self.storage.load_course(course_id)
+            if not fresh_data:
+                logger.error(f"Course {course_id} disappeared during generation")
+                return
+                
+            fresh_nodes = fresh_data.get("nodes", [])
+            modified = False
+            
+            for i, result in enumerate(results):
+                action_type, node_id, _ = coroutines[i]
+                
+                if isinstance(result, Exception):
+                    logger.error(f"Error processing {node_id}: {result}")
+                    continue
+                
+                if action_type == "subnodes":
+                    # result is list of new nodes
+                    # Check if they were already added (rare race)
+                    # Just append
+                    fresh_nodes.extend(result)
+                    modified = True
+                    
+                elif action_type == "content":
+                    # result is content string
+                    # Find node in fresh_nodes
+                    for n in fresh_nodes:
+                        if n["node_id"] == node_id:
+                            n["node_content"] = result
+                            modified = True
+                            break
+            
+            if modified:
+                fresh_data["nodes"] = fresh_nodes
+                self.storage.save_course(course_id, fresh_data)
+                
         except Exception as e:
-            logger.error(f"Error in task step: {e}")
+            logger.error(f"Error in task batch: {e}")
             task["error"] = str(e)
-            # Don't fail the whole task immediately? Retry?
-            # For now, mark failed
-            task["status"] = "failed"
-            self.save_tasks()
+            # Retry next time
+
 

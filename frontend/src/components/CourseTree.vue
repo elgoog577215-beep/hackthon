@@ -408,9 +408,9 @@
                         <div class="grid grid-cols-1 gap-3">
                             <div 
                                 v-for="level in [
-                                    { val: 'beginner', label: '入门', sub: '零基础友好', color: 'bg-emerald-400', shadow: 'shadow-emerald-100' },
-                                    { val: 'medium', label: '进阶', sub: '有一定基础', color: 'bg-blue-400', shadow: 'shadow-blue-100' },
-                                    { val: 'advanced', label: '专家', sub: '深入原理', color: 'bg-violet-400', shadow: 'shadow-violet-100' }
+                                    { val: 'beginner', label: '入门', sub: '直观理解 · 生活类比', color: 'bg-emerald-400', shadow: 'shadow-emerald-100' },
+                                    { val: 'intermediate', label: '进阶', sub: '系统原理 · 最佳实践', color: 'bg-blue-400', shadow: 'shadow-blue-100' },
+                                    { val: 'advanced', label: '专家', sub: '底层内核 · 前沿探索', color: 'bg-violet-400', shadow: 'shadow-violet-100' }
                                 ]" 
                                 :key="level.val"
                                 class="relative flex items-center p-3 rounded-xl border-2 transition-all cursor-pointer group hover:-translate-y-0.5"
@@ -445,9 +445,9 @@
                             <div 
                                 v-for="style in [
                                     { val: 'academic', label: '学术严谨', icon: '🎓' },
-                                    { val: 'easy', label: '通俗易懂', icon: '👶' },
-                                    { val: 'practical', label: '实战案例', icon: '🛠️' },
-                                    { val: 'humorous', label: '幽默风趣', icon: '😄' }
+                                    { val: 'industrial', label: '工业实战', icon: '🏭' },
+                                    { val: 'socratic', label: '苏格拉底', icon: '🤔' },
+                                    { val: 'humorous', label: '生动幽默', icon: '😄' }
                                 ]" 
                                 :key="style.val"
                                 class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer hover:-translate-y-0.5 aspect-[4/3]"

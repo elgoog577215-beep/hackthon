@@ -48,6 +48,14 @@ export default defineConfig({
       '/ask': {
         target: 'http://localhost:8000',
         changeOrigin: true
+      },
+      '/tasks': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      },
+      '/nodes': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
       }
     }
   }

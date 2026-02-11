@@ -216,6 +216,10 @@ type StatusTone = 'primary' | 'success' | 'warning' | 'danger' | 'muted'
 type StatusMetaItem = { label: string; value: string; tone?: StatusTone }
 
 const statusVisible = computed(() => {
+    // Check for backend task for current course
+    const task = courseStore.getTask(courseStore.currentCourseId)
+    if (task && (task.status === 'running' || task.status === 'pending' || task.status === 'paused')) return true
+
     if (courseStore.generationStatus !== 'idle') return true
     if (courseStore.chatLoading) return true
     if (courseStore.loading) return true
@@ -223,6 +227,14 @@ const statusVisible = computed(() => {
 })
 
 const statusMode = computed(() => {
+    // Check for backend task
+    const task = courseStore.getTask(courseStore.currentCourseId)
+    if (task) {
+        if (task.status === 'running') return 'generating'
+        if (task.status === 'paused') return 'paused'
+        if (task.status === 'error') return 'error'
+    }
+
     if (courseStore.generationStatus === 'error') return 'error'
     if (courseStore.isGenerating) return 'generating'
     if (courseStore.chatLoading) return 'generating'
@@ -232,6 +244,12 @@ const statusMode = computed(() => {
 })
 
 const statusTask = computed(() => {
+    // Check for backend task
+    const task = courseStore.getTask(courseStore.currentCourseId)
+    if (task && (task.status === 'running' || task.status === 'pending' || task.status === 'paused')) {
+        return task.currentStep || '后台任务处理中...'
+    }
+
     if (courseStore.isGenerating) return courseStore.currentGeneratingNode || '内容生成中'
     if (courseStore.chatLoading) return 'AI 生成中'
     if (courseStore.loading) return '数据加载中'
@@ -240,6 +258,12 @@ const statusTask = computed(() => {
 })
 
 const statusProgress = computed(() => {
+    // Check for backend task
+    const task = courseStore.getTask(courseStore.currentCourseId)
+    if (task && (task.status === 'running' || task.status === 'pending' || task.status === 'paused')) {
+        return task.progress || 0
+    }
+
     if (courseStore.isGenerating) return courseStore.generationProgress
     if (courseStore.chatLoading) return 35
     if (courseStore.loading) return 15
@@ -435,6 +459,10 @@ const handleRetryItem = (uuid: string) => {
 
 onMounted(() => {
     document.addEventListener('click', handleGlobalClick);
+    
+    // Start global task monitor
+    courseStore.startGlobalMonitor()
+    
     // Restore generation state globally
     const restoredId = courseStore.restoreGenerationState()
     if (restoredId && router.currentRoute.value.path === '/') {
@@ -445,6 +473,7 @@ onMounted(() => {
 
 onUnmounted(() => {
     document.removeEventListener('click', handleGlobalClick);
+    courseStore.stopGlobalMonitor()
 })
 </script>
 

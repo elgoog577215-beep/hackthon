@@ -143,6 +143,8 @@ export const useCourseStore = defineStore('course', {
     // --- 任务管理系统 ---
     // 管理长时间运行的生成任务的状态
     tasks: new Map<string, Task>(), // courseId -> Task
+    globalTasks: [] as any[], // Global list from backend
+    globalPollingTimer: null as number | null,
     activeTaskId: null as string | null,
     
     // --- 队列系统（播放列表风格） ---
@@ -479,7 +481,10 @@ export const useCourseStore = defineStore('course', {
 
             // Reset all running/paused tasks to idle and do NOT resume
             this.tasks.forEach(task => {
-                if (task.status === 'running' || task.status === 'paused') {
+                // If it's a legacy client-side task, stop it.
+                // If it's a backend task, we'll let fetchGlobalTasks sync the real status.
+                // But initially mark as 'pending' sync to avoid showing stale 'running' state if backend died.
+                if ((task.status === 'running' || task.status === 'paused') && !task.backendTaskId) {
                     task.status = 'idle'
                     task.currentStep = ''
                     this.addLogToTask(task.id, '⏹️ 未完成的任务已停止')
@@ -675,7 +680,61 @@ export const useCourseStore = defineStore('course', {
     },
 
     // --- Backend Task Management ---
-    pollingInterval: null as number | null,
+
+    async fetchGlobalTasks() {
+        try {
+            const res = await http.get('/tasks?limit=100')
+            this.globalTasks = res.data
+            
+            // Sync with local tasks map
+            this.globalTasks.forEach(backendTask => {
+                const courseId = backendTask.course_id
+                let localTask = this.tasks.get(courseId)
+                
+                // If local task exists, sync it
+                if (localTask) {
+                    // Sync status
+                    if (backendTask.status === 'running') localTask.status = 'running'
+                    else if (backendTask.status === 'paused') localTask.status = 'paused'
+                    else if (backendTask.status === 'completed') localTask.status = 'completed'
+                    else if (backendTask.status === 'error') localTask.status = 'error'
+                    else if (backendTask.status === 'pending') localTask.status = 'pending'
+                    
+                    localTask.progress = backendTask.progress
+                    localTask.backendTaskId = backendTask.id
+                    
+                    if (backendTask.current_node_name) {
+                        localTask.currentStep = `正在生成: ${backendTask.current_node_name}`
+                    }
+                    
+                    // Auto-refresh current course data if running
+                    if (courseId === this.currentCourseId && backendTask.status === 'running') {
+                        // Throttle refresh: 20% chance
+                        if (Math.random() < 0.2) {
+                            this.refreshCourseData(courseId)
+                        }
+                    }
+                }
+            })
+        } catch (e) {
+            console.error('Failed to fetch global tasks', e)
+        }
+    },
+
+    startGlobalMonitor() {
+        if (this.globalPollingTimer) return
+        this.fetchGlobalTasks() // Immediate fetch
+        this.globalPollingTimer = setInterval(() => {
+            this.fetchGlobalTasks()
+        }, 2000)
+    },
+
+    stopGlobalMonitor() {
+        if (this.globalPollingTimer) {
+            clearInterval(this.globalPollingTimer)
+            this.globalPollingTimer = null
+        }
+    },
 
     async startBackendTask(courseId: string) {
         try {
@@ -698,81 +757,12 @@ export const useCourseStore = defineStore('course', {
             this.addLogToTask(courseId, `🚀 后台任务已启动 (ID: ${task_id})`)
             this.persistGenerationState()
             
-            // Start polling
-            this.startPolling(task_id, courseId)
+            // Start global monitor if not running
+            this.startGlobalMonitor()
             
         } catch (error) {
             console.error('Failed to start backend task', error)
             ElMessage.error('启动后台生成失败')
-        }
-    },
-
-    startPolling(taskId: string, courseId: string) {
-        if (this.pollingInterval) clearInterval(this.pollingInterval)
-        
-        this.pollingInterval = setInterval(async () => {
-            try {
-                const res = await http.get(`/tasks/${taskId}`)
-                const { status, progress, current_node, error } = res.data
-                
-                const task = this.tasks.get(courseId)
-                if (!task) {
-                    this.stopPolling()
-                    return
-                }
-
-                // Sync status
-                if (status === 'running') task.status = 'running'
-                else if (status === 'paused') task.status = 'paused'
-                else if (status === 'completed') task.status = 'completed'
-                else if (status === 'error') task.status = 'error'
-                else if (status === 'pending') task.status = 'pending'
-
-                task.progress = progress
-                if (current_node) {
-                    const node = this.nodes.find(n => n.node_id === current_node)
-                    const nodeName = node ? node.node_name : current_node
-                    task.currentStep = `正在生成: ${nodeName}`
-                    
-                    // Optionally refresh course data to show content updates
-                    // We can throttle this to avoid too many requests
-                    if (Math.random() < 0.2) { // 20% chance per poll (approx every 5-10s)
-                        await this.refreshCourseData(courseId)
-                    }
-                }
-                
-                // Sync logs (append new ones)
-                // Backend logs might be full history or recent?
-                // Assuming backend sends full list or we handle it.
-                // For now, let's just use the last log as status
-                // if (logs && logs.length > 0) {
-                //    const lastLog = logs[logs.length - 1]
-                //    if (!task.logs.includes(lastLog)) {
-                //        task.logs.push(lastLog)
-                //    }
-                // }
-
-                if (status === 'completed' || status === 'error') {
-                    this.stopPolling()
-                    await this.refreshCourseData(courseId) // Final refresh
-                    if (status === 'completed') {
-                        ElMessage.success('课程生成完成')
-                    } else {
-                        ElMessage.error(`生成出错: ${error}`)
-                    }
-                }
-
-            } catch (error) {
-                console.error('Polling failed', error)
-                // Don't stop polling immediately on transient network errors
-            }
-        }, 2000) // Poll every 2 seconds
-    },
-
-    stopPolling() {
-        if (this.pollingInterval) {
-            clearInterval(this.pollingInterval)
-            this.pollingInterval = null
         }
     },
 
@@ -797,7 +787,7 @@ export const useCourseStore = defineStore('course', {
             await http.post(`/tasks/${task.backendTaskId}/resume`)
             task.status = 'running'
             this.addLogToTask(courseId, '▶️ 后台任务已恢复')
-            this.startPolling(task.backendTaskId, courseId)
+            this.startGlobalMonitor()
         } catch (error) {
             console.error('Failed to resume task', error)
         }
@@ -1228,11 +1218,11 @@ export const useCourseStore = defineStore('course', {
                      localTask.progress = backendTask.progress
                      
                      // If running or pending, start polling
-                     if (backendTask.status === 'running' || backendTask.status === 'pending') {
-                         this.startPolling(backendTask.id, courseId)
-                     }
-                 }
-            } catch (ignore) {
+                    if (backendTask.status === 'running' || backendTask.status === 'pending') {
+                        this.startGlobalMonitor()
+                    }
+                }
+           } catch (ignore) {
                 // It's fine if no task exists
             }
 
@@ -1958,6 +1948,7 @@ export const useCourseStore = defineStore('course', {
             // Determine requirement based on difficulty
             const task = this.tasks.get(this.currentCourseId)
             const difficulty = task?.difficulty || 'expert'
+            const style = task?.style || 'academic'
             
             let requirement = '教科书级详细正文'
             if (difficulty === 'beginner') {
@@ -1977,7 +1968,9 @@ export const useCourseStore = defineStore('course', {
                    original_content: node.node_content || '',
                    user_requirement: requirement,
                    course_context: courseContext,
-                   previous_context: previousContext
+                   previous_context: previousContext,
+                   difficulty: difficulty,
+                   style: style
                 })
             })
 
