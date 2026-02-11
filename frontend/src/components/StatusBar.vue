@@ -118,7 +118,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Loading, ArrowUp, CircleClose, Check, Close, VideoPause, VideoPlay, Refresh } from '@element-plus/icons-vue'
+import { Loading, ArrowUp, CircleClose, Check, Close, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { type QueueItem } from '../stores/course'
 
 const props = defineProps<{
