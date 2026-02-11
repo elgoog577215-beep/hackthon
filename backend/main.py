@@ -58,6 +58,11 @@ async def shutdown_event():
     if task_manager:
         task_manager.stop_worker()
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for deployment monitoring"""
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
 app.add_middleware(
     GZipMiddleware,
     minimum_size=1000
@@ -604,6 +609,17 @@ if os.path.exists(static_dir):
             
         # 回退到 Vue Router 历史模式的 index.html
         return FileResponse(os.path.join(static_dir, "index.html"))
+
+else:
+    # If static files are not present (e.g. backend-only mode or build failed),
+    # provide a basic root endpoint to satisfy health checks.
+    @app.get("/")
+    async def root():
+        return {
+            "status": "Backend is running",
+            "message": "Frontend static files not found. Please build the frontend or check deployment configuration.",
+            "docs_url": "/docs"
+        }
 
 if __name__ == "__main__":
     import uvicorn
