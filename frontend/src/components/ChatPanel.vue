@@ -215,6 +215,7 @@
                                     :width="300"
                                     trigger="hover"
                                     popper-class="glass-popover"
+                                    :teleported="false"
                                 >
                                     <template #reference>
                                         <button 
