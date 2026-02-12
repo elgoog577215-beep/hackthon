@@ -1,0 +1,208 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "热力学与统计物理：原理、方法与应用",
+      "type": "root",
+      "description": "系统化讲解热力学与统计物理的理论基础及实际应用",
+      "chapter_id": "f0e2407f-68a5-4e8d-ab83-829c45f6f8fd"
+    },
+    {
+      "id": "module_thermodynamics",
+      "label": "热力学基础与定律",
+      "type": "module",
+      "description": "研究宏观系统的能量转换与守恒规律",
+      "chapter_id": "f0e2407f-68a5-4e8d-ab83-829c45f6f8fd"
+    },
+    {
+      "id": "module_statistical_physics",
+      "label": "统计物理基础",
+      "type": "module",
+      "description": "从微观粒子行为推导宏观性质",
+      "chapter_id": "355adb31-e4c0-4f53-8e0b-54b12d8aa261"
+    },
+    {
+      "id": "system",
+      "label": "热力学系统",
+      "type": "concept",
+      "description": "研究对象及其分类（孤立/封闭/开放）",
+      "chapter_id": "b04bc8fd-e579-4bc6-8084-001a2494aa3a"
+    },
+    {
+      "id": "state_variable",
+      "label": "状态变量",
+      "type": "concept",
+      "description": "描述系统状态的独立物理量（如温度、压强）",
+      "chapter_id": "5c42a317-7f91-495e-9896-7ded9b1ca977"
+    },
+    {
+      "id": "process_variable",
+      "label": "过程量",
+      "type": "concept",
+      "description": "依赖路径的物理量（如热量、功）",
+      "chapter_id": "5c42a317-7f91-495e-9896-7ded9b1ca977"
+    },
+    {
+      "id": "zeroth_law",
+      "label": "热力学第零定律",
+      "type": "theorem",
+      "description": "定义温度与热平衡的基本原理",
+      "chapter_id": "400b84b2-1efc-46ab-9e0d-9c35d1d54b99"
+    },
+    {
+      "id": "first_law",
+      "label": "热力学第一定律",
+      "type": "theorem",
+      "description": "能量守恒在热力学中的表达",
+      "chapter_id": "6e08dc8c-0c5e-4459-979d-7cd312cb1767"
+    },
+    {
+      "id": "internal_energy",
+      "label": "内能",
+      "type": "concept",
+      "description": "系统内部所有微观粒子的总能量",
+      "chapter_id": "217a4d47-efa4-472e-b014-24d8554bcc7a"
+    },
+    {
+      "id": "heat_capacity",
+      "label": "热容量",
+      "type": "concept",
+      "description": "物体吸收或释放热量时温度变化的量度",
+      "chapter_id": "7e03f7af-3fd1-445b-8d34-df79d5f8fe44"
+    },
+    {
+      "id": "second_law",
+      "label": "热力学第二定律",
+      "type": "theorem",
+      "description": "揭示自然过程的方向性与熵增原理",
+      "chapter_id": "bee994ee-321a-49cc-9241-b85b8401327b"
+    },
+    {
+      "id": "irreversible_process",
+      "label": "不可逆过程",
+      "type": "concept",
+      "description": "无法完全恢复初始状态的过程",
+      "chapter_id": "2cc2700e-f9d2-444a-a69d-9116fc16eb0f"
+    },
+    {
+      "id": "entropy",
+      "label": "熵",
+      "type": "concept",
+      "description": "衡量系统无序程度的物理量",
+      "chapter_id": "c75d5014-5cea-4ca2-8265-94110dcaf6d1"
+    },
+    {
+      "id": "carnot_theorem",
+      "label": "卡诺定理",
+      "type": "theorem",
+      "description": "理想热机效率的最大值计算",
+      "chapter_id": "b782e434-75cf-45e3-97aa-90be16957326"
+    },
+    {
+      "id": "microstate",
+      "label": "微观状态",
+      "type": "concept",
+      "description": "系统中每个粒子的具体位置和动量集合",
+      "chapter_id": "c1ba2f8d-a56f-4cdb-8767-105390a626e6"
+    },
+    {
+      "id": "maxwell_boltzmann",
+      "label": "麦克斯韦-玻尔兹曼分布",
+      "type": "method",
+      "description": "描述经典气体中粒子速度分布的统计模型",
+      "chapter_id": "59b59bb3-b332-47d5-8471-bca5ceb822f8"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "module_thermodynamics",
+      "relation": "contains",
+      "label": "包含模块"
+    },
+    {
+      "source": "root",
+      "target": "module_statistical_physics",
+      "relation": "contains",
+      "label": "包含模块"
+    },
+    {
+      "source": "module_thermodynamics",
+      "target": "system",
+      "relation": "contains",
+      "label": "包含概念"
+    },
+    {
+      "source": "module_thermodynamics",
+      "target": "state_variable",
+      "relation": "contains",
+      "label": "包含概念"
+    },
+    {
+      "source": "module_thermodynamics",
+      "target": "zeroth_law",
+      "relation": "contains",
+      "label": "包含定律"
+    },
+    {
+      "source": "module_thermodynamics",
+      "target": "first_law",
+      "relation": "contains",
+      "label": "包含定律"
+    },
+    {
+      "source": "module_thermodynamics",
+      "target": "second_law",
+      "relation": "contains",
+      "label": "包含定律"
+    },
+    {
+      "source": "module_statistical_physics",
+      "target": "microstate",
+      "relation": "contains",
+      "label": "包含概念"
+    },
+    {
+      "source": "module_statistical_physics",
+      "target": "maxwell_boltzmann",
+      "relation": "contains",
+      "label": "包含方法"
+    },
+    {
+      "source": "zeroth_law",
+      "target": "temperature",
+      "relation": "leads_to",
+      "label": "推导出"
+    },
+    {
+      "source": "first_law",
+      "target": "internal_energy",
+      "relation": "depends_on",
+      "label": "依赖于"
+    },
+    {
+      "source": "first_law",
+      "target": "heat_capacity",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "second_law",
+      "target": "entropy",
+      "relation": "defines",
+      "label": "定义"
+    },
+    {
+      "source": "second_law",
+      "target": "irreversible_process",
+      "relation": "describes",
+      "label": "描述"
+    },
+    {
+      "source": "maxwell_boltzmann",
+      "target": "state_variable",
+      "relation": "explains",
+      "label": "解释"
+    }
+  ]
+}
