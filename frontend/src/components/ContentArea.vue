@@ -123,9 +123,20 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Collapsed Notes Trigger -->
+        <div v-if="isNotesCollapsed && !courseStore.isFocusMode" class="absolute right-6 top-6 z-40 hidden md:block">
+            <button 
+                @click="isNotesCollapsed = false" 
+                class="p-2 glass-panel-tech rounded-xl text-slate-500 hover:text-primary-600 shadow-lg hover:scale-105 transition-all bg-white/80 backdrop-blur border border-slate-200"
+                title="展开笔记"
+            >
+                <el-icon :size="20"><Notebook /></el-icon>
+            </button>
+        </div>
 
         <!-- Note Column (Desktop Only) - Responsive width -->
-        <div id="note-column" v-if="!courseStore.isFocusMode" class="hidden md:flex flex-col w-[260px] min-w-[260px] xl:w-[300px] xl:min-w-[300px] 2xl:w-[320px] flex-shrink-0 relative bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50">
+        <div id="note-column" v-if="!courseStore.isFocusMode && !isNotesCollapsed" class="hidden md:flex flex-col w-[260px] min-w-[260px] xl:w-[300px] xl:min-w-[300px] 2xl:w-[320px] flex-shrink-0 relative bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50">
              <!-- Search Header (Floating Card) -->
             <div class="sticky top-0 z-30 px-4 py-4 bg-white/90 backdrop-blur-xl border-b border-slate-200/60 flex flex-col gap-4">
                 <!-- Header Row -->
@@ -139,24 +150,31 @@
                             <p class="text-[10px] text-slate-400">{{ noteCounts.notes }} 条笔记 · {{ noteCounts.mistakes }} 道错题</p>
                         </div>
                     </div>
-                    <el-dropdown trigger="click" placement="bottom-end">
-                        <button class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all duration-200">
-                            <el-icon :size="18"><More /></el-icon>
-                        </button>
-                        <template #dropdown>
-                            <el-dropdown-menu>
-                                <el-dropdown-item @click="exportContent">
-                                    <el-icon class="mr-2"><Download /></el-icon>导出笔记
-                                </el-dropdown-item>
-                                <el-dropdown-item @click="exportMistakes" v-if="noteCounts.mistakes > 0">
-                                    <el-icon class="mr-2"><Document /></el-icon>导出错题
-                                </el-dropdown-item>
-                                <el-dropdown-item divided @click="clearAllFilters">
-                                    <el-icon class="mr-2"><RefreshLeft /></el-icon>重置筛选
-                                </el-dropdown-item>
-                            </el-dropdown-menu>
-                        </template>
-                    </el-dropdown>
+                    <div class="flex items-center gap-1">
+                        <el-tooltip content="收起笔记" placement="bottom">
+                            <button @click="isNotesCollapsed = true" class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 rounded-lg transition-all duration-200">
+                                <el-icon :size="16"><ArrowRight /></el-icon>
+                            </button>
+                        </el-tooltip>
+                        <el-dropdown trigger="click" placement="bottom-end">
+                            <button class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all duration-200">
+                                <el-icon :size="18"><More /></el-icon>
+                            </button>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item @click="exportContent">
+                                        <el-icon class="mr-2"><Download /></el-icon>导出笔记
+                                    </el-dropdown-item>
+                                    <el-dropdown-item @click="exportMistakes" v-if="noteCounts.mistakes > 0">
+                                        <el-icon class="mr-2"><Document /></el-icon>导出错题
+                                    </el-dropdown-item>
+                                    <el-dropdown-item divided @click="clearAllFilters">
+                                        <el-icon class="mr-2"><RefreshLeft /></el-icon>重置筛选
+                                    </el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
+                    </div>
                 </div>
                 
                 <!-- Modern Tab Navigation -->
@@ -629,7 +647,7 @@ import { useCourseStore } from '../stores/course'
 import { renderMarkdown } from '../utils/markdown'
 import CourseNode from './CourseNode.vue'
 import mermaid from 'mermaid'
-import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, Warning } from '@element-plus/icons-vue'
+import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, Warning, Expand } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -641,6 +659,8 @@ dayjs.locale('zh-cn')
 // Lazy rendering for Mermaid diagrams
 const observedMermaidElements = new WeakSet()
 let mermaidObserver: IntersectionObserver | null = null
+
+const isNotesCollapsed = ref(false)
 
 const initMermaidObserver = () => {
     if (mermaidObserver) return

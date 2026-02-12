@@ -4,7 +4,7 @@
     <!-- Mobile Overlay - Improved z-index and click handling -->
     <Transition name="fade">
       <div v-if="isMobile && (mobileShowLeft || mobileShowRight)" 
-           class="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-[60]"
+           class="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-[40]"
            @click="closeMobileSidebars">
       </div>
     </Transition>
@@ -34,7 +34,7 @@
       :style="{ width: isMobile ? '85%' : leftSidebarWidth + 'px' }"
       :class="[
         'flex-shrink-0 overflow-hidden transition-all duration-300 ease-out',
-        isMobile ? 'absolute left-0 top-0 bottom-0 z-50 bg-white shadow-2xl' : 'z-10 animate-fade-in-up stagger-1',
+        isMobile ? 'fixed left-0 top-0 bottom-0 z-50 bg-white shadow-2xl' : 'z-10 animate-fade-in-up stagger-1',
         isResizingLeft ? '!transition-none' : ''
       ]"
       @update:preferredWidth="handlePreferredWidth"
@@ -80,7 +80,7 @@
 
     <!-- Right Resizer (Desktop Only) - Optimized Position -->
     <div 
-      v-if="!isMobile && !courseStore.isFocusMode"
+      v-if="!isMobile && !courseStore.isFocusMode && !isRightCollapsed"
       class="w-1 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative hover:w-2 hover:-mr-0.5 transition-all duration-200"
       @mousedown="startResizeRight"
       @dblclick="resetRightSidebar"
@@ -93,13 +93,23 @@
 
     <!-- Right Sidebar: Chat or Stats -->
     <div
-      v-show="(!isMobile || mobileShowRight) && !courseStore.isFocusMode"
+      v-show="(!isMobile || mobileShowRight) && !isRightCollapsed && !courseStore.isFocusMode"
       :style="{ width: isMobile ? '85%' : rightSidebarWidth + 'px' }"
       :class="[
-        'flex-shrink-0 overflow-hidden h-full',
-        isMobile ? 'absolute right-0 top-0 bottom-0 z-50 bg-white shadow-2xl' : 'z-20 animate-fade-in-up stagger-3'
+        'flex-shrink-0 overflow-hidden h-full relative',
+        isMobile ? 'fixed right-0 top-0 bottom-0 z-50 bg-white shadow-2xl' : 'z-20 animate-fade-in-up stagger-3'
       ]"
     >
+      <!-- Collapse Button (Desktop Only) -->
+      <button 
+        v-if="!isMobile"
+        @click="isRightCollapsed = true"
+        class="absolute top-3 left-2 z-40 p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-slate-100 transition-colors"
+        title="收起侧边栏"
+      >
+        <el-icon :size="16"><ArrowRight /></el-icon>
+      </button>
+
       <!-- Tab Switcher - Moved to right side -->
       <div class="absolute top-2 right-4 z-30 flex bg-white/90 backdrop-blur-md rounded-full p-1 shadow-sm border border-slate-100">
         <button
@@ -116,6 +126,17 @@
       <ChatPanel v-show="activeRightTab === 'chat'" class="h-full pt-10" />
       <LearningStats v-show="activeRightTab === 'stats'" class="h-full pt-10" />
     </div>
+
+    <!-- Collapsed Right Sidebar Trigger -->
+    <div v-if="isRightCollapsed && !isMobile && !courseStore.isFocusMode" class="absolute right-4 top-4 z-50">
+        <button 
+            @click="isRightCollapsed = false" 
+            class="p-2 glass-panel-tech rounded-xl text-slate-500 hover:text-primary-600 shadow-lg hover:scale-105 transition-all"
+            title="展开侧边栏"
+        >
+            <el-icon :size="20"><Expand class="transform rotate-180" /></el-icon>
+        </button>
+    </div>
   </div>
 </template>
 
@@ -127,7 +148,7 @@ import LearningStats from '../components/LearningStats.vue'
 import { useCourseStore } from '../stores/course'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Menu, ChatDotRound, Expand } from '@element-plus/icons-vue'
+import { Menu, ChatDotRound, Expand, ArrowRight } from '@element-plus/icons-vue'
 
 const courseStore = useCourseStore()
 const route = useRoute()
@@ -150,6 +171,7 @@ const isMobile = ref(false)
 const mobileShowLeft = ref(false)
 const mobileShowRight = ref(false)
 const isLeftCollapsed = ref(false)
+const isRightCollapsed = ref(false)
 
 const checkMobile = () => {
     const width = window.innerWidth

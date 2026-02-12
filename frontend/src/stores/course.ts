@@ -1077,8 +1077,14 @@ export const useCourseStore = defineStore('course', {
             this.typingBuffer.forEach((buffer, nodeId) => {
                 if (buffer.length > 0) {
                     hasWork = true
-                    // Strictly 1 character at a time for typewriter effect
-                    const speed = 1
+                    // Dynamic speed adjustment based on buffer size to prevent lag
+                    // If buffer accumulates (backend faster than frontend), speed up!
+                    let speed = 1
+                    if (buffer.length > 500) speed = 50
+                    else if (buffer.length > 200) speed = 20
+                    else if (buffer.length > 50) speed = 5
+                    else if (buffer.length > 10) speed = 2
+
                     const chunk = buffer.slice(0, speed)
                     
                     this.typingBuffer.set(nodeId, buffer.slice(speed))
