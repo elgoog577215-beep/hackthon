@@ -1014,6 +1014,32 @@ sub, sup {
   transition: opacity 0.3s ease-in;
 }
 
+/* Ensure mermaid SVG takes full width if needed but doesn't overflow */
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Hide error details initially or style them better */
+.mermaid .error-icon {
+  fill: #ef4444;
+}
+.mermaid .error-text {
+  fill: #1e293b;
+  font-family: var(--font-mono);
+}
+.mermaid .edge-animation-slow {
+  animation: dash 50s linear infinite;
+}
+.mermaid .edge-animation-fast {
+  animation: dash 20s linear infinite;
+}
+@keyframes dash {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 .mermaid:not([data-processed="true"]) {
   opacity: 0;
 }

@@ -427,13 +427,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onUnmounted, reactive, computed } from 'vue'
+import { ref, watch, nextTick, onMounted, reactive, computed } from 'vue'
 import { useCourseStore } from '../stores/course'
 import type { AIContent } from '../stores/course'
 import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight, InfoFilled, QuestionFilled, Document, DataLine, Sunny, TrendCharts, Menu as CommandMenu } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown } from '../utils/markdown'
-import mermaid from 'mermaid'
+import { useMermaid } from '../composables/useMermaid'
 
 const courseStore = useCourseStore()
 const inputMessage = ref('')
@@ -443,53 +443,7 @@ const inputRef = ref<HTMLTextAreaElement | null>(null)
 const showQuickCommands = ref(false)
 
 // Lazy rendering for Mermaid diagrams
-const observedMermaidElements = new WeakSet()
-let mermaidObserver: IntersectionObserver | null = null
-
-const initMermaidObserver = () => {
-    if (mermaidObserver) return
-    
-    mermaidObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                const target = entry.target as HTMLElement
-                if (target.getAttribute('data-processed')) return
-                
-                // Render mermaid
-                mermaid.run({ nodes: [target] }).then(() => {
-                    target.style.opacity = '1'
-                }).catch(err => {
-                    console.error('Mermaid render error:', err)
-                    const code = target.textContent || ''
-                    target.innerHTML = `
-                        <div class="text-red-500 text-sm p-3 border border-red-200 rounded-lg bg-red-50">
-                            <div class="font-bold mb-2 flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                                图表渲染失败
-                            </div>
-                            <pre class="text-xs font-mono overflow-auto text-slate-600 bg-white p-2 rounded border border-red-100 max-h-40 whitespace-pre-wrap break-all">${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
-                        </div>`
-                    target.style.opacity = '1'
-                })
-                
-                mermaidObserver?.unobserve(target)
-            }
-        })
-    }, { rootMargin: '200px 0px' }) // Reduced preload margin for performance
-}
-
-const scanMermaidDiagrams = () => {
-    nextTick(() => {
-        const diagrams = document.querySelectorAll('.mermaid')
-        diagrams.forEach(el => {
-            if (!observedMermaidElements.has(el)) {
-                if (!mermaidObserver) initMermaidObserver()
-                mermaidObserver?.observe(el)
-                observedMermaidElements.add(el)
-            }
-        })
-    })
-}
+const { scanMermaidDiagrams } = useMermaid()
 
 // Watch chat history to render mermaid diagrams
 watch(() => courseStore.chatHistory, () => {
@@ -986,13 +940,6 @@ onMounted(() => {
         inputRef.value?.focus()
         scanMermaidDiagrams()
     })
-})
-
-onUnmounted(() => {
-    if (mermaidObserver) {
-        mermaidObserver.disconnect()
-        mermaidObserver = null
-    }
 })
 </script>
 

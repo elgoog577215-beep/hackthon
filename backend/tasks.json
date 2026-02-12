@@ -63,5 +63,31 @@
     "created_at": "2026-02-11T23:42:52.823757",
     "updated_at": "2026-02-11T23:59:54.090651",
     "error": null
+  },
+  "5519b00b-5637-4821-be8a-bc08eb964c5c": {
+    "id": "5519b00b-5637-4821-be8a-bc08eb964c5c",
+    "course_id": "8dc7aa1e-e660-4cbc-be39-cad0bb56f8f3",
+    "type": "auto_generate",
+    "status": "failed",
+    "progress": 0,
+    "total": 0,
+    "current_node_name": "",
+    "message": "正文: 第一章 光的基本性质与波动方程 | 正文: 第二章 几何光学与成像原理 | 正文: 第三章 干涉与相干性",
+    "created_at": "2026-02-12T15:14:12.718122",
+    "updated_at": "2026-02-12T15:36:31.288925",
+    "error": "Course not found"
+  },
+  "6e093459-727d-47ad-a034-fb152768c7cc": {
+    "id": "6e093459-727d-47ad-a034-fb152768c7cc",
+    "course_id": "8ead44c5-607b-4040-b434-220a357b05db",
+    "type": "auto_generate",
+    "status": "completed",
+    "progress": 100,
+    "total": 0,
+    "current_node_name": "",
+    "message": "All steps completed",
+    "created_at": "2026-02-12T15:19:36.364457",
+    "updated_at": "2026-02-12T17:24:46.342506",
+    "error": null
   }
 }

@@ -217,7 +217,18 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any) {
     // Encode the code to prevent HTML tag parsing issues (e.g. A["<Label>"])
     const encodedCode = md.utils.escapeHtml(code);
     
-    return `<div class="mermaid">${encodedCode}</div>`;
+    // We wrap it in a div.mermaid. 
+    // IMPORTANT: The content inside must NOT be HTML encoded again by the browser when we insert it.
+    // However, markdown-it's renderer expects a string that will be put into HTML.
+    // So escapeHtml is correct. 
+    // But for mermaid, we want the raw code in the textContent of the div initially?
+    // Actually, mermaid.run looks at textContent. 
+    // If we put encoded HTML entities in the div, textContent will decode them back to raw chars.
+    // So `<` becomes `&lt;` in HTML, but `textContext` reads `<`. This is correct.
+    
+    // Encode raw code for data attribute to ensure we have the exact original source
+    const rawCode = encodeURIComponent(code);
+    return `<div class="mermaid" data-code="${rawCode}">${encodedCode}</div>`;
   }
   
   const langName = info.split(/\s+/g)[0];

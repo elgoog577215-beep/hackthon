@@ -54,7 +54,8 @@ class TaskManager:
             "message": "Waiting to start...",
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
-            "error": None
+            "error": None,
+            "retry_count": 0
         }
         self.tasks[task_id] = task
         self.save_tasks()
@@ -223,7 +224,11 @@ class TaskManager:
         # Helper to check if content is "full" (not just summary)
         def is_content_complete(node):
             content = node.get("node_content", "")
-            return len(content) > 300
+            # For beginner difficulty, L1 nodes contain the full content, so we expect more text.
+            # For advanced difficulty, L2 nodes also need full content.
+            # 300 chars is too low as some summaries might exceed it. 
+            # Increasing to 600 to ensure we generate detailed content.
+            return len(content) > 600
 
         for l1 in l1_nodes:
             children = [n for n in nodes if n.get("parent_node_id") == l1["node_id"]]
@@ -383,4 +388,13 @@ class TaskManager:
         except Exception as e:
             logger.error(f"Error in task batch: {e}")
             task["error"] = str(e)
-            # Retry next time
+            
+            # Retry logic
+            task["retry_count"] = task.get("retry_count", 0) + 1
+            if task["retry_count"] > 3:
+                task["status"] = "failed"
+                task["message"] = f"Failed after 3 retries: {str(e)}"
+            else:
+                task["message"] = f"Error (Retry {task['retry_count']}/3): {str(e)}"
+            
+            self.save_tasks()

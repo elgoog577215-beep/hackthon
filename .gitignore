@@ -1,21 +1,28 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-venv/
-# .env
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Node
-node_modules/
-dist/
+node_modules
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
 .DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# IDE
-.vscode/
-.idea/
-
-# Data
-# backend/data/
-# data/
-# backend/tasks.json
-backend/debug_failed_json.txt
+# Environment Variables
+.env
+.env.*
+!.env.example
