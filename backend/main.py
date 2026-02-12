@@ -593,8 +593,14 @@ static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 if os.path.exists(static_dir):
     # 挂载资产（CSS、JS、图像）
-    app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
+    if os.path.exists(os.path.join(static_dir, "assets")):
+        app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
     
+    # Root endpoint for SPA
+    @app.get("/")
+    async def serve_root():
+        return FileResponse(os.path.join(static_dir, "index.html"))
+
     # SPA（Vue Router）的捕获所有路由
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):

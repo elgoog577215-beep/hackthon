@@ -513,14 +513,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, computed, reactive, nextTick } from 'vue'
+import { ref, watch, onUnmounted, computed, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm } from 'element-plus'
 import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled } from '@element-plus/icons-vue'
 import { BookOpen, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
 import { renderMarkdown } from '../utils/markdown'
-import mermaid from 'mermaid'
+import { useMermaid } from '../composables/useMermaid'
 
 const courseStore = useCourseStore()
 const router = useRouter()
@@ -686,10 +686,6 @@ watch(() => courseStore.courseTree.length, () => {
 
 onUnmounted(() => {
     if (resizeObserver) resizeObserver.disconnect()
-    if (mermaidObserver) {
-        mermaidObserver.disconnect()
-        mermaidObserver = null
-    }
 })
 
 const defaultProps = {
@@ -817,53 +813,7 @@ const backToCourses = () => {
 }
 
 // Lazy rendering for Mermaid diagrams
-const observedMermaidElements = new WeakSet()
-let mermaidObserver: IntersectionObserver | null = null
-
-const initMermaidObserver = () => {
-    if (mermaidObserver) return
-    
-    mermaidObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                const target = entry.target as HTMLElement
-                if (target.getAttribute('data-processed')) return
-                
-                // Render mermaid
-                mermaid.run({ nodes: [target] }).then(() => {
-                    target.style.opacity = '1'
-                }).catch(err => {
-                    console.error('Mermaid render error:', err)
-                    const code = target.textContent || ''
-                    target.innerHTML = `
-                        <div class="text-red-500 text-sm p-3 border border-red-200 rounded-lg bg-red-50">
-                            <div class="font-bold mb-2 flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                                图表渲染失败
-                            </div>
-                            <pre class="text-xs font-mono overflow-auto text-slate-600 bg-white p-2 rounded border border-red-100 max-h-40 whitespace-pre-wrap break-all">${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
-                        </div>`
-                    target.style.opacity = '1'
-                })
-                
-                mermaidObserver?.unobserve(target)
-            }
-        })
-    }, { rootMargin: '200px 0px' })
-}
-
-const scanMermaidDiagrams = () => {
-    nextTick(() => {
-        const diagrams = document.querySelectorAll('.mermaid')
-        diagrams.forEach(el => {
-            if (!observedMermaidElements.has(el)) {
-                if (!mermaidObserver) initMermaidObserver()
-                mermaidObserver?.observe(el)
-                observedMermaidElements.add(el)
-            }
-        })
-    })
-}
+const { scanMermaidDiagrams } = useMermaid()
 
 watch(notesDialogVisible, (visible) => {
     if (visible) {

@@ -20,7 +20,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 加载环境变量
-load_dotenv()
+load_dotenv(override=True)
+
+api_key = os.getenv("AI_API_KEY")
+if api_key:
+    masked_key = f"{api_key[:8]}...{api_key[-4:]}"
+    logger.info(f"Loaded AI_API_KEY: {masked_key}")
+else:
+    logger.error("AI_API_KEY not found in environment variables")
 
 # 具有切换到真实 API 功能的模拟 AI 服务
 class AIService:
@@ -109,36 +116,111 @@ class AIService:
         def fix_mermaid_block(match):
             content = match.group(1)
             
-            def quote_if_needed(text, type_char):
-                # Check if already quoted (simple check)
-                if text.startswith('"') and text.endswith('"'):
-                    return text
+            # Detect diagram type
+            # Remove comments and empty lines to find the first meaningful line
+            clean_lines = [line.strip() for line in content.split('\n') 
+                           if line.strip() and not line.strip().startswith('%%')]
+            
+            if not clean_lines:
+                return f'```mermaid{content}```'
                 
-                # Escape quotes inside the text
-                text = text.replace('"', '\\"')
-                return f'"{text}"'
+            first_word = clean_lines[0].split(' ')[0]
+            
+            # Only apply node label quoting fixes for Flowcharts (graph/flowchart)
+            # Other diagram types (Sequence, Class, ER, Gantt, etc.) have different syntax 
+            # where brackets {} [] () have specific structural meanings, not just text labels.
+            if first_word not in ['graph', 'flowchart']:
+                return f'```mermaid{content}```'
 
-            # Fix 1: [Text] -> ["Text"] (Rectangular nodes)
-            # Exclude content starting with (, [, /, \, < to avoid breaking shapes
-            content = re.sub(r'\[(?![(\[/\\<])([^\[\]\n]+?)\]', 
-                             lambda m: f'[{quote_if_needed(m.group(1), "[")}]', 
+            def safe_quote(text):
+                """
+                Ensures text is wrapped in double quotes and internal quotes are escaped.
+                """
+                text = text.strip()
+                # If already fully wrapped in quotes, check/fix internal escaping
+                if text.startswith('"') and text.endswith('"') and len(text) > 1:
+                    # We assume the LLM tried to quote it. 
+                    # To be safe, we could strip and re-quote, but that might break if the user intended multiple quotes.
+                    # Simple heuristic: if it looks like a valid string, leave it.
+                    # But often LLMs write: ["Some "quoted" text"] which is invalid.
+                    # Re-quoting is safer: strip outer, escape inner, re-wrap.
+                    inner = text[1:-1]
+                    # But what if it was ["A"] --> ["B"]? We are matching the content INSIDE brackets.
+                    # So 'text' is just the label.
+                    pass
+                else:
+                    inner = text
+                
+                # Escape existing double quotes
+                inner = inner.replace('"', '\\"')
+                return f'"{inner}"'
+
+            # Define patterns for different node shapes to fix
+            # We use negative lookahead/lookbehind to avoid matching double brackets (like [[ or (( )
+            # effectively targeting the standard shapes that cause most issues.
+            
+            # 1. Square brackets: [Text] -> ["Text"]
+            # Exclude [[...]] (subroutines) and starting with special chars that might indicate other syntax
+            content = re.sub(r'(?<!\[)\[(?![\[])([^\[\]]+?)(?<!\])\](?!\])', 
+                             lambda m: f'[{safe_quote(m.group(1))}]', 
                              content)
             
-            # Fix 2: (Text) -> ("Text") (Round nodes)
-            # Exclude content starting with ( to avoid breaking shapes
-            content = re.sub(r'\((?!\()([^()\n]+?)\)', 
-                             lambda m: f'({quote_if_needed(m.group(1), "(")})', 
+            # 2. Round brackets: (Text) -> ("Text")
+            # Exclude ((...)) (circles) and [(...)] (cylinders) - though actually quoting inside them is usually fine/good too.
+            # But let's be precise.
+            content = re.sub(r'(?<!\()(\()(?![(\[])([^()]+?)(?<!\))(\))(?![\)])', 
+                             lambda m: f'({safe_quote(m.group(2))})', 
                              content)
             
-            # Fix 3: {Text} -> {"Text"} (Rhombus nodes)
-            # Exclude {{Hexagon}}
-            content = re.sub(r'\{(?![{!])([^{}\n]+?)\}', 
-                             lambda m: f'{{{quote_if_needed(m.group(1), "{")}}}', 
+            # 3. Curly brackets: {Text} -> {"Text"}
+            # Exclude {{...}} (hexagons)
+            content = re.sub(r'(?<!\{)\{(?![{!])([^{}]+?)(?<!\})\}(?!\})', 
+                             lambda m: f'{{{safe_quote(m.group(1))}}}', 
+                             content)
+            
+            # 4. Rhombus/Hexagon with double curly: {{Text}} -> {{"Text"}}
+            content = re.sub(r'\{\{([^{}]+?)\}\}', 
+                             lambda m: f'{{{{{safe_quote(m.group(1))}}}}}', 
+                             content)
+            
+            # 5. Circle/Double Round: ((Text)) -> (("Text"))
+            content = re.sub(r'\(\(([^()]+?)\)\)', 
+                             lambda m: f'(({safe_quote(m.group(1))}))', 
                              content)
             
             return f'```mermaid{content}```'
 
         return re.sub(pattern, fix_mermaid_block, text, flags=re.DOTALL)
+
+    def _clean_latex_syntax(self, text: str) -> str:
+        """
+        Fixes and normalizes LaTeX syntax.
+        """
+        # 1. Normalize \[ ... \] to $$ ... $$ (Block Math)
+        text = re.sub(r'\\\[(.*?)\\\]', r'\n$$\n\1\n$$\n', text, flags=re.DOTALL)
+        
+        # 2. Normalize \( ... \) to $ ... $ (Inline Math)
+        text = re.sub(r'\\\((.*?)\\\)', r'$\1$', text, flags=re.DOTALL)
+        
+        # 3. Ensure complex environments are wrapped in $$
+        # Extended list of environments
+        envs = r"matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|align|align\*|equation|equation\*|cases|gather|gather\*|alignat|alignat\*"
+        
+        # Pattern: Optional $$ prefix, \begin{env}... \end{env}, Optional $$ suffix
+        # We capture the environment block and force wrap it in $$
+        pattern = fr'(\$\$)?\s*(\\begin{{({envs})}}.*?\\end{{\3}})\s*(\$\$)?'
+        
+        def fix_latex_block(match):
+            content = match.group(2)
+            # Ensure it's wrapped in $$ with newlines
+            return f"\n$$\n{content.strip()}\n$$\n"
+
+        text = re.sub(pattern, fix_latex_block, text, flags=re.DOTALL)
+        
+        # 4. Cleanup multiple empty lines (max 2)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        
+        return text
 
     def clean_response_text(self, text: str) -> str:
         """
@@ -150,19 +232,7 @@ class AIService:
             clean_text = clean_text[11:-3].strip()
             
         # Fix LaTeX
-        # Check for LaTeX blocks that might or might not be wrapped in $$
-        # We capture optional $$ before and after (with optional whitespace)
-        # We use a specific list of environments to match
-        envs = r"matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|align|equation|cases"
-        pattern = fr'(\$\$)?\s*(\\begin{{({envs})}}.*?\\end{{\3}})\s*(\$\$)?'
-        
-        def fix_latex(match):
-            # group 1: prefix $$, group 2: latex block, group 4: suffix $$
-            content = match.group(2)
-            # Always return wrapped in single $$, ensuring newlines
-            return f"\n$$\n{content.strip()}\n$$\n"
-
-        clean_text = re.sub(pattern, fix_latex, clean_text, flags=re.DOTALL)
+        clean_text = self._clean_latex_syntax(clean_text)
         
         # Fix Mermaid
         clean_text = self._clean_mermaid_syntax(clean_text)
