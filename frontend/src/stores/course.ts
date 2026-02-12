@@ -868,15 +868,13 @@ export const useCourseStore = defineStore('course', {
                 user_persona: this.userPersona,
                 question_count: questionCount
             })
-            
-            // The backend returns a list of questions. We'll add them as AI messages.
-            // For now, let's just handle the first one or all of them.
-            // Typically "Generate Quiz" implies a set.
-            // But the UI in ChatPanel seems to handle one quiz object per message nicely.
-            // Let's add them as separate messages or a single message with multiple quizzes?
-            // The current ChatPanel handles `msg.content.quiz` as a SINGLE object.
-            // Let's change backend to return one quiz? No, backend returns List.
-            // We will iterate and add them.
+
+            // Fix: Map correct_index to answer if answer is missing
+            const processedQuizzes = Array.isArray(res.data) ? res.data.map((quizItem: any) => ({
+                ...quizItem,
+                answer: quizItem.answer || (typeof quizItem.correct_index === 'number' && quizItem.options ? quizItem.options[quizItem.correct_index] : ''),
+                node_id: nodeId
+            })) : []
             
             if (Array.isArray(res.data)) {
                 if (res.data.length === 0) {
@@ -893,16 +891,13 @@ export const useCourseStore = defineStore('course', {
                         content: {
                             core_answer: title,
                             answer: title,
-                            quiz_list: res.data.map((quizItem: any) => ({
-                                ...quizItem,
-                                node_id: nodeId
-                            }))
+                            quiz_list: processedQuizzes
                         }
                     })
                 }
             }
             
-            return Array.isArray(res.data) ? res.data : []
+            return processedQuizzes
         } catch (error) {
             ElMessage.error('生成测验失败')
             if (!silent) {
