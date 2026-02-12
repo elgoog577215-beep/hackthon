@@ -150,8 +150,19 @@ class AIService:
             clean_text = clean_text[11:-3].strip()
             
         # Fix LaTeX
-        pattern = r'(?<!\$)(?<!\$\$)\\begin\{(matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|align|equation|cases)\}.*?\\end\{\1\}(?!\$)(?!\$\$)'
-        clean_text = re.sub(pattern, lambda m: f"\n$$\n{m.group(0)}\n$$\n", clean_text, flags=re.DOTALL)
+        # Check for LaTeX blocks that might or might not be wrapped in $$
+        # We capture optional $$ before and after (with optional whitespace)
+        # We use a specific list of environments to match
+        envs = r"matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|align|equation|cases"
+        pattern = fr'(\$\$)?\s*(\\begin{{({envs})}}.*?\\end{{\3}})\s*(\$\$)?'
+        
+        def fix_latex(match):
+            # group 1: prefix $$, group 2: latex block, group 4: suffix $$
+            content = match.group(2)
+            # Always return wrapped in single $$, ensuring newlines
+            return f"\n$$\n{content.strip()}\n$$\n"
+
+        clean_text = re.sub(pattern, fix_latex, clean_text, flags=re.DOTALL)
         
         # Fix Mermaid
         clean_text = self._clean_mermaid_syntax(clean_text)
