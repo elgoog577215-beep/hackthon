@@ -59,7 +59,7 @@ export function useMermaid() {
     // Helper to fix common Mermaid syntax errors
     const fixMermaidCode = (code: string): string => {
         let fixed = code;
-        const replaceQuotes = (match: string, start: string, content: string, end: string) => {
+        const replaceQuotes = (_: string, start: string, content: string, end: string) => {
             const safeContent = content.replace(/"/g, "'");
             return `${start}${safeContent}${end}`;
         };
