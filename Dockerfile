@@ -17,6 +17,11 @@ RUN VITE_API_BASE_URL="" npm run build
 FROM python:3.10-slim
 WORKDIR /app
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy backend requirements and install dependencies
 COPY backend/requirements.txt ./backend/
 RUN pip install --no-cache-dir -r backend/requirements.txt
@@ -24,9 +29,15 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 # Copy backend source code
 COPY backend/ ./backend/
 
+# Copy shared module
+COPY shared/ ./shared/
+
 # Copy built frontend assets from Stage 1
 # This mounts the Vue app to the static directory served by FastAPI
 COPY --from=frontend-build /app/frontend/dist /app/backend/static
+
+# Create data directories for persistent storage
+RUN mkdir -p /app/backend/data/courses /app/backend/data/knowledge_graphs
 
 # Set environment variables
 ENV PYTHONPATH=/app
