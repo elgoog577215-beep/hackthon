@@ -12,11 +12,10 @@
  */
 
 import dayjs from 'dayjs'
+import isBetween from 'dayjs/plugin/isBetween'
 import type {
   ReviewItem,
   ReviewStats,
-  ReviewResult,
-  ReviewScheduleResponse,
   SubmitReviewRequest
 } from '../api/smartReview'
 import {
@@ -25,6 +24,9 @@ import {
   getReviewProgress,
   getReviewStats
 } from '../api/smartReview'
+
+// 扩展 dayjs 插件
+dayjs.extend(isBetween)
 
 // =============================================================================
 // 类型定义
@@ -152,7 +154,7 @@ function saveLocalItems(items: LocalReviewItem[], storageKey: string): void {
  * @param difficulty 难度等级
  * @returns 下一次复习的ISO时间字符串
  */
-function calculateNextReview(
+export function calculateNextReview(
   reviewCount: number,
   difficulty: string = 'intermediate'
 ): string {
@@ -512,6 +514,7 @@ export class UnifiedReviewSystem {
     if (itemIndex === -1) return null
     
     const item = this.localItems[itemIndex]
+    if (!item) return null
     
     if (this.currentMode === 'api') {
       try {

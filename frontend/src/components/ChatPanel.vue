@@ -195,9 +195,7 @@
                     class="flex flex-col gap-1.5 message-item">
 
                     <div :class="['p-4 rounded-xl text-base max-w-[95%] transition-all relative shadow-sm group relative z-10',
-                    msg.type === 'user'
-                        ? 'bg-primary-600 text-white self-end rounded-tr-sm'
-                        : 'bg-white border border-slate-100 !rounded-tl-sm self-start hover:border-slate-200']"
+                        'bg-white border border-slate-100 !rounded-tl-sm self-start hover:border-slate-200']"
                         v-if="msg.type === 'ai' && typeof msg.content === 'object'">
                          <!-- Header: AI Icon + Title -->
                         <div class="flex items-center gap-1.5 mb-2 text-xs font-semibold text-primary-600 uppercase tracking-wide border-b border-slate-100/60 pb-1.5 justify-between">
@@ -878,7 +876,7 @@ const stopMessage = () => {
 
 // ========== Smart Suggestions ==========
 // 使用共享配置中的智能建议
-import { SMART_SUGGESTIONS, CONTEXT_SUGGESTION_PATTERNS, type SuggestionItem } from '../../../shared/prompt-config'
+import { SMART_SUGGESTIONS, CONTEXT_SUGGESTION_PATTERNS, type SuggestionItem } from '@/shared/prompt-config'
 
 const smartSuggestions = SMART_SUGGESTIONS.general
 

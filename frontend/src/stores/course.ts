@@ -19,7 +19,7 @@ import {
   PARAMETER_RULES,
   type DifficultyLevel,
   type TeachingStyle
-} from '../../../shared/prompt-config'
+} from '@/shared/prompt-config'
 
 // =============================================================================
 // Course Store - 课程状态管理
@@ -43,8 +43,6 @@ import {
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 const GENERATION_STATE_KEY = 'course-generation-state-v1'
 const MAX_RETRIES = 2                    // 最大重试次数
-const CONTENT_MIN_LENGTH = 50            // 内容最小长度阈值
-const CONTENT_COMPLETE_THRESHOLD = 600   // 内容完整度阈值
 const QUEUE_PROCESS_DELAY = 50           // 队列处理间隔(ms)
 const sanitizeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').trim()
 const downloadBlob = (blob: Blob, filename: string) => {
@@ -1051,7 +1049,7 @@ export const useCourseStore = defineStore('course', {
                         })
                     }
                 } else if (!silent) {
-                    const title = `### 📝 ${style === 'creative' ? '创意挑战' : (style === 'practical' ? '实战演练' : '知识测验')}\n这里有几道题目来检测你的学习成果：`
+                    const title = `### 📝 ${style === TEACHING_STYLES.HUMOROUS ? '趣味挑战' : (style === TEACHING_STYLES.INDUSTRIAL ? '实战演练' : (style === TEACHING_STYLES.SOCRATIC ? '思辨问答' : '知识测验'))}\n这里有几道题目来检测你的学习成果：`
                     this.chatHistory.push({
                         type: 'ai',
                         content: {

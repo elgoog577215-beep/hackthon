@@ -279,7 +279,7 @@ const shortcuts = createCommonShortcuts({
   },
   onSave: () => {
     if (courseStore.currentCourseId) {
-      courseStore.saveCourseData()
+      courseStore.persistGenerationState()
       ElMessage.success('课程已保存')
     }
   },

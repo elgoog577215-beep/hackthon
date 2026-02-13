@@ -9,6 +9,9 @@ RUN npm install
 # Copy source code
 COPY frontend/ ./
 
+# Copy shared module to src/shared for TypeScript imports
+COPY shared/ ./src/shared/
+
 # Build with empty API base URL for relative paths in production
 # This ensures the frontend talks to the same origin (the FastAPI backend)
 RUN VITE_API_BASE_URL="" npm run build

@@ -575,11 +575,11 @@ function clearSearch() {
   currentSearchIndex.value = -1
 }
 
-function selectSearchResult(node: any) {
-  selectedNode.value = node
-  focusOnNode(node)
-  searchResults.value = []
-}
+// function selectSearchResult(node: any) {
+//   selectedNode.value = node
+//   focusOnNode(node)
+//   searchResults.value = []
+// }
 
 function focusOnNode(node: any) {
   // Center the view on the selected node
