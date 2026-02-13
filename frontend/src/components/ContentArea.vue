@@ -17,6 +17,119 @@
         </transition>
     </Teleport>
 
+    <!-- Export Dialog -->
+    <Teleport to="body">
+        <transition name="fade-scale">
+            <div v-if="exportDialog.visible" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <!-- Backdrop -->
+                <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeExportDialog"></div>
+                
+                <!-- Dialog Content -->
+                <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
+                    <!-- Header -->
+                    <div class="px-6 py-5 bg-gradient-to-r from-primary-500 to-primary-600 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                                <el-icon class="text-white" :size="24"><Download /></el-icon>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-white">{{ exportDialog.title }}</h3>
+                                <p class="text-sm text-white/80">{{ exportDialog.subtitle }}</p>
+                            </div>
+                        </div>
+                        <button @click="closeExportDialog" class="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/20 rounded-lg transition-all">
+                            <el-icon :size="20"><Close /></el-icon>
+                        </button>
+                    </div>
+                    
+                    <!-- Body -->
+                    <div class="p-6 space-y-4">
+                        <!-- Export Scope -->
+                        <div class="space-y-2">
+                            <label class="text-sm font-medium text-slate-700">导出范围</label>
+                            <div class="grid grid-cols-3 gap-2">
+                                <button 
+                                    v-for="scope in exportScopes" 
+                                    :key="scope.value"
+                                    @click="exportDialog.scope = scope.value"
+                                    class="px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border-2"
+                                    :class="exportDialog.scope === scope.value 
+                                        ? 'border-primary-500 bg-primary-50 text-primary-700' 
+                                        : 'border-slate-100 bg-slate-50 text-slate-600 hover:border-slate-200 hover:bg-slate-100'"
+                                >
+                                    <div class="flex flex-col items-center gap-1">
+                                        <el-icon :size="18"><component :is="scope.icon" /></el-icon>
+                                        <span>{{ scope.label }}</span>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Export Format -->
+                        <div class="space-y-2">
+                            <label class="text-sm font-medium text-slate-700">导出格式</label>
+                            <div class="grid grid-cols-2 gap-3">
+                                <button 
+                                    v-for="fmt in exportFormats" 
+                                    :key="fmt.value"
+                                    @click="exportDialog.format = fmt.value"
+                                    class="relative px-4 py-4 rounded-xl text-left transition-all duration-200 border-2 group"
+                                    :class="exportDialog.format === fmt.value 
+                                        ? 'border-primary-500 bg-primary-50/50' 
+                                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'"
+                                >
+                                    <div class="flex items-start gap-3">
+                                        <div class="w-10 h-10 rounded-lg flex items-center justify-center transition-colors"
+                                            :class="exportDialog.format === fmt.value ? 'bg-primary-100' : 'bg-slate-100 group-hover:bg-slate-200'">
+                                            <el-icon :size="20" :class="exportDialog.format === fmt.value ? 'text-primary-600' : 'text-slate-500'">
+                                                <component :is="fmt.icon" />
+                                            </el-icon>
+                                        </div>
+                                        <div class="flex-1">
+                                            <div class="font-semibold text-slate-800">{{ fmt.label }}</div>
+                                            <div class="text-xs text-slate-500 mt-0.5">{{ fmt.desc }}</div>
+                                        </div>
+                                        <div v-if="exportDialog.format === fmt.value" class="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary-500 flex items-center justify-center">
+                                            <el-icon class="text-white" :size="12"><Check /></el-icon>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Export Preview -->
+                        <div class="bg-slate-50 rounded-xl p-4 space-y-2">
+                            <div class="flex items-center justify-between text-sm">
+                                <span class="text-slate-500">预计导出</span>
+                                <span class="font-semibold text-slate-800">{{ getExportCount }} 条笔记</span>
+                            </div>
+                            <div class="flex items-center justify-between text-sm">
+                                <span class="text-slate-500">文件大小</span>
+                                <span class="font-semibold text-slate-800">约 {{ getExportSize }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Footer -->
+                    <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-3">
+                        <button @click="closeExportDialog" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-200/50 rounded-lg transition-all">
+                            取消
+                        </button>
+                        <button 
+                            @click="executeExport" 
+                            :disabled="exportDialog.loading"
+                            class="px-5 py-2 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white text-sm font-medium rounded-lg shadow-lg shadow-primary-500/25 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <el-icon v-if="exportDialog.loading" class="is-loading"><Loading /></el-icon>
+                            <el-icon v-else><Download /></el-icon>
+                            {{ exportDialog.loading ? '导出中...' : '开始导出' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </Teleport>
+
     <!-- Content List (Continuous Scroll) -->
     <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
       
@@ -162,10 +275,10 @@
                             </button>
                             <template #dropdown>
                                 <el-dropdown-menu>
-                                    <el-dropdown-item @click="exportContent">
+                                    <el-dropdown-item @click="openExportDialog('notes')">
                                         <el-icon class="mr-2"><Download /></el-icon>导出笔记
                                     </el-dropdown-item>
-                                    <el-dropdown-item @click="exportMistakes" v-if="noteCounts.mistakes > 0">
+                                    <el-dropdown-item @click="openExportDialog('mistakes')" v-if="noteCounts.mistakes > 0">
                                         <el-icon class="mr-2"><Document /></el-icon>导出错题
                                     </el-dropdown-item>
                                     <el-dropdown-item divided @click="clearAllFilters">
@@ -215,13 +328,104 @@
                     </div>
                 </div>
                 
+                <!-- Filter Section -->
+                <div class="flex flex-col gap-2">
+                    <!-- Tag Filter -->
+                    <div v-if="availableTags.length > 0" class="flex flex-wrap items-center gap-1.5">
+                        <span class="text-[10px] text-slate-400 whitespace-nowrap">标签:</span>
+                        <div class="flex flex-wrap gap-1 flex-1">
+                            <el-tag
+                                v-for="tag in availableTags.slice(0, 5)"
+                                :key="tag"
+                                size="small"
+                                :type="selectedTagFilter === tag ? 'primary' : 'info'"
+                                :effect="selectedTagFilter === tag ? 'dark' : 'plain'"
+                                class="cursor-pointer text-[10px]"
+                                @click="selectedTagFilter = selectedTagFilter === tag ? '' : tag"
+                            >
+                                {{ tag }}
+                            </el-tag>
+                            <el-dropdown v-if="availableTags.length > 5" trigger="click" placement="bottom">
+                                <el-tag size="small" type="info" effect="plain" class="cursor-pointer text-[10px]">
+                                    +{{ availableTags.length - 5 }}
+                                </el-tag>
+                                <template #dropdown>
+                                    <el-dropdown-menu class="max-h-48 overflow-y-auto">
+                                        <el-dropdown-item
+                                            v-for="tag in availableTags.slice(5)"
+                                            :key="tag"
+                                            @click="selectedTagFilter = selectedTagFilter === tag ? '' : tag"
+                                        >
+                                            <el-tag
+                                                size="small"
+                                                :type="selectedTagFilter === tag ? 'primary' : 'info'"
+                                                :effect="selectedTagFilter === tag ? 'dark' : 'plain'"
+                                            >
+                                                {{ tag }}
+                                            </el-tag>
+                                        </el-dropdown-item>
+                                    </el-dropdown-menu>
+                                </template>
+                            </el-dropdown>
+                        </div>
+                    </div>
+                    
+                    <!-- Category & Priority Filter -->
+                    <div class="flex items-center gap-2">
+                        <el-select
+                            v-if="availableCategories.length > 0"
+                            v-model="selectedCategoryFilter"
+                            placeholder="全部分类"
+                            size="small"
+                            class="flex-1"
+                            clearable
+                        >
+                            <el-option
+                                v-for="cat in availableCategories"
+                                :key="cat"
+                                :label="cat"
+                                :value="cat"
+                            />
+                        </el-select>
+                        <el-select
+                            v-model="selectedPriorityFilter"
+                            placeholder="全部优先级"
+                            size="small"
+                            class="flex-1"
+                            clearable
+                        >
+                            <el-option label="🔴 高优先级" value="high" />
+                            <el-option label="🟡 中优先级" value="medium" />
+                            <el-option label="🟢 低优先级" value="low" />
+                        </el-select>
+                    </div>
+                </div>
+                
                 <!-- Active Filters Display -->
-                <div v-if="debouncedSearchQuery" class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                <div v-if="hasActiveFilters" class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
                     <span class="text-[10px] text-slate-400">筛选:</span>
                     <div class="flex flex-wrap gap-1.5 flex-1">
                         <span v-if="debouncedSearchQuery" class="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 text-[11px] rounded-lg">
                             "{{ debouncedSearchQuery }}"
                             <button @click="noteSearchQuery = ''" class="hover:text-slate-800 w-4 h-4 flex items-center justify-center rounded hover:bg-slate-200 transition-colors">
+                                <el-icon :size="10"><Close /></el-icon>
+                            </button>
+                        </span>
+                        <span v-if="selectedTagFilter" class="inline-flex items-center gap-1 px-2 py-1 bg-primary-50 text-primary-600 text-[11px] rounded-lg">
+                            标签: {{ selectedTagFilter }}
+                            <button @click="selectedTagFilter = ''" class="hover:text-primary-800 w-4 h-4 flex items-center justify-center rounded hover:bg-primary-100 transition-colors">
+                                <el-icon :size="10"><Close /></el-icon>
+                            </button>
+                        </span>
+                        <span v-if="selectedCategoryFilter" class="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-600 text-[11px] rounded-lg">
+                            分类: {{ selectedCategoryFilter }}
+                            <button @click="selectedCategoryFilter = ''" class="hover:text-amber-800 w-4 h-4 flex items-center justify-center rounded hover:bg-amber-100 transition-colors">
+                                <el-icon :size="10"><Close /></el-icon>
+                            </button>
+                        </span>
+                        <span v-if="selectedPriorityFilter" class="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 text-[11px] rounded-lg">
+                            {{ getPriorityLabel(selectedPriorityFilter) }}
+                            <button @click="selectedPriorityFilter = ''" class="hover:text-red-800 w-4 h-4 flex items-center justify-center rounded hover:bg-red-100 transition-colors">
                                 <el-icon :size="10"><Close /></el-icon>
                             </button>
                         </span>
@@ -435,27 +639,27 @@
              <div class="space-y-3">
                  <div class="text-sm font-bold text-slate-600">难度选择</div>
                  <div class="grid grid-cols-3 gap-2">
-                     <button v-for="diff in ['easy', 'medium', 'hard']" :key="diff"
-                         class="px-3 py-2 rounded-lg text-sm border transition-all"
-                         :class="quizConfig.difficulty === diff ? 'bg-primary-600 text-white border-primary-600 shadow-md shadow-primary-500/30' : 'bg-white text-slate-600 border-slate-200 hover:border-primary-300'"
-                         @click="quizConfig.difficulty = diff"
-                     >
-                        {{ diff === 'easy' ? '简单' : (diff === 'medium' ? '中等' : '困难') }}
-                     </button>
-                 </div>
+                    <button v-for="diff in [DIFFICULTY_LEVELS.BEGINNER, DIFFICULTY_LEVELS.INTERMEDIATE, DIFFICULTY_LEVELS.ADVANCED]" :key="diff"
+                        class="px-3 py-2 rounded-lg text-sm border transition-all"
+                        :class="quizConfig.difficulty === diff ? 'bg-primary-600 text-white border-primary-600 shadow-md shadow-primary-500/30' : 'bg-white text-slate-600 border-slate-200 hover:border-primary-300'"
+                        @click="quizConfig.difficulty = diff"
+                    >
+                       {{ diff === DIFFICULTY_LEVELS.BEGINNER ? '入门' : (diff === DIFFICULTY_LEVELS.INTERMEDIATE ? '进阶' : '精通') }}
+                    </button>
+                </div>
              </div>
 
              <div class="space-y-3">
                  <div class="text-sm font-bold text-slate-600">出题风格</div>
-                 <div class="grid grid-cols-3 gap-2">
-                     <button v-for="style in ['standard', 'practical', 'creative']" :key="style"
-                         class="px-3 py-2 rounded-lg text-sm border transition-all"
-                         :class="quizConfig.style === style ? 'bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/30' : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'"
-                         @click="quizConfig.style = style"
-                     >
-                        {{ style === 'standard' ? '标准' : (style === 'practical' ? '实战' : '创意') }}
-                     </button>
-                 </div>
+                 <div class="grid grid-cols-2 gap-2">
+                    <button v-for="style in [TEACHING_STYLES.ACADEMIC, TEACHING_STYLES.INDUSTRIAL, TEACHING_STYLES.SOCRATIC, TEACHING_STYLES.HUMOROUS]" :key="style"
+                        class="px-3 py-2 rounded-lg text-sm border transition-all"
+                        :class="quizConfig.style === style ? 'bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/30' : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'"
+                        @click="quizConfig.style = style"
+                    >
+                       {{ style === TEACHING_STYLES.ACADEMIC ? '学术严谨' : style === TEACHING_STYLES.INDUSTRIAL ? '工业实践' : style === TEACHING_STYLES.SOCRATIC ? '苏格拉底' : '幽默风趣' }}
+                    </button>
+                </div>
              </div>
         </div>
         <template #footer>
@@ -562,12 +766,101 @@
                     <div class="text-sm text-slate-700 leading-relaxed note-content-markdown" v-html="formatNoteContent(selectedNote.summary)"></div>
                 </div>
 
+                <!-- Tags & Category Section -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <!-- Category Badge -->
+                    <el-select
+                        v-if="isDialogEditing"
+                        v-model="editingCategory"
+                        placeholder="选择分类"
+                        size="small"
+                        class="w-32"
+                        @change="updateNoteCategory"
+                    >
+                        <el-option
+                            v-for="cat in availableCategories"
+                            :key="cat"
+                            :label="cat"
+                            :value="cat"
+                        />
+                    </el-select>
+                    <el-tag
+                        v-else-if="selectedNote.category"
+                        :type="getCategoryType(selectedNote.category)"
+                        size="small"
+                        effect="light"
+                    >
+                        <el-icon class="mr-1"><Folder /></el-icon>
+                        {{ selectedNote.category }}
+                    </el-tag>
+                    
+                    <!-- Priority Badge -->
+                    <el-select
+                        v-if="isDialogEditing"
+                        v-model="editingPriority"
+                        placeholder="优先级"
+                        size="small"
+                        class="w-28"
+                        @change="updateNotePriority"
+                    >
+                        <el-option label="🔴 高" value="high" />
+                        <el-option label="🟡 中" value="medium" />
+                        <el-option label="🟢 低" value="low" />
+                    </el-select>
+                    <el-tag
+                        v-else-if="selectedNote.priority"
+                        :type="selectedNote.priority === 'high' ? 'danger' : selectedNote.priority === 'medium' ? 'warning' : 'info'"
+                        size="small"
+                        effect="light"
+                    >
+                        {{ getPriorityLabel(selectedNote.priority) }}
+                    </el-tag>
+
+                    <!-- Tags -->
+                    <el-select
+                        v-if="isDialogEditing"
+                        v-model="editingTags"
+                        multiple
+                        filterable
+                        allow-create
+                        default-first-option
+                        placeholder="添加标签"
+                        size="small"
+                        class="flex-1 min-w-[200px]"
+                        @change="updateNoteTags"
+                    >
+                        <el-option
+                            v-for="tag in availableTags"
+                            :key="tag"
+                            :label="tag"
+                            :value="tag"
+                        />
+                    </el-select>
+                    <template v-else>
+                        <el-tag
+                            v-for="tag in selectedNote.tags"
+                            :key="tag"
+                            size="small"
+                            effect="plain"
+                            class="cursor-pointer hover:bg-primary-50"
+                            @click="filterByTag(tag)"
+                        >
+                            <el-icon class="mr-1"><PriceTag /></el-icon>
+                            {{ tag }}
+                        </el-tag>
+                    </template>
+                </div>
+
                 <!-- Main Content / Edit Area -->
-            <div v-if="isDialogEditing">
+            <div v-if="isDialogEditing" class="flex flex-col gap-2">
+                <!-- Editor Toolbar -->
+                <div class="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                    <span class="text-xs text-slate-400">支持 Markdown 语法</span>
+                </div>
                 <el-input
                     v-model="editingContent"
                     type="textarea"
-                    :rows="12"
+                    :rows="10"
                     placeholder="请输入笔记内容..."
                     class="glass-input-clean text-base"
                 />
@@ -597,7 +890,7 @@
                     <el-button type="primary" @click="saveDialogEditing">保存</el-button>
                 </template>
                 <template v-else>
-                    <el-button @click="isDialogEditing = true">编辑</el-button>
+                    <el-button @click="startEditing">编辑</el-button>
                     <el-button type="primary" @click="noteDetailVisible = false">关闭</el-button>
                 </template>
             </div>
@@ -642,12 +935,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, watch, nextTick, onUpdated } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch, nextTick, onUpdated, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { renderMarkdown } from '../utils/markdown'
 import CourseNode from './CourseNode.vue'
 import { useMermaid } from '../composables/useMermaid'
-import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, Warning } from '@element-plus/icons-vue'
+import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, Warning, CollectionTag, Folder, PriceTag, Share } from '@element-plus/icons-vue'
+import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '../../../shared/prompt-config'
+
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -672,6 +967,7 @@ onMounted(() => {
 // Handle clicks inside content (Copy buttons, etc.)
 const handleContentClick = async (e: MouseEvent) => {
     const target = e.target as HTMLElement
+
     // Handle Copy Button
     const btn = target.closest('.copy-btn') as HTMLElement
     if (btn) {
@@ -705,6 +1001,233 @@ const courseStore = useCourseStore()
 const selectionMenu = ref({ visible: false, x: 0, y: 0, arrowOffset: 0, placement: 'top', text: '', range: null as Range | null })
 const noteSearchQuery = ref('')
 const activeNoteFilter = ref('notes')
+
+// Note filter states
+const selectedTagFilter = ref('')
+const selectedCategoryFilter = ref('')
+const selectedPriorityFilter = ref<'low' | 'medium' | 'high' | ''>('')
+
+// Export dialog state
+const exportDialog = reactive({
+    visible: false,
+    title: '导出笔记',
+    subtitle: '选择导出范围和格式',
+    type: 'notes' as 'notes' | 'mistakes',
+    scope: 'all' as 'all' | 'filtered' | 'current',
+    format: 'markdown' as 'markdown' | 'json',
+    loading: false
+})
+
+// Export scope options
+const exportScopes = [
+    { value: 'all', label: '全部', icon: 'Collection' },
+    { value: 'filtered', label: '已筛选', icon: 'Filter' },
+    { value: 'current', label: '当前视图', icon: 'View' }
+]
+
+// Export format options
+const exportFormats = [
+    { value: 'markdown', label: 'Markdown', desc: '适合阅读和编辑', icon: 'Document' },
+    { value: 'json', label: 'JSON', desc: '结构化数据格式', icon: 'DataLine' }
+]
+
+// Computed export count
+const getExportCount = computed(() => {
+    let notes: any[] = []
+    if (exportDialog.type === 'mistakes') {
+        notes = courseStore.notes.filter((n: any) => n.sourceType === 'wrong' || n.content.includes('#错题'))
+    } else {
+        notes = courseStore.notes
+    }
+    
+    if (exportDialog.scope === 'filtered') {
+        notes = notes.filter((note: any) => {
+            if (selectedTagFilter.value && !note.tags?.includes(selectedTagFilter.value)) return false
+            if (selectedCategoryFilter.value && note.category !== selectedCategoryFilter.value) return false
+            if (selectedPriorityFilter.value && note.priority !== selectedPriorityFilter.value) return false
+            return true
+        })
+    } else if (exportDialog.scope === 'current') {
+        notes = notes.filter((note: any) => {
+            if (activeNoteFilter.value === 'mistakes') {
+                return note.sourceType === 'wrong' || note.content.includes('#错题')
+            }
+            return note.sourceType !== 'wrong' && !note.content.includes('#错题')
+        })
+    }
+    
+    return notes.length
+})
+
+// Computed export size estimate
+const getExportSize = computed(() => {
+    const count = getExportCount.value
+    if (count === 0) return '0 KB'
+    const avgSize = exportDialog.format === 'markdown' ? 2 : 5 // KB per note estimate
+    const totalSize = count * avgSize
+    if (totalSize < 1024) return `${totalSize} KB`
+    return `${(totalSize / 1024).toFixed(1)} MB`
+})
+
+// Open export dialog
+const openExportDialog = (type: 'notes' | 'mistakes' = 'notes') => {
+    exportDialog.type = type
+    exportDialog.title = type === 'mistakes' ? '导出错题' : '导出笔记'
+    exportDialog.subtitle = type === 'mistakes' ? '导出你的错题记录' : '导出你的学习笔记'
+    exportDialog.scope = 'all'
+    exportDialog.format = 'markdown'
+    exportDialog.visible = true
+}
+
+// Close export dialog
+const closeExportDialog = () => {
+    exportDialog.visible = false
+    exportDialog.loading = false
+}
+
+// Execute export
+const executeExport = async () => {
+    exportDialog.loading = true
+    
+    try {
+        let notes: any[] = []
+        
+        if (exportDialog.type === 'mistakes') {
+            notes = courseStore.notes.filter((n: any) => n.sourceType === 'wrong' || n.content.includes('#错题'))
+        } else {
+            notes = courseStore.notes
+        }
+        
+        // Apply scope filter
+        if (exportDialog.scope === 'filtered') {
+            notes = notes.filter((note: any) => {
+                if (selectedTagFilter.value && !note.tags?.includes(selectedTagFilter.value)) return false
+                if (selectedCategoryFilter.value && note.category !== selectedCategoryFilter.value) return false
+                if (selectedPriorityFilter.value && note.priority !== selectedPriorityFilter.value) return false
+                return true
+            })
+        } else if (exportDialog.scope === 'current') {
+            notes = notes.filter((note: any) => {
+                if (activeNoteFilter.value === 'mistakes') {
+                    return note.sourceType === 'wrong' || note.content.includes('#错题')
+                }
+                return note.sourceType !== 'wrong' && !note.content.includes('#错题')
+            })
+        }
+        
+        if (notes.length === 0) {
+            ElMessage.warning('没有可导出的内容')
+            exportDialog.loading = false
+            return
+        }
+        
+        // Simulate export delay for better UX
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        if (exportDialog.format === 'markdown') {
+            await exportToMarkdown(notes, exportDialog.type)
+            ElMessage.success(`成功导出 ${notes.length} 条笔记为 Markdown`)
+        } else {
+            await exportToJSON(notes, exportDialog.type)
+            ElMessage.success(`成功导出 ${notes.length} 条笔记为 JSON`)
+        }
+        
+        closeExportDialog()
+    } catch (error) {
+        console.error('Export failed:', error)
+        ElMessage.error('导出失败，请重试')
+    } finally {
+        exportDialog.loading = false
+    }
+}
+
+// Export to Markdown
+const exportToMarkdown = async (notes: any[], type: 'notes' | 'mistakes') => {
+    const title = type === 'mistakes' ? '错题本' : '学习笔记'
+    let markdown = `# ${title}\n\n`
+    markdown += `导出时间: ${dayjs().format('YYYY-MM-DD HH:mm')}\n\n`
+    markdown += `共 ${notes.length} 条记录\n\n---\n\n`
+    
+    notes.forEach((note: any, index: number) => {
+        if (type === 'mistakes') {
+            markdown += `## 错题 ${index + 1}\n\n`
+        } else {
+            const noteType = note.sourceType === 'ai' ? 'AI问答' : 
+                           note.sourceType === 'wrong' ? '错题' : '笔记'
+            markdown += `## ${noteType} ${index + 1}\n\n`
+        }
+        
+        if (note.category) {
+            markdown += `**分类:** ${note.category}\n\n`
+        }
+        if (note.tags?.length) {
+            markdown += `**标签:** ${note.tags.join(', ')}\n\n`
+        }
+        if (note.priority) {
+            const priorityText = { high: '高', medium: '中', low: '低' }
+            markdown += `**优先级:** ${priorityText[note.priority] || note.priority}\n\n`
+        }
+        
+        markdown += `**来源章节:** ${getNodeName(note.nodeId)}\n\n`
+        markdown += `**内容:**\n${note.content}\n\n`
+        
+        if (note.quote) {
+            markdown += `**原文引用:**\n> ${note.quote}\n\n`
+        }
+        if (note.aiResponse) {
+            markdown += `**AI回复:**\n${note.aiResponse}\n\n`
+        }
+        
+        markdown += `**记录时间:** ${dayjs(note.createdAt).format('YYYY-MM-DD HH:mm')}\n\n`
+        markdown += '---\n\n'
+    })
+    
+    const blob = new Blob([markdown], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const fileName = type === 'mistakes' ? '错题本' : '学习笔记'
+    a.download = `${fileName}_${dayjs().format('YYYYMMDD')}.md`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+}
+
+// Export to JSON
+const exportToJSON = async (notes: any[], type: 'notes' | 'mistakes') => {
+    const data = {
+        exportType: type,
+        exportTime: dayjs().format('YYYY-MM-DD HH:mm'),
+        totalCount: notes.length,
+        courseName: courseStore.currentCourse?.name || '未知课程',
+        notes: notes.map((note: any) => ({
+            id: note.id,
+            type: note.sourceType || 'note',
+            nodeId: note.nodeId,
+            nodeName: getNodeName(note.nodeId),
+            content: note.content,
+            quote: note.quote,
+            aiResponse: note.aiResponse,
+            category: note.category,
+            tags: note.tags || [],
+            priority: note.priority,
+            createdAt: note.createdAt,
+            formattedDate: dayjs(note.createdAt).format('YYYY-MM-DD HH:mm')
+        }))
+    }
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const fileName = type === 'mistakes' ? '错题本' : '学习笔记'
+    a.download = `${fileName}_${dayjs().format('YYYYMMDD')}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+}
 
 const scrollProgress = ref(0)
 const lightboxVisible = ref(false)
@@ -807,10 +1330,22 @@ const noteDetailVisible = ref(false)
 const isDialogEditing = ref(false)
 const selectedNote = ref<any>(null)
 
+// Note tags, category, and priority editing
+const editingTags = ref<string[]>([])
+const editingCategory = ref('')
+const editingPriority = ref<'low' | 'medium' | 'high'>('medium')
+
+// Available tags and categories
+const availableTags = computed(() => courseStore.getAllTags())
+const availableCategories = computed(() => courseStore.getAllCategories())
+
 watch(noteDetailVisible, (val) => {
     if (!val) {
         isDialogEditing.value = false
         editingContent.value = ''
+        editingTags.value = []
+        editingCategory.value = ''
+        editingPriority.value = 'medium'
     }
 })
 
@@ -889,112 +1424,7 @@ watch(() => courseStore.currentCourseId, () => {
 
 const nodeNameMap = computed(() => new Map(flatNodes.value.map(n => [n.node_id, n.node_name])))
 
-const exportContent = async () => {
-    try {
-        await ElMessageBox.confirm(
-            '选择导出格式：',
-            '导出笔记',
-            {
-                distinguishCancelAndClose: true,
-                confirmButtonText: 'Markdown',
-                cancelButtonText: 'JSON',
-                type: 'info'
-            }
-        )
-        // Export as Markdown
-        courseStore.downloadNotes('markdown')
-        ElMessage.success('笔记已导出为 Markdown')
-    } catch (action) {
-        if (action === 'cancel') {
-            // Export as JSON
-            courseStore.downloadNotes('json')
-            ElMessage.success('笔记已导出为 JSON')
-        }
-    }
-}
-
-// Export mistakes
-const exportMistakes = async () => {
-    try {
-        await ElMessageBox.confirm(
-            '选择导出错题格式：',
-            '导出错题',
-            {
-                distinguishCancelAndClose: true,
-                confirmButtonText: 'Markdown',
-                cancelButtonText: 'JSON',
-                type: 'warning'
-            }
-        )
-        // Export as Markdown
-        const mistakes = courseStore.notes.filter((n: any) => n.sourceType === 'wrong' || n.content.includes('#错题'))
-        if (mistakes.length === 0) {
-            ElMessage.warning('暂无错题可导出')
-            return
-        }
-        
-        let markdown = '# 错题本\n\n'
-        markdown += `导出时间: ${dayjs().format('YYYY-MM-DD HH:mm')}\n\n`
-        markdown += `共 ${mistakes.length} 道错题\n\n---\n\n`
-        
-        mistakes.forEach((note: any, index: number) => {
-            markdown += `## 错题 ${index + 1}\n\n`
-            markdown += `**来源章节:** ${getNodeName(note.nodeId)}\n\n`
-            markdown += `**内容:**\n${note.content}\n\n`
-            if (note.quote) {
-                markdown += `**原文引用:**\n> ${note.quote}\n\n`
-            }
-            markdown += `**记录时间:** ${dayjs(note.createdAt).format('YYYY-MM-DD HH:mm')}\n\n`
-            markdown += '---\n\n'
-        })
-        
-        const blob = new Blob([markdown], { type: 'text/markdown' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `错题本_${dayjs().format('YYYYMMDD')}.md`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-        
-        ElMessage.success('错题已导出为 Markdown')
-    } catch (action) {
-        if (action === 'cancel') {
-            // Export as JSON
-            const mistakes = courseStore.notes.filter((n: any) => n.sourceType === 'wrong' || n.content.includes('#错题'))
-            if (mistakes.length === 0) {
-                ElMessage.warning('暂无错题可导出')
-                return
-            }
-            
-            const data = {
-                exportTime: dayjs().format('YYYY-MM-DD HH:mm'),
-                totalMistakes: mistakes.length,
-                mistakes: mistakes.map((note: any) => ({
-                    id: note.id,
-                    nodeId: note.nodeId,
-                    nodeName: getNodeName(note.nodeId),
-                    content: note.content,
-                    quote: note.quote,
-                    createdAt: note.createdAt
-                }))
-            }
-            
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `错题本_${dayjs().format('YYYYMMDD')}.json`
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            URL.revokeObjectURL(url)
-            
-            ElMessage.success('错题已导出为 JSON')
-        }
-    }
-}
+// Export functions have been replaced by the new export dialog
 
 const chapterEndNodes = computed(() => {
     const triggers = new Map<string, any>()
@@ -1174,6 +1604,14 @@ const noteCounts = computed(() => {
     return { notes, mistakes }
 })
 
+// Check if any filter is active
+const hasActiveFilters = computed(() => {
+    return selectedTagFilter.value !== '' || 
+           selectedCategoryFilter.value !== '' || 
+           selectedPriorityFilter.value !== '' ||
+           debouncedSearchQuery.value !== ''
+})
+
 const visibleNotes = computed(() => {
     const nodeIds = new Set(flatNodes.value.map(n => n.node_id))
     let notes = courseStore.notes.filter(n => nodeIds.has(n.nodeId))
@@ -1184,6 +1622,21 @@ const visibleNotes = computed(() => {
     } else {
         // 'notes' tab: Exclude mistakes
         notes = notes.filter(n => !isMistakeNote(n))
+    }
+
+    // Filter by Tag
+    if (selectedTagFilter.value) {
+        notes = notes.filter(n => n.tags?.includes(selectedTagFilter.value))
+    }
+
+    // Filter by Category
+    if (selectedCategoryFilter.value) {
+        notes = notes.filter(n => n.category === selectedCategoryFilter.value)
+    }
+
+    // Filter by Priority
+    if (selectedPriorityFilter.value) {
+        notes = notes.filter(n => n.priority === selectedPriorityFilter.value)
     }
 
     if (searchTokens.value.length > 0) {
@@ -2045,6 +2498,71 @@ const handleEditNote = (note: any) => {
     noteDetailVisible.value = true
     activeNoteId.value = note.id
     isDialogEditing.value = true
+    // Initialize editing values
+    editingContent.value = note.content || ''
+    editingTags.value = note.tags || []
+    editingCategory.value = note.category || ''
+    editingPriority.value = note.priority || 'medium'
+}
+
+// Start editing from view mode
+const startEditing = () => {
+    if (selectedNote.value) {
+        editingContent.value = selectedNote.value.content || ''
+        editingTags.value = selectedNote.value.tags || []
+        editingCategory.value = selectedNote.value.category || ''
+        editingPriority.value = selectedNote.value.priority || 'medium'
+        isDialogEditing.value = true
+    }
+}
+
+// Helper functions for tags and categories
+const getCategoryType = (category: string): string => {
+    const typeMap: Record<string, string> = {
+        '重点': 'danger',
+        '难点': 'warning',
+        '疑问': 'info',
+        '总结': 'success',
+        '错题': 'danger'
+    }
+    return typeMap[category] || 'info'
+}
+
+const getPriorityLabel = (priority: string): string => {
+    const labelMap: Record<string, string> = {
+        'high': '高优先级',
+        'medium': '中优先级',
+        'low': '低优先级'
+    }
+    return labelMap[priority] || priority
+}
+
+// Update note metadata
+const updateNoteTags = async () => {
+    if (selectedNote.value) {
+        await courseStore.updateNoteTags(selectedNote.value.id, editingTags.value)
+        selectedNote.value.tags = [...editingTags.value]
+    }
+}
+
+const updateNoteCategory = async () => {
+    if (selectedNote.value) {
+        await courseStore.updateNoteCategory(selectedNote.value.id, editingCategory.value)
+        selectedNote.value.category = editingCategory.value
+    }
+}
+
+const updateNotePriority = async () => {
+    if (selectedNote.value) {
+        await courseStore.updateNotePriority(selectedNote.value.id, editingPriority.value)
+        selectedNote.value.priority = editingPriority.value
+    }
+}
+
+// Filter notes by tag
+const filterByTag = (tag: string) => {
+    const filteredNotes = courseStore.getNotesByTag(tag)
+    ElMessage.info(`标签 "${tag}" 共有 ${filteredNotes.length} 条笔记`)
 }
 
 const jumpToNoteSource = (note: any) => {
@@ -2078,8 +2596,6 @@ const saveDialogEditing = async () => {
     isDialogEditing.value = false
     ElMessage.success('笔记已更新')
 }
-
-
 
 const handleDeleteNote = (noteId: string) => {
     const note = courseStore.notes.find(n => n.id === noteId)
@@ -2159,8 +2675,8 @@ const quizConfig = ref({
     visible: false,
     nodeId: '',
     nodeName: '',
-    difficulty: 'medium',
-    style: 'standard',
+    difficulty: DIFFICULTY_LEVELS.INTERMEDIATE as DifficultyLevel,
+    style: TEACHING_STYLES.ACADEMIC as TeachingStyle,
     questionCount: 3
 })
 

@@ -239,7 +239,7 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any) {
   const code = highlighted || md.utils.escapeHtml(token.content);
   const rawCode = encodeURIComponent(token.content);
 
-  return `<div class="relative group code-block-wrapper my-2 rounded-lg overflow-hidden border border-slate-200/50 shadow-sm bg-[#282c34]">
+  return `<div class="relative group code-block-wrapper my-2 rounded-lg overflow-hidden border border-slate-200/50 shadow-sm bg-[#282c34]" data-lang="${langName}">
             <div class="absolute top-2 right-2 flex items-center gap-2 z-10">
                 <span class="text-xs text-slate-400 font-mono opacity-0 group-hover:opacity-100 transition-opacity select-none">${langName}</span>
                 <button class="p-1.5 rounded-md bg-slate-700/50 hover:bg-slate-700 text-white/70 hover:text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all copy-btn" title="复制代码" data-code="${rawCode}">复制</button>

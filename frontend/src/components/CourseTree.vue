@@ -408,9 +408,9 @@
                         <div class="grid grid-cols-1 gap-3">
                             <div 
                                 v-for="level in [
-                                    { val: 'beginner', label: '入门', sub: '直观理解 · 生活类比', color: 'bg-emerald-400', shadow: 'shadow-emerald-100' },
-                                    { val: 'intermediate', label: '进阶', sub: '系统原理 · 最佳实践', color: 'bg-blue-400', shadow: 'shadow-blue-100' },
-                                    { val: 'advanced', label: '专家', sub: '底层内核 · 前沿探索', color: 'bg-violet-400', shadow: 'shadow-violet-100' }
+                                    { val: DIFFICULTY_LEVELS.BEGINNER, label: '入门', sub: '直观理解 · 生活类比', color: 'bg-emerald-400', shadow: 'shadow-emerald-100' },
+                                    { val: DIFFICULTY_LEVELS.INTERMEDIATE, label: '进阶', sub: '系统原理 · 最佳实践', color: 'bg-blue-400', shadow: 'shadow-blue-100' },
+                                    { val: DIFFICULTY_LEVELS.ADVANCED, label: '专家', sub: '底层内核 · 前沿探索', color: 'bg-violet-400', shadow: 'shadow-violet-100' }
                                 ]" 
                                 :key="level.val"
                                 class="relative flex items-center p-3 rounded-xl border-2 transition-all cursor-pointer group hover:-translate-y-0.5"
@@ -444,10 +444,10 @@
                         <div class="grid grid-cols-2 gap-3">
                             <div 
                                 v-for="style in [
-                                    { val: 'academic', label: '学术严谨', icon: '🎓' },
-                                    { val: 'industrial', label: '工业实战', icon: '🏭' },
-                                    { val: 'socratic', label: '苏格拉底', icon: '🤔' },
-                                    { val: 'humorous', label: '生动幽默', icon: '😄' }
+                                    { val: TEACHING_STYLES.ACADEMIC, label: '学术严谨', icon: '🎓' },
+                                    { val: TEACHING_STYLES.INDUSTRIAL, label: '工业实战', icon: '🏭' },
+                                    { val: TEACHING_STYLES.SOCRATIC, label: '苏格拉底', icon: '🤔' },
+                                    { val: TEACHING_STYLES.HUMOROUS, label: '生动幽默', icon: '😄' }
                                 ]" 
                                 :key="style.val"
                                 class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer hover:-translate-y-0.5 aspect-[4/3]"
@@ -517,6 +517,7 @@ import { ref, watch, onUnmounted, computed, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm } from 'element-plus'
+import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '../../../shared/prompt-config'
 import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled } from '@element-plus/icons-vue'
 import { BookOpen, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
 import { renderMarkdown } from '../utils/markdown'
@@ -764,16 +765,16 @@ const handleNodeClick = (data: any) => {
 const createDialogVisible = ref(false)
 const createForm = reactive({
     keyword: '',
-    difficulty: 'medium',
-    style: 'academic',
+    difficulty: DIFFICULTY_LEVELS.INTERMEDIATE as DifficultyLevel,
+    style: TEACHING_STYLES.ACADEMIC as TeachingStyle,
     requirements: ''
 })
 
 const createNewCourse = () => {
     // Reset form
     createForm.keyword = ''
-    createForm.difficulty = 'medium'
-    createForm.style = 'academic'
+    createForm.difficulty = DIFFICULTY_LEVELS.INTERMEDIATE
+    createForm.style = TEACHING_STYLES.ACADEMIC
     createForm.requirements = ''
     createDialogVisible.value = true
 }

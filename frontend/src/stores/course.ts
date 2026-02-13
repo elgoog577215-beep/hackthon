@@ -3,10 +3,49 @@ import http from '../utils/http'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
+import {
+  createReviewItem,
+  updateReviewItem,
+  generateReviewPlan,
+  smartReviewOrder,
+  calculateReviewStats,
+  predictForgettingRisk,
+  type ReviewItem,
+  type ReviewStats
+} from '../utils/spacedRepetition'
+import {
+  DIFFICULTY_LEVELS,
+  TEACHING_STYLES,
+  PARAMETER_RULES,
+  type DifficultyLevel,
+  type TeachingStyle
+} from '../../../shared/prompt-config'
 
-// --- 实用常量和函数 ---
+// =============================================================================
+// Course Store - 课程状态管理
+// =============================================================================
+//
+// 架构说明：
+// 本模块使用 Pinia 管理课程相关的所有状态，包括：
+// 1. 课程列表和节点树
+// 2. 任务队列和生成状态
+// 3. 笔记和标注
+// 4. 聊天历史
+//
+// 生成流程：
+// 1. 用户创建课程 → 2. 创建任务 → 3. 填充队列 → 4. 处理队列
+//    - L1(Chapter) 生成 L2(Section)
+//    - L2(Section) 生成 L3(Topic)
+//    - L3(Topic) 生成内容
+// =============================================================================
+
+// --- 常量配置 ---
 const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 const GENERATION_STATE_KEY = 'course-generation-state-v1'
+const MAX_RETRIES = 2                    // 最大重试次数
+const CONTENT_MIN_LENGTH = 50            // 内容最小长度阈值
+const CONTENT_COMPLETE_THRESHOLD = 600   // 内容完整度阈值
+const QUEUE_PROCESS_DELAY = 50           // 队列处理间隔(ms)
 const sanitizeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').trim()
 const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob)
@@ -17,6 +56,25 @@ const downloadBlob = (blob: Blob, filename: string) => {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+}
+
+// --- 难度配置 (使用共享配置) ---
+const DIFFICULTY_CONFIG: Record<DifficultyLevel, { requirement: string; formulaDensity: string; subSectionRange: [number, number] }> = {
+  [DIFFICULTY_LEVELS.BEGINNER]: {
+    requirement: '通俗易懂的基础入门教程，重点解释核心概念，多用生活案例类比，避免过于深奥的理论推导。内容要偏基础，适合初学者。',
+    formulaDensity: '<10%',
+    subSectionRange: [PARAMETER_RULES.subChapterCount.beginner.min, PARAMETER_RULES.subChapterCount.beginner.max]
+  },
+  [DIFFICULTY_LEVELS.INTERMEDIATE]: {
+    requirement: '标准专业教程，理论与实践相结合，包含代码示例或应用场景。不涉及过深的底层原理，但要覆盖核心用法。',
+    formulaDensity: '10-30%',
+    subSectionRange: [PARAMETER_RULES.subChapterCount.intermediate.min, PARAMETER_RULES.subChapterCount.intermediate.max]
+  },
+  [DIFFICULTY_LEVELS.ADVANCED]: {
+    requirement: '深度专业的技术文档，包含底层原理、源码分析、性能优化和高级最佳实践。适合专家阅读。',
+    formulaDensity: '>30%',
+    subSectionRange: [PARAMETER_RULES.subChapterCount.advanced.min, PARAMETER_RULES.subChapterCount.advanced.max]
+  }
 }
 
 // --- 类型和接口 ---
@@ -59,6 +117,9 @@ export interface Note {
     style?: 'bold' | 'underline' | 'wave' | 'dashed' | 'highlight' | 'solid' | 'wavy'
     title?: string // Optional note title
     expanded?: boolean
+    tags?: string[] // Note tags for categorization
+    category?: string // Note category
+    priority?: 'low' | 'medium' | 'high' // Note priority
 }
 
 export interface Course {
@@ -222,6 +283,52 @@ export const useCourseStore = defineStore('course', {
 
     // State Restoration Flag
     stateRestored: false,
+
+    // Learning Path System
+    learningPath: null as {
+        recommended_nodes: Array<{
+            node_id: string
+            node_name: string
+            reason: string
+            priority: number
+            estimated_time: number
+        }>
+        weak_areas: string[]
+        suggestions: string[]
+        generated_at: string
+    } | null,
+    knowledgeMastery: null as {
+        knowledge_points: Array<{
+            point_name: string
+            mastery_level: number
+            related_nodes: string[]
+            last_reviewed: string
+            review_count: number
+        }>
+        overall_mastery: number
+        weak_areas: string[]
+        strong_areas: string[]
+    } | null,
+    learningPathLoading: false,
+
+    // Smart Review System - 智能复习系统
+    reviewItems: [] as ReviewItem[],
+    reviewStats: {
+      totalItems: 0,
+      dueToday: 0,
+      overdue: 0,
+      mastered: 0,
+      streakDays: 0,
+      retentionRate: 0,
+      weeklyProgress: [0, 0, 0, 0, 0, 0, 0]
+    } as ReviewStats,
+    currentReviewSession: null as {
+      items: ReviewItem[]
+      currentIndex: number
+      startTime: number
+      correctCount: number
+    } | null,
+    reviewLoading: false,
   }),
   getters: {
     treeData: (state) => state.courseTree,
@@ -609,6 +716,65 @@ export const useCourseStore = defineStore('course', {
             }
         }
     },
+
+    // ========== Note Tag & Category Management ==========
+    async updateNoteTags(id: string, tags: string[]) {
+        const note = this.notes.find(n => n.id === id)
+        if (note) {
+            note.tags = tags
+            try {
+                await http.put(`/annotations/${id}/tags`, { tags })
+            } catch (e) {
+                console.error('Failed to update note tags', e)
+            }
+        }
+    },
+    async updateNoteCategory(id: string, category: string) {
+        const note = this.notes.find(n => n.id === id)
+        if (note) {
+            note.category = category
+            try {
+                await http.put(`/annotations/${id}/category`, { category })
+            } catch (e) {
+                console.error('Failed to update note category', e)
+            }
+        }
+    },
+    async updateNotePriority(id: string, priority: 'low' | 'medium' | 'high') {
+        const note = this.notes.find(n => n.id === id)
+        if (note) {
+            note.priority = priority
+            try {
+                await http.put(`/annotations/${id}/priority`, { priority })
+            } catch (e) {
+                console.error('Failed to update note priority', e)
+            }
+        }
+    },
+    getAllTags(): string[] {
+        const tagSet = new Set<string>()
+        this.notes.forEach(note => {
+            note.tags?.forEach(tag => tagSet.add(tag))
+        })
+        return Array.from(tagSet).sort()
+    },
+    getAllCategories(): string[] {
+        const categorySet = new Set<string>()
+        this.notes.forEach(note => {
+            if (note.category) categorySet.add(note.category)
+        })
+        return Array.from(categorySet).sort()
+    },
+    getNotesByTag(tag: string): Note[] {
+        return this.notes.filter(note => note.tags?.includes(tag))
+    },
+    getNotesByCategory(category: string): Note[] {
+        return this.notes.filter(note => note.category === category)
+    },
+    getNotesByPriority(priority: 'low' | 'medium' | 'high'): Note[] {
+        return this.notes.filter(note => note.priority === priority)
+    },
+
     createTask(courseId: string, courseName: string, nodes: Node[], options: { difficulty?: string } = {}): Task {
         const task: Task = {
             id: courseId,
@@ -848,14 +1014,14 @@ export const useCourseStore = defineStore('course', {
         this.activeAnnotation = null
     },
 
-    async generateQuiz(nodeId: string, nodeContent: string, style: string = 'standard', difficulty: string = 'medium', options: { silent?: boolean, questionCount?: number } = {}) {
+    async generateQuiz(nodeId: string, nodeContent: string, style: TeachingStyle = TEACHING_STYLES.ACADEMIC, difficulty: DifficultyLevel = DIFFICULTY_LEVELS.INTERMEDIATE, options: { silent?: boolean, questionCount?: number } = {}) {
         this.chatLoading = true
         const silent = options.silent === true
         const questionCount = options.questionCount || 3
         if (!silent) {
             this.chatHistory.push({
                 type: 'user',
-                content: `请为"${this.nodes.find(n => n.node_id === nodeId)?.node_name || '当前章节'}"生成一份${difficulty === 'hard' ? '困难' : (difficulty === 'easy' ? '简单' : '中等')}难度的${style === 'creative' ? '创意' : (style === 'practical' ? '实战' : '标准')}测试题（共${questionCount}题）。`
+                content: `请为"${this.nodes.find(n => n.node_id === nodeId)?.node_name || '当前章节'}"生成一份${difficulty === DIFFICULTY_LEVELS.ADVANCED ? '精通' : (difficulty === DIFFICULTY_LEVELS.BEGINNER ? '入门' : '进阶')}难度的${style === TEACHING_STYLES.HUMOROUS ? '幽默风趣' : style === TEACHING_STYLES.SOCRATIC ? '苏格拉底' : style === TEACHING_STYLES.INDUSTRIAL ? '工业实践' : '学术严谨'}测试题（共${questionCount}题）。`
             })
         }
         
@@ -1524,10 +1690,14 @@ export const useCourseStore = defineStore('course', {
         }
     },
 
+    // =========================================================================
+    // 队列系统 - 核心生成逻辑
+    // =========================================================================
+    
     async processQueue() {
         if (this.isQueueProcessing) return
         
-        // Find next item belonging to a RUNNING task
+        // 查找下一个待处理项（属于运行中任务的）
         const nextItem = this.queue.find(i => {
             if (i.status !== 'pending') return false
             const task = this.tasks.get(i.courseId)
@@ -1548,76 +1718,91 @@ export const useCourseStore = defineStore('course', {
         const task = this.tasks.get(nextItem.courseId)
         
         try {
-            if (task) {
-                task.status = 'running'
-                
-                // Clean up title to avoid redundancy (e.g. "生成正文: 撰写正文: ...")
-                // Use the item title directly as it's already descriptive
-                task.currentStep = nextItem.title
-                
-                if (this.currentCourseId === nextItem.courseId) {
-                    this.currentGeneratingNodeId = nextItem.targetNodeId
-                    this.currentGeneratingNode = task.currentStep
-                    this.isGenerating = true
-                    this.generationStatus = 'generating'
-                }
-            }
-
-            if (nextItem.type === 'structure') {
-                await this.processStructureItem(nextItem)
-            } else if (nextItem.type === 'content') {
-                await this.processContentItem(nextItem)
-            } else if (nextItem.type === 'subchapter') {
-                await this.processSubchapterItem(nextItem)
-            } else if (nextItem.type === 'knowledge_graph') {
-                await this.processKnowledgeGraphItem(nextItem)
-            }
-
-            nextItem.status = 'completed'
-            if (task) {
-                task.logs.push(`✅ 完成: ${nextItem.title}`)
-                // Update progress based on queue stats
-                const total = this.queue.length
-                const completed = this.queue.filter(i => i.status === 'completed' || i.status === 'error').length
-                task.progress = Math.floor((completed / total) * 100)
-            }
-            this.persistGenerationState()
-
+            this.updateTaskUI(task, nextItem)
+            await this.dispatchQueueItem(nextItem)
+            this.markQueueItemSuccess(nextItem, task)
         } catch (e: any) {
-            const errorMessage = e instanceof Error ? e.message : String(e)
-            
-            // Retry logic
-            const maxRetries = 2
-            nextItem.retryCount = (nextItem.retryCount || 0) + 1
-            
-            if (nextItem.retryCount <= maxRetries) {
-                nextItem.status = 'pending' // Reset to pending to try again
-                if (task) {
-                    task.logs.push(`⚠️ 任务失败 (尝试 ${nextItem.retryCount}/${maxRetries}): ${nextItem.title} - ${errorMessage}，准备重试...`)
-                }
-            } else {
-                nextItem.status = 'error'
-                nextItem.errorMsg = errorMessage
-                if (task) {
-                    task.logs.push(`❌ 失败: ${nextItem.title} - ${errorMessage}`)
-                    // Update progress even on error to avoid sticking
-                    const total = this.queue.length
-                    const completed = this.queue.filter(i => i.status === 'completed' || i.status === 'error').length
-                    task.progress = Math.floor((completed / total) * 100)
-                }
-            }
-            this.persistGenerationState()
-
+            await this.handleQueueError(nextItem, task, e)
         } finally {
-            if (task && task.shouldStop) {
-                this.isQueueProcessing = false
-                task.status = 'paused'
-            } else {
-                this.isQueueProcessing = false
-                setTimeout(() => this.processQueue(), 50)
-            }
-            this.persistGenerationState()
+            this.finalizeQueueItem(task)
         }
+    },
+
+    updateTaskUI(task: Task | undefined, item: QueueItem) {
+        if (!task) return
+        
+        task.status = 'running'
+        task.currentStep = item.title
+        
+        if (this.currentCourseId === item.courseId) {
+            this.currentGeneratingNodeId = item.targetNodeId
+            this.currentGeneratingNode = task.currentStep
+            this.isGenerating = true
+            this.generationStatus = 'generating'
+        }
+    },
+
+    async dispatchQueueItem(item: QueueItem) {
+        switch (item.type) {
+            case 'structure':
+                await this.processStructureItem(item)
+                break
+            case 'content':
+                await this.processContentItem(item)
+                break
+            case 'subchapter':
+                await this.processSubchapterItem(item)
+                break
+            case 'knowledge_graph':
+                await this.processKnowledgeGraphItem(item)
+                break
+        }
+    },
+
+    markQueueItemSuccess(item: QueueItem, task: Task | undefined) {
+        item.status = 'completed'
+        if (task) {
+            task.logs.push(`✅ 完成: ${item.title}`)
+            this.updateTaskProgress(task)
+        }
+        this.persistGenerationState()
+    },
+
+    async handleQueueError(item: QueueItem, task: Task | undefined, error: any) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        item.retryCount = (item.retryCount || 0) + 1
+        
+        if (item.retryCount <= MAX_RETRIES) {
+            item.status = 'pending'
+            if (task) {
+                task.logs.push(`⚠️ 失败 (${item.retryCount}/${MAX_RETRIES}): ${item.title} - ${errorMessage}，准备重试...`)
+            }
+        } else {
+            item.status = 'error'
+            item.errorMsg = errorMessage
+            if (task) {
+                task.logs.push(`❌ 失败: ${item.title} - ${errorMessage}`)
+                this.updateTaskProgress(task)
+            }
+        }
+        this.persistGenerationState()
+    },
+
+    updateTaskProgress(task: Task) {
+        const total = this.queue.length
+        const completed = this.queue.filter(i => i.status === 'completed' || i.status === 'error').length
+        task.progress = Math.floor((completed / total) * 100)
+    },
+
+    finalizeQueueItem(task: Task | undefined) {
+        if (task && task.shouldStop) {
+            this.isQueueProcessing = false
+            task.status = 'paused'
+        } else {
+            this.isQueueProcessing = false
+            setTimeout(() => this.processQueue(), QUEUE_PROCESS_DELAY)
+        }
+        this.persistGenerationState()
     },
 
     async processStructureItem(item: QueueItem) {
@@ -1640,31 +1825,19 @@ export const useCourseStore = defineStore('course', {
             task.nodes.push(...newNodes)
             
             // Auto-queue next step for new nodes
-            const difficulty = task.difficulty || 'expert'
-
             for (const newNode of newNodes) {
                 // Ensure node_level is a number
                 const level = Number(newNode.node_level)
                 
-                // If we just generated Level 2, decide whether to generate Level 3 based on difficulty
+                // If we just generated Level 2, always generate Level 3 subchapters
                 if (level === 2) {
-                    if (difficulty === 'beginner' || difficulty === 'intermediate') {
-                        // Beginner/Intermediate: No subchapters (L3), go directly to content
-                        this.addToQueue({
-                            courseId: item.courseId,
-                            type: 'content',
-                            targetNodeId: newNode.node_id,
-                            title: `撰写正文: ${newNode.node_name}`
-                        })
-                    } else {
-                        // Expert: Detailed subchapters
-                        this.addToQueue({
-                            courseId: item.courseId,
-                            type: 'structure',
-                            targetNodeId: newNode.node_id,
-                            title: `细化小节: ${newNode.node_name}`
-                        })
-                    }
+                    // All difficulties: Generate detailed subchapters (L3)
+                    this.addToQueue({
+                        courseId: item.courseId,
+                        type: 'structure',
+                        targetNodeId: newNode.node_id,
+                        title: `细化小节: ${newNode.node_name}`
+                    })
                 } else {
                     // If Level 3 (or deeper), generate content
                     this.addToQueue({
@@ -1874,29 +2047,19 @@ export const useCourseStore = defineStore('course', {
       }
 
       // 2. Expand Level 2 -> Level 3 (Sections -> Topics)
+      // All difficulty levels should have L3 subsections
       const l2Nodes = task.nodes.filter(n => n.node_level === 2)
-      const difficulty = task.difficulty || 'expert'
 
       for (const n of l2Nodes) {
           const hasChildren = task.nodes.some(child => child.parent_node_id === n.node_id)
           if (!hasChildren) {
-              if (difficulty === 'beginner' || difficulty === 'intermediate') {
-                  // Skip L3 expansion, queue content generation for L2 directly
-                  this.addToQueue({
-                      courseId: targetCourseId,
-                      type: 'content',
-                      targetNodeId: n.node_id,
-                      title: `撰写正文: ${n.node_name}`
-                  })
-              } else {
-                  // Default/Expert: Expand L3
-                  this.addToQueue({
-                      courseId: targetCourseId,
-                      type: 'structure',
-                      targetNodeId: n.node_id,
-                      title: `细化小节: ${n.node_name}`
-                  })
-              }
+              // All difficulty levels: Expand L3
+              this.addToQueue({
+                  courseId: targetCourseId,
+                  type: 'structure',
+                  targetNodeId: n.node_id,
+                  title: `细化小节: ${n.node_name}`
+              })
           }
       }
       
@@ -1946,19 +2109,13 @@ export const useCourseStore = defineStore('course', {
                 }
             }
 
-            // Determine requirement based on difficulty
+            // Determine requirement based on difficulty (使用共享配置)
             const task = this.tasks.get(this.currentCourseId)
-            const difficulty = task?.difficulty || 'expert'
-            const style = task?.style || 'academic'
+            const difficulty = (task?.difficulty as DifficultyLevel) || DIFFICULTY_LEVELS.ADVANCED
+            const style = (task?.style as TeachingStyle) || TEACHING_STYLES.ACADEMIC
             
-            let requirement = '教科书级详细正文'
-            if (difficulty === 'beginner') {
-                requirement = '通俗易懂的基础入门教程，重点解释核心概念，多用生活案例类比，避免过于深奥的理论推导。内容要偏基础，适合初学者。'
-            } else if (difficulty === 'intermediate') {
-                requirement = '标准专业教程，理论与实践相结合，包含代码示例或应用场景。不涉及过深的底层原理，但要覆盖核心用法。'
-            } else {
-                requirement = '深度专业的技术文档，包含底层原理、源码分析、性能优化和高级最佳实践。适合专家阅读。'
-            }
+            // 从共享配置获取需求描述
+            const requirement = DIFFICULTY_CONFIG[difficulty]?.requirement || '教科书级详细正文'
 
             const response = await fetch(`${API_BASE}/courses/${this.currentCourseId}/nodes/${nodeId}/redefine_stream`, {
                 method: 'POST',
@@ -2180,11 +2337,14 @@ export const useCourseStore = defineStore('course', {
         const fullContext = `### 课程完整大纲结构\n${structureContext}${focusContext}${retrievalContext}`
         // --- Context Optimization End ---
 
-        // Construct history
+        // Construct history with session metrics for long-term memory
         const history = this.chatHistory.map(msg => ({
             role: msg.type === 'user' ? 'user' : 'assistant',
             content: typeof msg.content === 'string' ? msg.content : (msg.content.core_answer || '')
         }))
+
+        // Calculate session metrics for context awareness
+        const sessionMetrics = this.calculateSessionMetrics()
 
         // Create a placeholder message for AI
         
@@ -2215,7 +2375,7 @@ export const useCourseStore = defineStore('course', {
         aiMessage = this.chatHistory[this.chatHistory.length - 1] as ChatMessage
         if (typeof aiMessage.content === 'string') return // Should not happen
 
-        // Fetch Stream
+        // Fetch Stream with enhanced context
         const response = await fetch(`${API_BASE}/ask`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2227,7 +2387,9 @@ export const useCourseStore = defineStore('course', {
                 history,
                 selection,
                 user_notes: userNotes,
-                user_persona: this.userPersona
+                user_persona: this.userPersona,
+                session_metrics: sessionMetrics,
+                enable_long_term_memory: true
             }),
             signal: controller.signal
         })
@@ -2378,6 +2540,120 @@ export const useCourseStore = defineStore('course', {
             this.chatAbortController = null
         }
       }
+    },
+
+    // Calculate session metrics for context awareness
+    calculateSessionMetrics() {
+        const metrics = {
+            total_messages: this.chatHistory.length,
+            user_messages: this.chatHistory.filter(m => m.type === 'user').length,
+            ai_messages: this.chatHistory.filter(m => m.type === 'ai').length,
+            session_duration_minutes: 0,
+            topics_discussed: [] as string[],
+            question_types: {
+                conceptual: 0,
+                procedural: 0,
+                troubleshooting: 0,
+                exploratory: 0
+            }
+        }
+
+        // Calculate session duration from message count as approximation
+        if (this.chatHistory.length >= 2) {
+            // Note: ChatMessage doesn't have timestamp, so we use message count as approximation
+            metrics.session_duration_minutes = Math.max(1, Math.floor(this.chatHistory.length / 2))
+        }
+
+        // Extract topics from questions
+        const userQuestions = this.chatHistory
+            .filter(m => m.type === 'user')
+            .map(m => typeof m.content === 'string' ? m.content : '')
+        
+        metrics.topics_discussed = this.extractSessionTopics(userQuestions)
+
+        // Categorize question types
+        userQuestions.forEach(q => {
+            const lowerQ = q.toLowerCase()
+            if (lowerQ.includes('为什么') || lowerQ.includes('是什么') || lowerQ.includes('概念')) {
+                metrics.question_types.conceptual++
+            } else if (lowerQ.includes('怎么') || lowerQ.includes('如何') || lowerQ.includes('步骤')) {
+                metrics.question_types.procedural++
+            } else if (lowerQ.includes('错误') || lowerQ.includes('问题') || lowerQ.includes('失败')) {
+                metrics.question_types.troubleshooting++
+            } else {
+                metrics.question_types.exploratory++
+            }
+        })
+
+        return metrics
+    },
+
+    // Extract key topics from session questions
+    extractSessionTopics(questions: string[]): string[] {
+        const topics = new Set<string>()
+        const topicKeywords = [
+            '概念', '原理', '定义', '方法', '步骤', '流程',
+            '函数', '类', '对象', '变量', '算法', '数据结构',
+            '前端', '后端', '数据库', 'API', '框架', '库',
+            '错误', '异常', '调试', '优化', '性能', '安全'
+        ]
+
+        questions.forEach(q => {
+            topicKeywords.forEach(keyword => {
+                if (q.includes(keyword)) {
+                    topics.add(keyword)
+                }
+            })
+        })
+
+        return Array.from(topics).slice(0, 10) // Limit to top 10 topics
+    },
+
+    // Save session memory to localStorage
+    saveSessionMemory(sessionId: string, memory: any) {
+        try {
+            const key = `session_memory_${sessionId}`
+            const existing = localStorage.getItem(key)
+            let memories = existing ? JSON.parse(existing) : []
+            
+            // Add timestamp and limit size
+            memory.timestamp = Date.now()
+            memories.push(memory)
+            
+            // Keep only last 50 memories per session
+            if (memories.length > 50) {
+                memories = memories.slice(-50)
+            }
+            
+            localStorage.setItem(key, JSON.stringify(memories))
+        } catch (e) {
+            console.warn('Failed to save session memory:', e)
+        }
+    },
+
+    // Get session memories from localStorage
+    getSessionMemories(sessionId: string, limit: number = 10): any[] {
+        try {
+            const key = `session_memory_${sessionId}`
+            const data = localStorage.getItem(key)
+            if (!data) return []
+            
+            const memories = JSON.parse(data)
+            return memories.slice(-limit)
+        } catch (e) {
+            console.warn('Failed to get session memories:', e)
+            return []
+        }
+    },
+
+    // Clear session memories
+    clearSessionMemories(sessionId: string) {
+        try {
+            const key = `session_memory_${sessionId}`
+            localStorage.removeItem(key)
+        } catch (e) {
+            console.warn('Failed to clear session memories:', e)
+        }
     },
 
     async generateSubNodes(node: Node) {
@@ -2663,6 +2939,336 @@ export const useCourseStore = defineStore('course', {
             ElMessage.error('重命名失败')
         } finally {
             this.loading = false
+        }
+    },
+
+    // ========== Learning Path Functions ==========
+    async generateLearningPath(goal: string, availableTime: number, focusAreas?: string[], weakAreas?: string[]) {
+        if (!this.currentCourseId) {
+            ElMessage.warning('请先选择一个课程')
+            return null
+        }
+        
+        this.learningPathLoading = true
+        try {
+            const res = await http.post(`/courses/${this.currentCourseId}/learning_path`, {
+                goal,
+                available_time: availableTime,
+                focus_areas: focusAreas || [],
+                weak_areas: weakAreas || []
+            })
+            
+            this.learningPath = res.data.learning_path
+            ElMessage.success('学习路径生成成功')
+            return this.learningPath
+        } catch (error) {
+            console.error('Failed to generate learning path:', error)
+            ElMessage.error('学习路径生成失败')
+            return null
+        } finally {
+            this.learningPathLoading = false
+        }
+    },
+
+    async fetchKnowledgeMastery() {
+        if (!this.currentCourseId) {
+            return null
+        }
+        
+        this.learningPathLoading = true
+        try {
+            const res = await http.get(`/courses/${this.currentCourseId}/knowledge_mastery`)
+            this.knowledgeMastery = res.data.knowledge_mastery
+            return this.knowledgeMastery
+        } catch (error) {
+            console.error('Failed to fetch knowledge mastery:', error)
+            return null
+        } finally {
+            this.learningPathLoading = false
+        }
+    },
+
+    async fetchLearningStats() {
+        if (!this.currentCourseId) {
+            return null
+        }
+        
+        try {
+            const res = await http.get(`/courses/${this.currentCourseId}/learning_stats`)
+            return res.data
+        } catch (error) {
+            console.error('Failed to fetch learning stats:', error)
+            return null
+        }
+    },
+
+    clearLearningPath() {
+        this.learningPath = null
+    },
+
+    clearKnowledgeMastery() {
+        this.knowledgeMastery = null
+    },
+
+    // ========== Smart Review System - 智能复习系统 ==========
+    
+    /**
+     * 从错题创建复习项
+     */
+    createReviewFromWrongAnswer(wrongAnswer: typeof this.wrongAnswers[0]) {
+        const reviewItem = createReviewItem({
+            nodeId: wrongAnswer.nodeId,
+            nodeName: wrongAnswer.nodeName,
+            courseId: this.currentCourseId,
+            content: JSON.stringify({
+                question: wrongAnswer.question,
+                options: wrongAnswer.options,
+                correctIndex: wrongAnswer.correctIndex,
+                userIndex: wrongAnswer.userIndex,
+                explanation: wrongAnswer.explanation
+            }),
+            type: 'wrong_answer',
+            difficulty: 'advanced',
+            tags: ['错题', wrongAnswer.nodeName]
+        })
+        
+        this.reviewItems.push(reviewItem)
+        this.persistReviewItems()
+        this.updateReviewStats()
+        
+        return reviewItem
+    },
+    
+    /**
+     * 从笔记创建复习项
+     */
+    createReviewFromNote(note: Note) {
+        const reviewItem = createReviewItem({
+            nodeId: note.nodeId,
+            nodeName: note.title || '笔记',
+            courseId: this.currentCourseId,
+            content: note.content,
+            type: 'note',
+            tags: ['笔记', note.sourceType || 'user']
+        })
+        
+        this.reviewItems.push(reviewItem)
+        this.persistReviewItems()
+        this.updateReviewStats()
+        
+        return reviewItem
+    },
+    
+    /**
+     * 开始复习会话
+     */
+    startReviewSession() {
+        const plan = generateReviewPlan(this.reviewItems)
+        
+        // 合并今天需要复习和逾期的项目
+        const itemsToReview = [...plan.overdue, ...plan.today]
+        
+        if (itemsToReview.length === 0) {
+            ElMessage.info('今天没有需要复习的内容，继续保持！')
+            return null
+        }
+        
+        // 智能排序
+        const sortedItems = smartReviewOrder(itemsToReview)
+        
+        this.currentReviewSession = {
+            items: sortedItems,
+            currentIndex: 0,
+            startTime: Date.now(),
+            correctCount: 0
+        }
+        
+        return this.currentReviewSession
+    },
+    
+    /**
+     * 提交复习结果
+     */
+    submitReviewResult(itemId: string, performance: number) {
+        const itemIndex = this.reviewItems.findIndex(item => item?.id === itemId)
+        
+        if (itemIndex === -1) return null
+        
+        const item = this.reviewItems[itemIndex]
+        if (!item) return null
+        
+        const updatedItem = updateReviewItem(item, performance)
+        this.reviewItems[itemIndex] = updatedItem
+        
+        // 更新会话进度
+        if (this.currentReviewSession) {
+            this.currentReviewSession.currentIndex++
+            if (performance >= 3) {
+                this.currentReviewSession.correctCount++
+            }
+        }
+        
+        this.persistReviewItems()
+        this.updateReviewStats()
+        
+        return updatedItem
+    },
+    
+    /**
+     * 结束复习会话
+     */
+    endReviewSession() {
+        if (!this.currentReviewSession) return null
+        
+        const session = this.currentReviewSession
+        const duration = Math.round((Date.now() - session.startTime) / 60000) // 分钟
+        const accuracy = session.items.length > 0 
+            ? Math.round((session.correctCount / session.items.length) * 100) 
+            : 0
+        
+        const summary = {
+            totalItems: session.items.length,
+            correctCount: session.correctCount,
+            accuracy,
+            duration,
+            completed: session.currentIndex >= session.items.length
+        }
+        
+        this.currentReviewSession = null
+        
+        // 显示完成消息
+        if (summary.completed) {
+            ElMessage.success(`🎉 复习完成！正确率 ${accuracy}%，用时 ${duration} 分钟`)
+        }
+        
+        return summary
+    },
+    
+    /**
+     * 获取今日复习计划
+     */
+    getTodayReviewPlan() {
+        return generateReviewPlan(this.reviewItems)
+    },
+    
+    /**
+     * 更新复习统计
+     */
+    updateReviewStats() {
+        this.reviewStats = calculateReviewStats(this.reviewItems)
+    },
+    
+    /**
+     * 持久化复习项
+     */
+    persistReviewItems() {
+        try {
+            localStorage.setItem('review_items', JSON.stringify(this.reviewItems))
+        } catch (e) {
+            console.error('Failed to persist review items:', e)
+        }
+    },
+    
+    /**
+     * 恢复复习项
+     */
+    restoreReviewItems() {
+        try {
+            const raw = localStorage.getItem('review_items')
+            if (raw) {
+                this.reviewItems = JSON.parse(raw)
+                this.updateReviewStats()
+            }
+        } catch (e) {
+            console.error('Failed to restore review items:', e)
+        }
+    },
+    
+    /**
+     * 删除复习项
+     */
+    deleteReviewItem(itemId: string) {
+        this.reviewItems = this.reviewItems.filter(item => item.id !== itemId)
+        this.persistReviewItems()
+        this.updateReviewStats()
+    },
+    
+    /**
+     * 获取遗忘风险预测
+     */
+    getForgettingRisk(itemId: string) {
+        const item = this.reviewItems.find(i => i.id === itemId)
+        if (!item) return null
+        return predictForgettingRisk(item)
+    },
+    
+    /**
+     * 批量同步错题到复习系统
+     */
+    syncWrongAnswersToReview() {
+        let addedCount = 0
+        this.wrongAnswers.forEach(wrongAnswer => {
+            // 检查是否已存在
+            const exists = this.reviewItems.some(item => 
+                item.nodeId === wrongAnswer.nodeId && 
+                item.type === 'wrong_answer' &&
+                item.content.includes(wrongAnswer.question)
+            )
+            
+            if (!exists) {
+                this.createReviewFromWrongAnswer(wrongAnswer)
+                addedCount++
+            }
+        })
+        
+        if (addedCount > 0) {
+            ElMessage.success(`已同步 ${addedCount} 道错题到复习系统`)
+        }
+        
+        return addedCount
+    },
+
+    /**
+     * 设置复习项目（用于从后端加载）
+     */
+    setReviewItems(items: ReviewItem[]) {
+        // 合并后端数据和本地数据，避免重复
+        const existingIds = new Set(this.reviewItems.map(item => item?.id).filter(Boolean))
+        const newItems = items.filter(item => item?.id && !existingIds.has(item.id))
+        
+        // 更新现有项目的复习状态
+        items.forEach(backendItem => {
+            if (!backendItem?.id) return
+            const localIndex = this.reviewItems.findIndex(item => item?.id === backendItem.id)
+            if (localIndex !== -1) {
+                const localItem = this.reviewItems[localIndex]
+                if (!localItem) return
+                // 保留本地数据，但更新后端字段
+                const updatedItem: ReviewItem = {
+                    ...localItem,
+                    reviewCount: backendItem.reviewCount ?? localItem.reviewCount,
+                    nextReviewAt: backendItem.nextReviewAt ?? localItem.nextReviewAt
+                }
+                this.reviewItems[localIndex] = updatedItem
+            }
+        })
+        
+        // 添加新项目
+        this.reviewItems.push(...newItems)
+        this.persistReviewItems()
+        this.updateReviewStats()
+    },
+
+    /**
+     * 设置记忆曲线数据
+     */
+    setMemoryCurve(curveData: { dates: string[]; retention_rates: number[] }) {
+        // 可以在这里存储记忆曲线数据用于可视化
+        // 暂时存储在localStorage中
+        try {
+            localStorage.setItem('memory_curve', JSON.stringify(curveData))
+        } catch (e) {
+            console.error('Failed to persist memory curve:', e)
         }
     },
 

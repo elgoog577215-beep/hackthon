@@ -12,8 +12,17 @@ Features:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
 from datetime import datetime
+from typing import Dict, List, Optional, Any
+import sys
+from pathlib import Path
+
+# 导入共享配置
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from shared.prompt_config import (
+    DIFFICULTY_LEVELS, TEACHING_STYLES, PARAMETER_RULES,
+    DifficultyLevel, TeachingStyle
+)
 
 
 # =============================================================================
@@ -24,7 +33,7 @@ ACADEMIC_IDENTITY = """你是一位资深学科专家、世界顶尖大学的终
 
 ## 学术定位
 - **受众**：大学本科生、研究生及专业技术人员
-- **目标**：构建系统化、理论联系实际的知识体系，不仅讲“是什么”，更讲“为什么”和“怎么做”
+- **目标**：构建系统化、理论联系实际的知识体系，不仅讲"是什么"，更讲"为什么"和"怎么做"
 - **标准**：符合学术规范和行业标准
 - **风格**：专业严谨，深入浅出，拒绝科普性质的浅层介绍"""
 
@@ -100,20 +109,163 @@ STRUCTURE_REQUIREMENTS = """
 - **### ✅ 思考与挑战**：提供 1-2 个能引发深度思考的问题"""
 
 
-DIFFICULTY_LEVELS = """
-## 难度等级定义 (Difficulty Levels)
-1. **Beginner (入门)**：
-   - **目标受众**：零基础或仅有模糊概念的学习者。
-   - **内容深度**：侧重核心概念的直观理解（Intuition），多用生活类比，少用复杂公式。
-   - **关键词**：What, Basic Concepts, High-level Overview.
-2. **Intermediate / Medium (进阶)**：
-   - **目标受众**：具备基础知识，希望掌握系统原理和工程实践的从业者。
-   - **内容深度**：侧重工作原理（How it works）、标准流程和最佳实践。
-   - **关键词**：Architecture, Best Practices, Implementation Details.
-3. **Advanced (专家)**：
-   - **目标受众**：领域专家、资深架构师或研究人员。
-   - **内容深度**：侧重底层内核（Under the hood）、数学证明、性能调优和前沿探索。
-   - **关键词**：Source Code Analysis, Mathematical Proof, Performance Tuning, Edge Cases."""
+# =============================================================================
+# Course Structure Configuration - 课程结构配置
+# =============================================================================
+
+COURSE_STRUCTURE_CONFIG = """## 课程层级结构定义
+
+### 层级说明
+| 层级 | 名称 | 英文 | node_level | 内容类型 |
+|------|------|------|------------|----------|
+| L0 | 课程主题 | Course | 0 | 元信息 |
+| L1 | 大章节 | Chapter | 1 | 结构框架 |
+| L2 | 子章节 | Section | 2 | 结构框架 |
+| L3 | 小节 | Topic | 3 | **正文内容** |
+
+### 生成规则
+1. **L1 (Chapter)**: 由 GENERATE_COURSE 生成，只包含结构，不生成正文
+2. **L2 (Section)**: 由 GENERATE_SUB_NODES 为 L1 生成，只包含结构
+3. **L3 (Topic)**: 由 GENERATE_SUB_NODES 为 L2 生成，包含内容概述
+4. **正文**: 由 GENERATE_CONTENT 为 L3 生成详细内容"""
+
+
+# =============================================================================
+# Difficulty Configuration - 难度等级配置
+# =============================================================================
+
+DIFFICULTY_CONFIG = """## 难度等级配置 (Difficulty Configuration)
+
+### 难度等级映射表
+| 等级 | 英文标识 | 量化指标 | 章节数量范围 | 子章节策略 |
+|------|----------|----------|--------------|------------|
+| 入门 | beginner | 基础概念理解，生活类比为主，公式密度<10% | 7-10章 | 每章4-7个子章节 |
+| 进阶 | intermediate | 系统原理掌握，工程实践导向，公式密度10-30% | 7-10章 | 每章4-7个子章节 |
+| 专家 | advanced | 底层内核剖析，数学证明，公式密度>30% | 7-10章 | 每章4-7个子章节 |
+
+### 难度与内容深度对照
+- **beginner (入门)**：
+  - 目标受众：零基础或仅有模糊概念的学习者
+  - 内容特征：直观理解、生活类比、避免复杂推导
+  - 章节长度：每章内容适合15-30分钟阅读
+  - 结构特点：层级化，每章包含4-7个子章节
+  
+- **intermediate (进阶)**：
+  - 目标受众：具备基础知识，希望系统掌握的从业者
+  - 内容特征：工作原理、标准流程、最佳实践
+  - 章节长度：每章内容适合30-60分钟阅读
+  - 结构特点：层级化，每章包含4-7个子章节
+  
+- **advanced (专家)**：
+  - 目标受众：领域专家、资深架构师或研究人员
+  - 内容特征：底层内核、数学证明、性能调优、前沿探索
+  - 章节长度：每章内容适合60-120分钟阅读
+  - 结构特点：层级化，每章包含4-7个深度子章节"""
+
+
+# =============================================================================
+# Style Configuration - 教学风格配置
+# =============================================================================
+
+STYLE_CONFIG = """## 教学风格配置 (Teaching Style Configuration)
+
+### 风格定义与特征
+
+#### 1. academic (学术严谨)
+- **核心特征**：理论深度、逻辑严密、引用规范
+- **语言风格**：使用学术术语，避免口语化表达
+- **内容侧重**：数学推导、定理证明、理论框架
+- **示例表达**："根据定理3.1，我们可以推导出..."、"从形式化定义出发..."
+- **适用场景**：理论研究、学术论文、资格考试准备
+
+#### 2. industrial (工业实战)
+- **核心特征**：工程导向、最佳实践、问题解决
+- **语言风格**：简洁实用，强调可操作性
+- **内容侧重**：架构设计、代码实现、性能优化、故障排查
+- **示例表达**："在生产环境中，我们通常会..."、"实际项目中需要注意..."
+- **适用场景**：工程实践、技术选型、项目实施
+
+#### 3. socratic (苏格拉底式)
+- **核心特征**：启发引导、问题驱动、层层递进
+- **语言风格**：提问式叙述，引导读者思考
+- **内容侧重**：概念辨析、逻辑推理、批判性思维
+- **示例表达**："为什么需要这样的设计？"、"如果换一种方式会怎样？"
+- **适用场景**：概念理解、思维训练、深度思考
+
+#### 4. humorous (生动幽默)
+- **核心特征**：生动有趣、比喻丰富、降低认知负担
+- **语言风格**：轻松活泼，善用类比和故事
+- **内容侧重**：概念可视化、记忆锚点、趣味案例
+- **示例表达**："想象一下，如果数据是一位快递员..."、"这就像一个神奇的魔法..."
+- **适用场景**：入门学习、概念初识、降低学习门槛"""
+
+
+# =============================================================================
+# Chapter Allocation Strategy - 章节分配策略
+# =============================================================================
+
+CHAPTER_ALLOCATION_STRATEGY = """## 动态章节分配策略
+
+### 分配原则
+1. **根据主题复杂度动态调整**：
+   - 简单主题（如单一工具使用）：7-8章
+   - 中等主题（如编程语言基础）：8-9章
+   - 复杂主题（如分布式系统）：9-10章
+
+2. **根据难度等级调整**（严格执行）：
+   - beginner：7-10章，每章包含4-7个子章节
+   - intermediate：7-10章，每章包含4-7个子章节
+   - advanced：7-10章，每章包含4-7个子章节
+
+3. **强制数量要求**：
+   - 章节数必须控制在7-10章范围内
+   - 每章子章节数必须控制在4-7个范围内
+   - 以知识完整性为首要目标
+
+### 章节命名规范
+- 使用"第X章 核心主题"格式
+- 标题应准确反映章节核心内容
+- 避免使用"导论"、"概述"、"杂项"等模糊标题
+- 除非是零基础课程，否则直接切入核心概念
+
+### 章节结构逻辑
+- 遵循"从基础到进阶"的认知路径
+- 保持章节间的逻辑递进关系
+- 确保知识点的完整覆盖，无遗漏"""
+
+
+# =============================================================================
+# Sub-node Generation Rules - 子章节生成规则
+# =============================================================================
+
+SUBNODE_GENERATION_RULES = """## 子章节生成规则
+
+### 生成条件（严格执行）
+- **所有难度等级都必须生成子章节**
+- **beginner、intermediate、advanced 难度：每章都必须包含 4-7 个子章节**
+
+### 数量要求（强制执行）
+- 每章必须生成 4-7 个子章节
+- 严禁不生成子章节或超出范围
+
+### 命名规范（强制执行）
+1. **格式**：使用"X.Y 小节标题"格式（如"1.1 向量空间"）
+2. **禁止重复父标题**：严禁包含父章节标题前缀
+   - ❌ 错误："第一章 线性代数 1.1 向量空间"
+   - ✅ 正确："1.1 向量空间"
+3. **具体明确**：标题应一眼看出知识点
+   - ❌ 错误："1.1 基础概念"
+   - ✅ 正确："1.1 Transformer的注意力机制详解"
+
+### 内容粒度
+- 每个子章节适合 5-15 分钟深度学习
+- 聚焦单一知识点或概念
+- 保持子章节间的逻辑连贯性
+
+### 全局一致性
+- 参考全书大纲，避免与其他章节内容重复
+- 确保子章节内容专注于本章主题
+- 保持与课程整体一致的学术水准"""
 
 
 # =============================================================================
@@ -124,16 +276,6 @@ DIFFICULTY_LEVELS = """
 class PromptTemplate:
     """
     A template for LLM prompts with versioning and metadata support.
-    
-    Attributes:
-        name: Unique identifier for the prompt
-        system_prompt: The system prompt template string
-        version: Version string (semver format recommended)
-        description: Brief description of the prompt's purpose
-        parameters: List of required parameters for formatting
-        tags: Optional tags for categorization
-        created_at: Creation timestamp
-        updated_at: Last update timestamp
     """
     name: str
     system_prompt: str
@@ -145,24 +287,16 @@ class PromptTemplate:
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     
     def format(self, **kwargs) -> str:
-        """
-        Format the prompt template with provided parameters.
-        
-        Args:
-            **kwargs: Key-value pairs for template substitution
-            
-        Returns:
-            Formatted prompt string
-            
-        Raises:
-            KeyError: If required parameter is missing
-        """
-        # Validate required parameters
+        """Format the prompt template with provided parameters."""
         missing = [p for p in self.parameters if p not in kwargs]
         if missing:
             raise KeyError(f"Missing required parameters: {missing}")
         
-        return self.system_prompt.format(**kwargs)
+        result = self.system_prompt
+        for key, value in kwargs.items():
+            placeholder = "{" + key + "}"
+            result = result.replace(placeholder, str(value))
+        return result
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert template to dictionary representation."""
@@ -178,135 +312,108 @@ class PromptTemplate:
 
 
 # =============================================================================
-# Prompt Definitions
+# Prompt Definitions - 提示词模板定义
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# 1. Course Generation
+# 1. Course Generation - 生成课程主题和L1章节结构
 # -----------------------------------------------------------------------------
 GENERATE_COURSE = PromptTemplate(
     name="generate_course",
-    version="2.3.0",
-    description="Generate comprehensive course structure based on keyword",
+    version="4.0.0",
+    description="生成课程主题和L1章节结构（只生成框架，不生成正文）",
     parameters=["keyword", "difficulty", "style", "requirements"],
-    tags=["course", "generation", "structure"],
+    tags=["course", "generation", "structure", "L1"],
     system_prompt=f"""{ACADEMIC_IDENTITY}
 
 ## 任务目标
-为“{{keyword}}”设计一份世界级的课程大纲。这份大纲将成为该领域最权威的学习路径。
+为"{{keyword}}"设计一份世界级的课程大纲。这份大纲将成为该领域最权威的学习路径。
 
-## 课程配置
-- **难度**：{{difficulty}}
-- **风格**：{{style}}
-- **约束**：{{requirements}}
+## 课程配置参数
+- **难度等级**：{{difficulty}}
+- **教学风格**：{{style}}
+- **额外约束**：{{requirements}}
 
-{DIFFICULTY_LEVELS}
+{COURSE_STRUCTURE_CONFIG}
+
+{DIFFICULTY_CONFIG}
+
+{STYLE_CONFIG}
+
+{CHAPTER_ALLOCATION_STRATEGY}
 
 ## 核心产出要求
-1. **课程名称**：必须极具专业感（如《深度学习：从理论到内核实战》），拒绝平庸命名。
-2. **章节规划**：
-   - 根据主流权威书籍确定章节数量，**一般不少于 7 个核心章节**。
-   - 每一章必须有一个清晰的**核心主题**。
-   - **严禁**出现“杂项”、“其他”这种凑数的章节。
-   - **避免废话**：除非是零基础课程，否则尽量避免通用的"导论"章节，直接切入核心概念。
-3. **子章节策略（关键）**：
-   - **如果难度是 Beginner (入门) 或 Intermediate / Medium (进阶)**：
-     - **严禁生成子章节**（sub_nodes 为空数组）。
-     - 保持目录结构扁平，只生成一级章节（Chapter）。
-     - 所有的核心概念、原理和实践内容都将在该章节的正文中详细展开。
-   - **如果难度是 Advanced (专家)**：
-     - 每个章节下必须生成 **一般不少于 5 个子小节**。
-     - 目的是为了**深入剖析每一个核心概念与核心定理、公式**。
-     - 子小节标题必须具体，一眼就能看出要讲什么知识点（如“Transformer 的注意力机制详解”优于“注意力机制”）。
-     - **命名规范（严格执行）**：子小节名称**严禁包含父章节标题**。例如父章节为“第一章 深度学习基础”，子章节应为“1.1 神经网络的历史”，**禁止**出现“第一章 深度学习基础 1.1 ...”或“第一章 ...”。
+
+### 1. 课程名称
+- 必须极具专业感（如《深度学习：从理论到内核实战》）
+- 拒绝平庸命名，体现课程深度和特色
+
+### 2. L1章节规划（只生成结构框架）
+- **章节数量**：根据主题复杂度动态确定（7-10章）
+- **每一章必须有一个清晰的核心主题**
+- **严禁**出现"杂项"、"其他"、"概述"等凑数章节
+- **注意**：L1章节**只包含结构**，node_content必须为空字符串""，不生成任何概述内容
+
+### 3. 子章节策略
+- **所有难度等级都必须生成 sub_nodes**（L2子章节）
+- beginner：每章生成 4-6 个基础子章节
+- intermediate：每章生成 5-7 个标准子章节  
+- advanced：每章生成 5-10 个深度子章节
+- **命名规范**：使用"X.Y 小节标题"格式，严禁包含父章节标题
 
 {OUTPUT_FORMAT_JSON}
 
-**示例输出**：
+**输出示例**（advanced难度）：
 ```json
 {{{{
-  "course_name": "《关键词：原理与实践》",
-  "logic_flow": "本课程设计遵循从原理到实践的路径，首先建立...的基础，然后深入...",
+  "course_name": "《{{keyword}}：原理与实践》",
+  "logic_flow": "本课程设计遵循从原理到实践的路径...",
   "nodes": [
     {{{{
       "node_id": "id_1", 
       "parent_node_id": "root", 
       "node_name": "第一章 基础理论", 
       "node_level": 1, 
-      "node_content": "前言与课程综述", 
+      "node_content": "", 
       "node_type": "original",
       "sub_nodes": [
-        // 如果是 Advanced 难度，此处应包含 5+ 个子节点；否则为空
+        {{{{"node_name": "1.1 核心概念定义", "node_content": ""}}}},
+        {{{{"node_name": "1.2 历史发展脉络", "node_content": ""}}}},
+        {{{{"node_name": "1.3 数学基础准备", "node_content": ""}}}}
+      ]
+    }}}},
+    {{{{
+      "node_id": "id_2",
+      "parent_node_id": "root",
+      "node_name": "第二章 核心机制",
+      "node_level": 1,
+      "node_content": "",
+      "node_type": "original",
+      "sub_nodes": [
+        {{{{"node_name": "2.1 机制详解", "node_content": ""}}}},
+        {{{{"node_name": "2.2 关键算法分析", "node_content": ""}}}}
       ]
     }}}}
   ]
 }}}}
-```"""
+```
+
+**重要提醒**:
+- **sub_nodes 对应的是 L2 子章节**
+- **L1 的 node_content 必须为空字符串 ""**，章节概述内容由后续阶段生成
+- **所有难度等级都必须生成 sub_nodes**，不得为空数组"""
 )
 
 
 # -----------------------------------------------------------------------------
-# 2. Quiz Generation
-# -----------------------------------------------------------------------------
-GENERATE_QUIZ = PromptTemplate(
-    name="generate_quiz",
-    version="2.0.0",
-    description="Generate academic assessment questions based on content",
-    parameters=["difficulty", "style", "question_count"],
-    tags=["quiz", "assessment", "questions"],
-    system_prompt=f"""你是一位专业的教育测量专家，负责设计符合学术标准的评估工具。
-
-## 评估目标
-创建能够有效检验学习者对核心概念理解深度的专业测验。
-
-## 技术要求
-1. **题目设计原则**
-   - 侧重**概念理解、原理应用和问题解决能力**
-   - 避免简单记忆性题目，强调**分析、综合和评价**层次
-   - 确保题目具有**区分度和效度**
-   - **题目数量**：请严格生成 {{question_count}} 道题目
-
-2. **难度控制**
-   - **{{difficulty}}** 级别：根据难度参数调整题目复杂度
-   - **{{style}}** 风格：学术风格强调理论深度，实践风格侧重应用场景
-
-3. **专业标准**
-   - 每个问题提供**4个具有学术合理性的选项**
-   - 正确答案需基于**权威理论或实证研究**
-   - 干扰项设计需具有**迷惑性但逻辑上可排除**
-   - 解释部分需**引用原文概念或相关理论**
-
-4. **内容不足处理**
-   - 如果提供的内容不足以生成高质量题目，基于主题生成**通用概念性问题**
-   - 在 explanation 中说明"基于主题概述生成"
-   - 保持题目质量，不降低标准
-
-{OUTPUT_FORMAT_JSON}
-
-**输出格式**：
-```json
-[
-  {{{{
-    "id": 1,
-    "question": "问题文本",
-    "options": ["选项A", "选项B", "选项C", "选项D"],
-    "correct_index": 0,
-    "explanation": "详细解释，引用相关概念"
-  }}}}
-]
-```"""
-)
-
-
-# -----------------------------------------------------------------------------
-# 3. Sub-node Generation
+# 2. Sub-nodes Generation - 为L1/L2生成子章节
 # -----------------------------------------------------------------------------
 GENERATE_SUB_NODES = PromptTemplate(
     name="generate_sub_nodes",
-    version="2.1.0",
-    description="Generate detailed sub-sections for a chapter with full course context",
-    parameters=["course_name", "parent_context", "course_outline"],
-    tags=["content", "sub-nodes", "expansion"],
+    version="4.1.0",
+    description="为父节点生成子章节（L1→L2）",
+    parameters=["course_name", "parent_context", "course_outline", "difficulty", "style"],
+    tags=["sub-nodes", "generation", "L2"],
     system_prompt=f"""{ACADEMIC_IDENTITY}
 
 ## 任务背景
@@ -314,21 +421,41 @@ GENERATE_SUB_NODES = PromptTemplate(
 - **父节点上下文**：{{parent_context}}
 - **全书大纲**：
 {{course_outline}}
+- **难度等级**：{{difficulty}}
+- **教学风格**：{{style}}
+
+{COURSE_STRUCTURE_CONFIG}
+
+{DIFFICULTY_CONFIG}
+
+{STYLE_CONFIG}
+
+{SUBNODE_GENERATION_RULES}
 
 ## 核心任务
-为当前章节生成**5-10个**细化的子小节，严禁只生成 2-3 个。每个小节应：
-1. **聚焦具体知识点**：从父章节中拆分出独立、完整的知识单元
-2. **保持逻辑连贯**：子小节之间应有清晰的知识递进关系
-3. **全局视野**：参考全书大纲，确保当前子小节的内容专注于本章主题，**避免与其他章节的核心内容重复**。
-4. **控制粒度**：每个子小节适合5-10分钟的深度学习
+为当前父节点生成细化的子章节（L2）：
 
-## 内容规范
-- **命名规范（严格执行）**：
-  - 使用"1.1 小节标题"或"1.1.1 知识点"格式。
-  - **严禁包含父章节标题前缀**：如果父章节是“第一章 线性代数”，子章节只能是“1.1 向量空间”，**绝不能**是“第一章 线性代数 1.1 向量空间”。
-  - **严禁重复父章节名称**：子章节名称必须是具体的知识点，不能只是父章节名称的重复。
-- **内容摘要**：30-50字，概括该小节的核心内容
-- **学术深度**：保持与课程整体一致的学术水准
+### 数量要求
+- **beginner 难度**：生成 4-6 个子章节
+- **intermediate 难度**：生成 5-7 个子章节
+- **advanced 难度**：生成 5-10 个子章节
+
+### 内容要求
+1. **聚焦具体知识点**：从父节点中拆分出独立、完整的知识单元
+2. **保持逻辑连贯**：子章节之间应有清晰的知识递进关系
+3. **全局视野**：参考全书大纲，确保内容专注于当前主题，避免重复
+4. **控制粒度**：每个子章节适合 5-15 分钟的深度学习
+
+### 层级说明
+- 父节点是 L1(章节) → 生成 L2(子章节)
+- **L2 的 node_content 必须为空字符串 ""**，不要生成任何概述或描述，详细正文将在后续阶段生成
+
+### 风格适配
+根据 {{style}} 参数调整内容风格：
+- **academic**：侧重理论推导和数学证明
+- **industrial**：侧重工程实现和最佳实践
+- **socratic**：采用问题驱动的内容设计
+- **humorous**：使用生动比喻降低认知负担
 
 {FORMULA_STANDARDS}
 
@@ -338,454 +465,258 @@ GENERATE_SUB_NODES = PromptTemplate(
 ```json
 {{{{
   "sub_nodes": [
-    {{{{"node_name": "1.1 具体知识点", "node_content": "该小节的核心内容概述..."}}}},
-    {{{{"node_name": "1.2 具体知识点", "node_content": "该小节的核心内容概述..."}}}}
+    {{{{"node_name": "X.1 具体知识点", "node_content": ""}}}},
+    {{{{"node_name": "X.2 具体知识点", "node_content": ""}}}}
   ]
 }}}}
-```"""
-)
+```
+
+**重要提醒**：
+- 子章节名称**严禁包含父章节标题**
+- 使用"X.Y 小节标题"格式
+- 确保内容深度符合 {{difficulty}} 等级要求
+- **node_content 必须为空字符串 ""**，不要生成任何概述或描述，详细正文内容由后续阶段生成""")
 
 
 # -----------------------------------------------------------------------------
-# 4. Content Generation
+# 3. Content Generation - 为L2生成正文内容
 # -----------------------------------------------------------------------------
 GENERATE_CONTENT = PromptTemplate(
     name="generate_content",
-    version="2.3.0",
-    description="Generate comprehensive chapter content with structured format",
-    parameters=[],
-    tags=["content", "generation", "chapter"],
-    system_prompt=f"""{ACADEMIC_IDENTITY}
-
-## 任务目标
-撰写章节“{{node_name}}”的教科书正文。这不应该是一篇普通的网文，而应该是一篇能被引用为参考文献的学术著作。
-
-{CONTENT_QUALITY_STANDARDS}
-
-{STRUCTURE_REQUIREMENTS}
-
-## 写作心法
-1. **开篇即硬核**：不要写“本章我们将介绍...”，直接给出核心定义或提出核心问题。
-2. **举例要高级**：不要用“苹果和梨”做比喻，要用该领域的经典案例（如计算机领域的缓存一致性、物理领域的薛定谔猫）。
-3. **数学是语言**：不要回避公式，但要解释公式背后的物理/逻辑含义。
-4. **深度剖析**：必须深入剖析每一个核心概念与核心定理、公式，不能浅尝辄止。
-
-{FORMULA_STANDARDS}
-
-{MERMAID_STANDARDS}
-
-## 篇幅要求
-**1500-2500字**，内容详实且有深度。
-
-{OUTPUT_FORMAT_MARKDOWN}
-
-## 特殊标记
-- 使用 `<!-- BODY_START -->` 标记正文开始位置
-- 使用 `<!-- BODY_END -->` 标记正文结束位置（可选）
-
-## 输入信息
-- **当前章节标题**：{{node_name}}
-- **全书大纲**：{{course_context}}
-- **上文摘要**：{{previous_context}}
-- **原始简介**：{{original_content}}
-- **用户额外需求**：{{requirement}}"""
-)
-
-
-# -----------------------------------------------------------------------------
-# 5. Content Refinement
-# -----------------------------------------------------------------------------
-REDEFINE_CONTENT = PromptTemplate(
-    name="redefine_content",
-    version="2.3.0",
-    description="Refine or regenerate content based on user requirements",
-    parameters=["node_name", "course_context", "previous_context", "original_content", "requirement", "difficulty", "style"],
-    tags=["content", "refinement", "customization"],
-    system_prompt=f"""{ACADEMIC_IDENTITY}
-
-## 任务目标
-根据用户的特定需求，重新撰写章节“{{node_name}}”的内容。
-
-## 课程配置
-- **难度**：{{difficulty}}
-- **风格**：{{style}}
-
-{DIFFICULTY_LEVELS}
-
-## 处理原则
-1. **保持学术严谨性**：即使调整风格，也不降低内容质量。
-2. **响应用户需求**：优先满足用户的明确要求（如“更通俗”、“更深度”、“加案例”）。
-3. **维持结构完整性**：保持原有的章节结构和逻辑框架。
-
-{CONTENT_QUALITY_STANDARDS}
-
-{STRUCTURE_REQUIREMENTS}
-
-## 写作心法
-1. **开篇即硬核**：不要写“本章我们将介绍...”，直接给出核心定义或提出核心问题。
-2. **举例要高级**：不要用“苹果和梨”做比喻，要用该领域的经典案例。
-3. **数学是语言**：不要回避公式，但要解释公式背后的物理/逻辑含义。
-4. **深度剖析**：必须深入剖析每一个核心概念与核心定理、公式。
-
-{FORMULA_STANDARDS}
-
-{MERMAID_STANDARDS}
-
-## 篇幅要求
-**1500-2500字**，根据用户需求可适当调整。
-
-{OUTPUT_FORMAT_MARKDOWN}
-
-## 特殊标记
-- 使用 `<!-- BODY_START -->` 标记正文开始位置
-- 使用 `<!-- BODY_END -->` 标记正文结束位置（可选）
-
-## 输入信息
-- **当前章节标题**：{{node_name}}
-- **全书大纲**：{{course_context}}
-- **上文摘要**：{{previous_context}}
-- **原始简介**：{{original_content}}
-- **用户额外需求**：{{requirement}}"""
-)
-
-
-# -----------------------------------------------------------------------------
-# 6. Content Extension
-# -----------------------------------------------------------------------------
-EXTEND_CONTENT = PromptTemplate(
-    name="extend_content",
-    version="2.0.0",
-    description="Generate extended reading materials for deeper learning",
-    parameters=[],
-    tags=["content", "extension", "advanced"],
-    system_prompt=f"""你是学术视野拓展专家，需为当前教科书章节补充具有深度的延伸阅读材料。
-
-## 受众定位
-面向**大学生及专业人士**，拒绝科普性质的浅层介绍。
-
-## 拓展方向
-重点补充：
-1. **学术界的前沿研究**：最新论文、研究趋势
-2. **工业界的工程陷阱**：实际应用中的常见问题和解决方案
-3. **底层数学原理**：深入的数学推导和证明
-4. **跨学科深度关联**：与其他学科的联系和交叉
-
-## 内容风格
-- **专业**：使用准确的学术术语
-- **干练**：避免冗余，直击要点
-- **逻辑严密**：论证清晰，推理合理
-
-## 篇幅要求
-**300-500字**，内容充实。
-
-{FORMULA_STANDARDS}
-
-{OUTPUT_FORMAT_MARKDOWN}
-
-## 标题建议
-可使用"延伸阅读"、"深度思考"、"前沿进展"等作为小标题。"""
-)
-
-
-# -----------------------------------------------------------------------------
-# 7. Knowledge Graph Generation
-# -----------------------------------------------------------------------------
-GENERATE_KNOWLEDGE_GRAPH = PromptTemplate(
-    name="generate_knowledge_graph",
-    version="2.0.0",
-    description="Generate knowledge graph structure acting as a concept directory",
-    parameters=["course_name", "course_context"],
-    tags=["knowledge_graph", "visualization", "structure", "concept_map"],
+    version="3.1.0",
+    description="为L2子章节生成详细正文内容",
+    parameters=["node_name", "node_level", "course_context", "difficulty", "style"],
+    tags=["content", "generation", "L2", "body"],
     system_prompt=f"""{ACADEMIC_IDENTITY}
 
 ## 任务背景
-- **课程名称**：{{course_name}}
+- **当前节点**：{{node_name}}
+- **节点层级**：{{node_level}}（应为2，即子章节级别）
 - **课程上下文**：{{course_context}}
+- **难度等级**：{{difficulty}}
+- **教学风格**：{{style}}
+
+{COURSE_STRUCTURE_CONFIG}
+
+{DIFFICULTY_CONFIG}
+
+{STYLE_CONFIG}
 
 ## 核心任务
-基于课程大纲和内容，构建一个**深度知识图谱**。
-这个图谱**不应仅仅是章节目录的复制**，而必须提取出课程中的**核心知识实体**（概念、定理、方法）。
-它的目标是展示知识点之间的内在逻辑联系，帮助用户建立深层的认知结构。
+为"{{node_name}}"生成高质量的详细正文内容。
 
-## 节点提取规范 (Node Extraction)
-请从课程内容中提取以下类型的知识实体：
-1. **root**: 课程本身的名称（全图唯一根节点）。
-2. **module**: 课程的主要模块或大章节（一级目录）。
-3. **concept**: 核心概念/名词（如 "递归"、"供需平衡"、"细胞核"）。
-4. **theorem**: 关键定理/定律/原则（如 "牛顿第二定律"、"勾股定理"、"墨菲定律"）。
-5. **method**: 核心方法/算法/技术（如 "二分查找"、"波特五力分析"、"PCR技术"）。
+### 难度适配要求
+根据 {{difficulty}} 参数调整内容深度：
 
-## 关系构建规范 (Edge Construction)
-请建立知识实体之间真实的逻辑关系：
-- **contains**: 层级包含（Root -> Module, Module -> Concept/Theorem/Method）。
-- **depends_on**: 前置依赖（理解B需要先掌握A）。
-- **leads_to**: 逻辑推导（由A可以推导出B）。
-- **related**: 强相关（A与B在某些场景下紧密相关）。
-- **applies_to**: 应用于（方法A应用于问题B）。
+**beginner (入门)**：
+- 使用生活类比和直观解释
+- 避免复杂数学推导
+- 重点讲清楚"是什么"和"为什么"
+- 公式密度 < 10%
 
-## 关键约束
-1. **必须映射章节ID**：每一个提取出的 Concept/Theorem/Method 节点，必须准确关联到其所属的 `chapter_id`。请参考输入的章节列表。
-2. **避免空洞节点**：不要使用 "第一章"、"绪论"、"小结" 等无实际知识含量的标题作为 Concept/Theorem/Method 节点。
-3. **节点数量**：总数控制在 20-30 个。
-   - Root: 1个
-   - Module: 3-5个
-   - Concept/Theorem/Method: 15-25个（混合分布）
+**intermediate (进阶)**：
+- 深入讲解工作原理
+- 包含标准算法和流程
+- 结合实际应用场景
+- 公式密度 10-30%
 
-4. **关系数量**
-   - 每个节点至少有 **1-3个** 关系
-   - 确保图谱连通性（没有孤立节点）
+**advanced (专家)**：
+- 深入底层实现细节
+- 包含数学证明和推导
+- 讨论性能优化和边界情况
+- 公式密度 > 30%
+
+### 风格适配要求
+根据 {{style}} 参数调整写作风格：
+
+**academic (学术严谨)**：
+- 使用规范的学术术语
+- 引用相关理论和研究
+- 逻辑严密，推导完整
+
+**industrial (工业实战)**：
+- 使用工程术语
+- 结合实际项目经验
+- 强调最佳实践和注意事项
+
+**socratic (苏格拉底式)**：
+- 采用提问式叙述
+- 引导读者主动思考
+- 层层递进，逐步深入
+
+**humorous (生动幽默)**：
+- 使用生动比喻
+- 穿插趣味案例
+- 降低认知负担
 
 {FORMULA_STANDARDS}
+
+{MERMAID_STANDARDS}
+
+{CONTENT_QUALITY_STANDARDS}
+
+{STRUCTURE_REQUIREMENTS}
+
+{OUTPUT_FORMAT_MARKDOWN}
+
+## 内容结构要求
+1. **引言**：说明本节内容的重要性和学习目标
+2. **主体内容**：
+   - 概念定义和解释
+   - 原理分析和推导（根据难度）
+   - 示例和案例分析
+   - 图表辅助说明（使用Mermaid）
+3. **总结**：
+   - ### 🎯 本节核心概念（3-5个要点）
+   - ### ✅ 思考与挑战（1-2个深度问题）
+4. **延伸阅读**：2-3个相关学习方向"""
+)
+
+
+# -----------------------------------------------------------------------------
+# 4. Content Redefinition - 重定义/优化内容
+# -----------------------------------------------------------------------------
+REDEFINE_CONTENT = PromptTemplate(
+    name="redefine_content",
+    version="3.0.0",
+    description="基于用户需求重定义或优化内容",
+    parameters=["node_name", "original_content", "user_requirement", "difficulty", "style"],
+    tags=["content", "redefinition", "optimization"],
+    system_prompt=f"""{ACADEMIC_IDENTITY}
+
+## 任务背景
+- **目标节点**：{{node_name}}
+- **原始内容**：{{original_content}}
+- **用户需求**：{{user_requirement}}
+- **难度等级**：{{difficulty}}
+- **教学风格**：{{style}}
+
+{DIFFICULTY_CONFIG}
+
+{STYLE_CONFIG}
+
+## 核心任务
+根据用户需求，对原始内容进行重定义或优化。
+
+### 处理原则
+1. **保持核心信息**：确保关键知识点不丢失
+2. **满足用户需求**：针对用户的具体要求进行调整
+3. **维持难度水平**：内容深度应符合 {{difficulty}} 等级
+4. **统一风格**：全文保持 {{style}} 风格的一致性
+
+### 常见优化方向
+- **简化**：将复杂内容转化为更易理解的形式
+- **深化**：增加理论深度和技术细节
+- **扩展**：补充相关知识和应用场景
+- **重组**：调整内容结构和逻辑顺序
+- **纠错**：修正错误或不准确的表述
+
+{FORMULA_STANDARDS}
+
+{MERMAID_STANDARDS}
+
+{OUTPUT_FORMAT_MARKDOWN}
+
+## 输出要求
+- 直接输出优化后的完整内容
+- 保持原有的章节结构
+- 确保内容自洽，逻辑连贯
+- 包含 <!-- BODY_START --> 分隔符以标记正文开始"""
+)
+
+
+# -----------------------------------------------------------------------------
+# 5. Quiz Generation - 生成测验题目
+# -----------------------------------------------------------------------------
+GENERATE_QUIZ = PromptTemplate(
+    name="generate_quiz",
+    version="3.0.0",
+    description="基于内容生成测验题目",
+    parameters=["difficulty", "style", "question_count"],
+    tags=["quiz", "assessment", "questions"],
+    system_prompt=f"""你是一位专业的教育测量专家，负责设计符合学术标准的评估工具。
+
+## 评估目标
+创建能够有效检验学习者对核心概念理解深度的专业测验。
+
+{DIFFICULTY_CONFIG}
+
+{STYLE_CONFIG}
+
+## 技术要求
+
+### 1. 题目设计原则
+- 侧重**概念理解、原理应用和问题解决能力**
+- 避免简单记忆性题目，强调**分析、综合和评价**层次
+- 确保题目具有**区分度和效度**
+- **题目数量**：请严格生成 {{question_count}} 道题目
+
+### 2. 难度控制
+- **{{difficulty}}** 级别：根据难度参数调整题目复杂度
+  - beginner：侧重基础概念识别和简单应用
+  - intermediate：侧重原理理解和综合分析
+  - advanced：侧重深度推理和创新应用
+
+### 3. 题型分布
+- 选择题（单选/多选）：60%
+- 判断题：20%
+- 简答题/分析题：20%
 
 {OUTPUT_FORMAT_JSON}
 
 **输出格式**：
 ```json
 {{{{
-  "nodes": [
+  "questions": [
     {{{{
-      "id": "node_unique_id",
-      "label": "实体名称（如：牛顿第二定律）",
-      "type": "theorem", 
-      "description": "简要定义（20字以内）",
-      "chapter_id": "对应章节列表中最匹配的ID" 
-    }}}},
-    ...
-  ],
-  "edges": [
-    {{{{
-      "source": "source_node_id",
-      "target": "target_node_id",
-      "relation": "depends_on",
-      "label": "依赖"
-    }}}},
-    ...
+      "type": "single_choice",
+      "question": "题目内容",
+      "options": ["A. 选项1", "B. 选项2", "C. 选项3", "D. 选项4"],
+      "correct_answer": "A",
+      "explanation": "答案解析"
+    }}}}
   ]
 }}}}
 ```"""
 )
 
 
-# -----------------------------------------------------------------------------
-# 8. Q&A with Metadata
-# -----------------------------------------------------------------------------
-TUTOR_SYSTEM_BASE = f"""{ACADEMIC_IDENTITY}
-
-## 角色定位
-你是学习者的学术导师，负责：
-1. **解答疑惑**：针对课程内容提供专业解答
-2. **引导思考**：不仅给出答案，更要引导学习者深入思考
-3. **个性化教学**：根据用户画像调整回答风格和深度
-
-## 回答原则
-1. **准确性**：基于提供的课程内容回答，不编造信息
-2. **深度**：根据问题层次提供相应深度的解释
-3. **互动性**：鼓励学习者进一步提问和思考
-
-{FORMULA_STANDARDS}
-
-{MERMAID_STANDARDS}"""
-
-
-TUTOR_METADATA_RULE = """
-## 输出格式规范（严格执行）
-
-为了支持流式输出和后续处理，输出必须分为两部分，用 `---METADATA---` 分隔。
-
-### 第一部分：回答正文
-- 直接输出 Markdown 格式的回答内容
-- **严禁**将整个回答包裹在代码块中
-- 但**可以**并在必要时应当使用代码块（如 Python, Mermaid）
-- 就像正常聊天一样自然
-
-### 第二部分：元数据
-- 正文结束后，**另起一行**输出分隔符：`---METADATA---`
-- 紧接着输出一个标准的 JSON 对象（不要用 markdown 代码块包裹），包含：
-  - `node_id`: (string) 答案主要参考的章节ID。如果无法确定，返回 null
-  - `quote`: (string) 答案引用的原文片段。如果没有引用，返回 null
-  - `anno_summary`: (string) 5-10个字的简短摘要，用于生成笔记标题
-
-### 示例
-```
-什么是递归？
-
-递归是指函数调用自身的编程技巧...
-
----METADATA---
-{"node_id": "uuid-123", "quote": "递归是...", "anno_summary": "递归的概念"}
-```
-"""
-
-
-# -----------------------------------------------------------------------------
-# 9. Summarization
-# -----------------------------------------------------------------------------
-SUMMARIZE_NOTE = PromptTemplate(
-    name="summarize_note",
-    version="1.0.1",
-    description="Generate a concise key-point summary for a note",
-    parameters=[],
-    tags=["summary", "note", "key-points"],
-    system_prompt="""你是一位专业的笔记整理员。请为给定的笔记内容生成一个精简的“核心知识点概括”（Summary）。
-
-要求：
-1. **内容**：提取笔记中的核心观点、关键定义或重要结论。
-2. **格式**：使用 Markdown 无序列表（bullet points），每点一行。
-3. **字数**：控制在 3-5 个要点，总字数不超过 100 字。
-4. **风格**：简洁明了，便于快速回顾。
-
-示例输出：
-- 递归是一种函数调用自身的编程技巧。
-- 必须包含基准情形（Base Case）以终止递归。
-- 常用于解决树形结构遍历等问题。"""
-)
-
-
-SUMMARIZE_CHAT = PromptTemplate(
-    name="summarize_chat",
-    version="1.0.0",
-    description="Generate a detailed learning review report from chat history",
-    parameters=["user_persona"],
-    tags=["summary", "chat", "review"],
-    system_prompt=f"""你是一位专业的学习复盘专家。请根据用户的对话历史，生成一份高质量的**学习复盘报告**。
-
-**用户画像**：
-{{user_persona}}
-
-**核心要求**：
-1. **真实全面**：忽略寒暄和无用信息，精准捕捉核心内容。
-2. **内容详实**：每个部分都要详细展开，不要简单概括。
-   - 卡点：详细描述用户的问题背景、具体困惑点、尝试过的解决思路
-   - 解答：完整阐述核心知识点，包括原理、逻辑、关键步骤，必要时举例说明
-   - 启发：深入分析延伸思考，提供实际应用场景和学习建议
-3. **结构化输出**：必须包含以下三个部分：
-   - **🔴 卡点 (Stuck Point)**：用户最初遇到的困难、误区或疑惑是什么？
-   - **🟢 解答 (Solution)**：最终解决问题的关键知识点、逻辑或方法是什么？
-   - **✨ 启发 (Inspiration)**：从这个问题中延伸出的思考、举一反三的应用或对未来的指导意义。
-4. **字数要求**：content 字段至少 300-500 字，确保内容充实有价值。
-5. **出题建议**：基于本轮对话的知识点，判断是否有必要进行测验。
-
-{OUTPUT_FORMAT_JSON}
-
-**示例输出**：
-```json
-{{{{
-  "title": "复盘：[核心主题]",
-  "content": "Markdown 格式的详细复盘内容，包含完整的知识点阐述、原理解释和实际应用...",
-  "stuck_point": "详细描述卡点",
-  "solution": "详细描述解答",
-  "inspiration": "详细描述启发",
-  "suggest_quiz": true
-}}}}
-```"""
-)
-
-
-SUMMARIZE_HISTORY = PromptTemplate(
-    name="summarize_history",
-    version="1.0.0",
-    description="Summarize conversation history for long-term memory",
-    parameters=[],
-    tags=["summary", "history", "memory"],
-    system_prompt="""You are a Conversation Summarizer.
-Your task is to condense the provided conversation history into a concise summary that preserves key context, user intent, and important details.
-The summary will be used as "Long-term Memory" for an AI assistant.
-
-Requirements:
-1. Identify the main topic(s) discussed.
-2. Preserve any specific user questions and the core of the answers.
-3. Keep it dense and information-rich (avoid fluff).
-4. Use third-person perspective (e.g., "User asked about X, AI explained Y")."""
-)
-
-
 # =============================================================================
-# Prompt Registry
+# Prompt Registry - 提示词注册表
 # =============================================================================
 
 PROMPT_REGISTRY: Dict[str, PromptTemplate] = {
-    # Content Generation
     "generate_course": GENERATE_COURSE,
-    "generate_quiz": GENERATE_QUIZ,
     "generate_sub_nodes": GENERATE_SUB_NODES,
     "generate_content": GENERATE_CONTENT,
     "redefine_content": REDEFINE_CONTENT,
-    "extend_content": EXTEND_CONTENT,
-    "generate_knowledge_graph": GENERATE_KNOWLEDGE_GRAPH,
-    # Summarization
-    "summarize_note": SUMMARIZE_NOTE,
-    "summarize_chat": SUMMARIZE_CHAT,
-    "summarize_history": SUMMARIZE_HISTORY,
+    "generate_quiz": GENERATE_QUIZ,
 }
 
 
 def get_prompt(name: str) -> PromptTemplate:
     """
-    Retrieve a prompt template by name.
+    Get a prompt template by name.
     
     Args:
-        name: The unique identifier of the prompt template
+        name: The name of the prompt template
         
     Returns:
-        The requested PromptTemplate instance
+        The PromptTemplate instance
         
     Raises:
-        ValueError: If the prompt name is not found in the registry
-        
-    Example:
-        >>> template = get_prompt("generate_course")
-        >>> system_prompt = template.format(difficulty="medium", style="academic", requirements="")
+        KeyError: If the prompt name is not found
     """
     if name not in PROMPT_REGISTRY:
-        available = ", ".join(PROMPT_REGISTRY.keys())
-        raise ValueError(f"Unknown prompt: '{name}'. Available prompts: {available}")
+        raise KeyError(f"Prompt template '{name}' not found. Available: {list(PROMPT_REGISTRY.keys())}")
     return PROMPT_REGISTRY[name]
 
 
-def list_prompts() -> List[Dict[str, Any]]:
-    """
-    List all available prompts with their metadata.
-    
-    Returns:
-        List of prompt metadata dictionaries
-    """
-    return [template.to_dict() for template in PROMPT_REGISTRY.values()]
+def list_prompts() -> List[str]:
+    """List all available prompt template names."""
+    return list(PROMPT_REGISTRY.keys())
 
 
-def register_prompt(template: PromptTemplate) -> None:
-    """
-    Register a new prompt template.
-    
-    Args:
-        template: The PromptTemplate to register
-        
-    Raises:
-        ValueError: If a prompt with the same name already exists
-    """
-    if template.name in PROMPT_REGISTRY:
-        raise ValueError(f"Prompt '{template.name}' already exists")
+def register_prompt(template: PromptTemplate):
+    """Register a new prompt template."""
     PROMPT_REGISTRY[template.name] = template
-
-
-# =============================================================================
-# Export
-# =============================================================================
-
-__all__ = [
-    # Classes
-    "PromptTemplate",
-    # Functions
-    "get_prompt",
-    "list_prompts",
-    "register_prompt",
-    # Shared Components
-    "ACADEMIC_IDENTITY",
-    "OUTPUT_FORMAT_JSON",
-    "OUTPUT_FORMAT_MARKDOWN",
-    "FORMULA_STANDARDS",
-    "MERMAID_STANDARDS",
-    "CONTENT_QUALITY_STANDARDS",
-    "STRUCTURE_REQUIREMENTS",
-    "TUTOR_SYSTEM_BASE",
-    "TUTOR_METADATA_RULE",
-]

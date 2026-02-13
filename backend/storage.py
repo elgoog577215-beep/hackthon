@@ -17,6 +17,7 @@ KNOWLEDGE_GRAPH_DIR = os.path.join(DATA_DIR, "knowledge_graphs")
 # Legacy file for migration
 LEGACY_COURSE_FILE = os.path.join(DATA_DIR, "course_tree.json")
 
+
 class Storage:
     def __init__(self):
         if not os.path.exists(DATA_DIR):
@@ -31,6 +32,8 @@ class Storage:
         self.annotations_cache: Optional[List[dict]] = None
         self.knowledge_graph_cache: Dict[str, dict] = {}
         self._cache_initialized = False
+        # 通用数据缓存，用于load_data/save_data
+        self._data_cache: Dict[str, any] = {}
 
         # Migrate legacy course if exists
         if os.path.exists(LEGACY_COURSE_FILE):
@@ -245,5 +248,62 @@ class Storage:
             except Exception as e:
                 logger.warning(f"Failed to load knowledge graph for {course_id}: {e}")
         return None
+
+    # =========================================================================
+    # 通用数据存储接口
+    # =========================================================================
+    # 用于存储非课程、非标注的通用数据（如长期记忆、用户配置等）
+
+    def load_data(self, filename: str) -> any:
+        """
+        从数据目录加载通用数据文件
+        
+        Args:
+            filename: 数据文件名（如 'long_term_memories.json'）
+            
+        Returns:
+            解析后的数据对象，如果文件不存在则返回None
+        """
+        # 先检查缓存
+        if filename in self._data_cache:
+            return self._data_cache[filename]
+        
+        filepath = os.path.join(DATA_DIR, filename)
+        if not os.path.exists(filepath):
+            return None
+        
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self._data_cache[filename] = data
+                return data
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse JSON from {filename}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to load data from {filename}: {e}")
+            return None
+
+    def save_data(self, filename: str, data: any):
+        """
+        保存通用数据到数据目录
+        
+        Args:
+            filename: 数据文件名
+            data: 要保存的数据对象
+        """
+        # 更新缓存
+        self._data_cache[filename] = data
+        
+        # 写入磁盘
+        filepath = os.path.join(DATA_DIR, filename)
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._mark_dirty()
+        except Exception as e:
+            logger.error(f"Failed to save data to {filename}: {e}")
+            raise
+
 
 storage = Storage()

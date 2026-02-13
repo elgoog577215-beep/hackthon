@@ -155,10 +155,10 @@
                 <div class="w-full px-4 space-y-2">
                     <p class="text-[10px] text-slate-400 uppercase tracking-wider text-center">快速提问</p>
                     <div class="flex flex-wrap gap-2 justify-center">
-                        <button v-for="suggestion in smartSuggestions" :key="suggestion"
-                                @click="quickAsk(suggestion)"
+                        <button v-for="suggestion in smartSuggestions" :key="suggestion.text"
+                                @click="quickAsk(suggestion.text)"
                                 class="px-3 py-1.5 text-xs bg-white/80 hover:bg-white border border-slate-200 hover:border-primary-300 rounded-full text-slate-600 hover:text-primary-600 transition-all shadow-sm hover:shadow">
-                            {{ suggestion }}
+                            {{ suggestion.text }}
                         </button>
                     </div>
                 </div>
@@ -194,12 +194,11 @@
                 <div v-for="(msg, idx) in courseStore.chatHistory" :key="idx"
                     class="flex flex-col gap-1.5 message-item">
 
-                    <div :class="['p-4 rounded-xl text-base max-w-[95%] transition-all relative shadow-sm group',
+                    <div :class="['p-4 rounded-xl text-base max-w-[95%] transition-all relative shadow-sm group relative z-10',
                     msg.type === 'user'
                         ? 'bg-primary-600 text-white self-end rounded-tr-sm'
-                        : 'bg-white border border-slate-100 !rounded-tl-sm self-start hover:border-slate-200']">
-
-                    <div v-if="msg.type === 'ai' && typeof msg.content === 'object'" class="relative z-10">
+                        : 'bg-white border border-slate-100 !rounded-tl-sm self-start hover:border-slate-200']"
+                        v-if="msg.type === 'ai' && typeof msg.content === 'object'">
                          <!-- Header: AI Icon + Title -->
                         <div class="flex items-center gap-1.5 mb-2 text-xs font-semibold text-primary-600 uppercase tracking-wide border-b border-slate-100/60 pb-1.5 justify-between">
                             <div class="flex items-center gap-1.5">
@@ -352,7 +351,6 @@
                         <span v-else>{{ msg.content }}</span>
                     </div>
                 </div>
-            </div>
             </transition-group>
             
             <div v-if="courseStore.chatLoading" class="flex gap-2 p-4 animate-pulse items-center">
@@ -879,44 +877,39 @@ const stopMessage = () => {
 }
 
 // ========== Smart Suggestions ==========
-const smartSuggestions = [
-    '帮我总结一下这个章节',
-    '这个概念是什么意思？',
-    '能举个例子吗？',
-    '这个知识点常考吗？',
-    '和之前的内容有什么联系？'
-]
+// 使用共享配置中的智能建议
+import { SMART_SUGGESTIONS, CONTEXT_SUGGESTION_PATTERNS, type SuggestionItem } from '../../../shared/prompt-config'
 
-const contextSuggestions = computed(() => {
-    const suggestions = []
+const smartSuggestions = SMART_SUGGESTIONS.general
+
+const contextSuggestions = computed<SuggestionItem[]>(() => {
+    const suggestions: SuggestionItem[] = []
     const currentNode = courseStore.currentNode
 
-    if (currentNode) {
-        // Based on current node content
-        if (currentNode.node_content) {
-            const content = currentNode.node_content.toLowerCase()
+    if (currentNode && currentNode.node_content) {
+        const content = currentNode.node_content.toLowerCase()
+        const nodeName = currentNode.node_name
 
-            // Detect content type and suggest relevant questions
-            if (content.includes('定义') || content.includes('概念')) {
-                suggestions.push({ text: `"${currentNode.node_name}"的核心定义是什么？`, type: 'definition' })
+        // 基于内容类型检测生成上下文建议
+        for (const pattern of CONTEXT_SUGGESTION_PATTERNS) {
+            const hasKeyword = pattern.keywords.some(kw => content.includes(kw))
+            if (hasKeyword) {
+                suggestions.push({
+                    text: pattern.template.replace('{nodeName}', nodeName),
+                    type: pattern.type
+                })
             }
-            if (content.includes('公式') || content.includes('计算')) {
-                suggestions.push({ text: `这个公式的适用条件是什么？`, type: 'formula' })
-            }
-            if (content.includes('步骤') || content.includes('流程')) {
-                suggestions.push({ text: `能梳理一下操作步骤吗？`, type: 'process' })
-            }
-            if (content.includes('例子') || content.includes('案例')) {
-                suggestions.push({ text: `还有类似的例子吗？`, type: 'example' })
-            }
-
-            // Always add general suggestions
-            suggestions.push({ text: `关于"${currentNode.node_name}"的重点有哪些？`, type: 'keypoints' })
         }
+
+        // 添加通用上下文建议
+        suggestions.push({
+            text: `关于"${nodeName}"的重点有哪些？`,
+            type: 'keypoints'
+        })
     }
 
-    // Limit to 3 suggestions
-    return suggestions.slice(0, 3)
+    // 限制建议数量
+    return suggestions.slice(0, SMART_SUGGESTIONS.context.maxSuggestions)
 })
 
 const quickAsk = (question: string) => {
