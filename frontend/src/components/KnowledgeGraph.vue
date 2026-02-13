@@ -9,6 +9,24 @@
           生成中...
         </span>
       </div>
+      
+      <!-- Search Box -->
+      <div class="toolbar-center" v-if="hasGraph">
+        <div class="search-box">
+          <el-icon class="search-icon"><Search /></el-icon>
+          <input
+            v-model="searchQuery"
+            type="text"
+            class="search-input"
+            placeholder="搜索节点..."
+            @keyup.enter="searchNode"
+          />
+          <button v-if="searchQuery" class="clear-search" @click="clearSearch">
+            <el-icon><CircleClose /></el-icon>
+          </button>
+        </div>
+      </div>
+      
       <div class="toolbar-right">
         <button
           v-if="!hasGraph"
@@ -203,6 +221,17 @@
       </div>
     </div>
 
+    <!-- Zoom Controls -->
+    <div v-if="hasGraph" class="zoom-controls">
+      <button class="zoom-btn" @click="zoomIn" title="放大">
+        <el-icon><ZoomIn /></el-icon>
+      </button>
+      <span class="zoom-level">{{ Math.round(100 / viewBox.width * 800) }}%</span>
+      <button class="zoom-btn" @click="zoomOut" title="缩小">
+        <el-icon><ZoomOut /></el-icon>
+      </button>
+    </div>
+
     <!-- Stats -->
     <div v-if="hasGraph" class="graph-stats">
       <span>{{ graphData.nodes.length }} 个节点</span>
@@ -215,7 +244,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { ElMessage } from 'element-plus'
-import { Loading, MagicStick, Refresh, FullScreen, Close, Position } from '@element-plus/icons-vue'
+import { Loading, MagicStick, Refresh, FullScreen, Close, Position, Search, CircleClose, ZoomIn, ZoomOut, Download } from '@element-plus/icons-vue'
 
 const courseStore = useCourseStore()
 
@@ -225,6 +254,11 @@ const graphData = ref<{ nodes: any[], edges: any[] }>({ nodes: [], edges: [] })
 const selectedNode = ref<any>(null)
 const hoverNode = ref<string | null>(null)
 const graphContainer = ref<HTMLElement | null>(null)
+
+// Search State
+const searchQuery = ref('')
+const searchResults = ref<any[]>([])
+const currentSearchIndex = ref(-1)
 
 // ViewBox for zooming and panning
 const viewBox = ref({ x: -100, y: -300, width: 1000, height: 700 })
@@ -516,6 +550,68 @@ function resetView() {
   updateViewBox()
 }
 
+// Search Functions
+function searchNode() {
+  if (!searchQuery.value.trim()) {
+    searchResults.value = []
+    return
+  }
+  
+  const query = searchQuery.value.toLowerCase()
+  searchResults.value = graphData.value.nodes.filter(node => 
+    node.label.toLowerCase().includes(query) ||
+    (node.description && node.description.toLowerCase().includes(query))
+  )
+  
+  if (searchResults.value.length > 0) {
+    currentSearchIndex.value = 0
+    focusOnNode(searchResults.value[0])
+  }
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+  searchResults.value = []
+  currentSearchIndex.value = -1
+}
+
+function selectSearchResult(node: any) {
+  selectedNode.value = node
+  focusOnNode(node)
+  searchResults.value = []
+}
+
+function focusOnNode(node: any) {
+  // Center the view on the selected node
+  const padding = 200
+  viewBox.value.x = node.x - padding
+  viewBox.value.y = node.y - padding / 2
+  viewBox.value.width = padding * 2
+  viewBox.value.height = padding
+}
+
+// Zoom Functions
+function zoomIn() {
+  const centerX = viewBox.value.x + viewBox.value.width / 2
+  const centerY = viewBox.value.y + viewBox.value.height / 2
+  const scale = 0.8
+  
+  viewBox.value.width *= scale
+  viewBox.value.height *= scale
+  viewBox.value.x = centerX - viewBox.value.width / 2
+  viewBox.value.y = centerY - viewBox.value.height / 2
+}
+
+function zoomOut() {
+  const centerX = viewBox.value.x + viewBox.value.width / 2
+  const centerY = viewBox.value.y + viewBox.value.height / 2
+  const scale = 1.25
+  
+  viewBox.value.width *= scale
+  viewBox.value.height *= scale
+  viewBox.value.x = centerX - viewBox.value.width / 2
+  viewBox.value.y = centerY - viewBox.value.height / 2
+}
 
 // Download Graph as Image
 function downloadImage() {
@@ -636,17 +732,19 @@ function handleMouseUp() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 24px;
+  padding: 12px 20px;
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid #f1f5f9;
   z-index: 10;
+  gap: 16px;
 }
 
 .toolbar-left {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .graph-title {
@@ -667,18 +765,126 @@ function handleMouseUp() {
   border-radius: 20px;
 }
 
+.toolbar-center {
+  flex: 1;
+  max-width: 400px;
+  position: relative;
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  color: #94a3b8;
+  font-size: 16px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px 36px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 14px;
+  background: white;
+  transition: all 0.2s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.clear-icon {
+  position: absolute;
+  right: 12px;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.clear-icon:hover {
+  color: #64748b;
+}
+
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 8px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  border: 1px solid #f1f5f9;
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.search-result-item:hover {
+  background: #f8fafc;
+}
+
+.search-result-item:first-child {
+  border-radius: 12px 12px 0 0;
+}
+
+.search-result-item:last-child {
+  border-radius: 0 0 12px 12px;
+}
+
+.result-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.result-label {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.result-type {
+  font-size: 12px;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
 .toolbar-right {
   display: flex;
-  gap: 10px;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .btn-generate,
 .btn-refresh,
-.btn-reset {
+.btn-reset,
+.btn-export,
+.btn-filter {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
+  padding: 8px 14px;
   border-radius: 10px;
   font-size: 13px;
   font-weight: 600;
@@ -698,6 +904,48 @@ function handleMouseUp() {
   box-shadow: 0 6px 16px rgba(30, 41, 59, 0.3);
 }
 
+.btn-filter {
+  background: white;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  position: relative;
+}
+
+.btn-filter:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.btn-filter.active {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: #eef2ff;
+}
+
+.filter-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  background: #6366f1;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.filter-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 6px;
+}
+
 .btn-refresh {
   background: white;
   color: #475569;
@@ -709,12 +957,15 @@ function handleMouseUp() {
   background: #f8fafc;
 }
 
-.btn-reset {
+.btn-reset,
+.btn-export {
   background: transparent;
   color: #64748b;
+  padding: 8px 12px;
 }
 
-.btn-reset:hover {
+.btn-reset:hover,
+.btn-export:hover {
   background: #f1f5f9;
   color: #334155;
 }
@@ -738,15 +989,21 @@ function handleMouseUp() {
 
 /* Edges */
 .edge-line {
-  stroke: #64748b;
+  stroke: #94a3b8;
   fill: none;
-  transition: stroke 0.3s ease, opacity 0.3s ease;
+  transition: stroke 0.3s ease, opacity 0.3s ease, stroke-width 0.3s ease;
+  stroke-width: 1.5px;
 }
 
 .edge-line.highlighted {
   stroke: #6366f1;
   stroke-width: 3px;
   filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.3));
+}
+
+.edge-line.hovered {
+  stroke: #6366f1;
+  stroke-width: 2.5px;
 }
 
 .edge-line.dimmed {
@@ -757,14 +1014,33 @@ function handleMouseUp() {
 /* Nodes */
 .node-group {
   cursor: pointer;
-  /* Removed transform transition to fix jitter */
   transition: filter 0.2s ease;
 }
 
-/* Hover effect only changes filter/color, not position/scale */
 .node-group:hover .node-card-bg {
-  stroke: #6366f1;
   filter: url(#node-glow);
+}
+
+.node-group.selected .node-card-bg {
+  stroke-width: 3px;
+  filter: url(#node-glow);
+}
+
+.node-group.highlighted .node-card-bg {
+  filter: url(#node-glow);
+}
+
+.node-group.dimmed {
+  opacity: 0.3;
+}
+
+.node-group.is-search-result .node-card-bg {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 .node-card-bg {
@@ -774,23 +1050,31 @@ function handleMouseUp() {
 
 .node-label {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   font-family: 'Inter', sans-serif;
   letter-spacing: 0.3px;
   pointer-events: none;
   user-select: none;
 }
 
+.node-type-dot {
+  pointer-events: none;
+}
+
+.search-highlight-ring {
+  pointer-events: none;
+}
+
 /* Node Detail Panel */
 .node-detail-panel {
   position: absolute;
-  top: 24px;
-  right: 24px;
-  width: 320px;
-  background: rgba(255, 255, 255, 0.95);
+  top: 20px;
+  right: 20px;
+  width: 340px;
+  background: rgba(255, 255, 255, 0.98);
   backdrop-filter: blur(16px);
   border-radius: 16px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.5);
   overflow: hidden;
   z-index: 20;
@@ -799,16 +1083,32 @@ function handleMouseUp() {
 .panel-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
+  align-items: flex-start;
+  padding: 20px;
   border-bottom: 1px solid #f1f5f9;
 }
 
+.panel-title-section {
+  flex: 1;
+  min-width: 0;
+}
+
 .panel-header h3 {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   color: #1e293b;
-  margin: 0;
+  margin: 10px 0 0 0;
+  line-height: 1.4;
+}
+
+.node-type-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .btn-close {
@@ -823,6 +1123,7 @@ function handleMouseUp() {
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .btn-close:hover {
@@ -831,16 +1132,20 @@ function handleMouseUp() {
 }
 
 .panel-content {
-  padding: 24px;
+  padding: 20px;
 }
 
 .info-row {
   margin-bottom: 16px;
 }
 
+.info-row:last-child {
+  margin-bottom: 0;
+}
+
 .info-label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   color: #94a3b8;
   display: block;
   margin-bottom: 6px;
@@ -851,9 +1156,16 @@ function handleMouseUp() {
 .info-value {
   display: inline-block;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+  color: #475569;
+  background: #f8fafc;
   padding: 6px 12px;
   border-radius: 8px;
+}
+
+.info-value.id-value {
+  font-family: monospace;
+  font-size: 12px;
 }
 
 .info-description {
@@ -863,7 +1175,28 @@ function handleMouseUp() {
   margin: 0;
   background: #f8fafc;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: 10px;
+}
+
+.related-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.related-node-tag {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.related-node-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .btn-navigate {
@@ -892,18 +1225,18 @@ function handleMouseUp() {
 /* Legend */
 .graph-legend {
   position: absolute;
-  bottom: 24px;
-  left: 24px;
-  background: rgba(255, 255, 255, 0.9);
+  bottom: 20px;
+  left: 20px;
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(8px);
   border-radius: 12px;
   padding: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
 .legend-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   color: #94a3b8;
   text-transform: uppercase;
@@ -924,8 +1257,8 @@ function handleMouseUp() {
 }
 
 .legend-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 2px;
 }
 
@@ -935,22 +1268,126 @@ function handleMouseUp() {
   font-weight: 500;
 }
 
+/* Zoom Controls */
+.zoom-controls {
+  position: absolute;
+  bottom: 70px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  padding: 8px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  z-index: 15;
+}
+
+.zoom-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.zoom-btn:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.zoom-level {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  min-width: 50px;
+  text-align: center;
+}
+
 /* Stats */
 .graph-stats {
   position: absolute;
-  bottom: 24px;
-  right: 24px;
+  bottom: 20px;
+  right: 20px;
   display: flex;
   gap: 16px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(8px);
   padding: 10px 16px;
   border-radius: 24px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   font-size: 12px;
   font-weight: 600;
   color: #64748b;
   border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* Mini Map */
+.mini-map {
+  position: absolute;
+  bottom: 80px;
+  right: 20px;
+  width: 200px;
+  height: 150px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  padding: 12px;
+  z-index: 15;
+}
+
+.mini-map-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.mini-map-svg {
+  width: 100%;
+  height: calc(100% - 24px);
+}
+
+.viewport-indicator {
+  pointer-events: none;
+}
+
+.btn-toggle-minimap {
+  position: absolute;
+  bottom: 20px;
+  right: 180px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: none;
+  background: rgba(255, 255, 255, 0.95);
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s;
+  z-index: 15;
+}
+
+.btn-toggle-minimap:hover {
+  background: white;
+  color: #334155;
+  transform: translateY(-2px);
 }
 
 /* Transitions */

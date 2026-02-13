@@ -1,13 +1,21 @@
 <template>
-  <div class="h-screen w-full flex items-center justify-center p-0 xl:p-2 overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100 relative font-sans selection:bg-primary-500/20 selection:text-primary-900 antialiased">
-    <!-- Clean Background System -->
-    <div class="absolute inset-0 z-0 pointer-events-none overflow-hidden bg-slate-50/50">
-        <!-- 1. Subtle Base Gradient -->
-        <div class="absolute inset-0 opacity-30 bg-gradient-to-br from-indigo-50/50 via-slate-50 to-blue-50/50"></div>
+  <div class="h-screen w-full flex items-center justify-center p-0 xl:p-2 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-slate-100 relative font-sans selection:bg-primary-500/20 selection:text-primary-900 antialiased">
+    <!-- Premium Floating Background System -->
+    <div class="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <!-- Base Layer - Soft Gradient Mesh -->
+        <div class="absolute inset-0 bg-gradient-to-br from-indigo-50/40 via-white to-violet-50/40"></div>
         
-        <!-- 2. Very Subtle Ambient Light (Optional, much softer) -->
-        <div class="absolute top-[-20%] right-[-10%] w-[60%] h-[60%] bg-indigo-100/20 rounded-full blur-[100px] opacity-40"></div>
-        <div class="absolute bottom-[-20%] left-[-10%] w-[60%] h-[60%] bg-blue-100/20 rounded-full blur-[100px] opacity-40"></div>
+        <!-- Animated Gradient Orbs -->
+        <div class="absolute top-[-10%] right-[-5%] w-[50%] h-[50%] bg-gradient-to-br from-indigo-200/30 to-purple-200/20 rounded-full blur-[120px] animate-float-slow"></div>
+        <div class="absolute bottom-[-15%] left-[-10%] w-[55%] h-[55%] bg-gradient-to-tr from-blue-200/25 to-cyan-200/20 rounded-full blur-[120px] animate-float-slow-reverse"></div>
+        <div class="absolute top-[40%] left-[30%] w-[30%] h-[30%] bg-gradient-to-r from-violet-200/20 to-fuchsia-200/15 rounded-full blur-[100px] animate-pulse-soft"></div>
+        
+        <!-- Subtle Grid Pattern -->
+        <div class="absolute inset-0 opacity-[0.015]" style="background-image: radial-gradient(circle at 1px 1px, rgba(99, 102, 241, 0.5) 1px, transparent 0); background-size: 40px 40px;"></div>
+        
+        <!-- Glass Reflection Lines -->
+        <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/50 to-transparent"></div>
+        <div class="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-slate-200/30 to-transparent"></div>
     </div>
 
     <!-- Main Floating Container -->
@@ -39,28 +47,36 @@
             <div class="flex items-center gap-3">
                  <!-- Toolbar Controls -->
                 <div class="flex items-center gap-2" v-if="courseStore.currentCourseId">
-                    <!-- Global Search - Beautiful Design -->
-                    <div class="relative mr-2">
-                        <div class="relative transition-all duration-300 ease-out" :class="isSearchFocused ? 'w-80' : 'w-56'">
-                            <!-- Glow effect -->
-                            <div class="absolute -inset-[1px] bg-gradient-to-r from-primary-400/0 via-primary-500/30 to-primary-400/0 rounded-full opacity-0 blur-[2px] transition-opacity duration-300" :class="isSearchFocused ? 'opacity-100' : ''"></div>
+                    <!-- Global Search - Premium Floating Design -->
+                    <div class="relative mr-3">
+                        <div class="relative transition-all duration-500 ease-out" :class="isSearchFocused ? 'w-80' : 'w-56'">
+                            <!-- Ambient glow effect -->
+                            <div class="absolute -inset-1 bg-gradient-to-r from-primary-400/0 via-primary-500/40 to-primary-400/0 rounded-full opacity-0 blur-md transition-all duration-500" :class="isSearchFocused ? 'opacity-100 scale-105' : ''"></div>
                             
-                            <div class="relative flex items-center bg-white rounded-full h-9 shadow-sm border border-slate-200/60 transition-all duration-300" :class="isSearchFocused ? 'shadow-[0_0_20px_rgba(139,92,246,0.25)] border-primary-300/50' : 'hover:shadow-md hover:border-slate-300/60'">
-                                <div class="pl-3 pr-2 text-slate-400 transition-colors duration-300" :class="isSearchFocused ? 'text-primary-500' : ''">
-                                    <el-icon :size="16"><Search /></el-icon>
+                            <div class="relative flex items-center h-10 rounded-2xl transition-all duration-500 overflow-hidden" 
+                                :class="isSearchFocused 
+                                    ? 'shadow-[0_8px_32px_rgba(139,92,246,0.25)]' 
+                                    : 'shadow-[0_4px_16px_rgba(0,0,0,0.06)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.1)]'"
+                                style="background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%); border: 1px solid rgba(255,255,255,0.7);">
+                                
+                                <!-- Shine effect -->
+                                <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full" :class="isSearchFocused ? '' : 'group-hover:animate-shimmer'"></div>
+                                
+                                <div class="pl-4 pr-2 transition-all duration-300" :class="isSearchFocused ? 'text-primary-500 scale-110' : 'text-slate-400'">
+                                    <el-icon :size="17"><Search /></el-icon>
                                 </div>
                                 <input 
                                     :value="courseStore.globalSearchQuery"
                                     type="text"
                                     placeholder="搜索全书内容..."
-                                    class="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-sm text-slate-700 placeholder:text-slate-400/70 h-full pr-3"
+                                    class="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-sm text-slate-700 placeholder:text-slate-400/60 h-full pr-3"
                                     @input="handleGlobalSearch"
                                     @focus="isSearchFocused = true"
                                     @blur="isSearchFocused = false"
                                 />
                                 <button 
                                     v-if="courseStore.globalSearchQuery"
-                                    class="mr-2 text-slate-400 hover:text-slate-600 transition-colors"
+                                    class="mr-3 p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all duration-200"
                                     @click="courseStore.globalSearchQuery = ''; globalSearchResults = []"
                                 >
                                     <el-icon :size="14"><CircleClose /></el-icon>
@@ -68,37 +84,49 @@
                             </div>
                         </div>
 
-                        <!-- Search Results Dropdown -->
-                        <div v-if="globalSearchResults.length > 0" class="absolute top-full left-0 right-0 mt-3 bg-white/95 backdrop-blur-xl rounded-xl shadow-lg border border-slate-100 p-2 z-50 max-h-80 overflow-auto">
-                            <div class="flex items-center justify-between px-2 py-1.5 mb-1 border-b border-slate-100">
-                                <span class="text-[11px] font-medium text-slate-500">搜索结果</span>
-                                <span class="text-[10px] text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{{ globalSearchResults.length }}</span>
+                        <!-- Search Results Dropdown - Premium -->
+                        <div v-if="globalSearchResults.length > 0" class="absolute top-full left-0 right-0 mt-4 p-2 z-50 max-h-80 overflow-auto"
+                            style="background: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(255,255,255,0.95) 100%); border: 1px solid rgba(255,255,255,0.8); border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.12), 0 8px 24px rgba(139,92,246,0.08);">
+                            <div class="flex items-center justify-between px-3 py-2 mb-2 border-b border-slate-100/80">
+                                <span class="text-[11px] font-semibold text-slate-500 tracking-wide">搜索结果</span>
+                                <span class="text-[10px] font-medium text-slate-500 bg-slate-100/80 rounded-full px-2.5 py-0.5">{{ globalSearchResults.length }}</span>
                             </div>
                             <div v-for="(res, idx) in globalSearchResults" :key="idx" 
-                                class="px-3 py-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors group/item"
+                                class="px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-200 group/item hover:bg-gradient-to-r hover:from-primary-50/50 hover:to-transparent"
                                 @click="scrollToSearchResult(res.id)">
                                 <div class="flex items-center justify-between">
-                                    <span class="font-medium text-slate-700 text-sm truncate group-hover/item:text-primary-600">{{ res.title }}</span>
-                                    <el-icon class="text-slate-300 group-hover/item:text-primary-400" :size="14"><ArrowRight /></el-icon>
+                                    <span class="font-medium text-slate-700 text-sm truncate group-hover/item:text-primary-600 transition-colors">{{ res.title }}</span>
+                                    <el-icon class="text-slate-300 group-hover/item:text-primary-400 transition-all group-hover/item:translate-x-0.5" :size="14"><ArrowRight /></el-icon>
                                 </div>
-                                <p class="text-xs text-slate-500 mt-0.5 line-clamp-1" v-html="res.preview"></p>
+                                <p class="text-xs text-slate-500 mt-1 line-clamp-1 leading-relaxed" v-html="res.preview"></p>
                             </div>
                         </div>
                     </div>
 
 
                     
-                    <!-- Knowledge Graph (Prominent) -->
+                    <!-- Knowledge Graph - Premium Floating Button -->
                     <button 
-                        class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-300 border shadow-sm group relative overflow-hidden"
-                        :class="courseStore.showKnowledgeGraph ? 'bg-indigo-600 text-white border-indigo-600 shadow-indigo-200' : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:text-indigo-600 hover:shadow-md'"
+                        class="flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 relative overflow-hidden group"
+                        :class="courseStore.showKnowledgeGraph 
+                            ? 'text-white shadow-lg' 
+                            : 'text-slate-700 hover:text-indigo-600'"
+                        :style="courseStore.showKnowledgeGraph 
+                            ? 'background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border: 1px solid rgba(255,255,255,0.3); box-shadow: 0 4px 16px rgba(99,102,241,0.3), inset 0 1px 0 rgba(255,255,255,0.3);' 
+                            : 'background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%); border: 1px solid rgba(255,255,255,0.7); box-shadow: 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.9);'"
                         @click="courseStore.showKnowledgeGraph = true"
                     >
-                        <!-- Shimmer effect for unselected state -->
-                        <div v-if="!courseStore.showKnowledgeGraph" class="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-indigo-50/50 to-transparent z-0"></div>
+                        <!-- Ambient glow for active state -->
+                        <div v-if="courseStore.showKnowledgeGraph" class="absolute inset-0 bg-gradient-to-r from-indigo-400/0 via-white/20 to-indigo-400/0"></div>
                         
-                        <el-icon :size="16" class="relative z-10"><Connection /></el-icon>
+                        <!-- Shimmer effect for inactive state -->
+                        <div v-if="!courseStore.showKnowledgeGraph" class="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-indigo-100/60 to-transparent"></div>
+                        
+                        <el-icon :size="17" class="relative z-10 transition-transform duration-300 group-hover:scale-110"><Connection /></el-icon>
                         <span class="relative z-10">知识图谱</span>
+                        
+                        <!-- Hover lift effect -->
+                        <div v-if="!courseStore.showKnowledgeGraph" class="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" style="background: linear-gradient(135deg, rgba(99,102,241,0.05) 0%, transparent 100%);"></div>
                     </button>
 
                     <!-- Typography Settings -->
@@ -149,8 +177,6 @@
                         <el-icon :size="18"><FullScreen /></el-icon>
                     </button>
 
-                    <div class="w-px h-5 bg-slate-200 mx-1"></div>
-
                     <el-dropdown trigger="click" @command="handleExport">
                         <button class="glass-icon-btn" title="导出">
                             <el-icon :size="18"><Download /></el-icon>
@@ -162,6 +188,18 @@
                             </el-dropdown-menu>
                         </template>
                     </el-dropdown>
+
+                    <!-- Elegant Divider -->
+                    <div class="w-px h-6 mx-2" style="background: linear-gradient(to bottom, transparent, rgba(148,163,184,0.3), transparent);"></div>
+
+                    <!-- Keyboard Shortcuts Help -->
+                    <button 
+                        class="glass-icon-btn"
+                        @click="shortcutsHelpRef?.open()"
+                        title="快捷键帮助 (?)"
+                    >
+                        <el-icon :size="18"><QuestionFilled /></el-icon>
+                    </button>
                 </div>
             </div>
         </header>
@@ -186,6 +224,9 @@
         @retry-item="handleRetryItem"
     />
 
+    <!-- Keyboard Shortcuts Help Dialog -->
+    <KeyboardShortcutsHelp ref="shortcutsHelpRef" />
+
     <!-- Knowledge Graph Modal - Full Component -->
     <el-dialog
       v-model="courseStore.showKnowledgeGraph"
@@ -204,16 +245,61 @@
 <script setup lang="ts">
 import StatusBar from './components/StatusBar.vue'
 import KnowledgeGraph from './components/KnowledgeGraph.vue'
+import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp.vue'
 import { useCourseStore } from './stores/course'
 import { useRouter } from 'vue-router'
 import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Setting, Minus, Plus, FullScreen, Search, Download, ArrowRight, CircleClose } from '@element-plus/icons-vue'
+import { Setting, Minus, Plus, FullScreen, Search, Download, ArrowRight, CircleClose, QuestionFilled } from '@element-plus/icons-vue'
+import { useKeyboardShortcuts, createCommonShortcuts } from './composables/useKeyboardShortcuts'
 
 const courseStore = useCourseStore()
 const router = useRouter()
+const shortcutsHelpRef = ref<InstanceType<typeof KeyboardShortcutsHelp>>()
 type StatusTone = 'primary' | 'success' | 'warning' | 'danger' | 'muted'
 type StatusMetaItem = { label: string; value: string; tone?: StatusTone }
+
+// UI State
+const globalSearchResults = ref<any[]>([])
+const isSearchFocused = ref(false)
+const isSearchInputVisible = ref(false)
+
+// Keyboard Shortcuts
+const shortcuts = createCommonShortcuts({
+  onSearch: () => {
+    isSearchInputVisible.value = true
+    setTimeout(() => {
+      const searchInput = document.querySelector('.tech-search-input input') as HTMLInputElement
+      searchInput?.focus()
+    }, 100)
+  },
+  onNewNode: () => {
+    // Emit event to create new node - will be handled by course tree
+    window.dispatchEvent(new CustomEvent('app:new-node'))
+  },
+  onSave: () => {
+    if (courseStore.currentCourseId) {
+      courseStore.saveCourseData()
+      ElMessage.success('课程已保存')
+    }
+  },
+  onFocusMode: () => {
+    toggleFocusMode()
+  },
+  onToggleSidebar: () => {
+    window.dispatchEvent(new CustomEvent('app:toggle-sidebar'))
+  },
+  onExport: () => {
+    if (courseStore.currentCourseId) {
+      courseStore.exportCourseMarkdown()
+    }
+  },
+  onHelp: () => {
+    shortcutsHelpRef.value?.open()
+  },
+})
+
+useKeyboardShortcuts(shortcuts, computed(() => !courseStore.isFocusMode))
 
 const statusVisible = computed(() => {
     // Check for backend task for current course
@@ -309,10 +395,6 @@ const statusHint = computed(() => {
     if (courseStore.loading) return '正在加载课程数据'
     return ''
 })
-
-// UI State
-const globalSearchResults = ref<any[]>([])
-const isSearchFocused = ref(false)
 
 // Helper: Flatten nodes for search and export order
 const flatNodes = computed(() => {

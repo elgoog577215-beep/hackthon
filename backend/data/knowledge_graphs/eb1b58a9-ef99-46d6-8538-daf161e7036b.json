@@ -1,0 +1,328 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "Python 高级编程：原理、设计与工业级应用",
+      "type": "root",
+      "description": "课程总纲，涵盖 Python 高级编程的原理、设计和实际工业应用。",
+      "chapter_id": "3785c41a-2e60-4922-bff3-15c3a579b779"
+    },
+    {
+      "id": "memory_and_object_model",
+      "label": "内存管理与对象模型",
+      "type": "module",
+      "description": "深入解析 Python 的对象模型、引用计数、垃圾回收机制等底层原理。",
+      "chapter_id": "3785c41a-2e60-4922-bff3-15c3a579b779"
+    },
+    {
+      "id": "functional_programming_and_decorators",
+      "label": "函数式编程与装饰器设计模式",
+      "type": "module",
+      "description": "涵盖高阶函数、闭包、装饰器的设计与实现。",
+      "chapter_id": "c1e54c4f-4b63-4155-aca2-ecc325788134"
+    },
+    {
+      "id": "concurrency_and_async",
+      "label": "并发与异步编程体系",
+      "type": "module",
+      "description": "探讨 threading、multiprocessing、asyncio 等模块的内部实现与使用场景。",
+      "chapter_id": "8d314b78-ce8a-436d-9008-7ff84d91002d"
+    },
+    {
+      "id": "classes_and_metaclasses",
+      "label": "类与元类的深度解析",
+      "type": "module",
+      "description": "全面解析面向对象编程的底层实现，包括继承机制、描述符协议、元类等。",
+      "chapter_id": "faa8b551-d8c3-4015-87f9-2fdee6d8cf8f"
+    },
+    {
+      "id": "performance_tuning",
+      "label": "性能调优与 C 扩展集成",
+      "type": "module",
+      "description": "分析 Python 性能瓶颈，学习 Cython 和 C/C++ 扩展。",
+      "chapter_id": "666cb5d9-b1fd-4b70-8d0c-3bb116225600"
+    },
+    {
+      "id": "object_model",
+      "label": "对象模型",
+      "type": "concept",
+      "description": "Python 中对象组织方式的基础结构。",
+      "chapter_id": "f945bd1a-acb1-4690-b66c-dc50fea71e17"
+    },
+    {
+      "id": "reference_counting",
+      "label": "引用计数机制",
+      "type": "method",
+      "description": "用于自动内存管理的引用计数策略。",
+      "chapter_id": "0383ad8c-9f83-442a-b31b-58b0b1566531"
+    },
+    {
+      "id": "garbage_collection",
+      "label": "垃圾回收（GC）策略",
+      "type": "method",
+      "description": "Python 自动回收不再使用的对象的机制。",
+      "chapter_id": "072cc30b-0805-4856-aa03-4a3e7a420d7e"
+    },
+    {
+      "id": "pymalloc",
+      "label": "PyMalloc 内存分配器",
+      "type": "method",
+      "description": "CPython 中为 Python 对象定制的高效内存分配器。",
+      "chapter_id": "4e4c39d9-f303-4c31-a33f-da032b43d4e0"
+    },
+    {
+      "id": "variable_binding",
+      "label": "变量绑定与赋值语义",
+      "type": "concept",
+      "description": "Python 中变量绑定行为背后的语义逻辑。",
+      "chapter_id": "7508f596-6ac6-4c99-83ac-75574bf2cf92"
+    },
+    {
+      "id": "string_interning",
+      "label": "字符串驻留机制",
+      "type": "method",
+      "description": "Python 优化字符串存储和比较的机制。",
+      "chapter_id": "15525335-b5a9-4eea-959d-7fa40bcdf83d"
+    },
+    {
+      "id": "object_lifecycle",
+      "label": "对象生命周期管理",
+      "type": "concept",
+      "description": "对象从创建到销毁的完整生命周期过程。",
+      "chapter_id": "82aba175-2624-47d7-82da-72c5dabd5db2"
+    },
+    {
+      "id": "memory_visibility",
+      "label": "多线程内存可见性",
+      "type": "concept",
+      "description": "多线程环境中共享数据的可见性问题。",
+      "chapter_id": "6338ec64-b722-4cef-88f1-095137896b76"
+    },
+    {
+      "id": "higher_order_function",
+      "label": "高阶函数",
+      "type": "method",
+      "description": "接受或返回函数作为参数/结果的函数。",
+      "chapter_id": "97728a99-4e8e-4acd-9b27-56aeeb400d94"
+    },
+    {
+      "id": "closure",
+      "label": "闭包",
+      "type": "concept",
+      "description": "函数捕获并保留其定义时环境的状态。",
+      "chapter_id": "5ec6dfac-e5b5-4e4a-aff3-d5f76d2f3de5"
+    },
+    {
+      "id": "decorator",
+      "label": "装饰器",
+      "type": "method",
+      "description": "用于增强或修改函数行为的高阶函数机制。",
+      "chapter_id": "3c72a500-719a-4953-8a45-b37b686aa387"
+    },
+    {
+      "id": "metaclass",
+      "label": "元类",
+      "type": "concept",
+      "description": "用于控制类创建过程的高级机制。",
+      "chapter_id": "128ccece-9a2f-44c5-ac78-4d7a7805ecaf"
+    },
+    {
+      "id": "threading_module",
+      "label": "threading 模块",
+      "type": "method",
+      "description": "Python 中用于线程管理的标准库模块。",
+      "chapter_id": "4449990f-7e44-4a98-ba6a-f60159035380"
+    },
+    {
+      "id": "asyncio_framework",
+      "label": "asyncio 异步框架",
+      "type": "method",
+      "description": "Python 标准库中用于编写异步 I/O 的框架。",
+      "chapter_id": "08a2c292-a6ed-4461-85f1-33fb037f1473"
+    },
+    {
+      "id": "coroutine",
+      "label": "协程",
+      "type": "concept",
+      "description": "基于事件驱动的轻量级并发单元。",
+      "chapter_id": "311483d7-3f0b-4aae-bee0-e509e3b4bad0"
+    },
+    {
+      "id": "cython_compiler",
+      "label": "Cython 编译器",
+      "type": "method",
+      "description": "将 Python 代码编译为 C 扩展模块的工具。",
+      "chapter_id": "780f666a-2c26-4977-8a4f-7cadd542c495"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "memory_and_object_model",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "functional_programming_and_decorators",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "concurrency_and_async",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "classes_and_metaclasses",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "performance_tuning",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "memory_and_object_model",
+      "target": "object_model",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "memory_and_object_model",
+      "target": "reference_counting",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "memory_and_object_model",
+      "target": "garbage_collection",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "memory_and_object_model",
+      "target": "pymalloc",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "memory_and_object_model",
+      "target": "variable_binding",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "memory_and_object_model",
+      "target": "string_interning",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "memory_and_object_model",
+      "target": "object_lifecycle",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "memory_and_object_model",
+      "target": "memory_visibility",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "functional_programming_and_decorators",
+      "target": "higher_order_function",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "functional_programming_and_decorators",
+      "target": "closure",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "functional_programming_and_decorators",
+      "target": "decorator",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "functional_programming_and_decorators",
+      "target": "metaclass",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "concurrency_and_async",
+      "target": "threading_module",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "concurrency_and_async",
+      "target": "asyncio_framework",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "concurrency_and_async",
+      "target": "coroutine",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "performance_tuning",
+      "target": "cython_compiler",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "object_model",
+      "target": "reference_counting",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "reference_counting",
+      "target": "garbage_collection",
+      "relation": "leads_to",
+      "label": "推导出"
+    },
+    {
+      "source": "garbage_collection",
+      "target": "object_lifecycle",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "variable_binding",
+      "target": "string_interning",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "decorator",
+      "target": "metaclass",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "coroutine",
+      "target": "asyncio_framework",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "cython_compiler",
+      "target": "performance_tuning",
+      "relation": "applies_to",
+      "label": "应用于"
+    }
+  ]
+}

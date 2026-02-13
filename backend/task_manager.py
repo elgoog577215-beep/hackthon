@@ -1,12 +1,37 @@
+# =============================================================================
+# Task Manager - 课程生成任务管理器
+# =============================================================================
+#
+# 架构说明：
+# 本模块负责管理课程生成的异步任务队列，采用生产者-消费者模式。
+# 支持批量并行处理，最大并发数可配置。
+#
+# 生成流程：
+# 1. 接收生成任务 → 2. 分析课程结构 → 3. 批量处理节点 → 4. 更新进度
+#
+# 节点处理顺序（两层结构）：
+# L1(章节/Chapter) → L2(子章节+正文/Section+Content)
+#
+# 两阶段生成：
+# 阶段1: L1 生成 L2 子章节结构
+# 阶段2: L2 生成详细正文内容
+# =============================================================================
+
 import json
 import os
+import sys
 import uuid
 import time
 import threading
 import asyncio
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Any, Coroutine
 import logging
+from pathlib import Path
+
+# Add parent directory to path to import shared config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from shared.prompt_config import DIFFICULTY_LEVELS, TEACHING_STYLES
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +39,23 @@ logger = logging.getLogger(__name__)
 
 TASKS_FILE = "tasks.json"
 
+# 批量处理配置
+MAX_CONCURRENT = 5  # 最大并发任务数
+BATCH_SIZE = 3      # 每批处理节点数
+
+# 内容完整性阈值（字符数）
+CONTENT_COMPLETE_THRESHOLD = 600
+
+
 class TaskManager:
+    """课程生成任务管理器
+    
+    职责：
+    1. 管理任务生命周期（创建、执行、暂停、恢复、删除）
+    2. 批量并行处理课程节点生成
+    3. 持久化任务状态
+    """
+    
     def __init__(self, storage_module, ai_service_module):
         self.storage = storage_module
         self.ai_service = ai_service_module
@@ -24,24 +65,12 @@ class TaskManager:
         self.running = False
         self.load_tasks()
 
-    def load_tasks(self):
-        if os.path.exists(TASKS_FILE):
-            try:
-                with open(TASKS_FILE, "r") as f:
-                    self.tasks = json.load(f)
-            except Exception as e:
-                logger.error(f"Failed to load tasks: {e}")
-                self.tasks = {}
-
-    def save_tasks(self):
-        with self.lock:
-            try:
-                with open(TASKS_FILE, "w") as f:
-                    json.dump(self.tasks, f, indent=2, ensure_ascii=False)
-            except Exception as e:
-                logger.error(f"Failed to save tasks: {e}")
-
+    # -------------------------------------------------------------------------
+    # Task Lifecycle Management - 任务生命周期管理
+    # -------------------------------------------------------------------------
+    
     def create_task(self, course_id: str, task_type: str = "auto_generate") -> str:
+        """创建新任务"""
         task_id = str(uuid.uuid4())
         task = {
             "id": task_id,
@@ -57,15 +86,17 @@ class TaskManager:
             "error": None,
             "retry_count": 0
         }
-        self.tasks[task_id] = task
-        self.save_tasks()
+        with self.lock:
+            self.tasks[task_id] = task
+            self.save_tasks()
         return task_id
 
     def get_task(self, task_id: str) -> Optional[Dict]:
+        """获取任务信息"""
         return self.tasks.get(task_id)
 
     def get_all_tasks(self, limit: int = 100) -> List[Dict]:
-        # Define status priority (lower value = higher priority)
+        """获取所有任务，按状态优先级和时间排序"""
         status_priority = {
             "running": 0,
             "pending": 1,
@@ -74,48 +105,83 @@ class TaskManager:
             "completed": 4
         }
         
-        tasks_list = list(self.tasks.values())
+        with self.lock:
+            tasks_list = list(self.tasks.values())
         
-        # 1. Sort by updated_at DESC (newest first)
+        # 先按更新时间降序（最新的在前）
         tasks_list.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
-        
-        # 2. Sort by priority ASC (Running > Pending > Paused > Failed > Completed)
-        # Python's sort is stable, so it preserves the relative time order within each group
+        # 再按状态优先级升序（运行中 > 待处理 > 暂停 > 失败 > 完成）
         tasks_list.sort(key=lambda x: status_priority.get(x.get("status", ""), 5))
         
         return tasks_list[:limit]
 
     def get_tasks_by_course(self, course_id: str) -> List[Dict]:
+        """获取指定课程的所有任务"""
         return [t for t in self.tasks.values() if t["course_id"] == course_id]
 
     def pause_task(self, task_id: str):
-        if task_id in self.tasks:
-            if self.tasks[task_id]["status"] in ["pending", "running"]:
-                self.tasks[task_id]["status"] = "paused"
-                self.tasks[task_id]["message"] = "Paused by user"
-                self.save_tasks()
+        """暂停任务"""
+        with self.lock:
+            if task_id in self.tasks:
+                if self.tasks[task_id]["status"] in ["pending", "running"]:
+                    self.tasks[task_id]["status"] = "paused"
+                    self.tasks[task_id]["message"] = "Paused by user"
+                    self.save_tasks()
 
     def resume_task(self, task_id: str):
-        if task_id in self.tasks:
-            if self.tasks[task_id]["status"] == "paused":
-                self.tasks[task_id]["status"] = "pending"
-                self.tasks[task_id]["message"] = "Resuming..."
-                self.save_tasks()
+        """恢复任务"""
+        with self.lock:
+            if task_id in self.tasks:
+                if self.tasks[task_id]["status"] == "paused":
+                    self.tasks[task_id]["status"] = "pending"
+                    self.tasks[task_id]["message"] = "Resuming..."
+                    self.save_tasks()
 
     def delete_task(self, task_id: str):
-        if task_id in self.tasks:
-            del self.tasks[task_id]
-            self.save_tasks()
+        """删除任务"""
+        with self.lock:
+            if task_id in self.tasks:
+                del self.tasks[task_id]
+                self.save_tasks()
 
-    def clear_failed_tasks(self):
+    def clear_failed_tasks(self) -> int:
+        """清理失败任务，返回清理数量"""
         with self.lock:
             initial_count = len(self.tasks)
-            self.tasks = {tid: t for tid, t in self.tasks.items() if t.get("status") != "failed"}
+            self.tasks = {tid: t for tid, t in self.tasks.items() 
+                         if t.get("status") != "failed"}
             if len(self.tasks) < initial_count:
                 self.save_tasks()
             return initial_count - len(self.tasks)
 
+    # -------------------------------------------------------------------------
+    # Persistence - 持久化
+    # -------------------------------------------------------------------------
+    
+    def load_tasks(self):
+        """从文件加载任务"""
+        if os.path.exists(TASKS_FILE):
+            try:
+                with open(TASKS_FILE, "r", encoding="utf-8") as f:
+                    self.tasks = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load tasks: {e}")
+                self.tasks = {}
+
+    def save_tasks(self):
+        """保存任务到文件"""
+        try:
+            with open(TASKS_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.tasks, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Failed to save tasks: {e}")
+
+    # -------------------------------------------------------------------------
+    # Worker Management - 工作线程管理
+    # -------------------------------------------------------------------------
+    
     def start_worker(self):
+        """启动工作线程"""
         if not self.running:
             self.running = True
             self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
@@ -123,278 +189,343 @@ class TaskManager:
             logger.info("Task worker started")
 
     def stop_worker(self):
+        """停止工作线程"""
         self.running = False
         if self.worker_thread:
-            self.worker_thread.join()
+            self.worker_thread.join(timeout=5)
 
     def _worker_loop(self):
-        # Create a new event loop for async calls in this thread
+        """工作线程主循环"""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
-        # Run the async manager
         loop.run_until_complete(self._async_manager())
 
+    # -------------------------------------------------------------------------
+    # Async Task Processing - 异步任务处理
+    # -------------------------------------------------------------------------
+    
     async def _async_manager(self):
-        MAX_CONCURRENT = 5  # Increased concurrency
-        # Map task_id -> Task (Future)
-        running_tasks = {} 
-        
+        """异步任务管理器"""
+        running_tasks: Dict[str, asyncio.Task] = {}
         logger.info(f"Async worker manager started. Max concurrent: {MAX_CONCURRENT}")
 
         while self.running:
-            # 1. Cleanup finished tasks
-            # Check statuses of running tasks
+            # 1. 清理已完成的任务
             done_ids = []
             for tid, task in running_tasks.items():
                 if task.done():
                     done_ids.append(tid)
-                    # Handle exceptions
                     try:
                         await task
                     except Exception as e:
                         logger.error(f"Task {tid} raised exception: {e}")
-                        with self.lock:
-                            if tid in self.tasks:
-                                self.tasks[tid]["status"] = "failed"
-                                self.tasks[tid]["error"] = str(e)
-                                self.save_tasks()
+                        self._update_task_status(tid, "failed", error=str(e))
             
             for tid in done_ids:
                 del running_tasks[tid]
 
-            # 2. Fill slots
+            # 2. 填充空闲槽位
             free_slots = MAX_CONCURRENT - len(running_tasks)
             if free_slots > 0:
-                with self.lock:
-                    # Find candidates not already running
-                    # We look for pending OR running (which means "ready to run next step")
-                    candidates = [
-                        (tid, t) for tid, t in self.tasks.items() 
-                        if t["status"] in ["pending", "running"] 
-                        and tid not in running_tasks
-                        and t.get("status") != "paused"
-                    ]
-                    
-                    # Sort by updated_at ASC (Oldest updated first -> Round Robin / FIFO)
-                    candidates.sort(key=lambda x: x[1].get("updated_at", ""))
-                    
-                    for i in range(min(free_slots, len(candidates))):
-                        tid = candidates[i][0]
-                        # Launch task
-                        future = asyncio.create_task(self._process_task(tid))
-                        running_tasks[tid] = future
-                        logger.info(f"Started task chunk: {tid}")
+                candidates = self._get_pending_tasks(running_tasks.keys())
+                for i in range(min(free_slots, len(candidates))):
+                    tid = candidates[i]
+                    future = asyncio.create_task(self._process_task(tid))
+                    running_tasks[tid] = future
+                    logger.info(f"Started task chunk: {tid}")
             
-            await asyncio.sleep(0.1)  # Faster polling
+            await asyncio.sleep(0.1)
 
+    def _get_pending_tasks(self, exclude_ids: set) -> List[str]:
+        """获取待处理的任务ID列表"""
+        with self.lock:
+            candidates = [
+                tid for tid, t in self.tasks.items()
+                if t["status"] in ["pending", "running"]
+                and tid not in exclude_ids
+                and t.get("status") != "paused"
+            ]
+            # 按更新时间升序（最早的优先）
+            candidates.sort(key=lambda x: self.tasks[x].get("updated_at", ""))
+            return candidates
+
+    def _update_task_status(self, task_id: str, status: str, 
+                           message: str = None, error: str = None):
+        """更新任务状态"""
+        with self.lock:
+            if task_id in self.tasks:
+                self.tasks[task_id]["status"] = status
+                if message:
+                    self.tasks[task_id]["message"] = message
+                if error:
+                    self.tasks[task_id]["error"] = error
+                self.tasks[task_id]["updated_at"] = datetime.now().isoformat()
+                self.save_tasks()
+
+    # -------------------------------------------------------------------------
+    # Core Processing Logic - 核心处理逻辑
+    # -------------------------------------------------------------------------
+    
     async def _process_task(self, task_id: str):
+        """处理单个任务"""
         task = self.tasks.get(task_id)
         if not task or task["status"] == "paused":
             return
 
         course_id = task["course_id"]
         
-        # Mark as running
+        # 标记为运行中
         if task["status"] != "running":
-            task["status"] = "running"
-            self.save_tasks()
+            self._update_task_status(task_id, "running")
 
-        # Load Course (Initial check)
+        # 加载课程数据
         course_data = self.storage.load_course(course_id)
         if not course_data:
-            task["status"] = "failed"
-            task["error"] = "Course not found"
-            self.save_tasks()
+            self._update_task_status(task_id, "failed", error="Course not found")
             return
 
-        # --- LOGIC: Identify Next Step (Batching) ---
-        nodes = course_data.get("nodes", [])
-        l1_nodes = [n for n in nodes if n.get("node_level", 1) == 1]
+        # 分析下一步操作
+        actions, progress_info = self._analyze_course_structure(course_data)
         
-        actions = [] # List of (type, node)
-        BATCH_SIZE = 3 # Process up to 3 items in parallel
-        
-        total_steps = len(l1_nodes)
-        completed_steps = 0
-        
-        # Get difficulty from course data, default to medium
-        difficulty = course_data.get("difficulty", "medium").lower()
-        
-        # Helper to check if content is "full" (not just summary)
-        def is_content_complete(node):
-            content = node.get("node_content", "")
-            # For beginner difficulty, L1 nodes contain the full content, so we expect more text.
-            # For advanced difficulty, L2 nodes also need full content.
-            # 300 chars is too low as some summaries might exceed it. 
-            # Increasing to 600 to ensure we generate detailed content.
-            return len(content) > 600
-
-        for l1 in l1_nodes:
-            children = [n for n in nodes if n.get("parent_node_id") == l1["node_id"]]
-            
-            # Determine if we should generate subnodes
-            # If difficulty is beginner/basic, we treat L1 as leaf nodes and skip subnodes
-            should_have_subnodes = (difficulty not in ["beginner", "basic"])
-
-            if should_have_subnodes and not children:
-                # Needs subnodes
-                actions.append(("subnodes", l1))
-                if len(actions) >= BATCH_SIZE:
-                    break
-            else:
-                # If has children, check if they need content
-                # Only check content if we aren't already full of subnode tasks
-                if len(actions) < BATCH_SIZE:
-                    if children:
-                        l2_incomplete = [
-                            c for c in children 
-                            if not is_content_complete(c)
-                        ]
-                        for child in l2_incomplete:
-                            actions.append(("content", child))
-                            if len(actions) >= BATCH_SIZE:
-                                break
-                    elif not should_have_subnodes:
-                        # No children and shouldn't have them -> L1 content needed
-                        if not is_content_complete(l1):
-                            actions.append(("content", l1))
-                            if len(actions) >= BATCH_SIZE:
-                                break
-            
-            if len(actions) >= BATCH_SIZE:
-                break
-            
-            # Count completion
-            has_children = len(children) > 0
-            if has_children:
-                if all(is_content_complete(c) for c in children):
-                    completed_steps += 1
-            elif not should_have_subnodes:
-                 if is_content_complete(l1):
-                     completed_steps += 1
-
         if not actions:
-            # All done!
-            task["status"] = "completed"
-            task["progress"] = 100
-            task["message"] = "All steps completed"
-            task["updated_at"] = datetime.now().isoformat()
-            self.save_tasks()
+            # 全部完成
+            self._update_task_status(
+                task_id, "completed", 
+                message="All steps completed"
+            )
+            with self.lock:
+                self.tasks[task_id]["progress"] = 100
+                self.save_tasks()
             return
 
-        # Check pause again
+        # 检查是否暂停
         if self.tasks[task_id]["status"] == "paused":
             return
 
-        # Execute Actions in Parallel
+        # 执行批量操作
         try:
-            # Construct detailed message
-            msg_parts = []
-            for action_type, target_node in actions:
-                node_name = target_node.get("node_name", "Unknown")
-                # Truncate very long node names
-                if len(node_name) > 15:
-                    node_name = node_name[:12] + "..."
-                    
-                if action_type == "subnodes":
-                    msg_parts.append(f"大纲: {node_name}")
-                elif action_type == "content":
-                    msg_parts.append(f"正文: {node_name}")
-            
-            task["message"] = " | ".join(msg_parts)
-            # If still too long, truncate the whole message
-            if len(task["message"]) > 60:
-                task["message"] = task["message"][:57] + "..."
-            
-            # Update progress based on estimate
-            task["progress"] = min(95, int((completed_steps) / total_steps * 100))
-            task["updated_at"] = datetime.now().isoformat()
-            self.save_tasks()
-            
-            # Prepare coroutines
-            coroutines = []
-            for action_type, target_node in actions:
-                if action_type == "subnodes":
-                    # Context building
-                    parent_context = target_node.get("node_content", "")
-                    course_outline = ""
-                    for i, node in enumerate(l1_nodes):
-                        course_outline += f"{i+1}. {node.get('node_name', '')}\n"
-                    
-                    coro = self.ai_service.generate_sub_nodes(
-                        target_node["node_name"], 
-                        target_node["node_level"], 
-                        target_node["node_id"], 
-                        course_data.get("course_name", ""),
-                        parent_context,
-                        course_outline
-                    )
-                    coroutines.append(("subnodes", target_node["node_id"], coro))
-                    
-                elif action_type == "content":
-                    difficulty = course_data.get("difficulty", "expert")
-                    style = course_data.get("style", "academic")
-                    coro = self.ai_service.generate_node_content(
-                        target_node["node_name"],
-                        target_node.get("node_context", ""),
-                        target_node["node_id"],
-                        course_data.get("course_name", ""),
-                        difficulty=difficulty,
-                        style=style
-                    )
-                    coroutines.append(("content", target_node["node_id"], coro))
-            
-            # Run parallel
-            results = await asyncio.gather(*[c[2] for c in coroutines], return_exceptions=True)
-            
-            # --- CRITICAL SECTION: RE-LOAD AND PATCH ---
-            # Re-load fresh data to avoid overwriting user edits
-            fresh_data = self.storage.load_course(course_id)
-            if not fresh_data:
-                logger.error(f"Course {course_id} disappeared during generation")
-                return
-                
-            fresh_nodes = fresh_data.get("nodes", [])
-            modified = False
-            
-            for i, result in enumerate(results):
-                action_type, node_id, _ = coroutines[i]
-                
-                if isinstance(result, Exception):
-                    logger.error(f"Error processing {node_id}: {result}")
-                    continue
-                
-                if action_type == "subnodes":
-                    # result is list of new nodes
-                    # Check if they were already added (rare race)
-                    # Just append
-                    fresh_nodes.extend(result)
-                    modified = True
-                    
-                elif action_type == "content":
-                    # result is content string
-                    # Find node in fresh_nodes
-                    for n in fresh_nodes:
-                        if n["node_id"] == node_id:
-                            n["node_content"] = result
-                            modified = True
-                            break
-            
-            if modified:
-                fresh_data["nodes"] = fresh_nodes
-                self.storage.save_course(course_id, fresh_data)
-                
+            await self._execute_batch_actions(
+                task_id, course_id, actions, progress_info
+            )
         except Exception as e:
             logger.error(f"Error in task batch: {e}")
-            task["error"] = str(e)
+            self._handle_task_error(task_id, str(e))
+
+    def _analyze_course_structure(self, course_data: Dict) -> Tuple[List[Tuple], Dict]:
+        """分析课程结构，确定下一步操作
+        
+        流程：L1(章节) → L2(子章节+正文)
+        
+        Returns:
+            actions: 操作列表 [(action_type, node), ...]
+            progress_info: 进度信息 {"completed": int, "total": int}
+        """
+        nodes = course_data.get("nodes", [])
+        l1_nodes = [n for n in nodes if n.get("node_level", 1) == 1]
+        l2_nodes = [n for n in nodes if n.get("node_level", 1) == 2]
+        
+        actions = []
+        
+        # ========== 阶段 1: 为 L1 生成 L2 子章节 ==========
+        for l1 in l1_nodes:
+            l1_children = [n for n in nodes if n.get("parent_node_id") == l1["node_id"]]
             
-            # Retry logic
+            if not l1_children:
+                # L1 还没有子章节，需要生成 L2
+                actions.append(("subnodes", l1))
+                if len(actions) >= BATCH_SIZE:
+                    break
+        
+        if actions:
+            # 还有 L2 需要生成，先处理完
+            progress_info = {"completed": 0, "total": len(l1_nodes), "phase": "generating_l2"}
+            return actions, progress_info
+        
+        # ========== 阶段 2: 为 L2 生成正文内容 ==========
+        incomplete_l2 = [n for n in l2_nodes if not self._is_content_complete(n)]
+        
+        for l2 in incomplete_l2[:BATCH_SIZE]:
+            actions.append(("content", l2))
+        
+        # 统计完成进度
+        completed_l2 = len(l2_nodes) - len(incomplete_l2)
+        total_nodes = len(l1_nodes) + len(l2_nodes)
+        completed = len(l1_nodes) + completed_l2
+        
+        progress_info = {
+            "completed": completed,
+            "total": total_nodes,
+            "phase": "generating_content" if incomplete_l2 else "completed"
+        }
+        return actions, progress_info
+
+    def _is_content_complete(self, node: Dict) -> bool:
+        """检查节点内容是否完整"""
+        content = node.get("node_content", "")
+        return len(content) > CONTENT_COMPLETE_THRESHOLD
+
+    async def _execute_batch_actions(self, task_id: str, course_id: str,
+                                    actions: List[Tuple], progress_info: Dict):
+        """执行批量操作"""
+        task = self.tasks[task_id]
+        course_data = self.storage.load_course(course_id)
+        
+        # 更新任务消息
+        task["message"] = self._format_action_message(actions, progress_info)
+        task["progress"] = min(95, int(progress_info["completed"] / max(1, progress_info["total"]) * 100))
+        task["updated_at"] = datetime.now().isoformat()
+        self.save_tasks()
+        
+        # 准备协程
+        coroutines = []
+        for action_type, target_node in actions:
+            coro = self._create_action_coroutine(
+                action_type, target_node, course_data
+            )
+            coroutines.append((action_type, target_node["node_id"], coro))
+        
+        # 并行执行
+        results = await asyncio.gather(
+            *[c[2] for c in coroutines], 
+            return_exceptions=True
+        )
+        
+        # 应用结果
+        self._apply_results(course_id, coroutines, results)
+
+    def _create_action_coroutine(self, action_type: str, target_node: Dict,
+                                 course_data: Dict) -> Coroutine:
+        """创建操作协程"""
+        difficulty = course_data.get("difficulty", DIFFICULTY_LEVELS["INTERMEDIATE"]).lower()
+        style = course_data.get("style", TEACHING_STYLES["ACADEMIC"]).lower()
+        
+        if action_type == "subnodes":
+            # 构建上下文
+            nodes = course_data.get("nodes", [])
+            l1_nodes = [n for n in nodes if n.get("node_level", 1) == 1]
+            course_outline = "\n".join(
+                f"{i+1}. {node.get('node_name', '')}" 
+                for i, node in enumerate(l1_nodes)
+            )
+            
+            return self.ai_service.generate_sub_nodes(
+                target_node["node_name"],
+                target_node["node_level"],
+                target_node["node_id"],
+                course_data.get("course_name", ""),
+                target_node.get("node_content", ""),
+                course_outline,
+                difficulty,
+                style
+            )
+        
+        elif action_type == "content":
+            return self.ai_service.generate_node_content(
+                target_node["node_name"],
+                target_node.get("node_context", ""),
+                target_node["node_id"],
+                course_data.get("course_name", ""),
+                difficulty=difficulty,
+                style=style
+            )
+
+    def _apply_results(self, course_id: str, coroutines: List[Tuple], 
+                      results: List[Any]):
+        """应用处理结果到课程数据"""
+        # 重新加载最新数据
+        fresh_data = self.storage.load_course(course_id)
+        if not fresh_data:
+            logger.error(f"Course {course_id} disappeared during generation")
+            return
+        
+        fresh_nodes = fresh_data.get("nodes", [])
+        modified = False
+        
+        for i, result in enumerate(results):
+            action_type, node_id, _ = coroutines[i]
+            
+            if isinstance(result, Exception):
+                logger.error(f"Error processing {node_id}: {result}")
+                continue
+            
+            if action_type == "subnodes":
+                # 添加新节点
+                fresh_nodes.extend(result)
+                modified = True
+            
+            elif action_type == "content":
+                # 更新节点内容
+                for n in fresh_nodes:
+                    if n["node_id"] == node_id:
+                        n["node_content"] = result
+                        modified = True
+                        break
+        
+        if modified:
+            fresh_data["nodes"] = fresh_nodes
+            self.storage.save_course(course_id, fresh_data)
+
+    def _format_action_message(self, actions: List[Tuple], progress_info: Dict = None) -> str:
+        """格式化操作消息，显示当前正在生成的章节或正文"""
+        if not actions:
+            return "等待中..."
+        
+        # 根据阶段确定前缀和详细描述
+        phase = progress_info.get("phase", "") if progress_info else ""
+        completed = progress_info.get("completed", 0) if progress_info else 0
+        total = progress_info.get("total", 1) if progress_info else 1
+        
+        if phase == "generating_l2":
+            prefix = "📚 生成子章节"
+            detail_suffix = "的子章节"
+        elif phase == "generating_content":
+            prefix = "📝 生成正文"
+            detail_suffix = "的正文"
+        elif phase == "completed":
+            return "✅ 课程生成完成"
+        else:
+            prefix = "⏳ 处理中"
+            detail_suffix = ""
+        
+        # 构建进度信息
+        progress_percent = int(completed / max(1, total) * 100)
+        progress_info_str = f"[{completed}/{total} {progress_percent}%]"
+        
+        # 构建节点名称列表
+        msg_parts = []
+        for action_type, target_node in actions:
+            node_name = target_node.get("node_name", "Unknown")
+            # 截断长名称
+            if len(node_name) > 20:
+                node_name = node_name[:17] + "..."
+            msg_parts.append(node_name)
+        
+        # 组合消息
+        if len(actions) == 1:
+            # 单个任务：显示详细进度
+            node_name = msg_parts[0]
+            message = f"{prefix}: {node_name}{detail_suffix} {progress_info_str}"
+        else:
+            # 多个任务：显示批量进度
+            nodes_str = " | ".join(msg_parts)
+            message = f"{prefix}: {nodes_str} {progress_info_str}"
+        
+        # 确保消息长度合理
+        if len(message) > 80:
+            message = message[:77] + "..."
+        
+        return message
+
+    def _handle_task_error(self, task_id: str, error_msg: str):
+        """处理任务错误"""
+        with self.lock:
+            task = self.tasks[task_id]
             task["retry_count"] = task.get("retry_count", 0) + 1
+            
             if task["retry_count"] > 3:
                 task["status"] = "failed"
-                task["message"] = f"Failed after 3 retries: {str(e)}"
+                task["message"] = f"Failed after 3 retries: {error_msg}"
             else:
-                task["message"] = f"Error (Retry {task['retry_count']}/3): {str(e)}"
+                task["message"] = f"Error (Retry {task['retry_count']}/3): {error_msg}"
             
             self.save_tasks()

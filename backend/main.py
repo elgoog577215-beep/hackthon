@@ -4,36 +4,48 @@
 # 并定义课程管理、节点操作和 AI 服务的 API 路由。
 # -----------------------------------------------------------------------------
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional, List
 import sys
 import os
+import logging
+
+# 设置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # 添加当前目录到 sys.path 以确保本地导入工作正常
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from models import (
-    Node, Annotation, GenerateCourseRequest, GenerateSubNodesRequest,
-    RedefineContentRequest, ExtendContentRequest, AskQuestionRequest,
-    UpdateAnnotationRequest, GenerateQuizRequest, LocateNodeRequest,
-    AddNodeRequest, SaveAnnotationRequest, UpdateNodeRequest, SummarizeChatRequest
-)
+        Node, Annotation, GenerateCourseRequest, GenerateSubNodesRequest,
+        RedefineContentRequest, ExtendContentRequest, AskQuestionRequest,
+        UpdateAnnotationRequest, GenerateQuizRequest, LocateNodeRequest,
+        AddNodeRequest, SaveAnnotationRequest, UpdateNodeRequest, SummarizeChatRequest,
+        LearningPathRequest, LearningPathResponse, KnowledgePointMastery,
+        ReviewScheduleRequest, ReviewScheduleResponse, SubmitReviewRequest, ReviewProgressResponse,
+        ExecuteCodeRequest, ExecuteCodeResponse
+    )
     from storage import storage
     from ai_service import ai_service
     from task_manager import TaskManager
 except ImportError:
-    # 当从父目录运行时回退
-    from backend.models import *
-    from backend.storage import storage
-    from backend.ai_service import ai_service
-    from backend.task_manager import TaskManager
-    from backend.task_manager import TaskManager
+    try:
+        # 当从父目录运行时回退
+        from backend.models import *
+        from backend.storage import storage
+        from backend.ai_service import ai_service
+        from backend.task_manager import TaskManager
+    except ImportError as e:
+        logger.error(f"Failed to import required modules: {e}")
+        raise
 
 import uuid
 from datetime import datetime
@@ -48,6 +60,51 @@ except NameError:
     # In case imports failed completely (unlikely)
     task_manager = None
 
+# ============================================================================
+# Dependency Injection & Common Utilities
+# ============================================================================
+
+def require_task_manager():
+    """依赖注入：确保Task Manager已初始化"""
+    if not task_manager:
+        raise HTTPException(status_code=500, detail="Task Manager not initialized")
+    return task_manager
+
+async def get_course_or_404(course_id: str) -> dict:
+    """获取课程数据，如果不存在则抛出404"""
+    data = await run_in_threadpool(storage.load_course, course_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return data
+
+def get_node_or_404(tree_data: dict, node_id: str) -> dict:
+    """从课程树中获取节点，如果不存在则抛出404"""
+    nodes = tree_data.get("nodes", [])
+    node = next((n for n in nodes if n.get("node_id") == node_id), None)
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    return node
+
+def build_course_outline(tree_data: dict, max_content_length: int = 50) -> str:
+    """构建课程大纲字符串，用于AI上下文"""
+    nodes = tree_data.get("nodes", [])
+    l1_nodes = [n for n in nodes if n.get("node_level", 1) == 1]
+    outline_parts = []
+    for i, node in enumerate(l1_nodes):
+        content_preview = node.get("node_content", "")[:max_content_length]
+        outline_parts.append(f"{i+1}. {node.get('node_name', '')}: {content_preview}...")
+    return "\n".join(outline_parts)
+
+def get_node_content(tree_data: dict, node_id: str) -> str:
+    """获取指定节点的内容"""
+    nodes = tree_data.get("nodes", [])
+    node = next((n for n in nodes if n.get("node_id") == node_id), None)
+    return node.get("node_content", "") if node else ""
+
+# ============================================================================
+# Application Lifecycle Events
+# ============================================================================
+
 @app.on_event("startup")
 async def startup_event():
     if task_manager:
@@ -58,10 +115,9 @@ async def shutdown_event():
     if task_manager:
         task_manager.stop_worker()
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for deployment monitoring"""
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+# ============================================================================
+# Middleware Configuration
+# ============================================================================
 
 app.add_middleware(
     GZipMiddleware,
@@ -76,85 +132,98 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ============================================================================
+# Health Check Endpoints
+# ============================================================================
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for deployment monitoring"""
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
 @app.get("/api/health")
 def read_root():
     return {"message": "KnowledgeMap AI API"}
 
+# --- Task Management API ---
+
 @app.post("/courses/{course_id}/auto_generate")
-def start_auto_generation(course_id: str):
-    if not task_manager:
-        raise HTTPException(status_code=500, detail="Task Manager not initialized")
-    
+def start_auto_generation(
+    course_id: str,
+    tm: TaskManager = Depends(require_task_manager)
+):
     # Check if there is already a running or paused task
-    tasks = task_manager.get_tasks_by_course(course_id)
+    tasks = tm.get_tasks_by_course(course_id)
     existing = [t for t in tasks if t["status"] in ["pending", "running", "paused"]]
     if existing:
-        # If paused, we could auto-resume it? Or just return it.
-        # Let's return it so frontend can decide, or auto-resume if requested?
-        # For auto_generate, we probably want to ensure it's running.
+        # If paused, auto-resume it
         task = existing[0]
         if task["status"] == "paused":
-            task_manager.resume_task(task["id"])
+            tm.resume_task(task["id"])
         return {"task_id": task["id"], "status": "exists"}
     
-    task_id = task_manager.create_task(course_id)
+    task_id = tm.create_task(course_id)
     return {"task_id": task_id, "status": "created"}
 
 @app.get("/courses/{course_id}/task")
-def get_course_task(course_id: str):
-    if not task_manager:
-        return {"status": "error"}
-    
-    tasks = task_manager.get_tasks_by_course(course_id)
+def get_course_task(
+    course_id: str,
+    tm: TaskManager = Depends(require_task_manager)
+):
+    tasks = tm.get_tasks_by_course(course_id)
     if not tasks:
         return {"status": "none"}
     
     # Return the most relevant task (running or last updated)
-    # Sort by updated_at desc
     tasks.sort(key=lambda x: x["updated_at"], reverse=True)
     return tasks[0]
 
 @app.get("/tasks")
-def list_tasks(limit: int = 100):
-    if not task_manager:
-        raise HTTPException(status_code=500, detail="Task Manager not initialized")
-    return task_manager.get_all_tasks(limit)
+def list_tasks(
+    limit: int = 100,
+    tm: TaskManager = Depends(require_task_manager)
+):
+    return tm.get_all_tasks(limit)
 
 @app.get("/tasks/{task_id}")
-def get_task(task_id: str):
-    if not task_manager:
-        raise HTTPException(status_code=500, detail="Task Manager not initialized")
-    task = task_manager.get_task(task_id)
+def get_task(
+    task_id: str,
+    tm: TaskManager = Depends(require_task_manager)
+):
+    task = tm.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
 @app.post("/tasks/{task_id}/pause")
-def pause_task(task_id: str):
-    if not task_manager:
-        raise HTTPException(status_code=500, detail="Task Manager not initialized")
-    task_manager.pause_task(task_id)
+def pause_task(
+    task_id: str,
+    tm: TaskManager = Depends(require_task_manager)
+):
+    tm.pause_task(task_id)
     return {"status": "paused"}
 
 @app.post("/tasks/{task_id}/resume")
-def resume_task(task_id: str):
-    if not task_manager:
-        raise HTTPException(status_code=500, detail="Task Manager not initialized")
-    task_manager.resume_task(task_id)
+def resume_task(
+    task_id: str,
+    tm: TaskManager = Depends(require_task_manager)
+):
+    tm.resume_task(task_id)
     return {"status": "resumed"}
 
 @app.delete("/tasks/failed")
-def clear_failed_tasks():
-    if not task_manager:
-        raise HTTPException(status_code=500, detail="Task Manager not initialized")
-    removed_count = task_manager.clear_failed_tasks()
+def clear_failed_tasks(
+    tm: TaskManager = Depends(require_task_manager)
+):
+    removed_count = tm.clear_failed_tasks()
     return {"status": "success", "removed": removed_count}
 
 @app.delete("/tasks/{task_id}")
-def delete_task(task_id: str):
-    if not task_manager:
-        raise HTTPException(status_code=500, detail="Task Manager not initialized")
-    task_manager.delete_task(task_id)
+def delete_task(
+    task_id: str,
+    tm: TaskManager = Depends(require_task_manager)
+):
+    tm.delete_task(task_id)
     return {"status": "deleted"}
 
 # --- Course Management ---
@@ -165,10 +234,7 @@ async def list_courses():
 
 @app.get("/courses/{course_id}")
 async def get_course(course_id: str):
-    data = await run_in_threadpool(storage.load_course, course_id)
-    if not data:
-        raise HTTPException(status_code=404, detail="Course not found")
-    return data
+    return await get_course_or_404(course_id)
 
 @app.delete("/courses/{course_id}")
 async def delete_course(course_id: str):
@@ -206,17 +272,13 @@ async def generate_course(req: GenerateCourseRequest):
 
 @app.post("/courses/{course_id}/nodes")
 async def add_custom_node(course_id: str, req: AddNodeRequest):
-    # Expects parent_node_id, node_name
-    tree_data = await run_in_threadpool(storage.load_course, course_id)
-    if not tree_data:
-        raise HTTPException(status_code=404, detail="Course not found")
+    tree_data = await get_course_or_404(course_id)
     
-    # Determine level
+    # Determine level based on parent
     level = 1
     if req.parent_node_id and req.parent_node_id != "root":
-        parent = next((n for n in tree_data.get("nodes", []) if n["node_id"] == req.parent_node_id), None)
-        if parent:
-            level = parent.get("node_level", 1) + 1
+        parent = get_node_or_404(tree_data, req.parent_node_id)
+        level = parent.get("node_level", 1) + 1
     
     new_node = {
         "node_id": str(uuid.uuid4()),
@@ -236,43 +298,37 @@ async def add_custom_node(course_id: str, req: AddNodeRequest):
 
 @app.post("/courses/{course_id}/nodes/{node_id}/subnodes")
 async def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesRequest):
-    tree_data = await run_in_threadpool(storage.load_course, course_id)
-    if not tree_data:
-        raise HTTPException(status_code=404, detail="Course not found")
+    tree_data = await get_course_or_404(course_id)
     
     # Check if subnodes already exist to prevent duplication
-    if "nodes" in tree_data:
-        existing_children = [n for n in tree_data["nodes"] if n.get("parent_node_id") == node_id]
-        if existing_children:
-            # If duplicates/content exists, we can return them instead of regenerating
-            # Or we can choose to delete them first if 'regeneration' is forced, 
-            # but user asked for "deduplication mechanism", implying "don't generate if exists".
-            # Returning existing children is safer and faster.
-            return existing_children
+    existing_children = [n for n in tree_data.get("nodes", []) if n.get("parent_node_id") == node_id]
+    if existing_children:
+        # Return existing children instead of regenerating (deduplication)
+        return existing_children
 
     course_name = tree_data.get("course_name", "")
     
-    # Find current node to get context (summary)
-    parent_context = ""
-    course_outline = ""
+    # Build context for AI
+    course_outline = build_course_outline(tree_data, max_content_length=50)
+    parent_context = get_node_content(tree_data, node_id)
     
-    if "nodes" in tree_data:
-        # Build course outline for context
-        l1_nodes = [n for n in tree_data["nodes"] if n.get("node_level", 1) == 1]
-        for i, node in enumerate(l1_nodes):
-            course_outline += f"{i+1}. {node.get('node_name', '')}: {node.get('node_content', '')[:50]}...\n"
-            
-        for node in tree_data["nodes"]:
-            if node["node_id"] == node_id:
-                parent_context = node.get("node_content", "")
-                break
+    new_nodes = await ai_service.generate_sub_nodes(
+        req.node_name, 
+        req.node_level, 
+        node_id, 
+        course_name, 
+        parent_context, 
+        course_outline,
+        req.difficulty,
+        req.style
+    )
     
-    new_nodes = await ai_service.generate_sub_nodes(req.node_name, req.node_level, node_id, course_name, parent_context, course_outline)
+    if "nodes" not in tree_data:
+        tree_data["nodes"] = []
     
-    if "nodes" in tree_data:
-        for node in new_nodes:
-            tree_data["nodes"].append(node)
-        await run_in_threadpool(storage.save_course, course_id, tree_data)
+    for node in new_nodes:
+        tree_data["nodes"].append(node)
+    await run_in_threadpool(storage.save_course, course_id, tree_data)
     
     return new_nodes
 
@@ -283,14 +339,7 @@ async def redefine_node_stream(course_id: str, node_id: str, req: RedefineConten
     This provides a real-time typing effect on the frontend.
     """
     # Verify existence
-    tree_data = await run_in_threadpool(storage.load_course, course_id)
-    if not tree_data:
-        raise HTTPException(status_code=404, detail="Course not found")
-    
-    # We will update the node content at the END of the stream or let the client do it via a final save call.
-    # But usually, the server should save the final result.
-    # Approach: Stream the chunks to the client. The server also aggregates them. 
-    # When stream finishes, save to storage.
+    await get_course_or_404(course_id)
     
     async def stream_generator():
         full_content = ""
@@ -307,23 +356,32 @@ async def redefine_node_stream(course_id: str, node_id: str, req: RedefineConten
                 full_content += chunk
                 yield chunk
         except Exception as e:
+            logger.error(f"Error in stream generation: {e}")
             yield f"\n[Error: {e}]"
         
         # After streaming, save to storage
-        # Reload to minimize race conditions (though simple file lock is not here)
-        current_data = await run_in_threadpool(storage.load_course, course_id)
-        if "nodes" in current_data:
-            for node in current_data["nodes"]:
-                if node["node_id"] == node_id:
-                    node["node_content"] = ai_service.clean_response_text(full_content)
-                    node["node_type"] = "custom"
-                    break
-            await run_in_threadpool(storage.save_course, course_id, current_data)
+        # Reload to minimize race conditions
+        try:
+            current_data = await run_in_threadpool(storage.load_course, course_id)
+            if "nodes" in current_data:
+                for node in current_data["nodes"]:
+                    if node["node_id"] == node_id:
+                        node["node_content"] = ai_service.clean_response_text(full_content)
+                        node["node_type"] = "custom"
+                        break
+                await run_in_threadpool(storage.save_course, course_id, current_data)
+        except Exception as e:
+            logger.error(f"Error saving stream result: {e}")
             
     return StreamingResponse(stream_generator(), media_type="text/plain")
 
 @app.post("/courses/{course_id}/nodes/{node_id}/redefine")
 async def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest):
+    tree_data = await get_course_or_404(course_id)
+    
+    # Get the node to verify it exists
+    node = get_node_or_404(tree_data, node_id)
+    
     new_content = await ai_service.redefine_content(
         node_name=req.node_name, 
         requirement=req.user_requirement,
@@ -334,23 +392,12 @@ async def redefine_node(course_id: str, node_id: str, req: RedefineContentReques
         style=req.style
     )
     
-    tree_data = await run_in_threadpool(storage.load_course, course_id)
-    if not tree_data:
-        raise HTTPException(status_code=404, detail="Course not found")
-
-    found = False
-    if "nodes" in tree_data:
-        for node in tree_data["nodes"]:
-            if node["node_id"] == node_id:
-                node["node_content"] = new_content
-                node["node_type"] = "custom"
-                found = True
-                break
+    # Update the node
+    node["node_content"] = new_content
+    node["node_type"] = "custom"
     
-    if found:
-        await run_in_threadpool(storage.save_course, course_id, tree_data)
-        return {"node_content": new_content}
-    raise HTTPException(status_code=404, detail="Node not found")
+    await run_in_threadpool(storage.save_course, course_id, tree_data)
+    return {"node_content": new_content}
 
 
 # -----------------------------------------------------------------------------
@@ -365,17 +412,19 @@ async def generate_knowledge_graph(course_id: str):
     """
     Generate a knowledge graph for the course using AI.
     """
-    tree_data = await run_in_threadpool(storage.load_course, course_id)
-    if not tree_data or "nodes" not in tree_data:
-        raise HTTPException(status_code=404, detail="Course not found")
+    tree_data = await get_course_or_404(course_id)
+    
+    if "nodes" not in tree_data:
+        raise HTTPException(status_code=404, detail="Course has no nodes")
     
     course_name = tree_data.get("course_name", "Unknown Course")
     nodes = tree_data.get("nodes", [])
     
-    # Build course context
+    # Build course context using helper function
     course_context = f"Course: {course_name}\n"
     for node in nodes[:20]:
-        course_context += f"- {node.get('node_name', '')}: {node.get('node_content', '')[:100]}\n"
+        content_preview = node.get("node_content", "")[:100]
+        course_context += f"- {node.get('node_name', '')}: {content_preview}\n"
     
     # Generate knowledge graph
     graph_data = await ai_service.generate_knowledge_graph(
@@ -437,14 +486,16 @@ async def extend_node_content(course_id: str, node_id: str, req: ExtendContentRe
 def ask_question(req: AskQuestionRequest):
     return StreamingResponse(
         ai_service.answer_question_stream(
-            req.question, 
-            req.node_content, 
-            req.history, 
-            req.selection, 
+            req.question,
+            req.node_content,
+            req.history,
+            req.selection,
             req.user_persona,
             req.course_id,
             req.node_id,
-            req.user_notes
+            req.user_notes,
+            req.session_metrics,
+            req.enable_long_term_memory
         ),
         media_type="text/plain"
     )
@@ -494,15 +545,15 @@ async def update_annotation(anno_id: str, req: UpdateAnnotationRequest):
 
 @app.get("/courses/{course_id}/annotations")
 async def get_course_annotations(course_id: str):
-    # 返回课程的所有批注（需要通过该课程中的节点进行过滤）
-    # 1. 获取课程中的所有节点
-    course_data = await run_in_threadpool(storage.load_course, course_id)
-    if not course_data or "nodes" not in course_data:
+    """返回课程的所有批注（通过课程中的节点进行过滤）"""
+    course_data = await get_course_or_404(course_id)
+    
+    if "nodes" not in course_data:
         return []
     
     node_ids = set(n["node_id"] for n in course_data["nodes"])
     
-    # 2. 获取所有批注并过滤
+    # 获取所有批注并过滤
     all_annos = await run_in_threadpool(storage.load_annotations)
     results = []
     for a in all_annos:
@@ -522,9 +573,9 @@ async def get_course_annotations(course_id: str):
 
 @app.post("/courses/{course_id}/locate")
 async def locate_node(course_id: str, req: LocateNodeRequest):
-    tree_data = await run_in_threadpool(storage.load_course, course_id)
+    tree_data = await get_course_or_404(course_id)
     if "nodes" not in tree_data:
-         return {}
+        return {}
     return await ai_service.locate_node(req.keyword, tree_data["nodes"])
 
 @app.post("/generate_quiz")
@@ -543,45 +594,621 @@ async def summarize_chat(req: SummarizeChatRequest):
 
 @app.delete("/courses/{course_id}/nodes/{node_id}")
 async def delete_node(course_id: str, node_id: str):
-    tree_data = await run_in_threadpool(storage.load_course, course_id)
-    if "nodes" in tree_data:
-        original_len = len(tree_data["nodes"])
+    """删除节点及其所有子节点"""
+    tree_data = await get_course_or_404(course_id)
+    
+    if "nodes" not in tree_data:
+        raise HTTPException(status_code=404, detail="Course has no nodes")
+    
+    original_len = len(tree_data["nodes"])
+    
+    # Find all descendants to delete
+    to_delete = {node_id}
+    changed = True
+    while changed:
+        changed = False
+        for node in tree_data["nodes"]:
+            if node.get("parent_node_id") in to_delete and node["node_id"] not in to_delete:
+                to_delete.add(node["node_id"])
+                changed = True
+    
+    tree_data["nodes"] = [n for n in tree_data["nodes"] if n["node_id"] not in to_delete]
+    
+    if len(tree_data["nodes"]) < original_len:
+        await run_in_threadpool(storage.save_course, course_id, tree_data)
+        return {"status": "success"}
         
-        # Find all descendants to delete
-        to_delete = {node_id}
-        changed = True
-        while changed:
-            changed = False
-            for node in tree_data["nodes"]:
-                if node["parent_node_id"] in to_delete and node["node_id"] not in to_delete:
-                    to_delete.add(node["node_id"])
-                    changed = True
-        
-        tree_data["nodes"] = [n for n in tree_data["nodes"] if n["node_id"] not in to_delete]
-        
-        if len(tree_data["nodes"]) < original_len:
-            await run_in_threadpool(storage.save_course, course_id, tree_data)
-            return {"status": "success"}
-            
     raise HTTPException(status_code=404, detail="Node not found")
 
 @app.put("/courses/{course_id}/nodes/{node_id}")
 async def update_node(course_id: str, node_id: str, node_update: UpdateNodeRequest):
-    tree_data = await run_in_threadpool(storage.load_course, course_id)
-    if "nodes" in tree_data:
-        for node in tree_data["nodes"]:
-            if node["node_id"] == node_id:
-                if node_update.node_name is not None:
-                    node["node_name"] = node_update.node_name
-                if node_update.node_content is not None:
-                    node["node_content"] = node_update.node_content
-                if node_update.is_read is not None:
-                    node["is_read"] = node_update.is_read
-                if node_update.quiz_score is not None:
-                    node["quiz_score"] = node_update.quiz_score
-                await run_in_threadpool(storage.save_course, course_id, tree_data)
-                return node
-    raise HTTPException(status_code=404, detail="Node not found")
+    """更新节点信息"""
+    tree_data = await get_course_or_404(course_id)
+    
+    if "nodes" not in tree_data:
+        raise HTTPException(status_code=404, detail="Course has no nodes")
+    
+    # Find and update the node
+    node = await get_node_or_404(tree_data, node_id)
+    
+    if node_update.node_name is not None:
+        node["node_name"] = node_update.node_name
+    if node_update.node_content is not None:
+        node["node_content"] = node_update.node_content
+    if node_update.is_read is not None:
+        node["is_read"] = node_update.is_read
+    
+    await run_in_threadpool(storage.save_course, course_id, tree_data)
+    return {"status": "success", "node": node}
+
+
+# --- Learning Path & Recommendation APIs ---
+
+@app.post("/courses/{course_id}/learning_path", response_model=LearningPathResponse)
+async def generate_learning_path(course_id: str, req: LearningPathRequest):
+    """
+    Generate personalized learning path recommendations based on user's learning progress.
+    """
+    course_data = await get_course_or_404(course_id)
+    all_nodes = course_data.get("nodes", [])
+    
+    # Generate learning path using AI service
+    result = await ai_service.generate_learning_path(
+        course_id=course_id,
+        progress_data=[p.dict() for p in req.progress_data],
+        wrong_answer_nodes=req.wrong_answer_nodes,
+        target_goal=req.target_goal or "系统学习",
+        available_time=req.available_time_minutes or 30,
+        all_nodes=all_nodes
+    )
+    
+    return LearningPathResponse(**result)
+
+
+@app.get("/courses/{course_id}/knowledge_mastery")
+async def get_knowledge_mastery(course_id: str):
+    """
+    Get knowledge mastery analysis for all nodes in a course.
+    """
+    course_data = await get_course_or_404(course_id)
+    all_nodes = course_data.get("nodes", [])
+    
+    # Build progress data from node metadata
+    progress_data = []
+    for node in all_nodes:
+        progress_data.append({
+            "node_id": node.get("node_id"),
+            "node_name": node.get("node_name"),
+            "is_read": node.get("is_read", False),
+            "read_time_minutes": node.get("read_time_minutes", 0),
+            "quiz_score": node.get("quiz_score"),
+            "last_accessed": node.get("last_accessed"),
+            "notes_count": node.get("notes_count", 0)
+        })
+    
+    # Analyze mastery
+    mastery_data = await ai_service.analyze_knowledge_mastery(
+        course_id=course_id,
+        progress_data=progress_data,
+        quiz_history=[],  # Could be loaded from storage if available
+        all_nodes=all_nodes
+    )
+    
+    return mastery_data
+
+
+@app.get("/courses/{course_id}/learning_stats")
+async def get_learning_stats(course_id: str):
+    """
+    Get comprehensive learning statistics for a course.
+    """
+    course_data = await get_course_or_404(course_id)
+    nodes = course_data.get("nodes", [])
+    
+    # Calculate statistics
+    total_nodes = len(nodes)
+    completed_nodes = sum(1 for n in nodes if n.get("is_read", False))
+    nodes_with_quiz = [n for n in nodes if n.get("quiz_score") is not None]
+    
+    avg_quiz_score = 0
+    if nodes_with_quiz:
+        avg_quiz_score = sum(n.get("quiz_score", 0) for n in nodes_with_quiz) / len(nodes_with_quiz)
+    
+    total_reading_time = sum(n.get("read_time_minutes", 0) for n in nodes)
+    
+    # Identify weak areas (quiz score < 60)
+    weak_areas = [
+        {
+            "node_id": n.get("node_id"),
+            "node_name": n.get("node_name"),
+            "quiz_score": n.get("quiz_score"),
+            "reason": "测验成绩较低，需要复习"
+        }
+        for n in nodes_with_quiz if n.get("quiz_score", 100) < 60
+    ]
+    
+    return {
+        "course_id": course_id,
+        "course_name": course_data.get("course_name", "Unknown"),
+        "total_nodes": total_nodes,
+        "completed_nodes": completed_nodes,
+        "completion_percentage": round(completed_nodes / total_nodes * 100, 1) if total_nodes > 0 else 0,
+        "total_reading_time_minutes": total_reading_time,
+        "quizzes_taken": len(nodes_with_quiz),
+        "average_quiz_score": round(avg_quiz_score, 1),
+        "weak_areas": weak_areas,
+        "strong_areas": [
+            {
+                "node_id": n.get("node_id"),
+                "node_name": n.get("node_name"),
+                "quiz_score": n.get("quiz_score"),
+                "reason": "掌握良好"
+            }
+            for n in nodes_with_quiz if n.get("quiz_score", 0) >= 80
+        ]
+    }
+
+
+# --- Smart Review System APIs ---
+
+@app.get("/courses/{course_id}/review/schedule")
+async def get_review_schedule(course_id: str, max_items: int = 20, focus_on_weak: bool = True):
+    """
+    获取智能复习计划
+    
+    基于SM-2算法和艾宾浩斯遗忘曲线生成个性化复习计划
+    """
+    course_data = await get_course_or_404(course_id)
+    
+    result = await ai_service.generate_review_schedule(
+        course_id=course_id,
+        course_data=course_data,
+        max_items=max_items,
+        focus_on_weak=focus_on_weak
+    )
+    
+    return result
+
+
+@app.post("/courses/{course_id}/review/submit")
+async def submit_review_results(course_id: str, req: SubmitReviewRequest):
+    """
+    提交复习结果
+    
+    使用SM-2算法更新复习间隔和记忆强度
+    """
+    course_data = await get_course_or_404(course_id)
+    
+    # 提交复习结果并更新复习历史
+    result = await ai_service.submit_review_results(
+        course_id=course_id,
+        course_data=course_data,
+        results=[r.dict() for r in req.results]
+    )
+    
+    # 保存更新后的课程数据
+    await run_in_threadpool(storage.save_course, course_id, course_data)
+    
+    return result
+
+
+@app.get("/courses/{course_id}/review/progress")
+async def get_review_progress(course_id: str):
+    """
+    获取复习进度和记忆曲线
+    
+    返回过去30天的记忆保留率曲线和掌握度趋势
+    """
+    course_data = await get_course_or_404(course_id)
+    
+    result = await ai_service.get_review_progress(
+        course_id=course_id,
+        course_data=course_data
+    )
+    
+    return result
+
+
+def _get_today_date() -> datetime:
+    """获取今天的日期（去除时间部分）"""
+    return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _parse_iso_date(date_str: str) -> datetime:
+    """解析ISO格式的日期字符串"""
+    return datetime.fromisoformat(date_str)
+
+
+@app.get("/courses/{course_id}/review/stats")
+async def get_review_stats(course_id: str):
+    """
+    获取复习统计数据（快速查询）
+    """
+    course_data = await get_course_or_404(course_id)
+    
+    # 快速获取复习统计
+    review_history = course_data.get("review_history", {})
+    nodes = course_data.get("nodes", [])
+    
+    today = _get_today_date()
+    
+    due_today = 0
+    overdue = 0
+    completed_today = 0
+    
+    for node in nodes:
+        node_id = node.get("node_id")
+        node_review = review_history.get(node_id, {})
+        
+        if node_review.get("next_review"):
+            next_review = _parse_iso_date(node_review["next_review"])
+            if next_review.date() < today.date():
+                overdue += 1
+            elif next_review.date() == today.date():
+                due_today += 1
+        
+        if node_review.get("last_reviewed"):
+            last_reviewed = _parse_iso_date(node_review["last_reviewed"])
+            if last_reviewed.date() == today.date():
+                completed_today += 1
+    
+    return {
+        "course_id": course_id,
+        "total_items": len(nodes),
+        "due_today": due_today,
+        "overdue": overdue,
+        "completed_today": completed_today,
+        "streak_days": course_data.get("learning_streak", 0),
+        "retention_rate": 0.75,  # 简化计算
+        "last_review_date": course_data.get("last_review_date")
+    }
+
+
+@app.post("/courses/{course_id}/review/reset")
+async def reset_review_history(course_id: str):
+    """
+    重置复习历史（用于调试或重新开始）
+    """
+    course_data = await get_course_or_404(course_id)
+    
+    # 清除复习历史
+    course_data["review_history"] = {}
+    course_data["learning_streak"] = 0
+    course_data["last_review_date"] = None
+    course_data["last_study_date"] = None
+    
+    await run_in_threadpool(storage.save_course, course_id, course_data)
+    
+    return {"status": "success", "message": "复习历史已重置"}
+
+
+# --- Code Execution API ---
+
+import subprocess
+import tempfile
+import time
+import re
+
+# Supported languages configuration
+SUPPORTED_LANGUAGES = {
+    "python": {
+        "extension": ".py",
+        "command": ["python3"],
+        "timeout": 30
+    },
+    "javascript": {
+        "extension": ".js",
+        "command": ["node"],
+        "timeout": 30
+    },
+    "typescript": {
+        "extension": ".ts",
+        "command": ["npx", "ts-node"],
+        "timeout": 30
+    },
+    "bash": {
+        "extension": ".sh",
+        "command": ["bash"],
+        "timeout": 10
+    },
+    "shell": {
+        "extension": ".sh",
+        "command": ["sh"],
+        "timeout": 10
+    }
+}
+
+# Security: Forbidden code patterns
+FORBIDDEN_PATTERNS = [
+    r"import\s+os\s*;.*system",
+    r"subprocess\.call",
+    r"subprocess\.run",
+    r"subprocess\.Popen",
+    r"eval\s*\(",
+    r"exec\s*\(",
+    r"__import__",
+    r"open\s*\(.*['\"]\s*[/\\]",
+    r"rm\s+-rf\s+/",
+    r">\s*/",
+    r"dd\s+if=",
+]
+
+MAX_OUTPUT_LENGTH = 10000
+
+
+def _validate_code_security(code: str) -> tuple[bool, str]:
+    """验证代码安全性，返回(是否安全, 错误信息)"""
+    for pattern in FORBIDDEN_PATTERNS:
+        if re.search(pattern, code, re.IGNORECASE):
+            return False, "Security Error: Code contains potentially dangerous operations"
+    return True, ""
+
+
+def _truncate_output(output: str, max_length: int = MAX_OUTPUT_LENGTH) -> str:
+    """截断过长的输出"""
+    if len(output) > max_length:
+        return output[:max_length] + "\n... (output truncated)"
+    return output
+
+
+def _cleanup_temp_file(file_path: str):
+    """安全地清理临时文件"""
+    try:
+        if os.path.exists(file_path):
+            os.unlink(file_path)
+    except OSError:
+        pass
+
+
+@app.post("/api/execute")
+async def execute_code(req: ExecuteCodeRequest):
+    """
+    执行代码并返回结果
+    
+    支持 Python、JavaScript、TypeScript、Bash 等语言
+    出于安全考虑，代码在沙箱环境中运行，有执行时间限制
+    """
+    language = req.language.lower()
+    
+    # Check if language is supported
+    if language not in SUPPORTED_LANGUAGES:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported language: {language}. Supported: {', '.join(SUPPORTED_LANGUAGES.keys())}"
+        )
+    
+    lang_config = SUPPORTED_LANGUAGES[language]
+    timeout = min(req.timeout, lang_config["timeout"])
+    
+    # Security validation
+    is_safe, error_msg = _validate_code_security(req.code)
+    if not is_safe:
+        return ExecuteCodeResponse(
+            success=False,
+            output="",
+            error=error_msg,
+            execution_time=0,
+            language=language
+        )
+    
+    start_time = time.time()
+    temp_file_path = None
+    
+    try:
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(
+            mode='w', 
+            suffix=lang_config["extension"], 
+            delete=False
+        ) as temp_file:
+            temp_file.write(req.code)
+            temp_file_path = temp_file.name
+        
+        # Execute code
+        result = subprocess.run(
+            lang_config["command"] + [temp_file_path],
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        
+        execution_time = (time.time() - start_time) * 1000
+        
+        # Clean up temp file
+        _cleanup_temp_file(temp_file_path)
+        temp_file_path = None
+        
+        output = _truncate_output(result.stdout)
+        error = result.stderr if result.stderr else None
+        
+        return ExecuteCodeResponse(
+            success=result.returncode == 0,
+            output=output,
+            error=error,
+            execution_time=round(execution_time, 2),
+            language=language
+        )
+        
+    except subprocess.TimeoutExpired:
+        execution_time = (time.time() - start_time) * 1000
+        _cleanup_temp_file(temp_file_path)
+        
+        return ExecuteCodeResponse(
+            success=False,
+            output="",
+            error=f"Execution timeout: Code took longer than {timeout} seconds to execute",
+            execution_time=round(execution_time, 2),
+            language=language
+        )
+        
+    except Exception as e:
+        execution_time = (time.time() - start_time) * 1000
+        _cleanup_temp_file(temp_file_path)
+        
+        return ExecuteCodeResponse(
+            success=False,
+            output="",
+            error=f"Execution error: {str(e)}",
+            execution_time=round(execution_time, 2),
+            language=language
+        )
+
+
+@app.get("/api/execute/languages")
+async def get_supported_languages():
+    """获取支持的编程语言列表"""
+    return {
+        "languages": [
+            {
+                "id": lang_id,
+                "name": lang_id.capitalize(),
+                "extension": config["extension"],
+                "timeout": config["timeout"]
+            }
+            for lang_id, config in SUPPORTED_LANGUAGES.items()
+        ]
+    }
+
+
+# --- AI 图表生成 API ---
+
+class GenerateDiagramRequest(BaseModel):
+    """AI图表生成请求"""
+    description: str = Field(..., description="图表描述", min_length=1, max_length=2000)
+    diagram_type: str = Field(default="flowchart", description="图表类型")
+    context: str = Field(default="", description="额外上下文信息", max_length=1000)
+
+
+class GenerateDiagramResponse(BaseModel):
+    """AI图表生成响应"""
+    success: bool = Field(..., description="是否成功")
+    diagram_code: Optional[str] = Field(default=None, description="生成的Mermaid代码")
+    diagram_type: str = Field(default="flowchart", description="图表类型")
+    description: str = Field(default="", description="原始描述")
+    error: Optional[str] = Field(default=None, description="错误信息")
+
+
+DIAGRAM_TYPES = [
+    "flowchart",      # 流程图
+    "sequenceDiagram", # 时序图
+    "classDiagram",   # 类图
+    "stateDiagram",   # 状态图
+    "erDiagram",      # ER图
+    "gantt",          # 甘特图
+    "pie",            # 饼图
+    "mindmap",        # 思维导图
+]
+
+
+@app.post("/api/diagram/generate", response_model=GenerateDiagramResponse)
+async def generate_diagram(req: GenerateDiagramRequest):
+    """
+    使用AI生成Mermaid图表
+
+    根据用户的自然语言描述，自动生成对应的Mermaid图表代码。
+    支持多种图表类型：流程图、时序图、类图、状态图等。
+
+    ## 示例请求
+    ```json
+    {
+        "description": "展示用户登录系统的流程，包括输入用户名密码、验证、成功或失败的处理",
+        "diagram_type": "flowchart",
+        "context": "这是一个Web应用的登录流程"
+    }
+    ```
+
+    ## 支持的图表类型
+    - `flowchart`: 流程图（默认）
+    - `sequenceDiagram`: 时序图
+    - `classDiagram`: 类图
+    - `stateDiagram`: 状态图
+    - `erDiagram`: ER图
+    - `gantt`: 甘特图
+    - `pie`: 饼图
+    - `mindmap`: 思维导图
+    """
+    # Validate diagram type
+    if req.diagram_type not in DIAGRAM_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported diagram type: {req.diagram_type}. Supported: {', '.join(DIAGRAM_TYPES)}"
+        )
+
+    try:
+        result = await ai_service.generate_diagram(
+            description=req.description,
+            diagram_type=req.diagram_type,
+            context=req.context
+        )
+
+        return GenerateDiagramResponse(
+            success=result.get("success", False),
+            diagram_code=result.get("diagram_code"),
+            diagram_type=result.get("diagram_type", req.diagram_type),
+            description=result.get("description", req.description),
+            error=result.get("error")
+        )
+
+    except Exception as e:
+        logger.error(f"Error in generate_diagram endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"生成图表时出错: {str(e)}")
+
+
+@app.get("/api/diagram/types")
+async def get_diagram_types():
+    """获取支持的图表类型列表"""
+    return {
+        "types": [
+            {
+                "id": "flowchart",
+                "name": "流程图",
+                "description": "展示流程、算法、决策树",
+                "icon": "mdi-sitemap"
+            },
+            {
+                "id": "sequenceDiagram",
+                "name": "时序图",
+                "description": "展示对象间的交互顺序",
+                "icon": "mdi-arrow-right-bold-outline"
+            },
+            {
+                "id": "classDiagram",
+                "name": "类图",
+                "description": "展示类结构和关系",
+                "icon": "mdi-code-braces"
+            },
+            {
+                "id": "stateDiagram",
+                "name": "状态图",
+                "description": "展示状态转换",
+                "icon": "mdi-state-machine"
+            },
+            {
+                "id": "erDiagram",
+                "name": "ER图",
+                "description": "展示实体关系",
+                "icon": "mdi-database"
+            },
+            {
+                "id": "gantt",
+                "name": "甘特图",
+                "description": "展示项目时间线",
+                "icon": "mdi-chart-timeline"
+            },
+            {
+                "id": "pie",
+                "name": "饼图",
+                "description": "展示比例分布",
+                "icon": "mdi-chart-pie"
+            },
+            {
+                "id": "mindmap",
+                "name": "思维导图",
+                "description": "展示层级思维结构",
+                "icon": "mdi-graph-outline"
+            }
+        ]
+    }
 
 
 # --- 静态文件服务（用于部署） ---

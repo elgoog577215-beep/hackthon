@@ -3,13 +3,15 @@
  * 提供常用课程结构的快速创建
  */
 
+import { DIFFICULTY_LEVELS, type DifficultyLevel } from '../../../shared/prompt-config'
+
 export interface CourseTemplate {
   id: string
   name: string
   description: string
   icon: string
   category: string
-  difficulty: 'beginner' | 'intermediate' | 'advanced'
+  difficulty: DifficultyLevel
   estimatedHours: number
   chapters: TemplateChapter[]
 }
@@ -32,7 +34,7 @@ export const courseTemplates: CourseTemplate[] = [
     description: '从零开始学习 Python 编程语言，掌握基础语法、数据类型、控制流和函数等核心概念',
     icon: '🐍',
     category: 'programming',
-    difficulty: 'beginner',
+    difficulty: DIFFICULTY_LEVELS.BEGINNER,
     estimatedHours: 20,
     chapters: [
       {
@@ -88,7 +90,7 @@ export const courseTemplates: CourseTemplate[] = [
     description: '深入理解 JavaScript 语言核心，包括 ES6+ 新特性、异步编程和 DOM 操作',
     icon: '⚡',
     category: 'programming',
-    difficulty: 'intermediate',
+    difficulty: DIFFICULTY_LEVELS.INTERMEDIATE,
     estimatedHours: 30,
     chapters: [
       {
@@ -200,7 +202,7 @@ export const courseTemplates: CourseTemplate[] = [
     description: '使用 Python 进行数据分析，学习 Pandas、NumPy 和数据可视化',
     icon: '📊',
     category: 'data-science',
-    difficulty: 'beginner',
+    difficulty: DIFFICULTY_LEVELS.BEGINNER,
     estimatedHours: 25,
     chapters: [
       {
@@ -256,7 +258,7 @@ export const courseTemplates: CourseTemplate[] = [
     description: '机器学习核心算法和实践，包括监督学习、非监督学习和模型评估',
     icon: '🤖',
     category: 'data-science',
-    difficulty: 'advanced',
+    difficulty: DIFFICULTY_LEVELS.ADVANCED,
     estimatedHours: 45,
     chapters: [
       {
@@ -313,7 +315,7 @@ export const courseTemplates: CourseTemplate[] = [
     description: '学习产品管理核心技能，包括需求分析、产品设计和项目管理',
     icon: '📱',
     category: 'product',
-    difficulty: 'beginner',
+    difficulty: DIFFICULTY_LEVELS.BEGINNER,
     estimatedHours: 20,
     chapters: [
       {
@@ -369,7 +371,7 @@ export const courseTemplates: CourseTemplate[] = [
     description: '学习用户界面设计原则、设计工具和视觉设计系统',
     icon: '🎨',
     category: 'design',
-    difficulty: 'beginner',
+    difficulty: DIFFICULTY_LEVELS.BEGINNER,
     estimatedHours: 25,
     chapters: [
       {
@@ -425,7 +427,7 @@ export const courseTemplates: CourseTemplate[] = [
     description: '学习数字营销策略、内容营销、社交媒体和数据分析',
     icon: '📢',
     category: 'business',
-    difficulty: 'beginner',
+    difficulty: DIFFICULTY_LEVELS.BEGINNER,
     estimatedHours: 20,
     chapters: [
       {
@@ -486,11 +488,11 @@ export const categoryConfig: Record<string, { name: string; icon: string; color:
   business: { name: '商业管理', icon: '💼', color: '#909399' }
 }
 
-// 难度配置
-export const difficultyConfig: Record<string, { name: string; color: string }> = {
-  beginner: { name: '入门', color: '#67C23A' },
-  intermediate: { name: '进阶', color: '#E6A23C' },
-  advanced: { name: '高级', color: '#F56C6C' }
+// 难度配置 - 使用共享配置
+export const difficultyConfig: Record<DifficultyLevel, { name: string; color: string }> = {
+  [DIFFICULTY_LEVELS.BEGINNER]: { name: '入门', color: '#67C23A' },
+  [DIFFICULTY_LEVELS.INTERMEDIATE]: { name: '进阶', color: '#E6A23C' },
+  [DIFFICULTY_LEVELS.ADVANCED]: { name: '高级', color: '#F56C6C' }
 }
 
 // 获取所有分类
@@ -509,7 +511,7 @@ export function getCategoryName(category: string): string {
 }
 
 // 获取难度名称
-export function getDifficultyName(difficulty: string): string {
+export function getDifficultyName(difficulty: DifficultyLevel): string {
   return difficultyConfig[difficulty]?.name || difficulty
 }
 
@@ -536,6 +538,6 @@ export function getTemplatesByCategory(category: string): CourseTemplate[] {
 }
 
 // 根据难度获取模板
-export function getTemplatesByDifficulty(difficulty: string): CourseTemplate[] {
+export function getTemplatesByDifficulty(difficulty: DifficultyLevel): CourseTemplate[] {
   return courseTemplates.filter(t => t.difficulty === difficulty)
 }
