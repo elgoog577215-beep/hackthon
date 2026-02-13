@@ -3,7 +3,7 @@
  * 提供常用课程结构的快速创建
  */
 
-import { DIFFICULTY_LEVELS, type DifficultyLevel } from '../../../shared/prompt-config'
+import { DIFFICULTY_LEVELS, type DifficultyLevel } from '@/shared/prompt-config'
 
 export interface CourseTemplate {
   id: string

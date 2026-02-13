@@ -426,7 +426,7 @@ import {
   Clock, View, Delete, Sunny, CircleClose, Trophy, House
 } from '@element-plus/icons-vue'
 import type { ReviewItem } from '../utils/spacedRepetition'
-import { smartReviewApi } from '../api/smartReview'
+import { smartReviewApi, type ReviewItem as ApiReviewItem } from '../api/smartReview'
 
 const store = useCourseStore()
 const courseId = computed(() => store.currentCourseId)
@@ -533,35 +533,35 @@ const loadReviewSchedule = async () => {
   try {
     const data = await smartReviewApi.getReviewSchedule(courseId.value, 20, true)
     // 转换后端数据格式为前端格式
-    const convertedItems: ReviewItem[] = (data.items || []).map(item => {
-      const difficultyMap: Record<string, 'easy' | 'medium' | 'hard' | 'very_hard'> = {
-        'easy': 'easy',
-        'medium': 'medium',
-        'hard': 'hard',
-        'very_hard': 'very_hard'
-      }
-      const typeMap: Record<string, 'wrong_answer' | 'note' | 'knowledge_point' | 'quiz'> = {
-        'wrong_answer': 'wrong_answer',
-        'note': 'note',
-        'highlight': 'note',
-        'concept': 'knowledge_point'
-      }
+    const convertedItems: ReviewItem[] = (data.items || []).map((item: ApiReviewItem) => {
+      // const difficultyMap: Record<string, 'beginner' | 'intermediate' | 'advanced' | 'expert'> = {
+      //   'easy': 'beginner',
+      //   'medium': 'intermediate',
+      //   'hard': 'advanced',
+      //   'very_hard': 'expert'
+      // }
+      // const typeMap: Record<string, 'wrong_answer' | 'note' | 'knowledge_point' | 'quiz'> = {
+      //   'wrong_answer': 'wrong_answer',
+      //   'note': 'note',
+      //   'highlight': 'note',
+      //   'concept': 'knowledge_point'
+      // }
       return {
-        id: item.id,
+        id: item.node_id,
         nodeId: item.node_id,
         nodeName: item.node_name,
         courseId: courseId.value!,
-        content: item.content,
-        type: typeMap[item.type] || 'note',
-        createdAt: new Date(item.created_at).getTime(),
+        content: item.node_content,
+        type: 'note',
+        createdAt: Date.now(),
         lastReviewedAt: item.last_reviewed ? new Date(item.last_reviewed).getTime() : null,
         nextReviewAt: new Date(item.next_review).getTime(),
         reviewCount: item.review_count,
-        difficulty: difficultyMap[item.difficulty || ''] || 'medium',
-        retentionRate: 0.8,
+        difficulty: 'intermediate',
+        retentionRate: item.retention_rate || 0.8,
         masteryLevel: Math.min(item.review_count / 5, 1),
-        isForgotten: false,
-        tags: item.tags || []
+        isForgotten: item.status === 'overdue',
+        tags: []
       }
     })
     // 更新store中的复习项目
@@ -578,8 +578,11 @@ const loadReviewProgress = async () => {
   try {
     const data = await smartReviewApi.getReviewProgress(courseId.value)
     // 更新记忆曲线数据
-    if (data.memory_curve) {
-      store.setMemoryCurve(data.memory_curve)
+    if (data.memory_curve && data.memory_curve.length > 0) {
+      store.setMemoryCurve({
+        dates: data.memory_curve.map(d => d.date),
+        retention_rates: data.memory_curve.map(d => d.retention)
+      })
     }
   } catch (error) {
     console.error('加载复习进度失败:', error)
@@ -615,11 +618,12 @@ const getTypeLabel = (type: string) => {
 
 const getDifficultyLevel = (difficulty?: string) => {
   const map: Record<string, number> = {
-    'easy': 1,
-    'medium': 2,
-    'hard': 3
+    'beginner': 1,
+    'intermediate': 2,
+    'advanced': 3,
+    'expert': 4
   }
-  return map[difficulty || 'medium'] || 2
+  return map[difficulty || 'intermediate'] || 2
 }
 
 const formatNextReview = (timestamp: number) => {
@@ -683,9 +687,10 @@ const submitRating = async (rating: number) => {
   try {
     await smartReviewApi.submitReviewResults(courseId.value, [
       {
-        item_id: currentItem.value.id,
-        rating: rating,
-        reviewed_at: new Date().toISOString()
+        node_id: currentItem.value.nodeId,
+        quality: rating,
+        time_spent_seconds: 30,
+        notes: ''
       }
     ])
   } catch (error) {

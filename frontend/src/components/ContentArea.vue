@@ -940,8 +940,8 @@ import { useCourseStore } from '../stores/course'
 import { renderMarkdown } from '../utils/markdown'
 import CourseNode from './CourseNode.vue'
 import { useMermaid } from '../composables/useMermaid'
-import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, Warning, CollectionTag, Folder, PriceTag, Share } from '@element-plus/icons-vue'
-import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '../../../shared/prompt-config'
+import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, Warning, CollectionTag, Folder, PriceTag } from '@element-plus/icons-vue'
+import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
@@ -1019,14 +1019,14 @@ const exportDialog = reactive({
 })
 
 // Export scope options
-const exportScopes = [
+const exportScopes: { value: 'all' | 'filtered' | 'current', label: string, icon: string }[] = [
     { value: 'all', label: '全部', icon: 'Collection' },
     { value: 'filtered', label: '已筛选', icon: 'Filter' },
     { value: 'current', label: '当前视图', icon: 'View' }
 ]
 
 // Export format options
-const exportFormats = [
+const exportFormats: { value: 'markdown' | 'json', label: string, desc: string, icon: string }[] = [
     { value: 'markdown', label: 'Markdown', desc: '适合阅读和编辑', icon: 'Document' },
     { value: 'json', label: 'JSON', desc: '结构化数据格式', icon: 'DataLine' }
 ]
@@ -1164,8 +1164,8 @@ const exportToMarkdown = async (notes: any[], type: 'notes' | 'mistakes') => {
             markdown += `**标签:** ${note.tags.join(', ')}\n\n`
         }
         if (note.priority) {
-            const priorityText = { high: '高', medium: '中', low: '低' }
-            markdown += `**优先级:** ${priorityText[note.priority] || note.priority}\n\n`
+            const priorityText: Record<string, string> = { high: '高', medium: '中', low: '低' }
+            markdown += `**优先级:** ${priorityText[note.priority as string] || note.priority}\n\n`
         }
         
         markdown += `**来源章节:** ${getNodeName(note.nodeId)}\n\n`
@@ -1200,7 +1200,7 @@ const exportToJSON = async (notes: any[], type: 'notes' | 'mistakes') => {
         exportType: type,
         exportTime: dayjs().format('YYYY-MM-DD HH:mm'),
         totalCount: notes.length,
-        courseName: courseStore.currentCourse?.name || '未知课程',
+        courseName: courseStore.currentCourse?.course_name || '未知课程',
         notes: notes.map((note: any) => ({
             id: note.id,
             type: note.sourceType || 'note',
@@ -1244,10 +1244,10 @@ const clearAllFilters = () => {
     activeNoteFilter.value = 'notes'
 }
 
-const debounce = (fn: Function, delay: number) => {
-    let timeout: any
-    return (...args: any[]) => {
-        clearTimeout(timeout)
+const debounce = (fn: (...args: unknown[]) => void, delay: number) => {
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    return (...args: unknown[]) => {
+        if (timeout) clearTimeout(timeout)
         timeout = setTimeout(() => fn(...args), delay)
     }
 }
@@ -1494,7 +1494,7 @@ const searchTokens = computed(() => {
 const escapeRegExp = (val: string) => val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 // Debounce logic
-let searchTimeout: any = null
+let searchTimeout: ReturnType<typeof setTimeout> | null = null
 const handleSearchInput = (val: string) => {
     const nextVal = val || ''
     if (!nextVal.trim()) {
@@ -2856,8 +2856,8 @@ const handleScroll = (e: Event) => {
     saveScrollPosition(target.scrollTop)
 }
 
-const saveScrollPosition = debounce((scrollTop: number) => {
-    if (courseStore.currentCourseId) {
+const saveScrollPosition = debounce((scrollTop: unknown) => {
+    if (courseStore.currentCourseId && typeof scrollTop === 'number') {
         localStorage.setItem(`scroll-pos-${courseStore.currentCourseId}`, scrollTop.toString())
     }
 }, 500)
