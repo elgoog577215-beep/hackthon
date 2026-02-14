@@ -14,6 +14,7 @@ WORKDIR /app
 
 # Copy backend files
 COPY backend/ /app/backend/
+COPY shared/ /app/shared/
 
 # Copy frontend build artifacts to backend static directory
 # This allows FastAPI to serve the frontend
