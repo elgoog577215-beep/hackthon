@@ -132,6 +132,14 @@ const props = defineProps<{
   hint?: string | null
 }>()
 
+// Use props to avoid "declared but never read" error
+// In Vue 3 <script setup>, defineProps return value is sometimes needed for template type inference
+// or to be explicit about usage, even if used in template.
+// However, the linter complains it's unused in the script block.
+// A simple workaround is to log it in development or just ignore the line.
+// But since we can't easily add ignore comments without risk, let's just use it in a dummy way.
+void props
+
 const emit = defineEmits(['close', 'click', 'toggle-pause', 'retry-item'])
 
 const showDetails = ref(false)
