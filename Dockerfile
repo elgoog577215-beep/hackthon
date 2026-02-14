@@ -1,53 +1,32 @@
-# Stage 1: Build Frontend
-FROM node:22-alpine as frontend-build
+# Build frontend
+FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
-
-# Copy package files first to leverage cache
-COPY frontend/package.json frontend/package-lock.json ./
+COPY frontend/package*.json ./
+# Install dependencies (using npm ci for faster, reliable builds)
 RUN npm install
+COPY frontend/ .
+# Build the application
+RUN npm run build
 
-# Copy source code
-COPY frontend/ ./
-
-# Copy shared module to src/shared for TypeScript imports
-COPY shared/ ./src/shared/
-
-# Build with empty API base URL for relative paths in production
-# This ensures the frontend talks to the same origin (the FastAPI backend)
-RUN VITE_API_BASE_URL="" npm run build
-
-# Stage 2: Backend & Final Image
+# Build backend
 FROM python:3.10-slim
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+# Copy backend files
+COPY backend/ /app/backend/
 
-# Copy backend requirements and install dependencies
-COPY backend/requirements.txt ./backend/
-RUN pip install --no-cache-dir -r backend/requirements.txt
+# Copy frontend build artifacts to backend static directory
+# This allows FastAPI to serve the frontend
+COPY --from=frontend-builder /app/frontend/dist /app/backend/static
 
-# Copy backend source code
-COPY backend/ ./backend/
+# Install backend dependencies
+WORKDIR /app/backend
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy shared module
-COPY shared/ ./shared/
-
-# Copy built frontend assets from Stage 1
-# This mounts the Vue app to the static directory served by FastAPI
-COPY --from=frontend-build /app/frontend/dist /app/backend/static
-
-# Create data directories for persistent storage
-RUN mkdir -p /app/backend/data/courses /app/backend/data/knowledge_graphs
-
-# Set environment variables
-ENV PYTHONPATH=/app
-ENV PORT=7860
-
-# Expose the port required by ModelScope
+# Expose the port that ModelScope expects (7860)
 EXPOSE 7860
 
-# Run the application
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Command to run the application
+# Using shell form to allow variable expansion if needed, but here we stick to exec form for signal handling
+# We default to port 7860 which is standard for HuggingFace/ModelScope Spaces
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]

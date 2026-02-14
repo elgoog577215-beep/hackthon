@@ -219,15 +219,16 @@
         <!-- Main Content Column -->
         <div class="flex-1 min-w-0 px-2 sm:px-3 lg:px-4 xl:px-6 space-y-8 sm:space-y-10 lg:space-y-12 pb-24 sm:pb-28 lg:pb-32 pt-2 sm:pt-3 lg:pt-4">
             <CourseNode 
-                v-for="(node, index) in visibleNodes" 
-                :key="node.node_id"
-                :node="node"
-                :index="index"
-                :font-size="fontSize"
-                :font-family="fontFamily"
-                :line-height="lineHeight"
-                @start-quiz="handleStartQuiz"
-            />
+                    v-for="(node, index) in visibleNodes" 
+                    :key="node.node_id"
+                    :node="node" 
+                    :index="index"
+                    :font-size="fontSize"
+                    :font-family="fontFamily"
+                    :line-height="lineHeight"
+                    :search-words="searchTokens"
+                    @start-quiz="handleStartQuiz"
+                />
             
             <!-- Sentinel for Lazy Loading -->
             <div ref="sentinelRef" class="h-10 w-full flex items-center justify-center">
@@ -468,7 +469,9 @@
 
                         <!-- Content -->
                         <div class="p-4">
-                            <div class="text-sm text-slate-700 leading-7 font-sans tracking-normal" v-html="formatMistakeContent(note.content)"></div>
+                            <div class="text-sm text-slate-700 leading-7 font-sans tracking-normal">
+                                <MarkdownRenderer :content="note.content" :search-words="searchTokens" />
+                            </div>
                             <div class="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between text-[11px] text-slate-400">
                                 <div class="flex items-center gap-1.5 font-medium">
                                     <el-icon><Timer /></el-icon> {{ dayjs(note.createdAt).fromNow() }}
@@ -537,7 +540,9 @@
                                 <div class="p-4">
                                     <!-- Content Preview -->
                                     <div class="relative group/content">
-                                        <div class="text-sm text-slate-700 leading-relaxed font-sans tracking-normal note-content-markdown note-preview-content line-clamp-4" v-html="formatNoteContent(note.summary || note.content)"></div>
+                                        <div class="text-sm text-slate-700 leading-relaxed font-sans tracking-normal note-content-markdown note-preview-content line-clamp-4">
+                                        <MarkdownRenderer :content="note.summary || note.content" :search-words="searchTokens" />
+                                    </div>
                                     </div>
 
                                     <!-- View Full Action -->
@@ -604,7 +609,9 @@
                         </div>
                     </div>
                     <div v-if="note.quote" class="text-xs text-slate-500 italic mb-3 border-l-2 border-slate-200 pl-3 py-1">"{{ note.quote }}"</div>
-                    <div class="text-sm text-slate-700 leading-7 font-sans tracking-normal" v-html="formatNoteContent(note.summary || note.content)"></div>
+                    <div class="text-sm text-slate-700 leading-7 font-sans tracking-normal">
+                        <MarkdownRenderer :content="note.summary || note.content" :search-words="searchTokens" />
+                    </div>
                     <div class="mt-3 text-[11px] text-slate-400 flex items-center gap-1.5 font-medium">
                         <el-icon><Timer /></el-icon> {{ dayjs(note.createdAt).fromNow() }}
                     </div>
@@ -691,7 +698,7 @@
             <div v-for="(q, idx) in quizQuestions" :key="idx" class="mb-8 last:mb-0">
             <div class="flex gap-2 font-bold text-slate-800 mb-3 text-lg">
                 <span class="shrink-0">{{ idx + 1 }}.</span>
-                <div v-html="renderMarkdown(q.question)"></div>
+                <MarkdownRenderer :content="q.question" />
             </div>
             <div class="space-y-2">
                 <div 
@@ -716,12 +723,14 @@
                     <span v-else-if="quizSubmitted && userAnswers[idx] === opt && opt !== q.answer"><el-icon><Close /></el-icon></span>
                     <span v-else>{{ String.fromCharCode(65 + Number(oIdx)) }}</span>
                 </div>
-                <div class="text-slate-700 font-medium" v-html="renderMarkdown(opt)"></div>
+                <div class="text-slate-700 font-medium">
+                    <MarkdownRenderer :content="opt" />
+                </div>
                 </div>
             </div>
             <div v-if="quizSubmitted" class="mt-3 text-sm bg-slate-50 p-3 rounded-lg text-slate-600">
                 <span class="font-bold text-slate-800 block mb-1">解析：</span> 
-                <div v-html="renderMarkdown(q.explanation || '暂无解析')"></div>
+                <MarkdownRenderer :content="q.explanation || '暂无解析'" />
             </div>
             </div>
         </div>
@@ -763,7 +772,9 @@
                     <div class="text-[11px] font-bold text-purple-600 mb-2 uppercase tracking-wide flex items-center gap-1">
                         <el-icon><CollectionTag /></el-icon> 核心概括
                     </div>
-                    <div class="text-sm text-slate-700 leading-relaxed note-content-markdown" v-html="formatNoteContent(selectedNote.summary)"></div>
+                    <div class="text-sm text-slate-700 leading-relaxed note-content-markdown">
+                        <MarkdownRenderer :content="selectedNote.summary" :search-words="searchTokens" />
+                    </div>
                 </div>
 
                 <!-- Tags & Category Section -->
@@ -865,7 +876,9 @@
                     class="glass-input-clean text-base"
                 />
             </div>
-            <div v-else class="bg-white p-6 rounded-xl border border-slate-100 shadow-sm note-content-markdown min-h-[150px]" v-html="formatNoteDetailContent(selectedNote)"></div>
+            <div v-else class="bg-white p-6 rounded-xl border border-slate-100 shadow-sm note-content-markdown min-h-[150px]">
+                <MarkdownRenderer :content="getCleanedNoteContent(selectedNote)" :search-words="searchTokens" />
+            </div>
 
             <!-- Metadata (View Mode Only) -->
             <div v-if="!isDialogEditing" class="flex items-center justify-between pt-4 border-t border-slate-100 text-xs text-slate-400">
@@ -937,8 +950,9 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick, onUpdated, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
-import { renderMarkdown } from '../utils/markdown'
+
 import CourseNode from './CourseNode.vue'
+import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useMermaid } from '../composables/useMermaid'
 import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, Warning, CollectionTag, Folder, PriceTag } from '@element-plus/icons-vue'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
@@ -1491,7 +1505,7 @@ const searchTokens = computed(() => {
     if (!query) return []
     return query.split(/\s+/).filter(Boolean)
 })
-const escapeRegExp = (val: string) => val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 
 // Debounce logic
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -2181,7 +2195,9 @@ watch(() => visibleNotes.value, () => {
 
 
 
-const formatNoteDetailContent = (note: any) => {
+
+
+const getCleanedNoteContent = (note: any) => {
     let content = note.content || ''
     
     // Auto-remove quote from content if it matches the explicit quote context
@@ -2218,59 +2234,10 @@ const formatNoteDetailContent = (note: any) => {
         }
     }
     
-    return formatNoteContent(content)
+    return content
 }
 
-const formatNoteContent = (content: string) => {
-    if (!content) return ''
 
-    // First render markdown, then apply highlighting
-    let html = renderMarkdown(content)
-
-    // Apply search highlighting
-    if (searchTokens.value.length > 0) {
-        const tokens = Array.from(new Set(searchTokens.value.map(t => escapeRegExp(t)).filter(Boolean)))
-        if (tokens.length > 0) {
-            const regex = new RegExp(`(${tokens.join('|')})`, 'gi')
-            html = html.replace(regex, '<span class="bg-yellow-200 text-slate-900 rounded px-0.5 box-decoration-clone">$1</span>')
-        }
-    }
-
-    return html
-}
-
-const formatMistakeContent = (content: string) => {
-    let html = content
-        .replace(/\*\*错题记录\*\*\s*/g, '')
-        .replace(/#错题/g, '')
-        .trim()
-
-    // 题目
-    html = html.replace(/\*\*题目\*\*：([\s\S]*?)(?=\n\n|\n\*\*|$)/, 
-        '<div class="mb-4"><div class="text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"><span class="w-1 h-3 bg-slate-300 rounded-full"></span>题目</div><div class="text-sm font-bold text-slate-800 leading-relaxed">$1</div></div>')
-
-    // 你的答案 (Error)
-    html = html.replace(/\*\*你的答案\*\*：(.*?) ❌/g, 
-        '<div class="flex items-center justify-between bg-red-50/80 border border-red-100 rounded-xl px-3 py-2.5 mb-2 relative overflow-hidden"><div class="absolute left-0 top-0 bottom-0 w-1 bg-red-400"></div><div class="flex flex-col z-10"><span class="text-[10px] font-bold text-red-400 mb-0.5 uppercase">你的答案</span><span class="text-sm font-bold text-red-700">$1</span></div><div class="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center text-red-500"><svg viewBox="0 0 1024 1024" width="12" height="12"><path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm165.4 618.2l-66-.3L512 563.4l-99.6 118.4-66.1.3c-4.4 0-8.1-3.5-8.1-8 0-1.9.7-3.7 1.9-5.2l130.1-155L340.5 359a8.32 8.32 0 0 1-1.9-5.2c0-4.4 3.6-8 8.1-8l66.1.3L512 464.6l99.6-118.4 66-.3c4.4 0 8.1 3.5 8.1 8 0 1.9-.7 3.7-1.9 5.2L553.5 514l130 155c1.2 1.5 1.9 3.3 1.9 5.2 0 4.4-3.6 8-8 8z" fill="currentColor"></path></svg></div></div>')
-
-    // 正确答案 (Success)
-    html = html.replace(/\*\*正确答案\*\*：(.*?) ✅/g, 
-        '<div class="flex items-center justify-between bg-emerald-50/80 border border-emerald-100 rounded-xl px-3 py-2.5 mb-4 relative overflow-hidden"><div class="absolute left-0 top-0 bottom-0 w-1 bg-emerald-400"></div><div class="flex flex-col z-10"><span class="text-[10px] font-bold text-emerald-500 mb-0.5 uppercase">正确答案</span><span class="text-sm font-bold text-emerald-700">$1</span></div><div class="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-500"><svg viewBox="0 0 1024 1024" width="12" height="12"><path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm193.5 301.7l-210.6 292a31.8 31.8 0 0 1-51.7 0L318.5 484.9c-3.8-5.3 0-12.7 6.5-12.7h46.9c10.2 0 19.9 4.9 25.9 13.3l71.2 98.8 157.2-218c6-8.3 15.6-13.3 25.9-13.3H699c6.5 0 10.3 7.4 6.5 12.7z" fill="currentColor"></path></svg></div></div>')
-
-    // 解析
-    html = html.replace(/\*\*解析\*\*：([\s\S]*?)$/, 
-        '<div class="bg-slate-50 rounded-xl p-3.5 text-xs text-slate-600 leading-relaxed border border-slate-200/60 shadow-inner"><span class="font-bold text-slate-800 flex items-center gap-1.5 mb-2 text-[10px] uppercase tracking-wide"><svg viewBox="0 0 1024 1024" width="12" height="12" class="text-amber-500"><path d="M632 888H392c-4.4 0-8 3.6-8 8v32c0 17.7 14.3 32 32 32h192c17.7 0 32-14.3 32-32v-32c0-4.4-3.6-8-8-8zM512 64c-181.1 0-328 146.9-328 328 0 121.4 66 227.4 164 284.1V792c0 17.7 14.3 32 32 32h264c17.7 0 32-14.3 32-32v-115.9c98-56.7 164-162.7 164-284.1 0-181.1-146.9-328-328-328z" fill="currentColor"></path></svg> 解析</span>$1</div>')
-
-    if (searchTokens.value.length > 0) {
-        const tokens = Array.from(new Set(searchTokens.value.map(t => escapeRegExp(t)).filter(Boolean)))
-        if (tokens.length > 0) {
-            const regex = new RegExp(`(${tokens.join('|')})`, 'gi')
-            html = html.replace(regex, '<span class="bg-yellow-200 text-slate-900 rounded px-0.5 box-decoration-clone">$1</span>')
-        }
-    }
-
-    return html
-}
 
 // Selection Handling
 const handleMouseUp = (_e: MouseEvent) => {

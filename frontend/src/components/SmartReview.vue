@@ -410,7 +410,9 @@
         <div v-if="previewItemData.type === 'wrong_answer'">
           <p><strong>问题：</strong>{{ JSON.parse(previewItemData.content).question }}</p>
         </div>
-        <div v-else v-html="formatContent(previewItemData.content)"></div>
+        <div v-else>
+          <MarkdownRenderer :content="previewItemData.content" />
+        </div>
       </div>
     </el-dialog>
   </div>
@@ -420,6 +422,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import MarkdownRenderer from './MarkdownRenderer.vue'
 import {
   Calendar, Warning, CircleCheck, DataLine, TrendCharts,
   InfoFilled, List, Refresh, VideoPlay, Star, StarFilled,

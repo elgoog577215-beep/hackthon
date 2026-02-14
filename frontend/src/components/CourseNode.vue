@@ -33,7 +33,9 @@
                 </div>
 
                 <!-- Description -->
-                <div class="prose prose-base sm:prose-lg prose-slate text-slate-600 max-w-2xl sm:max-w-3xl mx-auto font-sans leading-relaxed mix-blend-multiply text-center font-medium" v-html="renderMarkdown(node.node_content)"></div>
+                <div class="prose prose-base sm:prose-lg prose-slate text-slate-600 max-w-2xl sm:max-w-3xl mx-auto font-sans leading-relaxed mix-blend-multiply text-center font-medium">
+                    <MarkdownRenderer :content="node.node_content" :search-words="searchWords" />
+                </div>
             </div>
         </div>
 
@@ -96,7 +98,9 @@
 
                     <!-- Bottom Row: Content -->
                     <div v-if="node.node_content" class="mt-8 pt-8 border-t border-slate-100">
-                        <div class="prose prose-slate max-w-none prose-lg" v-html="renderMarkdown(node.node_content)"></div>
+                        <div class="prose prose-slate max-w-none prose-lg">
+                            <MarkdownRenderer :content="node.node_content" :search-words="searchWords" />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -116,11 +120,11 @@
                 <div
                     class="prose prose-slate max-w-none content-render prose-base sm:prose-lg"
                     :style="{
-                        fontSize: (fontSize + 2) + 'px',
-                        fontFamily: fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' : (fontFamily === 'serif' ? 'ui-serif, Georgia, Cambria, Times New Roman, Times, serif' : '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif'),
+                        fontSize: fontSize + 'px',
+                        fontFamily: fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' : (fontFamily === 'serif' ? 'ui-serif, Georgia, Cambria, Times New Roman, Times, serif' : '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji'),
                         lineHeight: lineHeight
-                    }"
-                    v-html="renderMarkdown(node.node_content)">
+                    }">
+                    <MarkdownRenderer :content="node.node_content" :search-words="searchWords" />
                 </div>
             </div>
         </div>
@@ -128,7 +132,7 @@
 </template>
 
 <script setup lang="ts">
-import { renderMarkdown } from '../utils/markdown';
+import MarkdownRenderer from './MarkdownRenderer.vue';
 import { MagicStick, Reading, Check } from '@element-plus/icons-vue';
 
 defineProps<{
@@ -137,6 +141,7 @@ defineProps<{
   fontSize: number;
   fontFamily: string;
   lineHeight: number;
+  searchWords?: string[];
 }>();
 
 defineEmits<{
