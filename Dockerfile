@@ -22,6 +22,7 @@ COPY --from=frontend-builder /app/frontend/dist /app/backend/static
 
 # Install backend dependencies
 WORKDIR /app/backend
+ENV PYTHONPATH=/app
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Expose the port that ModelScope expects (7860)
