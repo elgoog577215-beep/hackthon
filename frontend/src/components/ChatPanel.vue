@@ -98,16 +98,16 @@
                 <!-- Markdown Content Preview -->
                 <div class="relative">
                     <div class="p-6 max-h-[50vh] overflow-y-auto custom-scrollbar bg-white">
-                        <div class="prose prose-slate prose-sm max-w-none 
+                        <MarkdownRenderer 
+                            :content="summaryContent"
+                            class="prose prose-slate prose-sm max-w-none 
                             prose-headings:font-bold prose-headings:text-slate-800 
                             prose-p:text-slate-600 prose-p:leading-relaxed
                             prose-li:text-slate-600 prose-strong:text-slate-800 prose-strong:font-bold
                             prose-code:text-primary-600 prose-code:bg-primary-50 prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none
                             prose-pre:bg-slate-800 prose-pre:rounded-xl prose-pre:shadow-lg
-                            prose-blockquote:border-l-4 prose-blockquote:border-primary-200 prose-blockquote:bg-primary-50/30 prose-blockquote:px-4 prose-blockquote:py-1 prose-blockquote:rounded-r-lg prose-blockquote:not-italic
-                            "
-                            v-html="renderMarkdown(summaryContent)"
-                        ></div>
+                            prose-blockquote:border-l-4 prose-blockquote:border-primary-200 prose-blockquote:bg-primary-50/30 prose-blockquote:px-4 prose-blockquote:py-1 prose-blockquote:rounded-r-lg prose-blockquote:not-italic"
+                        />
                     </div>
                     
                     <!-- Edit Overlay (Optional, if we want to allow raw edit) -->
@@ -261,7 +261,7 @@
                             </div>
                         </div>
                         <div v-if="msg.content.answer" class="prose prose-sm prose-slate mb-3 leading-relaxed">
-                            <div v-html="renderMarkdown(msg.content.answer)"></div>
+                            <MarkdownRenderer :content="msg.content.answer" />
                         </div>
                         <div v-if="getQuizList(msg.content).length > 0" class="mt-3 space-y-4 select-none">
                             <div v-for="(quiz, qIdx) in getQuizList(msg.content)" :key="qIdx" 
@@ -277,7 +277,9 @@
                                     <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-primary-100 to-primary-50 text-primary-600 flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
                                         {{ qIdx + 1 }}
                                     </div>
-                                    <div class="text-slate-800 font-semibold leading-relaxed pt-1 text-[15px]" v-html="renderMarkdown(quiz.question)"></div>
+                                    <div class="text-slate-800 font-semibold leading-relaxed pt-1 text-[15px]">
+                                        <MarkdownRenderer :content="quiz.question" />
+                                    </div>
                                 </div>
 
                                 <div class="space-y-2.5 pl-11">
@@ -294,7 +296,9 @@
                                                 :class="getOptionBadgeClass(idx, qIdx, oIdx, quiz)">
                                                 {{ getOptionLabel(oIdx) }}
                                             </div>
-                                            <div class="text-sm font-medium leading-relaxed" v-html="renderMarkdown(opt)"></div>
+                                            <div class="text-sm font-medium leading-relaxed">
+                                                <MarkdownRenderer :content="opt" />
+                                            </div>
                                         </div>
                                         
                                         <div v-if="isQuizSubmitted(idx, qIdx)" class="absolute right-3 top-1/2 -translate-y-1/2">
@@ -310,7 +314,7 @@
                                             <el-icon :size="12"><InfoFilled /></el-icon>
                                             解析
                                         </div>
-                                        <div class="text-sm text-slate-600 leading-[1.8]" v-html="renderMarkdown(quiz.explanation || '')"></div>
+                                        <MarkdownRenderer :content="quiz.explanation || ''" class="text-sm text-slate-600 leading-[1.8]" />
                                     </div>
                                     
                                     <div class="flex gap-2 mt-3 flex-wrap">
@@ -345,7 +349,9 @@
                         </div>
                     </div>
                     <div v-else class="relative z-10 leading-relaxed whitespace-pre-wrap font-medium" :class="msg.type === 'user' ? 'text-white' : 'text-slate-700'">
-                        <div v-if="msg.type === 'ai'" v-html="renderMarkdown(getMessageText(msg.content))"></div>
+                        <div v-if="msg.type === 'ai'">
+                            <MarkdownRenderer :content="getMessageText(msg.content)" />
+                        </div>
                         <span v-else>{{ msg.content }}</span>
                     </div>
                 </div>
@@ -428,8 +434,8 @@ import { useCourseStore } from '../stores/course'
 import type { AIContent } from '../stores/course'
 import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight, InfoFilled, QuestionFilled, Document, DataLine, Sunny, TrendCharts, Menu as CommandMenu } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { renderMarkdown } from '../utils/markdown'
 import { useMermaid } from '../composables/useMermaid'
+import MarkdownRenderer from './MarkdownRenderer.vue'
 
 const courseStore = useCourseStore()
 const inputMessage = ref('')

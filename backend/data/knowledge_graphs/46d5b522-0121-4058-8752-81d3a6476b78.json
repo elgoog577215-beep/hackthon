@@ -1,0 +1,218 @@
+{
+  "nodes": [
+    {
+      "id": "quantum_mechanics_root",
+      "label": "量子力学：从波函数到量子纠缠的系统化理解",
+      "type": "root",
+      "description": "课程核心主题，涵盖数学基础、波函数理论、量子态空间、测量原理、对称性与守恒律、多体系统和近似方法等内容。",
+      "chapter_id": "d04454c8-3aa6-48b6-8371-08cd7a62eb80"
+    },
+    {
+      "id": "d04454c8-3aa6-48b6-8371-08cd7a62eb80",
+      "label": "第一章 数学预备知识",
+      "type": "module",
+      "description": "提供线性代数、复变函数、微分方程及傅里叶变换等必要数学工具。",
+      "chapter_id": "d04454c8-3aa6-48b6-8371-08cd7a62eb80"
+    },
+    {
+      "id": "f85b319d-a9c7-4be5-8442-73a0798a9c78",
+      "label": "第二章 波动力学与波函数概念",
+      "type": "module",
+      "description": "介绍德布罗意物质波假设、薛定谔方程及其物理意义，并通过自由粒子和势阱问题建立波函数的概率解释。",
+      "chapter_id": "f85b319d-a9c7-4be5-8442-73a0798a9c78"
+    },
+    {
+      "id": "d3cbb00c-d554-4a0f-96f5-992bc1608307",
+      "label": "第三章 量子态与希尔伯特空间",
+      "type": "module",
+      "description": "讲解狄拉克符号、基矢分解、正交归一条件及密度矩阵，引入态叠加原理和纯态与混合态的概念。",
+      "chapter_id": "d3cbb00c-d554-4a0f-96f5-992bc1608307"
+    },
+    {
+      "id": "5f8f02c1-1523-499f-9e0b-2dd00c978acb",
+      "label": "第四章 观测与不确定性原理",
+      "type": "module",
+      "description": "描述测量过程，推导海森堡不确定性关系，并讨论观测行为对量子系统的影响。",
+      "chapter_id": "5f8f02c1-1523-499f-9e0b-2dd00c978acb"
+    },
+    {
+      "id": "500633b7-9cd8-4d36-b00d-ee0dcb622e99",
+      "label": "第五章 对称性与守恒律",
+      "type": "module",
+      "description": "研究时空平移与旋转对称性在量子力学中的体现，定义动量与角动量算符，并探讨诺特定理的应用。",
+      "chapter_id": "500633b7-9cd8-4d36-b00d-ee0dcb622e99"
+    },
+    {
+      "id": "c0877fed-aa7f-46c2-8661-1392d23ce0cb",
+      "label": "第六章 多体系统与纠缠态",
+      "type": "module",
+      "description": "构建多粒子系统的态空间，分析全同粒子与交换对称性，并介绍贝尔不等式与量子纠缠现象。",
+      "chapter_id": "c0877fed-aa7f-46c2-8661-1392d23ce0cb"
+    },
+    {
+      "id": "30a6f68b-1e7e-4b88-b68f-6792bacd3272",
+      "label": "第七章 近似方法与应用实例",
+      "type": "module",
+      "description": "讲解变分法与微扰理论的基本思想，并通过氢原子、简谐振子等模型展示理论的实际应用。",
+      "chapter_id": "30a6f68b-1e7e-4b88-b68f-6792bacd3272"
+    },
+    {
+      "id": "vector_space",
+      "label": "向量空间",
+      "type": "concept",
+      "description": "现代数学和物理的基础结构，为量子态空间提供形式化框架。",
+      "chapter_id": "1a7f4044-dceb-4338-9975-b09d26e05e3c"
+    },
+    {
+      "id": "inner_product_space",
+      "label": "内积空间",
+      "type": "concept",
+      "description": "赋予向量空间几何结构，用于定义长度、角度和正交性，是希尔伯特空间的前身。",
+      "chapter_id": "08b7d16a-95e6-4f67-ba41-3e38058e523f"
+    },
+    {
+      "id": "hilbert_space",
+      "label": "希尔伯特空间",
+      "type": "concept",
+      "description": "完备的内积空间，是量子力学中态空间的核心载体。",
+      "chapter_id": "365db2fc-8752-4a27-9bcc-47b59f429e59"
+    },
+    {
+      "id": "schrödinger_equation",
+      "label": "薛定谔方程",
+      "type": "theorem",
+      "description": "量子力学中描述微观粒子演化的基本动力学方程。",
+      "chapter_id": "481466d1-a7f4-469d-ab03-5846b4577659"
+    },
+    {
+      "id": "wave_function",
+      "label": "波函数",
+      "type": "concept",
+      "description": "描述量子系统状态的复值函数，其绝对值平方表示概率密度。",
+      "chapter_id": "d9a36673-8332-4b7c-88b3-67ee6b196f9b"
+    },
+    {
+      "id": "dirac_notation",
+      "label": "狄拉克符号体系",
+      "type": "method",
+      "description": "量子态的标准表示方式，包括 ket 和 bra 矢量。",
+      "chapter_id": "f184040b-e6d9-4c38-9cb6-730cf224e9e7"
+    },
+    {
+      "id": "heisenberg_uncertainty_principle",
+      "label": "海森堡不确定性原理",
+      "type": "theorem",
+      "description": "描述两个非对易算符之间测量精度的限制，是量子力学的基本性质之一。",
+      "chapter_id": "5f8f02c1-1523-499f-9e0b-2dd00c978acb"
+    },
+    {
+      "id": "entanglement",
+      "label": "量子纠缠",
+      "type": "concept",
+      "description": "多个粒子之间的非经典关联，是量子信息科学的重要资源。",
+      "chapter_id": "7c2d7f08-3951-46be-9811-1f27826495c5"
+    }
+  ],
+  "edges": [
+    {
+      "source": "quantum_mechanics_root",
+      "target": "d04454c8-3aa6-48b6-8371-08cd7a62eb80",
+      "relation": "contains"
+    },
+    {
+      "source": "quantum_mechanics_root",
+      "target": "f85b319d-a9c7-4be5-8442-73a0798a9c78",
+      "relation": "contains"
+    },
+    {
+      "source": "quantum_mechanics_root",
+      "target": "d3cbb00c-d554-4a0f-96f5-992bc1608307",
+      "relation": "contains"
+    },
+    {
+      "source": "quantum_mechanics_root",
+      "target": "5f8f02c1-1523-499f-9e0b-2dd00c978acb",
+      "relation": "contains"
+    },
+    {
+      "source": "quantum_mechanics_root",
+      "target": "500633b7-9cd8-4d36-b00d-ee0dcb622e99",
+      "relation": "contains"
+    },
+    {
+      "source": "quantum_mechanics_root",
+      "target": "c0877fed-aa7f-46c2-8661-1392d23ce0cb",
+      "relation": "contains"
+    },
+    {
+      "source": "quantum_mechanics_root",
+      "target": "30a6f68b-1e7e-4b88-b68f-6792bacd3272",
+      "relation": "contains"
+    },
+    {
+      "source": "d04454c8-3aa6-48b6-8371-08cd7a62eb80",
+      "target": "vector_space",
+      "relation": "contains"
+    },
+    {
+      "source": "d04454c8-3aa6-48b6-8371-08cd7a62eb80",
+      "target": "inner_product_space",
+      "relation": "contains"
+    },
+    {
+      "source": "d04454c8-3aa6-48b6-8371-08cd7a62eb80",
+      "target": "hilbert_space",
+      "relation": "contains"
+    },
+    {
+      "source": "f85b319d-a9c7-4be5-8442-73a0798a9c78",
+      "target": "schrödinger_equation",
+      "relation": "contains"
+    },
+    {
+      "source": "f85b319d-a9c7-4be5-8442-73a0798a9c78",
+      "target": "wave_function",
+      "relation": "contains"
+    },
+    {
+      "source": "d3cbb00c-d554-4a0f-96f5-992bc1608307",
+      "target": "dirac_notation",
+      "relation": "contains"
+    },
+    {
+      "source": "5f8f02c1-1523-499f-9e0b-2dd00c978acb",
+      "target": "heisenberg_uncertainty_principle",
+      "relation": "contains"
+    },
+    {
+      "source": "c0877fed-aa7f-46c2-8661-1392d23ce0cb",
+      "target": "entanglement",
+      "relation": "contains"
+    },
+    {
+      "source": "hilbert_space",
+      "target": "dirac_notation",
+      "relation": "related"
+    },
+    {
+      "source": "hilbert_space",
+      "target": "wave_function",
+      "relation": "related"
+    },
+    {
+      "source": "wave_function",
+      "target": "schrödinger_equation",
+      "relation": "related"
+    },
+    {
+      "source": "schrödinger_equation",
+      "target": "heisenberg_uncertainty_principle",
+      "relation": "related"
+    },
+    {
+      "source": "dirac_notation",
+      "target": "entanglement",
+      "relation": "related"
+    }
+  ]
+}

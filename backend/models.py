@@ -251,3 +251,11 @@ class ExecuteCodeResponse(BaseModel):
     error: Optional[str] = None
     execution_time: float  # milliseconds
     language: str
+
+class GenerateDiagramRequest(BaseModel):
+    description: str
+    diagram_type: str = "graph"  # graph, sequence, mindmap, etc.
+    context: Optional[str] = ""
+
+class GenerateKnowledgeGraphRequest(BaseModel):
+    course_id: str
