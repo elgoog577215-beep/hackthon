@@ -22,6 +22,12 @@ ENV HOME=/home/user \
 COPY --chown=user backend/ /app/backend/
 COPY --chown=user shared/ /app/shared/
 
+# Setup startup script and data seeding
+COPY --chown=user backend/start.sh /app/backend/start.sh
+RUN chmod +x /app/backend/start.sh && \
+    mkdir -p /app/backend/data_seed && \
+    cp -r /app/backend/data/* /app/backend/data_seed/ || true
+
 # Copy frontend build artifacts to backend static directory
 # This allows FastAPI to serve the frontend
 COPY --from=frontend-builder --chown=user /app/frontend/dist /app/backend/static
@@ -39,4 +45,4 @@ RUN mkdir -p /app/backend/data && chmod 777 /app/backend/data
 EXPOSE 7860
 
 # Command to run the application
-CMD ["/app/backend/start.sh"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
