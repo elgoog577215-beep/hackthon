@@ -84,10 +84,14 @@ class AIService:
         # 如果未指定，默认使用更小、更快的模型。
         self.model_fast = os.getenv("AI_MODEL_FAST", "Qwen/Qwen3-32B")
         
-        self.client = AsyncOpenAI(
-            base_url=self.api_base,
-            api_key=self.api_key,
-        )
+        if self.api_key:
+            self.client = AsyncOpenAI(
+                base_url=self.api_base,
+                api_key=self.api_key,
+            )
+        else:
+            self.client = None
+            logger.warning("AI_API_KEY not found. AI features will be disabled.")
 
     # ============================================================================
     # 内容解析工具方法
