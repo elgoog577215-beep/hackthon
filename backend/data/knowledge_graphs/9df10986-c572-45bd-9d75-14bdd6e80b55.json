@@ -1,0 +1,382 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "机器学习：原理与实践",
+      "type": "root",
+      "description": "系统性介绍机器学习的核心理论与实践方法",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_1",
+      "label": "统计学习基础",
+      "type": "module",
+      "description": "概率论、统计学和线性代数在机器学习中的作用",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_2",
+      "label": "监督学习模型",
+      "type": "module",
+      "description": "线性回归、逻辑回归等监督学习方法",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "module_3",
+      "label": "模型评估与选择",
+      "type": "module",
+      "description": "交叉验证、偏差-方差权衡及泛化分析",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "module_4",
+      "label": "正则化与优化",
+      "type": "module",
+      "description": "L1/L2正则化技术及其对过拟合的控制",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "module_5",
+      "label": "决策树与集成学习",
+      "type": "module",
+      "description": "随机森林、梯度提升等集成方法",
+      "chapter_id": "id_5"
+    },
+    {
+      "id": "module_6",
+      "label": "支持向量机（SVM）",
+      "type": "module",
+      "description": "最大间隔分类器及其核方法",
+      "chapter_id": "id_6"
+    },
+    {
+      "id": "module_7",
+      "label": "聚类与无监督学习",
+      "type": "module",
+      "description": "K均值聚类、层次聚类及EM算法",
+      "chapter_id": "id_7"
+    },
+    {
+      "id": "concept_1",
+      "label": "概率分布",
+      "type": "concept",
+      "description": "描述随机变量取值可能性的函数",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "concept_2",
+      "label": "线性回归",
+      "type": "method",
+      "description": "通过最小二乘法拟合数据的预测模型",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "concept_3",
+      "label": "逻辑回归",
+      "type": "method",
+      "description": "用于分类问题的概率模型",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "concept_4",
+      "label": "交叉验证",
+      "type": "method",
+      "description": "评估模型性能的数据划分策略",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "concept_5",
+      "label": "偏差-方差权衡",
+      "type": "concept",
+      "description": "模型复杂度与泛化能力之间的平衡",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "concept_6",
+      "label": "L2正则化",
+      "type": "method",
+      "description": "通过惩罚权重平方减小模型复杂度",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "concept_7",
+      "label": "L1正则化",
+      "type": "method",
+      "description": "通过惩罚权重绝对值实现特征选择",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "concept_8",
+      "label": "决策树",
+      "type": "method",
+      "description": "基于特征分裂构建的树形预测模型",
+      "chapter_id": "id_5"
+    },
+    {
+      "id": "concept_9",
+      "label": "随机森林",
+      "type": "method",
+      "description": "通过集成多个决策树降低方差",
+      "chapter_id": "id_5"
+    },
+    {
+      "id": "concept_10",
+      "label": "支持向量机",
+      "type": "method",
+      "description": "最大化分类间隔的线性/非线性分类器",
+      "chapter_id": "id_6"
+    },
+    {
+      "id": "concept_11",
+      "label": "核方法",
+      "type": "method",
+      "description": "将数据映射到高维空间以实现非线性分类",
+      "chapter_id": "id_6"
+    },
+    {
+      "id": "concept_12",
+      "label": "K均值聚类",
+      "type": "method",
+      "description": "基于距离度量的无监督聚类算法",
+      "chapter_id": "id_7"
+    },
+    {
+      "id": "concept_13",
+      "label": "马尔可夫决策过程",
+      "type": "concept",
+      "description": "强化学习中的状态转移建模框架",
+      "chapter_id": "id_8"
+    },
+    {
+      "id": "concept_14",
+      "label": "Q-learning",
+      "type": "method",
+      "description": "基于价值函数更新的强化学习算法",
+      "chapter_id": "id_8"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "module_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_6",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_7",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_8",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "concept_6",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "concept_7",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_5",
+      "target": "concept_8",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_5",
+      "target": "concept_9",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_6",
+      "target": "concept_10",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_6",
+      "target": "concept_11",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_7",
+      "target": "concept_12",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_8",
+      "target": "concept_13",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_8",
+      "target": "concept_14",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "concept_2",
+      "target": "concept_6",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "concept_2",
+      "target": "concept_7",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "concept_3",
+      "target": "concept_6",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "concept_3",
+      "target": "concept_7",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "concept_4",
+      "target": "concept_2",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "concept_4",
+      "target": "concept_3",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "concept_4",
+      "target": "concept_8",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "concept_4",
+      "target": "concept_10",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "concept_5",
+      "target": "concept_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_5",
+      "target": "concept_3",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_6",
+      "target": "concept_2",
+      "relation": "leads_to",
+      "label": "推导"
+    },
+    {
+      "source": "concept_7",
+      "target": "concept_3",
+      "relation": "leads_to",
+      "label": "推导"
+    },
+    {
+      "source": "concept_8",
+      "target": "concept_9",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_10",
+      "target": "concept_11",
+      "relation": "applies_to",
+      "label": "应用"
+    },
+    {
+      "source": "concept_13",
+      "target": "concept_14",
+      "relation": "applies_to",
+      "label": "应用"
+    }
+  ]
+}

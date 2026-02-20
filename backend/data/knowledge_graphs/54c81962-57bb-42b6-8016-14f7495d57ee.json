@@ -1,0 +1,326 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "label": "微积分：理论与应用",
+      "type": "root",
+      "description": "系统介绍微积分的基本理论及其在各领域的应用。",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_1",
+      "label": "函数与极限",
+      "type": "module",
+      "description": "研究函数的基本性质和极限的严格定义。",
+      "chapter_id": "id_1"
+    },
+    {
+      "id": "module_2",
+      "label": "导数与微分",
+      "type": "module",
+      "description": "探讨导数的定义、计算方法及几何意义。",
+      "chapter_id": "id_2"
+    },
+    {
+      "id": "module_3",
+      "label": "微分中值定理",
+      "type": "module",
+      "description": "分析罗尔定理和拉格朗日中值定理及其推论。",
+      "chapter_id": "id_3"
+    },
+    {
+      "id": "module_4",
+      "label": "积分与不定积分",
+      "type": "module",
+      "description": "研究不定积分的概念、公式和换元法。",
+      "chapter_id": "id_4"
+    },
+    {
+      "id": "concept_function",
+      "label": "函数",
+      "type": "concept",
+      "description": "描述变量之间依赖关系的映射结构。",
+      "chapter_id": "d36f5740-1f34-41b9-a7c3-3a1679daff0f"
+    },
+    {
+      "id": "concept_elementary_functions",
+      "label": "初等函数",
+      "type": "concept",
+      "description": "通过有限次代数、指数、对数和三角运算构造的函数。",
+      "chapter_id": "84a992e6-0a18-467c-b0ef-66ec490fa5b1"
+    },
+    {
+      "id": "concept_composite_inverse",
+      "label": "复合函数与反函数",
+      "type": "concept",
+      "description": "由多个函数组合或逆向映射构成的函数形式。",
+      "chapter_id": "df877a32-c1b0-45b0-abd6-2267314aa181"
+    },
+    {
+      "id": "concept_sequence_limit",
+      "label": "数列的极限",
+      "type": "concept",
+      "description": "研究数列随序号趋于无穷时的变化趋势。",
+      "chapter_id": "0e69642c-2df0-434e-b541-ef57c1df7193"
+    },
+    {
+      "id": "theorem_epsilon_delta",
+      "label": "ε-δ 极限定义",
+      "type": "theorem",
+      "description": "严格的极限定义，刻画函数趋近行为。",
+      "chapter_id": "2c88fa5b-a5c5-4100-b2bb-021a820e6ace"
+    },
+    {
+      "id": "concept_one_sided_limits",
+      "label": "单侧极限",
+      "type": "concept",
+      "description": "从左侧或右侧趋近某点时的极限行为。",
+      "chapter_id": "7efb4652-fa8b-4d3d-8b29-4714f4fdb1f2"
+    },
+    {
+      "id": "concept_infinitesimal_infinite",
+      "label": "无穷小量与无穷大量",
+      "type": "concept",
+      "description": "描述变量趋于零或趋于无穷快慢程度的工具。",
+      "chapter_id": "cc2f9631-a795-4bf9-8d1f-bcb652259791"
+    },
+    {
+      "id": "concept_derivative",
+      "label": "导数",
+      "type": "concept",
+      "description": "函数在某一点处的瞬时变化率。",
+      "chapter_id": "a104f7c4-7018-42c7-873f-0bd04bace8b5"
+    },
+    {
+      "id": "method_derivative_rules",
+      "label": "求导法则",
+      "type": "method",
+      "description": "包括和差积商规则的导数计算方法。",
+      "chapter_id": "5f059eb5-dd10-47d8-a789-6e52aacf2001"
+    },
+    {
+      "id": "theorem_rolle",
+      "label": "罗尔定理",
+      "type": "theorem",
+      "description": "连续可导函数若端点值相等，则存在极值点。",
+      "chapter_id": "480af6f0-900f-479d-a43a-61ed4ba21c45"
+    },
+    {
+      "id": "theorem_lagrange",
+      "label": "拉格朗日中值定理",
+      "type": "theorem",
+      "description": "描述区间内平均变化率等于某点导数的定理。",
+      "chapter_id": "50b89bcc-a304-4a02-b81c-b57129976183"
+    },
+    {
+      "id": "concept_antiderivative",
+      "label": "不定积分",
+      "type": "concept",
+      "description": "原函数集合，表示反向求导操作。",
+      "chapter_id": "a62ac231-cbb4-40b0-820c-c3a91d06706c"
+    },
+    {
+      "id": "method_substitution_integration",
+      "label": "换元积分法",
+      "type": "method",
+      "description": "通过变量替换简化积分形式的方法。",
+      "chapter_id": "a992d99d-44ba-47aa-a373-20ca70eb73c0"
+    },
+    {
+      "id": "method_integration_by_parts",
+      "label": "分部积分法",
+      "type": "method",
+      "description": "基于乘积求导法则的积分技巧。",
+      "chapter_id": "f5e80370-ec69-4155-b6be-c14c53c48a72"
+    },
+    {
+      "id": "theorem_fundamental_calculus",
+      "label": "微积分基本定理",
+      "type": "theorem",
+      "description": "连接不定积分与定积分的核心定理。",
+      "chapter_id": "29a3ccec-2f2c-4f25-8aae-927a96a514a8"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root",
+      "target": "module_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root",
+      "target": "module_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_function",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_elementary_functions",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_composite_inverse",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_sequence_limit",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "theorem_epsilon_delta",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_one_sided_limits",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_infinitesimal_infinite",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_derivative",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "method_derivative_rules",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "theorem_rolle",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "theorem_lagrange",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "concept_antiderivative",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "method_substitution_integration",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "method_integration_by_parts",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_4",
+      "target": "theorem_fundamental_calculus",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "concept_derivative",
+      "target": "concept_function",
+      "relation": "depends_on",
+      "label": "依赖于"
+    },
+    {
+      "source": "method_derivative_rules",
+      "target": "concept_derivative",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "concept_derivative",
+      "target": "concept_sequence_limit",
+      "relation": "depends_on",
+      "label": "依赖于"
+    },
+    {
+      "source": "concept_derivative",
+      "target": "theorem_epsilon_delta",
+      "relation": "depends_on",
+      "label": "依赖于"
+    },
+    {
+      "source": "theorem_rolle",
+      "target": "concept_derivative",
+      "relation": "depends_on",
+      "label": "依赖于"
+    },
+    {
+      "source": "theorem_lagrange",
+      "target": "theorem_rolle",
+      "relation": "leads_to",
+      "label": "推导出"
+    },
+    {
+      "source": "concept_antiderivative",
+      "target": "concept_derivative",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "method_integration_by_parts",
+      "target": "concept_derivative",
+      "relation": "depends_on",
+      "label": "依赖于"
+    },
+    {
+      "source": "method_integration_by_parts",
+      "target": "concept_antiderivative",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "theorem_fundamental_calculus",
+      "target": "concept_derivative",
+      "relation": "depends_on",
+      "label": "依赖于"
+    },
+    {
+      "source": "theorem_fundamental_calculus",
+      "target": "concept_antiderivative",
+      "relation": "depends_on",
+      "label": "依赖于"
+    }
+  ]
+}
