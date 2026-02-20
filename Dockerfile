@@ -39,4 +39,4 @@ RUN mkdir -p /app/backend/data && chmod 777 /app/backend/data
 EXPOSE 7860
 
 # Command to run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["/app/backend/start.sh"]
