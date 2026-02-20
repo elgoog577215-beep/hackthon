@@ -1,0 +1,290 @@
+{
+  "course_name": "《Java：从原理到工业级实践》",
+  "logic_flow": "本课程遵循从语言基础、面向对象设计与JVM原理，到并发编程、性能优化与工程架构的递进式学习路径。每一章均以理论讲解为基底，结合实际编码示例与工业场景分析，确保学习者具备系统化理解能力与工程落地能力。",
+  "nodes": [
+    {
+      "node_id": "76e76a4b-ac6d-45c0-9ac7-ced3ff424801",
+      "parent_node_id": "root",
+      "node_name": "第一章 Java语言基础",
+      "node_level": 1,
+      "node_content": "",
+      "node_type": "original"
+    },
+    {
+      "node_name": "1.1 Java语法结构与编译过程",
+      "node_content": "解析Java源码结构、类定义、方法声明及编译阶段的关键步骤",
+      "node_id": "4c99996b-f57e-444e-a322-8304e73284f8",
+      "parent_node_id": "76e76a4b-ac6d-45c0-9ac7-ced3ff424801",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "1.2 变量类型与内存模型",
+      "node_content": "讨论基本数据类型、引用类型、自动装箱/拆箱及变量存储机制",
+      "node_id": "49675a15-eadd-4768-aa16-ccc25d5d9f26",
+      "parent_node_id": "76e76a4b-ac6d-45c0-9ac7-ced3ff424801",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "1.3 控制流与异常处理",
+      "node_content": "深入if-else、switch-case、循环语句及其在代码健壮性中的作用",
+      "node_id": "16163055-544a-43dd-bf6e-14ec6068a01e",
+      "parent_node_id": "76e76a4b-ac6d-45c0-9ac7-ced3ff424801",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "1.4 面向对象编程入门",
+      "node_content": "类与对象的基本概念、构造函数、封装性初步探讨",
+      "node_id": "915e7406-c844-4960-a891-cfd75c787fc8",
+      "parent_node_id": "76e76a4b-ac6d-45c0-9ac7-ced3ff424801",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_id": "79c23c74-8d90-4314-85a5-0090ab3c7b39",
+      "parent_node_id": "root",
+      "node_name": "第二章 面向对象编程与设计模式",
+      "node_level": 1,
+      "node_content": "",
+      "node_type": "original"
+    },
+    {
+      "node_name": "2.1 继承与多态详解",
+      "node_content": "继承链构建、方法重写、动态绑定与虚方法调用机制",
+      "node_id": "1ca6ae56-f23e-469a-a68e-b668ec04d193",
+      "parent_node_id": "79c23c74-8d90-4314-85a5-0090ab3c7b39",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "2.2 抽象类与接口设计",
+      "node_content": "抽象类的功能边界、接口实现与默认方法的演进",
+      "node_id": "56ad0cfe-bb7e-423b-92c0-f9feccd34512",
+      "parent_node_id": "79c23c74-8d90-4314-85a5-0090ab3c7b39",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "2.3 内部类与匿名类",
+      "node_content": "嵌套类的作用域规则、闭包行为及使用场景分析",
+      "node_id": "130bc589-1a69-4fb0-82bd-3e875e65d72c",
+      "parent_node_id": "79c23c74-8d90-4314-85a5-0090ab3c7b39",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "2.4 常见设计模式应用",
+      "node_content": "工厂模式、单例模式、策略模式等在Java中典型实现与适用场景",
+      "node_id": "815a82c2-039b-41a7-8a38-3756d6874d82",
+      "parent_node_id": "79c23c74-8d90-4314-85a5-0090ab3c7b39",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_id": "8c3f1195-6c0b-4f49-8965-6b9a7551aa75",
+      "parent_node_id": "root",
+      "node_name": "第三章 Java虚拟机（JVM）原理",
+      "node_level": 1,
+      "node_content": "",
+      "node_type": "original"
+    },
+    {
+      "node_name": "3.1 JVM运行时内存区域划分",
+      "node_content": "堆、栈、方法区、程序计数器等内存区域的职责与交互",
+      "node_id": "0e539d5f-bc74-4795-9fcb-55cda70932d3",
+      "parent_node_id": "8c3f1195-6c0b-4f49-8965-6b9a7551aa75",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "类加载流程、BootstrapClassLoader、自定义类加载器设计",
+      "node_id": "5ffea49f-cf9a-47c0-802d-4ed38316afd8",
+      "parent_node_id": "8c3f1195-6c0b-4f49-8965-6b9a7551aa75",
+      "node_level": 2,
+      "node_type": "original",
+      "node_content": ""
+    },
+    {
+      "node_name": "3.3 Garbage Collection算法与垃圾回收器",
+      "node_content": "GC Roots、标记清除、复制算法、CMS与G1的比较与选型",
+      "node_id": "3ad31161-9ed1-401b-9b5e-d1c3acbf40a9",
+      "parent_node_id": "8c3f1195-6c0b-4f49-8965-6b9a7551aa75",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "3.4 JVM性能监控与调优工具",
+      "node_content": "jps、jstat、jinfo、jmap、VisualVM、Arthas等工具使用与诊断技巧",
+      "node_id": "644f1ce7-d856-444f-9b12-eab103bfb835",
+      "parent_node_id": "8c3f1195-6c0b-4f49-8965-6b9a7551aa75",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_id": "d771e047-04cb-4a88-be68-b6a5720711bf",
+      "parent_node_id": "root",
+      "node_name": "第四章 并发编程与多线程",
+      "node_level": 1,
+      "node_content": "",
+      "node_type": "original"
+    },
+    {
+      "node_name": "4.1 线程生命周期与状态转换",
+      "node_content": "NEW、RUNNABLE、BLOCKED、WAITING、TERMINATED等状态及其触发条件",
+      "node_id": "b322ba6f-4cdd-4d75-b446-5db5932ce778",
+      "parent_node_id": "d771e047-04cb-4a88-be68-b6a5720711bf",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "4.2 同步与锁机制",
+      "node_content": "synchronized关键字、ReentrantLock、AQS框架原理与实现",
+      "node_id": "5e6aa86a-7d33-4e50-a0e9-4b86a2818ad5",
+      "parent_node_id": "d771e047-04cb-4a88-be68-b6a5720711bf",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "4.3 volatile与内存可见性",
+      "node_content": "happens-before原则、volatile关键字的工作原理与使用限制",
+      "node_id": "3fc42f7b-4ec0-4ece-bd03-cf399c03b72a",
+      "parent_node_id": "d771e047-04cb-4a88-be68-b6a5720711bf",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "4.4 并发工具类与线程池",
+      "node_content": "CountDownLatch、CyclicBarrier、Semaphore、ThreadPoolExecutor的内部逻辑与配置最佳实践",
+      "node_id": "abf2801e-129e-4dcb-9338-c20029931d37",
+      "parent_node_id": "d771e047-04cb-4a88-be68-b6a5720711bf",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_id": "4900cd12-f8be-49d4-9a0b-be7f6addf876",
+      "parent_node_id": "root",
+      "node_name": "第五章 Java集合框架与泛型",
+      "node_level": 1,
+      "node_content": "",
+      "node_type": "original"
+    },
+    {
+      "node_name": "5.1 集合框架体系概述",
+      "node_content": "Collection与Map两大体系、迭代器模式与集合遍历机制",
+      "node_id": "e98d12bb-9191-4d99-ba65-bb9cc7e719ea",
+      "parent_node_id": "4900cd12-f8be-49d4-9a0b-be7f6addf876",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "5.2 List、Set与Map实现类详解",
+      "node_content": "ArrayList、LinkedList、HashSet、TreeSet、HashMap、ConcurrentHashMap等内部结构与性能对比",
+      "node_id": "e5f57ccd-7836-40a3-b9dc-a50ae6fa3531",
+      "parent_node_id": "4900cd12-f8be-49d4-9a0b-be7f6addf876",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "5.3 泛型机制与类型擦除",
+      "node_content": "泛型的类型安全检查、类型参数、通配符与桥接方法生成机制",
+      "node_id": "1289ece8-868e-4ffb-a9fd-34fd7af0b78a",
+      "parent_node_id": "4900cd12-f8be-49d4-9a0b-be7f6addf876",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "5.4 Stream API与函数式编程",
+      "node_content": "Stream流水线操作、中间操作与终端操作、并行流的实现与适用场景",
+      "node_id": "738c412a-952a-4c13-8145-9b4a8ee038d8",
+      "parent_node_id": "4900cd12-f8be-49d4-9a0b-be7f6addf876",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_id": "9d138cfd-daa5-4eac-9a59-8bf92793ba28",
+      "parent_node_id": "root",
+      "node_name": "第六章 I/O与NIO编程",
+      "node_level": 1,
+      "node_content": "",
+      "node_type": "original"
+    },
+    {
+      "node_name": "6.1 Java I/O模型与字节流/字符流",
+      "node_content": "FileInputStream、BufferedReader等常用I/O类及其读写方式",
+      "node_id": "9a6e6df2-b850-4b59-a5c8-42c791c382a6",
+      "parent_node_id": "9d138cfd-daa5-4eac-9a59-8bf92793ba28",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "6.2 NIO与非阻塞IO模型",
+      "node_content": "Channel、Buffer、Selector机制，以及其在高性能网络编程中的应用",
+      "node_id": "53ca7f5a-c0b0-4b1b-a05e-34fab7d9d9dd",
+      "parent_node_id": "9d138cfd-daa5-4eac-9a59-8bf92793ba28",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "6.3 文件系统与Path API",
+      "node_content": "Files类、Path接口、文件属性访问与目录遍历操作",
+      "node_id": "7802fc76-5beb-4b3c-bfa7-92c7a61ffd6e",
+      "parent_node_id": "9d138cfd-daa5-4eac-9a59-8bf92793ba28",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "6.4 序列化与反序列化",
+      "node_content": "Serializable接口、ObjectOutputStream与ObjectInputStream的实现细节与安全问题",
+      "node_id": "62ab63f3-a2d3-4d97-90a8-1eada8c66b4c",
+      "parent_node_id": "9d138cfd-daa5-4eac-9a59-8bf92793ba28",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_id": "3aedd2b5-43a9-4802-8f7a-38a4cdfc178a",
+      "parent_node_id": "root",
+      "node_name": "第七章 工业级Java开发实践",
+      "node_level": 1,
+      "node_content": "",
+      "node_type": "original"
+    },
+    {
+      "node_name": "7.1 构建工具与依赖管理",
+      "node_content": "Maven与Gradle项目结构、依赖传递、版本冲突解决与插件体系",
+      "node_id": "9a14e69f-2926-49d2-9874-b5299dc7ff3b",
+      "parent_node_id": "3aedd2b5-43a9-4802-8f7a-38a4cdfc178a",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "7.2 单元测试与集成测试",
+      "node_content": "JUnit、Mockito、TestNG的使用规范与测试覆盖率分析",
+      "node_id": "0e97a382-2007-4183-9901-b7d19afe150c",
+      "parent_node_id": "3aedd2b5-43a9-4802-8f7a-38a4cdfc178a",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "7.3 日志系统与调试技巧",
+      "node_content": "Logback、SLF4J、日志级别控制、异步日志、日志分析工具链",
+      "node_id": "d709be12-ec96-46b3-a939-f0f12370f5c7",
+      "parent_node_id": "3aedd2b5-43a9-4802-8f7a-38a4cdfc178a",
+      "node_level": 2,
+      "node_type": "original"
+    },
+    {
+      "node_name": "7.4 工程代码质量与重构实践",
+      "node_content": "代码异味识别、重构策略、静态代码分析工具（SonarQube）的使用与度量指标解读",
+      "node_id": "9fe0c01e-3434-4202-af17-fe1626aa160c",
+      "parent_node_id": "3aedd2b5-43a9-4802-8f7a-38a4cdfc178a",
+      "node_level": 2,
+      "node_type": "original"
+    }
+  ],
+  "course_id": "89cf4767-7e22-49ce-8560-7e6153c39e82",
+  "difficulty": "intermediate",
+  "style": "academic",
+  "requirements": ""
+}

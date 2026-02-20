@@ -36,5 +36,4 @@ env/
 .env/
 
 # Data
-backend/data/
 backend/tasks.json

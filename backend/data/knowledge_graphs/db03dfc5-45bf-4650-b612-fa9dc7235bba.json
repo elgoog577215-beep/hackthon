@@ -1,0 +1,230 @@
+{
+  "nodes": [
+    {
+      "id": "root_0",
+      "label": "经典力学：理论框架与工程应用",
+      "type": "root",
+      "description": "课程名称",
+      "chapter_id": "d2006d31-9eb2-455d-aefe-55acdb37cd38"
+    },
+    {
+      "id": "module_1",
+      "label": "牛顿力学基础",
+      "type": "module",
+      "description": "质点运动学、牛顿三定律及守恒定律",
+      "chapter_id": "d2006d31-9eb2-455d-aefe-55acdb37cd38"
+    },
+    {
+      "id": "module_2",
+      "label": "能量与动量分析",
+      "type": "module",
+      "description": "动能、势能、功与碰撞问题",
+      "chapter_id": "cd2f19ef-b001-4f59-a1ff-125ead2e7307"
+    },
+    {
+      "id": "module_3",
+      "label": "振动与波动",
+      "type": "module",
+      "description": "简谐振动、阻尼振动与波动方程",
+      "chapter_id": "02cf59d8-7f26-4fa9-91e8-12a4b15155e1"
+    },
+    {
+      "id": "concept_1",
+      "label": "质点运动学",
+      "type": "concept",
+      "description": "研究物体位置、速度和加速度的变化",
+      "chapter_id": "51aba5c5-153f-41fc-90b6-3bad266941ad"
+    },
+    {
+      "id": "theorem_1",
+      "label": "牛顿第一定律",
+      "type": "theorem",
+      "description": "惯性原理，无外力作用时保持静止或匀速直线运动",
+      "chapter_id": "6a697e34-2b85-45f2-9576-c12404b132ac"
+    },
+    {
+      "id": "theorem_2",
+      "label": "牛顿第二定律",
+      "type": "theorem",
+      "description": "$F = ma$，力等于质量乘以加速度",
+      "chapter_id": "8fcc0524-9874-4809-875a-1462e61f5cad"
+    },
+    {
+      "id": "theorem_3",
+      "label": "牛顿第三定律",
+      "type": "theorem",
+      "description": "作用力与反作用力大小相等方向相反",
+      "chapter_id": "2e9772ca-9c43-4ab5-8caf-1ecaf24e6198"
+    },
+    {
+      "id": "concept_2",
+      "label": "动能",
+      "type": "concept",
+      "description": "物体由于运动而具有的能量",
+      "chapter_id": "f923d81a-aeea-47c6-9f74-6bcd9ea1c54a"
+    },
+    {
+      "id": "concept_3",
+      "label": "势能",
+      "type": "concept",
+      "description": "与物体位置相关的能量形式",
+      "chapter_id": "afd1c83a-11fb-4a2c-8863-fc6903bcce1d"
+    },
+    {
+      "id": "concept_4",
+      "label": "简谐振动",
+      "type": "concept",
+      "description": "周期性往复运动，加速度与位移成正比",
+      "chapter_id": "6ecf04f0-f47e-4215-b947-3956e18510df"
+    },
+    {
+      "id": "method_1",
+      "label": "动力学问题解析求解策略",
+      "type": "method",
+      "description": "基于微分方程的数学推导方法",
+      "chapter_id": "46c35a4f-d0f7-4255-987f-1c5c5779dd80"
+    },
+    {
+      "id": "concept_5",
+      "label": "守恒量",
+      "type": "concept",
+      "description": "系统在运动中保持不变的物理量",
+      "chapter_id": "d3fe8b47-9042-4e74-bf34-35840c86101d"
+    },
+    {
+      "id": "theorem_4",
+      "label": "能量守恒定律",
+      "type": "theorem",
+      "description": "封闭系统总能量恒定",
+      "chapter_id": "639f14a7-501b-48ee-af8e-6942462f1c89"
+    }
+  ],
+  "edges": [
+    {
+      "source": "root_0",
+      "target": "module_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_0",
+      "target": "module_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "root_0",
+      "target": "module_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "theorem_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "theorem_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "theorem_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_2",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "concept_3",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_3",
+      "target": "concept_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "method_1",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_1",
+      "target": "concept_5",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "module_2",
+      "target": "theorem_4",
+      "relation": "contains",
+      "label": "包含"
+    },
+    {
+      "source": "concept_1",
+      "target": "theorem_1",
+      "relation": "leads_to",
+      "label": "推导出"
+    },
+    {
+      "source": "theorem_1",
+      "target": "theorem_2",
+      "relation": "leads_to",
+      "label": "引申为"
+    },
+    {
+      "source": "theorem_2",
+      "target": "method_1",
+      "relation": "applies_to",
+      "label": "应用于"
+    },
+    {
+      "source": "concept_2",
+      "target": "theorem_4",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_3",
+      "target": "theorem_4",
+      "relation": "related",
+      "label": "相关"
+    },
+    {
+      "source": "concept_4",
+      "target": "concept_2",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_4",
+      "target": "concept_3",
+      "relation": "depends_on",
+      "label": "依赖"
+    },
+    {
+      "source": "concept_5",
+      "target": "theorem_4",
+      "relation": "related",
+      "label": "相关"
+    }
+  ]
+}
