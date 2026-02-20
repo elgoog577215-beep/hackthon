@@ -12,23 +12,31 @@ RUN npm run build
 FROM python:3.10-slim
 WORKDIR /app
 
-# Copy backend files
-COPY backend/ /app/backend/
-COPY shared/ /app/shared/
+# Create a non-root user for security (ModelScope standard)
+RUN useradd -m -u 1000 user
+USER user
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH
+
+# Copy backend files with correct ownership
+COPY --chown=user backend/ /app/backend/
+COPY --chown=user shared/ /app/shared/
 
 # Copy frontend build artifacts to backend static directory
 # This allows FastAPI to serve the frontend
-COPY --from=frontend-builder /app/frontend/dist /app/backend/static
+COPY --from=frontend-builder --chown=user /app/frontend/dist /app/backend/static
 
 # Install backend dependencies
 WORKDIR /app/backend
 ENV PYTHONPATH=/app
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Ensure data directory is writable
+RUN mkdir -p /app/backend/data && chmod 777 /app/backend/data
 
 # Expose the port that ModelScope expects (7860)
 EXPOSE 7860
 
 # Command to run the application
-# Using shell form to allow variable expansion if needed, but here we stick to exec form for signal handling
-# We default to port 7860 which is standard for HuggingFace/ModelScope Spaces
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
