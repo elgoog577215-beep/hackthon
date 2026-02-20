@@ -1208,15 +1208,27 @@ class AIService:
         # Build session context from metrics if available
         session_context = ""
         if session_metrics and enable_long_term_memory:
+            # Process question types
+            q_types_dict = session_metrics.get('question_types', {})
+            q_types_list = []
+            if isinstance(q_types_dict, dict):
+                for k, v in q_types_dict.items():
+                    if v > 0:
+                        q_types_list.append(f"{k} ({v})")
+            
+            topics = session_metrics.get('topics_discussed', [])
+            if not isinstance(topics, list):
+                topics = []
+
             session_context = f"""
 === 会话上下文感知 ===
 本次会话统计：
-- 总消息数：{session_metrics.get('totalMessages', 0)}
-- 用户消息：{session_metrics.get('userMessages', 0)}
-- AI消息：{session_metrics.get('aiMessages', 0)}
-- 会话时长：{session_metrics.get('sessionDuration', 0)} 分钟
-- 讨论主题：{', '.join(session_metrics.get('topics', []))}
-- 主要问题类型：{', '.join(session_metrics.get('questionTypes', []))}
+- 总消息数：{session_metrics.get('total_messages', 0)}
+- 用户消息：{session_metrics.get('user_messages', 0)}
+- AI消息：{session_metrics.get('ai_messages', 0)}
+- 会话时长：{session_metrics.get('session_duration_minutes', 0)} 分钟
+- 讨论主题：{', '.join(topics)}
+- 主要问题类型：{', '.join(q_types_list)}
 
 请根据以上会话背景，保持回答的连贯性和上下文一致性。
 """

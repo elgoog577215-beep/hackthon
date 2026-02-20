@@ -26,3 +26,15 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+.env/
+
+# Data
+backend/data/
+backend/tasks.json

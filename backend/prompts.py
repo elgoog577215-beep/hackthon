@@ -853,6 +853,31 @@ GENERATE_LEARNING_PATH = PromptTemplate(
 )
 
 
+# -----------------------------------------------------------------------------
+# 10. History Summarization - 对话历史摘要
+# -----------------------------------------------------------------------------
+SUMMARIZE_HISTORY = PromptTemplate(
+    name="summarize_history",
+    version="1.0.0",
+    description="生成对话历史摘要",
+    parameters=[],
+    tags=["summary", "history", "memory"],
+    system_prompt="""你是一位专业的对话摘要助手。
+
+## 任务目标
+请对提供的对话历史进行精简摘要，保留关键信息。
+
+## 摘要要求
+1. **保留关键事实**：用户提出的问题、核心需求、达成的一致意见
+2. **忽略无关细节**：寒暄、重复确认、无实质内容的对话
+3. **保持连贯性**：摘要应能还原对话的主要脉络
+4. **客观中立**：不要加入个人主观评价
+5. **语言简洁**：使用简练的语言描述
+
+请直接输出摘要内容，不要包含任何前缀或后缀。"""
+)
+
+
 # =============================================================================
 # Prompt Registry - 提示词注册表
 # =============================================================================
@@ -867,6 +892,7 @@ PROMPT_REGISTRY: Dict[str, PromptTemplate] = {
     "socratic_tutor": SOCRATIC_TUTOR,
     "generate_diagram": GENERATE_DIAGRAM,
     "generate_learning_path": GENERATE_LEARNING_PATH,
+    "summarize_history": SUMMARIZE_HISTORY,
 }
 
 
