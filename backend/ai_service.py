@@ -28,6 +28,7 @@ import json
 import re
 import logging
 import sys
+import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -307,7 +308,8 @@ class AIService:
         self, 
         prompt: str, 
         system_prompt: str = "You are a helpful assistant.", 
-        use_fast_model: bool = False
+        use_fast_model: bool = False,
+        retry_count: int = 3
     ) -> str:
         """
         通用 LLM 调用函数。
@@ -316,11 +318,13 @@ class AIService:
         - 支持模型路由（智能模型 vs 快速模型）
         - 支持流式响应
         - 自动处理推理内容日志
+        - 包含重试机制
         
         Args:
             prompt: 用户输入提示
             system_prompt: 系统指令
             use_fast_model: 是否使用轻量/快速模型
+            retry_count: 最大重试次数
             
         Returns:
             LLM 完整响应文本，失败返回 None
@@ -328,41 +332,53 @@ class AIService:
         if not self.api_key:
             return None
         
-        try:
-            extra_body = {"enable_thinking": False}
-            
-            # 模型选择
-            model_id = self.model_fast if use_fast_model else self.model_smart
-            
-            response = await self.client.chat.completions.create(
-                model=model_id,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                stream=True,
-                extra_body=extra_body
-            )
-            
-            # 聚合流式响应
-            full_content = ""
-            async for chunk in response:
-                if chunk.choices:
-                    # 处理推理内容（用于日志/调试）
-                    if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                        reasoning = chunk.choices[0].delta.reasoning_content
-                        if reasoning:
-                            print(reasoning, end='', flush=True)
-                            
-                    delta = chunk.choices[0].delta
-                    if delta.content:
-                        full_content += delta.content
-            
-            logger.info(f"AI Response Complete (Model: {model_id})")
-            return full_content
-        except Exception as e:
-            logger.error(f"AI API Call Error: {e}")
-            return None
+        for attempt in range(retry_count):
+            try:
+                extra_body = {"enable_thinking": False}
+                
+                # 模型选择
+                model_id = self.model_fast if use_fast_model else self.model_smart
+                
+                response = await self.client.chat.completions.create(
+                    model=model_id,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    stream=True,
+                    extra_body=extra_body
+                )
+                
+                # 聚合流式响应
+                full_content = ""
+                async for chunk in response:
+                    if chunk.choices:
+                        # 处理推理内容（用于日志/调试）
+                        if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+                            reasoning = chunk.choices[0].delta.reasoning_content
+                            if reasoning:
+                                print(reasoning, end='', flush=True)
+                                
+                        delta = chunk.choices[0].delta
+                        if delta.content:
+                            full_content += delta.content
+                
+                if not full_content:
+                    logger.warning(f"Empty response from AI (Attempt {attempt+1}/{retry_count})")
+                    if attempt < retry_count - 1:
+                        await asyncio.sleep(1)
+                        continue
+                    return None
+
+                logger.info(f"AI Response Complete (Model: {model_id})")
+                return full_content
+
+            except Exception as e:
+                logger.error(f"AI API Call Error (Attempt {attempt+1}/{retry_count}): {e}")
+                if attempt < retry_count - 1:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+        
+        return None
 
     # ============================================================================
     # 课程生成方法
@@ -389,6 +405,11 @@ class AIService:
             if data and "nodes" in data:
                 # Ensure unique UUIDs and process nested structure
                 processed_nodes = []
+                missing_sub_nodes_tasks = []
+                
+                # Create a simple outline for context if needed
+                course_outline = json.dumps(data.get("nodes", []), ensure_ascii=False)
+
                 for node in data["nodes"]:
                     # L1 Node
                     node_id = str(uuid.uuid4())
@@ -398,17 +419,59 @@ class AIService:
                     sub_nodes = node.pop("sub_nodes", [])
                     processed_nodes.append(node)
                     
-                    # L2 Nodes
-                    for sub in sub_nodes:
-                        sub["node_id"] = str(uuid.uuid4())
-                        sub["parent_node_id"] = node_id
-                        sub["node_level"] = 2
-                        sub["node_type"] = "original"
-                        if "node_content" not in sub:
-                            sub["node_content"] = ""
-                        processed_nodes.append(sub)
+                    if not sub_nodes:
+                        # Schedule task to generate sub-nodes if missing
+                        task = self.generate_sub_nodes(
+                            node_name=node.get("node_name", "Unknown Chapter"),
+                            node_level=1,
+                            node_id=node_id,
+                            course_name=keyword,
+                            course_outline=course_outline,
+                            difficulty=difficulty,
+                            style=style
+                        )
+                        missing_sub_nodes_tasks.append(task)
+                    else:
+                        # L2 Nodes
+                        for sub in sub_nodes:
+                            sub["node_id"] = str(uuid.uuid4())
+                            sub["parent_node_id"] = node_id
+                            sub["node_level"] = 2
+                            sub["node_type"] = "original"
+                            if "node_content" not in sub:
+                                sub["node_content"] = ""
+                            processed_nodes.append(sub)
                 
-                data["nodes"] = processed_nodes
+                # Execute fallback tasks in parallel
+                if missing_sub_nodes_tasks:
+                    logger.info(f"Generating missing sub-nodes for {len(missing_sub_nodes_tasks)} chapters...")
+                    results = await asyncio.gather(*missing_sub_nodes_tasks)
+                    for sub_node_list in results:
+                        processed_nodes.extend(sub_node_list)
+                
+                # Sort nodes: L1 then its L2 children
+                final_nodes = []
+                l1_nodes = [n for n in processed_nodes if n.get("node_level") == 1]
+                l2_nodes = [n for n in processed_nodes if n.get("node_level") == 2]
+                
+                # Create map of parent -> children
+                l2_map = {}
+                for n in l2_nodes:
+                    pid = n.get("parent_node_id")
+                    if pid not in l2_map:
+                        l2_map[pid] = []
+                    l2_map[pid].append(n)
+                
+                for l1 in l1_nodes:
+                    final_nodes.append(l1)
+                    if l1["node_id"] in l2_map:
+                        final_nodes.extend(l2_map[l1["node_id"]])
+                
+                # Add any orphaned L2 nodes (just in case)
+                orphaned = [n for n in l2_nodes if n.get("parent_node_id") not in [l1["node_id"] for l1 in l1_nodes]]
+                final_nodes.extend(orphaned)
+                
+                data["nodes"] = final_nodes
             return data
         return {"course_name": keyword, "nodes": []}
 
