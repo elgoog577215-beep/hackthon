@@ -18,6 +18,15 @@ USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH
 
+# Copy requirements first to leverage Docker cache
+COPY --chown=user backend/requirements.txt /app/backend/requirements.txt
+
+# Install backend dependencies
+WORKDIR /app/backend
+ENV PYTHONPATH=/app
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
 # Copy backend files with correct ownership
 COPY --chown=user backend/ /app/backend/
 COPY --chown=user shared/ /app/shared/
@@ -31,12 +40,6 @@ RUN chmod +x /app/backend/start.sh && \
 # Copy frontend build artifacts to backend static directory
 # This allows FastAPI to serve the frontend
 COPY --from=frontend-builder --chown=user /app/frontend/dist /app/backend/static
-
-# Install backend dependencies
-WORKDIR /app/backend
-ENV PYTHONPATH=/app
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
 
 # Ensure data directory is writable
 RUN mkdir -p /app/backend/data && chmod 777 /app/backend/data
