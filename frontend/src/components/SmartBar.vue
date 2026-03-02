@@ -123,7 +123,7 @@
               <button class="card-action half" @click="$emit('viewAllWrongAnswers')">
                 <span>查看全部</span>
               </button>
-              <button class="card-action half primary" @click="$emit('retryAllWrong')" v-if="wrongAnswersCount > 0">
+              <button class="card-action half primary" @click="$emit('retryAllWrong')" v-if="(wrongAnswersCount ?? 0) > 0">
                 <span>全部重做</span>
               </button>
             </div>
@@ -196,7 +196,7 @@ const props = defineProps<{
   wrongAnswers?: any[]
 }>()
 
-const emit = defineEmits<{
+defineEmits<{
   (e: 'startQuiz'): void
   (e: 'summarize'): void
   (e: 'showStats'): void
@@ -213,7 +213,7 @@ const isExpanded = ref(false)
 const activeTab = ref('notes')
 
 const currentLocation = computed(() => {
-  const course = courseStore.currentCourse?.title || '未选择课程'
+  const course = courseStore.currentCourse?.course_name || '未选择课程'
   const node = courseStore.currentNode?.node_name || ''
   return node ? `${course} · ${node}` : course
 })
