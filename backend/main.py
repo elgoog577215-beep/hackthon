@@ -4,17 +4,21 @@
 # 并定义课程管理、节点操作和 AI 服务的 API 路由。
 # -----------------------------------------------------------------------------
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import sys
 import os
 import logging
+import json
+import asyncio
+import threading
+from datetime import datetime
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
@@ -57,8 +61,129 @@ app = FastAPI()
 try:
     task_manager = TaskManager(storage, ai_service)
 except NameError:
-    # In case imports failed completely (unlikely)
     task_manager = None
+
+# ============================================================================
+# WebSocket Connection Manager
+# ============================================================================
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+        self._lock = threading.Lock()
+        self._broadcast_task = None
+    
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        with self._lock:
+            self.active_connections.append(websocket)
+        logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
+    
+    def disconnect(self, websocket: WebSocket):
+        with self._lock:
+            if websocket in self.active_connections:
+                self.active_connections.remove(websocket)
+        logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
+    
+    async def send_personal_message(self, message: dict, websocket: WebSocket):
+        try:
+            await websocket.send_json(message)
+        except Exception as e:
+            logger.error(f"Failed to send personal message: {e}")
+    
+    async def broadcast(self, message: dict):
+        with self._lock:
+            connections = self.active_connections.copy()
+        
+        disconnected = []
+        for connection in connections:
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Failed to broadcast to connection: {e}")
+                disconnected.append(connection)
+        
+        for conn in disconnected:
+            self.disconnect(conn)
+    
+    async def broadcast_task_update(self, task_id: str, update_type: str, payload: dict):
+        message = {
+            "type": update_type,
+            "payload": payload
+        }
+        await self.broadcast(message)
+
+ws_manager = ConnectionManager()
+
+# Background task to broadcast task updates
+async def task_update_broadcaster():
+    last_task_states = {}
+    
+    while True:
+        try:
+            if task_manager:
+                tasks = task_manager.get_all_tasks()
+                
+                for task in tasks:
+                    task_id = task["id"]
+                    current_state = {
+                        "status": task.get("status"),
+                        "progress": task.get("progress"),
+                        "message": task.get("message"),
+                        "current_node_name": task.get("current_node_name"),
+                        "updated_at": task.get("updated_at")
+                    }
+                    
+                    if task_id not in last_task_states:
+                        last_task_states[task_id] = current_state
+                        continue
+                    
+                    last_state = last_task_states[task_id]
+                    
+                    if (current_state["status"] != last_state["status"] or
+                        current_state["progress"] != last_state["progress"] or
+                        current_state["message"] != last_state["message"]):
+                        
+                        await ws_manager.broadcast_task_update(
+                            task_id,
+                            "task_update",
+                            {
+                                "taskId": task_id,
+                                "courseId": task.get("course_id"),
+                                "status": task.get("status"),
+                                "progress": task.get("progress"),
+                                "currentNodeName": task.get("current_node_name"),
+                                "message": task.get("message")
+                            }
+                        )
+                        
+                        last_task_states[task_id] = current_state
+                        
+                        if task.get("status") == "completed":
+                            await ws_manager.broadcast_task_update(
+                                task_id,
+                                "task_completed",
+                                {
+                                    "taskId": task_id,
+                                    "courseId": task.get("course_id"),
+                                    "message": "课程生成完成"
+                                }
+                            )
+                        elif task.get("status") == "failed":
+                            await ws_manager.broadcast_task_update(
+                                task_id,
+                                "task_error",
+                                {
+                                    "taskId": task_id,
+                                    "courseId": task.get("course_id"),
+                                    "error": task.get("error", "Unknown error")
+                                }
+                            )
+            
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.error(f"Error in task update broadcaster: {e}")
+            await asyncio.sleep(1)
 
 # ============================================================================
 # Dependency Injection & Common Utilities
@@ -109,6 +234,7 @@ def get_node_content(tree_data: dict, node_id: str) -> str:
 async def startup_event():
     if task_manager:
         task_manager.start_worker()
+    asyncio.create_task(task_update_broadcaster())
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -144,6 +270,128 @@ async def health_check():
 @app.get("/api/health")
 def read_root():
     return {"message": "KnowledgeMap AI API"}
+
+# ============================================================================
+# WebSocket Endpoints
+# ============================================================================
+
+@app.websocket("/ws/tasks")
+async def websocket_tasks(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                
+                if message.get("type") == "ping":
+                    await ws_manager.send_personal_message({"type": "pong"}, websocket)
+                
+                elif message.get("type") == "subscribe":
+                    course_id = message.get("payload", {}).get("courseId")
+                    if course_id and course_id != "all" and task_manager:
+                        tasks = task_manager.get_tasks_by_course(course_id)
+                        for task in tasks:
+                            await ws_manager.send_personal_message({
+                                "type": "task_update",
+                                "payload": {
+                                    "taskId": task["id"],
+                                    "courseId": task["course_id"],
+                                    "status": task["status"],
+                                    "progress": task.get("progress", 0),
+                                    "currentNodeName": task.get("current_node_name", ""),
+                                    "message": task.get("message", "")
+                                }
+                            }, websocket)
+                
+                elif message.get("type") == "command":
+                    command = message.get("command")
+                    payload = message.get("payload", {})
+                    
+                    if not task_manager:
+                        await ws_manager.send_personal_message({
+                            "type": "error",
+                            "payload": {"message": "Task manager not available"}
+                        }, websocket)
+                        continue
+                    
+                    if command == "pause_task":
+                        course_id = payload.get("courseId")
+                        tasks = task_manager.get_tasks_by_course(course_id)
+                        for task in tasks:
+                            if task["status"] in ["pending", "running"]:
+                                task_manager.pause_task(task["id"])
+                                await ws_manager.send_personal_message({
+                                    "type": "task_update",
+                                    "payload": {
+                                        "taskId": task["id"],
+                                        "courseId": course_id,
+                                        "status": "paused"
+                                    }
+                                }, websocket)
+                    
+                    elif command == "resume_task":
+                        course_id = payload.get("courseId")
+                        tasks = task_manager.get_tasks_by_course(course_id)
+                        for task in tasks:
+                            if task["status"] == "paused":
+                                task_manager.resume_task(task["id"])
+                                await ws_manager.send_personal_message({
+                                    "type": "task_update",
+                                    "payload": {
+                                        "taskId": task["id"],
+                                        "courseId": course_id,
+                                        "status": "pending"
+                                    }
+                                }, websocket)
+                    
+                    elif command == "cancel_task":
+                        course_id = payload.get("courseId")
+                        tasks = task_manager.get_tasks_by_course(course_id)
+                        for task in tasks:
+                            if task["status"] in ["pending", "running", "paused"]:
+                                task_manager.delete_task(task["id"])
+                                await ws_manager.send_personal_message({
+                                    "type": "task_cancelled",
+                                    "payload": {
+                                        "taskId": task["id"],
+                                        "courseId": course_id
+                                    }
+                                }, websocket)
+                    
+                    elif command == "retry_node":
+                        course_id = payload.get("courseId")
+                        node_id = payload.get("nodeId")
+                        await ws_manager.send_personal_message({
+                            "type": "progress_update",
+                            "payload": {
+                                "courseId": course_id,
+                                "message": f"Retrying node {node_id}..."
+                            }
+                        }, websocket)
+                    
+                    elif command == "set_priority":
+                        course_id = payload.get("courseId")
+                        priority = payload.get("priority", "normal")
+                        await ws_manager.send_personal_message({
+                            "type": "task_update",
+                            "payload": {
+                                "courseId": course_id,
+                                "message": f"Priority set to {priority}"
+                            }
+                        }, websocket)
+            
+            except json.JSONDecodeError:
+                await ws_manager.send_personal_message({
+                    "type": "error",
+                    "payload": {"message": "Invalid JSON"}
+                }, websocket)
+    
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        ws_manager.disconnect(websocket)
 
 # --- Task Management API ---
 
@@ -482,6 +730,20 @@ async def extend_node_content(course_id: str, node_id: str, req: ExtendContentRe
     # For now, just return, frontend appends
     return {"content": content}
 
+class SummarizeNodeRequest(BaseModel):
+    node_content: str
+    node_name: str
+    user_persona: Optional[str] = None
+
+@app.post("/courses/{course_id}/nodes/{node_id}/summarize")
+async def summarize_node(course_id: str, node_id: str, req: SummarizeNodeRequest):
+    summary = await ai_service.summarize_content(
+        req.node_content,
+        node_name=req.node_name,
+        user_persona=req.user_persona
+    )
+    return {"summary": summary}
+
 @app.post("/ask")
 def ask_question(req: AskQuestionRequest):
     return StreamingResponse(
@@ -541,6 +803,30 @@ async def delete_annotation(anno_id: str):
 @app.put("/annotations/{anno_id}")
 async def update_annotation(anno_id: str, req: UpdateAnnotationRequest):
     await run_in_threadpool(storage.update_annotation, anno_id, req.content)
+    return {"status": "success"}
+
+@app.put("/annotations/{anno_id}/tags")
+async def update_annotation_tags(anno_id: str, req: dict):
+    tags = req.get("tags", [])
+    updated = await run_in_threadpool(storage.update_annotation_field, anno_id, "tags", tags)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    return {"status": "success"}
+
+@app.put("/annotations/{anno_id}/category")
+async def update_annotation_category(anno_id: str, req: dict):
+    category = req.get("category", "")
+    updated = await run_in_threadpool(storage.update_annotation_field, anno_id, "category", category)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    return {"status": "success"}
+
+@app.put("/annotations/{anno_id}/priority")
+async def update_annotation_priority(anno_id: str, req: dict):
+    priority = req.get("priority", "medium")
+    updated = await run_in_threadpool(storage.update_annotation_field, anno_id, "priority", priority)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Annotation not found")
     return {"status": "success"}
 
 @app.get("/courses/{course_id}/annotations")
@@ -1209,6 +1495,250 @@ async def get_diagram_types():
             }
         ]
     }
+
+
+# ============================================================================
+# 智能导师服务 API - 统一的学习助手接口
+# ============================================================================
+
+try:
+    from tutor_service import (
+        get_tutor_memory, get_proactive_engine,
+        tutor_memory, proactive_engine,
+        GoalType, GoalStatus
+    )
+    TUTOR_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Tutor service not available: {e}")
+    TUTOR_AVAILABLE = False
+
+
+class CreateGoalRequest(BaseModel):
+    title: str
+    description: str
+    goal_type: str = "task_oriented"
+    target_value: float
+    unit: str = "个"
+    deadline: Optional[str] = None
+    related_nodes: List[str] = []
+    priority: int = 1
+
+
+class UpdateGoalProgressRequest(BaseModel):
+    progress_delta: float
+
+
+class RecordLearningRequest(BaseModel):
+    node_id: str
+    node_title: str
+    is_correct: Optional[bool] = None
+    time_spent: float = 0.0
+    question_data: Optional[Dict] = None
+
+
+class SessionSummaryRequest(BaseModel):
+    duration: float
+    questions_answered: int = 0
+    correct_count: int = 0
+    nodes_studied: List[str] = []
+
+
+class TutorContextRequest(BaseModel):
+    time_stuck: int = 0
+    consecutive_wrong: int = 0
+    current_node_id: Optional[str] = None
+
+
+@app.get("/api/tutor/greeting")
+async def get_tutor_greeting(course_id: Optional[str] = None, node_id: Optional[str] = None):
+    """获取智能导师问候语 - 每次打开AI助手时调用"""
+    if not TUTOR_AVAILABLE:
+        return {
+            "greeting": "👋 你好！我是你的AI学习助手，有什么可以帮助你的吗？",
+            "actions": [],
+            "stats": {}
+        }
+    
+    user_id = "default_user"
+    result = proactive_engine.generate_greeting(user_id, course_id, node_id)
+    return result
+
+
+@app.get("/api/tutor/profile")
+async def get_tutor_profile():
+    """获取学习者画像"""
+    if not TUTOR_AVAILABLE:
+        raise HTTPException(status_code=503, detail="导师服务未加载")
+    
+    user_id = "default_user"
+    profile = tutor_memory.get_or_create_profile(user_id)
+    weaknesses = tutor_memory.get_weaknesses(user_id)
+    strengths = tutor_memory.get_strengths(user_id)
+    
+    return {
+        "profile": profile,
+        "weaknesses": weaknesses[:5],
+        "strengths": strengths[:5],
+        "knowledge_count": len(tutor_memory.knowledge_states.get(user_id, {}))
+    }
+
+
+@app.post("/api/tutor/record-learning")
+async def record_learning(req: RecordLearningRequest):
+    """记录学习行为 - 答题后调用"""
+    if not TUTOR_AVAILABLE:
+        return {"success": False}
+    
+    user_id = "default_user"
+    state = tutor_memory.update_knowledge_state(
+        user_id=user_id,
+        node_id=req.node_id,
+        node_title=req.node_title,
+        is_correct=req.is_correct,
+        time_spent=req.time_spent,
+        question_data=req.question_data
+    )
+    
+    return {
+        "success": True,
+        "mastery_level": state.mastery_level,
+        "confidence": state.confidence,
+        "correct_rate": state.correct_rate
+    }
+
+
+@app.post("/api/tutor/session-summary")
+async def create_session_summary(req: SessionSummaryRequest):
+    """创建学习会话总结"""
+    if not TUTOR_AVAILABLE:
+        return {"summary": "学习完成！", "stats": {}}
+    
+    user_id = "default_user"
+    tutor_memory.record_study_session(user_id, req.duration, req.nodes_studied)
+    
+    result = proactive_engine.generate_session_summary(user_id, {
+        'duration': req.duration,
+        'questions_answered': req.questions_answered,
+        'correct_count': req.correct_count
+    })
+    
+    return result
+
+
+@app.get("/api/tutor/review-items")
+async def get_review_items(limit: int = 5):
+    """获取待复习知识点"""
+    if not TUTOR_AVAILABLE:
+        return {"review_items": []}
+    
+    user_id = "default_user"
+    items = tutor_memory.get_review_items(user_id, limit)
+    return {"review_items": items}
+
+
+@app.get("/api/tutor/wrong-answers")
+async def get_wrong_answers(limit: int = 5):
+    """获取错题本"""
+    if not TUTOR_AVAILABLE:
+        return {"wrong_answers": []}
+    
+    user_id = "default_user"
+    items = tutor_memory.get_wrong_answers_for_review(user_id, limit)
+    return {"wrong_answers": items}
+
+
+@app.post("/api/tutor/suggestion")
+async def get_tutor_suggestion(req: TutorContextRequest):
+    """根据上下文获取学习建议"""
+    if not TUTOR_AVAILABLE:
+        return {"suggestions": []}
+    
+    user_id = "default_user"
+    result = proactive_engine.generate_study_suggestion(user_id, {
+        'time_stuck': req.time_stuck,
+        'consecutive_wrong': req.consecutive_wrong,
+        'current_node_id': req.current_node_id
+    })
+    return result
+
+
+@app.get("/api/tutor/goals")
+async def get_tutor_goals(status: Optional[str] = None):
+    """获取学习目标"""
+    if not TUTOR_AVAILABLE:
+        return {"goals": []}
+    
+    user_id = "default_user"
+    goals = tutor_memory.goals.get(user_id, [])
+    
+    if status:
+        goals = [g for g in goals if g.status.value == status]
+    
+    return {"goals": [g.to_dict() for g in goals]}
+
+
+@app.post("/api/tutor/goals")
+async def create_tutor_goal(req: CreateGoalRequest):
+    """创建学习目标"""
+    if not TUTOR_AVAILABLE:
+        raise HTTPException(status_code=503, detail="导师服务未加载")
+    
+    user_id = "default_user"
+    
+    try:
+        goal_type = GoalType(req.goal_type)
+    except ValueError:
+        goal_type = GoalType.TASK_ORIENTED
+    
+    deadline = None
+    if req.deadline:
+        try:
+            deadline = datetime.fromisoformat(req.deadline.replace('Z', '+00:00'))
+        except ValueError:
+            try:
+                deadline = datetime.strptime(req.deadline, "%Y-%m-%d")
+            except ValueError:
+                pass
+    
+    goal = tutor_memory.create_goal(
+        user_id=user_id,
+        title=req.title,
+        description=req.description,
+        goal_type=goal_type,
+        target_value=req.target_value,
+        unit=req.unit,
+        deadline=deadline,
+        related_nodes=req.related_nodes,
+        priority=req.priority
+    )
+    
+    return {"success": True, "goal": goal.to_dict()}
+
+
+@app.put("/api/tutor/goals/{goal_id}/progress")
+async def update_tutor_goal_progress(goal_id: str, req: UpdateGoalProgressRequest):
+    """更新目标进度"""
+    if not TUTOR_AVAILABLE:
+        raise HTTPException(status_code=503, detail="导师服务未加载")
+    
+    user_id = "default_user"
+    goal = tutor_memory.update_goal_progress(user_id, goal_id, req.progress_delta)
+    
+    if not goal:
+        raise HTTPException(status_code=404, detail="目标不存在")
+    
+    return {"success": True, "goal": goal.to_dict()}
+
+
+@app.get("/api/tutor/goal-recommendations")
+async def get_goal_recommendations():
+    """获取目标建议"""
+    if not TUTOR_AVAILABLE:
+        return {"recommendations": []}
+    
+    user_id = "default_user"
+    recommendations = tutor_memory.get_goal_recommendations(user_id)
+    return {"recommendations": recommendations}
 
 
 # --- 静态文件服务（用于部署） ---

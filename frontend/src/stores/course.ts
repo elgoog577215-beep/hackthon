@@ -206,6 +206,17 @@ export const useCourseStore = defineStore('course', {
     globalPollingTimer: null as number | null,
     activeTaskId: null as string | null,
     
+    // --- 任务进度详情 ---
+    taskProgress: {} as Record<string, {
+        percentage: number
+        currentNodeName: string
+        completedNodes: number
+        totalNodes: number
+        estimatedTimeRemaining: number
+        bytesGenerated: number
+        updatedAt: Date
+    }>,
+    
     // --- 队列系统（播放列表风格） ---
     // 处理生成步骤的顺序处理
     queue: [] as QueueItem[],
@@ -1004,6 +1015,29 @@ export const useCourseStore = defineStore('course', {
             // If no backendTaskId, it might be a "legacy" task or a lost state.
             // Try to start/resume via backend anyway.
             this.startBackendTask(courseId)
+        }
+    },
+
+    cancelTask(courseId: string) {
+        const task = this.tasks.get(courseId)
+        if (task) {
+            if (task.backendTaskId) {
+                http.delete(`/tasks/${task.backendTaskId}`)
+            }
+            
+            this.tasks.delete(courseId)
+            this.queue = this.queue.filter(i => i.courseId !== courseId)
+            
+            if (this.currentCourseId === courseId) {
+                this.isGenerating = false
+                this.generationStatus = 'idle'
+                this.generationProgress = 0
+                this.currentGeneratingNode = null
+                this.currentGeneratingNodeId = null
+            }
+            
+            delete this.taskProgress[courseId]
+            this.persistGenerationState()
         }
     },
     
@@ -2701,6 +2735,43 @@ export const useCourseStore = defineStore('course', {
             console.error(e)
             ElMessage.error('总结生成失败')
             return null
+        } finally {
+            this.chatLoading = false
+        }
+    },
+
+    async quickSummarize() {
+        if (!this.currentNode) {
+            ElMessage.warning('请先选择一个章节')
+            return
+        }
+        
+        this.chatLoading = true
+        this.chatHistory.push({
+            type: 'user',
+            content: `请帮我总结一下「${this.currentNode.node_name}」的核心内容`
+        })
+        
+        try {
+            const res = await http.post(`/courses/${this.currentCourseId}/nodes/${this.currentNode.node_id}/summarize`, {
+                node_content: this.currentNode.node_content,
+                node_name: this.currentNode.node_name,
+                user_persona: this.userPersona
+            })
+            
+            this.chatHistory.push({
+                type: 'ai',
+                content: {
+                    answer: res.data.summary || res.data.content || '总结生成完成',
+                    core_answer: res.data.summary || res.data.content || '总结生成完成'
+                }
+            })
+        } catch (e) {
+            console.error(e)
+            this.chatHistory.push({
+                type: 'ai',
+                content: '总结生成失败，请稍后再试'
+            })
         } finally {
             this.chatLoading = false
         }

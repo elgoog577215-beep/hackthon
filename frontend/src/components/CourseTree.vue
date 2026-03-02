@@ -76,11 +76,11 @@
                      </div>
 
                      <!-- Actions -->
-                     <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-2 group-hover:translate-x-0" @click.stop>
+                     <div class="flex items-center gap-1.5 opacity-50 group-hover:opacity-100 transition-all duration-200" @click.stop>
                         <!-- Control Button -->
                         <button 
                             v-if="courseStore.getTask(course.course_id)?.status === 'running' || courseStore.getTask(course.course_id)?.status === 'pending'"
-                            class="p-1.5 hover:bg-amber-50 text-slate-400 hover:text-amber-500 rounded-lg transition-colors"
+                            class="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-50/50 hover:bg-amber-100 text-amber-500 hover:text-amber-600 transition-all duration-200 hover:scale-105"
                             title="暂停生成"
                             @click.stop="courseStore.pauseTask(course.course_id)"
                         >
@@ -88,7 +88,7 @@
                         </button>
                         <button 
                             v-else-if="courseStore.getTask(course.course_id)?.status === 'paused' || courseStore.getTask(course.course_id)?.status === 'idle'"
-                            class="p-1.5 hover:bg-primary-50 text-slate-400 hover:text-primary-500 rounded-lg transition-colors"
+                            class="w-8 h-8 flex items-center justify-center rounded-lg bg-primary-50/50 hover:bg-primary-100 text-primary-500 hover:text-primary-600 transition-all duration-200 hover:scale-105"
                             title="继续生成"
                             @click.stop="courseStore.startTask(course.course_id)"
                         >
@@ -104,7 +104,7 @@
                             width="200"
                         >
                             <template #reference>
-                                <button class="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors">
+                                <button class="w-8 h-8 flex items-center justify-center rounded-lg bg-red-50/50 hover:bg-red-100 text-red-400 hover:text-red-500 transition-all duration-200 hover:scale-105">
                                     <el-icon :size="15"><Delete /></el-icon>
                                 </button>
                             </template>
@@ -220,6 +220,98 @@
                 >
                     <el-icon :size="16"><Fold /></el-icon>
                 </button>
+            </div>
+        </div>
+        
+        <!-- Task Progress Panel (When task is active) -->
+        <div 
+            v-if="courseStore.getTask(courseStore.currentCourseId) && ['running', 'paused', 'pending'].includes(courseStore.getTask(courseStore.currentCourseId)?.status || '')"
+            class="mx-2 mb-2 p-3 rounded-xl glass-panel animate-fade-in-up"
+            :class="{
+                'border-primary-200 bg-primary-50/50': courseStore.getTask(courseStore.currentCourseId)?.status === 'running',
+                'border-amber-200 bg-amber-50/50': courseStore.getTask(courseStore.currentCourseId)?.status === 'paused',
+                'border-blue-200 bg-blue-50/50': courseStore.getTask(courseStore.currentCourseId)?.status === 'pending'
+            }"
+        >
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <div 
+                        class="w-6 h-6 rounded-md flex items-center justify-center"
+                        :class="{
+                            'bg-primary-100': courseStore.getTask(courseStore.currentCourseId)?.status === 'running',
+                            'bg-amber-100': courseStore.getTask(courseStore.currentCourseId)?.status === 'paused',
+                            'bg-blue-100': courseStore.getTask(courseStore.currentCourseId)?.status === 'pending'
+                        }"
+                    >
+                        <el-icon 
+                            :size="12" 
+                            :class="{
+                                'text-primary-500 animate-spin': courseStore.getTask(courseStore.currentCourseId)?.status === 'running',
+                                'text-amber-500': courseStore.getTask(courseStore.currentCourseId)?.status === 'paused',
+                                'text-blue-500': courseStore.getTask(courseStore.currentCourseId)?.status === 'pending'
+                            }"
+                        >
+                            <Loading v-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'running'" />
+                            <VideoPause v-else-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'paused'" />
+                            <Clock v-else />
+                        </el-icon>
+                    </div>
+                    <div>
+                        <div class="text-xs font-semibold text-slate-700">
+                            {{ courseStore.getTask(courseStore.currentCourseId)?.status === 'running' ? '正在生成...' : courseStore.getTask(courseStore.currentCourseId)?.status === 'paused' ? '已暂停' : '等待中...' }}
+                        </div>
+                        <div class="text-[10px] text-slate-400">
+                            {{ courseStore.getTask(courseStore.currentCourseId)?.currentStep || '准备中' }}
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1">
+                    <button 
+                        v-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'running'"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center text-amber-500 hover:bg-amber-100 transition-colors"
+                        @click="courseStore.pauseTask(courseStore.currentCourseId)"
+                        title="暂停"
+                    >
+                        <el-icon :size="14"><VideoPause /></el-icon>
+                    </button>
+                    <button 
+                        v-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'paused'"
+                        class="w-7 h-7 rounded-lg flex items-center justify-center text-primary-500 hover:bg-primary-100 transition-colors"
+                        @click="courseStore.startTask(courseStore.currentCourseId)"
+                        title="继续"
+                    >
+                        <el-icon :size="14"><VideoPlay /></el-icon>
+                    </button>
+                    <button 
+                        class="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                        @click="handleCancelTask"
+                        title="取消任务"
+                    >
+                        <el-icon :size="14"><Close /></el-icon>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div class="relative h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                    class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
+                    :class="{
+                        'bg-gradient-to-r from-primary-500 to-violet-500': courseStore.getTask(courseStore.currentCourseId)?.status === 'running',
+                        'bg-amber-400': courseStore.getTask(courseStore.currentCourseId)?.status === 'paused',
+                        'bg-blue-400': courseStore.getTask(courseStore.currentCourseId)?.status === 'pending'
+                    }"
+                    :style="{ width: `${courseStore.getTask(courseStore.currentCourseId)?.progress || 0}%` }"
+                >
+                    <div 
+                        v-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'running'" 
+                        class="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"
+                    ></div>
+                </div>
+            </div>
+            <div class="flex justify-between mt-1">
+                <span class="text-[10px] text-slate-400">{{ courseStore.getTask(courseStore.currentCourseId)?.progress || 0 }}%</span>
+                <span class="text-[10px] text-slate-400">{{ courseStore.taskProgress[courseStore.currentCourseId]?.completedNodes || 0 }}/{{ courseStore.taskProgress[courseStore.currentCourseId]?.totalNodes || 0 }} 节点</span>
             </div>
         </div>
         
@@ -520,9 +612,9 @@
 import { ref, watch, onUnmounted, computed, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
-import { ElTree, ElMessage, ElPopconfirm } from 'element-plus'
+import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
-import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled } from '@element-plus/icons-vue'
+import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading } from '@element-plus/icons-vue'
 import { BookOpen, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useMermaid } from '../composables/useMermaid'
@@ -749,7 +841,8 @@ const filterNode = (value: string, data: any) => {
 
 const highlightSearch = (label: string) => {
     if (!filterText.value) return label
-    const reg = new RegExp(filterText.value, 'gi')
+    const escapedFilter = filterText.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const reg = new RegExp(escapedFilter, 'gi')
     return label.replace(reg, (match) => `<span class="text-primary-600 font-bold bg-yellow-100 rounded px-0.5">${match}</span>`)
 }
 
@@ -810,6 +903,27 @@ const handleCourseClick = async (courseId: string) => {
 
 const handleDeleteCourse = async (courseId: string) => {
     await courseStore.deleteCourse(courseId)
+}
+
+const handleCancelTask = async () => {
+    const courseId = courseStore.currentCourseId
+    if (!courseId) return
+    
+    try {
+        await ElMessageBox.confirm(
+            '确定要取消此任务吗？已生成的内容将被保留。',
+            '取消任务',
+            {
+                confirmButtonText: '确定',
+                cancelButtonText: '取消',
+                type: 'warning'
+            }
+        )
+        courseStore.cancelTask(courseId)
+        ElMessage.info('任务已取消')
+    } catch {
+        // User cancelled
+    }
 }
 
 const backToCourses = () => {
@@ -949,6 +1063,15 @@ const handleNoteClick = (e: MouseEvent, note: any) => {
 @keyframes slideIn {
     from { opacity: 0; transform: translateX(-10px); }
     to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.animate-shimmer {
+    animation: shimmer 1.5s infinite;
 }
 
 /* Transition Animations */

@@ -144,12 +144,38 @@
 
             <!-- Empty States with Smart Suggestions -->
             <div v-if="courseStore.chatHistory.length === 0" class="flex flex-col items-center justify-center mt-6 text-gray-400">
-                <div class="w-16 h-16 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl flex items-center justify-center mb-4 shadow-sm ring-1 ring-white/60">
-                    <div class="w-10 h-10 bg-white rounded-lg shadow-sm flex items-center justify-center text-2xl text-primary-500">
-                        <el-icon :size="24"><ChatDotRound /></el-icon>
+                <!-- 智能问候区域 -->
+                <div v-if="tutorGreeting" class="w-full max-w-lg mb-6 bg-gradient-to-br from-primary-50 to-blue-50 rounded-2xl p-5 border border-primary-100 shadow-sm">
+                    <div class="text-sm text-slate-700 whitespace-pre-line leading-relaxed" v-html="formatGreeting(tutorGreeting.greeting)"></div>
+                    
+                    <!-- 导师动作按钮 -->
+                    <div v-if="tutorGreeting.actions?.length > 0" class="flex flex-wrap gap-2 mt-4">
+                        <button
+                            v-for="action in tutorGreeting.actions"
+                            :key="action.type"
+                            @click="handleTutorAction(action)"
+                            class="px-4 py-2 text-sm bg-white hover:bg-primary-50 border border-primary-200 hover:border-primary-300 rounded-xl text-primary-600 font-medium transition-all shadow-sm hover:shadow flex items-center gap-2"
+                        >
+                            <el-icon :size="14">
+                                <RefreshRight v-if="action.type === 'review_reminder'" />
+                                <Notebook v-else-if="action.type === 'wrong_answer_review'" />
+                                <Aim v-else-if="action.type === 'weakness_practice'" />
+                                <Bell v-else />
+                            </el-icon>
+                            {{ action.label }}
+                        </button>
                     </div>
                 </div>
-                <p class="text-xs text-slate-400 mb-4">有什么可以帮助你的？</p>
+
+                <!-- 默认问候（无导师数据时） -->
+                <template v-else>
+                    <div class="w-16 h-16 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl flex items-center justify-center mb-4 shadow-sm ring-1 ring-white/60">
+                        <div class="w-10 h-10 bg-white rounded-lg shadow-sm flex items-center justify-center text-2xl text-primary-500">
+                            <el-icon :size="24"><ChatDotRound /></el-icon>
+                        </div>
+                    </div>
+                    <p class="text-xs text-slate-400 mb-4">有什么可以帮助你的？</p>
+                </template>
 
                 <!-- Smart Suggestions -->
                 <div class="w-full px-4 space-y-2">
@@ -431,13 +457,15 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, reactive, computed } from 'vue'
 import { useCourseStore } from '../stores/course'
+import { useTutorStore } from '../stores/tutor'
 import type { AIContent } from '../stores/course'
-import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight, InfoFilled, QuestionFilled, Document, DataLine, Sunny, TrendCharts, Menu as CommandMenu } from '@element-plus/icons-vue'
+import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight, InfoFilled, QuestionFilled, Document, DataLine, Sunny, TrendCharts, Menu as CommandMenu, Bell, Aim, Timer, Trophy } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useMermaid } from '../composables/useMermaid'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 
 const courseStore = useCourseStore()
+const tutorStore = useTutorStore()
 const inputMessage = ref('')
 const chatContainer = ref<HTMLElement | null>(null)
 const personaDialogVisible = ref(false)
@@ -458,12 +486,11 @@ const lightboxImage = ref('')
 
 // Quick Commands Definition
 const quickCommands = [
-    { key: 'summary', label: '总结内容', icon: Document, template: '请帮我总结一下当前章节的核心内容' },
     { key: 'explain', label: '详细解释', icon: QuestionFilled, template: '请详细解释一下这个概念，包括定义、原理和应用场景' },
     { key: 'example', label: '举例说明', icon: Sunny, template: '请给我举几个具体的例子来帮助理解' },
     { key: 'compare', label: '对比分析', icon: DataLine, template: '请对比分析一下相关概念的异同点' },
-    { key: 'quiz', label: '生成测验', icon: TrendCharts, template: '请基于当前内容生成几道测验题' },
-    { key: 'keypoints', label: '提取重点', icon: Collection, template: '请提取本章节的重点和考点' }
+    { key: 'keypoints', label: '提取重点', icon: Collection, template: '请提取本章节的重点和考点' },
+    { key: 'deep', label: '深入探究', icon: TrendCharts, template: '请深入讲解这个知识点的底层原理和进阶应用' }
 ]
 
 const handleInput = () => {
@@ -684,17 +711,22 @@ const saveWrongQuestion = async (quiz: any, msgIdx: number, quizIdx: number) => 
     const state = getQuizState(msgIdx, quizIdx)
     if (state.selected === null) return
 
-    // Record to quiz system
     const nodeName = courseStore.currentNode?.node_name || '未知章节'
+    const nodeId = quiz.node_id || courseStore.currentNode?.node_id || 'global'
+
+    // Record to quiz system
     courseStore.recordWrongAnswer({
         question: quiz.question,
         options: quiz.options,
         correctIndex: quiz.correct_index,
         userIndex: state.selected,
         explanation: quiz.explanation,
-        nodeId: quiz.node_id || courseStore.currentNode?.node_id || 'global',
+        nodeId: nodeId,
         nodeName: nodeName
     })
+
+    // Record to tutor system
+    await recordQuizToTutor(quiz, false, nodeId, nodeName)
 
     // 1. Prompt for Reflection
     try {
@@ -927,16 +959,75 @@ const handleKeydown = (e: KeyboardEvent) => {
     }
 }
 
+// ========== 导师功能 ==========
+const tutorGreeting = computed(() => tutorStore.greeting)
 
+const formatGreeting = (text: string) => {
+    return text
+        .replace(/🎉|💪|👋|📚|❌|⚠️|🎯/g, '<span class="text-lg">$&</span>')
+        .replace(/\n/g, '<br>')
+}
+
+const handleTutorAction = async (action: any) => {
+    switch (action.type) {
+        case 'review_reminder':
+            const reviewItems = action.data?.items || []
+            if (reviewItems.length > 0) {
+                const item = reviewItems[0]
+                inputMessage.value = `请帮我复习「${item.node_title}」这个知识点，出几道题考考我`
+                sendMessage()
+            }
+            break
+        case 'wrong_answer_review':
+            inputMessage.value = '我想重做之前的错题，请帮我出几道类似的题目'
+            sendMessage()
+            break
+        case 'weakness_practice':
+            const nodeTitle = action.data?.node_title
+            if (nodeTitle) {
+                inputMessage.value = `我在「${nodeTitle}」这个知识点上比较薄弱，请帮我出几道练习题`
+                sendMessage()
+            }
+            break
+        default:
+            console.log('Unknown action type:', action.type)
+    }
+}
+
+const loadTutorGreeting = async () => {
+    const courseId = courseStore.currentCourseId
+    const nodeId = courseStore.currentNode?.node_id
+    await tutorStore.fetchGreeting(courseId, nodeId)
+}
+
+// 记录答题结果到导师系统
+const recordQuizToTutor = async (quiz: any, isCorrect: boolean, nodeId: string, nodeTitle: string) => {
+    await tutorStore.recordLearning({
+        node_id: nodeId,
+        node_title: nodeTitle,
+        is_correct: isCorrect,
+        time_spent: 0,
+        question_data: {
+            question: quiz.question,
+            user_answer: quiz.options[isCorrect ? quiz.correct_index : -1],
+            correct_answer: quiz.options[quiz.correct_index]
+        }
+    })
+}
 
 // Removed duplicate handleSaveAsNote
 
-onMounted(() => {
+onMounted(async () => {
     scrollToBottom()
     nextTick(() => {
         inputRef.value?.focus()
         scanMermaidDiagrams()
     })
+    
+    // 加载导师问候
+    if (courseStore.chatHistory.length === 0) {
+        await loadTutorGreeting()
+    }
 })
 </script>
 

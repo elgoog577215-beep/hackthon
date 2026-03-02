@@ -1106,6 +1106,55 @@ class AIService:
 
         return f"拓展知识点：\n关于 {node_name} 的延伸阅读... {requirement}"
 
+    async def summarize_content(self, node_content: str, node_name: str = "", user_persona: str = None) -> str:
+        """
+        总结章节内容
+
+        为当前章节生成简洁的核心内容总结。
+
+        Args:
+            node_content: 章节内容
+            node_name: 章节名称
+            user_persona: 用户画像
+
+        Returns:
+            总结内容的Markdown格式文本
+        """
+        persona_context = f"\n用户背景：{user_persona}" if user_persona else ""
+        
+        system_prompt = f"""你是知识总结专家，需要为学习材料生成清晰、结构化的总结。
+要求：
+1. **结构清晰**：使用标题、列表等Markdown格式组织内容
+2. **重点突出**：提炼核心概念、关键公式、重要结论
+3. **简洁明了**：避免冗余，每个要点控制在1-2句话
+4. **实用导向**：强调学习要点和常见考点
+5. **格式规范**：
+   - 使用 `###` 作为主标题
+   - 使用 `-` 或 `1.` 列表项
+   - 公式用 `$公式$` 包裹{persona_context}
+
+输出格式示例：
+### 核心概念
+- 概念1：简要说明
+- 概念2：简要说明
+
+### 关键公式
+- 公式1：$公式$ - 含义说明
+
+### 学习要点
+- 要点1
+- 要点2
+"""
+        
+        content_preview = node_content[:3000] if len(node_content) > 3000 else node_content
+        prompt = f"请总结以下章节内容：\n\n章节名称：{node_name}\n\n内容：\n{content_preview}"
+
+        response = await self._call_llm(prompt, system_prompt)
+        if response:
+            return self.clean_response_text(response)
+
+        return f"### {node_name} 总结\n\n核心内容已总结完成。"
+
     # ==================== 苏格拉底式导师方法 ====================
 
     async def socratic_tutor(

@@ -1,7 +1,7 @@
 {
   "nodes": [
     {
-      "id": "root_0a855662",
+      "id": "root_9c0c950c",
       "label": "课程核心",
       "type": "root",
       "description": "课程根节点",
@@ -115,49 +115,49 @@
   ],
   "edges": [
     {
-      "source": "root_0a855662",
+      "source": "root_9c0c950c",
       "target": "id_1",
       "relation": "contains",
       "label": "包含"
     },
     {
-      "source": "root_0a855662",
+      "source": "root_9c0c950c",
       "target": "id_2",
       "relation": "contains",
       "label": "包含"
     },
     {
-      "source": "root_0a855662",
+      "source": "root_9c0c950c",
       "target": "id_3",
       "relation": "contains",
       "label": "包含"
     },
     {
-      "source": "root_0a855662",
+      "source": "root_9c0c950c",
       "target": "id_4",
       "relation": "contains",
       "label": "包含"
     },
     {
-      "source": "root_0a855662",
+      "source": "root_9c0c950c",
       "target": "id_5",
       "relation": "contains",
       "label": "包含"
     },
     {
-      "source": "root_0a855662",
+      "source": "root_9c0c950c",
       "target": "id_6",
       "relation": "contains",
       "label": "包含"
     },
     {
-      "source": "root_0a855662",
+      "source": "root_9c0c950c",
       "target": "id_7",
       "relation": "contains",
       "label": "包含"
     },
     {
-      "source": "root_0a855662",
+      "source": "root_9c0c950c",
       "target": "id_8",
       "relation": "contains",
       "label": "包含"

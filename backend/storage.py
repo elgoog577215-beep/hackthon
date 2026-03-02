@@ -222,6 +222,25 @@ class Storage:
             
             self._mark_dirty()
 
+    def update_annotation_field(self, anno_id: str, field: str, value: any):
+        """Update a specific field of an annotation"""
+        annotations = self.load_annotations()
+        updated = False
+        for anno in annotations:
+            if anno.get('anno_id') == anno_id:
+                anno[field] = value
+                updated = True
+                break
+        
+        if updated:
+            self.annotations_cache = annotations
+            with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(annotations, f, ensure_ascii=False, indent=2)
+            
+            self._mark_dirty()
+        
+        return updated
+
     def save_knowledge_graph(self, course_id: str, graph_data: dict):
         """Save knowledge graph to disk and cache"""
         self.knowledge_graph_cache[course_id] = graph_data
