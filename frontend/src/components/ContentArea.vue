@@ -874,7 +874,7 @@ import { useCourseStore } from '../stores/course'
 import CourseNode from './CourseNode.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useMermaid } from '../composables/useMermaid'
-import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, RefreshLeft, Warning, CollectionTag, Folder, PriceTag } from '@element-plus/icons-vue'
+import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, Warning, CollectionTag, Folder, PriceTag } from '@element-plus/icons-vue'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1171,12 +1171,6 @@ const noteTabs = computed(() => [
     { key: 'notes', label: '笔记', icon: Notebook, count: noteCounts.value.notes, color: 'text-primary-500' },
     { key: 'mistakes', label: '错题', icon: Warning, count: noteCounts.value.mistakes, color: 'text-red-500' }
 ])
-
-// Clear all filters
-const clearAllFilters = () => {
-    noteSearchQuery.value = ''
-    activeNoteFilter.value = 'notes'
-}
 
 const debounce = (fn: (...args: unknown[]) => void, delay: number) => {
     let timeout: ReturnType<typeof setTimeout> | null = null
@@ -1542,14 +1536,6 @@ const noteCounts = computed(() => {
     const notes = scoped.filter(n => !isMistakeNote(n) && n.sourceType !== 'format').length
     const mistakes = scoped.filter(n => isMistakeNote(n) && n.sourceType !== 'format').length
     return { notes, mistakes }
-})
-
-// Check if any filter is active
-const hasActiveFilters = computed(() => {
-    return selectedTagFilter.value !== '' || 
-           selectedCategoryFilter.value !== '' || 
-           selectedPriorityFilter.value !== '' ||
-           debouncedSearchQuery.value !== ''
 })
 
 const visibleNotes = computed(() => {

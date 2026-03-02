@@ -200,6 +200,7 @@ import { useCourseStore } from '../stores/course'
 import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Menu, ChatDotRound, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
 const courseStore = useCourseStore()
 const route = useRoute()
@@ -573,7 +574,7 @@ const handleShowGraph = () => {
 }
 
 const handleViewAllNotes = () => {
-  courseStore.showNotesPanel = true
+  // Notes are always visible in ContentArea sidebar
 }
 
 const handleViewAllWrongAnswers = () => {
@@ -583,7 +584,7 @@ const handleViewAllWrongAnswers = () => {
   }
 }
 
-const handleRetryWrong = (item: any) => {
+const handleRetryWrong = (_item: any) => {
   activeRightTab.value = 'chat'
   if (!rightVisible.value) {
     rightVisible.value = true
