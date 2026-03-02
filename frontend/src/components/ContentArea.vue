@@ -283,29 +283,29 @@
         </div>
 
         <!-- Note Column (Desktop Only) - Responsive width -->
-        <div id="note-column" v-if="!courseStore.isFocusMode && !isNotesCollapsed" class="hidden md:flex flex-col w-[260px] min-w-[260px] xl:w-[300px] xl:min-w-[300px] 2xl:w-[320px] flex-shrink-0 relative bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50">
-             <!-- Search Header (Floating Card) -->
-            <div class="sticky top-0 z-30 px-4 py-4 bg-white/90 backdrop-blur-xl border-b border-slate-200/60 flex flex-col gap-4">
+        <div id="note-column" v-if="!courseStore.isFocusMode && !isNotesCollapsed" class="hidden md:flex flex-col w-[240px] min-w-[240px] xl:w-[280px] xl:min-w-[280px] flex-shrink-0 relative bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50">
+             <!-- Compact Header -->
+            <div class="sticky top-0 z-30 px-3 py-3 bg-white/90 backdrop-blur-xl border-b border-slate-200/60">
                 <!-- Header Row -->
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2.5">
-                        <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-lg shadow-primary-500/25">
-                            <el-icon class="text-white" :size="16"><Notebook /></el-icon>
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                        <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-md shadow-primary-500/20">
+                            <el-icon class="text-white" :size="14"><Notebook /></el-icon>
                         </div>
                         <div>
-                            <h3 class="text-sm font-bold text-slate-800">我的笔记</h3>
-                            <p class="text-[10px] text-slate-400">{{ noteCounts.notes }} 条笔记 · {{ noteCounts.mistakes }} 道错题</p>
+                            <h3 class="text-xs font-bold text-slate-800">笔记</h3>
+                            <p class="text-[9px] text-slate-400">{{ noteCounts.notes }} · {{ noteCounts.mistakes }} 错题</p>
                         </div>
                     </div>
-                    <div class="flex items-center gap-1">
-                        <el-tooltip content="收起笔记" placement="bottom">
-                            <button @click="isNotesCollapsed = true" class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 rounded-lg transition-all duration-200">
-                                <el-icon :size="16"><ArrowRight /></el-icon>
+                    <div class="flex items-center gap-0.5">
+                        <el-tooltip content="收起" placement="bottom">
+                            <button @click="isNotesCollapsed = true" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 rounded-lg transition-all duration-200">
+                                <el-icon :size="14"><ArrowRight /></el-icon>
                             </button>
                         </el-tooltip>
                         <el-dropdown trigger="click" placement="bottom-end">
-                            <button class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all duration-200">
-                                <el-icon :size="18"><More /></el-icon>
+                            <button class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all duration-200">
+                                <el-icon :size="16"><More /></el-icon>
                             </button>
                             <template #dropdown>
                                 <el-dropdown-menu>
@@ -315,158 +315,45 @@
                                     <el-dropdown-item @click="openExportDialog('mistakes')" v-if="noteCounts.mistakes > 0">
                                         <el-icon class="mr-2"><Document /></el-icon>导出错题
                                     </el-dropdown-item>
-                                    <el-dropdown-item divided @click="clearAllFilters">
-                                        <el-icon class="mr-2"><RefreshLeft /></el-icon>重置筛选
-                                    </el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
                     </div>
                 </div>
                 
-                <!-- Modern Tab Navigation -->
-                <div class="flex items-center gap-1 p-1 bg-slate-100/80 rounded-xl">
+                <!-- Tab Navigation -->
+                <div class="flex items-center gap-1 p-0.5 bg-slate-100/80 rounded-lg">
                     <button v-for="tab in noteTabs" :key="tab.key"
-                        class="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium rounded-lg transition-all duration-200"
+                        class="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 text-[11px] font-medium rounded-md transition-all duration-200"
                         :class="activeNoteFilter === tab.key 
                             ? 'bg-white text-slate-800 shadow-sm' 
                             : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'"
                         @click="activeNoteFilter = tab.key"
                     >
-                        <el-icon :size="14" :class="tab.color"><component :is="tab.icon" /></el-icon>
+                        <el-icon :size="12" :class="tab.color"><component :is="tab.icon" /></el-icon>
                         <span>{{ tab.label }}</span>
-                        <span v-if="tab.count > 0" class="ml-0.5 px-1.5 py-0.5 text-[10px] rounded-full"
+                        <span v-if="tab.count > 0" class="ml-0.5 px-1 py-0.5 text-[9px] rounded-full"
                               :class="activeNoteFilter === tab.key ? 'bg-slate-100 text-slate-600' : 'bg-slate-200/50 text-slate-500'">
                             {{ tab.count }}
                         </span>
                     </button>
                 </div>
 
-                <!-- Search Bar with Icon -->
-                <div class="relative group">
-                    <div class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary-500 transition-colors">
-                        <el-icon :size="16"><Search /></el-icon>
+                <!-- Search Bar -->
+                <div class="relative mt-2">
+                    <div class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">
+                        <el-icon :size="14"><Search /></el-icon>
                     </div>
                     <input 
                         v-model="noteSearchQuery" 
                         type="text"
-                        placeholder="搜索笔记内容..."
-                        class="w-full pl-10 pr-9 py-2.5 bg-slate-100/50 border border-transparent rounded-xl text-sm text-slate-700 placeholder:text-slate-400 focus:bg-white focus:border-primary-300 focus:ring-4 focus:ring-primary-500/10 transition-all duration-200 outline-none"
+                        placeholder="搜索..."
+                        class="w-full pl-8 pr-8 py-2 bg-slate-100/50 border border-transparent rounded-lg text-xs text-slate-700 placeholder:text-slate-400 focus:bg-white focus:border-primary-300 focus:ring-2 focus:ring-primary-500/10 transition-all duration-200 outline-none"
                     >
                     <div v-if="noteSearchQuery" @click="noteSearchQuery = ''" 
-                         class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full cursor-pointer transition-all">
-                        <el-icon :size="12"><Close /></el-icon>
+                         class="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full cursor-pointer transition-all">
+                        <el-icon :size="10"><Close /></el-icon>
                     </div>
-                    <div v-else-if="isSearching" class="absolute right-3 top-1/2 -translate-y-1/2">
-                        <el-icon class="is-loading text-primary-500" :size="16"><Loading /></el-icon>
-                    </div>
-                </div>
-                
-                <!-- Filter Section -->
-                <div class="flex flex-col gap-2">
-                    <!-- Tag Filter -->
-                    <div v-if="availableTags.length > 0" class="flex flex-wrap items-center gap-1.5">
-                        <span class="text-[10px] text-slate-400 whitespace-nowrap">标签:</span>
-                        <div class="flex flex-wrap gap-1 flex-1">
-                            <el-tag
-                                v-for="tag in availableTags.slice(0, 5)"
-                                :key="tag"
-                                size="small"
-                                :type="selectedTagFilter === tag ? 'primary' : 'info'"
-                                :effect="selectedTagFilter === tag ? 'dark' : 'plain'"
-                                class="cursor-pointer text-[10px]"
-                                @click="selectedTagFilter = selectedTagFilter === tag ? '' : tag"
-                            >
-                                {{ tag }}
-                            </el-tag>
-                            <el-dropdown v-if="availableTags.length > 5" trigger="click" placement="bottom">
-                                <el-tag size="small" type="info" effect="plain" class="cursor-pointer text-[10px]">
-                                    +{{ availableTags.length - 5 }}
-                                </el-tag>
-                                <template #dropdown>
-                                    <el-dropdown-menu class="max-h-48 overflow-y-auto">
-                                        <el-dropdown-item
-                                            v-for="tag in availableTags.slice(5)"
-                                            :key="tag"
-                                            @click="selectedTagFilter = selectedTagFilter === tag ? '' : tag"
-                                        >
-                                            <el-tag
-                                                size="small"
-                                                :type="selectedTagFilter === tag ? 'primary' : 'info'"
-                                                :effect="selectedTagFilter === tag ? 'dark' : 'plain'"
-                                            >
-                                                {{ tag }}
-                                            </el-tag>
-                                        </el-dropdown-item>
-                                    </el-dropdown-menu>
-                                </template>
-                            </el-dropdown>
-                        </div>
-                    </div>
-                    
-                    <!-- Category & Priority Filter -->
-                    <div class="flex items-center gap-2">
-                        <el-select
-                            v-if="availableCategories.length > 0"
-                            v-model="selectedCategoryFilter"
-                            placeholder="全部分类"
-                            size="small"
-                            class="flex-1"
-                            clearable
-                        >
-                            <el-option
-                                v-for="cat in availableCategories"
-                                :key="cat"
-                                :label="cat"
-                                :value="cat"
-                            />
-                        </el-select>
-                        <el-select
-                            v-model="selectedPriorityFilter"
-                            placeholder="全部优先级"
-                            size="small"
-                            class="flex-1"
-                            clearable
-                        >
-                            <el-option label="🔴 高优先级" value="high" />
-                            <el-option label="🟡 中优先级" value="medium" />
-                            <el-option label="🟢 低优先级" value="low" />
-                        </el-select>
-                    </div>
-                </div>
-                
-                <!-- Active Filters Display -->
-                <div v-if="hasActiveFilters" class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
-                    <span class="text-[10px] text-slate-400">筛选:</span>
-                    <div class="flex flex-wrap gap-1.5 flex-1">
-                        <span v-if="debouncedSearchQuery" class="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 text-[11px] rounded-lg">
-                            "{{ debouncedSearchQuery }}"
-                            <button @click="noteSearchQuery = ''" class="hover:text-slate-800 w-4 h-4 flex items-center justify-center rounded hover:bg-slate-200 transition-colors">
-                                <el-icon :size="10"><Close /></el-icon>
-                            </button>
-                        </span>
-                        <span v-if="selectedTagFilter" class="inline-flex items-center gap-1 px-2 py-1 bg-primary-50 text-primary-600 text-[11px] rounded-lg">
-                            标签: {{ selectedTagFilter }}
-                            <button @click="selectedTagFilter = ''" class="hover:text-primary-800 w-4 h-4 flex items-center justify-center rounded hover:bg-primary-100 transition-colors">
-                                <el-icon :size="10"><Close /></el-icon>
-                            </button>
-                        </span>
-                        <span v-if="selectedCategoryFilter" class="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-600 text-[11px] rounded-lg">
-                            分类: {{ selectedCategoryFilter }}
-                            <button @click="selectedCategoryFilter = ''" class="hover:text-amber-800 w-4 h-4 flex items-center justify-center rounded hover:bg-amber-100 transition-colors">
-                                <el-icon :size="10"><Close /></el-icon>
-                            </button>
-                        </span>
-                        <span v-if="selectedPriorityFilter" class="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 text-[11px] rounded-lg">
-                            {{ getPriorityLabel(selectedPriorityFilter) }}
-                            <button @click="selectedPriorityFilter = ''" class="hover:text-red-800 w-4 h-4 flex items-center justify-center rounded hover:bg-red-100 transition-colors">
-                                <el-icon :size="10"><Close /></el-icon>
-                            </button>
-                        </span>
-                    </div>
-                    <span v-if="displayedNotes.length > 0" class="text-[10px] text-slate-400 whitespace-nowrap">
-                        {{ displayedNotes.length }} 条结果
-                    </span>
                 </div>
             </div>
 
