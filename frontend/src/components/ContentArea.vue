@@ -133,6 +133,39 @@
     <!-- Content List (Continuous Scroll) -->
     <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
       
+        <!-- Note Hover Preview -->
+        <Teleport to="body">
+            <transition name="fade-slide">
+                <div v-if="hoverPreview.visible && hoverPreview.note" 
+                    class="fixed z-[60] pointer-events-none"
+                    :style="{ left: hoverPreview.x + 'px', top: hoverPreview.y + 'px' }">
+                    <div class="bg-white/95 backdrop-blur-xl rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.15)] border border-slate-200/60 max-w-[280px] overflow-hidden transform -translate-x-1/2 -translate-y-full mb-2">
+                        <div class="px-3 py-2 border-b border-slate-100 bg-gradient-to-r from-amber-50/50 to-white">
+                            <div class="flex items-center gap-1.5">
+                                <div class="w-5 h-5 rounded-md bg-amber-100 flex items-center justify-center">
+                                    <el-icon class="text-amber-600" :size="12"><Notebook /></el-icon>
+                                </div>
+                                <span class="text-[11px] font-bold text-slate-600 uppercase tracking-wide">笔记</span>
+                            </div>
+                        </div>
+                        <div class="p-3">
+                            <div v-if="hoverPreview.note.quote" class="text-[11px] text-slate-400 italic mb-2 border-l-2 border-amber-200 pl-2 line-clamp-2">
+                                "{{ hoverPreview.note.quote.slice(0, 60) }}{{ hoverPreview.note.quote.length > 60 ? '...' : '' }}"
+                            </div>
+                            <div class="text-xs text-slate-700 leading-relaxed line-clamp-4">
+                                {{ hoverPreview.note.summary || hoverPreview.note.content?.slice(0, 150) }}
+                                {{ (hoverPreview.note.content?.length || 0) > 150 ? '...' : '' }}
+                            </div>
+                        </div>
+                        <div class="px-3 py-1.5 bg-slate-50/50 border-t border-slate-100 text-[10px] text-slate-400 flex items-center gap-1">
+                            <el-icon :size="10"><Timer /></el-icon>
+                            {{ dayjs(hoverPreview.note.createdAt).fromNow() }}
+                        </div>
+                    </div>
+                </div>
+            </transition>
+        </Teleport>
+
         <!-- Selection Menu -->
     <Teleport to="body">
       <transition name="scale-fade">
@@ -444,7 +477,7 @@
                         {{ noteEmptyText }}
                     </div>
                     <div v-for="note in displayedNotes" :key="note.id"
-                         class="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-0 group hover:shadow-xl hover:shadow-red-500/5 hover:border-red-200 hover:-translate-y-1 transition-all duration-300 cursor-pointer overflow-hidden relative"
+                         class="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-0 group hover:shadow-xl hover:shadow-red-500/5 hover:border-red-200 transition-all duration-300 cursor-pointer overflow-hidden relative"
                          :class="{'ring-2 ring-red-100': activeNoteId === note.id}"
                          @click="handleNoteClick(note)">
                          
@@ -511,7 +544,7 @@
                                   :class="(activeNoteId === note.id || hoveredNoteId === note.id) ? 'bg-primary-500 scale-125' : (note.sourceType === 'ai' ? 'bg-purple-400' : 'bg-slate-300')"></div>
 
                              <!-- Note Bubble -->
-                             <div class="bg-white rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] border border-slate-200/60 p-0 group hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.12)] hover:border-primary-200/80 hover:-translate-y-1 transition-all duration-200 cursor-pointer overflow-hidden relative"
+                             <div class="bg-white rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)] border border-slate-200/60 p-0 group hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.12)] hover:border-primary-200/80 transition-all duration-200 cursor-pointer overflow-hidden relative"
                                   :class="[noteCardBorderClass(note), {'ring-2 ring-primary-200 ring-offset-2 shadow-lg': activeNoteId === note.id || hoveredNoteId === note.id, '!border-purple-200 !bg-purple-50/10': note.sourceType === 'ai'}]"
                                  @click="handleNoteClick(note)"
                                   @mouseenter="setHovered(note.id)"
@@ -529,8 +562,8 @@
                                         笔记
                                     </div>
                                     
-                                    <div class="flex gap-1">
-                                        <button class="p-1.5 hover:bg-white rounded-md text-slate-400 hover:text-red-500 transition-all shadow-sm border border-transparent hover:border-slate-100" @click.stop="handleDeleteNote(note.id)">
+                                    <div class="flex gap-1.5">
+                                        <button class="w-7 h-7 flex items-center justify-center rounded-lg bg-red-50/50 hover:bg-red-100 text-red-400 hover:text-red-500 transition-all duration-200 hover:scale-105" @click.stop="handleDeleteNote(note.id)" title="删除笔记">
                                             <el-icon :size="14"><Delete /></el-icon>
                                         </button>
                                     </div>
@@ -552,8 +585,8 @@
                                             <span>{{ dayjs(note.createdAt).fromNow() }}</span>
                                         </div>
                                         
-                                        <button @click.stop="handleNoteClick(note)" class="text-[11px] font-bold text-slate-400 hover:text-primary-600 flex items-center gap-1 transition-colors px-2 py-1 rounded-full hover:bg-slate-50">
-                                            查看详情 <el-icon><ArrowRight /></el-icon>
+                                        <button @click.stop="handleNoteClick(note)" class="text-[11px] font-semibold text-primary-500 hover:text-primary-600 flex items-center gap-1 transition-all duration-200 px-2.5 py-1.5 rounded-lg hover:bg-primary-50 hover:scale-105">
+                                            查看详情 <el-icon :size="12"><ArrowRight /></el-icon>
                                         </button>
                                     </div>
                                 </div>
@@ -1334,6 +1367,12 @@ const quizScore = computed(() => {
 const isManualScrolling = ref(false)
 const activeNoteId = ref<string | null>(null)
 const hoveredNoteId = ref<string | null>(null)
+const hoverPreview = reactive({
+    visible: false,
+    x: 0,
+    y: 0,
+    note: null as any
+})
 const fontSize = computed(() => courseStore.uiSettings.fontSize)
 const fontFamily = computed(() => courseStore.uiSettings.fontFamily)
 const lineHeight = computed(() => courseStore.uiSettings.lineHeight)
@@ -1880,18 +1919,29 @@ const applyFormat = (style: string, value?: string) => {
     }
 }
 
-const setHovered = (noteId: string | null) => {
+const setHovered = (noteId: string | null, event?: MouseEvent) => {
     hoveredNoteId.value = noteId
     // 1. Clean up old highlights
     document.querySelectorAll('.pulse-highlight').forEach(el => el.classList.remove('pulse-highlight'))
     
-    // 2. Add new highlights
+    // 2. Add new highlights and show preview
     if (noteId) {
         const note = courseStore.notes.find(n => n.id === noteId)
         if (note && note.highlightId) {
             const els = document.querySelectorAll(`[id^="${note.highlightId}"]`)
             els.forEach(el => el.classList.add('pulse-highlight'))
         }
+        
+        // Show hover preview
+        if (note && event) {
+            hoverPreview.visible = true
+            hoverPreview.x = event.clientX
+            hoverPreview.y = event.clientY - 10
+            hoverPreview.note = note
+        }
+    } else {
+        hoverPreview.visible = false
+        hoverPreview.note = null
     }
 }
 
@@ -1937,8 +1987,8 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
                 scrollToNote(noteId)
             }
         }
-        // Add hover effects
-        span.onmouseenter = () => setHovered(noteId)
+        // Add hover effects with preview
+        span.onmouseenter = (e) => setHovered(noteId, e as MouseEvent)
         span.onmouseleave = () => setHovered(null)
         
         range.surroundContents(span)
@@ -2932,6 +2982,17 @@ onUnmounted(() => {
 
 <style scoped>
 /* ContentArea Styles */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.2s ease;
+}
+
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
 .scale-fade-enter-active,
 .scale-fade-leave-active {
   transition: all 0.2s ease;

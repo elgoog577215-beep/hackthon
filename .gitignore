@@ -37,3 +37,7 @@ env/
 
 # Data
 backend/tasks.json
+backend/data/courses/
+backend/data/knowledge_graphs/
+!backend/data/courses/.gitkeep
+!backend/data/knowledge_graphs/.gitkeep

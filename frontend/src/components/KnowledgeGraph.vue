@@ -1,250 +1,220 @@
 <template>
-  <div class="knowledge-graph-container">
-    <!-- Toolbar -->
-    <div class="graph-toolbar">
-      <div class="toolbar-left">
-        <span class="graph-title">知识图谱</span>
-        <span v-if="loading" class="loading-indicator">
-          <el-icon class="is-loading"><Loading /></el-icon>
-          生成中...
-        </span>
-      </div>
-      
-      <!-- Search Box -->
-      <div class="toolbar-center" v-if="hasGraph">
-        <div class="search-box">
-          <el-icon class="search-icon"><Search /></el-icon>
-          <input
-            v-model="searchQuery"
-            type="text"
-            class="search-input"
-            placeholder="搜索节点..."
-            @keyup.enter="searchNode"
-          />
-          <button v-if="searchQuery" class="clear-search" @click="clearSearch">
-            <el-icon><CircleClose /></el-icon>
-          </button>
-        </div>
-      </div>
-      
-      <div class="toolbar-right">
-        <button
-          v-if="!hasGraph"
-          class="btn-generate"
-          :disabled="loading"
-          @click="generateGraph"
-        >
-          <el-icon><MagicStick /></el-icon>
-          生成图谱
-        </button>
-        <button
-          v-else
-          class="btn-refresh"
-          :disabled="loading"
-          @click="generateGraph"
-        >
-          <el-icon><Refresh /></el-icon>
-          重新生成
-        </button>
-        <button class="btn-reset" @click="resetView">
-          <el-icon><FullScreen /></el-icon>
-          重置视图
-        </button>
-        <button class="btn-reset" @click="downloadImage" title="导出图片">
-          <el-icon><Download /></el-icon>
-          导出
-        </button>
-      </div>
-    </div>
-
-    <!-- Graph Canvas -->
-    <div ref="graphContainer" class="graph-canvas" @click="deselectNode">
-      <svg
-        :viewBox="viewBoxString"
-        class="graph-svg"
-        @wheel.prevent="handleWheel"
-        @mousedown="handleMouseDown"
-        @mousemove="handleMouseMove"
-        @mouseup="handleMouseUp"
-        @mouseleave="handleMouseUp"
-      >
-        <defs>
-          <!-- Background Grid -->
-          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#f1f5f9" stroke-width="1"/>
-          </pattern>
-          <!-- Drop Shadow Filter -->
-          <filter id="node-shadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.1"/>
-          </filter>
-          <!-- Selected Glow -->
-          <filter id="node-glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#6366f1" flood-opacity="0.5"/>
-          </filter>
-          <!-- Arrowhead Marker -->
-          <marker
-            id="arrowhead"
-            viewBox="0 0 10 10"
-            refX="28" 
-            refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
-          </marker>
-        </defs>
-        
-        <rect width="100%" height="100%" fill="url(#grid)" />
-
-        <!-- Edges -->
-        <g class="edges">
-          <path
-            v-for="edge in graphData.edges"
-            :key="`${edge.source}-${edge.target}`"
-            :d="getEdgePath(edge)"
-            :class="['edge-line', getEdgeClass(edge)]"
-            :stroke-width="selectedNode && (edge.source === selectedNode.id || edge.target === selectedNode.id) ? 3 : 2"
-            marker-end="url(#arrowhead)"
-          />
-        </g>
-
-        <!-- Nodes -->
-        <g class="nodes">
-          <g
-            v-for="node in graphData.nodes"
-            :key="node.id"
-            class="node-group"
-            :transform="`translate(${getNodePosition(node.id).x}, ${getNodePosition(node.id).y})`"
-            @click.stop="selectNode(node)"
-            @mousedown.stop="handleNodeMouseDown($event, node)"
-            @mouseenter="hoverNode = node.id"
-            @mouseleave="hoverNode = null"
-          >
-            <!-- Invisible Hit Area (Larger than visual) -->
-            <rect
-              :x="-getNodeWidth(node) / 2 - 10"
-              :y="-30"
-              :width="getNodeWidth(node) + 20"
-              height="60"
-              fill="transparent"
-            />
-
-            <!-- Node Card Background -->
-            <rect
-              :x="-getNodeWidth(node) / 2"
-              :y="-22"
-              :width="getNodeWidth(node)"
-              height="44"
-              rx="6"
-              ry="6"
-              class="node-card-bg"
-              :filter="selectedNode?.id === node.id ? 'url(#node-glow)' : 'url(#node-shadow)'"
-              :stroke="selectedNode?.id === node.id ? '#6366f1' : 'transparent'"
-              stroke-width="2"
-            />
-            
-            <!-- Type Indicator Strip -->
-            <rect
-              :x="-getNodeWidth(node) / 2"
-              :y="-22"
-              width="5"
-              height="44"
-              rx="0"
-              class="node-type-strip"
-              :fill="getNodeColor(node)"
-              style="border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
-            />
-
-            <!-- Node Label -->
-            <text
-              class="node-label"
-              x="5"
-              y="6"
-              text-anchor="middle"
-              :style="{ fill: '#0f172a' }"
-            >
-              {{ node.label }}
-            </text>
-          </g>
-        </g>
-      </svg>
-
-      <!-- Empty State -->
-      <div v-if="!hasGraph && !loading" class="empty-state">
-        <el-icon class="empty-icon"><MagicStick /></el-icon>
-        <p class="empty-text">暂无知识图谱数据</p>
-        <button class="btn-generate-large" @click="generateGraph">
-          立即生成
-        </button>
-      </div>
-
-      <!-- Node Detail Panel -->
-      <transition name="slide">
-        <div v-if="selectedNode" class="node-detail-panel">
-          <div class="panel-header">
-            <h3>{{ selectedNode.label }}</h3>
-            <button class="btn-close" @click="deselectNode">
-              <el-icon><Close /></el-icon>
-            </button>
-          </div>
-          <div class="panel-content">
-            <div class="info-row">
-              <span class="info-label">类型:</span>
-              <span class="info-value" :style="{ background: getNodeColor(selectedNode) + '20', color: getNodeColor(selectedNode) }">
-                {{ getNodeTypeLabel(selectedNode.type) }}
+  <Teleport to="body">
+    <Transition name="fade">
+      <div v-if="courseStore.showKnowledgeGraph" class="kg-overlay" @click.self="handleClose">
+        <div class="kg-container">
+          <!-- Header -->
+          <div class="kg-header">
+            <div class="kg-header-left">
+              <button class="kg-btn-close" @click="handleClose">
+                <el-icon><ArrowLeft /></el-icon>
+              </button>
+              <h2 class="kg-title">知识图谱</h2>
+              <span v-if="loading" class="kg-loading">
+                <el-icon class="is-loading"><Loading /></el-icon>
+                生成中...
               </span>
             </div>
-            <div v-if="selectedNode.description" class="info-row">
-              <span class="info-label">描述:</span>
-              <p class="info-description">{{ selectedNode.description }}</p>
+            
+            <div class="kg-header-center" v-if="hasGraph">
+              <div class="kg-search">
+                <el-icon class="kg-search-icon"><Search /></el-icon>
+                <input
+                  v-model="searchQuery"
+                  type="text"
+                  placeholder="搜索节点..."
+                  class="kg-search-input"
+                  @keyup.enter="handleSearch"
+                />
+                <button v-if="searchQuery" class="kg-search-clear" @click="clearSearch">
+                  <el-icon><CircleClose /></el-icon>
+                </button>
+              </div>
             </div>
-            <div v-if="selectedNode.chapter_id" class="info-row">
-              <button class="btn-navigate" @click="navigateToNode(selectedNode.chapter_id)">
-                <el-icon><Position /></el-icon>
-                前往学习
+            
+            <div class="kg-header-right">
+              <button v-if="!hasGraph" class="kg-btn kg-btn-primary" :disabled="loading" @click="generateGraph">
+                <el-icon><MagicStick /></el-icon>
+                生成图谱
+              </button>
+              <button v-else class="kg-btn kg-btn-secondary" :disabled="loading" @click="generateGraph">
+                <el-icon><Refresh /></el-icon>
+                重新生成
+              </button>
+              <button class="kg-btn kg-btn-ghost" @click="resetView" title="重置视图">
+                <el-icon><FullScreen /></el-icon>
+              </button>
+              <button class="kg-btn kg-btn-ghost" @click="downloadImage" title="导出SVG">
+                <el-icon><Download /></el-icon>
               </button>
             </div>
           </div>
-        </div>
-      </transition>
-    </div>
 
-    <!-- Legend -->
-    <div class="graph-legend">
-      <div class="legend-title">图例</div>
-      <div class="legend-items">
-        <div v-for="type in nodeTypes" :key="type.value" class="legend-item">
-          <span class="legend-dot" :style="{ background: type.color }"></span>
-          <span class="legend-label">{{ type.label }}</span>
+          <!-- Graph Canvas -->
+          <div ref="canvasRef" class="kg-canvas" @click="deselectNode">
+            <!-- SVG Graph -->
+            <svg
+              v-if="hasGraph"
+              :viewBox="viewBoxStr"
+              class="kg-svg"
+              @wheel.prevent="handleWheel"
+              @mousedown="startPan"
+              @mousemove="onPan"
+              @mouseup="endPan"
+              @mouseleave="endPan"
+            >
+              <defs>
+                <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e2e8f0" stroke-width="1"/>
+                </pattern>
+                <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.1"/>
+                </filter>
+                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#6366f1" flood-opacity="0.4"/>
+                </filter>
+                <marker id="arrow" viewBox="0 0 10 10" refX="25" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+                </marker>
+              </defs>
+              
+              <rect width="100%" height="100%" fill="url(#grid)"/>
+              
+              <!-- Edges -->
+              <g class="kg-edges">
+                <path
+                  v-for="edge in graphData.edges"
+                  :key="edge.source + '-' + edge.target"
+                  :d="getEdgePath(edge)"
+                  class="kg-edge"
+                  :class="getEdgeClass(edge)"
+                  marker-end="url(#arrow)"
+                />
+              </g>
+              
+              <!-- Nodes -->
+              <g class="kg-nodes">
+                <g
+                  v-for="node in graphData.nodes"
+                  :key="node.id"
+                  class="kg-node"
+                  :class="{ 'kg-node-selected': selectedNode?.id === node.id }"
+                  :transform="`translate(${node.x}, ${node.y})`"
+                  @click.stop="selectNode(node)"
+                  @mouseenter="hoveredNode = node.id"
+                  @mouseleave="hoveredNode = null"
+                >
+                  <rect
+                    :x="-getNodeWidth(node) / 2"
+                    y="-20"
+                    :width="getNodeWidth(node)"
+                    height="40"
+                    rx="8"
+                    class="kg-node-bg"
+                    :style="{ fill: getNodeColor(node) + '15', stroke: getNodeColor(node) }"
+                  />
+                  <rect
+                    :x="-getNodeWidth(node) / 2"
+                    y="-20"
+                    width="4"
+                    height="40"
+                    rx="2"
+                    :fill="getNodeColor(node)"
+                  />
+                  <text
+                    :x="4"
+                    y="6"
+                    class="kg-node-label"
+                  >{{ node.label }}</text>
+                </g>
+              </g>
+            </svg>
+
+            <!-- Empty State -->
+            <div v-if="!hasGraph && !loading" class="kg-empty">
+              <el-icon class="kg-empty-icon"><Connection /></el-icon>
+              <p class="kg-empty-text">暂无知识图谱</p>
+              <button class="kg-btn kg-btn-primary kg-btn-large" @click="generateGraph">
+                <el-icon><MagicStick /></el-icon>
+                立即生成
+              </button>
+            </div>
+
+            <!-- Node Detail Panel -->
+            <Transition name="slide">
+              <div v-if="selectedNode" class="kg-detail">
+                <div class="kg-detail-header">
+                  <h3>{{ selectedNode.label }}</h3>
+                  <button class="kg-btn-close-sm" @click="deselectNode">
+                    <el-icon><Close /></el-icon>
+                  </button>
+                </div>
+                <div class="kg-detail-body">
+                  <div class="kg-detail-row">
+                    <span class="kg-detail-label">类型</span>
+                    <span 
+                      class="kg-detail-value" 
+                      :style="{ background: getNodeColor(selectedNode) + '20', color: getNodeColor(selectedNode) }"
+                    >{{ getTypeLabel(selectedNode.type) }}</span>
+                  </div>
+                  <div v-if="selectedNode.description" class="kg-detail-row">
+                    <span class="kg-detail-label">描述</span>
+                    <p class="kg-detail-desc">{{ selectedNode.description }}</p>
+                  </div>
+                  <button 
+                    v-if="selectedNode.chapter_id" 
+                    class="kg-btn kg-btn-primary kg-btn-block"
+                    @click="navigateToNode(selectedNode.chapter_id)"
+                  >
+                    <el-icon><Position /></el-icon>
+                    前往学习
+                  </button>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- Legend -->
+          <div v-if="hasGraph" class="kg-legend">
+            <div class="kg-legend-title">图例</div>
+            <div class="kg-legend-items">
+              <div v-for="type in nodeTypes" :key="type.value" class="kg-legend-item">
+                <span class="kg-legend-dot" :style="{ background: type.color }"></span>
+                <span class="kg-legend-label">{{ type.label }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Zoom Controls -->
+          <div v-if="hasGraph" class="kg-zoom">
+            <button class="kg-zoom-btn" @click="zoomIn">
+              <el-icon><ZoomIn /></el-icon>
+            </button>
+            <span class="kg-zoom-level">{{ zoomLevel }}%</span>
+            <button class="kg-zoom-btn" @click="zoomOut">
+              <el-icon><ZoomOut /></el-icon>
+            </button>
+          </div>
+
+          <!-- Stats -->
+          <div v-if="hasGraph" class="kg-stats">
+            <span>{{ graphData.nodes.length }} 个节点</span>
+            <span>{{ graphData.edges.length }} 条关系</span>
+          </div>
         </div>
       </div>
-    </div>
-
-    <!-- Zoom Controls -->
-    <div v-if="hasGraph" class="zoom-controls">
-      <button class="zoom-btn" @click="zoomIn" title="放大">
-        <el-icon><ZoomIn /></el-icon>
-      </button>
-      <span class="zoom-level">{{ Math.round(100 / viewBox.width * 800) }}%</span>
-      <button class="zoom-btn" @click="zoomOut" title="缩小">
-        <el-icon><ZoomOut /></el-icon>
-      </button>
-    </div>
-
-    <!-- Stats -->
-    <div v-if="hasGraph" class="graph-stats">
-      <span>{{ graphData.nodes.length }} 个节点</span>
-      <span>{{ graphData.edges.length }} 条关系</span>
-    </div>
-  </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { ElMessage } from 'element-plus'
-import { Loading, MagicStick, Refresh, FullScreen, Close, Position, Search, CircleClose, ZoomIn, ZoomOut, Download } from '@element-plus/icons-vue'
+import { 
+  ArrowLeft, Loading, MagicStick, Refresh, FullScreen, Download,
+  Search, CircleClose, Connection, Close, Position, ZoomIn, ZoomOut
+} from '@element-plus/icons-vue'
 
 const courseStore = useCourseStore()
 
@@ -252,75 +222,59 @@ const courseStore = useCourseStore()
 const loading = ref(false)
 const graphData = ref<{ nodes: any[], edges: any[] }>({ nodes: [], edges: [] })
 const selectedNode = ref<any>(null)
-const hoverNode = ref<string | null>(null)
-const graphContainer = ref<HTMLElement | null>(null)
-
-// Search State
+const hoveredNode = ref<string | null>(null)
 const searchQuery = ref('')
-const searchResults = ref<any[]>([])
-const currentSearchIndex = ref(-1)
+const canvasRef = ref<HTMLElement | null>(null)
 
-// ViewBox for zooming and panning
-const viewBox = ref({ x: -100, y: -300, width: 1000, height: 700 })
-const viewBoxString = computed(() => `${viewBox.value.x} ${viewBox.value.y} ${viewBox.value.width} ${viewBox.value.height}`)
+// ViewBox
+const viewBox = ref({ x: 0, y: 0, width: 1000, height: 700 })
+const viewBoxStr = computed(() => `${viewBox.value.x} ${viewBox.value.y} ${viewBox.value.width} ${viewBox.value.height}`)
+const zoomLevel = computed(() => Math.round(1000 / viewBox.value.width * 100))
 
-const isDragging = ref(false)
-const dragStart = ref({ x: 0, y: 0 })
+// Panning
+const isPanning = ref(false)
+const panStart = ref({ x: 0, y: 0 })
 const viewBoxStart = ref({ x: 0, y: 0 })
 
-// Node Dragging State
-const draggingNode = ref<any>(null)
-const dragOffset = ref({ x: 0, y: 0 })
-
-// Node type configuration
+// Node types
 const nodeTypes = [
-  { value: 'root', label: '课程核心', color: '#4f46e5' },    // Indigo-600
-  { value: 'module', label: '知识模块', color: '#7c3aed' },  // Violet-600
-  { value: 'concept', label: '核心概念', color: '#059669' }, // Emerald-600
-  { value: 'theorem', label: '关键定理', color: '#d97706' }, // Amber-600
-  { value: 'method', label: '核心方法', color: '#db2777' },  // Pink-600
-  // Backward compatibility
+  { value: 'root', label: '核心主题', color: '#4f46e5' },
+  { value: 'module', label: '知识模块', color: '#7c3aed' },
+  { value: 'concept', label: '核心概念', color: '#059669' },
+  { value: 'theorem', label: '关键定理', color: '#d97706' },
+  { value: 'method', label: '核心方法', color: '#db2777' },
   { value: 'core', label: '核心概念', color: '#4f46e5' },
   { value: 'basic', label: '基础概念', color: '#059669' },
   { value: 'advanced', label: '进阶概念', color: '#d97706' },
   { value: 'application', label: '应用场景', color: '#db2777' }
 ]
 
-// Computed
 const hasGraph = computed(() => graphData.value.nodes.length > 0)
 
-// Initialize - load cached graph
-onMounted(async () => {
-  await loadGraph()
-})
+// Close
+const handleClose = () => {
+  courseStore.showKnowledgeGraph = false
+}
 
-// Watch for course changes
-watch(() => courseStore.currentCourseId, async () => {
-  await loadGraph()
-})
-
-// Load graph from API
-async function loadGraph() {
+// Load graph
+const loadGraph = async () => {
   if (!courseStore.currentCourseId) return
   
   try {
-    const response = await fetch(`/courses/${courseStore.currentCourseId}/knowledge_graph`)
-    const contentType = response.headers.get("content-type");
-    if (response.ok && contentType && contentType.indexOf("application/json") !== -1) {
-        const result = await response.json()
-        
-        if (result.status === 'success' && result.data.nodes.length > 0) {
-          graphData.value = result.data
-          calculateTreeLayout()
-        }
+    const res = await fetch(`/courses/${courseStore.currentCourseId}/knowledge_graph`)
+    const data = await res.json()
+    
+    if (data.status === 'success' && data.data.nodes?.length > 0) {
+      graphData.value = data.data
+      layoutGraph()
     }
-  } catch (error) {
-    console.error('Failed to load knowledge graph:', error)
+  } catch (e) {
+    console.error('Failed to load graph:', e)
   }
 }
 
-// Generate graph using AI
-async function generateGraph() {
+// Generate graph
+const generateGraph = async () => {
   if (!courseStore.currentCourseId) {
     ElMessage.warning('请先选择课程')
     return
@@ -328,156 +282,106 @@ async function generateGraph() {
   
   loading.value = true
   try {
-    const response = await fetch(`/courses/${courseStore.currentCourseId}/knowledge_graph`, {
-      method: 'POST'
-    })
+    const res = await fetch(`/courses/${courseStore.currentCourseId}/knowledge_graph`, { method: 'POST' })
+    const data = await res.json()
     
-    const contentType = response.headers.get("content-type");
-    if (response.ok && contentType && contentType.indexOf("application/json") !== -1) {
-        const result = await response.json()
-        
-        if (result.status === 'success') {
-          graphData.value = result.data
-          calculateTreeLayout()
-          ElMessage.success('知识图谱生成成功')
-        } else {
-          ElMessage.error('生成失败: ' + (result.message || 'Unknown error'))
-        }
+    if (data.status === 'success') {
+      graphData.value = data.data
+      layoutGraph()
+      ElMessage.success('知识图谱生成成功')
     } else {
-        ElMessage.error('生成失败: 服务器返回错误')
+      ElMessage.error('生成失败: ' + (data.message || '未知错误'))
     }
-  } catch (error) {
-    console.error('Failed to generate knowledge graph:', error instanceof Error ? error.message : error)
+  } catch (e) {
+    console.error('Failed to generate graph:', e)
     ElMessage.error('生成失败')
   } finally {
     loading.value = false
   }
 }
 
-// ----------------------------------------------------------------------
-// Tree Layout Algorithm (Left-to-Right)
-// ----------------------------------------------------------------------
-function calculateTreeLayout() {
+// Layout algorithm
+const layoutGraph = () => {
   const nodes = graphData.value.nodes
   const edges = graphData.value.edges
-  
-  if (nodes.length === 0) return
+  if (!nodes.length) return
 
-  // 1. Build Adjacency List (Directed)
-  const childrenMap: Record<string, string[]> = {}
-  const parentMap: Record<string, string[]> = {}
-  
-  nodes.forEach(n => {
-    childrenMap[n.id] = []
-    parentMap[n.id] = []
-  })
-  
+  // Build adjacency
+  const children: Record<string, string[]> = {}
+  const parents: Record<string, string[]> = {}
+  nodes.forEach(n => { children[n.id] = []; parents[n.id] = [] })
   edges.forEach(e => {
-    if (childrenMap[e.source]) {
-      childrenMap[e.source]!.push(e.target)
-    }
-    if (parentMap[e.target]) {
-      parentMap[e.target]!.push(e.source)
-    }
+    const childList = children[e.source]
+    const parentList = parents[e.target]
+    if (childList) childList.push(e.target)
+    if (parentList) parentList.push(e.source)
   })
 
-  // 2. Identify Roots (Nodes with no incoming edges, or specific type)
-  let roots = nodes.filter(n => (parentMap[n.id] || []).length === 0)
-  
-  // If circular or no clear root, fallback to 'root' type or just the first node
-  if (roots.length === 0) {
-    const explicitRoot = nodes.find(n => n.type === 'root')
-    roots = explicitRoot ? [explicitRoot] : [nodes[0]]
-  }
+  // Find roots
+  let roots = nodes.filter(n => !parents[n.id]?.length)
+  if (!roots.length) roots = [nodes.find(n => n.type === 'root') || nodes[0]]
 
-  // 3. DFS for layout
+  // DFS layout
   const visited = new Set<string>()
   let currentY = 0
-  const LEVEL_WIDTH = 280
-  const NODE_HEIGHT = 70 // Height + Gap
+  const LEVEL_WIDTH = 250
+  const NODE_HEIGHT = 60
 
-  // Helper to get node object
-  const getNode = (id: string) => nodes.find(n => n.id === id)
-
-  // Recursive layout function
-  // Returns the Y-center of the subtree rooted at `nodeId`
-  function layoutNode(nodeId: string, depth: number): number {
+  const layout = (nodeId: string, depth: number): number => {
     if (visited.has(nodeId)) {
-      // If already visited, we treat it as a cross-link target, 
-      // but we don't move it. It stays where it was first placed.
-      // Or we could return its existing Y? 
-      // For a simple tree layout, we just skip re-layouting.
-      const node = getNode(nodeId)
-      return node ? node.y : currentY
+      const node = nodes.find(n => n.id === nodeId)
+      return node?.y ?? currentY
     }
     
     visited.add(nodeId)
-    const node = getNode(nodeId)
+    const node = nodes.find(n => n.id === nodeId)
     if (!node) return currentY
 
-    // Position X
     node.x = depth * LEVEL_WIDTH
-
-    // Process children
-    const childrenIds = childrenMap[nodeId] || []
-    // Filter out already visited children to strictly enforce tree structure for layout
-    const unvisitedChildren = childrenIds.filter(id => !visited.has(id))
-
-    if (unvisitedChildren.length === 0) {
-      // Leaf node
+    
+    const childIds = (children[nodeId] || []).filter(id => !visited.has(id))
+    
+    if (!childIds.length) {
       node.y = currentY
       currentY += NODE_HEIGHT
       return node.y
-    } else {
-      // Parent node: place children, then center self
-      let firstChildY: number | null = null
-      let lastChildY: number | null = null
-
-      unvisitedChildren.forEach((childId, index) => {
-        const childY = layoutNode(childId, depth + 1)
-        if (index === 0) firstChildY = childY
-        lastChildY = childY
-      })
-
-      if (firstChildY !== null && lastChildY !== null) {
-        node.y = (firstChildY + lastChildY) / 2
-      } else {
-        node.y = currentY
-        currentY += NODE_HEIGHT
-      }
-      return node.y
     }
+
+    let firstY: number | null = null
+    let lastY: number | null = null
+    
+    childIds.forEach((childId, i) => {
+      const childY = layout(childId, depth + 1)
+      if (i === 0) firstY = childY
+      lastY = childY
+    })
+
+    node.y = firstY !== null && lastY !== null ? (firstY + lastY) / 2 : currentY
+    return node.y
   }
 
-  // Layout each root (handles forests)
-  roots.forEach(root => {
-    layoutNode(root.id, 0)
+  roots.forEach(root => layout(root.id, 0))
+  nodes.forEach(node => {
+    if (!visited.has(node.id)) layout(node.id, 0)
   })
 
-  // Handle any nodes not reached (disconnected components)
-  nodes.forEach(node => {
-    if (!visited.has(node.id)) {
-      layoutNode(node.id, 0)
-    }
-  })
-  
-  updateViewBox()
+  fitView()
 }
 
-// Update viewBox to fit all nodes with generous padding
-function updateViewBox() {
-  if (graphData.value.nodes.length === 0) return
+// Fit view to nodes
+const fitView = () => {
+  const nodes = graphData.value.nodes
+  if (!nodes.length) return
+
+  const padding = 150
+  const xs = nodes.map(n => n.x)
+  const ys = nodes.map(n => n.y)
   
-  const paddingX = 300
-  const paddingY = 200
-  const xs = graphData.value.nodes.map(n => n.x)
-  const ys = graphData.value.nodes.map(n => n.y)
-  
-  const minX = Math.min(...xs) - paddingX
-  const maxX = Math.max(...xs) + paddingX
-  const minY = Math.min(...ys) - paddingY
-  const maxY = Math.max(...ys) + paddingY
-  
+  const minX = Math.min(...xs) - padding
+  const maxX = Math.max(...xs) + padding
+  const minY = Math.min(...ys) - padding
+  const maxY = Math.max(...ys) + padding
+
   viewBox.value = {
     x: minX,
     y: minY,
@@ -486,635 +390,202 @@ function updateViewBox() {
   }
 }
 
-function getNodePosition(nodeId: string) {
-  const node = graphData.value.nodes.find(n => n.id === nodeId)
-  return node ? { x: node.x || 0, y: node.y || 0 } : { x: 0, y: 0 }
-}
+// Node helpers
+const getNodeWidth = (node: any) => Math.max(100, (node.label?.length || 0) * 14 + 30)
+const getNodeColor = (node: any) => nodeTypes.find(t => t.value === node.type)?.color || '#94a3b8'
+const getTypeLabel = (type: string) => nodeTypes.find(t => t.value === type)?.label || type
 
-function getNodeWidth(node: any) {
-  const len = node.label ? node.label.length : 0
-  // slightly wider cards for better text breathing room
-  return Math.max(120, len * 15 + 40)
-}
-
-function getNodeColor(node: any) {
-  const typeInfo = nodeTypes.find(t => t.value === node.type)
-  return typeInfo?.color || '#94a3b8'
-}
-
-function getEdgePath(edge: any) {
-  const source = getNodePosition(edge.source)
-  const target = getNodePosition(edge.target)
+// Edge path
+const getEdgePath = (edge: any) => {
+  const source = graphData.value.nodes.find(n => n.id === edge.source)
+  const target = graphData.value.nodes.find(n => n.id === edge.target)
+  if (!source || !target) return ''
   
-  // Bezier Curve (Cubic)
-  // Control points: halfway horizontally
   const dx = target.x - source.x
   const cp1x = source.x + dx * 0.5
-  const cp1y = source.y
   const cp2x = target.x - dx * 0.5
-  const cp2y = target.y
   
-  return `M ${source.x} ${source.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${target.x} ${target.y}`
+  return `M ${source.x} ${source.y} C ${cp1x} ${source.y}, ${cp2x} ${target.y}, ${target.x} ${target.y}`
 }
 
-function getEdgeClass(edge: any) {
-  const classes = [edge.relation]
-  if (selectedNode.value) {
-    const isConnected = edge.source === selectedNode.value.id || 
-                       edge.target === selectedNode.value.id
-    if (isConnected) classes.push('highlighted')
-    else classes.push('dimmed')
-  }
-  return classes.join(' ')
+const getEdgeClass = (edge: any) => {
+  if (!selectedNode.value) return ''
+  const isConnected = edge.source === selectedNode.value.id || edge.target === selectedNode.value.id
+  return isConnected ? 'kg-edge-highlight' : 'kg-edge-dim'
 }
 
-function getNodeTypeLabel(type: string) {
-  const typeInfo = nodeTypes.find(t => t.value === type)
-  return typeInfo?.label || type
-}
+// Selection
+const selectNode = (node: any) => { selectedNode.value = node }
+const deselectNode = () => { selectedNode.value = null }
 
-function selectNode(node: any) {
-  selectedNode.value = node
-}
-
-function deselectNode() {
-  selectedNode.value = null
-}
-
-function navigateToNode(nodeId: string) {
+// Navigation
+const navigateToNode = (nodeId: string) => {
   courseStore.scrollToNode(nodeId)
+  handleClose()
   ElMessage.success('已跳转到对应章节')
 }
 
-function resetView() {
-  updateViewBox()
-}
-
-// Search Functions
-function searchNode() {
-  if (!searchQuery.value.trim()) {
-    searchResults.value = []
-    return
-  }
+// Search
+const handleSearch = () => {
+  if (!searchQuery.value.trim()) return
   
   const query = searchQuery.value.toLowerCase()
-  searchResults.value = graphData.value.nodes.filter(node => 
-    node.label.toLowerCase().includes(query) ||
-    (node.description && node.description.toLowerCase().includes(query))
+  const found = graphData.value.nodes.find(n => 
+    n.label?.toLowerCase().includes(query) ||
+    n.description?.toLowerCase().includes(query)
   )
   
-  if (searchResults.value.length > 0) {
-    currentSearchIndex.value = 0
-    focusOnNode(searchResults.value[0])
+  if (found) {
+    selectNode(found)
+    viewBox.value = {
+      x: found.x - 150,
+      y: found.y - 100,
+      width: 300,
+      height: 200
+    }
+  } else {
+    ElMessage.info('未找到匹配的节点')
   }
 }
 
-function clearSearch() {
+const clearSearch = () => {
   searchQuery.value = ''
-  searchResults.value = []
-  currentSearchIndex.value = -1
 }
 
-// function selectSearchResult(node: any) {
-//   selectedNode.value = node
-//   focusOnNode(node)
-//   searchResults.value = []
-// }
-
-function focusOnNode(node: any) {
-  // Center the view on the selected node
-  const padding = 200
-  viewBox.value.x = node.x - padding
-  viewBox.value.y = node.y - padding / 2
-  viewBox.value.width = padding * 2
-  viewBox.value.height = padding
+// Zoom
+const zoomIn = () => {
+  const cx = viewBox.value.x + viewBox.value.width / 2
+  const cy = viewBox.value.y + viewBox.value.height / 2
+  viewBox.value.width *= 0.8
+  viewBox.value.height *= 0.8
+  viewBox.value.x = cx - viewBox.value.width / 2
+  viewBox.value.y = cy - viewBox.value.height / 2
 }
 
-// Zoom Functions
-function zoomIn() {
-  const centerX = viewBox.value.x + viewBox.value.width / 2
-  const centerY = viewBox.value.y + viewBox.value.height / 2
-  const scale = 0.8
-  
-  viewBox.value.width *= scale
-  viewBox.value.height *= scale
-  viewBox.value.x = centerX - viewBox.value.width / 2
-  viewBox.value.y = centerY - viewBox.value.height / 2
+const zoomOut = () => {
+  const cx = viewBox.value.x + viewBox.value.width / 2
+  const cy = viewBox.value.y + viewBox.value.height / 2
+  viewBox.value.width *= 1.25
+  viewBox.value.height *= 1.25
+  viewBox.value.x = cx - viewBox.value.width / 2
+  viewBox.value.y = cy - viewBox.value.height / 2
 }
 
-function zoomOut() {
-  const centerX = viewBox.value.x + viewBox.value.width / 2
-  const centerY = viewBox.value.y + viewBox.value.height / 2
-  const scale = 1.25
-  
-  viewBox.value.width *= scale
-  viewBox.value.height *= scale
-  viewBox.value.x = centerX - viewBox.value.width / 2
-  viewBox.value.y = centerY - viewBox.value.height / 2
-}
+const resetView = () => fitView()
 
-// Download Graph as Image
-function downloadImage() {
-  if (!graphContainer.value) return
-  
-  const svg = graphContainer.value.querySelector('svg')
-  if (!svg) return
-
-  // Serialize SVG
-  const serializer = new XMLSerializer()
-  let source = serializer.serializeToString(svg)
-
-  // Add namespaces
-  if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
-      source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"')
-  }
-  if(!source.match(/^<svg[^>]+xmlns:xlink="http\:\/\/www\.w3\.org\/1999\/xlink"/)){
-      source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"')
-  }
-
-  // Create Blob
-  const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"})
-  const url = URL.createObjectURL(blob)
-  
-  // Create link and download
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `knowledge-graph-${courseStore.currentCourseId}.svg`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  
-  ElMessage.success('已导出 SVG 图片')
-}
-
-// Zoom handling
-function handleWheel(e: WheelEvent) {
+// Wheel zoom
+const handleWheel = (e: WheelEvent) => {
   const scale = e.deltaY > 0 ? 1.1 : 0.9
-  const centerX = viewBox.value.x + viewBox.value.width / 2
-  const centerY = viewBox.value.y + viewBox.value.height / 2
-  
+  const cx = viewBox.value.x + viewBox.value.width / 2
+  const cy = viewBox.value.y + viewBox.value.height / 2
   viewBox.value.width *= scale
   viewBox.value.height *= scale
-  viewBox.value.x = centerX - viewBox.value.width / 2
-  viewBox.value.y = centerY - viewBox.value.height / 2
+  viewBox.value.x = cx - viewBox.value.width / 2
+  viewBox.value.y = cy - viewBox.value.height / 2
 }
 
-// Helper to convert screen coordinates to SVG coordinates
-function getSvgPoint(clientX: number, clientY: number) {
-  if (!graphContainer.value) return { x: 0, y: 0 }
-  const rect = graphContainer.value.getBoundingClientRect()
-  const x = viewBox.value.x + (clientX - rect.left) * (viewBox.value.width / rect.width)
-  const y = viewBox.value.y + (clientY - rect.top) * (viewBox.value.height / rect.height)
-  return { x, y }
-}
-
-function handleNodeMouseDown(e: MouseEvent, node: any) {
-  // Prevent canvas panning
-  draggingNode.value = node
-  const mousePos = getSvgPoint(e.clientX, e.clientY)
-  dragOffset.value = {
-    x: node.x - mousePos.x,
-    y: node.y - mousePos.y
-  }
-}
-
-// Pan handling
-function handleMouseDown(e: MouseEvent) {
-  if (draggingNode.value) return
-  isDragging.value = true
-  dragStart.value = { x: e.clientX, y: e.clientY }
+// Pan
+const startPan = (e: MouseEvent) => {
+  isPanning.value = true
+  panStart.value = { x: e.clientX, y: e.clientY }
   viewBoxStart.value = { x: viewBox.value.x, y: viewBox.value.y }
 }
 
-let animationFrameId: number | null = null
-
-function handleMouseMove(e: MouseEvent) {
-  if (animationFrameId) return
-
-  animationFrameId = requestAnimationFrame(() => {
-    animationFrameId = null
-    
-    if (draggingNode.value) {
-      const mousePos = getSvgPoint(e.clientX, e.clientY)
-      draggingNode.value.x = mousePos.x + dragOffset.value.x
-      draggingNode.value.y = mousePos.y + dragOffset.value.y
-      return
-    }
-
-    if (!isDragging.value) return
-    
-    const dx = (e.clientX - dragStart.value.x) * viewBox.value.width / (graphContainer.value?.clientWidth || 800)
-    const dy = (e.clientY - dragStart.value.y) * viewBox.value.height / (graphContainer.value?.clientHeight || 600)
-    
-    viewBox.value.x = viewBoxStart.value.x - dx
-    viewBox.value.y = viewBoxStart.value.y - dy
-  })
+const onPan = (e: MouseEvent) => {
+  if (!isPanning.value || !canvasRef.value) return
+  
+  const rect = canvasRef.value.getBoundingClientRect()
+  const dx = (e.clientX - panStart.value.x) * viewBox.value.width / rect.width
+  const dy = (e.clientY - panStart.value.y) * viewBox.value.height / rect.height
+  
+  viewBox.value.x = viewBoxStart.value.x - dx
+  viewBox.value.y = viewBoxStart.value.y - dy
 }
 
-function handleMouseUp() {
-  isDragging.value = false
-  draggingNode.value = null
+const endPan = () => { isPanning.value = false }
+
+// Download
+const downloadImage = () => {
+  if (!canvasRef.value) return
+  
+  const svg = canvasRef.value.querySelector('svg')
+  if (!svg) return
+
+  const serializer = new XMLSerializer()
+  let source = serializer.serializeToString(svg)
+  
+  if (!source.includes('xmlns="http://www.w3.org/2000/svg"')) {
+    source = source.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
+  }
+
+  const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `knowledge-graph-${courseStore.currentCourseId}.svg`
+  link.click()
+  URL.revokeObjectURL(url)
+  
+  ElMessage.success('已导出 SVG')
 }
+
+// Watch
+watch(() => courseStore.showKnowledgeGraph, (show) => {
+  if (show) loadGraph()
+})
+
+watch(() => courseStore.currentCourseId, () => {
+  if (courseStore.showKnowledgeGraph) loadGraph()
+})
 </script>
 
 <style scoped>
-.knowledge-graph-container {
+.kg-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(16px);
   display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: #f8fafc;
-  border-radius: 12px;
-  overflow: hidden;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
 
-.graph-toolbar {
+.kg-container {
+  width: 100%;
+  height: 100%;
+  max-width: 1600px;
+  max-height: 1000px;
+  background: #f8fafc;
+  border-radius: 20px;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.15);
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.kg-header {
+  display: flex;
   align-items: center;
-  padding: 12px 20px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid #f1f5f9;
-  z-index: 10;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: white;
+  border-bottom: 1px solid #e2e8f0;
   gap: 16px;
 }
 
-.toolbar-left {
+.kg-header-left {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-shrink: 0;
 }
 
-.graph-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #1e293b;
-  letter-spacing: -0.5px;
-}
-
-.loading-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: #6366f1;
-  background: #e0e7ff;
-  padding: 4px 10px;
-  border-radius: 20px;
-}
-
-.toolbar-center {
-  flex: 1;
-  max-width: 400px;
-  position: relative;
-}
-
-.search-box {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.search-icon {
-  position: absolute;
-  left: 12px;
-  color: #94a3b8;
-  font-size: 16px;
-}
-
-.search-input {
-  width: 100%;
-  padding: 10px 36px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  font-size: 14px;
-  background: white;
-  transition: all 0.2s;
-}
-
-.search-input:focus {
-  outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-
-.clear-icon {
-  position: absolute;
-  right: 12px;
-  color: #94a3b8;
-  cursor: pointer;
-  font-size: 16px;
-}
-
-.clear-icon:hover {
-  color: #64748b;
-}
-
-.search-results {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin-top: 8px;
-  background: white;
+.kg-btn-close {
+  width: 40px;
+  height: 40px;
   border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-  border: 1px solid #f1f5f9;
-  max-height: 250px;
-  overflow-y: auto;
-  z-index: 100;
-}
-
-.search-result-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.search-result-item:hover {
-  background: #f8fafc;
-}
-
-.search-result-item:first-child {
-  border-radius: 12px 12px 0 0;
-}
-
-.search-result-item:last-child {
-  border-radius: 0 0 12px 12px;
-}
-
-.result-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.result-label {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 500;
-  color: #1e293b;
-}
-
-.result-type {
-  font-size: 12px;
-  color: #94a3b8;
-  background: #f1f5f9;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.toolbar-right {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.btn-generate,
-.btn-refresh,
-.btn-reset,
-.btn-export,
-.btn-filter {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  border: none;
-}
-
-.btn-generate {
-  background: #1e293b;
-  color: white;
-  box-shadow: 0 4px 12px rgba(30, 41, 59, 0.2);
-}
-
-.btn-generate:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(30, 41, 59, 0.3);
-}
-
-.btn-filter {
-  background: white;
-  color: #475569;
-  border: 1px solid #e2e8f0;
-  position: relative;
-}
-
-.btn-filter:hover {
-  border-color: #cbd5e1;
-  background: #f8fafc;
-}
-
-.btn-filter.active {
-  border-color: #6366f1;
-  color: #6366f1;
-  background: #eef2ff;
-}
-
-.filter-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 18px;
-  height: 18px;
-  background: #6366f1;
-  color: white;
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.filter-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  margin-right: 6px;
-}
-
-.btn-refresh {
-  background: white;
-  color: #475569;
-  border: 1px solid #e2e8f0;
-}
-
-.btn-refresh:hover:not(:disabled) {
-  border-color: #cbd5e1;
-  background: #f8fafc;
-}
-
-.btn-reset,
-.btn-export {
-  background: transparent;
-  color: #64748b;
-  padding: 8px 12px;
-}
-
-.btn-reset:hover,
-.btn-export:hover {
-  background: #f1f5f9;
-  color: #334155;
-}
-
-.graph-canvas {
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-  cursor: grab;
-  background: #f8fafc;
-}
-
-.graph-canvas:active {
-  cursor: grabbing;
-}
-
-.graph-svg {
-  width: 100%;
-  height: 100%;
-}
-
-/* Edges */
-.edge-line {
-  stroke: #94a3b8;
-  fill: none;
-  transition: stroke 0.3s ease, opacity 0.3s ease, stroke-width 0.3s ease;
-  stroke-width: 1.5px;
-}
-
-.edge-line.highlighted {
-  stroke: #6366f1;
-  stroke-width: 3px;
-  filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.3));
-}
-
-.edge-line.hovered {
-  stroke: #6366f1;
-  stroke-width: 2.5px;
-}
-
-.edge-line.dimmed {
-  stroke: #cbd5e1;
-  opacity: 0.3;
-}
-
-/* Nodes */
-.node-group {
-  cursor: pointer;
-  transition: filter 0.2s ease;
-}
-
-.node-group:hover .node-card-bg {
-  filter: url(#node-glow);
-}
-
-.node-group.selected .node-card-bg {
-  stroke-width: 3px;
-  filter: url(#node-glow);
-}
-
-.node-group.highlighted .node-card-bg {
-  filter: url(#node-glow);
-}
-
-.node-group.dimmed {
-  opacity: 0.3;
-}
-
-.node-group.is-search-result .node-card-bg {
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-
-.node-card-bg {
-  fill: white;
-  transition: all 0.2s ease;
-}
-
-.node-label {
-  font-size: 14px;
-  font-weight: 600;
-  font-family: 'Inter', sans-serif;
-  letter-spacing: 0.3px;
-  pointer-events: none;
-  user-select: none;
-}
-
-.node-type-dot {
-  pointer-events: none;
-}
-
-.search-highlight-ring {
-  pointer-events: none;
-}
-
-/* Node Detail Panel */
-.node-detail-panel {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  width: 340px;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(16px);
-  border-radius: 16px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  overflow: hidden;
-  z-index: 20;
-}
-
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 20px;
-  border-bottom: 1px solid #f1f5f9;
-}
-
-.panel-title-section {
-  flex: 1;
-  min-width: 0;
-}
-
-.panel-header h3 {
-  font-size: 17px;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 10px 0 0 0;
-  line-height: 1.4;
-}
-
-.node-type-badge {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.btn-close {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
   border: none;
   background: #f1f5f9;
   color: #64748b;
@@ -1123,52 +594,302 @@ function handleMouseUp() {
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
-  flex-shrink: 0;
 }
 
-.btn-close:hover {
+.kg-btn-close:hover {
   background: #e2e8f0;
   color: #334155;
 }
 
-.panel-content {
+.kg-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.kg-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #6366f1;
+  background: #eef2ff;
+  padding: 6px 12px;
+  border-radius: 20px;
+}
+
+.kg-header-center {
+  flex: 1;
+  max-width: 400px;
+}
+
+.kg-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.kg-search-icon {
+  position: absolute;
+  left: 12px;
+  color: #94a3b8;
+}
+
+.kg-search-input {
+  width: 100%;
+  padding: 10px 36px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  font-size: 14px;
+  background: #f8fafc;
+  transition: all 0.2s;
+}
+
+.kg-search-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  background: white;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.kg-search-clear {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+}
+
+.kg-search-clear:hover {
+  color: #64748b;
+}
+
+.kg-header-right {
+  display: flex;
+  gap: 8px;
+}
+
+.kg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.kg-btn-primary {
+  background: #1e293b;
+  color: white;
+}
+
+.kg-btn-primary:hover:not(:disabled) {
+  background: #0f172a;
+  transform: translateY(-1px);
+}
+
+.kg-btn-secondary {
+  background: white;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.kg-btn-secondary:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.kg-btn-ghost {
+  background: transparent;
+  color: #64748b;
+}
+
+.kg-btn-ghost:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.kg-btn-large {
+  padding: 14px 28px;
+  font-size: 15px;
+  border-radius: 14px;
+}
+
+.kg-btn-block {
+  width: 100%;
+  justify-content: center;
+}
+
+.kg-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kg-canvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.kg-canvas:active {
+  cursor: grabbing;
+}
+
+.kg-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.kg-edge {
+  fill: none;
+  stroke: #cbd5e1;
+  stroke-width: 1.5;
+  transition: all 0.3s;
+}
+
+.kg-edge-highlight {
+  stroke: #6366f1;
+  stroke-width: 2.5;
+}
+
+.kg-edge-dim {
+  stroke: #e2e8f0;
+  opacity: 0.4;
+}
+
+.kg-node {
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+
+.kg-node:hover .kg-node-bg {
+  filter: url(#glow);
+}
+
+.kg-node-selected .kg-node-bg {
+  stroke-width: 2;
+  filter: url(#glow);
+}
+
+.kg-node-bg {
+  stroke-width: 1.5;
+  transition: all 0.2s;
+}
+
+.kg-node-label {
+  font-size: 13px;
+  font-weight: 600;
+  fill: #1e293b;
+  font-family: system-ui, -apple-system, sans-serif;
+  pointer-events: none;
+  dominant-baseline: middle;
+}
+
+.kg-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.kg-empty-icon {
+  font-size: 72px;
+  color: #e2e8f0;
+}
+
+.kg-empty-text {
+  font-size: 16px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.kg-detail {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 320px;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  z-index: 10;
+}
+
+.kg-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.kg-detail-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.kg-btn-close-sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: #f1f5f9;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kg-btn-close-sm:hover {
+  background: #e2e8f0;
+}
+
+.kg-detail-body {
   padding: 20px;
 }
 
-.info-row {
+.kg-detail-row {
   margin-bottom: 16px;
 }
 
-.info-row:last-child {
+.kg-detail-row:last-child {
   margin-bottom: 0;
 }
 
-.info-label {
+.kg-detail-label {
+  display: block;
   font-size: 11px;
   font-weight: 700;
   color: #94a3b8;
-  display: block;
-  margin-bottom: 6px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  margin-bottom: 6px;
 }
 
-.info-value {
+.kg-detail-value {
   display: inline-block;
   font-size: 13px;
-  font-weight: 500;
-  color: #475569;
-  background: #f8fafc;
+  font-weight: 600;
   padding: 6px 12px;
   border-radius: 8px;
 }
 
-.info-value.id-value {
-  font-family: monospace;
-  font-size: 12px;
-}
-
-.info-description {
+.kg-detail-desc {
   font-size: 14px;
   color: #475569;
   line-height: 1.6;
@@ -1178,64 +899,17 @@ function handleMouseUp() {
   border-radius: 10px;
 }
 
-.related-nodes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.related-node-tag {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 6px 12px;
-  border-radius: 20px;
-  border: 1px solid;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.related-node-tag:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.btn-navigate {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 12px;
-  background: #1e293b;
-  color: white;
-  border: none;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-top: 8px;
-}
-
-.btn-navigate:hover {
-  background: #0f172a;
-  transform: translateY(-1px);
-}
-
-/* Legend */
-.graph-legend {
+.kg-legend {
   position: absolute;
   bottom: 20px;
   left: 20px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
+  background: white;
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
-.legend-title {
+.kg-legend-title {
   font-size: 11px;
   font-weight: 700;
   color: #94a3b8;
@@ -1244,49 +918,44 @@ function handleMouseUp() {
   margin-bottom: 12px;
 }
 
-.legend-items {
+.kg-legend-items {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
-.legend-item {
+.kg-legend-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.legend-dot {
+.kg-legend-dot {
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: 3px;
 }
 
-.legend-label {
+.kg-legend-label {
   font-size: 13px;
   color: #475569;
-  font-weight: 500;
 }
 
-/* Zoom Controls */
-.zoom-controls {
+.kg-zoom {
   position: absolute;
-  bottom: 70px;
+  bottom: 20px;
   right: 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
+  gap: 4px;
+  background: white;
   padding: 8px;
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  z-index: 15;
 }
 
-.zoom-btn {
+.kg-zoom-btn {
   width: 36px;
   height: 36px;
   border-radius: 8px;
@@ -1300,148 +969,51 @@ function handleMouseUp() {
   transition: all 0.2s;
 }
 
-.zoom-btn:hover {
+.kg-zoom-btn:hover {
   background: #f1f5f9;
   color: #334155;
 }
 
-.zoom-level {
+.kg-zoom-level {
   font-size: 12px;
   font-weight: 600;
   color: #64748b;
-  min-width: 50px;
-  text-align: center;
 }
 
-/* Stats */
-.graph-stats {
+.kg-stats {
   position: absolute;
   bottom: 20px;
-  right: 20px;
+  right: 80px;
   display: flex;
   gap: 16px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
+  background: white;
   padding: 10px 16px;
-  border-radius: 24px;
+  border-radius: 20px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: #64748b;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-}
-
-/* Mini Map */
-.mini-map {
-  position: absolute;
-  bottom: 80px;
-  right: 20px;
-  width: 200px;
-  height: 150px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  padding: 12px;
-  z-index: 15;
-}
-
-.mini-map-title {
-  font-size: 11px;
-  font-weight: 700;
-  color: #94a3b8;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
-}
-
-.mini-map-svg {
-  width: 100%;
-  height: calc(100% - 24px);
-}
-
-.viewport-indicator {
-  pointer-events: none;
-}
-
-.btn-toggle-minimap {
-  position: absolute;
-  bottom: 20px;
-  right: 180px;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  border: none;
-  background: rgba(255, 255, 255, 0.95);
-  color: #64748b;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  transition: all 0.2s;
-  z-index: 15;
-}
-
-.btn-toggle-minimap:hover {
-  background: white;
-  color: #334155;
-  transform: translateY(-2px);
 }
 
 /* Transitions */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
 .slide-enter-active,
 .slide-leave-active {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s ease;
 }
 
 .slide-enter-from,
 .slide-leave-to {
   opacity: 0;
-  transform: translateX(20px) scale(0.95);
-}
-
-/* Empty State */
-.empty-state {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 24px;
-  z-index: 10;
-}
-
-.empty-icon {
-  font-size: 64px;
-  color: #e2e8f0;
-}
-
-.empty-text {
-  font-size: 16px;
-  font-weight: 500;
-  color: #94a3b8;
-  margin: 0;
-}
-
-.btn-generate-large {
-  padding: 14px 32px;
-  background: #1e293b;
-  color: white;
-  border: none;
-  border-radius: 16px;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 10px 20px rgba(30, 41, 59, 0.2);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.btn-generate-large:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 24px rgba(30, 41, 59, 0.3);
+  transform: translateX(20px);
 }
 </style>

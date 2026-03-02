@@ -12,7 +12,6 @@ const routes: Array<RouteRecordRaw> = [
     name: 'course',
     component: () => import('../views/CourseView.vue')
   },
-  // Catch-all route
   {
     path: '/:pathMatch(.*)*',
     redirect: '/'
