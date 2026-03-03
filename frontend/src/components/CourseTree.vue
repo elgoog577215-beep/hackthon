@@ -168,43 +168,6 @@
             <div v-if="courseStore.loading && courseStore.courseList.length === 0" class="p-4 space-y-3">
                 <SkeletonLoader type="course-card" v-for="i in 4" :key="i" />
             </div>
-            
-            <!-- Course List -->
-            <div v-else class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
-                <div 
-                    v-for="course in sortedCourseList" 
-                    :key="course.course_id"
-                    class="group relative bg-white rounded-xl border border-slate-100 hover:border-primary-200 hover:shadow-lg transition-all duration-300 cursor-pointer overflow-hidden"
-                    @click="selectCourse(course.course_id)"
-                >
-                    <div class="p-4 flex items-start gap-3">
-                        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-100 to-primary-50 flex items-center justify-center text-primary-600 font-bold text-lg flex-shrink-0 shadow-sm">
-                            {{ course.course_name?.charAt(0) || '📚' }}
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <h3 class="font-bold text-slate-800 text-sm truncate group-hover:text-primary-600 transition-colors">
-                                {{ course.course_name }}
-                            </h3>
-                            <div class="flex items-center gap-3 mt-1.5 text-xs text-slate-400">
-                                <span class="flex items-center gap-1">
-                                    <el-icon :size="12"><Notebook /></el-icon>
-                                    {{ course.total_nodes || 0 }} 章节
-                                </span>
-                                <span v-if="courseProgress[course.course_id]" class="flex items-center gap-1 text-emerald-500">
-                                    <el-icon :size="12"><Check /></el-icon>
-                                    {{ courseProgress[course.course_id] }}%
-                                </span>
-                            </div>
-                        </div>
-                        <button 
-                            class="opacity-0 group-hover:opacity-100 p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all"
-                            @click.stop="confirmDeleteCourse(course.course_id)"
-                        >
-                            <el-icon :size="16"><Delete /></el-icon>
-                        </button>
-                    </div>
-                </div>
-            </div>
         </div>
       </div>
 

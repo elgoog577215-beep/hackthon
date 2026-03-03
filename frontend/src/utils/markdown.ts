@@ -86,17 +86,18 @@ const mathPlugin = (md: any) => {
         }
 
         if (!found) {
-            // Don't add marker to pending - just return false to let other rules handle it
-            return false;
-        }
-
-        // Check if content is empty or just whitespace
-        const content = state.src.slice(start + markerLen, pos);
-        if (!content.trim()) {
-            return false;
+            if (!silent) state.pending += marker;
+            state.pos += markerLen;
+            return true;
         }
 
         if (silent) return true;
+
+        const content = state.src.slice(start + markerLen, pos);
+        
+        // Heuristic: If content contains newlines, it might be a broken block.
+        // But markdown-it inline usually doesn't span newlines unless breaks enabled.
+        // My robust preprocessing ensures blocks are clean.
         
         const token = state.push(isDisplay ? 'math_display' : 'math_inline', 'math', 0);
         token.content = content.trim();
