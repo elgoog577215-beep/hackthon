@@ -130,6 +130,75 @@
         </transition>
     </Teleport>
 
+    <!-- Settings Dialog -->
+    <Teleport to="body">
+        <transition name="fade-scale">
+            <div v-if="settingsDialog.visible" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeSettingsDialog"></div>
+                <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
+                    <div class="px-6 py-5 bg-gradient-to-r from-primary-500 to-primary-600 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                                <el-icon class="text-white" :size="24"><Setting /></el-icon>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-white">阅读设置</h3>
+                                <p class="text-sm text-white/80">自定义阅读体验</p>
+                            </div>
+                        </div>
+                        <button @click="closeSettingsDialog" class="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/20 rounded-lg transition-all">
+                            <el-icon :size="20"><Close /></el-icon>
+                        </button>
+                    </div>
+                    <div class="p-6 space-y-6">
+                        <!-- Font Size -->
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between">
+                                <label class="text-sm font-medium text-slate-700">字体大小</label>
+                                <span class="text-xs text-slate-500">{{ settingsDialog.fontSize }}px</span>
+                            </div>
+                            <el-slider v-model="settingsDialog.fontSize" :min="12" :max="24" :step="1" show-stops />
+                            <div class="flex justify-between text-xs text-slate-400">
+                                <span>小</span>
+                                <span>中</span>
+                                <span>大</span>
+                            </div>
+                        </div>
+                        <!-- Line Height -->
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between">
+                                <label class="text-sm font-medium text-slate-700">行高</label>
+                                <span class="text-xs text-slate-500">{{ settingsDialog.lineHeight }}</span>
+                            </div>
+                            <el-slider v-model="settingsDialog.lineHeight" :min="1.2" :max="2.0" :step="0.1" show-stops />
+                        </div>
+                        <!-- Font Family -->
+                        <div class="space-y-3">
+                            <label class="text-sm font-medium text-slate-700">字体</label>
+                            <div class="grid grid-cols-3 gap-2">
+                                <button v-for="font in fontOptions" :key="font.value"
+                                    @click="settingsDialog.fontFamily = font.value"
+                                    class="px-3 py-2 rounded-xl text-sm transition-all border-2"
+                                    :class="settingsDialog.fontFamily === font.value 
+                                        ? 'border-primary-500 bg-primary-50 text-primary-700' 
+                                        : 'border-slate-100 bg-slate-50 text-slate-600 hover:border-slate-200'"
+                                    :style="{ fontFamily: font.value }">
+                                    {{ font.label }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                        <button @click="closeSettingsDialog" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-200/50 rounded-lg transition-all">取消</button>
+                        <button @click="applySettings" class="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-all flex items-center gap-2">
+                            <el-icon><Check /></el-icon>应用设置
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </Teleport>
+
     <!-- Content List (Continuous Scroll) -->
     <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
       
@@ -271,14 +340,18 @@
             </div>
         </div>
         
-        <!-- Collapsed Notes Trigger -->
-        <div v-if="isNotesCollapsed && !courseStore.isFocusMode" class="absolute right-6 top-6 z-40 hidden md:block">
+        <!-- Collapsed Notes Trigger - Fixed position that follows scroll -->
+        <div v-if="isNotesCollapsed && !courseStore.isFocusMode" class="fixed right-6 top-24 z-50 hidden md:block">
             <button 
                 @click="isNotesCollapsed = false" 
-                class="p-2 glass-panel-tech rounded-xl text-slate-500 hover:text-primary-600 shadow-lg hover:scale-105 transition-all bg-white/80 backdrop-blur border border-slate-200"
+                class="p-2.5 glass-panel-tech rounded-xl text-slate-500 hover:text-primary-600 shadow-lg hover:scale-105 transition-all bg-white/90 backdrop-blur-md border border-slate-200/60 flex items-center gap-2 group"
                 title="展开笔记"
             >
-                <el-icon :size="20"><Notebook /></el-icon>
+                <el-icon :size="18"><Notebook /></el-icon>
+                <span class="text-xs font-medium max-w-0 overflow-hidden group-hover:max-w-[80px] transition-all duration-300 whitespace-nowrap">展开笔记</span>
+                <span class="absolute -top-1 -right-1 w-4 h-4 bg-primary-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold" v-if="noteCounts.notes + noteCounts.mistakes > 0">
+                    {{ noteCounts.notes + noteCounts.mistakes }}
+                </span>
             </button>
         </div>
 
@@ -309,6 +382,9 @@
                             </button>
                             <template #dropdown>
                                 <el-dropdown-menu>
+                                    <el-dropdown-item @click="openSettingsDialog">
+                                        <el-icon class="mr-2"><Setting /></el-icon>阅读设置
+                                    </el-dropdown-item>
                                     <el-dropdown-item @click="openExportDialog('notes')">
                                         <el-icon class="mr-2"><Download /></el-icon>导出笔记
                                     </el-dropdown-item>
@@ -874,7 +950,7 @@ import { useCourseStore } from '../stores/course'
 import CourseNode from './CourseNode.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useMermaid } from '../composables/useMermaid'
-import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, Warning, CollectionTag, Folder, PriceTag } from '@element-plus/icons-vue'
+import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, Warning, CollectionTag, Folder, PriceTag, Setting } from '@element-plus/icons-vue'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1161,6 +1237,46 @@ const exportToJSON = async (notes: any[], type: 'notes' | 'mistakes') => {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+}
+
+// Settings dialog state
+const settingsDialog = reactive({
+    visible: false,
+    fontSize: 16,
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    lineHeight: 1.6
+})
+
+// Font options
+const fontOptions = [
+    { value: 'system-ui, -apple-system, sans-serif', label: '系统默认' },
+    { value: '"Noto Serif SC", "Source Han Serif SC", serif', label: '思源宋体' },
+    { value: '"Noto Sans SC", "Source Han Sans SC", sans-serif', label: '思源黑体' },
+    { value: '"JetBrains Mono", "Fira Code", monospace', label: '等宽字体' }
+]
+
+// Open settings dialog
+const openSettingsDialog = () => {
+    settingsDialog.fontSize = courseStore.uiSettings.fontSize
+    settingsDialog.fontFamily = courseStore.uiSettings.fontFamily
+    settingsDialog.lineHeight = courseStore.uiSettings.lineHeight
+    settingsDialog.visible = true
+}
+
+// Close settings dialog
+const closeSettingsDialog = () => {
+    settingsDialog.visible = false
+}
+
+// Apply settings
+const applySettings = () => {
+    courseStore.setUiSettings({
+        fontSize: settingsDialog.fontSize,
+        fontFamily: settingsDialog.fontFamily,
+        lineHeight: settingsDialog.lineHeight
+    })
+    ElMessage.success('设置已应用')
+    closeSettingsDialog()
 }
 
 const scrollProgress = ref(0)
@@ -1872,40 +1988,59 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
 
 const scrollToNote = (noteId: string) => {
     const note = courseStore.notes.find(n => n.id === noteId)
-    if (note) {
-        activeNoteId.value = note.id
-        // Scroll note into view if needed
+    if (!note) {
+        console.warn('Note not found:', noteId)
+        return
+    }
+
+    activeNoteId.value = note.id
+
+    // First, try to scroll to the highlight in content area (preferred)
+    if (note.highlightId) {
+        const highlightEl = document.getElementById(note.highlightId)
+        if (highlightEl) {
+            highlightEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            highlightEl.classList.add('pulse-highlight')
+            setTimeout(() => highlightEl.classList.remove('pulse-highlight'), 1500)
+
+            // Also scroll the note card in sidebar
+            const noteEl = document.getElementById(note.id)
+            if (noteEl) {
+                noteEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                noteEl.classList.add('flash-card', 'ring-4', 'ring-primary-200')
+                setTimeout(() => {
+                    noteEl.classList.remove('flash-card', 'ring-4', 'ring-primary-200')
+                }, 1000)
+            }
+            return
+        }
+    }
+
+    // If no highlight or highlight not found, scroll to the node
+    if (note.nodeId) {
+        // First ensure the node is rendered
+        const nodeEl = document.getElementById(`node-${note.nodeId}`)
+        if (nodeEl) {
+            nodeEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            nodeEl.classList.add('pulse-highlight')
+            setTimeout(() => nodeEl.classList.remove('pulse-highlight'), 1500)
+        } else {
+            // Node not rendered, use store method to scroll
+            courseStore.scrollToNode(note.nodeId)
+        }
+    }
+
+    // Scroll note card in sidebar
+    nextTick(() => {
         const noteEl = document.getElementById(note.id)
         if (noteEl) {
-            noteEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            // Add flash effect to card
+            noteEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
             noteEl.classList.add('flash-card', 'ring-4', 'ring-primary-200')
             setTimeout(() => {
                 noteEl.classList.remove('flash-card', 'ring-4', 'ring-primary-200')
             }, 1000)
-        } else if (note.nodeId) {
-            courseStore.scrollToNode(note.nodeId)
         }
-
-        // Also flash the text highlight in content area
-        if (note.highlightId) {
-            // IDs can be multiple (split parts), find all starting with highlightId
-            const highlights = document.querySelectorAll(`[id^="${note.highlightId}"]`)
-            highlights.forEach(el => {
-                el.classList.add('flash-highlight')
-                // Scroll the first highlight into view if it's the target
-                // Actually, let's prefer scrolling to the highlight if possible?
-                // The prompt says "finger pointing", so scrolling to text is better.
-                if (el.id === note.highlightId || el.id === `${note.highlightId}-part-start`) {
-                     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                }
-            })
-            
-            setTimeout(() => {
-                highlights.forEach(el => el.classList.remove('flash-highlight'))
-            }, 1500)
-        }
-    }
+    })
 }
 
 const updateNotePositions = () => {
@@ -2342,23 +2477,76 @@ const handleAddNote = () => {
         }
         
         if (selectionMenu.value.range) {
+            const range = selectionMenu.value.range
             try {
-                selectionMenu.value.range.surroundContents(span)
+                // Try surroundContents first (works for simple selections)
+                range.surroundContents(span)
             } catch (e) {
-                ElMessage.error('无法在此处创建笔记（跨段落选择暂不支持）')
-                return
+                // For cross-paragraph selections, extract contents and wrap them
+                try {
+                    const contents = range.extractContents()
+                    span.appendChild(contents)
+                    range.insertNode(span)
+                } catch (e2) {
+                    // If still fails, try to find common ancestor and wrap
+                    try {
+                        const commonAncestor = range.commonAncestorContainer
+                        if (commonAncestor.nodeType === Node.TEXT_NODE) {
+                            // Split the text node and wrap
+                            const parent = commonAncestor.parentNode
+                            if (parent) {
+                                const startOffset = range.startOffset
+                                const endOffset = range.endOffset
+                                const text = commonAncestor.textContent || ''
+                                const beforeText = text.substring(0, startOffset)
+                                const selectedText = text.substring(startOffset, endOffset)
+                                const afterText = text.substring(endOffset)
+                                
+                                span.textContent = selectedText
+                                
+                                if (beforeText) {
+                                    parent.insertBefore(document.createTextNode(beforeText), commonAncestor)
+                                }
+                                parent.insertBefore(span, commonAncestor)
+                                if (afterText) {
+                                    parent.insertBefore(document.createTextNode(afterText), commonAncestor)
+                                }
+                                parent.removeChild(commonAncestor)
+                            }
+                        } else {
+                            ElMessage.warning('选择区域包含复杂内容，已创建笔记但高亮可能不完整')
+                            // Continue without highlight but create the note
+                        }
+                    } catch (e3) {
+                        ElMessage.error('无法在此处创建笔记，请尝试选择更小的范围')
+                        return
+                    }
+                }
             }
         }
         
-        // Find Node ID
-        const nodeEl = span.closest('[id^="node-"]')
-        const nodeId = nodeEl ? nodeEl.id.replace('node-', '') : ''
+        // Find Node ID - use the range's start container if span wasn't inserted
+        let nodeId = ''
+        if (span.parentNode) {
+            const nodeEl = span.closest('[id^="node-"]')
+            nodeId = nodeEl ? nodeEl.id.replace('node-', '') : ''
+        } else {
+            // Fallback: find node from range
+            let container = selectionMenu.value.range?.startContainer
+            if (container) {
+                if (container.nodeType === Node.TEXT_NODE) {
+                    container = container.parentElement
+                }
+                const nodeEl = (container as Element)?.closest('[id^="node-"]')
+                nodeId = nodeEl ? nodeEl.id.replace('node-', '') : ''
+            }
+        }
         
         if (nodeId) {
             courseStore.createNote({
                 id: noteId,
                 nodeId,
-                highlightId,
+                highlightId: span.parentNode ? highlightId : undefined, // Only save highlightId if span was inserted
                 quote: selectionMenu.value.text,
                 content: value,
                 color,
@@ -2729,6 +2917,19 @@ watch(visibleNotes, () => {
     })
 }, { deep: true })
 
+// Watch for focus mode changes to recalculate note positions
+watch(() => courseStore.isFocusMode, (newVal, oldVal) => {
+    if (oldVal && !newVal) {
+        // Exiting focus mode - wait for layout to settle then update positions
+        nextTick(() => {
+            setTimeout(() => {
+                reapplyHighlights()
+                updateNotePositions()
+            }, 300) // Wait for transition to complete
+        })
+    }
+})
+
 const showBackToTop = ref(false)
 
 const handleScroll = (e: Event) => {
@@ -2950,6 +3151,11 @@ onUnmounted(() => {
     background-color: rgba(251, 191, 36, 0.3);
     border-bottom: 2px solid #f59e0b;
     transition: all 0.2s ease;
+    /* 统一高亮高度，模拟荧光笔效果 */
+    line-height: 1.4em;
+    padding: 0.1em 0;
+    box-decoration-clone: clone;
+    -webkit-box-decoration-clone: clone;
 }
 
 .highlight-marker:hover {

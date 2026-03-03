@@ -87,28 +87,79 @@ const renderMermaid = async () => {
     if (!containerRef.value) return
     
     const mermaidDivs = containerRef.value.querySelectorAll('.mermaid')
-    if (mermaidDivs.length > 0) {
+    if (mermaidDivs.length === 0) return
+
+    // Process each diagram individually for better error handling
+    for (const el of Array.from(mermaidDivs)) {
+        const mermaidEl = el as HTMLElement
+        
         try {
-            // Reset processed attribute to allow re-rendering if content changed
-            mermaidDivs.forEach(el => {
-                if (el.getAttribute('data-processed')) {
-                    el.removeAttribute('data-processed')
-                }
-                // Always restore and clean code
-                const rawCode = el.getAttribute('data-code')
-                if (rawCode) {
-                    const decoded = decodeURIComponent(rawCode)
-                    // Clean the syntax before rendering
-                    const cleaned = cleanMermaidCode(decoded)
-                    el.textContent = cleaned
-                }
-            })
+            // Skip if already processed successfully
+            if (mermaidEl.getAttribute('data-processed') === 'true') continue
             
-            await mermaid.run({
-                nodes: Array.from(mermaidDivs) as HTMLElement[]
-            })
-        } catch (e) {
-            console.error('Mermaid rendering failed:', e)
+            // Get and clean the code
+            let code = ''
+            const rawCode = mermaidEl.getAttribute('data-code')
+            if (rawCode) {
+                code = decodeURIComponent(rawCode)
+            } else {
+                code = mermaidEl.textContent || ''
+            }
+            
+            if (!code.trim()) {
+                throw new Error('Empty diagram code')
+            }
+            
+            // Clean the syntax
+            const cleaned = cleanMermaidCode(code)
+            
+            // Generate unique ID
+            const id = `mermaid-${Date.now()}-${Math.floor(Math.random() * 10000)}`
+            
+            // Render using mermaid.render for better error handling
+            const { svg } = await mermaid.render(id, cleaned)
+            
+            // Update the element
+            mermaidEl.innerHTML = svg
+            mermaidEl.setAttribute('data-processed', 'true')
+            mermaidEl.style.opacity = '1'
+            
+        } catch (err: any) {
+            console.error('Mermaid render error:', err)
+            
+            // Show error UI with retry button
+            const rawCode = mermaidEl.getAttribute('data-code') || mermaidEl.textContent || ''
+            mermaidEl.innerHTML = `
+                <div class="mermaid-error bg-red-50 border border-red-200 rounded-lg p-4 my-2">
+                    <div class="flex items-center gap-2 text-red-600 font-medium mb-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        图表渲染失败
+                    </div>
+                    <div class="text-xs text-slate-500 mb-2">${err.message || '语法错误'}</div>
+                    <details class="text-xs">
+                        <summary class="cursor-pointer text-slate-600 hover:text-slate-800">查看源代码</summary>
+                        <pre class="mt-2 p-2 bg-white rounded border border-slate-200 overflow-auto max-h-32 text-slate-600">${rawCode.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                    </details>
+                    <button class="retry-btn mt-3 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-600 hover:bg-slate-50 transition-colors">
+                        重试渲染
+                    </button>
+                </div>
+            `
+            mermaidEl.style.opacity = '1'
+            
+            // Attach retry handler
+            const retryBtn = mermaidEl.querySelector('.retry-btn')
+            if (retryBtn) {
+                retryBtn.addEventListener('click', (e) => {
+                    e.stopPropagation()
+                    mermaidEl.removeAttribute('data-processed')
+                    const rawCode = mermaidEl.getAttribute('data-code')
+                    if (rawCode) {
+                        mermaidEl.textContent = decodeURIComponent(rawCode)
+                    }
+                    renderMermaid()
+                })
+            }
         }
     }
 }

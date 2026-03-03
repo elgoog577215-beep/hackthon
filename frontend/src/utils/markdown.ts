@@ -154,15 +154,23 @@ const mathPlugin = (md: any) => {
     // Renderers
     const renderMath = (content: string, displayMode: boolean) => {
         try {
-            return katex.renderToString(content, { 
-                throwOnError: true, // Throw error to catch it
+            // Clean up the content before rendering
+            let cleanedContent = content.trim();
+            
+            // Remove unnecessary escaping that might cause issues
+            cleanedContent = cleanedContent.replace(/\\([^a-zA-Z0-9\s{}\[\]()])/g, '$1');
+            
+            return katex.renderToString(cleanedContent, { 
+                throwOnError: false, // Don't throw, render error in output
                 displayMode,
-                output: 'html' // Render to HTML
+                output: 'html', // Render to HTML
+                strict: false, // Be more lenient with syntax
+                trust: true // Allow trusted commands
             });
-        } catch (e) {
-            // Fallback to text if rendering fails
-            // This prevents red error blocks for invalid LaTeX (like incomplete formulas from LLM)
-            return `<span class="math-error">${content}</span>`;
+        } catch (e: any) {
+            // Fallback to error display if rendering fails
+            console.warn('KaTeX render error:', e);
+            return `<span class="math-error" title="${e.message || 'Math render error'}">${content}</span>`;
         }
     };
 

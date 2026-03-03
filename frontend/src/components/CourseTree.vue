@@ -17,19 +17,44 @@
                 <span class="font-bold text-slate-700 tracking-tight text-base">我的课程</span>
             </div>
             
-            <button 
-                class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary-50 text-slate-500 hover:text-primary-600 transition-colors"
-                @click="createNewCourse"
-                title="新建课程"
-            >
-                <el-icon :size="18"><Plus /></el-icon>
-            </button>
+            <div class="flex items-center gap-1">
+                <!-- Sort Dropdown -->
+                <el-dropdown trigger="click" placement="bottom-end">
+                    <button 
+                        class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
+                        title="排序方式"
+                    >
+                        <el-icon :size="16"><Sort /></el-icon>
+                    </button>
+                    <template #dropdown>
+                        <el-dropdown-menu>
+                            <el-dropdown-item @click="sortBy = 'recent'" :class="{ 'text-primary-600': sortBy === 'recent' }">
+                                <el-icon class="mr-2"><Timer /></el-icon>最近学习
+                            </el-dropdown-item>
+                            <el-dropdown-item @click="sortBy = 'name'" :class="{ 'text-primary-600': sortBy === 'name' }">
+                                <el-icon class="mr-2"><Sort /></el-icon>课程名称
+                            </el-dropdown-item>
+                            <el-dropdown-item @click="sortBy = 'progress'" :class="{ 'text-primary-600': sortBy === 'progress' }">
+                                <el-icon class="mr-2"><TrendCharts /></el-icon>学习进度
+                            </el-dropdown-item>
+                        </el-dropdown-menu>
+                    </template>
+                </el-dropdown>
+                
+                <button 
+                    class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary-50 text-slate-500 hover:text-primary-600 transition-colors"
+                    @click="createNewCourse"
+                    title="新建课程"
+                >
+                    <el-icon :size="18"><Plus /></el-icon>
+                </button>
+            </div>
         </div>
 
         <!-- List Content - Optimized Scrollbar -->
         <div class="flex-1 overflow-y-auto overflow-x-hidden p-2 sidebar-scroll space-y-2 scroll-smooth pr-1">
             <div 
-                v-for="(course, index) in courseStore.courseList" 
+                v-for="(course, index) in sortedCourseList" 
                 :key="course.course_id" 
                 class="animate-fade-in-up"
                 :style="{ animationDelay: (index * 50) + 'ms' }"
@@ -115,7 +140,7 @@
             </div>
 
              <!-- Enhanced Empty State -->
-            <div v-if="courseStore.courseList.length === 0 && !courseStore.loading" class="flex flex-col items-center justify-center h-64 animate-fade-in-up p-6">
+            <div v-if="sortedCourseList.length === 0 && !courseStore.loading" class="flex flex-col items-center justify-center h-64 animate-fade-in-up p-6">
                 <div class="glass-panel p-8 flex flex-col items-center text-center max-w-[280px]">
                     <div class="w-16 h-16 rounded-xl bg-gradient-to-br from-primary-100 to-primary-50 border border-primary-200 flex items-center justify-center mb-5 relative">
                         <el-icon :size="28" class="text-primary-600"><Notebook /></el-icon>
@@ -614,7 +639,7 @@ import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
-import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading } from '@element-plus/icons-vue'
+import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading, Sort, Timer, TrendCharts } from '@element-plus/icons-vue'
 import { BookOpen, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useMermaid } from '../composables/useMermaid'
@@ -624,6 +649,37 @@ const router = useRouter()
 const emit = defineEmits(['update:preferredWidth', 'node-selected', 'toggle-sidebar'])
 
 const filterText = ref('')
+const sortBy = ref<'recent' | 'name' | 'progress'>('recent')
+
+// Sorted course list based on sortBy
+const sortedCourseList = computed(() => {
+  const list = [...courseStore.courseList]
+  
+  switch (sortBy.value) {
+    case 'recent':
+      // Sort by last accessed time (if available) or keep original order
+      return list.sort((a, b) => {
+        const posA = courseStore.learningStats.lastReadPosition[a.course_id]
+        const posB = courseStore.learningStats.lastReadPosition[b.course_id]
+        if (posA && posB) return 0 // Both have positions, keep order
+        if (posA) return -1 // A has position, put first
+        if (posB) return 1 // B has position, put first
+        return 0
+      })
+    case 'name':
+      return list.sort((a, b) => a.course_name.localeCompare(b.course_name, 'zh-CN'))
+    case 'progress':
+      return list.sort((a, b) => {
+        const taskA = courseStore.getTask(a.course_id)
+        const taskB = courseStore.getTask(b.course_id)
+        const progressA = taskA?.progress || 0
+        const progressB = taskB?.progress || 0
+        return progressB - progressA // Higher progress first
+      })
+    default:
+      return list
+  }
+})
 
 // Computed property to skip the root node and show children directly
 const displayTreeData = computed(() => {

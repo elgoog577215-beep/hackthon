@@ -1,3 +1,6 @@
+/* Import Google Fonts - Must be first */
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700&family=Comic+Neue:wght@300;400;700&display=swap');
+
 @import "tailwindcss";
 @config "../tailwind.config.js";
 

@@ -42,12 +42,44 @@
       </div>
     </Transition>
 
+    <!-- Floating Stats Button -->
+    <Transition name="slide-in-right">
+      <div v-if="!courseStore.isFocusMode" class="fixed right-4 z-[60]" :style="{ top: statsButtonTop }">
+          <button 
+            @click="showLearningStats = true" 
+            class="toggle-button toggle-button-stats"
+            :class="{ 'toggle-button-active': showLearningStats }"
+            title="学习统计"
+            aria-label="查看学习统计"
+          >
+              <el-icon :size="18"><TrendCharts /></el-icon>
+              <span v-if="completionRate > 0" class="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
+                {{ completionRate }}%
+              </span>
+          </button>
+      </div>
+    </Transition>
+
+    <!-- Exit Focus Mode Button -->
+    <Transition name="fade-scale">
+      <div v-if="courseStore.isFocusMode" class="fixed top-4 right-4 z-[100]">
+          <button 
+            @click="courseStore.toggleFocusMode()" 
+            class="px-4 py-2 bg-white/90 backdrop-blur-md text-slate-700 rounded-xl shadow-lg border border-slate-200/60 flex items-center gap-2 hover:bg-white hover:shadow-xl transition-all"
+            title="退出专注模式 (Ctrl+Shift+F)"
+          >
+              <el-icon :size="16"><Close /></el-icon>
+              <span class="text-sm font-medium">退出专注模式</span>
+          </button>
+      </div>
+    </Transition>
+
     <!-- Main Content Area -->
     <div class="main-content-wrapper" :class="{ 'with-smart-bar': !courseStore.isFocusMode }">
       <!-- Course Tree Sidebar (Left) -->
       <Transition :name="sidebarTransition">
         <CourseTree
-          v-show="leftVisible"
+          v-show="leftVisible && !courseStore.isFocusMode"
           :style="{ width: isMobile ? '85%' : leftSidebarWidth + 'px' }"
           :class="[
             'flex-shrink-0 overflow-hidden glass-panel rounded-none xl:rounded-2xl',
@@ -118,7 +150,7 @@
       <!-- Right Sidebar (Chat/Stats) -->
       <Transition :name="sidebarTransition">
         <div
-          v-show="rightVisible"
+          v-show="rightVisible && !courseStore.isFocusMode"
           :style="{ width: isMobile ? '85%' : rightSidebarWidth + 'px' }"
           :class="[
             'flex-shrink-0 overflow-hidden h-full relative glass-panel rounded-none xl:rounded-2xl',
@@ -187,6 +219,37 @@
       @retry-all-wrong="handleRetryAllWrong"
       @locate-note="handleLocateNote"
     />
+
+    <!-- Learning Stats Modal -->
+    <Teleport to="body">
+      <Transition name="fade-scale">
+        <div v-if="showLearningStats" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="showLearningStats = false"></div>
+          <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white">
+                  <el-icon :size="20"><TrendCharts /></el-icon>
+                </div>
+                <div>
+                  <h3 class="text-lg font-bold text-slate-800">学习统计</h3>
+                  <p class="text-xs text-slate-500">实时追踪你的学习进度</p>
+                </div>
+              </div>
+              <button @click="showLearningStats = false" class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all">
+                <el-icon :size="20"><Close /></el-icon>
+              </button>
+            </div>
+            <div class="overflow-y-auto max-h-[70vh]">
+              <LearningStats />
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Keyboard Shortcuts Help -->
+    <KeyboardShortcutsHelp ref="shortcutsHelpRef" />
   </div>
 </template>
 
@@ -196,15 +259,17 @@ import ContentArea from '../components/ContentArea.vue'
 import ChatPanel from '../components/ChatPanel.vue'
 import LearningStats from '../components/LearningStats.vue'
 import SmartBar from '../components/SmartBar.vue'
+import KeyboardShortcutsHelp from '../components/KeyboardShortcutsHelp.vue'
 import { useCourseStore } from '../stores/course'
 import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Menu, ChatDotRound, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Menu, ChatDotRound, ArrowLeft, ArrowRight, TrendCharts, Close } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 const courseStore = useCourseStore()
 const route = useRoute()
 const containerRef = ref<HTMLElement | null>(null)
+const shortcutsHelpRef = ref<InstanceType<typeof KeyboardShortcutsHelp> | null>(null)
 
 // Breakpoints
 const SCREEN_MD = 768
@@ -290,6 +355,21 @@ const showOverlay = computed(() => {
 
 const toggleButtonTop = computed(() => {
   return isMobile.value ? '5rem' : '1rem'
+})
+
+const statsButtonTop = computed(() => {
+  return isMobile.value ? '8rem' : '4rem'
+})
+
+// Learning stats modal
+const showLearningStats = ref(false)
+
+// Completion rate for stats button badge
+const completionRate = computed(() => {
+  const totalNodes = courseStore.courseTree.length
+  const completedCount = courseStore.learningStats.completedNodes.length
+  if (totalNodes === 0) return 0
+  return Math.round((completedCount / totalNodes) * 100)
 })
 
 // Show toggle buttons when sidebar is hidden or in mobile/tablet mode
@@ -441,8 +521,14 @@ const handlePreferredWidth = (width: number) => {
 
 // Keyboard shortcuts
 const handleKeydown = (e: KeyboardEvent) => {
+  // Ignore shortcuts when typing in input fields
+  const target = e.target as HTMLElement
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === 'true')) {
+    return
+  }
+
   if (e.ctrlKey || e.metaKey) {
-    switch (e.key) {
+    switch (e.key.toLowerCase()) {
       case '1':
         e.preventDefault()
         toggleLeftSidebar()
@@ -462,9 +548,47 @@ const handleKeydown = (e: KeyboardEvent) => {
         e.preventDefault()
         toggleRightSidebar()
         break
+      case 'k':
+        // Ctrl+K: Focus search in course tree
+        e.preventDefault()
+        // Emit event to focus search or open search dialog
+        const searchInput = document.querySelector('.course-tree-search input') as HTMLInputElement
+        if (searchInput) {
+          searchInput.focus()
+        }
+        break
+      case 'f':
+        if (e.shiftKey) {
+          // Ctrl+Shift+F: Toggle focus mode
+          e.preventDefault()
+          courseStore.toggleFocusMode()
+        }
+        break
+      case 'b':
+        // Ctrl+B: Toggle sidebar (same as Ctrl+1)
+        e.preventDefault()
+        toggleLeftSidebar()
+        break
+      case 'g':
+        // Ctrl+G: Toggle knowledge graph
+        e.preventDefault()
+        courseStore.showKnowledgeGraph = !courseStore.showKnowledgeGraph
+        break
+      case 'e':
+        if (e.shiftKey) {
+          // Ctrl+Shift+E: Export (triggered in ContentArea)
+          // This is handled in ContentArea component
+        }
+        break
     }
   }
-  
+
+  // ? key: Show keyboard shortcuts help
+  if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault()
+    shortcutsHelpRef.value?.open()
+  }
+
   // Escape to close mobile sidebars
   if (e.key === 'Escape' && showOverlay.value) {
     closeAllSidebars()
@@ -574,7 +698,14 @@ const handleShowGraph = () => {
 }
 
 const handleViewAllNotes = () => {
-  // Notes are always visible in ContentArea sidebar
+  // Show notes sidebar in ContentArea by ensuring right sidebar is visible
+  activeRightTab.value = 'chat'
+  if (!rightVisible.value) {
+    rightVisible.value = true
+  }
+  // Also ensure notes panel is not collapsed in ContentArea
+  // This will be handled by the ContentArea component via store
+  courseStore.isMobileNotesVisible = true
 }
 
 const handleViewAllWrongAnswers = () => {
@@ -601,6 +732,10 @@ const handleRetryAllWrong = () => {
 const handleLocateNote = (note: any) => {
   if (note.nodeId) {
     courseStore.selectNode(note.nodeId)
+    // Scroll to the note's highlight in content area
+    setTimeout(() => {
+      courseStore.scrollToNote(note.id)
+    }, 100)
   }
 }
 </script>
