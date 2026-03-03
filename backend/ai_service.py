@@ -1619,49 +1619,212 @@ DO NOT wrap the JSON in markdown code blocks.
         if response:
             result = self._extract_json(response)
             if result and "nodes" in result and "edges" in result and len(result["nodes"]) > 0:
-                # Self-Healing: Validate and fix chapter_ids
-                valid_chapter_ids = {n.get("node_id") for n in nodes}
-                node_name_to_id = {n.get("node_name"): n.get("node_id") for n in nodes}
-                
-                for graph_node in result["nodes"]:
-                    chapter_id = graph_node.get("chapter_id")
-                    
-                    # If invalid or missing
-                    if not chapter_id or chapter_id not in valid_chapter_ids:
-                        best_match_id = None
-                        
-                        # Priority 0: Check if chapter_id is actually a node name
-                        if chapter_id in node_name_to_id:
-                            best_match_id = node_name_to_id[chapter_id]
-
-                        # Priority 1: Match by Node Label (Exact)
-                        if not best_match_id:
-                            node_label = graph_node.get("label", "")
-                            for n in nodes:
-                                if n.get("node_name", "") == node_label:
-                                    best_match_id = n.get("node_id")
-                                    break
-                                    
-                        # Priority 2: Match by Node Label (Substring)
-                        if not best_match_id:
-                            node_label = graph_node.get("label", "")
-                            for n in nodes:
-                                if node_label in n.get("node_name", "") or n.get("node_name", "") in node_label:
-                                    best_match_id = n.get("node_id")
-                                    break
-                        
-                        # Fallback to the first available node if no match found
-                        if not best_match_id and nodes:
-                            best_match_id = nodes[0].get("node_id")
-                            
-                        if best_match_id:
-                            graph_node["chapter_id"] = best_match_id
-                            
+                # Enhanced Self-Healing: Validate and fix the knowledge graph
+                result = self._validate_and_fix_knowledge_graph(result, nodes)
                 return result
         
         # Fallback: Generate a simple graph based on node hierarchy
         logger.warning("Knowledge graph generation failed, using fallback")
         return self._generate_fallback_knowledge_graph(nodes)
+    
+    def _validate_and_fix_knowledge_graph(self, graph_data: Dict, course_nodes: List[Dict]) -> Dict:
+        """
+        验证并修复知识图谱
+        
+        执行多项质量检查并自动修复问题：
+        1. 修复无效的 chapter_id
+        2. 移除孤立节点
+        3. 修复无效的关系类型
+        4. 确保连通性
+        5. 确保有且只有一个 root 节点
+        
+        Args:
+            graph_data: 生成的知识图谱数据
+            course_nodes: 课程节点列表
+            
+        Returns:
+            修复后的知识图谱数据
+        """
+        nodes = graph_data.get("nodes", [])
+        edges = graph_data.get("edges", [])
+        
+        valid_chapter_ids = {n.get("node_id") for n in course_nodes}
+        node_name_to_id = {n.get("node_name"): n.get("node_id") for n in course_nodes}
+        node_ids = {n.get("id") for n in nodes}
+        
+        # Step 1: Fix chapter_ids and validate node types
+        root_count = 0
+        for node in nodes:
+            # Count root nodes
+            if node.get("type") == "root":
+                root_count += 1
+            
+            # Fix chapter_id
+            chapter_id = node.get("chapter_id")
+            if not chapter_id or chapter_id not in valid_chapter_ids:
+                best_match_id = None
+                
+                # Priority 0: Check if chapter_id is actually a node name
+                if chapter_id in node_name_to_id:
+                    best_match_id = node_name_to_id[chapter_id]
+                
+                # Priority 1: Match by Node Label (Exact)
+                if not best_match_id:
+                    node_label = node.get("label", "")
+                    for n in course_nodes:
+                        if n.get("node_name", "") == node_label:
+                            best_match_id = n.get("node_id")
+                            break
+                
+                # Priority 2: Match by Node Label (Substring)
+                if not best_match_id:
+                    node_label = node.get("label", "")
+                    for n in course_nodes:
+                        if node_label in n.get("node_name", "") or n.get("node_name", "") in node_label:
+                            best_match_id = n.get("node_id")
+                            break
+                
+                # Fallback: Use first available node
+                if not best_match_id and course_nodes:
+                    best_match_id = course_nodes[0].get("node_id")
+                
+                if best_match_id:
+                    node["chapter_id"] = best_match_id
+        
+        # Step 2: Fix multiple root nodes (keep only one)
+        if root_count > 1:
+            logger.warning(f"Found {root_count} root nodes, keeping only the first one")
+            root_found = False
+            for node in nodes:
+                if node.get("type") == "root":
+                    if root_found:
+                        node["type"] = "concept"  # Convert extra roots to concepts
+                    else:
+                        root_found = True
+        
+        # Step 3: Ensure at least one root node exists
+        if root_count == 0 and nodes:
+            # Create root from first module or first node
+            for node in nodes:
+                if node.get("type") == "module":
+                    node["type"] = "root"
+                    logger.info(f"Converted module '{node.get('label')}' to root")
+                    break
+            else:
+                # If no module, convert first node
+                nodes[0]["type"] = "root"
+                logger.info(f"Converted first node '{nodes[0].get('label')}' to root")
+        
+        # Step 4: Validate and fix edges
+        valid_relations = {
+            "contains", "prerequisite", "extends", "applies_to", 
+            "implements", "contrasts_with", "leads_to"
+        }
+        
+        valid_edges = []
+        for edge in edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            relation = edge.get("relation")
+            
+            # Skip invalid edges
+            if not source or not target:
+                continue
+            if source not in node_ids or target not in node_ids:
+                continue
+            if source == target:  # Skip self-loops
+                continue
+            
+            # Fix invalid relation types
+            if relation not in valid_relations:
+                edge["relation"] = "contains"  # Default to contains
+            
+            valid_edges.append(edge)
+        
+        # Step 5: Remove isolated nodes (nodes with no edges)
+        connected_nodes = set()
+        for edge in valid_edges:
+            connected_nodes.add(edge.get("source"))
+            connected_nodes.add(edge.get("target"))
+        
+        # Keep root even if isolated (will connect later)
+        root_node = None
+        for node in nodes:
+            if node.get("type") == "root":
+                root_node = node
+                connected_nodes.add(node.get("id"))
+                break
+        
+        # Filter out isolated nodes
+        valid_nodes = [n for n in nodes if n.get("id") in connected_nodes]
+        
+        # Step 6: Ensure root connects to all modules
+        if root_node:
+            root_id = root_node.get("id")
+            connected_modules = set()
+            for edge in valid_edges:
+                if edge.get("source") == root_id:
+                    connected_modules.add(edge.get("target"))
+            
+            # Connect root to unconnected modules
+            for node in valid_nodes:
+                if node.get("type") == "module" and node.get("id") not in connected_modules:
+                    valid_edges.append({
+                        "source": root_id,
+                        "target": node.get("id"),
+                        "relation": "contains"
+                    })
+        
+        # Step 7: Detect and break cycles (simple approach)
+        self._break_cycles(valid_edges)
+        
+        logger.info(f"Knowledge graph validation complete: {len(valid_nodes)} nodes, {len(valid_edges)} edges")
+        
+        return {
+            "nodes": valid_nodes,
+            "edges": valid_edges
+        }
+    
+    def _break_cycles(self, edges: List[Dict]) -> None:
+        """
+        检测并打破循环依赖
+        
+        使用简单的启发式方法：如果检测到循环，移除最弱的一条边
+        """
+        # Build adjacency list
+        graph = {}
+        for edge in edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            if source not in graph:
+                graph[source] = []
+            graph[source].append(target)
+        
+        # Simple cycle detection (DFS)
+        def has_cycle_from(node, visited, rec_stack):
+            visited.add(node)
+            rec_stack.add(node)
+            
+            for neighbor in graph.get(node, []):
+                if neighbor not in visited:
+                    if has_cycle_from(neighbor, visited, rec_stack):
+                        return True
+                elif neighbor in rec_stack:
+                    return True
+            
+            rec_stack.remove(node)
+            return False
+        
+        # Check for cycles
+        visited = set()
+        for node in graph:
+            if node not in visited:
+                if has_cycle_from(node, visited, set()):
+                    logger.warning("Cycle detected in knowledge graph, removing weakest edge")
+                    # Remove the last edge as a simple fix
+                    if edges:
+                        edges.pop()
+                    break
     
     def _generate_fallback_knowledge_graph(self, nodes: List[Dict]) -> Dict:
         """

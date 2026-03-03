@@ -704,37 +704,109 @@ GENERATE_QUIZ = PromptTemplate(
 # -----------------------------------------------------------------------------
 GENERATE_KNOWLEDGE_GRAPH = PromptTemplate(
     name="generate_knowledge_graph",
-    version="1.0.0",
-    description="生成课程知识图谱结构",
+    version="2.0.0",
+    description="生成高质量课程知识图谱结构",
     parameters=["course_name", "course_context"],
-    tags=["knowledge-graph", "structure", "visualization"],
+    tags=["knowledge-graph", "structure", "visualization", "ai-optimized"],
     system_prompt=f"""{ACADEMIC_IDENTITY}
 
 ## 任务目标
-为课程"{{course_name}}"构建一个结构化的知识图谱，展示核心概念及其相互关系。
+为课程"{{course_name}}"构建一个**高质量、结构化、语义丰富**的知识图谱。
+
+**核心要求**：
+- 准确反映课程的知识结构和逻辑关系
+- 节点命名规范、描述清晰
+- 关系类型明确、有意义
+- 支持学习路径导航和知识探索
 
 ## 课程背景
 {{course_context}}
 
-## 节点类型定义（严格遵守）
-- **root**: 课程核心主题（仅1个）
-- **module**: 主要知识模块（对应L1章节）
-- **concept**: 核心概念（对应L2/L3知识点）
-- **theorem**: 关键定理/定律
-- **method**: 核心方法/算法
+## 节点类型定义（严格执行）
 
-## 生成要求
-1. **节点生成**：
-   - 必须包含1个root节点
-   - 包含所有主要章节作为module节点
-   - 提取关键概念作为concept/theorem/method节点
-   - 节点总数控制在 15-30 个之间
-   - **chapter_id**：如果节点对应特定章节，必须填入章节ID
+### 1. root（根节点）- 仅1个
+- **定义**：课程的核心主题或最顶层概念
+- **命名规则**：使用课程名称或最核心概念
+- **示例**："深度学习", "量子力学", "微观经济学"
 
-2. **关系构建**：
-   - 建立清晰的层级关系（root -> module -> concept）
-   - 建立概念间的关联（concept <-> concept）
-   - 确保图谱连通，无孤立节点
+### 2. module（模块节点）- 3-8个
+- **定义**：课程的主要章节或知识模块
+- **命名规则**：使用章节标题，简洁明确
+- **关联**：必须关联到具体章节ID
+- **示例**："神经网络基础", "卷积神经网络", "优化算法"
+
+### 3. concept（概念节点）- 8-15个
+- **定义**：核心概念、定义、原理
+- **命名规则**：概念名称，使用术语
+- **示例**："梯度下降", "反向传播", "过拟合"
+
+### 4. theorem（定理节点）- 2-5个
+- **定义**：重要的定理、定律、公式
+- **命名规则**：定理名称或核心结论
+- **示例**："链式法则", "中心极限定理", "贝叶斯定理"
+
+### 5. method（方法节点）- 3-6个
+- **定义**：算法、方法、技术
+- **命名规则**：方法名称
+- **示例**："随机梯度下降", "Dropout正则化", "批归一化"
+
+## 关系类型定义（严格执行）
+
+### 层级关系（必须建立）
+- **"contains"**: 包含关系 (parent -> child)
+  - root contains module
+  - module contains concept/method/theorem
+- **"prerequisite"**: 前置知识 (concept A -> concept B)
+  - 表示学习B之前需要先掌握A
+- **"extends"**: 扩展关系 (base -> extension)
+  - 表示概念的发展或扩展
+
+### 关联关系（根据语义建立）
+- **"applies_to"**: 应用于 (method -> concept)
+  - 方法应用于概念
+- **"implements"**: 实现 (method -> theorem/concept)
+  - 方法实现某个定理或概念
+- **"contrasts_with"**: 对比关系 (concept A <-> concept B)
+  - 表示概念间的对比或区别
+- **"leads_to"**: 导致/推导 (concept A -> concept B)
+  - 表示逻辑推导或因果关系
+
+## 生成策略（按步骤执行）
+
+### 步骤1：分析课程结构
+1. 识别课程的核心主题（root）
+2. 识别主要章节/模块（module）
+3. 从每个模块中提取关键概念、定理、方法
+
+### 步骤2：建立层级关系
+1. 创建 root 节点
+2. 为每个主要章节创建 module 节点，建立 root -> module 关系
+3. 为每个 module 下的知识点创建子节点，建立 module -> child 关系
+
+### 步骤3：建立概念关联
+1. 识别概念间的前置依赖关系（prerequisite）
+2. 识别方法的应用对象（applies_to）
+3. 识别概念间的对比或扩展关系
+
+### 步骤4：质量检查
+1. **连通性检查**：确保无孤立节点
+2. **层级检查**：确保 root 只有一个，module 直接连接 root
+3. **命名检查**：确保节点名称准确、简洁
+4. **关系检查**：确保关系类型正确、有意义
+
+## 输出质量要求
+
+### 节点质量
+- **id**: 使用小写字母和下划线，如 "neural_networks", "backpropagation"
+- **label**: 使用中文，准确反映概念，如 "神经网络", "反向传播"
+- **description**: 一句话描述，说明该节点是什么/做什么
+- **type**: 必须是 root/module/concept/theorem/method 之一
+- **chapter_id**: module 节点必须填写，其他节点如有关联章节也应填写
+
+### 边质量
+- **source/target**: 必须对应存在的节点 id
+- **relation**: 必须是预定义的关系类型之一
+- **无重复边**：同一对节点间不要有重复的边
 
 {OUTPUT_FORMAT_JSON}
 
@@ -743,22 +815,71 @@ GENERATE_KNOWLEDGE_GRAPH = PromptTemplate(
 {{{{
   "nodes": [
     {{{{
-      "id": "node_id_1",
-      "label": "节点名称",
+      "id": "root",
+      "label": "课程核心主题",
+      "type": "root",
+      "description": "课程的核心主题描述"
+    }}}},
+    {{{{
+      "id": "module_1",
+      "label": "第一章名称",
+      "type": "module",
+      "description": "本章主要内容概述",
+      "chapter_id": "章节ID"
+    }}}},
+    {{{{
+      "id": "concept_1",
+      "label": "核心概念名称",
       "type": "concept",
-      "description": "简短描述",
-      "chapter_id": "关联的章节ID(可选)"
+      "description": "概念的定义或说明",
+      "chapter_id": "关联章节ID"
+    }}}},
+    {{{{
+      "id": "theorem_1",
+      "label": "定理名称",
+      "type": "theorem",
+      "description": "定理的核心结论",
+      "chapter_id": "关联章节ID"
+    }}}},
+    {{{{
+      "id": "method_1",
+      "label": "方法名称",
+      "type": "method",
+      "description": "方法的功能描述",
+      "chapter_id": "关联章节ID"
     }}}}
   ],
   "edges": [
     {{{{
-      "source": "node_id_1",
-      "target": "node_id_2",
-      "relation": "related"
+      "source": "root",
+      "target": "module_1",
+      "relation": "contains"
+    }}}},
+    {{{{
+      "source": "module_1",
+      "target": "concept_1",
+      "relation": "contains"
+    }}}},
+    {{{{
+      "source": "concept_1",
+      "target": "concept_2",
+      "relation": "prerequisite"
+    }}}},
+    {{{{
+      "source": "method_1",
+      "target": "concept_1",
+      "relation": "applies_to"
     }}}}
   ]
 }}}}
-```"""
+```
+
+## 禁止事项
+- ❌ 不要生成孤立节点（没有边连接的节点）
+- ❌ 不要使用模糊的关系类型（如 "related"）
+- ❌ 不要在 label 中使用过长的描述
+- ❌ 不要遗漏重要的核心概念
+- ❌ 不要创建循环依赖（A -> B -> C -> A）"""
 )
 
 
