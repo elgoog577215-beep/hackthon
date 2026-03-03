@@ -1258,6 +1258,103 @@ export const useCourseStore = defineStore('course', {
         }
     },
 
+    // --- Backend Sync Methods (for tutor store integration) ---
+
+    /**
+     * 从后端同步复习项目
+     * 供 tutor store 使用
+     */
+    async syncReviewItemsFromBackend() {
+        if (!this.currentCourseId) return
+        
+        try {
+            const response = await http.get(`/courses/${this.currentCourseId}/review/schedule`)
+            if (response.data && response.data.items) {
+                // 转换为本地格式并合并
+                const backendItems = response.data.items.map((item: any) => ({
+                    id: `review_${item.node_id}`,
+                    nodeId: item.node_id,
+                    nodeName: item.node_name,
+                    courseId: this.currentCourseId,
+                    content: item.node_content,
+                    type: 'knowledge_point' as const,
+                    createdAt: new Date(item.created_at || Date.now()).getTime(),
+                    lastReviewedAt: item.last_reviewed ? new Date(item.last_reviewed).getTime() : null,
+                    nextReviewAt: new Date(item.next_review).getTime(),
+                    reviewCount: item.review_count,
+                    difficulty: this.mapDifficulty(item.priority),
+                    retentionRate: item.retention_rate || 0.5,
+                    masteryLevel: item.ease_factor ? item.ease_factor / 2.5 : 0.5,
+                    isForgotten: item.status === 'overdue',
+                    tags: []
+                }))
+                
+                // 合并到现有复习项
+                this.mergeReviewItems(backendItems)
+            }
+        } catch (error) {
+            console.error('Failed to sync review items:', error)
+        }
+    },
+
+    /**
+     * 从后端加载错题
+     * 供 tutor store 使用
+     */
+    async loadWrongAnswers() {
+        if (!this.currentCourseId) return
+        
+        try {
+            // 尝试从后端获取错题数据
+            const response = await http.get(`/courses/${this.currentCourseId}/annotations`)
+            if (response.data) {
+                // 过滤出错题类型的标注
+                const wrongAnswerAnnotations = response.data.filter((a: any) => 
+                    a.category === 'wrong_answer' || a.tags?.includes('wrong_answer')
+                )
+                
+                // 转换为错题格式
+                const backendWrongAnswers = wrongAnswerAnnotations.map((a: any) => ({
+                    question: a.quote || '未知题目',
+                    options: [],
+                    correctIndex: -1,
+                    explanation: a.content,
+                    nodeId: a.node_id,
+                    timestamp: new Date(a.created_at).getTime(),
+                    reviewCount: 0
+                }))
+                
+                // 合并到本地错题（去重）
+                backendWrongAnswers.forEach((newWrong: any) => {
+                    const exists = this.wrongAnswers.some(w => 
+                        w.question === newWrong.question && w.nodeId === newWrong.nodeId
+                    )
+                    if (!exists) {
+                        this.wrongAnswers.push(newWrong)
+                    }
+                })
+                
+                this.persistQuizData()
+            }
+        } catch (error) {
+            console.error('Failed to load wrong answers:', error)
+            // 如果后端获取失败，使用本地数据
+            this.restoreQuizData()
+        }
+    },
+
+    /**
+     * 映射优先级到难度
+     */
+    mapDifficulty(priority: string): 'beginner' | 'intermediate' | 'advanced' | 'expert' {
+        const mapping: Record<string, 'beginner' | 'intermediate' | 'advanced' | 'expert'> = {
+            'low': 'beginner',
+            'medium': 'intermediate',
+            'high': 'advanced'
+        }
+        return mapping[priority] || 'intermediate'
+    },
+
     // --- Task Logic ---
 
     // --- Typewriter Effect Logic ---
