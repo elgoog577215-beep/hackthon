@@ -403,7 +403,8 @@ function expandAndShow(tab: string) {
 
 /* ========== 展开状态 ========== */
 .smart-bar.expanded {
-  height: 340px;
+  height: 420px;
+  max-height: 60vh;
 }
 
 .bar-expanded {
@@ -411,6 +412,7 @@ function expandAndShow(tab: string) {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .expanded-header {
@@ -477,6 +479,22 @@ function expandAndShow(tab: string) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 100%;
+}
+
+.assets-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.assets-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.assets-panel::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
 }
 
 .asset-card {
