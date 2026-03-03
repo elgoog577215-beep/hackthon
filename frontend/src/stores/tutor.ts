@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import http from '../utils/http'
+import { useCourseStore } from './course'
 
 export interface KnowledgeState {
   node_id: string
@@ -50,20 +51,34 @@ export interface TutorGreeting {
   }
 }
 
+/**
+ * AI 导师 Store
+ * 
+ * 注意：此 store 专注于 AI 导师特有的功能
+ * - 学习建议
+ * - 目标管理
+ * - 学习分析
+ * 
+ * 复习和错题功能已迁移到 course store
+ */
 export const useTutorStore = defineStore('tutor', () => {
+  const courseStore = useCourseStore()
+  
   const profile = ref<any>(null)
   const weaknesses = ref<any[]>([])
   const strengths = ref<any[]>([])
   const goals = ref<LearningGoal[]>([])
-  const reviewItems = ref<any[]>([])
-  const wrongAnswers = ref<any[]>([])
   const greeting = ref<TutorGreeting | null>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
+  // 从 course store 获取复习和错题数据（保持向后兼容）
+  const reviewItems = computed(() => courseStore.reviewItems)
+  const wrongAnswers = computed(() => courseStore.wrongAnswers)
+  
   const hasWeaknesses = computed(() => weaknesses.value.length > 0)
-  const hasReviewItems = computed(() => reviewItems.value.length > 0)
-  const hasWrongAnswers = computed(() => wrongAnswers.value.length > 0)
+  const hasReviewItems = computed(() => courseStore.reviewItems.length > 0)
+  const hasWrongAnswers = computed(() => courseStore.wrongAnswers.length > 0)
   const activeGoals = computed(() => goals.value.filter(g => g.status === 'in_progress'))
 
   async function fetchGreeting(courseId?: string, nodeId?: string) {
@@ -125,26 +140,25 @@ export const useTutorStore = defineStore('tutor', () => {
     }
   }
 
+  /**
+   * 获取复习项目
+   * @deprecated 请直接使用 courseStore.reviewItems
+   */
   async function fetchReviewItems(limit: number = 5) {
-    try {
-      const response = await http.get(`/api/tutor/review-items?limit=${limit}`)
-      reviewItems.value = response.data.review_items
-      return response.data.review_items
-    } catch (e: any) {
-      error.value = e.message
-      return []
-    }
+    console.warn('tutorStore.fetchReviewItems is deprecated. Use courseStore.reviewItems instead.')
+    // 从 course store 同步数据
+    await courseStore.syncReviewItemsFromBackend()
+    return courseStore.reviewItems.slice(0, limit)
   }
 
+  /**
+   * 获取错题
+   * @deprecated 请直接使用 courseStore.wrongAnswers
+   */
   async function fetchWrongAnswers(limit: number = 5) {
-    try {
-      const response = await http.get(`/api/tutor/wrong-answers?limit=${limit}`)
-      wrongAnswers.value = response.data.wrong_answers
-      return response.data.wrong_answers
-    } catch (e: any) {
-      error.value = e.message
-      return []
-    }
+    console.warn('tutorStore.fetchWrongAnswers is deprecated. Use courseStore.wrongAnswers instead.')
+    await courseStore.loadWrongAnswers()
+    return courseStore.wrongAnswers.slice(0, limit)
   }
 
   async function fetchGoals(status?: string) {
@@ -216,8 +230,6 @@ export const useTutorStore = defineStore('tutor', () => {
       await Promise.all([
         fetchGreeting(),
         fetchProfile(),
-        fetchReviewItems(),
-        fetchWrongAnswers(),
         fetchGoals()
       ])
     } finally {

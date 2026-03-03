@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+import http from '../utils/http'
 
 /**
  * 复习项目接口
@@ -166,7 +166,7 @@ export interface SubmitReviewRequest {
 }
 
 // =============================================================================
-// 独立导出函数（供统一复习系统使用）
+// API 函数（使用统一的 http 客户端）
 // =============================================================================
 
 /**
@@ -185,13 +185,11 @@ export async function getReviewSchedule(
   const maxItems = params.max_items ?? 20
   const focusOnWeak = params.focus_on_weak ?? true
   
-  const response = await fetch(
-    `${API_BASE_URL}/courses/${courseId}/review/schedule?max_items=${maxItems}&focus_on_weak=${focusOnWeak}`
+  const response = await http.get(
+    `/courses/${courseId}/review/schedule`,
+    { params: { max_items: maxItems, focus_on_weak: focusOnWeak } }
   )
-  if (!response.ok) {
-    throw new Error('获取复习计划失败')
-  }
-  return response.json()
+  return response.data
 }
 
 /**
@@ -207,20 +205,11 @@ export async function submitReviewResults(
   courseId: string,
   request: SubmitReviewRequest
 ): Promise<SubmitReviewResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/courses/${courseId}/review/submit`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(request),
-    }
+  const response = await http.post(
+    `/courses/${courseId}/review/submit`,
+    request
   )
-  if (!response.ok) {
-    throw new Error('提交复习结果失败')
-  }
-  return response.json()
+  return response.data
 }
 
 /**
@@ -232,13 +221,8 @@ export async function submitReviewResults(
  * @returns 复习进度响应
  */
 export async function getReviewProgress(courseId: string): Promise<ReviewProgressResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/courses/${courseId}/review/progress`
-  )
-  if (!response.ok) {
-    throw new Error('获取复习进度失败')
-  }
-  return response.json()
+  const response = await http.get(`/courses/${courseId}/review/progress`)
+  return response.data
 }
 
 /**
@@ -248,15 +232,8 @@ export async function getReviewProgress(courseId: string): Promise<ReviewProgres
  * @returns 复习统计数据
  */
 export async function getReviewStats(courseId: string): Promise<ReviewStats> {
-  const response = await fetch(
-    `${API_BASE_URL}/courses/${courseId}/review/stats`
-  )
-  if (!response.ok) {
-    throw new Error('获取复习统计失败')
-  }
-  const data = await response.json()
-  // 返回时去掉course_id，只保留ReviewStats字段
-  const { course_id, ...stats } = data
+  const response = await http.get(`/courses/${courseId}/review/stats`)
+  const { course_id, ...stats } = response.data
   return stats
 }
 
@@ -269,16 +246,8 @@ export async function getReviewStats(courseId: string): Promise<ReviewStats> {
  * @returns 重置结果
  */
 export async function resetReviewHistory(courseId: string): Promise<{ status: string; message: string }> {
-  const response = await fetch(
-    `${API_BASE_URL}/courses/${courseId}/review/reset`,
-    {
-      method: 'POST',
-    }
-  )
-  if (!response.ok) {
-    throw new Error('重置复习历史失败')
-  }
-  return response.json()
+  const response = await http.post(`/courses/${courseId}/review/reset`)
+  return response.data
 }
 
 // =============================================================================
