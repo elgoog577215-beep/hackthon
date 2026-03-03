@@ -1,205 +1,352 @@
 <template>
   <Teleport to="body">
-    <Transition name="fade">
-      <div v-if="courseStore.showKnowledgeGraph" class="kg-overlay" @click.self="handleClose">
-        <div class="kg-container">
+    <Transition name="modal">
+      <div v-if="courseStore.showKnowledgeGraph" class="kg-modal-overlay" @click.self="handleClose">
+        <div class="kg-modal-container">
           <!-- Header -->
-          <div class="kg-header">
+          <div class="kg-modal-header">
             <div class="kg-header-left">
-              <button class="kg-btn-close" @click="handleClose">
-                <el-icon><ArrowLeft /></el-icon>
-              </button>
-              <h2 class="kg-title">知识图谱</h2>
-              <span v-if="loading" class="kg-loading">
-                <el-icon class="is-loading"><Loading /></el-icon>
-                生成中...
-              </span>
+              <div class="kg-title-wrapper">
+                <div class="kg-title-icon">
+                  <el-icon :size="20"><Share /></el-icon>
+                </div>
+                <div>
+                  <h2 class="kg-title">知识图谱</h2>
+                  <p class="kg-subtitle" v-if="hasGraph">{{ graphData.nodes.length }} 个概念 · {{ graphData.edges.length }} 条关系</p>
+                </div>
+              </div>
             </div>
             
             <div class="kg-header-center" v-if="hasGraph">
-              <div class="kg-search">
+              <div class="kg-search-wrapper">
                 <el-icon class="kg-search-icon"><Search /></el-icon>
                 <input
                   v-model="searchQuery"
                   type="text"
-                  placeholder="搜索节点..."
+                  placeholder="搜索概念..."
                   class="kg-search-input"
+                  @input="handleSearchInput"
                   @keyup.enter="handleSearch"
                 />
                 <button v-if="searchQuery" class="kg-search-clear" @click="clearSearch">
-                  <el-icon><CircleClose /></el-icon>
+                  <el-icon><Close /></el-icon>
                 </button>
               </div>
             </div>
             
             <div class="kg-header-right">
-              <button v-if="!hasGraph" class="kg-btn kg-btn-primary" :disabled="loading" @click="generateGraph">
-                <el-icon><MagicStick /></el-icon>
-                生成图谱
+              <template v-if="hasGraph">
+                <button class="kg-action-btn" @click="toggleMinimap" :class="{ active: showMinimap }" title="迷你地图">
+                  <el-icon><MapLocation /></el-icon>
+                </button>
+                <button class="kg-action-btn" @click="resetView" title="重置视图">
+                  <el-icon><Compass /></el-icon>
+                </button>
+                <button class="kg-action-btn" @click="downloadImage" title="导出图片">
+                  <el-icon><Download /></el-icon>
+                </button>
+              </template>
+              <button 
+                v-if="!hasGraph" 
+                class="kg-btn kg-btn-primary" 
+                :disabled="loading" 
+                @click="generateGraph"
+              >
+                <el-icon :class="{ 'is-loading': loading }"><MagicStick /></el-icon>
+                {{ loading ? '生成中...' : '生成图谱' }}
               </button>
-              <button v-else class="kg-btn kg-btn-secondary" :disabled="loading" @click="generateGraph">
-                <el-icon><Refresh /></el-icon>
+              <button 
+                v-else 
+                class="kg-btn kg-btn-secondary" 
+                :disabled="loading" 
+                @click="generateGraph"
+              >
+                <el-icon :class="{ 'is-loading': loading }"><Refresh /></el-icon>
                 重新生成
               </button>
-              <button class="kg-btn kg-btn-ghost" @click="resetView" title="重置视图">
+              <button class="kg-close-btn" @click="handleClose">
+                <el-icon :size="18"><Close /></el-icon>
+              </button>
+            </div>
+          </div>
+
+          <!-- Main Content -->
+          <div class="kg-modal-body">
+            <!-- Graph Canvas -->
+            <div ref="canvasRef" class="kg-canvas" @click="deselectNode">
+              <!-- SVG Graph -->
+              <svg
+                v-if="hasGraph"
+                :viewBox="viewBoxStr"
+                class="kg-svg"
+                @wheel.prevent="handleWheel"
+                @mousedown="startPan"
+                @mousemove="onPan"
+                @mouseup="endPan"
+                @mouseleave="endPan"
+              >
+                <defs>
+                  <!-- Grid Pattern -->
+                  <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+                    <circle cx="15" cy="15" r="1" fill="#e2e8f0"/>
+                  </pattern>
+                  
+                  <!-- Node Shadow -->
+                  <filter id="nodeShadow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.1"/>
+                  </filter>
+                  
+                  <!-- Glow Effect -->
+                  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="#6366f1" flood-opacity="0.5"/>
+                  </filter>
+                  
+                  <!-- Arrow Markers -->
+                  <marker id="arrow-contains" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#6366f1"/>
+                  </marker>
+                  <marker id="arrow-prerequisite" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b"/>
+                  </marker>
+                  <marker id="arrow-applies" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
+                  </marker>
+                  <marker id="arrow-default" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+                  </marker>
+                </defs>
+                
+                <rect width="100%" height="100%" fill="url(#grid)"/>
+                
+                <!-- Edges Layer -->
+                <g class="kg-edges-layer">
+                  <g v-for="edge in graphData.edges" :key="edge.source + '-' + edge.target">
+                    <!-- Edge Path -->
+                    <path
+                      :d="getEdgePath(edge)"
+                      class="kg-edge"
+                      :class="getEdgeClass(edge)"
+                      :marker-end="getArrowMarker(edge.relation)"
+                    />
+                    <!-- Edge Label -->
+                    <text
+                      v-if="showEdgeLabels && getEdgeMidpoint(edge)"
+                      :x="getEdgeMidpoint(edge).x"
+                      :y="getEdgeMidpoint(edge).y"
+                      class="kg-edge-label"
+                    >{{ getRelationLabel(edge.relation) }}</text>
+                  </g>
+                </g>
+                
+                <!-- Nodes Layer -->
+                <g class="kg-nodes-layer">
+                  <g
+                    v-for="node in graphData.nodes"
+                    :key="node.id"
+                    class="kg-node-group"
+                    :class="{
+                      'kg-node-selected': selectedNode?.id === node.id,
+                      'kg-node-highlighted': highlightedNodes.includes(node.id),
+                      'kg-node-dimmed': dimmedNodes.includes(node.id)
+                    }"
+                    :transform="`translate(${node.x}, ${node.y})`"
+                    @click.stop="selectNode(node)"
+                    @mouseenter="hoverNode(node)"
+                    @mouseleave="unhoverNode"
+                  >
+                    <!-- Node Background -->
+                    <rect
+                      :x="-getNodeWidth(node) / 2"
+                      y="-22"
+                      :width="getNodeWidth(node)"
+                      height="44"
+                      rx="12"
+                      class="kg-node-bg"
+                      :style="{ fill: getNodeColor(node, 'bg'), stroke: getNodeColor(node, 'border') }"
+                    />
+                    
+                    <!-- Node Accent Bar -->
+                    <rect
+                      :x="-getNodeWidth(node) / 2"
+                      y="-22"
+                      width="5"
+                      height="44"
+                      rx="2"
+                      :fill="getNodeColor(node, 'accent')"
+                    />
+                    
+                    <!-- Node Icon -->
+                    <circle
+                      cx="-getNodeWidth(node) / 2 + 22"
+                      cy="0"
+                      r="12"
+                      :fill="getNodeColor(node, 'accent')"
+                      opacity="0.15"
+                    />
+                    <text
+                      :x="-getNodeWidth(node) / 2 + 22"
+                      y="4"
+                      class="kg-node-icon"
+                      :fill="getNodeColor(node, 'accent')"
+                    >{{ getNodeIcon(node.type) }}</text>
+                    
+                    <!-- Node Label -->
+                    <text
+                      :x="10"
+                      y="5"
+                      class="kg-node-label"
+                    >{{ node.label }}</text>
+                  </g>
+                </g>
+              </svg>
+
+              <!-- Empty State -->
+              <div v-if="!hasGraph && !loading" class="kg-empty-state">
+                <div class="kg-empty-illustration">
+                  <div class="kg-empty-circle">
+                    <el-icon :size="48"><Share /></el-icon>
+                  </div>
+                  <div class="kg-empty-dots">
+                    <span></span><span></span><span></span>
+                  </div>
+                </div>
+                <h3 class="kg-empty-title">暂无知识图谱</h3>
+                <p class="kg-empty-desc">生成知识图谱，可视化课程概念关系</p>
+                <button class="kg-btn kg-btn-primary kg-btn-large" @click="generateGraph">
+                  <el-icon><MagicStick /></el-icon>
+                  立即生成
+                </button>
+              </div>
+              
+              <!-- Loading State -->
+              <div v-if="loading" class="kg-loading-state">
+                <div class="kg-loading-spinner">
+                  <div class="kg-spinner-ring"></div>
+                  <div class="kg-spinner-ring"></div>
+                  <div class="kg-spinner-ring"></div>
+                </div>
+                <p class="kg-loading-text">正在生成知识图谱...</p>
+                <p class="kg-loading-hint">AI 正在分析课程内容并构建概念关系</p>
+              </div>
+
+              <!-- Node Detail Panel -->
+              <Transition name="slide-right">
+                <div v-if="selectedNode" class="kg-detail-panel">
+                  <div class="kg-detail-header">
+                    <div class="kg-detail-type" :style="{ background: getNodeColor(selectedNode, 'accent') + '15', color: getNodeColor(selectedNode, 'accent') }">
+                      {{ getNodeIcon(selectedNode.type) }} {{ getTypeLabel(selectedNode.type) }}
+                    </div>
+                    <button class="kg-detail-close" @click="deselectNode">
+                      <el-icon><Close /></el-icon>
+                    </button>
+                  </div>
+                  
+                  <h3 class="kg-detail-title">{{ selectedNode.label }}</h3>
+                  
+                  <div v-if="selectedNode.description" class="kg-detail-section">
+                    <h4 class="kg-detail-section-title">描述</h4>
+                    <p class="kg-detail-description">{{ selectedNode.description }}</p>
+                  </div>
+                  
+                  <!-- Related Nodes -->
+                  <div v-if="relatedNodes.length > 0" class="kg-detail-section">
+                    <h4 class="kg-detail-section-title">相关概念</h4>
+                    <div class="kg-related-nodes">
+                      <button 
+                        v-for="rel in relatedNodes" 
+                        :key="rel.node.id"
+                        class="kg-related-node"
+                        @click="selectNode(rel.node)"
+                      >
+                        <span class="kg-related-icon" :style="{ background: getNodeColor(rel.node, 'accent') + '15' }">
+                          {{ getNodeIcon(rel.node.type) }}
+                        </span>
+                        <div class="kg-related-info">
+                          <span class="kg-related-label">{{ rel.node.label }}</span>
+                          <span class="kg-related-relation">{{ getRelationLabel(rel.relation) }}</span>
+                        </div>
+                        <el-icon class="kg-related-arrow"><ArrowRight /></el-icon>
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div class="kg-detail-actions">
+                    <button 
+                      v-if="selectedNode.chapter_id" 
+                      class="kg-btn kg-btn-primary kg-btn-block"
+                      @click="navigateToNode(selectedNode.chapter_id)"
+                    >
+                      <el-icon><Position /></el-icon>
+                      前往学习
+                    </button>
+                  </div>
+                </div>
+              </Transition>
+              
+              <!-- Minimap -->
+              <Transition name="fade">
+                <div v-if="showMinimap && hasGraph" class="kg-minimap">
+                  <svg :viewBox="minimapViewBox" class="kg-minimap-svg">
+                    <rect width="100%" height="100%" fill="#f8fafc"/>
+                    <!-- Minimap Nodes -->
+                    <circle
+                      v-for="node in graphData.nodes"
+                      :key="'mini-' + node.id"
+                      :cx="node.x"
+                      :cy="node.y"
+                      r="4"
+                      :fill="getNodeColor(node, 'accent')"
+                      :opacity="selectedNode?.id === node.id ? 1 : 0.5"
+                    />
+                    <!-- Viewport Indicator -->
+                    <rect
+                      :x="viewBox.x"
+                      :y="viewBox.y"
+                      :width="viewBox.width"
+                      :height="viewBox.height"
+                      fill="rgba(99, 102, 241, 0.1)"
+                      stroke="#6366f1"
+                      stroke-width="2"
+                      rx="4"
+                    />
+                  </svg>
+                </div>
+              </Transition>
+            </div>
+
+            <!-- Legend -->
+            <div v-if="hasGraph" class="kg-legend">
+              <div class="kg-legend-header">
+                <span class="kg-legend-title">图例</span>
+                <button class="kg-legend-toggle" @click="showEdgeLabels = !showEdgeLabels">
+                  <el-icon :size="14"><View /></el-icon>
+                  {{ showEdgeLabels ? '隐藏' : '显示' }}关系
+                </button>
+              </div>
+              <div class="kg-legend-items">
+                <div v-for="type in nodeTypes" :key="type.value" class="kg-legend-item">
+                  <span class="kg-legend-dot" :style="{ background: type.color }"></span>
+                  <span class="kg-legend-label">{{ type.label }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Zoom Controls -->
+            <div v-if="hasGraph" class="kg-zoom-controls">
+              <button class="kg-zoom-btn" @click="zoomIn" title="放大">
+                <el-icon><Plus /></el-icon>
+              </button>
+              <div class="kg-zoom-level">
+                <span>{{ Math.round(zoomLevel) }}%</span>
+              </div>
+              <button class="kg-zoom-btn" @click="zoomOut" title="缩小">
+                <el-icon><Minus /></el-icon>
+              </button>
+              <div class="kg-zoom-divider"></div>
+              <button class="kg-zoom-btn" @click="fitView" title="适应视图">
                 <el-icon><FullScreen /></el-icon>
               </button>
-              <button class="kg-btn kg-btn-ghost" @click="downloadImage" title="导出SVG">
-                <el-icon><Download /></el-icon>
-              </button>
             </div>
-          </div>
-
-          <!-- Graph Canvas -->
-          <div ref="canvasRef" class="kg-canvas" @click="deselectNode">
-            <!-- SVG Graph -->
-            <svg
-              v-if="hasGraph"
-              :viewBox="viewBoxStr"
-              class="kg-svg"
-              @wheel.prevent="handleWheel"
-              @mousedown="startPan"
-              @mousemove="onPan"
-              @mouseup="endPan"
-              @mouseleave="endPan"
-            >
-              <defs>
-                <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e2e8f0" stroke-width="1"/>
-                </pattern>
-                <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-                  <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.1"/>
-                </filter>
-                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                  <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#6366f1" flood-opacity="0.4"/>
-                </filter>
-                <marker id="arrow" viewBox="0 0 10 10" refX="25" refY="5" markerWidth="5" markerHeight="5" orient="auto">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
-                </marker>
-              </defs>
-              
-              <rect width="100%" height="100%" fill="url(#grid)"/>
-              
-              <!-- Edges -->
-              <g class="kg-edges">
-                <path
-                  v-for="edge in graphData.edges"
-                  :key="edge.source + '-' + edge.target"
-                  :d="getEdgePath(edge)"
-                  class="kg-edge"
-                  :class="getEdgeClass(edge)"
-                  marker-end="url(#arrow)"
-                />
-              </g>
-              
-              <!-- Nodes -->
-              <g class="kg-nodes">
-                <g
-                  v-for="node in graphData.nodes"
-                  :key="node.id"
-                  class="kg-node"
-                  :class="{ 'kg-node-selected': selectedNode?.id === node.id }"
-                  :transform="`translate(${node.x}, ${node.y})`"
-                  @click.stop="selectNode(node)"
-                  @mouseenter="hoveredNode = node.id"
-                  @mouseleave="hoveredNode = null"
-                >
-                  <rect
-                    :x="-getNodeWidth(node) / 2"
-                    y="-20"
-                    :width="getNodeWidth(node)"
-                    height="40"
-                    rx="8"
-                    class="kg-node-bg"
-                    :style="{ fill: getNodeColor(node) + '15', stroke: getNodeColor(node) }"
-                  />
-                  <rect
-                    :x="-getNodeWidth(node) / 2"
-                    y="-20"
-                    width="4"
-                    height="40"
-                    rx="2"
-                    :fill="getNodeColor(node)"
-                  />
-                  <text
-                    :x="4"
-                    y="6"
-                    class="kg-node-label"
-                  >{{ node.label }}</text>
-                </g>
-              </g>
-            </svg>
-
-            <!-- Empty State -->
-            <div v-if="!hasGraph && !loading" class="kg-empty">
-              <el-icon class="kg-empty-icon"><Connection /></el-icon>
-              <p class="kg-empty-text">暂无知识图谱</p>
-              <button class="kg-btn kg-btn-primary kg-btn-large" @click="generateGraph">
-                <el-icon><MagicStick /></el-icon>
-                立即生成
-              </button>
-            </div>
-
-            <!-- Node Detail Panel -->
-            <Transition name="slide">
-              <div v-if="selectedNode" class="kg-detail">
-                <div class="kg-detail-header">
-                  <h3>{{ selectedNode.label }}</h3>
-                  <button class="kg-btn-close-sm" @click="deselectNode">
-                    <el-icon><Close /></el-icon>
-                  </button>
-                </div>
-                <div class="kg-detail-body">
-                  <div class="kg-detail-row">
-                    <span class="kg-detail-label">类型</span>
-                    <span 
-                      class="kg-detail-value" 
-                      :style="{ background: getNodeColor(selectedNode) + '20', color: getNodeColor(selectedNode) }"
-                    >{{ getTypeLabel(selectedNode.type) }}</span>
-                  </div>
-                  <div v-if="selectedNode.description" class="kg-detail-row">
-                    <span class="kg-detail-label">描述</span>
-                    <p class="kg-detail-desc">{{ selectedNode.description }}</p>
-                  </div>
-                  <button 
-                    v-if="selectedNode.chapter_id" 
-                    class="kg-btn kg-btn-primary kg-btn-block"
-                    @click="navigateToNode(selectedNode.chapter_id)"
-                  >
-                    <el-icon><Position /></el-icon>
-                    前往学习
-                  </button>
-                </div>
-              </div>
-            </Transition>
-          </div>
-
-          <!-- Legend -->
-          <div v-if="hasGraph" class="kg-legend">
-            <div class="kg-legend-title">图例</div>
-            <div class="kg-legend-items">
-              <div v-for="type in nodeTypes" :key="type.value" class="kg-legend-item">
-                <span class="kg-legend-dot" :style="{ background: type.color }"></span>
-                <span class="kg-legend-label">{{ type.label }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Zoom Controls -->
-          <div v-if="hasGraph" class="kg-zoom">
-            <button class="kg-zoom-btn" @click="zoomIn">
-              <el-icon><ZoomIn /></el-icon>
-            </button>
-            <span class="kg-zoom-level">{{ zoomLevel }}%</span>
-            <button class="kg-zoom-btn" @click="zoomOut">
-              <el-icon><ZoomOut /></el-icon>
-            </button>
-          </div>
-
-          <!-- Stats -->
-          <div v-if="hasGraph" class="kg-stats">
-            <span>{{ graphData.nodes.length }} 个节点</span>
-            <span>{{ graphData.edges.length }} 条关系</span>
           </div>
         </div>
       </div>
@@ -208,13 +355,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { ElMessage } from 'element-plus'
 import { 
-  ArrowLeft, Loading, MagicStick, Refresh, FullScreen, Download,
-  Search, CircleClose, Connection, Close, Position, ZoomIn, ZoomOut
+  Share, Search, Close, MagicStick, Refresh, Download, MapLocation,
+  Compass, Position, Plus, Minus, FullScreen, ArrowRight, View
 } from '@element-plus/icons-vue'
+import http from '../utils/http'
 
 const courseStore = useCourseStore()
 
@@ -222,38 +370,90 @@ const courseStore = useCourseStore()
 const loading = ref(false)
 const graphData = ref<{ nodes: any[], edges: any[] }>({ nodes: [], edges: [] })
 const selectedNode = ref<any>(null)
-const hoveredNode = ref<string | null>(null)
+const hoveredNodeId = ref<string | null>(null)
 const searchQuery = ref('')
 const canvasRef = ref<HTMLElement | null>(null)
+const showMinimap = ref(true)
+const showEdgeLabels = ref(false)
+const highlightedNodes = ref<string[]>([])
+const dimmedNodes = ref<string[]>([])
 
 // ViewBox
 const viewBox = ref({ x: 0, y: 0, width: 1000, height: 700 })
 const viewBoxStr = computed(() => `${viewBox.value.x} ${viewBox.value.y} ${viewBox.value.width} ${viewBox.value.height}`)
-const zoomLevel = computed(() => Math.round(1000 / viewBox.value.width * 100))
+const zoomLevel = computed(() => (1000 / viewBox.value.width) * 100)
+const minimapViewBox = computed(() => {
+  const nodes = graphData.value.nodes
+  if (!nodes.length) return '0 0 1000 700'
+  const padding = 100
+  const xs = nodes.map(n => n.x)
+  const ys = nodes.map(n => n.y)
+  const minX = Math.min(...xs) - padding
+  const minY = Math.min(...ys) - padding
+  const width = Math.max(...xs) - minX + padding * 2
+  const height = Math.max(...ys) - minY + padding * 2
+  return `${minX} ${minY} ${width} ${height}`
+})
 
 // Panning
 const isPanning = ref(false)
 const panStart = ref({ x: 0, y: 0 })
 const viewBoxStart = ref({ x: 0, y: 0 })
 
-// Node types
+// Node types with icons
 const nodeTypes = [
-  { value: 'root', label: '核心主题', color: '#4f46e5' },
-  { value: 'module', label: '知识模块', color: '#7c3aed' },
-  { value: 'concept', label: '核心概念', color: '#059669' },
-  { value: 'theorem', label: '关键定理', color: '#d97706' },
-  { value: 'method', label: '核心方法', color: '#db2777' },
-  { value: 'core', label: '核心概念', color: '#4f46e5' },
-  { value: 'basic', label: '基础概念', color: '#059669' },
-  { value: 'advanced', label: '进阶概念', color: '#d97706' },
-  { value: 'application', label: '应用场景', color: '#db2777' }
+  { value: 'root', label: '核心主题', color: '#4f46e5', icon: '🎯' },
+  { value: 'module', label: '知识模块', color: '#7c3aed', icon: '📦' },
+  { value: 'concept', label: '核心概念', color: '#059669', icon: '💡' },
+  { value: 'theorem', label: '关键定理', color: '#d97706', icon: '📐' },
+  { value: 'method', label: '核心方法', color: '#db2777', icon: '⚙️' },
+  { value: 'core', label: '核心概念', color: '#4f46e5', icon: '💡' },
+  { value: 'basic', label: '基础概念', color: '#059669', icon: '📚' },
+  { value: 'advanced', label: '进阶概念', color: '#d97706', icon: '🚀' },
+  { value: 'application', label: '应用场景', color: '#db2777', icon: '🔧' }
 ]
 
+// Relation types
+const relationTypes: Record<string, { label: string; color: string }> = {
+  'contains': { label: '包含', color: '#6366f1' },
+  'prerequisite': { label: '前置', color: '#f59e0b' },
+  'extends': { label: '扩展', color: '#8b5cf6' },
+  'applies_to': { label: '应用', color: '#10b981' },
+  'implements': { label: '实现', color: '#06b6d4' },
+  'contrasts_with': { label: '对比', color: '#ef4444' },
+  'leads_to': { label: '推导', color: '#ec4899' }
+}
+
 const hasGraph = computed(() => graphData.value.nodes.length > 0)
+
+// Related nodes for selected node
+const relatedNodes = computed(() => {
+  if (!selectedNode.value) return []
+  
+  const related: { node: any; relation: string }[] = []
+  const nodeId = selectedNode.value.id
+  
+  graphData.value.edges.forEach(edge => {
+    if (edge.source === nodeId) {
+      const targetNode = graphData.value.nodes.find(n => n.id === edge.target)
+      if (targetNode) related.push({ node: targetNode, relation: edge.relation })
+    } else if (edge.target === nodeId) {
+      const sourceNode = graphData.value.nodes.find(n => n.id === edge.source)
+      if (sourceNode) related.push({ node: sourceNode, relation: edge.relation })
+    }
+  })
+  
+  return related.slice(0, 5)
+})
 
 // Close
 const handleClose = () => {
   courseStore.showKnowledgeGraph = false
+}
+
+// Toggle minimap
+const toggleMinimap = () => {
+  showMinimap.value = !showMinimap.value
 }
 
 // Load graph
@@ -261,8 +461,8 @@ const loadGraph = async () => {
   if (!courseStore.currentCourseId) return
   
   try {
-    const res = await fetch(`/courses/${courseStore.currentCourseId}/knowledge_graph`)
-    const data = await res.json()
+    const res = await http.get(`/courses/${courseStore.currentCourseId}/knowledge_graph`)
+    const data = res.data
     
     if (data.status === 'success' && data.data.nodes?.length > 0) {
       graphData.value = data.data
@@ -282,8 +482,8 @@ const generateGraph = async () => {
   
   loading.value = true
   try {
-    const res = await fetch(`/courses/${courseStore.currentCourseId}/knowledge_graph`, { method: 'POST' })
-    const data = await res.json()
+    const res = await http.post(`/courses/${courseStore.currentCourseId}/knowledge_graph`)
+    const data = res.data
     
     if (data.status === 'success') {
       graphData.value = data.data
@@ -292,15 +492,15 @@ const generateGraph = async () => {
     } else {
       ElMessage.error('生成失败: ' + (data.message || '未知错误'))
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error('Failed to generate graph:', e)
-    ElMessage.error('生成失败')
+    ElMessage.error('生成失败: ' + (e.message || '网络错误'))
   } finally {
     loading.value = false
   }
 }
 
-// Layout algorithm
+// Layout algorithm - Force-directed with hierarchical constraints
 const layoutGraph = () => {
   const nodes = graphData.value.nodes
   const edges = graphData.value.edges
@@ -311,61 +511,97 @@ const layoutGraph = () => {
   const parents: Record<string, string[]> = {}
   nodes.forEach(n => { children[n.id] = []; parents[n.id] = [] })
   edges.forEach(e => {
-    const childList = children[e.source]
-    const parentList = parents[e.target]
-    if (childList) childList.push(e.target)
-    if (parentList) parentList.push(e.source)
+    if (children[e.source]) children[e.source].push(e.target)
+    if (parents[e.target]) parents[e.target].push(e.source)
   })
 
-  // Find roots
-  let roots = nodes.filter(n => !parents[n.id]?.length)
-  if (!roots.length) roots = [nodes.find(n => n.type === 'root') || nodes[0]]
+  // Assign levels based on node type and hierarchy
+  const levels: Record<string, number> = {}
+  nodes.forEach(n => {
+    if (n.type === 'root') levels[n.id] = 0
+    else if (n.type === 'module') levels[n.id] = 1
+    else if (n.type === 'concept') levels[n.id] = 2
+    else if (n.type === 'theorem') levels[n.id] = 2
+    else if (n.type === 'method') levels[n.id] = 2
+    else levels[n.id] = 3
+  })
 
-  // DFS layout
-  const visited = new Set<string>()
-  let currentY = 0
-  const LEVEL_WIDTH = 250
-  const NODE_HEIGHT = 60
+  // Group nodes by level
+  const levelGroups: Record<number, any[]> = {}
+  nodes.forEach(n => {
+    const level = levels[n.id] || 0
+    if (!levelGroups[level]) levelGroups[level] = []
+    levelGroups[level].push(n)
+  })
 
-  const layout = (nodeId: string, depth: number): number => {
-    if (visited.has(nodeId)) {
-      const node = nodes.find(n => n.id === nodeId)
-      return node?.y ?? currentY
-    }
-    
-    visited.add(nodeId)
-    const node = nodes.find(n => n.id === nodeId)
-    if (!node) return currentY
+  // Position nodes
+  const LEVEL_WIDTH = 280
+  const NODE_HEIGHT = 70
+  const CENTER_Y = 350
 
-    node.x = depth * LEVEL_WIDTH
-    
-    const childIds = (children[nodeId] || []).filter(id => !visited.has(id))
-    
-    if (!childIds.length) {
-      node.y = currentY
-      currentY += NODE_HEIGHT
-      return node.y
-    }
+  Object.keys(levelGroups).forEach(levelStr => {
+    const level = parseInt(levelStr)
+    const group = levelGroups[level]
+    const totalHeight = group.length * NODE_HEIGHT
+    const startY = CENTER_Y - totalHeight / 2
 
-    let firstY: number | null = null
-    let lastY: number | null = null
-    
-    childIds.forEach((childId, i) => {
-      const childY = layout(childId, depth + 1)
-      if (i === 0) firstY = childY
-      lastY = childY
+    group.forEach((node, index) => {
+      node.x = level * LEVEL_WIDTH + 100
+      node.y = startY + index * NODE_HEIGHT + NODE_HEIGHT / 2
     })
-
-    node.y = firstY !== null && lastY !== null ? (firstY + lastY) / 2 : currentY
-    return node.y
-  }
-
-  roots.forEach(root => layout(root.id, 0))
-  nodes.forEach(node => {
-    if (!visited.has(node.id)) layout(node.id, 0)
   })
+
+  // Apply force-directed adjustments
+  applyForceDirection()
 
   fitView()
+}
+
+// Simple force-directed layout adjustment
+const applyForceDirection = () => {
+  const nodes = graphData.value.nodes
+  const edges = graphData.value.edges
+  const iterations = 50
+  
+  for (let i = 0; i < iterations; i++) {
+    // Repulsion between all nodes
+    for (let j = 0; j < nodes.length; j++) {
+      for (let k = j + 1; k < nodes.length; k++) {
+        const dx = nodes[k].x - nodes[j].x
+        const dy = nodes[k].y - nodes[j].y
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1
+        const force = 1000 / (dist * dist)
+        
+        const fx = (dx / dist) * force
+        const fy = (dy / dist) * force
+        
+        nodes[j].x -= fx
+        nodes[j].y -= fy
+        nodes[k].x += fx
+        nodes[k].y += fy
+      }
+    }
+    
+    // Attraction along edges
+    edges.forEach(edge => {
+      const source = nodes.find(n => n.id === edge.source)
+      const target = nodes.find(n => n.id === edge.target)
+      if (!source || !target) return
+      
+      const dx = target.x - source.x
+      const dy = target.y - source.y
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1
+      const force = (dist - 150) * 0.01
+      
+      const fx = (dx / dist) * force
+      const fy = (dy / dist) * force
+      
+      source.x += fx
+      source.y += fy
+      target.x -= fx
+      target.y -= fy
+    })
+  }
 }
 
 // Fit view to nodes
@@ -373,7 +609,7 @@ const fitView = () => {
   const nodes = graphData.value.nodes
   if (!nodes.length) return
 
-  const padding = 150
+  const padding = 120
   const xs = nodes.map(n => n.x)
   const ys = nodes.map(n => n.y)
   
@@ -391,32 +627,86 @@ const fitView = () => {
 }
 
 // Node helpers
-const getNodeWidth = (node: any) => Math.max(100, (node.label?.length || 0) * 14 + 30)
-const getNodeColor = (node: any) => nodeTypes.find(t => t.value === node.type)?.color || '#94a3b8'
-const getTypeLabel = (type: string) => nodeTypes.find(t => t.value === type)?.label || type
+const getNodeWidth = (node: any) => Math.max(120, (node.label?.length || 0) * 16 + 60)
+const getNodeIcon = (type: string) => nodeTypes.find(t => t.value === type)?.icon || '📌'
 
-// Edge path
+const getNodeColor = (node: any, part: string = 'bg') => {
+  const color = nodeTypes.find(t => t.value === node.type)?.color || '#94a3b8'
+  if (part === 'bg') return color + '10'
+  if (part === 'border') return color + '40'
+  if (part === 'accent') return color
+  return color
+}
+
+const getTypeLabel = (type: string) => nodeTypes.find(t => t.value === type)?.label || type
+const getRelationLabel = (relation: string) => relationTypes[relation]?.label || relation
+
+// Edge helpers
 const getEdgePath = (edge: any) => {
   const source = graphData.value.nodes.find(n => n.id === edge.source)
   const target = graphData.value.nodes.find(n => n.id === edge.target)
   if (!source || !target) return ''
   
   const dx = target.x - source.x
-  const cp1x = source.x + dx * 0.5
-  const cp2x = target.x - dx * 0.5
+  const dy = target.y - source.y
+  const dist = Math.sqrt(dx * dx + dy * dy)
   
-  return `M ${source.x} ${source.y} C ${cp1x} ${source.y}, ${cp2x} ${target.y}, ${target.x} ${target.y}`
+  // Curved path
+  const curvature = 0.2
+  const cx = (source.x + target.x) / 2 - dy * curvature
+  const cy = (source.y + target.y) / 2 + dx * curvature
+  
+  return `M ${source.x} ${source.y} Q ${cx} ${cy} ${target.x} ${target.y}`
+}
+
+const getEdgeMidpoint = (edge: any) => {
+  const source = graphData.value.nodes.find(n => n.id === edge.source)
+  const target = graphData.value.nodes.find(n => n.id === edge.target)
+  if (!source || !target) return null
+  
+  return {
+    x: (source.x + target.x) / 2,
+    y: (source.y + target.y) / 2 - 10
+  }
 }
 
 const getEdgeClass = (edge: any) => {
-  if (!selectedNode.value) return ''
-  const isConnected = edge.source === selectedNode.value.id || edge.target === selectedNode.value.id
-  return isConnected ? 'kg-edge-highlight' : 'kg-edge-dim'
+  const classes = []
+  if (selectedNode.value) {
+    const isConnected = edge.source === selectedNode.value.id || edge.target === selectedNode.value.id
+    classes.push(isConnected ? 'kg-edge-highlight' : 'kg-edge-dim')
+  }
+  if (hoveredNodeId.value) {
+    const isHovered = edge.source === hoveredNodeId.value || edge.target === hoveredNodeId.value
+    if (isHovered) classes.push('kg-edge-hover')
+  }
+  return classes.join(' ')
+}
+
+const getArrowMarker = (relation: string) => {
+  if (relation === 'contains') return 'url(#arrow-contains)'
+  if (relation === 'prerequisite') return 'url(#arrow-prerequisite)'
+  if (relation === 'applies_to') return 'url(#arrow-applies)'
+  return 'url(#arrow-default)'
 }
 
 // Selection
-const selectNode = (node: any) => { selectedNode.value = node }
-const deselectNode = () => { selectedNode.value = null }
+const selectNode = (node: any) => { 
+  selectedNode.value = node 
+}
+
+const deselectNode = () => { 
+  selectedNode.value = null 
+}
+
+// Hover
+const hoverNode = (node: any) => {
+  hoveredNodeId.value = node.id
+}
+
+const unhoverNode = () => {
+  hoveredNodeId.value = null
+}
 
 // Navigation
 const navigateToNode = (nodeId: string) => {
@@ -426,6 +716,22 @@ const navigateToNode = (nodeId: string) => {
 }
 
 // Search
+const handleSearchInput = () => {
+  if (!searchQuery.value.trim()) {
+    highlightedNodes.value = []
+    dimmedNodes.value = []
+    return
+  }
+  
+  const query = searchQuery.value.toLowerCase()
+  highlightedNodes.value = graphData.value.nodes
+    .filter(n => n.label?.toLowerCase().includes(query))
+    .map(n => n.id)
+  dimmedNodes.value = graphData.value.nodes
+    .filter(n => !n.label?.toLowerCase().includes(query))
+    .map(n => n.id)
+}
+
 const handleSearch = () => {
   if (!searchQuery.value.trim()) return
   
@@ -438,10 +744,10 @@ const handleSearch = () => {
   if (found) {
     selectNode(found)
     viewBox.value = {
-      x: found.x - 150,
-      y: found.y - 100,
-      width: 300,
-      height: 200
+      x: found.x - 200,
+      y: found.y - 150,
+      width: 400,
+      height: 300
     }
   } else {
     ElMessage.info('未找到匹配的节点')
@@ -450,6 +756,8 @@ const handleSearch = () => {
 
 const clearSearch = () => {
   searchQuery.value = ''
+  highlightedNodes.value = []
+  dimmedNodes.value = []
 }
 
 // Zoom
@@ -476,16 +784,13 @@ const resetView = () => fitView()
 // Wheel zoom
 const handleWheel = (e: WheelEvent) => {
   const scale = e.deltaY > 0 ? 1.1 : 0.9
-  const cx = viewBox.value.x + viewBox.value.width / 2
-  const cy = viewBox.value.y + viewBox.value.height / 2
   viewBox.value.width *= scale
   viewBox.value.height *= scale
-  viewBox.value.x = cx - viewBox.value.width / 2
-  viewBox.value.y = cy - viewBox.value.height / 2
 }
 
 // Pan
 const startPan = (e: MouseEvent) => {
+  if (e.target !== canvasRef.value?.querySelector('svg')) return
   isPanning.value = true
   panStart.value = { x: e.clientX, y: e.clientY }
   viewBoxStart.value = { x: viewBox.value.x, y: viewBox.value.y }
@@ -530,9 +835,33 @@ const downloadImage = () => {
   ElMessage.success('已导出 SVG')
 }
 
+// Keyboard shortcuts
+const handleKeydown = (e: KeyboardEvent) => {
+  if (!courseStore.showKnowledgeGraph) return
+  
+  if (e.key === 'Escape') {
+    if (selectedNode.value) {
+      deselectNode()
+    } else {
+      handleClose()
+    }
+  } else if (e.key === 'f' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault()
+    const searchInput = document.querySelector('.kg-search-input') as HTMLInputElement
+    searchInput?.focus()
+  }
+}
+
 // Watch
 watch(() => courseStore.showKnowledgeGraph, (show) => {
-  if (show) loadGraph()
+  if (show) {
+    loadGraph()
+    document.addEventListener('keydown', handleKeydown)
+  } else {
+    document.removeEventListener('keydown', handleKeydown)
+    selectedNode.value = null
+    searchQuery.value = ''
+  }
 })
 
 watch(() => courseStore.currentCourseId, () => {
@@ -541,48 +870,154 @@ watch(() => courseStore.currentCourseId, () => {
 </script>
 
 <style scoped>
-.kg-overlay {
+/* Modal Overlay */
+.kg-modal-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(16px);
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 40px;
 }
 
-.kg-container {
+/* Modal Container */
+.kg-modal-container {
   width: 100%;
   height: 100%;
-  max-width: 1600px;
-  max-height: 1000px;
-  background: #f8fafc;
-  border-radius: 20px;
-  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.15);
+  max-width: 1400px;
+  max-height: 900px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 24px;
+  box-shadow: 
+    0 25px 80px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: modalSlideIn 0.3s ease-out;
 }
 
-.kg-header {
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Header */
+.kg-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
+  padding: 20px 24px;
   background: white;
   border-bottom: 1px solid #e2e8f0;
-  gap: 16px;
+  gap: 20px;
+  flex-shrink: 0;
 }
 
 .kg-header-left {
   display: flex;
   align-items: center;
+  gap: 16px;
+}
+
+.kg-title-wrapper {
+  display: flex;
+  align-items: center;
   gap: 12px;
 }
 
-.kg-btn-close {
+.kg-title-icon {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.kg-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.kg-subtitle {
+  font-size: 12px;
+  color: #64748b;
+  margin: 2px 0 0 0;
+}
+
+.kg-header-center {
+  flex: 1;
+  max-width: 400px;
+}
+
+.kg-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.kg-search-icon {
+  position: absolute;
+  left: 14px;
+  color: #94a3b8;
+}
+
+.kg-search-input {
+  width: 100%;
+  padding: 12px 40px;
+  border: 2px solid #e2e8f0;
+  border-radius: 14px;
+  font-size: 14px;
+  background: #f8fafc;
+  transition: all 0.2s;
+}
+
+.kg-search-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  background: white;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+}
+
+.kg-search-clear {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.kg-search-clear:hover {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.kg-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.kg-action-btn {
   width: 40px;
   height: 40px;
   border-radius: 12px;
@@ -596,89 +1031,22 @@ watch(() => courseStore.currentCourseId, () => {
   transition: all 0.2s;
 }
 
-.kg-btn-close:hover {
+.kg-action-btn:hover {
   background: #e2e8f0;
   color: #334155;
 }
 
-.kg-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0;
-}
-
-.kg-loading {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: #6366f1;
-  background: #eef2ff;
-  padding: 6px 12px;
-  border-radius: 20px;
-}
-
-.kg-header-center {
-  flex: 1;
-  max-width: 400px;
-}
-
-.kg-search {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.kg-search-icon {
-  position: absolute;
-  left: 12px;
-  color: #94a3b8;
-}
-
-.kg-search-input {
-  width: 100%;
-  padding: 10px 36px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  font-size: 14px;
-  background: #f8fafc;
-  transition: all 0.2s;
-}
-
-.kg-search-input:focus {
-  outline: none;
-  border-color: #6366f1;
-  background: white;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-
-.kg-search-clear {
-  position: absolute;
-  right: 8px;
-  background: none;
-  border: none;
-  color: #94a3b8;
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-}
-
-.kg-search-clear:hover {
-  color: #64748b;
-}
-
-.kg-header-right {
-  display: flex;
-  gap: 8px;
+.kg-action-btn.active {
+  background: #6366f1;
+  color: white;
 }
 
 .kg-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
-  border-radius: 10px;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 12px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -687,40 +1055,31 @@ watch(() => courseStore.currentCourseId, () => {
 }
 
 .kg-btn-primary {
-  background: #1e293b;
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
   color: white;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }
 
 .kg-btn-primary:hover:not(:disabled) {
-  background: #0f172a;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
 }
 
 .kg-btn-secondary {
   background: white;
   color: #475569;
-  border: 1px solid #e2e8f0;
+  border: 2px solid #e2e8f0;
 }
 
 .kg-btn-secondary:hover:not(:disabled) {
-  background: #f8fafc;
   border-color: #cbd5e1;
-}
-
-.kg-btn-ghost {
-  background: transparent;
-  color: #64748b;
-}
-
-.kg-btn-ghost:hover {
-  background: #f1f5f9;
-  color: #334155;
+  background: #f8fafc;
 }
 
 .kg-btn-large {
-  padding: 14px 28px;
+  padding: 16px 32px;
   font-size: 15px;
-  border-radius: 14px;
+  border-radius: 16px;
 }
 
 .kg-btn-block {
@@ -729,15 +1088,45 @@ watch(() => courseStore.currentCourseId, () => {
 }
 
 .kg-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
-.kg-canvas {
+.kg-close-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: none;
+  background: #f1f5f9;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  margin-left: 8px;
+}
+
+.kg-close-btn:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+/* Body */
+.kg-modal-body {
   flex: 1;
   position: relative;
   overflow: hidden;
+}
+
+/* Canvas */
+.kg-canvas {
+  width: 100%;
+  height: 100%;
+  position: relative;
   cursor: grab;
+  background: 
+    radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.03) 0%, transparent 50%);
 }
 
 .kg-canvas:active {
@@ -749,40 +1138,71 @@ watch(() => courseStore.currentCourseId, () => {
   height: 100%;
 }
 
+/* Edges */
 .kg-edge {
   fill: none;
   stroke: #cbd5e1;
-  stroke-width: 1.5;
-  transition: all 0.3s;
+  stroke-width: 2;
+  transition: all 0.3s ease;
 }
 
 .kg-edge-highlight {
   stroke: #6366f1;
-  stroke-width: 2.5;
+  stroke-width: 3;
 }
 
 .kg-edge-dim {
   stroke: #e2e8f0;
-  opacity: 0.4;
+  opacity: 0.3;
 }
 
-.kg-node {
+.kg-edge-hover {
+  stroke: #6366f1;
+  stroke-width: 2.5;
+}
+
+.kg-edge-label {
+  font-size: 10px;
+  fill: #64748b;
+  text-anchor: middle;
+  pointer-events: none;
+  background: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Nodes */
+.kg-node-group {
   cursor: pointer;
   transition: filter 0.2s;
 }
 
-.kg-node:hover .kg-node-bg {
-  filter: url(#glow);
+.kg-node-bg {
+  stroke-width: 2;
+  transition: all 0.2s;
+}
+
+.kg-node-group:hover .kg-node-bg {
+  filter: url(#nodeShadow);
 }
 
 .kg-node-selected .kg-node-bg {
-  stroke-width: 2;
+  stroke-width: 3;
   filter: url(#glow);
 }
 
-.kg-node-bg {
-  stroke-width: 1.5;
-  transition: all 0.2s;
+.kg-node-highlighted .kg-node-bg {
+  stroke-width: 3;
+}
+
+.kg-node-dimmed {
+  opacity: 0.3;
+}
+
+.kg-node-icon {
+  font-size: 12px;
+  text-anchor: middle;
+  dominant-baseline: middle;
 }
 
 .kg-node-label {
@@ -794,7 +1214,73 @@ watch(() => courseStore.currentCourseId, () => {
   dominant-baseline: middle;
 }
 
-.kg-empty {
+/* Empty State */
+.kg-empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+
+.kg-empty-illustration {
+  position: relative;
+}
+
+.kg-empty-circle {
+  width: 120px;
+  height: 120px;
+  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6366f1;
+}
+
+.kg-empty-dots {
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+}
+
+.kg-empty-dots span {
+  width: 8px;
+  height: 8px;
+  background: #cbd5e1;
+  border-radius: 50%;
+  animation: bounce 1.4s ease-in-out infinite;
+}
+
+.kg-empty-dots span:nth-child(1) { animation-delay: 0s; }
+.kg-empty-dots span:nth-child(2) { animation-delay: 0.2s; }
+.kg-empty-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-8px); }
+}
+
+.kg-empty-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.kg-empty-desc {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Loading State */
+.kg-loading-state {
   position: absolute;
   inset: 0;
   display: flex;
@@ -802,27 +1288,66 @@ watch(() => courseStore.currentCourseId, () => {
   align-items: center;
   justify-content: center;
   gap: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
 }
 
-.kg-empty-icon {
-  font-size: 72px;
-  color: #e2e8f0;
+.kg-loading-spinner {
+  position: relative;
+  width: 60px;
+  height: 60px;
 }
 
-.kg-empty-text {
+.kg-spinner-ring {
+  position: absolute;
+  inset: 0;
+  border: 3px solid #e2e8f0;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.kg-spinner-ring:nth-child(2) {
+  inset: 8px;
+  border-top-color: #8b5cf6;
+  animation-duration: 1.5s;
+  animation-direction: reverse;
+}
+
+.kg-spinner-ring:nth-child(3) {
+  inset: 16px;
+  border-top-color: #a78bfa;
+  animation-duration: 2s;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.kg-loading-text {
   font-size: 16px;
-  color: #94a3b8;
+  font-weight: 600;
+  color: #1e293b;
   margin: 0;
 }
 
-.kg-detail {
+.kg-loading-hint {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Detail Panel */
+.kg-detail-panel {
   position: absolute;
   top: 20px;
   right: 20px;
-  width: 320px;
+  width: 340px;
   background: white;
-  border-radius: 16px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+  border-radius: 20px;
+  box-shadow: 
+    0 20px 60px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
   overflow: hidden;
   z-index: 10;
 }
@@ -835,17 +1360,17 @@ watch(() => courseStore.currentCourseId, () => {
   border-bottom: 1px solid #f1f5f9;
 }
 
-.kg-detail-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: #1e293b;
+.kg-detail-type {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
 }
 
-.kg-btn-close-sm {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
+.kg-detail-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   border: none;
   background: #f1f5f9;
   color: #64748b;
@@ -853,60 +1378,144 @@ watch(() => courseStore.currentCourseId, () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.2s;
 }
 
-.kg-btn-close-sm:hover {
+.kg-detail-close:hover {
   background: #e2e8f0;
+  color: #334155;
 }
 
-.kg-detail-body {
-  padding: 20px;
+.kg-detail-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+  padding: 0 20px;
+  padding-top: 16px;
 }
 
-.kg-detail-row {
-  margin-bottom: 16px;
+.kg-detail-section {
+  padding: 16px 20px;
 }
 
-.kg-detail-row:last-child {
-  margin-bottom: 0;
-}
-
-.kg-detail-label {
-  display: block;
+.kg-detail-section-title {
   font-size: 11px;
   font-weight: 700;
   color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 6px;
+  margin: 0 0 10px 0;
 }
 
-.kg-detail-value {
-  display: inline-block;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 6px 12px;
-  border-radius: 8px;
-}
-
-.kg-detail-desc {
+.kg-detail-description {
   font-size: 14px;
   color: #475569;
   line-height: 1.6;
   margin: 0;
   background: #f8fafc;
-  padding: 12px;
-  border-radius: 10px;
+  padding: 14px;
+  border-radius: 12px;
 }
 
-.kg-legend {
+.kg-related-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kg-related-node {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: 100%;
+  text-align: left;
+}
+
+.kg-related-node:hover {
+  background: #f1f5f9;
+  transform: translateX(4px);
+}
+
+.kg-related-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.kg-related-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kg-related-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.kg-related-relation {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.kg-related-arrow {
+  color: #94a3b8;
+}
+
+.kg-detail-actions {
+  padding: 20px;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* Minimap */
+.kg-minimap {
   position: absolute;
   bottom: 20px;
   left: 20px;
+  width: 200px;
+  height: 140px;
   background: white;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  z-index: 10;
+}
+
+.kg-minimap-svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Legend */
+.kg-legend {
+  position: absolute;
+  bottom: 20px;
+  left: 240px;
+  background: white;
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.kg-legend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
 .kg-legend-title {
@@ -915,33 +1524,51 @@ watch(() => courseStore.currentCourseId, () => {
   color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 12px;
+}
+
+.kg-legend-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: #6366f1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.kg-legend-toggle:hover {
+  background: #eef2ff;
 }
 
 .kg-legend-items {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .kg-legend-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .kg-legend-dot {
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 .kg-legend-label {
-  font-size: 13px;
+  font-size: 12px;
   color: #475569;
 }
 
-.kg-zoom {
+/* Zoom Controls */
+.kg-zoom-controls {
   position: absolute;
   bottom: 20px;
   right: 20px;
@@ -951,14 +1578,15 @@ watch(() => courseStore.currentCourseId, () => {
   gap: 4px;
   background: white;
   padding: 8px;
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+  z-index: 10;
 }
 
 .kg-zoom-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   border: none;
   background: transparent;
   color: #64748b;
@@ -978,27 +1606,46 @@ watch(() => courseStore.currentCourseId, () => {
   font-size: 12px;
   font-weight: 600;
   color: #64748b;
+  padding: 4px 0;
 }
 
-.kg-stats {
-  position: absolute;
-  bottom: 20px;
-  right: 80px;
-  display: flex;
-  gap: 16px;
-  background: white;
-  padding: 10px 16px;
-  border-radius: 20px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  font-size: 13px;
-  font-weight: 600;
-  color: #64748b;
+.kg-zoom-divider {
+  width: 24px;
+  height: 1px;
+  background: #e2e8f0;
+  margin: 4px 0;
 }
 
 /* Transitions */
+.modal-enter-active,
+.modal-leave-active {
+  transition: all 0.3s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .kg-modal-container,
+.modal-leave-to .kg-modal-container {
+  transform: scale(0.95) translateY(20px);
+}
+
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-right-enter-from,
+.slide-right-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s ease;
+  transition: opacity 0.2s ease;
 }
 
 .fade-enter-from,
@@ -1006,14 +1653,77 @@ watch(() => courseStore.currentCourseId, () => {
   opacity: 0;
 }
 
-.slide-enter-active,
-.slide-leave-active {
-  transition: all 0.3s ease;
+/* Responsive */
+@media (max-width: 1024px) {
+  .kg-modal-overlay {
+    padding: 20px;
+  }
+  
+  .kg-modal-container {
+    max-height: none;
+    border-radius: 20px;
+  }
+  
+  .kg-header-center {
+    display: none;
+  }
+  
+  .kg-detail-panel {
+    width: 300px;
+  }
+  
+  .kg-minimap {
+    display: none;
+  }
+  
+  .kg-legend {
+    left: 20px;
+    bottom: 80px;
+  }
 }
 
-.slide-enter-from,
-.slide-leave-to {
-  opacity: 0;
-  transform: translateX(20px);
+@media (max-width: 640px) {
+  .kg-modal-overlay {
+    padding: 0;
+  }
+  
+  .kg-modal-container {
+    border-radius: 0;
+    max-height: none;
+  }
+  
+  .kg-modal-header {
+    padding: 16px;
+    flex-wrap: wrap;
+  }
+  
+  .kg-header-left {
+    order: 1;
+  }
+  
+  .kg-header-right {
+    order: 2;
+    margin-left: auto;
+  }
+  
+  .kg-detail-panel {
+    position: fixed;
+    inset: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    border-radius: 20px 20px 0 0;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  
+  .kg-legend {
+    display: none;
+  }
+  
+  .kg-zoom-controls {
+    bottom: 80px;
+  }
 }
 </style>
