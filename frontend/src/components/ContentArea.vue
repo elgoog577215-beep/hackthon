@@ -933,13 +933,15 @@
     </transition>
 
     <!-- Back to Top Button -->
-    <transition name="back-to-top">
-        <button v-if="showBackToTop" 
-                class="back-to-top p-3 bg-white/80 backdrop-blur border border-slate-200 rounded-full shadow-lg text-slate-500 hover:text-primary-600 hover:border-primary-200 hover:shadow-primary-100 transition-all active:scale-95"
-                @click="scrollToTop">
-            <el-icon :size="20"><ArrowUp /></el-icon>
-        </button>
-    </transition>
+    <Teleport to="body">
+        <transition name="back-to-top">
+            <button v-if="showBackToTop" 
+                    class="back-to-top p-3 bg-white/90 backdrop-blur-md border border-slate-200 rounded-full shadow-lg text-slate-500 hover:text-primary-600 hover:border-primary-300 hover:shadow-xl hover:shadow-primary-100/50 transition-all active:scale-95"
+                    @click="scrollToTop">
+                <el-icon :size="20"><ArrowUp /></el-icon>
+            </button>
+        </transition>
+    </Teleport>
   </div>
 </template>
 
@@ -3196,10 +3198,23 @@ onUnmounted(() => {
 
 .back-to-top {
     position: fixed;
-    bottom: 2rem;
-    right: 2rem;
-    z-index: 40;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 50;
     transition: all 0.3s ease;
+}
+
+/* Adjust position when notes panel is open */
+@media (min-width: 768px) {
+    .back-to-top {
+        right: 300px;
+    }
+}
+
+@media (min-width: 1280px) {
+    .back-to-top {
+        right: 320px;
+    }
 }
 
 .back-to-top-enter-active,
