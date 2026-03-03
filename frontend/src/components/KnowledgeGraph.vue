@@ -102,14 +102,17 @@
                   </filter>
                   
                   <!-- Arrow Markers -->
-                  <marker id="arrow-contains" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#6366f1"/>
-                  </marker>
                   <marker id="arrow-prerequisite" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
                     <path d="M 0 0 L 10 5 L 0 10 z" fill="#f59e0b"/>
                   </marker>
+                  <marker id="arrow-derives" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#8b5cf6"/>
+                  </marker>
                   <marker id="arrow-applies" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
                     <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
+                  </marker>
+                  <marker id="arrow-contrasts" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444"/>
                   </marker>
                   <marker id="arrow-default" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
                     <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
@@ -403,25 +406,20 @@ const viewBoxStart = ref({ x: 0, y: 0 })
 // Node types with icons
 const nodeTypes = [
   { value: 'root', label: '核心主题', color: '#4f46e5', icon: '🎯' },
-  { value: 'module', label: '知识模块', color: '#7c3aed', icon: '📦' },
   { value: 'concept', label: '核心概念', color: '#059669', icon: '💡' },
   { value: 'theorem', label: '关键定理', color: '#d97706', icon: '📐' },
-  { value: 'method', label: '核心方法', color: '#db2777', icon: '⚙️' },
-  { value: 'core', label: '核心概念', color: '#4f46e5', icon: '💡' },
-  { value: 'basic', label: '基础概念', color: '#059669', icon: '📚' },
-  { value: 'advanced', label: '进阶概念', color: '#d97706', icon: '🚀' },
-  { value: 'application', label: '应用场景', color: '#db2777', icon: '🔧' }
+  { value: 'method', label: '核心方法', color: '#db2777', icon: '⚙️' }
 ]
 
 // Relation types
 const relationTypes: Record<string, { label: string; color: string }> = {
-  'contains': { label: '包含', color: '#6366f1' },
-  'prerequisite': { label: '前置', color: '#f59e0b' },
-  'extends': { label: '扩展', color: '#8b5cf6' },
+  'prerequisite': { label: '前置知识', color: '#f59e0b' },
+  'derives': { label: '推导', color: '#8b5cf6' },
   'applies_to': { label: '应用', color: '#10b981' },
-  'implements': { label: '实现', color: '#06b6d4' },
   'contrasts_with': { label: '对比', color: '#ef4444' },
-  'leads_to': { label: '推导', color: '#ec4899' }
+  'extends': { label: '扩展', color: '#06b6d4' },
+  'implements': { label: '实现', color: '#ec4899' },
+  'leads_to': { label: '导致', color: '#f97316' }
 }
 
 const hasGraph = computed(() => graphData.value.nodes.length > 0)
@@ -500,7 +498,7 @@ const generateGraph = async () => {
   }
 }
 
-// Layout algorithm - Force-directed with hierarchical constraints
+// Layout algorithm - Force-directed with type-based clustering
 const layoutGraph = () => {
   const nodes = graphData.value.nodes
   const edges = graphData.value.edges
@@ -515,40 +513,48 @@ const layoutGraph = () => {
     if (parents[e.target]) parents[e.target].push(e.source)
   })
 
-  // Assign levels based on node type and hierarchy
-  const levels: Record<string, number> = {}
+  // Calculate node importance (number of connections)
+  const importance: Record<string, number> = {}
   nodes.forEach(n => {
-    if (n.type === 'root') levels[n.id] = 0
-    else if (n.type === 'module') levels[n.id] = 1
-    else if (n.type === 'concept') levels[n.id] = 2
-    else if (n.type === 'theorem') levels[n.id] = 2
-    else if (n.type === 'method') levels[n.id] = 2
-    else levels[n.id] = 3
+    importance[n.id] = (children[n.id]?.length || 0) + (parents[n.id]?.length || 0)
   })
 
-  // Group nodes by level
-  const levelGroups: Record<number, any[]> = {}
-  nodes.forEach(n => {
-    const level = levels[n.id] || 0
-    if (!levelGroups[level]) levelGroups[level] = []
-    levelGroups[level].push(n)
+  // Position root at center-left
+  const root = nodes.find(n => n.type === 'root')
+  if (root) {
+    root.x = 150
+    root.y = 350
+  }
+
+  // Group nodes by type
+  const conceptNodes = nodes.filter(n => n.type === 'concept')
+  const theoremNodes = nodes.filter(n => n.type === 'theorem')
+  const methodNodes = nodes.filter(n => n.type === 'method')
+
+  // Position concept nodes in the center area
+  const CONCEPT_START_X = 350
+  const CONCEPT_SPACING = 180
+  const NODE_HEIGHT = 80
+
+  conceptNodes.forEach((node, index) => {
+    const col = index % 3
+    const row = Math.floor(index / 3)
+    node.x = CONCEPT_START_X + col * CONCEPT_SPACING
+    node.y = 100 + row * NODE_HEIGHT
   })
 
-  // Position nodes
-  const LEVEL_WIDTH = 280
-  const NODE_HEIGHT = 70
-  const CENTER_Y = 350
+  // Position theorem nodes to the right
+  const THEOREM_START_X = 900
+  theoremNodes.forEach((node, index) => {
+    node.x = THEOREM_START_X
+    node.y = 150 + index * NODE_HEIGHT
+  })
 
-  Object.keys(levelGroups).forEach(levelStr => {
-    const level = parseInt(levelStr)
-    const group = levelGroups[level]
-    const totalHeight = group.length * NODE_HEIGHT
-    const startY = CENTER_Y - totalHeight / 2
-
-    group.forEach((node, index) => {
-      node.x = level * LEVEL_WIDTH + 100
-      node.y = startY + index * NODE_HEIGHT + NODE_HEIGHT / 2
-    })
+  // Position method nodes at the bottom
+  const METHOD_START_Y = 550
+  methodNodes.forEach((node, index) => {
+    node.x = 300 + index * 200
+    node.y = METHOD_START_Y
   })
 
   // Apply force-directed adjustments
@@ -684,9 +690,10 @@ const getEdgeClass = (edge: any) => {
 }
 
 const getArrowMarker = (relation: string) => {
-  if (relation === 'contains') return 'url(#arrow-contains)'
   if (relation === 'prerequisite') return 'url(#arrow-prerequisite)'
+  if (relation === 'derives') return 'url(#arrow-derives)'
   if (relation === 'applies_to') return 'url(#arrow-applies)'
+  if (relation === 'contrasts_with') return 'url(#arrow-contrasts)'
   return 'url(#arrow-default)'
 }
 
