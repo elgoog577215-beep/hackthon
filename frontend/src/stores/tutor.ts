@@ -140,27 +140,6 @@ export const useTutorStore = defineStore('tutor', () => {
     }
   }
 
-  /**
-   * 获取复习项目
-   * @deprecated 请直接使用 courseStore.reviewItems
-   */
-  async function fetchReviewItems(limit: number = 5) {
-    console.warn('tutorStore.fetchReviewItems is deprecated. Use courseStore.reviewItems instead.')
-    // 从 course store 同步数据
-    await courseStore.syncReviewItemsFromBackend()
-    return courseStore.reviewItems.slice(0, limit)
-  }
-
-  /**
-   * 获取错题
-   * @deprecated 请直接使用 courseStore.wrongAnswers
-   */
-  async function fetchWrongAnswers(limit: number = 5) {
-    console.warn('tutorStore.fetchWrongAnswers is deprecated. Use courseStore.wrongAnswers instead.')
-    await courseStore.loadWrongAnswers()
-    return courseStore.wrongAnswers.slice(0, limit)
-  }
-
   async function fetchGoals(status?: string) {
     try {
       const params = status ? `?status=${status}` : ''
@@ -255,8 +234,6 @@ export const useTutorStore = defineStore('tutor', () => {
     fetchProfile,
     recordLearning,
     createSessionSummary,
-    fetchReviewItems,
-    fetchWrongAnswers,
     fetchGoals,
     createGoal,
     updateGoalProgress,
