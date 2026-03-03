@@ -86,8 +86,9 @@ const mathPlugin = (md: any) => {
         }
 
         if (!found) {
-            if (!silent) state.pending += marker;
-            state.pos += markerLen;
+            // No closing delimiter found - treat $ as literal character
+            if (!silent) state.pending += '$';
+            state.pos = start + 1;  // Only move past the single $
             return true;
         }
 
