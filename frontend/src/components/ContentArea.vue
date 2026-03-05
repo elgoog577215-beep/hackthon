@@ -319,7 +319,7 @@
 
 
         <!-- Main Content Column -->
-        <div class="flex-1 min-w-0 px-2 sm:px-3 lg:px-4 xl:px-6 space-y-8 sm:space-y-10 lg:space-y-12 pb-24 sm:pb-28 lg:pb-32 pt-2 sm:pt-3 lg:pt-4">
+        <div class="flex-1 min-w-0 px-2 sm:px-3 lg:px-4 xl:px-6 space-y-8 sm:space-y-10 lg:space-y-12 pb-24 sm:pb-28 lg:pb-32 pt-2 sm:pt-3 lg:pt-4" :class="{ 'mr-[260px] xl:mr-[300px]': !courseStore.isFocusMode && !isNotesCollapsed }">
             <CourseNode 
                     v-for="(node, index) in visibleNodes" 
                     :key="node.node_id"
@@ -355,10 +355,10 @@
             </button>
         </div>
 
-        <!-- Note Column (Desktop Only) - Responsive width -->
-        <div id="note-column" v-if="!courseStore.isFocusMode && !isNotesCollapsed" class="hidden md:flex flex-col w-[240px] min-w-[240px] xl:w-[280px] xl:min-w-[280px] flex-shrink-0 relative bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50">
+        <!-- Note Column (Desktop Only) - Fixed position for sticky header -->
+        <div id="note-column" v-if="!courseStore.isFocusMode && !isNotesCollapsed" class="hidden md:flex flex-col fixed right-0 top-0 bottom-0 w-[260px] xl:w-[300px] bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50 z-20" style="padding-top: 80px; padding-bottom: 70px;">
              <!-- Compact Header -->
-            <div class="sticky top-0 z-30 px-3 py-3 bg-white/90 backdrop-blur-xl border-b border-slate-200/60">
+            <div class="flex-shrink-0 px-3 py-3 bg-white/90 backdrop-blur-xl border-b border-slate-200/60">
                 <!-- Header Row -->
                 <div class="flex items-center justify-between mb-2">
                     <div class="flex items-center gap-2">
@@ -3053,6 +3053,10 @@ watch(() => flatNodes.value, () => {
 onUnmounted(() => {
     window.removeEventListener('resize', debouncedUpdatePositions)
     if (observer) observer.disconnect()
+})
+
+defineExpose({
+    startQuiz: handleStartQuiz
 })
 </script>
 

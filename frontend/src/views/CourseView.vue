@@ -129,6 +129,7 @@
 
       <!-- Content Area -->
       <ContentArea 
+        ref="contentAreaRef"
         :class="[
           'flex-1 overflow-hidden relative z-0',
           !leftVisible && !isMobile ? 'ml-2' : ''
@@ -147,7 +148,7 @@
           <div class="w-0.5 h-10 rounded-full bg-slate-300/40 backdrop-blur-sm group-hover:bg-primary-400 group-hover:h-12 group-hover:w-1 group-hover:shadow-[0_0_8px_rgba(139,92,246,0.4)] transition-all duration-300"></div>
       </div>
 
-      <!-- Right Sidebar (Chat/Stats) -->
+      <!-- Right Sidebar (AI Assistant) -->
       <Transition :name="sidebarTransition">
         <div
           v-show="rightVisible && !courseStore.isFocusMode"
@@ -168,21 +169,7 @@
             <el-icon :size="16"><ArrowLeft /></el-icon>
           </button>
 
-          <!-- Tab Switcher -->
-          <div class="absolute top-2 right-4 z-30 flex bg-white/90 backdrop-blur-md rounded-full p-1 shadow-sm border border-slate-100">
-            <button
-              v-for="tab in ['chat', 'stats']"
-              :key="tab"
-              @click="activeRightTab = tab"
-              class="px-3 py-1 text-xs font-medium rounded-full transition-all"
-              :class="activeRightTab === tab ? 'bg-primary-500 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'"
-            >
-              {{ tab === 'chat' ? 'AI助手' : '学习统计' }}
-            </button>
-          </div>
-
-          <ChatPanel v-show="activeRightTab === 'chat'" class="h-full pt-10" />
-          <LearningStats v-show="activeRightTab === 'stats'" class="h-full pt-10" />
+          <ChatPanel class="h-full" />
         </div>
       </Transition>
 
@@ -290,7 +277,6 @@ interface SidebarState {
   rightVisible: boolean
   leftWidth: number
   rightWidth: number
-  activeTab: string
 }
 
 const loadSidebarState = (): SidebarState => {
@@ -306,8 +292,7 @@ const loadSidebarState = (): SidebarState => {
     leftVisible: true,
     rightVisible: true,
     leftWidth: 300,
-    rightWidth: 320,
-    activeTab: 'chat'
+    rightWidth: 320
   }
 }
 
@@ -316,9 +301,7 @@ const leftVisible = ref(savedState.leftVisible)
 const rightVisible = ref(savedState.rightVisible)
 const leftSidebarWidth = ref(savedState.leftWidth)
 const rightSidebarWidth = ref(savedState.rightWidth)
-const activeRightTab = ref(savedState.activeTab)
 
-// Debounce utility
 const debounce = <T extends (...args: any[]) => any>(fn: T, delay: number): ((...args: Parameters<T>) => void) => {
   let timer: number | null = null
   return (...args: Parameters<T>) => {
@@ -327,22 +310,19 @@ const debounce = <T extends (...args: any[]) => any>(fn: T, delay: number): ((..
   }
 }
 
-// Save state to localStorage with debounce
 const saveSidebarStateImmediate = () => {
   const state: SidebarState = {
     leftVisible: leftVisible.value,
     rightVisible: rightVisible.value,
     leftWidth: leftSidebarWidth.value,
-    rightWidth: rightSidebarWidth.value,
-    activeTab: activeRightTab.value
+    rightWidth: rightSidebarWidth.value
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
 const saveSidebarState = debounce(saveSidebarStateImmediate, 500)
 
-// Watch for changes and save (debounced)
-watch([leftVisible, rightVisible, leftSidebarWidth, rightSidebarWidth, activeRightTab], saveSidebarState)
+watch([leftVisible, rightVisible, leftSidebarWidth, rightSidebarWidth], saveSidebarState)
 
 // Mobile-specific visibility (for overlay mode)
 const mobileLeftOpen = ref(false)
@@ -662,35 +642,23 @@ watch(() => route.params.courseId, (newCourseId, oldCourseId) => {
 const notesCount = computed(() => courseStore.notes?.length || 0)
 const wrongAnswersCount = computed(() => courseStore.wrongAnswers?.length || 0)
 
+const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
+
 // SmartBar event handlers
 const handleStartQuiz = () => {
-  activeRightTab.value = 'chat'
-  if (!rightVisible.value) {
-    rightVisible.value = true
-  }
-  if (courseStore.currentNode) {
-    courseStore.generateQuiz(
-      courseStore.currentNode.node_id,
-      courseStore.currentNode.node_content
-    )
-  } else {
+  if (!courseStore.currentNode) {
     ElMessage.warning('请先选择一个章节')
+    return
   }
+  contentAreaRef.value?.startQuiz(courseStore.currentNode)
 }
 
 const handleSummarize = () => {
-  activeRightTab.value = 'chat'
-  if (!rightVisible.value) {
-    rightVisible.value = true
-  }
   courseStore.quickSummarize()
 }
 
 const handleShowStats = () => {
-  activeRightTab.value = 'stats'
-  if (!rightVisible.value) {
-    rightVisible.value = true
-  }
+  showLearningStats.value = true
 }
 
 const handleShowGraph = () => {
@@ -698,28 +666,19 @@ const handleShowGraph = () => {
 }
 
 const handleViewAllNotes = () => {
-  // Show notes sidebar in ContentArea by ensuring right sidebar is visible
-  activeRightTab.value = 'chat'
-  if (!rightVisible.value) {
-    rightVisible.value = true
-  }
-  // Also ensure notes panel is not collapsed in ContentArea
-  // This will be handled by the ContentArea component via store
   courseStore.isMobileNotesVisible = true
 }
 
 const handleViewAllWrongAnswers = () => {
-  activeRightTab.value = 'stats'
-  if (!rightVisible.value) {
-    rightVisible.value = true
-  }
+  courseStore.isMobileNotesVisible = true
 }
 
 const handleRetryWrong = (_item: any) => {
-  activeRightTab.value = 'chat'
-  if (!rightVisible.value) {
-    rightVisible.value = true
+  if (!courseStore.currentNode) {
+    ElMessage.warning('请先选择一个章节')
+    return
   }
+  contentAreaRef.value?.startQuiz(courseStore.currentNode)
 }
 
 const handleRetryAllWrong = () => {

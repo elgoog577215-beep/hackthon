@@ -94,6 +94,108 @@ class AIService:
             self.client = None
             logger.warning("AI_API_KEY not found. AI features will be disabled.")
 
+    def _detect_discipline_type(self, course_name: str, keyword: str = "") -> str:
+        """
+        根据课程名称和关键词自动识别学科类型
+        
+        Args:
+            course_name: 课程名称
+            keyword: 课程关键词
+            
+        Returns:
+            学科类型: "natural_science", "humanities", "skill_based"
+        """
+        text = f"{course_name} {keyword}".lower()
+        
+        natural_science_keywords = [
+            "量子", "力学", "物理", "化学", "代数", "几何", "数学", "算法", 
+            "统计", "机器学习", "深度学习", "编程", "计算机", "工程", "电子",
+            "热力", "量子力学", "线性代数", "微积分", "概率", "数据结构",
+            "神经网络", "优化", "计算", "科学", "技术"
+        ]
+        
+        humanities_keywords = [
+            "哲学", "伦理", "历史", "文学", "艺术", "社会学", "政治", "思想",
+            "文化", "宗教", "美学", "逻辑", "认识论", "本体论", "形而上学",
+            "辩证", "存在主义", "现象学", "诠释学"
+        ]
+        
+        skill_based_keywords = [
+            "辩论", "演讲", "写作", "设计", "实践", "沟通", "谈判", "领导力",
+            "项目管理", "创业", "营销", "销售", "面试", "职场", "技能",
+            "口才", "表达", "演示", "汇报"
+        ]
+        
+        natural_score = sum(1 for kw in natural_science_keywords if kw in text)
+        humanities_score = sum(1 for kw in humanities_keywords if kw in text)
+        skill_score = sum(1 for kw in skill_based_keywords if kw in text)
+        
+        if skill_score > natural_score and skill_score > humanities_score:
+            return "skill_based"
+        elif humanities_score > natural_score:
+            return "humanities"
+        else:
+            return "natural_science"
+
+    def _extract_chapter_number(self, node_name: str) -> str:
+        """
+        从节点名称中提取章节编号
+        
+        Args:
+            node_name: 节点名称，如"第三章 热力学定律"
+            
+        Returns:
+            章节编号，如"3"
+        """
+        import re
+        
+        chinese_nums = {
+            "一": "1", "二": "2", "三": "3", "四": "4", "五": "5",
+            "六": "6", "七": "7", "八": "8", "九": "9", "十": "10"
+        }
+        
+        patterns = [
+            r"第([一二三四五六七八九十]+)章",
+            r"第(\d+)章",
+            r"^(\d+)\.",
+            r"^(\d+) "
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, node_name)
+            if match:
+                result = match.group(1)
+                if result in chinese_nums:
+                    return chinese_nums[result]
+                return result
+        
+        return "1"
+
+    def _extract_used_cases(self, existing_content: str) -> List[str]:
+        """
+        从已有内容中提取已使用的案例
+        
+        Args:
+            existing_content: 已生成的课程内容
+            
+        Returns:
+            已使用的案例列表
+        """
+        used_cases = []
+        
+        case_patterns = [
+            r"案例[：:]\s*([^\n]+)",
+            r"例如[：:，]?\s*([^\n]+)",
+            r"实例[：:]\s*([^\n]+)",
+            r"应用场景[：:]\s*([^\n]+)",
+        ]
+        
+        for pattern in case_patterns:
+            matches = re.findall(pattern, existing_content)
+            used_cases.extend(matches)
+        
+        return list(set(used_cases))[:10]
+
     # ============================================================================
     # 内容解析工具方法
     # ============================================================================
@@ -239,8 +341,8 @@ class AIService:
         修复和规范化 LaTeX 语法。
         
         转换规则：
-        1. \[ ... \] -> $$ ... $$ (块级公式)
-        2. \( ... \) -> $ ... $ (行内公式)
+        1. \\[ ... \\] -> $$ ... $$ (块级公式)
+        2. \\( ... \\) -> $ ... $ (行内公式)
         3. 复杂环境自动包裹在 $$ 中
         4. 清理多余空行
         
@@ -391,14 +493,16 @@ class AIService:
         style: TeachingStyle = TEACHING_STYLES["ACADEMIC"], 
         requirements: str = ""
     ) -> Dict:
+        discipline_type = self._detect_discipline_type(keyword)
+        
         system_prompt = get_prompt("generate_course").format(
             keyword=keyword,
             difficulty=difficulty,
             style=style,
-            requirements=requirements if requirements else "无"
+            requirements=requirements if requirements else "无",
+            discipline_type=discipline_type
         )
-        prompt = f"用户想要学习“{keyword}”，请生成一份专业且系统的课程大纲。"
-        
+        prompt = f"用户想要学习\"{keyword}\"，请生成一份专业且系统的课程大纲。学科类型已识别为：{discipline_type}。"
         response = await self._call_llm(prompt, system_prompt)
         if response:
             data = self._extract_json(response)
@@ -819,7 +923,9 @@ class AIService:
         parent_context: str = "",
         course_outline: str = "",
         difficulty: DifficultyLevel = DIFFICULTY_LEVELS["INTERMEDIATE"],
-        style: TeachingStyle = TEACHING_STYLES["ACADEMIC"]
+        style: TeachingStyle = TEACHING_STYLES["ACADEMIC"],
+        discipline_type: str = None,
+        existing_nodes: List[Dict] = None
     ) -> List[Dict]:
         """
         生成子节点内容
@@ -836,19 +942,28 @@ class AIService:
             course_outline: 课程大纲
             difficulty: 难度级别
             style: 学习风格
+            discipline_type: 学科类型（可选，自动检测）
+            existing_nodes: 已有节点列表（用于去重）
 
         Returns:
             子节点列表，每个节点包含node_id、parent_node_id、
             node_name、node_level、node_content、node_type
         """
+        chapter_number = self._extract_chapter_number(node_name)
+        
+        if discipline_type is None:
+            discipline_type = self._detect_discipline_type(course_name, node_name)
+        
         system_prompt = get_prompt("generate_sub_nodes").format(
             course_name=course_name if course_name else "未知课程",
-            parent_context=parent_context if parent_context else "无",
+            parent_context=parent_context if parent_context else f"当前章节：{node_name}",
             course_outline=course_outline if course_outline else "无",
             difficulty=difficulty,
-            style=style
+            style=style,
+            chapter_number=chapter_number,
+            discipline_type=discipline_type
         )
-        prompt = f"当前节点信息：名称={node_name}，层级={node_level}。请列出该章节下的所有子小节，确保结构完整且具备专业性。"
+        prompt = f"当前节点信息：名称={node_name}，层级={node_level}，章节编号={chapter_number}。请列出该章节下的所有子小节，确保编号以{chapter_number}.开头（如{chapter_number}.1、{chapter_number}.2...），结构完整且具备专业性。"
         
         response = await self._call_llm(prompt, system_prompt)
         new_level = node_level + 1
@@ -868,9 +983,11 @@ class AIService:
                     })
                 return result
 
+        fallback_chapter = chapter_number if chapter_number else "1"
         return [
-            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{node_name} - 子节点 1", "node_level": new_level, "node_content": "", "node_type": "custom"},
-            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{node_name} - 子节点 2", "node_level": new_level, "node_content": "", "node_type": "custom"}
+            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{fallback_chapter}.1 基础概念", "node_level": new_level, "node_content": "", "node_type": "custom"},
+            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{fallback_chapter}.2 核心原理", "node_level": new_level, "node_content": "", "node_type": "custom"},
+            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{fallback_chapter}.3 实践应用", "node_level": new_level, "node_content": "", "node_type": "custom"}
         ]
 
     # ==================== 流式 LLM 调用方法 ====================
@@ -1028,7 +1145,10 @@ class AIService:
         node_id: str = "",
         course_name: str = "",
         difficulty: str = DIFFICULTY_LEVELS["ADVANCED"],
-        style: str = TEACHING_STYLES["ACADEMIC"]
+        style: str = TEACHING_STYLES["ACADEMIC"],
+        discipline_type: str = None,
+        previous_node_content: str = "",
+        used_cases: List[str] = None
     ) -> str:
         """
         生成节点详细正文内容
@@ -1043,27 +1163,44 @@ class AIService:
             course_name: 课程名称
             difficulty: 难度级别 (beginner/intermediate/expert)
             style: 学习风格
+            discipline_type: 学科类型（可选，自动检测）
+            previous_node_content: 前置节点内容摘要（用于去重）
+            used_cases: 已使用的案例列表（用于案例多样性）
 
         Returns:
             生成的Markdown格式详细正文内容
         """
         from prompts import get_prompt
         
-        # 构建课程上下文
+        if discipline_type is None:
+            discipline_type = self._detect_discipline_type(course_name, node_name)
+        
+        used_cases_str = "、".join(used_cases) if used_cases else "暂无"
+        
         course_context = f"课程名称：{course_name}"
         if node_context:
             course_context += f"\n上下文线索：{node_context}"
         
-        # 使用GENERATE_CONTENT提示词生成详细正文
         system_prompt = get_prompt("generate_content").format(
             node_name=node_name,
             node_level="2",
             course_context=course_context,
             difficulty=difficulty,
-            style=style
+            style=style,
+            discipline_type=discipline_type,
+            previous_node_content=previous_node_content[:500] if previous_node_content else "无",
+            used_cases=used_cases_str
         )
         
-        prompt = f"请为'{node_name}'生成完整的详细正文内容。务必包含丰富的理论解释、示例和总结，内容要详实、专业。"
+        prompt = f"""请为'{node_name}'生成完整的详细正文内容。
+
+学科类型：{discipline_type}
+已使用案例：{used_cases_str}
+
+重要提醒：
+1. 可视化图解板块必须包含Mermaid图或表格，禁止留空
+2. 案例必须使用新案例，禁止重复已使用的案例
+3. 思考题只能涉及本节正文已介绍的概念"""
 
         response = await self._call_llm(prompt, system_prompt)
         if response:

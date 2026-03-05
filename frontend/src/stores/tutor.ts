@@ -58,8 +58,6 @@ export interface TutorGreeting {
  * - 学习建议
  * - 目标管理
  * - 学习分析
- * 
- * 复习和错题功能已迁移到 course store
  */
 export const useTutorStore = defineStore('tutor', () => {
   const courseStore = useCourseStore()
@@ -71,14 +69,8 @@ export const useTutorStore = defineStore('tutor', () => {
   const greeting = ref<TutorGreeting | null>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
-
-  // 从 course store 获取复习和错题数据（保持向后兼容）
-  const reviewItems = computed(() => courseStore.reviewItems)
-  const wrongAnswers = computed(() => courseStore.wrongAnswers)
   
   const hasWeaknesses = computed(() => weaknesses.value.length > 0)
-  const hasReviewItems = computed(() => courseStore.reviewItems.length > 0)
-  const hasWrongAnswers = computed(() => courseStore.wrongAnswers.length > 0)
   const activeGoals = computed(() => goals.value.filter(g => g.status === 'in_progress'))
 
   async function fetchGreeting(courseId?: string, nodeId?: string) {
@@ -221,14 +213,10 @@ export const useTutorStore = defineStore('tutor', () => {
     weaknesses,
     strengths,
     goals,
-    reviewItems,
-    wrongAnswers,
     greeting,
     isLoading,
     error,
     hasWeaknesses,
-    hasReviewItems,
-    hasWrongAnswers,
     activeGoals,
     fetchGreeting,
     fetchProfile,
