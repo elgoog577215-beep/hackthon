@@ -850,7 +850,7 @@ const downloadImage = () => {
   link.href = url
   link.download = `knowledge-graph-${courseStore.currentCourseId}.svg`
   link.click()
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), 100)
   
   ElMessage.success('已导出 SVG')
 }
