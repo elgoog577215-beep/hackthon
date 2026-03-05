@@ -24,9 +24,35 @@ app_port: 7860
 - **AI Model**: ModelScope API (Qwen/Qwen2.5)
 
 ## 本地运行
-1. 克隆仓库
-2. `cd frontend && npm install && npm run dev`
-3. `cd backend && pip install -r requirements.txt && python -m uvicorn main:app --reload`
+
+```bash
+# Linux/macOS
+./dev.sh
+
+# Windows
+dev.bat
+```
+
+或手动分别启动：
+
+```bash
+# 后端
+cd backend
+pip install -r requirements.txt
+PYTHONPATH=.. uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# 前端（新终端）
+cd frontend
+npm install
+npm run dev
+```
+
+访问：
+- 前端: http://localhost:5173
+- 后端: http://localhost:8000
+- API文档: http://localhost:8000/docs
+
+详细开发指南请查看 [DEVELOPMENT.md](./.kiro/docs/DEVELOPMENT.md)
 
 ## 部署
 本项目已配置 Dockerfile，可直接部署到 ModelScope 创空间或 Docker 环境。
