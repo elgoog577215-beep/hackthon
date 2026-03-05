@@ -15,24 +15,24 @@
           <button class="action-btn" @click="togglePanel('notes')">
             <el-icon><Notebook /></el-icon>
             <span class="btn-label">笔记</span>
-            <span v-if="notesCount > 0" class="btn-badge">{{ notesCount }}</span>
+            <span v-if="(notesCount ?? 0) > 0" class="btn-badge">{{ notesCount }}</span>
           </button>
           <Transition name="popup">
             <div v-if="activePanel === 'notes'" class="popup-panel notes-panel">
               <div class="panel-header">
                 <span class="panel-title">笔记本</span>
-                <span class="panel-count">{{ notesCount }} 条</span>
+                <span class="panel-count">{{ notesCount ?? 0 }} 条</span>
               </div>
               <div class="panel-content">
                 <div v-for="note in recentNotes" :key="note.id" class="list-item" @click="handleNoteClick(note)">
                   <div class="item-dot"></div>
                   <span class="item-text">{{ note.title || note.content?.slice(0, 40) }}</span>
                 </div>
-                <div v-if="notesCount === 0" class="empty-tip">
+                <div v-if="(notesCount ?? 0) === 0" class="empty-tip">
                   <span>暂无笔记，选中文本可添加</span>
                 </div>
               </div>
-              <button v-if="notesCount > 0" class="panel-footer" @click="$emit('viewAllNotes')">
+              <button v-if="(notesCount ?? 0) > 0" class="panel-footer" @click="$emit('viewAllNotes')">
                 查看全部笔记
               </button>
             </div>
@@ -44,13 +44,13 @@
           <button class="action-btn" @click="togglePanel('wrong')">
             <el-icon><CircleClose /></el-icon>
             <span class="btn-label">错题</span>
-            <span v-if="wrongAnswersCount > 0" class="btn-badge error">{{ wrongAnswersCount }}</span>
+            <span v-if="(wrongAnswersCount ?? 0) > 0" class="btn-badge error">{{ wrongAnswersCount }}</span>
           </button>
           <Transition name="popup">
             <div v-if="activePanel === 'wrong'" class="popup-panel wrong-panel">
               <div class="panel-header">
                 <span class="panel-title">错题本</span>
-                <span class="panel-count">{{ wrongAnswersCount }} 道</span>
+                <span class="panel-count">{{ wrongAnswersCount ?? 0 }} 道</span>
               </div>
               <div class="panel-content">
                 <div v-for="item in recentWrongAnswers" :key="item.id" class="list-item wrong">
@@ -58,11 +58,11 @@
                   <span class="item-text">{{ item.question?.slice(0, 40) }}...</span>
                   <button class="item-action" @click.stop="$emit('retryWrong', item)">重做</button>
                 </div>
-                <div v-if="wrongAnswersCount === 0" class="empty-tip success">
+                <div v-if="(wrongAnswersCount ?? 0) === 0" class="empty-tip success">
                   <span>暂无错题，继续保持！</span>
                 </div>
               </div>
-              <div v-if="wrongAnswersCount > 0" class="panel-footer-row">
+              <div v-if="(wrongAnswersCount ?? 0) > 0" class="panel-footer-row">
                 <button class="footer-btn" @click="$emit('viewAllWrongAnswers')">查看全部</button>
                 <button class="footer-btn primary" @click="$emit('retryAllWrong')">全部重做</button>
               </div>

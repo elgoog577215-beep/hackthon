@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import http from '../utils/http'
-import { useCourseStore } from './course'
 
 export interface KnowledgeState {
   node_id: string
@@ -60,8 +59,6 @@ export interface TutorGreeting {
  * - 学习分析
  */
 export const useTutorStore = defineStore('tutor', () => {
-  const courseStore = useCourseStore()
-  
   const profile = ref<any>(null)
   const weaknesses = ref<any[]>([])
   const strengths = ref<any[]>([])

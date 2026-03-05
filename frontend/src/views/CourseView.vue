@@ -301,6 +301,7 @@ const leftVisible = ref(savedState.leftVisible)
 const rightVisible = ref(savedState.rightVisible)
 const leftSidebarWidth = ref(savedState.leftWidth)
 const rightSidebarWidth = ref(savedState.rightWidth)
+const activeRightTab = ref<'chat' | 'notes' | 'quiz'>('chat')
 
 const debounce = <T extends (...args: any[]) => any>(fn: T, delay: number): ((...args: Parameters<T>) => void) => {
   let timer: number | null = null
