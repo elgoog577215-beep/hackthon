@@ -150,54 +150,31 @@
                     :class="{
                       'kg-node-selected': selectedNode?.id === node.id,
                       'kg-node-highlighted': highlightedNodes.includes(node.id),
-                      'kg-node-dimmed': dimmedNodes.includes(node.id)
+                      'kg-node-dimmed': dimmedNodes.includes(node.id),
+                      'kg-node-root': node.type === 'root'
                     }"
                     :transform="`translate(${node.x}, ${node.y})`"
                     @click.stop="selectNode(node)"
                     @mouseenter="hoverNode(node)"
                     @mouseleave="unhoverNode"
                   >
-                    <!-- Node Background -->
+                    <!-- Node Background - Simple rounded rectangle -->
                     <rect
                       :x="-getNodeWidth(node) / 2"
-                      y="-22"
+                      :y="-18"
                       :width="getNodeWidth(node)"
-                      height="44"
-                      rx="12"
+                      :height="36"
+                      rx="18"
                       class="kg-node-bg"
-                      :style="{ fill: getNodeColor(node, 'bg'), stroke: getNodeColor(node, 'border') }"
+                      :style="getNodeStyle(node)"
                     />
-                    
-                    <!-- Node Accent Bar -->
-                    <rect
-                      :x="-getNodeWidth(node) / 2"
-                      y="-22"
-                      width="5"
-                      height="44"
-                      rx="2"
-                      :fill="getNodeColor(node, 'accent')"
-                    />
-                    
-                    <!-- Node Icon -->
-                    <circle
-                      cx="-getNodeWidth(node) / 2 + 22"
-                      cy="0"
-                      r="12"
-                      :fill="getNodeColor(node, 'accent')"
-                      opacity="0.15"
-                    />
-                    <text
-                      :x="-getNodeWidth(node) / 2 + 22"
-                      y="4"
-                      class="kg-node-icon"
-                      :fill="getNodeColor(node, 'accent')"
-                    >{{ getNodeIcon(node.type) }}</text>
                     
                     <!-- Node Label -->
                     <text
-                      :x="10"
+                      :x="0"
                       y="5"
                       class="kg-node-label"
+                      :style="{ fill: node.type === 'root' ? '#fff' : getNodeColor(node, 'accent') }"
                     >{{ node.label }}</text>
                   </g>
                 </g>
@@ -498,13 +475,18 @@ const generateGraph = async () => {
   }
 }
 
-// Layout algorithm - Force-directed with type-based clustering
+// Layout algorithm - XMind-style radial tree layout
 const layoutGraph = () => {
   const nodes = graphData.value.nodes
   const edges = graphData.value.edges
   if (!nodes.length) return
 
-  // Build adjacency
+  const CANVAS_WIDTH = 1400
+  const CANVAS_HEIGHT = 900
+  const CENTER_X = CANVAS_WIDTH / 2
+  const CENTER_Y = CANVAS_HEIGHT / 2
+
+  // Build adjacency lists
   const children: Record<string, string[]> = {}
   const parents: Record<string, string[]> = {}
   nodes.forEach(n => { children[n.id] = []; parents[n.id] = [] })
@@ -513,100 +495,112 @@ const layoutGraph = () => {
     if (parents[e.target]) parents[e.target].push(e.source)
   })
 
-  // Calculate node importance (number of connections)
-  const importance: Record<string, number> = {}
-  nodes.forEach(n => {
-    importance[n.id] = (children[n.id]?.length || 0) + (parents[n.id]?.length || 0)
+  // Find root node
+  const root = nodes.find(n => n.type === 'root') || nodes[0]
+  if (!root) return
+
+  // Position root at center
+  root.x = CENTER_X
+  root.y = CENTER_Y
+
+  // Get direct children of root (main branches)
+  const mainBranches = children[root.id] || []
+  
+  // Calculate angles for main branches (spread evenly)
+  const branchCount = mainBranches.length
+  const angleStep = (2 * Math.PI) / Math.max(branchCount, 1)
+  
+  // Position main branches in a circle around root
+  const mainBranchNodes: string[] = []
+  mainBranches.forEach((nodeId, index) => {
+    const node = nodes.find(n => n.id === nodeId)
+    if (!node) return
+    
+    mainBranchNodes.push(nodeId)
+    
+    // Calculate position with staggered radius
+    const angle = -Math.PI / 2 + index * angleStep
+    const radius = 280
+    
+    node.x = CENTER_X + Math.cos(angle) * radius
+    node.y = CENTER_Y + Math.sin(angle) * radius
+    
+    // Position sub-branches
+    const subBranches = children[nodeId] || []
+    const subAngleSpread = angleStep * 0.8
+    const subAngleStart = angle - subAngleSpread / 2
+    
+    subBranches.forEach((subNodeId, subIndex) => {
+      const subNode = nodes.find(n => n.id === subNodeId)
+      if (!subNode) return
+      
+      const subAngle = subAngleStart + (subIndex + 0.5) * (subAngleSpread / Math.max(subBranches.length, 1))
+      const subRadius = 200
+      
+      subNode.x = node.x + Math.cos(subAngle) * subRadius
+      subNode.y = node.y + Math.sin(subAngle) * subRadius
+      
+      // Position leaf nodes
+      const leafNodes = children[subNodeId] || []
+      leafNodes.forEach((leafId, leafIndex) => {
+        const leafNode = nodes.find(n => n.id === leafId)
+        if (!leafNode) return
+        
+        const leafAngle = subAngle + (leafIndex - (leafNodes.length - 1) / 2) * 0.3
+        const leafRadius = 150
+        
+        leafNode.x = subNode.x + Math.cos(leafAngle) * leafRadius
+        leafNode.y = subNode.y + Math.sin(leafAngle) * leafRadius
+      })
+    })
   })
 
-  // Position root at center-left
-  const root = nodes.find(n => n.type === 'root')
-  if (root) {
-    root.x = 150
-    root.y = 350
-  }
-
-  // Group nodes by type
-  const conceptNodes = nodes.filter(n => n.type === 'concept')
-  const theoremNodes = nodes.filter(n => n.type === 'theorem')
-  const methodNodes = nodes.filter(n => n.type === 'method')
-
-  // Position concept nodes in the center area
-  const CONCEPT_START_X = 350
-  const CONCEPT_SPACING = 180
-  const NODE_HEIGHT = 80
-
-  conceptNodes.forEach((node, index) => {
-    const col = index % 3
-    const row = Math.floor(index / 3)
-    node.x = CONCEPT_START_X + col * CONCEPT_SPACING
-    node.y = 100 + row * NODE_HEIGHT
+  // Handle unconnected nodes (place them on the periphery)
+  const positionedIds = new Set([root.id, ...mainBranchNodes])
+  nodes.forEach(n => positionedIds.add(n.id))
+  
+  const unconnectedNodes = nodes.filter(n => 
+    n.x === undefined || n.y === undefined
+  )
+  
+  unconnectedNodes.forEach((node, index) => {
+    const angle = (index / unconnectedNodes.length) * 2 * Math.PI
+    const radius = 450
+    node.x = CENTER_X + Math.cos(angle) * radius
+    node.y = CENTER_Y + Math.sin(angle) * radius
   })
 
-  // Position theorem nodes to the right
-  const THEOREM_START_X = 900
-  theoremNodes.forEach((node, index) => {
-    node.x = THEOREM_START_X
-    node.y = 150 + index * NODE_HEIGHT
-  })
-
-  // Position method nodes at the bottom
-  const METHOD_START_Y = 550
-  methodNodes.forEach((node, index) => {
-    node.x = 300 + index * 200
-    node.y = METHOD_START_Y
-  })
-
-  // Apply force-directed adjustments
-  applyForceDirection()
+  // Apply gentle force adjustment to avoid overlaps
+  applyGentleForce()
 
   fitView()
 }
 
-// Simple force-directed layout adjustment
-const applyForceDirection = () => {
+// Gentle force to separate overlapping nodes
+const applyGentleForce = () => {
   const nodes = graphData.value.nodes
-  const edges = graphData.value.edges
-  const iterations = 50
+  const iterations = 30
+  const MIN_DIST = 100
   
   for (let i = 0; i < iterations; i++) {
-    // Repulsion between all nodes
     for (let j = 0; j < nodes.length; j++) {
       for (let k = j + 1; k < nodes.length; k++) {
         const dx = nodes[k].x - nodes[j].x
         const dy = nodes[k].y - nodes[j].y
         const dist = Math.sqrt(dx * dx + dy * dy) || 1
-        const force = 1000 / (dist * dist)
         
-        const fx = (dx / dist) * force
-        const fy = (dy / dist) * force
-        
-        nodes[j].x -= fx
-        nodes[j].y -= fy
-        nodes[k].x += fx
-        nodes[k].y += fy
+        if (dist < MIN_DIST) {
+          const force = (MIN_DIST - dist) * 0.1
+          const fx = (dx / dist) * force
+          const fy = (dy / dist) * force
+          
+          nodes[j].x -= fx
+          nodes[j].y -= fy
+          nodes[k].x += fx
+          nodes[k].y += fy
+        }
       }
     }
-    
-    // Attraction along edges
-    edges.forEach(edge => {
-      const source = nodes.find(n => n.id === edge.source)
-      const target = nodes.find(n => n.id === edge.target)
-      if (!source || !target) return
-      
-      const dx = target.x - source.x
-      const dy = target.y - source.y
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1
-      const force = (dist - 150) * 0.01
-      
-      const fx = (dx / dist) * force
-      const fy = (dy / dist) * force
-      
-      source.x += fx
-      source.y += fy
-      target.x -= fx
-      target.y -= fy
-    })
   }
 }
 
@@ -633,7 +627,11 @@ const fitView = () => {
 }
 
 // Node helpers
-const getNodeWidth = (node: any) => Math.max(120, (node.label?.length || 0) * 16 + 60)
+const getNodeWidth = (node: any) => {
+  const baseWidth = node.type === 'root' ? 140 : 100
+  const textWidth = (node.label?.length || 0) * 14
+  return Math.max(baseWidth, textWidth + 40)
+}
 const getNodeIcon = (type: string) => nodeTypes.find(t => t.value === type)?.icon || '📌'
 
 const getNodeColor = (node: any, part: string = 'bg') => {
@@ -642,6 +640,20 @@ const getNodeColor = (node: any, part: string = 'bg') => {
   if (part === 'border') return color + '40'
   if (part === 'accent') return color
   return color
+}
+
+const getNodeStyle = (node: any) => {
+  const color = getNodeColor(node, 'accent')
+  if (node.type === 'root') {
+    return {
+      fill: color,
+      stroke: 'none'
+    }
+  }
+  return {
+    fill: color + '15',
+    stroke: color + '40'
+  }
 }
 
 const getTypeLabel = (type: string) => nodeTypes.find(t => t.value === type)?.label || type
@@ -657,8 +669,8 @@ const getEdgePath = (edge: any) => {
   const dy = target.y - source.y
   const dist = Math.sqrt(dx * dx + dy * dy)
   
-  // Curved path
-  const curvature = 0.2
+  // Simple curved path with gentle curve
+  const curvature = 0.15
   const cx = (source.x + target.x) / 2 - dy * curvature
   const cy = (source.y + target.y) / 2 + dx * curvature
   

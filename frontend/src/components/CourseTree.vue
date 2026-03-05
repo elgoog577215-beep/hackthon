@@ -219,14 +219,6 @@
                 >
                     <el-icon :size="16"><VideoPlay /></el-icon>
                 </button>
-
-                 <button 
-                    class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-amber-50 text-slate-500 hover:text-amber-500 transition-colors"
-                    @click="notesDialogVisible = true"
-                    title="课程笔记"
-                >
-                    <el-icon :size="16"><Document /></el-icon>
-                </button>
                 <button 
                     class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
                     @click="$emit('toggle-sidebar')"
@@ -397,64 +389,6 @@
       </div>
     </transition>
     
-    <!-- Notes Dialog -->
-    <el-dialog
-        v-model="notesDialogVisible"
-        title="课程笔记"
-        width="600px"
-        append-to-body
-        class="glass-dialog"
-    >
-        <div class="max-h-[60vh] overflow-y-auto custom-scrollbar p-1">
-            <div v-if="courseStore.notes.length === 0" class="text-center text-gray-400 py-10">
-                暂无笔记
-            </div>
-            <div v-else class="space-y-4">
-                <div v-for="note in courseStore.notes" :key="note.id" class="bg-white/50 border border-white/60 rounded-xl p-4 shadow-sm hover:shadow-md transition-all">
-                    <div class="flex justify-between items-start mb-2">
-                        <div class="flex flex-col gap-1 w-full mr-2">
-                            <div class="flex items-center gap-2">
-                                <span v-if="note.sourceType === 'ai'" class="text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100 whitespace-nowrap">AI 助手</span>
-                                <span v-else class="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 whitespace-nowrap">笔记</span>
-                                <div class="font-bold text-slate-700 text-sm truncate">{{ note.summary ? '核心概括' : note.content.split('\n')[0] }}</div>
-                            </div>
-                            <div class="flex items-center gap-2 text-[10px] text-slate-400">
-                                <span class="bg-slate-100 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                    <el-icon><Location /></el-icon>
-                                    {{ getNodeName(note.nodeId) }}
-                                </span>
-                                <span class="flex items-center gap-1">
-                                    <el-icon><Clock /></el-icon>
-                                    {{ formatDate(note.createdAt) }}
-                                </span>
-                            </div>
-                        </div>
-                        <el-button link type="danger" size="small" @click="courseStore.deleteNote(note.id)">
-                            <el-icon><Delete /></el-icon>
-                        </el-button>
-                    </div>
-                    <div v-if="note.quote" class="text-xs text-slate-500 italic border-l-2 border-primary-300 pl-2 mb-2 bg-slate-50/50 py-1 rounded-r">
-                        "{{ note.quote }}"
-                    </div>
-                    <div class="text-xs text-slate-600 leading-relaxed max-h-32 overflow-hidden relative group cursor-pointer note-preview-content" @click="note.expanded = !note.expanded">
-                        <MarkdownRenderer 
-                            :content="note.summary || note.content" 
-                            :class="{ 'line-clamp-3': !note.expanded }"
-                            @click="handleNoteClick($event, note)"
-                        />
-                        <div v-if="!note.expanded && (note.summary || note.content).length > 100" class="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white/80 to-transparent flex items-end justify-center">
-                            <span class="text-[10px] text-primary-500 bg-white/80 px-2 rounded-full shadow-sm mb-1">展开更多</span>
-                        </div>
-                    </div>
-                    <div class="flex justify-end mt-2">
-                        <el-button link type="primary" size="small" @click="courseStore.scrollToNode(note.nodeId); notesDialogVisible = false">
-                            跳转到原文
-                        </el-button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </el-dialog>
       <!-- Create Course Dialog -->
       <el-dialog 
         v-model="createDialogVisible" 
@@ -683,7 +617,6 @@ const displayTreeData = computed(() => {
   return courseStore.courseTree
 })
 
-const notesDialogVisible = ref(false)
 const treeRef = ref<InstanceType<typeof ElTree>>()
 const treeContentRef = ref<HTMLElement | null>(null)
 let resizeObserver: ResizeObserver | null = null
@@ -980,18 +913,6 @@ const backToCourses = () => {
 // Lazy rendering for Mermaid diagrams
 const { scanMermaidDiagrams } = useMermaid()
 
-watch(notesDialogVisible, (visible) => {
-    if (visible) {
-        scanMermaidDiagrams()
-    }
-})
-
-watch(() => courseStore.notes, () => {
-    if (notesDialogVisible.value) {
-        scanMermaidDiagrams()
-    }
-}, { deep: true })
-
 // Image Lightbox
 const lightboxVisible = ref(false)
 const lightboxImage = ref('')
@@ -1155,41 +1076,5 @@ const handleNoteClick = (e: MouseEvent, note: any) => {
     border-color: rgba(255, 255, 255, 0.8);
     transform: translateY(-2px);
     box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.08);
-}
-
-/* Preview Card Markdown Overrides */
-.note-preview-content :deep(h1),
-.note-preview-content :deep(h2),
-.note-preview-content :deep(h3),
-.note-preview-content :deep(h4),
-.note-preview-content :deep(h5),
-.note-preview-content :deep(h6) {
-    font-size: 0.95rem !important;
-    font-weight: 700 !important;
-    margin: 0.25rem 0 !important;
-    line-height: 1.4 !important;
-    color: #334155;
-}
-
-.note-preview-content :deep(p) {
-    margin-bottom: 0.25rem !important;
-    font-size: 0.875rem !important;
-}
-
-.note-preview-content :deep(ul),
-.note-preview-content :deep(ol) {
-    margin: 0.25rem 0 !important;
-    padding-left: 1rem !important;
-}
-
-.note-preview-content :deep(pre),
-.note-preview-content :deep(blockquote),
-.note-preview-content :deep(table) {
-    margin: 0.5rem 0 !important;
-    font-size: 0.75rem !important;
-}
-
-.note-preview-content :deep(.katex) {
-    font-size: 1em !important;
 }
 </style>

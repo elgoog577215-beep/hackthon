@@ -117,16 +117,6 @@
               学习报告
             </button>
             <button
-              @click="showSmartReview = true"
-              class="text-[10px] px-2 py-1 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-full hover:shadow-lg transition-all flex items-center gap-1"
-            >
-              <el-icon :size="10"><Timer /></el-icon>
-              智能复习
-              <span v-if="courseStore.reviewStats.dueToday > 0" class="bg-white/20 px-1.5 rounded-full">
-                {{ courseStore.reviewStats.dueToday }}
-              </span>
-            </button>
-            <button
               v-if="quizStats.wrongAnswerCount > 0"
               @click="startWrongAnswerReview"
               class="text-[10px] px-2 py-1 bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors"
@@ -637,18 +627,6 @@
         </div>
       </div>
     </el-dialog>
-
-    <!-- Smart Review Modal -->
-    <el-dialog
-      v-model="showSmartReview"
-      title="🧠 智能复习系统"
-      width="90%"
-      :fullscreen="isMobile"
-      class="smart-review-dialog"
-      destroy-on-close
-    >
-      <SmartReview @close="showSmartReview = false" />
-    </el-dialog>
   </div>
 </template>
 
@@ -659,7 +637,6 @@ import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 import { TrendCharts, Trophy, Check, Clock, Calendar, Timer, CircleCheck, Medal, DocumentChecked, Connection, Download, StarFilled, Compass, Loading, ArrowRight, Warning } from '@element-plus/icons-vue'
 import KnowledgeGraph from './KnowledgeGraph.vue'
-import SmartReview from './SmartReview.vue'
 
 const courseStore = useCourseStore()
 
@@ -926,7 +903,6 @@ const connectionLines = computed(() => {
 const showKnowledgeGraphModal = ref(false)
 const showLearningReport = ref(false)
 const showLearningPathModal = ref(false)
-const showSmartReview = ref(false)
 
 // Generate learning path
 const generateLearningPath = async () => {
