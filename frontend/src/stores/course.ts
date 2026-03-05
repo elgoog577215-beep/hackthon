@@ -43,7 +43,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
 // --- 难度配置 (使用共享配置) ---

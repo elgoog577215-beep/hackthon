@@ -1133,9 +1133,6 @@ const executeExport = async () => {
             return
         }
         
-        // Simulate export delay for better UX
-        await new Promise(resolve => setTimeout(resolve, 500))
-        
         if (exportDialog.format === 'markdown') {
             await exportToMarkdown(notes, exportDialog.type)
             ElMessage.success(`成功导出 ${notes.length} 条笔记为 Markdown`)
@@ -1203,7 +1200,7 @@ const exportToMarkdown = async (notes: any[], type: 'notes' | 'mistakes') => {
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
 // Export to JSON
@@ -1238,7 +1235,7 @@ const exportToJSON = async (notes: any[], type: 'notes' | 'mistakes') => {
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
 // Settings dialog state

@@ -298,11 +298,9 @@ function toggleFocusMode() {
 // Export Handler
 function handleExport(command: string) {
   if (command === 'json') {
-    // Export JSON logic
-    ElMessage.success('JSON 导出成功')
+    courseStore.exportCourseJson()
   } else if (command === 'markdown') {
-    // Export Markdown logic
-    ElMessage.success('Markdown 导出成功')
+    courseStore.exportCourseMarkdown()
   }
 }
 </script>
