@@ -134,8 +134,8 @@
                     <!-- Edge Label -->
                     <text
                       v-if="showEdgeLabels && getEdgeMidpoint(edge)"
-                      :x="getEdgeMidpoint(edge).x"
-                      :y="getEdgeMidpoint(edge).y"
+                      :x="getEdgeMidpoint(edge)?.x"
+                      :y="getEdgeMidpoint(edge)?.y"
                       class="kg-edge-label"
                     >{{ getRelationLabel(edge.relation) }}</text>
                   </g>
@@ -335,7 +335,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { ElMessage } from 'element-plus'
 import { 
@@ -491,8 +491,10 @@ const layoutGraph = () => {
   const parents: Record<string, string[]> = {}
   nodes.forEach(n => { children[n.id] = []; parents[n.id] = [] })
   edges.forEach(e => {
-    if (children[e.source]) children[e.source].push(e.target)
-    if (parents[e.target]) parents[e.target].push(e.source)
+    const sourceChildren = children[e.source]
+    const targetParents = parents[e.target]
+    if (sourceChildren) sourceChildren.push(e.target)
+    if (targetParents) targetParents.push(e.source)
   })
 
   // Find root node
@@ -667,7 +669,6 @@ const getEdgePath = (edge: any) => {
   
   const dx = target.x - source.x
   const dy = target.y - source.y
-  const dist = Math.sqrt(dx * dx + dy * dy)
   
   // Simple curved path with gentle curve
   const curvature = 0.15

@@ -562,11 +562,9 @@ import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
-import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Document, Fold, Location, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading, Sort, Timer, TrendCharts } from '@element-plus/icons-vue'
+import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Fold, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading, Sort, Timer, TrendCharts } from '@element-plus/icons-vue'
 import { BookOpen, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
-import MarkdownRenderer from './MarkdownRenderer.vue'
 import SkeletonLoader from './SkeletonLoader.vue'
-import { useMermaid } from '../composables/useMermaid'
 
 const courseStore = useCourseStore()
 const router = useRouter()
@@ -620,33 +618,6 @@ const displayTreeData = computed(() => {
 const treeRef = ref<InstanceType<typeof ElTree>>()
 const treeContentRef = ref<HTMLElement | null>(null)
 let resizeObserver: ResizeObserver | null = null
-
-// Helper functions for Notes
-const flatNodeMap = computed(() => {
-    const map = new Map<string, string>()
-    const traverse = (nodes: any[]) => {
-        for (const node of nodes) {
-            map.set(node.node_id, node.node_name)
-            if (node.children) traverse(node.children)
-        }
-    }
-    traverse(courseStore.courseTree)
-    return map
-})
-
-const getNodeName = (nodeId: string) => {
-    return flatNodeMap.value.get(nodeId) || '未知章节'
-}
-
-const formatDate = (timestamp: number) => {
-    if (!timestamp) return ''
-    return new Date(timestamp).toLocaleString('zh-CN', {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    })
-}
 
 // Smart width calculation based on content
 const calculateOptimalWidth = () => {
@@ -910,64 +881,9 @@ const backToCourses = () => {
     router.push('/')
 }
 
-// Lazy rendering for Mermaid diagrams
-const { scanMermaidDiagrams } = useMermaid()
-
 // Image Lightbox
 const lightboxVisible = ref(false)
 const lightboxImage = ref('')
-
-const handleNoteClick = (e: MouseEvent, note: any) => {
-    const target = e.target as HTMLElement
-    
-    // Handle Copy Button
-    const btn = target.closest('.copy-btn') as HTMLElement;
-    if (btn) {
-        e.stopPropagation() // Prevent expansion
-        // Check for data-code attribute (utils/markdown.ts style)
-        const codeFromAttr = btn.getAttribute('data-code');
-        if (codeFromAttr) {
-            const decoded = decodeURIComponent(codeFromAttr);
-            navigator.clipboard.writeText(decoded).then(() => {
-                const originalHTML = btn.innerHTML
-                btn.innerHTML = '<span class="text-green-400 font-bold">OK</span>'
-                btn.classList.add('bg-green-500/20')
-                setTimeout(() => {
-                    btn.innerHTML = originalHTML
-                    btn.classList.remove('bg-green-500/20')
-                }, 2000)
-                ElMessage.success('代码已复制')
-            }).catch(() => {
-                ElMessage.error('复制失败')
-            })
-            return;
-        }
-
-        // Fallback for existing/legacy style
-        const wrapper = btn.closest('.code-block-wrapper');
-        const codeEl = wrapper?.querySelector('pre code') || wrapper?.querySelector('pre');
-        if (codeEl) {
-            const text = codeEl.textContent || '';
-            navigator.clipboard.writeText(text).then(() => {
-                ElMessage.success('代码已复制')
-            }).catch(() => {
-                ElMessage.error('复制失败')
-            })
-        }
-        return
-    }
-
-    // Handle Image Click (Lightbox)
-    if (target.tagName === 'IMG') {
-        e.stopPropagation() // Prevent expansion
-        lightboxImage.value = (target as HTMLImageElement).src
-        lightboxVisible.value = true
-        return
-    }
-
-    // Default: Toggle expansion
-    note.expanded = !note.expanded
-}
 </script>
 
 <style scoped>

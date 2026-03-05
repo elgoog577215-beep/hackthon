@@ -4,7 +4,7 @@
  * 用于优化长列表渲染性能，只渲染可视区域内的元素
  */
 
-import { ref, computed, onMounted, onUnmounted, watch, type Ref } from 'vue'
+import { ref, computed, onMounted, onUnmounted, type Ref } from 'vue'
 
 interface VirtualScrollOptions {
   itemHeight: number
@@ -131,7 +131,8 @@ export function useLazyLoad<T>(
   }
 
   const handleIntersection = (entries: IntersectionObserverEntry[]) => {
-    if (entries[0].isIntersecting && hasMore.value && !loading.value) {
+    const entry = entries[0]
+    if (entry?.isIntersecting && hasMore.value && !loading.value) {
       loadMore()
     }
   }

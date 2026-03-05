@@ -1274,7 +1274,7 @@ const closeSettingsDialog = () => {
 const applySettings = () => {
     courseStore.setUiSettings({
         fontSize: settingsDialog.fontSize,
-        fontFamily: settingsDialog.fontFamily,
+        fontFamily: settingsDialog.fontFamily as 'sans' | 'serif' | 'mono',
         lineHeight: settingsDialog.lineHeight
     })
     ElMessage.success('设置已应用')
@@ -2537,9 +2537,9 @@ const handleAddNote = () => {
             let container = selectionMenu.value.range?.startContainer
             if (container) {
                 if (container.nodeType === Node.TEXT_NODE) {
-                    container = container.parentElement
+                    container = container.parentElement ?? undefined
                 }
-                const nodeEl = (container as Element)?.closest('[id^="node-"]')
+                const nodeEl = (container as Element | undefined)?.closest('[id^="node-"]')
                 nodeId = nodeEl ? nodeEl.id.replace('node-', '') : ''
             }
         }
@@ -2548,7 +2548,7 @@ const handleAddNote = () => {
             courseStore.createNote({
                 id: noteId,
                 nodeId,
-                highlightId: span.parentNode ? highlightId : undefined, // Only save highlightId if span was inserted
+                highlightId: span.parentNode ? highlightId : '', // Only save highlightId if span was inserted
                 quote: selectionMenu.value.text,
                 content: value,
                 color,

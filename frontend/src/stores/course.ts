@@ -319,6 +319,9 @@ export const useCourseStore = defineStore('course', {
     setUiSettings(settings: Partial<typeof this.uiSettings>) {
         this.uiSettings = { ...this.uiSettings, ...settings }
     },
+    toggleFocusMode() {
+        this.isFocusMode = !this.isFocusMode
+    },
     addNote(note: Note) {
         this.notes.push(note)
     },
