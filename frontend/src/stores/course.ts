@@ -193,7 +193,7 @@ export const useCourseStore = defineStore('course', {
     // 管理长时间运行的生成任务的状态
     tasks: new Map<string, Task>(), // courseId -> Task
     globalTasks: [] as any[], // Global list from backend
-    globalPollingTimer: null as number | null,
+    globalPollingTimer: null as ReturnType<typeof setInterval> | null,
     activeTaskId: null as string | null,
     
     // --- 任务进度详情 ---
@@ -223,7 +223,7 @@ export const useCourseStore = defineStore('course', {
     
     // Typewriter effect buffer
     typingBuffer: new Map<string, string>(),
-    typingInterval: null as number | null,
+    typingInterval: null as ReturnType<typeof setInterval> | null,
     
     // Context-aware Q&A
     activeAnnotation: null as Annotation | null,
