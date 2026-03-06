@@ -254,7 +254,12 @@ app.add_middleware(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1800,7 +1805,9 @@ async def import_markdown(file: UploadFile = File(...)):
 # 检查 'static' 目录是否存在（前端构建应在此处）
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
-if os.path.exists(static_dir):
+index_html = os.path.join(static_dir, "index.html")
+
+if os.path.exists(static_dir) and os.path.exists(index_html):
     # 挂载资产（CSS、JS、图像）
     if os.path.exists(os.path.join(static_dir, "assets")):
         app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
@@ -1808,7 +1815,7 @@ if os.path.exists(static_dir):
     # Root endpoint for SPA
     @app.get("/")
     async def serve_root():
-        return FileResponse(os.path.join(static_dir, "index.html"))
+        return FileResponse(index_html)
 
     # SPA（Vue Router）的捕获所有路由
     @app.get("/{full_path:path}")
@@ -1823,7 +1830,7 @@ if os.path.exists(static_dir):
             return FileResponse(file_path)
             
         # 回退到 Vue Router 历史模式的 index.html
-        return FileResponse(os.path.join(static_dir, "index.html"))
+        return FileResponse(index_html)
 
 else:
     # If static files are not present (e.g. backend-only mode or build failed),
