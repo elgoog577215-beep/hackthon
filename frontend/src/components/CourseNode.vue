@@ -33,7 +33,7 @@
                 </div>
 
                 <!-- Description -->
-                <div class="prose prose-base sm:prose-lg prose-slate text-slate-600 max-w-2xl sm:max-w-3xl mx-auto font-sans leading-relaxed mix-blend-multiply text-center font-medium">
+                <div class="prose prose-base sm:prose-lg prose-slate text-slate-600 max-w-2xl sm:max-w-3xl mx-auto font-sans leading-relaxed mix-blend-multiply text-center font-medium [&_pre]:text-left [&_blockquote]:text-left [&_ul]:text-left [&_ol]:text-left [&_table]:text-left">
                     <MarkdownRenderer :content="node.node_content" :search-words="searchWords" />
                 </div>
             </div>
