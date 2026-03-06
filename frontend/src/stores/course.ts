@@ -790,6 +790,23 @@ export const useCourseStore = defineStore('course', {
         }
     },
 
+    async importMarkdown(file: File): Promise<{ course_id: string; course_name: string }> {
+        const formData = new FormData()
+        formData.append('file', file)
+        try {
+            const res = await http.post('/api/import_markdown', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            })
+            const { course_id, course_name } = res.data
+            await this.fetchCourseList()
+            await this.loadCourse(course_id)
+            return { course_id, course_name }
+        } catch (error) {
+            console.error(error)
+            throw error
+        }
+    },
+
     async sendMessage(message: string) {
         this.chatLoading = true
         try {
