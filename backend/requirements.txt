@@ -5,3 +5,5 @@ python-multipart
 requests
 openai
 python-dotenv
+hypothesis
+pytest

@@ -43,6 +43,13 @@
                 
                 <button 
                     class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary-50 text-slate-500 hover:text-primary-600 transition-colors"
+                    @click="markdownImportRef?.open()"
+                    title="导入 Markdown"
+                >
+                    <el-icon :size="18"><Upload /></el-icon>
+                </button>
+                <button 
+                    class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary-50 text-slate-500 hover:text-primary-600 transition-colors"
                     @click="createNewCourse"
                     title="新建课程"
                 >
@@ -389,6 +396,9 @@
       </div>
     </transition>
     
+      <!-- Markdown Import Dialog -->
+      <MarkdownImport ref="markdownImportRef" />
+
       <!-- Create Course Dialog -->
       <el-dialog 
         v-model="createDialogVisible" 
@@ -562,9 +572,10 @@ import { useCourseStore } from '../stores/course'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
-import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Fold, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading, Sort, Timer, TrendCharts } from '@element-plus/icons-vue'
+import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Fold, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading, Sort, Timer, TrendCharts, Upload } from '@element-plus/icons-vue'
 import { BookOpen, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
 import SkeletonLoader from './SkeletonLoader.vue'
+import MarkdownImport from './MarkdownImport.vue'
 
 const courseStore = useCourseStore()
 const router = useRouter()
@@ -810,6 +821,7 @@ const handleNodeClick = (data: any) => {
 }
 
 const createDialogVisible = ref(false)
+const markdownImportRef = ref<InstanceType<typeof MarkdownImport> | null>(null)
 const createForm = reactive({
     keyword: '',
     difficulty: DIFFICULTY_LEVELS.INTERMEDIATE as DifficultyLevel,
