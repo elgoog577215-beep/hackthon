@@ -4,7 +4,7 @@
 # 并定义课程管理、节点操作和 AI 服务的 API 路由。
 # -----------------------------------------------------------------------------
 
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
@@ -35,11 +35,12 @@ try:
         AddNodeRequest, SaveAnnotationRequest, UpdateNodeRequest, SummarizeChatRequest,
         LearningPathRequest, LearningPathResponse, KnowledgePointMastery,
         ReviewScheduleRequest, ReviewScheduleResponse, SubmitReviewRequest, ReviewProgressResponse,
-        ExecuteCodeRequest, ExecuteCodeResponse
+        ExecuteCodeRequest, ExecuteCodeResponse, ImportMarkdownResponse
     )
     from storage import storage
     from ai_service import ai_service
     from task_manager import TaskManager
+    from markdown_parser import parse_markdown_to_nodes
 except ImportError:
     try:
         # 当从父目录运行时回退
@@ -53,6 +54,7 @@ except ImportError:
 
 import uuid
 from datetime import datetime
+from pathlib import Path
 import json
 
 app = FastAPI()
@@ -252,7 +254,12 @@ app.add_middleware(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1741,6 +1748,56 @@ async def get_goal_recommendations():
     return {"recommendations": recommendations}
 
 
+
+# --- Markdown 导入 ---
+
+@app.post("/api/import_markdown", response_model=ImportMarkdownResponse)
+async def import_markdown(file: UploadFile = File(...)):
+    """将上传的 Markdown 文件解析为课程节点树并持久化存储。"""
+    content = await file.read()
+
+    # 大小校验
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="上传的文件为空")
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="文件过大，最大支持 20 MB")
+
+    # MIME 类型校验
+    allowed_mime = {"text/markdown", "text/plain", "application/octet-stream"}
+    if file.content_type not in allowed_mime:
+        raise HTTPException(status_code=415, detail="不支持的文件类型，请上传 .md 或 .txt 文件")
+
+    # 编码校验
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=422, detail="文件编码不支持，请使用 UTF-8 编码的 Markdown 文件")
+
+    stem = Path(file.filename).stem
+
+    # 解析
+    try:
+        nodes, course_name = parse_markdown_to_nodes(text, stem)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="未检测到 Markdown 标题，请确保文件包含至少一个 # 标题")
+
+    # 构建课程树
+    course_id = str(uuid.uuid4())
+    course_tree = {
+        "course_id": course_id,
+        "course_name": course_name,
+        "keyword": course_name,
+        "nodes": nodes,
+        "difficulty": "intermediate",
+        "style": "academic",
+        "create_time": datetime.utcnow().isoformat(),
+    }
+
+    await run_in_threadpool(storage.save_course, course_id, course_tree)
+
+    return ImportMarkdownResponse(course_id=course_id, course_name=course_name)
+
+
 # --- 静态文件服务（用于部署） ---
 # 部署时提供前端静态资源（Vue.js 应用）。
 # 这允许后端作为一个单元提供整个应用程序。
@@ -1748,7 +1805,9 @@ async def get_goal_recommendations():
 # 检查 'static' 目录是否存在（前端构建应在此处）
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
-if os.path.exists(static_dir):
+index_html = os.path.join(static_dir, "index.html")
+
+if os.path.exists(static_dir) and os.path.exists(index_html):
     # 挂载资产（CSS、JS、图像）
     if os.path.exists(os.path.join(static_dir, "assets")):
         app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
@@ -1756,7 +1815,7 @@ if os.path.exists(static_dir):
     # Root endpoint for SPA
     @app.get("/")
     async def serve_root():
-        return FileResponse(os.path.join(static_dir, "index.html"))
+        return FileResponse(index_html)
 
     # SPA（Vue Router）的捕获所有路由
     @app.get("/{full_path:path}")
@@ -1771,7 +1830,7 @@ if os.path.exists(static_dir):
             return FileResponse(file_path)
             
         # 回退到 Vue Router 历史模式的 index.html
-        return FileResponse(os.path.join(static_dir, "index.html"))
+        return FileResponse(index_html)
 
 else:
     # If static files are not present (e.g. backend-only mode or build failed),

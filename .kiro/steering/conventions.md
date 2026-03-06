@@ -31,3 +31,15 @@ When exploring the codebase before making changes:
 - The course generation queue exists both as a frontend-managed system (in `course.ts`) and a backend task manager (`task_manager.py`). These are partially synchronized via polling and WebSocket. Be careful not to trigger both paths for the same operation.
 - `annotations` and `notes` are two overlapping concepts in the frontend store — `notes` is the newer system, `annotations` is legacy. New features should use `notes`.
 - Some components may directly call `http` instead of going through the store — this is inconsistent and should be avoided in new code.
+
+
+## Running Python Code in Shell
+
+When you need to run a Python snippet to test or verify something, **never use `python -c '...'`** — heredoc quoting in bash is fragile and causes frequent parse errors.
+
+Instead:
+1. Write the snippet to a temporary file (e.g., `_tmp_check.py`)
+2. Run it with `python _tmp_check.py`
+3. Delete the file immediately after (`rm _tmp_check.py`)
+
+This applies to any multi-line Python you'd otherwise inline into a shell command.

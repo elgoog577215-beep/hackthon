@@ -1,7 +1,9 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pydantic
 python-multipart
 requests
 openai
 python-dotenv
+hypothesis
+pytest
