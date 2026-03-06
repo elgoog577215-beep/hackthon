@@ -259,3 +259,9 @@ class GenerateDiagramRequest(BaseModel):
 
 class GenerateKnowledgeGraphRequest(BaseModel):
     course_id: str
+
+
+class ImportMarkdownResponse(BaseModel):
+    """Markdown 导入响应"""
+    course_id: str
+    course_name: str
