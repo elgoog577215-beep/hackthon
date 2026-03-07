@@ -8,6 +8,10 @@ import {
   type DifficultyLevel,
   type TeachingStyle
 } from '@/shared/prompt-config'
+import { useNoteStore } from './notes'
+import { useGenerationStore } from './generation'
+import { useLearningStore } from './learning'
+import { useReviewStore } from './review'
 
 // =============================================================================
 // Course Store - 核心课程状态管理
@@ -77,7 +81,7 @@ export const useCourseStore = defineStore('course', {
   getters: {
     treeData: (state) => state.courseTree,
     getNotesByNodeId() {
-      const { useNoteStore } = require('./notes')
+      
       const noteStore = useNoteStore()
       return (nodeId: string) => noteStore.notes.filter((n: Note) => n.nodeId === nodeId)
     },
@@ -121,11 +125,11 @@ export const useCourseStore = defineStore('course', {
 
     // ========== Delegation helpers ==========
     _genStore() {
-        const { useGenerationStore } = require('./generation')
+        
         return useGenerationStore()
     },
     _noteStore() {
-        const { useNoteStore } = require('./notes')
+        
         return useNoteStore()
     },
 
@@ -215,7 +219,7 @@ export const useCourseStore = defineStore('course', {
                     genStore.generationProgress = localTask ? localTask.progress : 100
                     genStore.generationLogs = localTask ? localTask.logs : []
                 }
-                const { useLearningStore } = require('./learning')
+                
                 const learningStore = useLearningStore()
                 const pos = learningStore.getReadingPosition(courseId)
                 if (pos) { this.scrollToNodeId = pos.nodeId }
@@ -784,121 +788,121 @@ export const useCourseStore = defineStore('course', {
 
     // ========== Backward-compat: Learning Store delegations ==========
     get learningStats() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().learningStats
     },
     get learningPath() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().learningPath
     },
     get knowledgeMastery() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().knowledgeMastery
     },
     get learningPathLoading() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().learningPathLoading
     },
     recordStudyTime(minutes: number, nodeId?: string) {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().recordStudyTime(minutes, nodeId)
     },
     saveReadingPosition(courseId: string, nodeId: string, scrollTop: number) {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().saveReadingPosition(courseId, nodeId, scrollTop)
     },
     getReadingPosition(courseId: string) {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().getReadingPosition(courseId)
     },
     markNodeAsCompleted(nodeId: string) {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().markNodeAsCompleted(nodeId)
     },
     isNodeCompleted(nodeId: string) {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().isNodeCompleted(nodeId)
     },
     getNodeReadTime(nodeId: string) {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().getNodeReadTime(nodeId)
     },
     getTodayStudyTime() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().getTodayStudyTime()
     },
     getWeeklyStudyTime() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().getWeeklyStudyTime()
     },
     persistLearningStats() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().persistLearningStats()
     },
     restoreLearningStats() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().restoreLearningStats()
     },
     generateLearningPath(goal: string, availableTime: number, focusAreas?: string[], weakAreas?: string[]) {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().generateLearningPath(this.currentCourseId, goal, availableTime, focusAreas, weakAreas)
     },
     fetchKnowledgeMastery() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().fetchKnowledgeMastery(this.currentCourseId)
     },
     fetchLearningStats() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().fetchLearningStats(this.currentCourseId)
     },
     clearLearningPath() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().clearLearningPath()
     },
     clearKnowledgeMastery() {
-        const { useLearningStore } = require('./learning')
+        
         return useLearningStore().clearKnowledgeMastery()
     },
 
     // ========== Backward-compat: Review Store delegations ==========
     get wrongAnswers() {
-        const { useReviewStore } = require('./review')
+        
         return useReviewStore().wrongAnswers
     },
     get quizHistory() {
-        const { useReviewStore } = require('./review')
+        
         return useReviewStore().quizHistory
     },
     recordWrongAnswer(quizData: { question: string; options: string[]; correctIndex: number; userIndex: number; explanation: string; nodeId: string; nodeName: string }) {
-        const { useReviewStore } = require('./review')
+        
         return useReviewStore().recordWrongAnswer(quizData)
     },
     recordQuizResult(nodeId: string, nodeName: string, total: number, correct: number) {
-        const { useReviewStore } = require('./review')
+        
         return useReviewStore().recordQuizResult(nodeId, nodeName, total, correct)
     },
     persistQuizData() {
-        const { useReviewStore } = require('./review')
+        
         return useReviewStore().persistQuizData()
     },
     restoreQuizData() {
-        const { useReviewStore } = require('./review')
+        
         return useReviewStore().restoreQuizData()
     },
     getWrongAnswersForReview(limit?: number) {
-        const { useReviewStore } = require('./review')
+        
         return useReviewStore().getWrongAnswersForReview(limit)
     },
     markWrongAnswerReviewed(question: string, nodeId: string, remove?: boolean) {
-        const { useReviewStore } = require('./review')
+        
         return useReviewStore().markWrongAnswerReviewed(question, nodeId, remove)
     },
     getQuizStats() {
-        const { useReviewStore } = require('./review')
+        
         return useReviewStore().getQuizStats()
     },
     generateSmartQuizFromMistakes() {
-        const { useReviewStore } = require('./review')
+        
         return useReviewStore().generateSmartQuizFromMistakes()
     },
 
