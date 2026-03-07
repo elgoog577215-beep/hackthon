@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="courseStore.showKnowledgeGraph" class="kg-modal-overlay" @click.self="handleClose">
@@ -435,8 +435,7 @@ const layoutGraph = () => {
   nodes.forEach(n => { children[n.id] = [] })
   edges.forEach(e => { const ch = children[e.source]; if (ch) ch.push(e.target) })
 
-  const rootNode = nodes.find(n => n.type === 'root')
-  const root = rootNode !== undefined ? rootNode : nodes[0]!
+  const root = nodes.find(n => n.type === 'root') ?? (nodes.length > 0 ? nodes[0] : undefined)
   if (!root) return
   root.x = CENTER_X; root.y = CENTER_Y
 
