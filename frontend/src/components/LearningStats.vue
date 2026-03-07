@@ -219,22 +219,22 @@
           </div>
           <button 
             @click="generateLearningPath"
-            :disabled="courseStore.learningPathLoading"
+            :disabled="learningStore.learningPathLoading"
             class="text-xs px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
           >
-            <el-icon v-if="courseStore.learningPathLoading" class="animate-spin" :size="12"><Loading /></el-icon>
-            <span>{{ courseStore.learningPathLoading ? '生成中...' : '重新生成' }}</span>
+            <el-icon v-if="learningStore.learningPathLoading" class="animate-spin" :size="12"><Loading /></el-icon>
+            <span>{{ learningStore.learningPathLoading ? '生成中...' : '重新生成' }}</span>
           </button>
         </div>
         
         <!-- Loading State -->
-        <div v-if="courseStore.learningPathLoading" class="py-6 text-center">
+        <div v-if="learningStore.learningPathLoading" class="py-6 text-center">
           <el-icon class="animate-spin text-indigo-400 mb-2" :size="24"><Loading /></el-icon>
           <p class="text-xs text-slate-500">AI正在分析你的学习数据，生成个性化路径...</p>
         </div>
         
         <!-- Empty State -->
-        <div v-else-if="!courseStore.learningPath" class="py-4 text-center">
+        <div v-else-if="!learningStore.learningPath" class="py-4 text-center">
           <div class="w-12 h-12 mx-auto mb-2 rounded-full bg-indigo-100 flex items-center justify-center">
             <el-icon class="text-indigo-400" :size="20"><Compass /></el-icon>
           </div>
@@ -250,11 +250,11 @@
         <!-- Recommendations List -->
         <div v-else class="space-y-3">
           <div class="flex items-center justify-between text-xs text-slate-500 mb-2">
-            <span>为你推荐的 {{ courseStore.learningPath.recommended_nodes.length }} 个学习节点</span>
-            <span class="text-[10px]">生成于 {{ formatTimeAgo(courseStore.learningPath.generated_at) }}</span>
+            <span>为你推荐的 {{ learningStore.learningPath.recommended_nodes.length }} 个学习节点</span>
+            <span class="text-[10px]">生成于 {{ formatTimeAgo(learningStore.learningPath.generated_at) }}</span>
           </div>
           
-          <div v-for="(node, idx) in courseStore.learningPath.recommended_nodes.slice(0, 3)" :key="node.node_id"
+          <div v-for="(node, idx) in learningStore.learningPath.recommended_nodes.slice(0, 3)" :key="node.node_id"
                class="group relative bg-white/70 rounded-lg p-3 border border-indigo-100/50 hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer"
                @click="navigateToNode(node.node_id)">
             <div class="flex items-start gap-3">
@@ -284,63 +284,63 @@
           
           <!-- View More Button -->
           <button 
-            v-if="courseStore.learningPath.recommended_nodes.length > 3"
+            v-if="learningStore.learningPath.recommended_nodes.length > 3"
             @click="showLearningPathModal = true"
             class="w-full text-xs py-2 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
           >
-            查看全部 {{ courseStore.learningPath.recommended_nodes.length }} 个推荐节点
+            查看全部 {{ learningStore.learningPath.recommended_nodes.length }} 个推荐节点
           </button>
         </div>
       </div>
 
       <!-- Knowledge Mastery Overview -->
-      <div v-if="courseStore.knowledgeMastery" class="bg-gradient-to-br from-emerald-50 to-teal-50/50 rounded-xl p-4 border border-emerald-100/60 shadow-sm">
+      <div v-if="learningStore.knowledgeMastery" class="bg-gradient-to-br from-emerald-50 to-teal-50/50 rounded-xl p-4 border border-emerald-100/60 shadow-sm">
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-2">
             <el-icon class="text-emerald-500" :size="16"><TrendCharts /></el-icon>
             <span class="text-sm font-semibold text-slate-700">知识点掌握度</span>
           </div>
-          <div class="text-xs font-bold" :class="getMasteryColor(courseStore.knowledgeMastery.overall_mastery)">
-            {{ Math.round(courseStore.knowledgeMastery.overall_mastery * 100) }}%
+          <div class="text-xs font-bold" :class="getMasteryColor(learningStore.knowledgeMastery.overall_mastery)">
+            {{ Math.round(learningStore.knowledgeMastery.overall_mastery * 100) }}%
           </div>
         </div>
         
         <!-- Overall Progress Bar -->
         <div class="h-2 bg-emerald-100 rounded-full overflow-hidden mb-3">
           <div class="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full transition-all duration-500"
-               :style="{ width: (courseStore.knowledgeMastery.overall_mastery * 100) + '%' }"></div>
+               :style="{ width: (learningStore.knowledgeMastery.overall_mastery * 100) + '%' }"></div>
         </div>
         
         <!-- Strong Areas -->
-        <div v-if="courseStore.knowledgeMastery.strong_areas.length > 0" class="mb-3">
+        <div v-if="learningStore.knowledgeMastery.strong_areas.length > 0" class="mb-3">
           <div class="text-[10px] text-slate-500 mb-1.5 flex items-center gap-1">
             <el-icon :size="10"><CircleCheck /></el-icon>
-            掌握较好 ({{ courseStore.knowledgeMastery.strong_areas.length }})
+            掌握较好 ({{ learningStore.knowledgeMastery.strong_areas.length }})
           </div>
           <div class="flex flex-wrap gap-1">
-            <span v-for="area in courseStore.knowledgeMastery.strong_areas.slice(0, 3)" :key="area"
+            <span v-for="area in learningStore.knowledgeMastery.strong_areas.slice(0, 3)" :key="area"
                   class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">
               {{ area }}
             </span>
-            <span v-if="courseStore.knowledgeMastery.strong_areas.length > 3" class="text-[10px] text-slate-400">
-              +{{ courseStore.knowledgeMastery.strong_areas.length - 3 }}
+            <span v-if="learningStore.knowledgeMastery.strong_areas.length > 3" class="text-[10px] text-slate-400">
+              +{{ learningStore.knowledgeMastery.strong_areas.length - 3 }}
             </span>
           </div>
         </div>
         
         <!-- Weak Areas -->
-        <div v-if="courseStore.knowledgeMastery.weak_areas.length > 0">
+        <div v-if="learningStore.knowledgeMastery.weak_areas.length > 0">
           <div class="text-[10px] text-slate-500 mb-1.5 flex items-center gap-1">
             <el-icon :size="10"><Warning /></el-icon>
-            需要加强 ({{ courseStore.knowledgeMastery.weak_areas.length }})
+            需要加强 ({{ learningStore.knowledgeMastery.weak_areas.length }})
           </div>
           <div class="flex flex-wrap gap-1">
-            <span v-for="area in courseStore.knowledgeMastery.weak_areas.slice(0, 3)" :key="area"
+            <span v-for="area in learningStore.knowledgeMastery.weak_areas.slice(0, 3)" :key="area"
                   class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">
               {{ area }}
             </span>
-            <span v-if="courseStore.knowledgeMastery.weak_areas.length > 3" class="text-[10px] text-slate-400">
-              +{{ courseStore.knowledgeMastery.weak_areas.length - 3 }}
+            <span v-if="learningStore.knowledgeMastery.weak_areas.length > 3" class="text-[10px] text-slate-400">
+              +{{ learningStore.knowledgeMastery.weak_areas.length - 3 }}
             </span>
           </div>
         </div>
@@ -423,10 +423,10 @@
 
         <!-- Path Visualization -->
         <div class="relative">
-          <div v-for="(node, idx) in courseStore.learningPath?.recommended_nodes" :key="node.node_id"
+          <div v-for="(node, idx) in learningStore.learningPath?.recommended_nodes" :key="node.node_id"
                class="relative flex gap-4 pb-6 last:pb-0">
             <!-- Timeline Line -->
-            <div v-if="idx < (courseStore.learningPath?.recommended_nodes.length || 0) - 1" 
+            <div v-if="idx < (learningStore.learningPath?.recommended_nodes.length || 0) - 1" 
                  class="absolute left-4 top-8 bottom-0 w-0.5 bg-gradient-to-b from-indigo-400 to-indigo-200"></div>
             
             <!-- Node Number -->
@@ -456,14 +456,14 @@
         </div>
 
         <!-- AI Suggestions -->
-        <div v-if="courseStore.learningPath?.suggestions?.length" 
+        <div v-if="learningStore.learningPath?.suggestions?.length" 
              class="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-100">
           <div class="flex items-center gap-2 mb-3">
             <el-icon class="text-amber-500" :size="18"><StarFilled /></el-icon>
             <span class="font-semibold text-slate-700">AI 学习建议</span>
           </div>
           <ul class="space-y-2">
-            <li v-for="(suggestion, idx) in courseStore.learningPath.suggestions" :key="idx" 
+            <li v-for="(suggestion, idx) in learningStore.learningPath.suggestions" :key="idx" 
                 class="flex items-start gap-2 text-sm text-slate-600">
               <span class="text-amber-500 mt-0.5">•</span>
               <span>{{ suggestion }}</span>
@@ -633,17 +633,21 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useCourseStore } from '../stores/course'
+import { useLearningStore } from '../stores/learning'
+import { useReviewStore } from '../stores/review'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 import { TrendCharts, Trophy, Check, Clock, Calendar, Timer, CircleCheck, Medal, DocumentChecked, Connection, Download, StarFilled, Compass, Loading, ArrowRight, Warning } from '@element-plus/icons-vue'
 import KnowledgeGraph from './KnowledgeGraph.vue'
 
 const courseStore = useCourseStore()
+const learningStore = useLearningStore()
+const reviewStore = useReviewStore()
 
-const learningStats = computed(() => courseStore.learningStats)
+const learningStats = computed(() => learningStore.learningStats)
 
-const todayTime = computed(() => courseStore.getTodayStudyTime())
-const weeklyTime = computed(() => courseStore.getWeeklyStudyTime())
+const todayTime = computed(() => learningStore.getTodayStudyTime())
+const weeklyTime = computed(() => learningStore.getWeeklyStudyTime())
 const totalTime = computed(() => learningStats.value.totalStudyTime)
 
 const totalNodes = computed(() => courseStore.courseTree.length)
@@ -727,8 +731,8 @@ const recentAchievements = computed(() => {
 
 // Quiz stats - safely access quiz data with defaults
 const quizStats = computed(() => {
-  const wrongAnswers = courseStore.wrongAnswers || []
-  const quizHistory = courseStore.quizHistory || []
+  const wrongAnswers = reviewStore.wrongAnswers || []
+  const quizHistory = reviewStore.quizHistory || []
   const totalQuizzes = quizHistory.length
   const totalQuestions = quizHistory.reduce((sum: number, h: any) => sum + (h.totalQuestions || 0), 0)
   const totalCorrect = quizHistory.reduce((sum: number, h: any) => sum + (h.correctCount || 0), 0)
@@ -745,7 +749,7 @@ const quizStats = computed(() => {
 
 // Start wrong answer review
 const startWrongAnswerReview = async () => {
-  const wrongAnswers = courseStore.wrongAnswers || []
+  const wrongAnswers = reviewStore.wrongAnswers || []
   if (wrongAnswers.length === 0) return
 
   // Sort by review count and time
@@ -910,7 +914,7 @@ const generateLearningPath = async () => {
     ElMessage.warning('请先选择课程')
     return
   }
-  await courseStore.generateLearningPath('', 30)
+  await learningStore.generateLearningPath(courseStore.currentCourseId, '', 30)
 }
 
 // Navigate to node
@@ -1013,13 +1017,13 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
   
   // Auto-generate learning path if not exists
-  if (courseStore.currentCourseId && !courseStore.learningPath && !courseStore.learningPathLoading) {
-    courseStore.generateLearningPath('', 30)
+  if (courseStore.currentCourseId && !learningStore.learningPath && !learningStore.learningPathLoading) {
+    learningStore.generateLearningPath(courseStore.currentCourseId, '', 30)
   }
   
   // Fetch knowledge mastery
   if (courseStore.currentCourseId) {
-    courseStore.fetchKnowledgeMastery()
+    learningStore.fetchKnowledgeMastery(courseStore.currentCourseId)
   }
 })
 
@@ -1081,7 +1085,7 @@ const estimatedRemainingTime = computed(() => {
 
 // Weak areas analysis
 const weakAreas = computed(() => {
-  const wrongAnswers = courseStore.wrongAnswers || []
+  const wrongAnswers = reviewStore.wrongAnswers || []
   const nodeWrongCounts = new Map<string, { name: string; count: number }>()
 
   wrongAnswers.forEach((w: any) => {
@@ -1107,7 +1111,7 @@ const weakAreas = computed(() => {
 
 // Strength areas analysis
 const strengthAreas = computed(() => {
-  const quizHistory = courseStore.quizHistory || []
+  const quizHistory = reviewStore.quizHistory || []
   const nodeScores = new Map<string, { name: string; correct: number; total: number }>()
 
   quizHistory.forEach((h: any) => {

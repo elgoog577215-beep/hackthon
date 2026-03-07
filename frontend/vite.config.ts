@@ -12,10 +12,6 @@ export default defineConfig({
     },
   },
   plugins: [vue()],
-  test: {
-    environment: 'jsdom',
-    globals: true,
-  },
   build: {
     rollupOptions: {
       output: {
@@ -33,38 +29,6 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      },
-      '/courses': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      },
-      '/generate_course': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      },
-      '/annotations': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      },
-      '/generate_quiz': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      },
-      '/summarize_chat': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      },
-      '/ask': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      },
-      '/tasks': {
-        target: 'http://localhost:8000',
-        changeOrigin: true
-      },
-      '/nodes': {
         target: 'http://localhost:8000',
         changeOrigin: true
       },

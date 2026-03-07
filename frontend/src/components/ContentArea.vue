@@ -948,6 +948,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick, onUpdated, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
+import { useNoteStore } from '../stores/notes'
 
 import CourseNode from './CourseNode.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
@@ -1010,6 +1011,7 @@ const handleContentClick = async (e: MouseEvent) => {
 }
 
 const courseStore = useCourseStore()
+const noteStore = useNoteStore()
 const selectionMenu = ref({ visible: false, x: 0, y: 0, arrowOffset: 0, placement: 'top', text: '', range: null as Range | null })
 const noteSearchQuery = ref('')
 const activeNoteFilter = ref('notes')
@@ -1047,9 +1049,9 @@ const exportFormats: { value: 'markdown' | 'json', label: string, desc: string, 
 const getExportCount = computed(() => {
     let notes: any[] = []
     if (exportDialog.type === 'mistakes') {
-        notes = courseStore.notes.filter((n: any) => n.sourceType === 'wrong' || n.content.includes('#错题'))
+        notes = noteStore.notes.filter((n: any) => n.sourceType === 'wrong' || n.content.includes('#错题'))
     } else {
-        notes = courseStore.notes
+        notes = noteStore.notes
     }
     
     if (exportDialog.scope === 'filtered') {
@@ -1105,9 +1107,9 @@ const executeExport = async () => {
         let notes: any[] = []
         
         if (exportDialog.type === 'mistakes') {
-            notes = courseStore.notes.filter((n: any) => n.sourceType === 'wrong' || n.content.includes('#错题'))
+            notes = noteStore.notes.filter((n: any) => n.sourceType === 'wrong' || n.content.includes('#错题'))
         } else {
-            notes = courseStore.notes
+            notes = noteStore.notes
         }
         
         // Apply scope filter
@@ -1647,7 +1649,7 @@ const noteMatchesSearch = (note: any, tokens: string[]) => {
 
 const noteCounts = computed(() => {
     const nodeIds = new Set(flatNodes.value.map(n => n.node_id))
-    const scoped = courseStore.notes.filter(n => nodeIds.has(n.nodeId))
+    const scoped = noteStore.notes.filter(n => nodeIds.has(n.nodeId))
     const notes = scoped.filter(n => !isMistakeNote(n) && n.sourceType !== 'format').length
     const mistakes = scoped.filter(n => isMistakeNote(n) && n.sourceType !== 'format').length
     return { notes, mistakes }
@@ -1655,7 +1657,7 @@ const noteCounts = computed(() => {
 
 const visibleNotes = computed(() => {
     const nodeIds = new Set(flatNodes.value.map(n => n.node_id))
-    let notes = courseStore.notes.filter(n => nodeIds.has(n.nodeId))
+    let notes = noteStore.notes.filter(n => nodeIds.has(n.nodeId))
     
     // Filter by Type
     if (activeNoteFilter.value === 'mistakes') {
@@ -1890,7 +1892,7 @@ const applyFormat = (style: string, value?: string) => {
     }
     
     if (nodeId) {
-        courseStore.createNote({
+        noteStore.createNote({
             id: 'note-' + Math.random().toString(36).substr(2, 9),
             nodeId,
             highlightId,
@@ -1914,7 +1916,7 @@ const setHovered = (noteId: string | null, event?: MouseEvent) => {
     
     // 2. Add new highlights and show preview
     if (noteId) {
-        const note = courseStore.notes.find(n => n.id === noteId)
+        const note = noteStore.notes.find(n => n.id === noteId)
         if (note && note.highlightId) {
             const els = document.querySelectorAll(`[id^="${note.highlightId}"]`)
             els.forEach(el => el.classList.add('pulse-highlight'))
@@ -1938,7 +1940,7 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
         // Skip empty ranges
         if (range.toString().length === 0) return
         
-        const note = courseStore.notes.find(n => n.id === noteId)
+        const note = noteStore.notes.find(n => n.id === noteId)
         const span = document.createElement('span')
         span.id = id
         
@@ -1986,7 +1988,7 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
 }
 
 const scrollToNote = (noteId: string) => {
-    const note = courseStore.notes.find(n => n.id === noteId)
+    const note = noteStore.notes.find(n => n.id === noteId)
     if (!note) {
         console.warn('Note not found:', noteId)
         return
@@ -2542,7 +2544,7 @@ const handleAddNote = () => {
         }
         
         if (nodeId) {
-            courseStore.createNote({
+            noteStore.createNote({
                 id: noteId,
                 nodeId,
                 highlightId: span.parentNode ? highlightId : '', // Only save highlightId if span was inserted
@@ -2554,7 +2556,7 @@ const handleAddNote = () => {
             })
             selectionMenu.value.visible = false
             window.getSelection()?.removeAllRanges()
-            const lastNote = courseStore.notes[courseStore.notes.length - 1]
+            const lastNote = noteStore.notes[noteStore.notes.length - 1]
             if (lastNote) activeNoteId.value = lastNote.id
         }
     }).catch(() => {})
@@ -2638,7 +2640,7 @@ const updateNotePriority = async () => {
 
 // Filter notes by tag
 const filterByTag = (tag: string) => {
-    const filteredNotes = courseStore.getNotesByTag(tag)
+    const filteredNotes = noteStore.getNotesByTag(tag)
     ElMessage.info(`标签 "${tag}" 共有 ${filteredNotes.length} 条笔记`)
 }
 
@@ -2675,7 +2677,7 @@ const saveDialogEditing = async () => {
 }
 
 const handleDeleteNote = (noteId: string) => {
-    const note = courseStore.notes.find(n => n.id === noteId)
+    const note = noteStore.notes.find(n => n.id === noteId)
     if (!note) return
 
     ElMessageBox.confirm('确定删除这条笔记吗？将会同时移除关联的划线。', '删除确认', {
@@ -2685,7 +2687,7 @@ const handleDeleteNote = (noteId: string) => {
         confirmButtonClass: 'el-button--danger'
     }).then(() => {
         // State update triggers watcher -> reapplyHighlights -> cleanup orphans
-        courseStore.deleteNote(noteId)
+        noteStore.deleteNote(noteId)
         
         showUndoToast(note)
     }).catch(() => {})
@@ -2715,7 +2717,7 @@ const scrollToHighlight = (highlightId: string, noteId?: string) => {
         el.classList.add('pulse-highlight')
         setTimeout(() => el.classList.remove('pulse-highlight'), 1500)
         
-        const note = courseStore.notes.find(n => n.highlightId === highlightId)
+        const note = noteStore.notes.find(n => n.highlightId === highlightId)
         if (note) {
             activeNoteId.value = note.id
             const noteCard = document.getElementById(note.id)
@@ -2739,7 +2741,7 @@ const scrollToHighlight = (highlightId: string, noteId?: string) => {
         if (noteId) {
             scrollToNote(noteId)
         }
-        const note = courseStore.notes.find(n => n.highlightId === highlightId)
+        const note = noteStore.notes.find(n => n.highlightId === highlightId)
         if (note?.nodeId) {
             courseStore.scrollToNode(note.nodeId)
         }
@@ -2793,14 +2795,14 @@ const submitQuiz = () => {
             const noteContent = `**错题记录**\n\n**题目**：${q.question}\n\n**你的答案**：${userAnswer} ❌\n**正确答案**：${q.answer} ✅\n\n**解析**：${q.explanation || '暂无解析'}\n\n#错题`
             
             // Check if this wrong question already exists (avoid duplicates)
-            const exists = courseStore.notes.some(n => 
+            const exists = noteStore.notes.some(n => 
                 n.nodeId === quizConfig.value.nodeId && 
                 n.sourceType === 'wrong' &&
                 n.content.includes(q.question)
             )
             
             if (!exists) {
-                courseStore.createNote({
+                noteStore.createNote({
                     id: `wrong-${Date.now()}-${idx}`,
                     nodeId: quizConfig.value.nodeId,
                     highlightId: '', // No highlight for quiz

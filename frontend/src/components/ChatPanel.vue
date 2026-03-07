@@ -457,14 +457,18 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, reactive, computed } from 'vue'
 import { useCourseStore } from '../stores/course'
+import { useReviewStore } from '../stores/review'
+import { useNoteStore } from '../stores/notes'
 import { useTutorStore } from '../stores/tutor'
-import type { AIContent } from '../stores/course'
+import type { AIContent } from '../stores/types'
 import { ChatDotRound, Position, MagicStick, Setting, Delete, DocumentAdd, CircleCheckFilled, CircleCloseFilled, Notebook, RefreshRight, Location, Collection, Reading, Close, Check, ArrowRight, InfoFilled, QuestionFilled, DataLine, Sunny, TrendCharts, Menu as CommandMenu, Bell, Aim } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useMermaid } from '../composables/useMermaid'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 
 const courseStore = useCourseStore()
+const reviewStore = useReviewStore()
+const noteStore = useNoteStore()
 const tutorStore = useTutorStore()
 const inputMessage = ref('')
 const chatContainer = ref<HTMLElement | null>(null)
@@ -579,7 +583,7 @@ ${summaryInspiration.value}
 **详细复盘**：
 ${summaryContent.value}
 `
-    courseStore.createNote({
+    noteStore.createNote({
         id: `summary-${Date.now()}`,
         nodeId: courseStore.currentNode?.node_id || 'global',
         highlightId: '',
@@ -715,7 +719,7 @@ const saveWrongQuestion = async (quiz: any, msgIdx: number, quizIdx: number) => 
     const nodeId = quiz.node_id || courseStore.currentNode?.node_id || 'global'
 
     // Record to quiz system
-    courseStore.recordWrongAnswer({
+    reviewStore.recordWrongAnswer({
         question: quiz.question,
         options: quiz.options,
         correctIndex: quiz.correct_index,
@@ -808,7 +812,7 @@ const handleSaveAsNote = async (content: string, msg?: any) => {
         }
 
         const noteId = crypto.randomUUID()
-        await courseStore.createNote({
+        await noteStore.createNote({
             id: noteId,
             nodeId: targetNodeId,
             highlightId: '', // General note, not attached to text
