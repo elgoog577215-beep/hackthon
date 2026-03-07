@@ -41,8 +41,8 @@ const downloadBlob = (blob: Blob, filename: string) => {
 }
 
 // --- 类型重新导出（向后兼容） ---
-export type { Node, Annotation, Note, Course, QueueItem, AIContent, ChatMessage } from './types'
-import type { Node, Annotation, Note, Course, QueueItem, Task, AIContent, ChatMessage } from './types'
+export type { Node, Annotation, Note, Course, QueueItem, AIContent, ChatMessage, ChatConversation } from './types'
+import type { Node, Annotation, Note, Course, QueueItem, Task, AIContent, ChatMessage, ChatConversation } from './types'
 
 export const useCourseStore = defineStore('course', {
   state: () => ({
@@ -67,11 +67,16 @@ export const useCourseStore = defineStore('course', {
     // --- UI State ---
     isFocusMode: false,
     showKnowledgeGraph: false,
+    showFloatingAI: false,
     isMobileNotesVisible: false,
     globalSearchQuery: '',
     scrollToNodeId: null as string | null,
     focusNoteId: null as string | null,
     userPersona: localStorage.getItem('user_persona') || '',
+
+    // --- 多对话管理 ---
+    conversations: JSON.parse(localStorage.getItem('chat_conversations') || '[]') as ChatConversation[],
+    currentConversationId: localStorage.getItem('chat_current_conversation') || '' as string,
     uiSettings: {
         fontSize: 17,
         fontFamily: 'sans' as 'sans' | 'serif' | 'mono',
@@ -121,6 +126,71 @@ export const useCourseStore = defineStore('course', {
     clearChat() {
         this.chatHistory = []
         this.activeAnnotation = null
+    },
+
+    // ========== Conversation Management ==========
+    initConversations() {
+        if (this.conversations.length === 0) {
+            this.createConversation()
+        }
+        if (!this.currentConversationId && this.conversations.length > 0) {
+            this.currentConversationId = this.conversations[0]!.id
+        }
+        this.syncCurrentConversation()
+    },
+    createConversation() {
+        this.syncCurrentConversation()
+        const conv: ChatConversation = {
+            id: `conv-${Date.now()}`,
+            name: `对话 ${this.conversations.length + 1}`,
+            messages: [],
+            createdAt: Date.now(),
+        }
+        this.conversations.unshift(conv)
+        this.currentConversationId = conv.id
+        this.chatHistory = []
+        this.activeAnnotation = null
+        this.saveConversations()
+    },
+    switchConversation(id: string) {
+        this.syncCurrentConversation()
+        this.currentConversationId = id
+        const conv = this.conversations.find(c => c.id === id)
+        this.chatHistory = conv ? [...conv.messages] : []
+        this.activeAnnotation = null
+        this.saveConversations()
+    },
+    syncCurrentConversation() {
+        const conv = this.conversations.find(c => c.id === this.currentConversationId)
+        if (conv) {
+            conv.messages = [...this.chatHistory]
+        }
+    },
+    renameConversation(id: string, name: string) {
+        const conv = this.conversations.find(c => c.id === id)
+        if (conv) { conv.name = name }
+        this.saveConversations()
+    },
+    deleteConversation(id: string) {
+        this.conversations = this.conversations.filter(c => c.id !== id)
+        if (this.currentConversationId === id) {
+            const first = this.conversations[0]
+            if (first) {
+                this.currentConversationId = first.id
+                this.chatHistory = [...first.messages]
+            } else {
+                this.createConversation()
+            }
+        }
+        this.saveConversations()
+    },
+    saveConversations() {
+        try {
+            localStorage.setItem('chat_conversations', JSON.stringify(this.conversations))
+            localStorage.setItem('chat_current_conversation', this.currentConversationId)
+        } catch (e) {
+            console.error('Failed to save conversations:', e)
+        }
     },
 
     // ========== Delegation helpers ==========
@@ -803,9 +873,9 @@ export const useCourseStore = defineStore('course', {
         
         return useLearningStore().learningPathLoading
     },
-    recordStudyTime(minutes: number, nodeId?: string) {
+    recordStudyTime(seconds: number, nodeId?: string) {
         
-        return useLearningStore().recordStudyTime(minutes, nodeId)
+        return useLearningStore().recordStudyTime(seconds, nodeId)
     },
     saveReadingPosition(courseId: string, nodeId: string, scrollTop: number) {
         
@@ -873,7 +943,7 @@ export const useCourseStore = defineStore('course', {
         
         return useReviewStore().quizHistory
     },
-    recordWrongAnswer(quizData: { question: string; options: string[]; correctIndex: number; userIndex: number; explanation: string; nodeId: string; nodeName: string }) {
+    recordWrongAnswer(quizData: { question: string; options: string[]; correctIndex: number; userIndex: number; explanation: string; nodeId: string; nodeName: string; reflection?: string }) {
         
         return useReviewStore().recordWrongAnswer(quizData)
     },

@@ -110,3 +110,10 @@ export interface ChatMessage {
     type: 'user' | 'ai'
     content: string | AIContent
 }
+
+export interface ChatConversation {
+    id: string
+    name: string
+    messages: ChatMessage[]
+    createdAt: number
+}

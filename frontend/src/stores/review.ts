@@ -17,6 +17,7 @@ export const useReviewStore = defineStore('review', {
       nodeName: string
       timestamp: number
       reviewCount: number
+      reflection?: string
     }>,
     quizHistory: [] as Array<{
       nodeId: string
@@ -35,6 +36,7 @@ export const useReviewStore = defineStore('review', {
       explanation: string
       nodeId: string
       nodeName: string
+      reflection?: string
     }) {
       const existingIndex = this.wrongAnswers.findIndex(
         w => w.question === quizData.question && w.nodeId === quizData.nodeId

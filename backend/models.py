@@ -87,7 +87,7 @@ class SaveAnnotationRequest(BaseModel):
     question: str
     answer: str
     anno_summary: str
-    source_type: Literal["user", "ai", "user_saved"] = "user"
+    source_type: Literal["user", "ai", "user_saved", "wrong", "format"] = "user"
     quote: Optional[str] = None
 
 class UpdateNodeRequest(BaseModel):

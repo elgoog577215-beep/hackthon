@@ -162,7 +162,8 @@
       "node_name": "2.3 同构映射与同构空间",
       "node_level": 2,
       "node_content": "讨论向量空间之间的同构映射，以及它们在结构保持方面的意义。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "e54a51f9-d1b3-4f7b-b1b8-0ac9391f9a89",
@@ -170,7 +171,8 @@
       "node_name": "2.4 矩阵作为线性变换的表示",
       "node_level": 2,
       "node_content": "从线性映射出发，推导矩阵如何作为有限维向量空间上的线性变换表示。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "be5e28a7-4b75-4142-ac61-4ac20e093fb3",
@@ -187,7 +189,8 @@
       "node_name": "2.6 线性映射的矩阵合成与逆映射",
       "node_level": 2,
       "node_content": "研究两个线性映射的复合对应的矩阵乘积，以及可逆映射的条件及其矩阵形式。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "d3170f08-9241-4ad5-a127-a85e79981d88",
@@ -204,7 +207,8 @@
       "node_name": "2.8 应用：线性系统解的结构分析",
       "node_level": 2,
       "node_content": "通过线性映射理论分析线性方程组的解集结构及通解表达。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "0a0ce72b-eda7-4899-8b07-2d02f5a1839f",
@@ -229,7 +233,8 @@
       "node_name": "第三章 行列式与逆矩阵 - 子节点 2",
       "node_level": 2,
       "node_content": "",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "c02f0625-f294-42da-8f32-667db9fdcee8",
@@ -237,7 +242,8 @@
       "node_name": "第四章 特征值与特征向量 - 子节点 1",
       "node_level": 2,
       "node_content": "",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "90633e0f-a994-48d8-a6a0-be7c2207c923",
@@ -245,7 +251,8 @@
       "node_name": "第四章 特征值与特征向量 - 子节点 2",
       "node_level": 2,
       "node_content": "",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "f78ca57d-583e-4f18-a944-b72de5075cfb",
@@ -271,7 +278,8 @@
       "node_name": "5.3 标准正交基（Orthonormal Basis）",
       "node_level": 2,
       "node_content": "讲解标准正交基的概念及其重要性，包括如何用其简化向量表示与计算。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "0731848c-c311-4c0e-8f06-3875349c9063",
@@ -279,7 +287,8 @@
       "node_name": "5.4 Gram-Schmidt 正交化算法",
       "node_level": 2,
       "node_content": "推导并分析Gram-Schmidt过程，用于将任意基转化为正交或标准正交基。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "90d1bade-ded9-4543-ae27-fd1a8d23e58c",
@@ -305,7 +314,8 @@
       "node_name": "5.7 正交矩阵与酉矩阵",
       "node_level": 2,
       "node_content": "探讨正交矩阵与酉矩阵的性质，以及它们在保持内积不变中的作用。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "a24a1d2e-79ec-4afb-8522-fb33f3863a45",
@@ -313,7 +323,8 @@
       "node_name": "5.8 对称矩阵与正交对角化",
       "node_level": 2,
       "node_content": "研究实对称矩阵的谱定理，展示其可正交对角化的条件与方法。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "955b41b2-3a6e-49a1-a7a3-18ccb7c994b2",
@@ -321,7 +332,8 @@
       "node_name": "5.9 应用案例：信号处理与数据压缩",
       "node_level": 2,
       "node_content": "通过具体例子说明正交基在信号表示与数据压缩中的实际应用。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "39805194-3023-4162-b08e-a792de70586d",
@@ -346,7 +358,8 @@
       "node_name": "第六章 奇异值分解与矩阵近似 - 子节点 2",
       "node_level": 2,
       "node_content": "",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "9fb0290a-1585-4e0c-83df-39c1a5158ae7",
@@ -390,7 +403,8 @@
       "node_name": "7.5 奇异值分解（SVD）在最小二乘中的应用",
       "node_level": 2,
       "node_content": "利用SVD对系数矩阵进行分解，以稳定地求解最小二乘问题。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "89d4da58-4ce7-4cbd-a8b7-068dd90c0d24",
@@ -398,7 +412,8 @@
       "node_name": "7.6 非负最小二乘与约束条件处理",
       "node_level": 2,
       "node_content": "探讨引入非负约束后的最小二乘问题及其求解方法。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "bcb510bb-e3a6-4779-8bc7-c994fa2fb311",
@@ -406,7 +421,8 @@
       "node_name": "7.7 加权最小二乘法（WLS）",
       "node_level": 2,
       "node_content": "考虑观测误差不等权重的情况，建立加权最小二乘模型并分析其性质。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "53513da5-2fbe-4bf4-856d-60e7ff47948d",
@@ -414,7 +430,8 @@
       "node_name": "7.8 最小二乘与数据拟合的实际案例",
       "node_level": 2,
       "node_content": "通过具体工程或科学问题，展示最小二乘法在数据拟合中的实际应用。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "8dabcee4-86b0-4f21-b9dd-0bc8ed72b4d3",
@@ -422,7 +439,8 @@
       "node_name": "7.9 梯度下降法与数值求解策略",
       "node_level": 2,
       "node_content": "介绍基于梯度下降法的迭代求解过程及其收敛性分析。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "8bc6af42-fbeb-4c33-b13d-07246429e8aa",
@@ -430,7 +448,8 @@
       "node_name": "8.1 线性代数在计算机图形学中的基本作用",
       "node_level": 2,
       "node_content": "介绍线性代数如何为3D建模、变换和渲染提供数学基础，重点包括向量空间与矩阵操作的几何意义。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "f52c91c9-dd8b-40cf-a569-3b8264b47487",
@@ -447,7 +466,8 @@
       "node_name": "8.3 旋转与缩放：正交矩阵与相似变换",
       "node_level": 2,
       "node_content": "深入解析旋转矩阵的构造原理及其性质，并探讨缩放变换在三维空间中的线性表示。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "7a0d9149-eb0b-4df9-8865-55432fec9f93",
@@ -455,7 +475,8 @@
       "node_name": "8.4 投影变换与视图矩阵",
       "node_level": 2,
       "node_content": "详细推导透视投影矩阵和正交投影矩阵，结合相机模型解释其在计算机视觉中的关键作用。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "5d724cec-c71b-45a8-bf83-19c0be1b6af4",
@@ -463,7 +484,8 @@
       "node_name": "8.5 图像处理中的卷积与矩阵乘法",
       "node_level": 2,
       "node_content": "将图像视为矩阵，从线性代数角度解释卷积运算的本质，建立其与矩阵乘法的等价关系。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "416c0a6a-9dc1-4941-a507-8481b3f25281",
@@ -489,7 +511,8 @@
       "node_name": "8.8 特征值与特征向量在PCA降维中的应用",
       "node_level": 2,
       "node_content": "通过协方差矩阵的谱分解，展示主成分分析（PCA）如何利用特征向量提取数据的主要方向。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "fd570074-3b8f-4d45-b5f4-14dc1bfdf923",
@@ -497,7 +520,8 @@
       "node_name": "8.9 隐含语义索引与奇异值分解（SVD）",
       "node_level": 2,
       "node_content": "结合自然语言处理实例，讲解SVD如何用于文本数据压缩和潜在语义建模。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "98758984-0268-4cf1-85ba-06d740d4fb25",
@@ -505,7 +529,8 @@
       "node_name": "1.1 向量空间的公理化定义 - 子节点 1",
       "node_level": 3,
       "node_content": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n向量空间（Vector Space）是线性代数的基石，它通过一组**公理化定义**构建了一个抽象的数学结构。向量空间不仅限于我们熟知的几何空间 $\\mathbb{R}^n$，还广泛应用于函数空间、信号处理、机器学习等现代科学领域。本节将从集合论和群论的角度出发，严格定义向量空间，并探讨其基本性质。\n\n---\n\n### 🔍 深度原理/底层机制\n\n#### 向量空间的公理体系\n\n一个向量空间 $V$ 是在某个**域** $F$ 上定义的集合，满足以下八条公理：\n\n1. **加法封闭性**：对任意 $\\mathbf{u}, \\mathbf{v} \\in V$，有 $\\mathbf{u} + \\mathbf{v} \\in V$\n2. **加法交换律**：$\\mathbf{u} + \\mathbf{v} = \\mathbf{v} + \\mathbf{u}$\n3. **加法结合律**：$(\\mathbf{u} + \\mathbf{v}) + \\mathbf{w} = \\mathbf{u} + (\\mathbf{v} + \\mathbf{w})$\n4. **零元存在**：存在 $\\mathbf{0} \\in V$，使得对任意 $\\mathbf{v} \\in V$，有 $\\mathbf{v} + \\mathbf{0} = \\mathbf{v}$\n5. **负元存在**：对任意 $\\mathbf{v} \\in V$，存在 $-\\mathbf{v} \\in V$，使得 $\\mathbf{v} + (-\\mathbf{v}) = \\mathbf{0}$\n6. **标量乘法封闭性**：对任意 $a \\in F$ 和 $\\mathbf{v} \\in V$，有 $a\\mathbf{v} \\in V$\n7. **标量乘法分配律**：对任意 $a, b \\in F$ 和 $\\mathbf{v} \\in V$，有 $(a + b)\\mathbf{v} = a\\mathbf{v} + b\\mathbf{v}$\n8. **向量乘法分配律**：对任意 $a \\in F$ 和 $\\mathbf{u}, \\mathbf{v} \\in V$，有 $a(\\mathbf{u} + \\mathbf{v}) = a\\mathbf{u} + a\\mathbf{v}$\n\n上述公理系统构成了向量空间的**代数结构基础**，它们确保了我们可以在该空间中进行加法和标量乘法操作，并保证这些操作具有一致性和可预测性。\n\n---\n\n### 🛠️ 技术实现/方法论\n\n为了验证一个给定的集合是否构成向量空间，通常需要完成以下步骤：\n\n1. 确认集合中的元素支持加法和标量乘法。\n2. 验证所有八条公理是否成立。\n3. 若公理全部满足，则该集合在指定域上构成一个向量空间。\n\n例如，考虑集合 $C[0,1]$，即定义在区间 $[0,1]$ 上的所有连续实值函数组成的集合。我们可以定义加法为函数相加，标量乘法为常数与函数相乘。由于连续函数的加法和标量乘法仍为连续函数，且满足所有公理，因此 $C[0,1]$ 构成 $\\mathbb{R}$ 上的向量空间。\n\n---\n\n### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"Vector Space V\"] -->|Addition| B[\"u + v ∈ V\"]\n    A -->|Scalar Multiplication| C[\"a*v ∈ V for a ∈ F\"]\n    D[\"Axioms 1-8\"] --> E[\"Closure under + and *\"]\n    E --> F[\"Commutativity & Associativity\"]\n    E --> G[\"Existence of 0 and -v\"]\n    E --> H[\"Distributivity Properties\"]\n```\n\n---\n\n### 🏭 实战案例/行业应用\n\n在信号处理中，一个常见的向量空间是 $L^2$ 空间，它是所有平方可积函数的集合。该空间用于分析和合成音频信号，其上的内积运算允许我们计算信号的能量与相似性。此外，在机器学习中，特征向量空间常常由样本数据组成，每个样本被视为一个向量，从而可以使用线性代数工具进行降维或分类。\n\n---\n\n### ✅ 思考与挑战\n\n1. 如果一个集合仅满足前五条加法相关的公理，但不满足标量乘法相关公理，它能否称为向量空间？请举例说明。\n2. 考虑复数集 $\\mathbb{C}$ 作为向量空间时，若以 $\\mathbb{R}$ 为基域，它的维度是多少？如果以 $\\mathbb{C}$ 为基域呢？\n\n---\n\n### 参考文献\n\n- Axler, S. (2015). *Linear Algebra Done Right*. Springer.\n- Lay, D. C., McDonald, J., & Strang, G. (2021). *Linear Algebra and Its Applications*. Pearson.\n- Rudin, W. (1976). *Principles of Mathematical Analysis*. McGraw-Hill.",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "7746b4a0-de2c-456c-a587-3cf31c93fcf7",
@@ -513,7 +538,8 @@
       "node_name": "1.1 向量空间的公理化定义 - 子节点 2",
       "node_level": 3,
       "node_content": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n向量空间（Vector Space）是线性代数的核心研究对象，其公理化定义为现代数学提供了严谨的结构框架。向量空间由一个集合 $ V $ 和两个运算（加法与标量乘法）构成，并满足八条基本公理。这些公理不仅限定了向量空间的行为模式，也为其子空间、基底、维度等后续理论奠定了基础。**向量空间**的抽象性质使其在几何、物理、工程及机器学习等多个领域中具有广泛的应用价值。\n\n### 🔍 深度原理/底层机制\n\n向量空间的公理化体系起源于19世纪末20世纪初，旨在将欧几里得空间推广到更一般的抽象空间。设 $ \\mathbb{F} $ 是一个数域（如实数域 $ \\mathbb{R} $ 或复数域 $ \\mathbb{C} $），则向量空间 $ (V, +, \\cdot) $ 必须满足以下八条公理：\n\n1. **加法封闭性**：若 $ u, v \\in V $，则 $ u + v \\in V $\n2. **加法交换律**：$ u + v = v + u $\n3. **加法结合律**：$ (u + v) + w = u + (v + w) $\n4. **零向量存在性**：存在 $ 0 \\in V $，使得对任意 $ v \\in V $，有 $ v + 0 = v $\n5. **负向量存在性**：对任意 $ v \\in V $，存在 $ -v \\in V $，使得 $ v + (-v) = 0 $\n6. **标量乘法封闭性**：若 $ a \\in \\mathbb{F}, v \\in V $，则 $ a \\cdot v \\in V $\n7. **分配律1**：$ a \\cdot (u + v) = a \\cdot u + a \\cdot v $\n8. **分配律2**：$ (a + b) \\cdot v = a \\cdot v + b \\cdot v $\n\n此外，还需满足：\n- $ 1 \\cdot v = v $，其中 $ 1 \\in \\mathbb{F} $ 是单位元\n- $ a \\cdot (b \\cdot v) = (ab) \\cdot v $\n\n这些公理确保了向量空间具备良好的代数结构，使得我们可以进行线性组合、生成子空间、求解线性方程组等一系列操作。\n\n### 🛠️ 技术实现/方法论\n\n为了验证某个集合是否构成向量空间，必须逐条检验上述公理。例如，考虑函数集合 $ C[a,b] $（闭区间 $[a,b]$ 上的所有连续函数），定义加法为函数相加，标量乘法为常数倍函数，则可以严格验证该集合满足所有向量空间公理。\n\n另一个例子是多项式空间 $ P_n(\\mathbb{R}) $，即次数不超过 $ n $ 的实系数多项式集合。定义加法和标量乘法为常规运算，同样可验证其满足向量空间的定义。\n\n### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"定义集合V\"] --> B[\"定义加法+\"]\n    B --> C[\"定义标量乘法·\"]\n    C --> D[\"验证加法封闭性\"]\n    D --> E[\"验证加法交换律\"]\n    E --> F[\"验证加法结合律\"]\n    F --> G[\"验证零向量存在性\"]\n    G --> H[\"验证负向量存在性\"]\n    H --> I[\"验证标量乘法封闭性\"]\n    I --> J[\"验证分配律1\"]\n    J --> K[\"验证分配律2\"]\n    K --> L[\"验证单位元作用\"]\n    L --> M[\"验证结合律(\"标量\")\"]\n    M --> N[\"满足全部公理 => 向量空间成立\"]\n```\n\n### 🏭 实战案例/行业应用\n\n在信号处理中，连续时间信号通常被建模为 $ L^2 $ 空间中的元素，这是一个典型的无限维向量空间。通过对信号进行线性变换（如傅里叶变换），我们实际上是在这个向量空间中寻找正交基底，从而实现信号的频谱分析。\n\n在计算机图形学中，三维空间中的点和向量构成了 $ \\mathbb{R}^3 $ 向量空间。通过矩阵表示的线性变换（如旋转、缩放和平移），可以高效地进行物体渲染和动画模拟。\n\n### ✅ 思考与挑战\n\n1. 若我们将“加法”重新定义为 $ u + v = \\max(u,v) $，那么实数集是否还能构成向量空间？请从公理角度解释。\n2. 考虑有限域 $ \\mathbb{F}_p $ 上的向量空间 $ (\\mathbb{F}_p)^n $，其维度是多少？它与实数域上的 $ \\mathbb{R}^n $ 在结构上有何异同？\n\n---\n\n### 参考文献\n\n- Axler, S. (2015). *Linear Algebra Done Right*. Springer.\n- Lay, D. C., McDonald, J., & Strang, G. (2021). *Linear Algebra and Its Applications*. Pearson.\n- Rudin, W. (1976). *Principles of Mathematical Analysis*. McGraw-Hill.",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "6c65ee5d-61da-46a9-87ab-da5c1240d1f8",
@@ -537,7 +563,8 @@
       "node_name": "1.3.1 子空间的定义",
       "node_level": 3,
       "node_content": "<!-- BODY_START -->\n\n### 1.3.1 子空间的定义\n\n#### 💡 核心概念与背景\n\n在向量空间理论中，**子空间（Subspace）** 是一个基本而重要的结构。它本质上是向量空间的一个“内嵌”部分，继承了原空间的线性运算和代数性质。更严格地说，如果 $ V $ 是一个向量空间，那么 $ W \\subseteq V $ 是其子空间，当且仅当 $ W $ 在加法和标量乘法下封闭，并包含零向量。\n\n子空间的概念不仅在理论上具有基础地位，也在实际应用中广泛出现，例如解空间、正交补空间、行空间、列空间等，都是对子空间的直接使用或抽象延伸。\n\n#### 🔍 深度原理/底层机制\n\n设 $ V $ 是域 $ \\mathbb{F} $ 上的向量空间，集合 $ W \\subseteq V $ 被称为 **子空间**，如果满足以下三个条件：\n\n1. **零向量存在**：$ \\vec{0} \\in W $\n2. **加法封闭性**：对于任意 $ \\vec{u}, \\vec{v} \\in W $，有 $ \\vec{u} + \\vec{v} \\in W $\n3. **标量乘法封闭性**：对于任意 $ a \\in \\mathbb{F} $ 和 $ \\vec{v} \\in W $，有 $ a\\vec{v} \\in W $\n\n这三个条件可以简化为一条等价命题：若 $ W \\neq \\emptyset $ 且对于所有 $ \\vec{u}, \\vec{v} \\in W $ 以及 $ a, b \\in \\mathbb{F} $，均有 $ a\\vec{u} + b\\vec{v} \\in W $，则 $ W $ 是 $ V $ 的子空间。\n\n子空间的引入允许我们从全局视角 $ V $ 中聚焦于局部结构 $ W $，从而将复杂问题分解到更小、更易处理的空间中进行分析。\n\n#### 🛠️ 技术实现/方法论\n\n验证某个集合是否为子空间的标准步骤如下：\n\n1. **非空性**：确认集合中至少包含零向量。\n2. **封闭性验证**：\n   - 对任意两个向量 $ \\vec{u}, \\vec{v} \\in W $，检查它们的和是否仍在 $ W $ 中；\n   - 对任意 $ a \\in \\mathbb{F} $，检查 $ a\\vec{u} \\in W $。\n\n此外，在具体构造子空间时，常通过给定向量集的线性组合来生成子空间。例如，若 $ S = \\{\\vec{v}_1, \\vec{v}_2, \\dots, \\vec{v}_k\\} \\subseteq V $，则由 $ S $ 张成的子空间记作 $ \\text{span}(S) $，即所有形如 $ a_1\\vec{v}_1 + a_2\\vec{v}_2 + \\cdots + a_k\\vec{v}_k $ 的向量组成的集合。\n\n#### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"向量空间 V\"] --> B[\"子空间 W\"]\n    B --> C[\"W 包含零向量\"]\n    B --> D[\"W 对加法封闭\"]\n    B --> E[\"W 对标量乘法封闭\"]\n    style A fill:#f9f9f9,stroke:#333\n    style B fill:#d0e6ff,stroke:#333\n    classDef subspace fill:#d0e6ff,stroke:#333;\n```\n\n#### 🏭 实战案例/行业应用\n\n在机器学习中，数据通常以高维向量的形式表示，特征提取过程往往涉及降维技术。例如，主成分分析（PCA）的核心思想就是找到一个低维子空间，使得原始数据在这个子空间中的投影保留了最大的方差信息。该子空间即是由协方差矩阵的前几个最大特征向量张成的。\n\n在计算机图形学中，变换操作（如旋转、缩放）常常作用于特定的子空间。例如，三维物体的旋转通常发生在某二维平面（即子空间）上，这种几何解释依赖于对子空间的理解和构造。\n\n#### ✅ 思考与挑战\n\n1. 如果 $ W_1 $ 和 $ W_2 $ 是向量空间 $ V $ 的两个子空间，问 $ W_1 \\cup W_2 $ 是否一定是子空间？如果不是，请举反例并说明原因。\n2. 给定一个有限维向量空间 $ V $，是否存在无限多个互不相同的子空间？请结合维度理论进行讨论。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "2c44137a-cd49-4282-b1b4-8087ef45be41",
@@ -561,7 +588,8 @@
       "node_name": "1.3.4 线性组合生成的子空间",
       "node_level": 3,
       "node_content": "<!-- BODY_START -->\n\n# 1.3.4 线性组合生成的子空间\n\n## 💡 核心概念与背景\n\n在向量空间理论中，**线性组合**（linear combination）是构造子空间的基础工具。给定一个向量集合 $ S = \\{ \\mathbf{v}_1, \\mathbf{v}_2, \\dots, \\mathbf{v}_k \\} \\subseteq V $，其中 $ V $ 是一个定义在数域 $ \\mathbb{F} $ 上的向量空间，则由这些向量的所有线性组合所构成的集合称为 **由 $ S $ 生成的子空间**（span of $ S $），记作：\n\n$$\n\\text{span}(S) = \\left\\{ a_1 \\mathbf{v}_1 + a_2 \\mathbf{v}_2 + \\cdots + a_k \\mathbf{v}_k \\mid a_i \\in \\mathbb{F} \\right\\}\n$$\n\n该集合是 $ V $ 的最小子空间，包含所有 $ \\mathbf{v}_i $。理解线性组合生成子空间，对于后续讨论基底、维数以及解空间结构至关重要。\n\n---\n\n## 🔍 深度原理/底层机制\n\n### 1. 子空间性质验证\n\n要证明 $ \\text{span}(S) $ 是 $ V $ 的子空间，需验证以下三点闭包性质：\n\n- **加法封闭性**：任意两个线性组合之和仍是线性组合；\n- **标量乘法封闭性**：任意标量与线性组合的乘积仍为线性组合；\n- **非空性**：零向量 $ \\mathbf{0} $ 属于 $ \\text{span}(S) $，因为可取所有系数为 0。\n\n因此，$ \\text{span}(S) $ 构成一个合法的子空间。\n\n### 2. 向量集的“张力”（Spanning）\n\n若 $ \\text{span}(S) = V $，则称 $ S $ **张满** $ V $，即 $ S $ 是 $ V $ 的一个**生成集**（spanning set）。生成集不一定唯一，也不一定线性无关。例如，在 $ \\mathbb{R}^3 $ 中，三个不共面的向量即可张满整个空间。\n\n### 3. 数学表达形式\n\n设 $ S = \\{ \\mathbf{v}_1, \\dots, \\mathbf{v}_k \\} $，则任意向量 $ \\mathbf{x} \\in \\text{span}(S) $ 可表示为：\n\n$$\n\\mathbf{x} = \\sum_{i=1}^{k} a_i \\mathbf{v}_i,\\quad a_i \\in \\mathbb{F}\n$$\n\n此式体现了向量空间中的**线性合成能力**，也是后续线性系统建模的核心思想之一。\n\n---\n\n## 🛠️ 技术实现/方法论\n\n### 构造生成子空间的步骤\n\n1. 给定向量集合 $ S = \\{ \\mathbf{v}_1, \\dots, \\mathbf{v}_k \\} $\n2. 对任意标量 $ a_1, \\dots, a_k \\in \\mathbb{F} $，计算其线性组合：\n   $$\n   \\mathbf{x} = a_1 \\mathbf{v}_1 + \\cdots + a_k \\mathbf{v}_k\n   $$\n3. 所有满足上述形式的 $ \\mathbf{x} $ 构成 $ \\text{span}(S) $\n\n### 示例：二维空间中的生成子空间\n\n设 $ \\mathbf{v}_1 = (1, 0), \\mathbf{v}_2 = (0, 1) $，则：\n\n$$\n\\text{span}(\\{ \\mathbf{v}_1, \\mathbf{v}_2 \\}) = \\{ (a, b) \\mid a, b \\in \\mathbb{R} \\} = \\mathbb{R}^2\n$$\n\n若去掉其中一个向量，比如只保留 $ \\mathbf{v}_1 $，则生成子空间为 x 轴，维度为 1。\n\n---\n\n## 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"向量集合 S\"] -->|线性组合| B[\"span(\"S\")\"]\n    B --> C[\"是否等于 V?\"]\n    C -->|是| D[\"S 张满 V\"]\n    C -->|否| E[\"S 不张满 V\"]\n```\n\n---\n\n## 🏭 实战案例/行业应用\n\n### 计算机图形学中的变换空间\n\n在计算机图形学中，物体通常通过一组顶点坐标来表示。例如，一个三角形由三个点 $ P_1, P_2, P_3 \\in \\mathbb{R}^3 $ 定义。将这些点作为向量集合 $ S $，它们的线性组合构成了三角形所在的平面（子空间）。这个平面可以用于光线投射、碰撞检测等操作。\n\n### 机器学习中的特征空间\n\n在监督学习中，样本数据通常以向量形式存储。假设每个样本是一个 $ n $ 维向量，所有训练样本构成一个集合 $ S \\subset \\mathbb{R}^n $。模型的学习过程实际上是在寻找一个能覆盖 $ S $ 的低维子空间，从而减少冗余并提升泛化能力。\n\n---\n\n## ✅ 思考与挑战\n\n1. 设 $ S = \\{ \\mathbf{v}_1, \\mathbf{v}_2 \\} \\subset \\mathbb{R}^3 $，且 $ \\mathbf{v}_1 $ 与 $ \\mathbf{v}_2 $ 线性无关。试问 $ \\text{span}(S) $ 是否必然是一个平面？请解释。\n2. 若 $ S $ 是一个有限集合，但 $ \\text{span}(S) $ 是无限维的，这种情况是否可能？请说明理由。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "776185d2-eb44-4c00-984d-de88197f2afa",
@@ -681,7 +709,8 @@
       "node_name": "1.6.1 线性无关性的形式化定义",
       "node_level": 3,
       "node_content": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n**线性无关性**是向量空间理论中的核心概念之一，它用于刻画一组向量之间是否存在非平凡的线性组合关系。具体而言，若一组向量中任一向量都不能表示为其余向量的线性组合，则称这组向量是线性无关的。该概念在基底构造、解空间分析及矩阵秩的判定中具有基础地位。\n\n---\n\n### 🔍 深度原理/底层机制\n\n设 $ V $ 是一个域 $ \\mathbb{F} $ 上的向量空间，$ \\mathbf{v}_1, \\mathbf{v}_2, \\ldots, \\mathbf{v}_n \\in V $ 为一组向量。我们定义其**线性无关性**如下：\n\n> **定义（线性无关）**：  \n> 若只有当所有标量 $ a_1, a_2, \\ldots, a_n \\in \\mathbb{F} $ 均为零时，才满足\n> $$\na_1\\mathbf{v}_1 + a_2\\mathbf{v}_2 + \\cdots + a_n\\mathbf{v}_n = \\mathbf{0},\n$$\n> 则称这组向量 $ \\{\\mathbf{v}_1, \\mathbf{v}_2, \\ldots, \\mathbf{v}_n\\} $ 线性无关。否则，称为**线性相关**。\n\n这一定义本质上是对齐次线性方程组唯一解条件的抽象化表达。换句话说，如果存在一组不全为零的系数使得上述等式成立，那么就存在非平凡的线性依赖关系。\n\n从代数角度，我们可以将上述条件转化为矩阵形式。令 $ A = [\\mathbf{v}_1\\ \\mathbf{v}_2\\ \\cdots\\ \\mathbf{v}_n] $ 为由这些向量作为列组成的矩阵，则上述等价于判断齐次系统：\n$$\nA\\mathbf{x} = \\mathbf{0}\n$$\n是否有**非零解**。若有，则向量组线性相关；否则线性无关。\n\n---\n\n### 🛠️ 技术实现/方法论\n\n为了判断一组向量是否线性无关，通常采用以下步骤：\n\n1. 构造以这些向量为列的矩阵 $ A $；\n2. 对矩阵 $ A $ 进行行简化阶梯形（RREF）变换；\n3. 观察主元位置的数量（即秩）；\n4. 如果主元个数等于向量个数 $ n $，则线性无关；否则线性相关。\n\n此外，可以通过行列式进行判断（仅适用于方阵情形）：\n\n- 若 $ \\det(A) \\neq 0 $，则 $ A $ 的列向量线性无关；\n- 若 $ \\det(A) = 0 $，则列向量线性相关。\n\n---\n\n### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"输入向量集合 {\"v1,v2,...,vn\"}\"] --> B[\"构造矩阵 A\"]\n    B --> C[\"执行 RREF 或 SVD 分解\"]\n    C --> D{\"主元数量 == n?\"}\n    D -- 是 --> E[\"线性无关\"]\n    D -- 否 --> F[\"线性相关\"]\n\n    style A fill:#f9f,stroke:#333\n    style E fill:#cfc,stroke:#333\n    style F fill:#fcc,stroke:#333\n```\n\n---\n\n### 🏭 实战案例/行业应用\n\n在信号处理中，稀疏编码（Sparse Coding）模型假设信号可以由少量基向量的线性组合构成。例如，在图像去噪任务中，若基向量集线性无关，则可以保证唯一解的存在性，从而提升重建精度。\n\n另一个典型场景是通信系统的信道估计问题。接收信号可以建模为噪声干扰下的线性方程组，若发送端所用的信号向量是线性无关的，则系统可以更稳定地恢复原始信息。\n\n---\n\n### ✅ 思考与挑战\n\n1. 设 $ \\mathbf{v}_1, \\mathbf{v}_2, \\mathbf{v}_3 \\in \\mathbb{R}^3 $，其中 $ \\mathbf{v}_3 = \\mathbf{v}_1 + 2\\mathbf{v}_2 $。试证明这三者线性相关。\n2. 若 $ \\dim(V) = n $，且有一组向量 $ \\{\\mathbf{v}_1, \\ldots, \\mathbf{v}_m\\} $ 在 $ V $ 中线性无关，问 $ m $ 的最大可能值是多少？为什么？\n\n---",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "0aa100e0-a5c7-4a64-b520-5c890b61f76e",
@@ -865,7 +894,8 @@
       "node_name": "2.3.1 同构映射的定义与基本性质",
       "node_level": 3,
       "node_content": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n**同构映射（Isomorphism）** 是线性代数中刻画向量空间“结构相同”的核心工具。它不仅是连接不同向量空间的桥梁，也是理解线性变换本质的重要视角。一个 **同构映射** 是一种可逆的线性映射，即它既保持了向量加法和标量乘法的结构，又具有双射性质。\n\n在数学上，若存在从向量空间 $ V $ 到 $ W $ 的线性映射 $ T: V \\to W $，且 $ T $ 为双射，则称 $ T $ 为 **同构映射**，记作 $ V \\cong W $，并称 $ V $ 和 $ W $ **同构**。这种关系表明两个向量空间在代数结构上是“等价”的，尽管它们可能定义在不同的域或物理背景中。\n\n### 🔍 深度原理/底层机制\n\n要判断一个线性映射是否为同构映射，需满足以下三个条件：\n\n1. **线性性（Linearity）**：对于所有 $ u, v \\in V $ 和 $ a \\in \\mathbb{F} $，有：\n   $$\n   T(u + v) = T(u) + T(v), \\quad T(a v) = a T(v)\n   $$\n\n2. **单射（Injectivity）**：若 $ T(u) = T(v) $，则 $ u = v $，即 $ \\ker(T) = \\{0\\} $\n\n3. **满射（Surjectivity）**：对任意 $ w \\in W $，存在 $ v \\in V $ 使得 $ T(v) = w $，即 $ \\mathrm{im}(T) = W $\n\n结合 **秩-零度定理**（Rank-Nullity Theorem），我们可以进一步分析：\n\n$$\n\\dim(V) = \\dim(\\ker(T)) + \\dim(\\mathrm{im}(T))\n$$\n\n若 $ T $ 为同构映射，则 $ \\dim(\\ker(T)) = 0 $，且 $ \\dim(\\mathrm{im}(T)) = \\dim(W) $，从而推出 $ \\dim(V) = \\dim(W) $。因此，在有限维向量空间中，**两个向量空间同构当且仅当它们的维度相等，并且存在一个可逆的线性映射将其连接**。\n\n### 🛠️ 技术实现/方法论\n\n构造一个同构映射通常涉及如下步骤：\n\n1. **选择基底**：在 $ V $ 中选取一组基 $ \\{v_1, v_2, ..., v_n\\} $，在 $ W $ 中选取一组基 $ \\{w_1, w_2, ..., w_n\\} $。\n2. **定义映射**：定义 $ T(v_i) = w_i $ 对每个基向量成立。\n3. **验证线性性**：通过线性组合验证 $ T $ 是否保持向量运算。\n4. **验证可逆性**：检查 $ T $ 是否为双射（核为空，像为全空间）。\n\n若上述条件满足，则 $ T $ 为同构映射，且其矩阵表示必然是可逆的方阵。\n\n### 🎨 可视化图解\n\n```mermaid\ngraph TD\n    A[\"V\"] -->|T| B[\"W\"]\n    C[\"Basis of V: {\"v₁,v₂,...,vₙ\"}\"] --> D[\"Basis of W: {\"w₁,w₂,...,wₙ\"}\"]\n    D --> E[\"T(\"vᵢ\")=wᵢ for all i\"]\n    E --> F[\"T is linear and bijective\"]\n    F --> G[\"T is an isomorphism\"]\n```\n\n### 🏭 实战案例/行业应用\n\n在计算机图形学中，同构映射的概念广泛应用于坐标系转换。例如，在三维建模软件中，模型顶点从局部坐标系到世界坐标系的变换，本质上是一个同构映射。该映射由旋转、平移和缩放组成的仿射变换构成，但在忽略平移分量时，其线性部分构成了一个同构映射，确保了模型形状不变形地传递到新的坐标框架下。\n\n在机器学习中，特征空间之间的同构性保证了模型在不同数据表示间的泛化能力。例如，在神经网络中，若输入层与隐藏层之间存在同构映射，意味着信息在层次间完整保留，不会因非线性激活函数而丢失关键结构。\n\n### ✅ 思考与挑战\n\n1. 设 $ V $ 和 $ W $ 均为 $ n $ 维向量空间，是否存在多个不同的同构映射？请举例说明，并讨论其几何意义。\n2. 若 $ T: V \\to W $ 是同构映射，且 $ S: W \\to U $ 是另一个同构映射，则复合映射 $ S \\circ T $ 是否仍是同构映射？请给出证明。",
-      "node_type": "custom"
+      "node_type": "custom",
+      "is_read": true
     },
     {
       "node_id": "5deb4c62-ff05-4608-9a97-1ab1d8d53b67",

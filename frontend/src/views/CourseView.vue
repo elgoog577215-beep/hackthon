@@ -9,70 +9,6 @@
       </div>
     </Transition>
 
-    <!-- Floating Toggle Buttons (Mobile/Tablet) -->
-    <Transition name="slide-in-left">
-      <div v-if="showLeftToggle" class="fixed left-4 z-[60]" :style="{ top: toggleButtonTop }">
-          <button 
-            @click="toggleLeftSidebar" 
-            class="toggle-button"
-            :class="{ 'toggle-button-active': leftVisible }"
-            :title="leftVisible ? '收起目录' : '展开目录'"
-            :aria-expanded="leftVisible"
-            aria-label="切换目录侧栏"
-          >
-              <el-icon :size="18"><Menu /></el-icon>
-              <span v-if="!leftVisible" class="ml-1.5 text-xs font-medium hidden sm:inline">目录</span>
-          </button>
-      </div>
-    </Transition>
-    
-    <Transition name="slide-in-right">
-      <div v-if="showRightToggle" class="fixed right-4 z-[60]" :style="{ top: toggleButtonTop }">
-          <button 
-            @click="toggleRightSidebar" 
-            class="toggle-button"
-            :class="{ 'toggle-button-active': rightVisible }"
-            :title="rightVisible ? '收起助手' : '展开助手'"
-            :aria-expanded="rightVisible"
-            aria-label="切换AI助手侧栏"
-          >
-              <span v-if="!rightVisible" class="mr-1.5 text-xs font-medium hidden sm:inline">AI</span>
-              <el-icon :size="18"><ChatDotRound /></el-icon>
-          </button>
-      </div>
-    </Transition>
-
-    <!-- Floating Stats Button -->
-    <Transition name="slide-in-right">
-      <div v-if="!courseStore.isFocusMode" class="fixed right-4 z-[60]" :style="{ top: statsButtonTop }">
-          <button 
-            @click="showLearningStats = true" 
-            class="toggle-button toggle-button-stats"
-            :class="{ 'toggle-button-active': showLearningStats }"
-            title="学习统计"
-            aria-label="查看学习统计"
-          >
-              <el-icon :size="18"><TrendCharts /></el-icon>
-              <span v-if="completionRate > 0" class="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
-                {{ completionRate }}%
-              </span>
-          </button>
-      </div>
-    </Transition>
-
-    <!-- Exit Focus Mode Button -->
-    <Transition name="fade-scale">
-      <div v-if="courseStore.isFocusMode" class="fixed top-4 right-4 z-[100]">
-          <button 
-            @click="courseStore.toggleFocusMode()" 
-            class="px-4 py-2 bg-white/90 backdrop-blur-md text-slate-700 rounded-xl shadow-lg border border-slate-200/60 flex items-center gap-2 hover:bg-white hover:shadow-xl transition-all"
-            title="退出专注模式 (Ctrl+Shift+F)"
-          >
-              <el-icon :size="16"><Close /></el-icon>
-              <span class="text-sm font-medium">退出专注模式</span>
-          </button>
-      </div>
-    </Transition>
 
     <!-- Main Content Area -->
     <div class="main-content-wrapper" :class="{ 'with-smart-bar': !courseStore.isFocusMode }">
@@ -95,14 +31,13 @@
       <!-- Left Sidebar Collapse Indicator -->
       <Transition name="fade">
         <div v-if="!leftVisible && !isMobile && !courseStore.isFocusMode" 
-             class="absolute left-3 top-1/2 -translate-y-1/2 z-20">
+             class="flex-shrink-0 z-20 flex items-start" style="padding-top: 12px;">
             <button 
                 @click="expandLeft" 
                 class="collapse-indicator"
                 title="展开目录 (Ctrl+1)"
             >
-                <el-icon :size="16"><ArrowRight /></el-icon>
-                <span class="text-xs font-medium text-slate-400 ml-1">目录</span>
+                <el-icon :size="14"><DArrowRight /></el-icon>
             </button>
         </div>
       </Transition>
@@ -136,74 +71,21 @@
         ]"
       />
 
-      <!-- Right Resizer -->
-      <div 
-        v-if="showRightResizer"
-        class="w-1 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative transition-all duration-200 hover:w-2 hover:-mr-0.5"
-        @mousedown="startResizeRight"
-        @touchstart="startResizeRight"
-        @dblclick="resetRightSidebar"
-      >
-          <div class="absolute inset-y-4 w-px bg-white/0 group-hover:bg-primary-300/50 transition-colors duration-300"></div>
-          <div class="w-0.5 h-10 rounded-full bg-slate-300/40 backdrop-blur-sm group-hover:bg-primary-400 group-hover:h-12 group-hover:w-1 group-hover:shadow-[0_0_8px_rgba(139,92,246,0.4)] transition-all duration-300"></div>
-      </div>
 
-      <!-- Right Sidebar (AI Assistant) -->
-      <Transition :name="sidebarTransition">
-        <div
-          v-show="rightVisible && !courseStore.isFocusMode"
-          :style="{ width: isMobile ? '85%' : rightSidebarWidth + 'px' }"
-          :class="[
-            'flex-shrink-0 overflow-hidden h-full relative glass-panel rounded-none xl:rounded-2xl',
-            isMobile ? 'fixed right-0 top-0 bottom-0 z-50 bg-white shadow-2xl' : 'z-20',
-            isResizingRight ? '!transition-none' : 'transition-all duration-300 ease-out'
-          ]"
-        >
-          <!-- Collapse Button -->
-          <button 
-            v-if="!isMobile"
-            @click="collapseRight"
-            class="absolute top-3 left-2 z-40 w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-all duration-200 hover:scale-105"
-            title="收起 (Ctrl+3)"
-          >
-            <el-icon :size="16"><ArrowLeft /></el-icon>
-          </button>
-
-          <ChatPanel class="h-full" />
-        </div>
-      </Transition>
-
-      <!-- Right Sidebar Collapse Indicator -->
-      <Transition name="fade">
-        <div v-if="!rightVisible && !isMobile && !courseStore.isFocusMode" 
-             class="absolute right-3 top-1/2 -translate-y-1/2 z-20">
-            <button 
-                @click="expandRight" 
-                class="collapse-indicator"
-                title="展开助手 (Ctrl+3)"
-            >
-                <span class="text-xs font-medium text-slate-400 mr-1">AI</span>
-                <el-icon :size="16"><ArrowLeft /></el-icon>
-            </button>
-        </div>
-      </Transition>
     </div>
 
     <!-- Smart Bar (Bottom) -->
     <SmartBar 
       v-if="!courseStore.isFocusMode"
       :notes-count="notesCount"
-      :wrong-answers-count="wrongAnswersCount"
+      :wrong-count="wrongAnswersCount"
       :notes="noteStore.notes"
-      :wrong-answers="reviewStore.wrongAnswers"
+      :current-location="readingLocation"
       @start-quiz="handleStartQuiz"
-      @summarize="handleSummarize"
       @show-stats="handleShowStats"
       @show-graph="handleShowGraph"
+      @show-wrong-answers="handleShowWrongAnswers"
       @view-all-notes="handleViewAllNotes"
-      @view-all-wrong-answers="handleViewAllWrongAnswers"
-      @retry-wrong="handleRetryWrong"
-      @retry-all-wrong="handleRetryAllWrong"
       @locate-note="handleLocateNote"
     />
 
@@ -235,6 +117,21 @@
       </Transition>
     </Teleport>
 
+    <!-- Notes Modal -->
+    <Teleport to="body">
+      <Transition name="fade-scale">
+        <div v-if="showNotesPanel" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="showNotesPanel = false"></div>
+          <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+            <button @click="showNotesPanel = false" class="absolute top-4 right-4 z-10 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all">
+              <el-icon :size="20"><Close /></el-icon>
+            </button>
+            <NotesPanel ref="notesPanelRef" class="flex-1 min-h-0" @locate="handleLocateFromPanel" />
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- Keyboard Shortcuts Help -->
     <KeyboardShortcutsHelp ref="shortcutsHelpRef" />
   </div>
@@ -243,18 +140,18 @@
 <script setup lang="ts">
 import CourseTree from '../components/CourseTree.vue'
 import ContentArea from '../components/ContentArea.vue'
-import ChatPanel from '../components/ChatPanel.vue'
 import LearningStats from '../components/LearningStats.vue'
 import SmartBar from '../components/SmartBar.vue'
+import NotesPanel from '../components/NotesPanel.vue'
 import KeyboardShortcutsHelp from '../components/KeyboardShortcutsHelp.vue'
 import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
 import { useLearningStore } from '../stores/learning'
 import { useReviewStore } from '../stores/review'
 import { useGenerationStore } from '../stores/generation'
-import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
+import { onMounted, onUnmounted, ref, computed, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { Menu, ChatDotRound, ArrowLeft, ArrowRight, TrendCharts, Close } from '@element-plus/icons-vue'
+import { DArrowRight, TrendCharts, Close } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 const courseStore = useCourseStore()
@@ -309,8 +206,6 @@ const leftVisible = ref(savedState.leftVisible)
 const rightVisible = ref(savedState.rightVisible)
 const leftSidebarWidth = ref(savedState.leftWidth)
 const rightSidebarWidth = ref(savedState.rightWidth)
-const activeRightTab = ref<'chat' | 'notes' | 'quiz'>('chat')
-
 const debounce = <T extends (...args: any[]) => any>(fn: T, delay: number): ((...args: Parameters<T>) => void) => {
   let timer: number | null = null
   return (...args: Parameters<T>) => {
@@ -342,52 +237,18 @@ const showOverlay = computed(() => {
   return isMobile.value && (mobileLeftOpen.value || mobileRightOpen.value)
 })
 
-const toggleButtonTop = computed(() => {
-  return isMobile.value ? '5rem' : '1rem'
-})
-
-const statsButtonTop = computed(() => {
-  return isMobile.value ? '8rem' : '4rem'
-})
-
 // Learning stats modal
 const showLearningStats = ref(false)
-
-// Completion rate for stats button badge
-const completionRate = computed(() => {
-  const totalNodes = courseStore.courseTree.length
-  const completedCount = learningStore.learningStats.completedNodes.length
-  if (totalNodes === 0) return 0
-  return Math.round((completedCount / totalNodes) * 100)
-})
-
-// Show toggle buttons when sidebar is hidden or in mobile/tablet mode
-const showLeftToggle = computed(() => {
-  if (courseStore.isFocusMode) return false
-  if (isMobile.value) return true
-  if (isTablet.value) return true
-  return !leftVisible.value
-})
-
-const showRightToggle = computed(() => {
-  if (courseStore.isFocusMode) return false
-  if (isMobile.value) return true
-  if (isTablet.value) return true
-  return !rightVisible.value
-})
+const showNotesPanel = ref(false)
 
 // Show resizers
 const showLeftResizer = computed(() => {
   return !isMobile.value && leftVisible.value && !courseStore.isFocusMode
 })
 
-const showRightResizer = computed(() => {
-  return !isMobile.value && rightVisible.value && !courseStore.isFocusMode
-})
-
 // Transition name based on screen size
 const sidebarTransition = computed(() => {
-  return isMobile.value ? 'slide-in-left' : 'fade'
+  return 'slide-in-left'
 })
 
 // Sidebar control functions
@@ -400,15 +261,6 @@ const toggleLeftSidebar = () => {
   }
 }
 
-const toggleRightSidebar = () => {
-  if (isMobile.value) {
-    mobileRightOpen.value = !mobileRightOpen.value
-    if (mobileRightOpen.value) mobileLeftOpen.value = false
-  } else {
-    rightVisible.value = !rightVisible.value
-  }
-}
-
 const expandLeft = () => {
   leftVisible.value = true
   mobileLeftOpen.value = true
@@ -417,16 +269,6 @@ const expandLeft = () => {
 const collapseLeft = () => {
   leftVisible.value = false
   mobileLeftOpen.value = false
-}
-
-const expandRight = () => {
-  rightVisible.value = true
-  mobileRightOpen.value = true
-}
-
-const collapseRight = () => {
-  rightVisible.value = false
-  mobileRightOpen.value = false
 }
 
 const closeAllSidebars = () => {
@@ -442,7 +284,6 @@ const handleNodeSelected = () => {
 
 // Resize handlers with touch support
 const isResizingLeft = ref(false)
-const isResizingRight = ref(false)
 
 const startResizeLeft = (e: MouseEvent | TouchEvent) => {
     isResizingLeft.value = true
@@ -471,35 +312,6 @@ const startResizeLeft = (e: MouseEvent | TouchEvent) => {
 
 const resetLeftSidebar = () => {
     leftSidebarWidth.value = screenWidth.value < SCREEN_XL ? 280 : 300
-}
-
-const startResizeRight = (e: MouseEvent | TouchEvent) => {
-    isResizingRight.value = true
-    const startX = 'touches' in e ? (e.touches[0]?.clientX ?? 0) : e.clientX
-    const startWidth = rightSidebarWidth.value
-
-    const onMove = (e: MouseEvent | TouchEvent) => {
-        const currentX = 'touches' in e ? (e.touches[0]?.clientX ?? 0) : e.clientX
-        const delta = startX - currentX
-        rightSidebarWidth.value = Math.max(280, Math.min(480, startWidth + delta))
-    }
-
-    const onEnd = () => {
-        isResizingRight.value = false
-        document.removeEventListener('mousemove', onMove as any)
-        document.removeEventListener('mouseup', onEnd)
-        document.removeEventListener('touchmove', onMove as any)
-        document.removeEventListener('touchend', onEnd)
-    }
-
-    document.addEventListener('mousemove', onMove as any)
-    document.addEventListener('mouseup', onEnd)
-    document.addEventListener('touchmove', onMove as any, { passive: true })
-    document.addEventListener('touchend', onEnd)
-}
-
-const resetRightSidebar = () => {
-    rightSidebarWidth.value = 320
 }
 
 const handlePreferredWidth = (width: number) => {
@@ -534,8 +346,8 @@ const handleKeydown = (e: KeyboardEvent) => {
         }
         break
       case '3':
+        // AI assistant is now a global floating component
         e.preventDefault()
-        toggleRightSidebar()
         break
       case 'k':
         // Ctrl+K: Focus search in course tree
@@ -649,9 +461,31 @@ watch(() => route.params.courseId, (newCourseId, oldCourseId) => {
 
 // SmartBar computed properties
 const notesCount = computed(() => noteStore.notes?.length || 0)
-const wrongAnswersCount = computed(() => reviewStore.wrongAnswers?.length || 0)
+const wrongAnswersCount = computed(() => {
+  const structuredCount = reviewStore.wrongAnswers?.length || 0
+  const structuredQuestions = new Set((reviewStore.wrongAnswers || []).map(w => w.question))
+  const legacyCount = (noteStore.notes || [])
+    .filter(n => n.sourceType === 'wrong' && !structuredQuestions.has(n.quote || ''))
+    .length
+  return structuredCount + legacyCount
+})
+
+// Reading location indicator
+const parentNodeName = computed(() => {
+  const node = courseStore.currentNode
+  if (!node?.parent_node_id) return ''
+  const parent = courseStore.nodes.find(n => n.node_id === node.parent_node_id)
+  return parent?.node_name || ''
+})
+
+const readingLocation = computed(() => {
+  const node = courseStore.currentNode
+  if (!node) return ''
+  return parentNodeName.value ? `${parentNodeName.value} · ${node.node_name}` : node.node_name
+})
 
 const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
+const notesPanelRef = ref<InstanceType<typeof NotesPanel> | null>(null)
 
 // SmartBar event handlers
 const handleStartQuiz = () => {
@@ -662,11 +496,8 @@ const handleStartQuiz = () => {
   contentAreaRef.value?.startQuiz(courseStore.currentNode)
 }
 
-const handleSummarize = () => {
-  courseStore.quickSummarize()
-}
-
 const handleShowStats = () => {
+  flushStudyTime() // record accumulated time before showing stats
   showLearningStats.value = true
 }
 
@@ -675,37 +506,100 @@ const handleShowGraph = () => {
 }
 
 const handleViewAllNotes = () => {
-  courseStore.isMobileNotesVisible = true
+  showNotesPanel.value = true
 }
 
-const handleViewAllWrongAnswers = () => {
-  courseStore.isMobileNotesVisible = true
-}
-
-const handleRetryWrong = (_item: any) => {
-  if (!courseStore.currentNode) {
-    ElMessage.warning('请先选择一个章节')
-    return
-  }
-  contentAreaRef.value?.startQuiz(courseStore.currentNode)
-}
-
-const handleRetryAllWrong = () => {
-  activeRightTab.value = 'chat'
-  if (!rightVisible.value) {
-    rightVisible.value = true
-  }
+const handleShowWrongAnswers = () => {
+  showNotesPanel.value = true
+  nextTick(() => {
+    notesPanelRef.value?.setTab('wrong')
+  })
 }
 
 const handleLocateNote = (note: any) => {
   if (note.nodeId) {
-    courseStore.selectNode(note.nodeId)
-    // Scroll to the note's highlight in content area
+    const node = courseStore.nodes.find(n => n.node_id === note.nodeId)
+    if (node) courseStore.selectNode(node)
     setTimeout(() => {
-      noteStore.scrollToNote(note.id)
+      courseStore.scrollToNote(note.id)
     }, 100)
   }
 }
+
+const handleLocateFromPanel = (note: any) => {
+  showNotesPanel.value = false
+  handleLocateNote(note)
+}
+
+// ========== Study Time Tracking ==========
+let studyStartTime: number | null = null
+let studyNodeId: string | null = null
+let studyTickHandle: number | null = null
+
+const flushStudyTime = () => {
+  if (studyStartTime && studyNodeId) {
+    const elapsed = Math.floor((Date.now() - studyStartTime) / 1000) // seconds
+    if (elapsed > 0) {
+      courseStore.recordStudyTime(elapsed, studyNodeId)
+      studyStartTime = Date.now()
+    }
+  }
+}
+
+const startStudyTimer = (nodeId: string) => {
+  flushStudyTime() // flush previous node's time
+  studyStartTime = Date.now()
+  studyNodeId = nodeId
+
+  // Periodic flush every 15 seconds to keep stats fresh
+  if (studyTickHandle !== null) clearInterval(studyTickHandle)
+  studyTickHandle = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      flushStudyTime()
+    }
+  }, 15000)
+}
+
+const stopStudyTimer = () => {
+  flushStudyTime()
+  studyStartTime = null
+  studyNodeId = null
+  if (studyTickHandle !== null) {
+    clearInterval(studyTickHandle)
+    studyTickHandle = null
+  }
+}
+
+// Track node switches — mark as completed when content exists
+watch(() => courseStore.currentNode, (node) => {
+  if (node && node.node_content && node.node_content.length > 50) {
+    courseStore.markNodeAsCompleted(node.node_id)
+    courseStore.markNodeAsRead(node.node_id)
+  }
+  if (node) {
+    startStudyTimer(node.node_id)
+  } else {
+    stopStudyTimer()
+  }
+}, { immediate: true })
+
+// Pause/resume on visibility change
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible' && courseStore.currentNode) {
+    studyStartTime = Date.now() // reset start on resume
+  } else {
+    flushStudyTime()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onUnmounted(() => {
+  stopStudyTimer()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 </script>
 
 <style scoped>
@@ -735,63 +629,26 @@ const handleLocateNote = (note: any) => {
   padding-bottom: 0;
 }
 
-.toggle-button {
-  width: 40px;
-  height: 40px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e2e8f0;
-  color: #475569;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.toggle-button:hover {
-  transform: scale(1.05);
-}
-
-.toggle-button:active {
-  transform: scale(0.95);
-}
-
-@media (min-width: 640px) {
-  .toggle-button {
-    width: auto;
-    height: auto;
-    padding: 8px 12px;
-  }
-}
-
-.toggle-button-active {
-  background: rgba(99, 102, 241, 0.1);
-  border-color: rgba(99, 102, 241, 0.3);
-  color: #6366f1;
-}
-
 .collapse-indicator {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  justify-content: center;
+  width: 24px;
+  height: 48px;
+  background: #f1f5f9;
   border: 1px solid #e2e8f0;
-  color: #64748b;
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: #94a3b8;
+  cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .collapse-indicator:hover {
   color: #6366f1;
-  border-color: rgba(99, 102, 241, 0.3);
-  transform: scale(1.05);
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  width: 28px;
 }
 
 /* Fade transition */
@@ -806,12 +663,17 @@ const handleLocateNote = (note: any) => {
 }
 
 /* Slide in from left */
-.slide-in-left-enter-active,
-.slide-in-left-leave-active {
+.slide-in-left-enter-active {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+.slide-in-left-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 1, 1);
+}
 
-.slide-in-left-enter-from,
+.slide-in-left-enter-from {
+  transform: translateX(-100%);
+  opacity: 0;
+}
 .slide-in-left-leave-to {
   transform: translateX(-100%);
   opacity: 0;

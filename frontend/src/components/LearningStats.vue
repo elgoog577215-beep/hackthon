@@ -210,142 +210,6 @@
         </div>
       </div>
 
-      <!-- Learning Path Recommendations -->
-      <div class="bg-gradient-to-br from-indigo-50 to-purple-50/50 rounded-xl p-4 border border-indigo-100/60 shadow-sm">
-        <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-2">
-            <el-icon class="text-indigo-500" :size="16"><Compass /></el-icon>
-            <span class="text-sm font-semibold text-slate-700">个性化学习路径</span>
-          </div>
-          <button 
-            @click="generateLearningPath"
-            :disabled="learningStore.learningPathLoading"
-            class="text-xs px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
-          >
-            <el-icon v-if="learningStore.learningPathLoading" class="animate-spin" :size="12"><Loading /></el-icon>
-            <span>{{ learningStore.learningPathLoading ? '生成中...' : '重新生成' }}</span>
-          </button>
-        </div>
-        
-        <!-- Loading State -->
-        <div v-if="learningStore.learningPathLoading" class="py-6 text-center">
-          <el-icon class="animate-spin text-indigo-400 mb-2" :size="24"><Loading /></el-icon>
-          <p class="text-xs text-slate-500">AI正在分析你的学习数据，生成个性化路径...</p>
-        </div>
-        
-        <!-- Empty State -->
-        <div v-else-if="!learningStore.learningPath" class="py-4 text-center">
-          <div class="w-12 h-12 mx-auto mb-2 rounded-full bg-indigo-100 flex items-center justify-center">
-            <el-icon class="text-indigo-400" :size="20"><Compass /></el-icon>
-          </div>
-          <p class="text-xs text-slate-500 mb-3">基于你的学习进度和掌握情况，AI将为你推荐最优学习路径</p>
-          <button 
-            @click="generateLearningPath"
-            class="text-xs px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
-          >
-            生成学习路径
-          </button>
-        </div>
-        
-        <!-- Recommendations List -->
-        <div v-else class="space-y-3">
-          <div class="flex items-center justify-between text-xs text-slate-500 mb-2">
-            <span>为你推荐的 {{ learningStore.learningPath.recommended_nodes.length }} 个学习节点</span>
-            <span class="text-[10px]">生成于 {{ formatTimeAgo(learningStore.learningPath.generated_at) }}</span>
-          </div>
-          
-          <div v-for="(node, idx) in learningStore.learningPath.recommended_nodes.slice(0, 3)" :key="node.node_id"
-               class="group relative bg-white/70 rounded-lg p-3 border border-indigo-100/50 hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer"
-               @click="navigateToNode(node.node_id)">
-            <div class="flex items-start gap-3">
-              <div class="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold"
-                   :class="getPriorityClass(node.priority)">
-                {{ idx + 1 }}
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium text-slate-700 group-hover:text-indigo-600 transition-colors truncate">
-                  {{ node.node_name }}
-                </div>
-                <div class="text-[10px] text-slate-500 mt-0.5 line-clamp-2">
-                  {{ node.reason }}
-                </div>
-                <div class="flex items-center gap-2 mt-1.5">
-                  <span class="text-[10px] px-1.5 py-0.5 rounded-full" :class="getPriorityBadgeClass(node.priority)">
-                    {{ getPriorityLabel(node.priority) }}
-                  </span>
-                  <span v-if="node.estimated_time" class="text-[10px] text-slate-400">
-                    ⏱️ {{ node.estimated_time }}分钟
-                  </span>
-                </div>
-              </div>
-              <el-icon class="text-slate-300 group-hover:text-indigo-400 transition-colors" :size="14"><ArrowRight /></el-icon>
-            </div>
-          </div>
-          
-          <!-- View More Button -->
-          <button 
-            v-if="learningStore.learningPath.recommended_nodes.length > 3"
-            @click="showLearningPathModal = true"
-            class="w-full text-xs py-2 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
-          >
-            查看全部 {{ learningStore.learningPath.recommended_nodes.length }} 个推荐节点
-          </button>
-        </div>
-      </div>
-
-      <!-- Knowledge Mastery Overview -->
-      <div v-if="learningStore.knowledgeMastery" class="bg-gradient-to-br from-emerald-50 to-teal-50/50 rounded-xl p-4 border border-emerald-100/60 shadow-sm">
-        <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-2">
-            <el-icon class="text-emerald-500" :size="16"><TrendCharts /></el-icon>
-            <span class="text-sm font-semibold text-slate-700">知识点掌握度</span>
-          </div>
-          <div class="text-xs font-bold" :class="getMasteryColor(learningStore.knowledgeMastery.overall_mastery)">
-            {{ Math.round(learningStore.knowledgeMastery.overall_mastery * 100) }}%
-          </div>
-        </div>
-        
-        <!-- Overall Progress Bar -->
-        <div class="h-2 bg-emerald-100 rounded-full overflow-hidden mb-3">
-          <div class="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full transition-all duration-500"
-               :style="{ width: (learningStore.knowledgeMastery.overall_mastery * 100) + '%' }"></div>
-        </div>
-        
-        <!-- Strong Areas -->
-        <div v-if="learningStore.knowledgeMastery.strong_areas.length > 0" class="mb-3">
-          <div class="text-[10px] text-slate-500 mb-1.5 flex items-center gap-1">
-            <el-icon :size="10"><CircleCheck /></el-icon>
-            掌握较好 ({{ learningStore.knowledgeMastery.strong_areas.length }})
-          </div>
-          <div class="flex flex-wrap gap-1">
-            <span v-for="area in learningStore.knowledgeMastery.strong_areas.slice(0, 3)" :key="area"
-                  class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">
-              {{ area }}
-            </span>
-            <span v-if="learningStore.knowledgeMastery.strong_areas.length > 3" class="text-[10px] text-slate-400">
-              +{{ learningStore.knowledgeMastery.strong_areas.length - 3 }}
-            </span>
-          </div>
-        </div>
-        
-        <!-- Weak Areas -->
-        <div v-if="learningStore.knowledgeMastery.weak_areas.length > 0">
-          <div class="text-[10px] text-slate-500 mb-1.5 flex items-center gap-1">
-            <el-icon :size="10"><Warning /></el-icon>
-            需要加强 ({{ learningStore.knowledgeMastery.weak_areas.length }})
-          </div>
-          <div class="flex flex-wrap gap-1">
-            <span v-for="area in learningStore.knowledgeMastery.weak_areas.slice(0, 3)" :key="area"
-                  class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">
-              {{ area }}
-            </span>
-            <span v-if="learningStore.knowledgeMastery.weak_areas.length > 3" class="text-[10px] text-slate-400">
-              +{{ learningStore.knowledgeMastery.weak_areas.length - 3 }}
-            </span>
-          </div>
-        </div>
-      </div>
-
       <!-- Learning Suggestions -->
       <div class="bg-gradient-to-br from-amber-50 to-orange-50/50 rounded-xl p-4 border border-amber-100/60 shadow-sm">
         <div class="flex items-center gap-2 mb-3">
@@ -402,74 +266,6 @@
     >
       <div class="h-[70vh]">
         <KnowledgeGraph />
-      </div>
-    </el-dialog>
-
-    <!-- Learning Path Modal -->
-    <el-dialog
-      v-model="showLearningPathModal"
-      title="🧭 个性化学习路径"
-      width="90%"
-      :fullscreen="isMobile"
-      class="learning-path-dialog"
-      destroy-on-close
-    >
-      <div class="h-[70vh] overflow-y-auto custom-scrollbar p-4 space-y-6">
-        <!-- Path Header -->
-        <div class="text-center pb-6 border-b border-slate-100">
-          <div class="text-2xl font-bold text-slate-800 mb-2">为你定制的学习路径</div>
-          <div class="text-sm text-slate-500">基于你的学习进度、掌握情况和目标生成的最优学习顺序</div>
-        </div>
-
-        <!-- Path Visualization -->
-        <div class="relative">
-          <div v-for="(node, idx) in learningStore.learningPath?.recommended_nodes" :key="node.node_id"
-               class="relative flex gap-4 pb-6 last:pb-0">
-            <!-- Timeline Line -->
-            <div v-if="idx < (learningStore.learningPath?.recommended_nodes.length || 0) - 1" 
-                 class="absolute left-4 top-8 bottom-0 w-0.5 bg-gradient-to-b from-indigo-400 to-indigo-200"></div>
-            
-            <!-- Node Number -->
-            <div class="relative z-10 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                 :class="getPriorityClass(node.priority)">
-              {{ idx + 1 }}
-            </div>
-            
-            <!-- Node Content -->
-            <div class="flex-1 bg-white rounded-xl p-4 border border-slate-100 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                 @click="navigateToNode(node.node_id); showLearningPathModal = false">
-              <div class="flex items-start justify-between mb-2">
-                <h4 class="font-semibold text-slate-800">{{ node.node_name }}</h4>
-                <span class="text-xs px-2 py-1 rounded-full" :class="getPriorityBadgeClass(node.priority)">
-                  {{ getPriorityLabel(node.priority) }}
-                </span>
-              </div>
-              <p class="text-sm text-slate-600 mb-3">{{ node.reason }}</p>
-              <div class="flex items-center gap-4 text-xs text-slate-500">
-                <span v-if="node.estimated_time" class="flex items-center gap-1">
-                  <el-icon :size="12"><Clock /></el-icon>
-                  预计 {{ node.estimated_time }} 分钟
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- AI Suggestions -->
-        <div v-if="learningStore.learningPath?.suggestions?.length" 
-             class="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-100">
-          <div class="flex items-center gap-2 mb-3">
-            <el-icon class="text-amber-500" :size="18"><StarFilled /></el-icon>
-            <span class="font-semibold text-slate-700">AI 学习建议</span>
-          </div>
-          <ul class="space-y-2">
-            <li v-for="(suggestion, idx) in learningStore.learningPath.suggestions" :key="idx" 
-                class="flex items-start gap-2 text-sm text-slate-600">
-              <span class="text-amber-500 mt-0.5">•</span>
-              <span>{{ suggestion }}</span>
-            </li>
-          </ul>
-        </div>
       </div>
     </el-dialog>
 
@@ -637,7 +433,7 @@ import { useLearningStore } from '../stores/learning'
 import { useReviewStore } from '../stores/review'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
-import { TrendCharts, Trophy, Check, Clock, Calendar, Timer, CircleCheck, Medal, DocumentChecked, Connection, Download, StarFilled, Compass, Loading, ArrowRight, Warning } from '@element-plus/icons-vue'
+import { TrendCharts, Trophy, Check, Clock, Calendar, Timer, CircleCheck, Medal, DocumentChecked, Connection, Download, StarFilled } from '@element-plus/icons-vue'
 import KnowledgeGraph from './KnowledgeGraph.vue'
 
 const courseStore = useCourseStore()
@@ -648,9 +444,13 @@ const learningStats = computed(() => learningStore.learningStats)
 
 const todayTime = computed(() => learningStore.getTodayStudyTime())
 const weeklyTime = computed(() => learningStore.getWeeklyStudyTime())
-const totalTime = computed(() => learningStats.value.totalStudyTime)
+const totalTime = computed(() => {
+  const daily = learningStats.value.dailyStudyTime || {}
+  const totalSeconds = Object.values(daily).reduce((sum: number, v) => sum + (v as number), 0)
+  return Math.floor(totalSeconds / 60)
+})
 
-const totalNodes = computed(() => courseStore.courseTree.length)
+const totalNodes = computed(() => courseStore.nodes.length)
 const completedCount = computed(() => learningStats.value.completedNodes.length)
 const completionRate = computed(() => {
   if (totalNodes.value === 0) return 0
@@ -673,13 +473,21 @@ const last7Days = computed(() => {
 
 const weeklyData = computed(() => {
   const data = []
-  const values = Object.values(learningStats.value.dailyStudyTime) as number[]
-  const maxValue = Math.max(...values, 30)
+  // Collect raw seconds values and convert to minutes for display
+  const rawValues: number[] = []
+  for (let i = 6; i >= 0; i--) {
+    const date = dayjs().subtract(i, 'day')
+    const dateStr = date.format('YYYY-MM-DD')
+    const seconds = learningStats.value.dailyStudyTime[dateStr] || 0
+    rawValues.push(Math.floor(seconds / 60))
+  }
+  const maxValue = Math.max(...rawValues, 30)
 
   for (let i = 6; i >= 0; i--) {
     const date = dayjs().subtract(i, 'day')
     const dateStr = date.format('YYYY-MM-DD')
-    const minutes = learningStats.value.dailyStudyTime[dateStr] || 0
+    const seconds = learningStats.value.dailyStudyTime[dateStr] || 0
+    const minutes = Math.floor(seconds / 60)
     data.push({
       date: dateStr,
       label: date.format('dd'),
@@ -906,125 +714,10 @@ const connectionLines = computed(() => {
 // Learning Report Logic
 const showKnowledgeGraphModal = ref(false)
 const showLearningReport = ref(false)
-const showLearningPathModal = ref(false)
 
-// Generate learning path
-const generateLearningPath = async () => {
-  if (!courseStore.currentCourseId) {
-    ElMessage.warning('请先选择课程')
-    return
-  }
-  await learningStore.generateLearningPath(courseStore.currentCourseId, '', 30)
-}
-
-// Navigate to node
-const navigateToNode = (nodeId: string) => {
-  const node = courseStore.nodes.find(n => n.node_id === nodeId)
-  if (node) {
-    courseStore.selectNode(node)
-  }
-  // Scroll to node in tree
-  setTimeout(() => {
-    const element = document.querySelector(`[data-node-id="${nodeId}"]`)
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      element.classList.add('ring-2', 'ring-indigo-400')
-      setTimeout(() => element.classList.remove('ring-2', 'ring-indigo-400'), 2000)
-    }
-  }, 100)
-}
-
-// Format time ago
-const formatTimeAgo = (timestamp: number | string): string => {
-  const ts = typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp
-  const now = Date.now()
-  const diff = now - ts
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
-  
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes}分钟前`
-  if (hours < 24) return `${hours}小时前`
-  if (days < 7) return `${days}天前`
-  return dayjs(ts).format('MM-DD')
-}
-
-// Get priority class for node number
-const getPriorityClass = (priority: string | number): string => {
-  const priorityStr = String(priority)
-  switch (priorityStr) {
-    case 'high':
-    case '3':
-      return 'bg-gradient-to-br from-red-500 to-red-600 text-white'
-    case 'medium':
-    case '2':
-      return 'bg-gradient-to-br from-amber-500 to-amber-600 text-white'
-    case 'low':
-    case '1':
-      return 'bg-gradient-to-br from-emerald-500 to-emerald-600 text-white'
-    default:
-      return 'bg-gradient-to-br from-slate-400 to-slate-500 text-white'
-  }
-}
-
-// Get priority badge class
-const getPriorityBadgeClass = (priority: string | number): string => {
-  const priorityStr = String(priority)
-  switch (priorityStr) {
-    case 'high':
-    case '3':
-      return 'bg-red-100 text-red-600 border border-red-200'
-    case 'medium':
-    case '2':
-      return 'bg-amber-100 text-amber-600 border border-amber-200'
-    case 'low':
-    case '1':
-      return 'bg-emerald-100 text-emerald-600 border border-emerald-200'
-    default:
-      return 'bg-slate-100 text-slate-600 border border-slate-200'
-  }
-}
-
-// Get priority label
-const getPriorityLabel = (priority: string | number): string => {
-  const priorityStr = String(priority)
-  switch (priorityStr) {
-    case 'high':
-    case '3':
-      return '优先'
-    case 'medium':
-    case '2':
-      return '推荐'
-    case 'low':
-    case '1':
-      return '可选'
-    default:
-      return '普通'
-  }
-}
-
-// Get mastery color
-const getMasteryColor = (mastery: number): string => {
-  if (mastery >= 0.8) return 'text-emerald-600'
-  if (mastery >= 0.6) return 'text-amber-600'
-  if (mastery >= 0.4) return 'text-orange-600'
-  return 'text-red-600'
-}
-
-// Load learning path on mount
+// Load data on mount
 onMounted(() => {
   window.addEventListener('resize', handleResize)
-  
-  // Auto-generate learning path if not exists
-  if (courseStore.currentCourseId && !learningStore.learningPath && !learningStore.learningPathLoading) {
-    learningStore.generateLearningPath(courseStore.currentCourseId, '', 30)
-  }
-  
-  // Fetch knowledge mastery
-  if (courseStore.currentCourseId) {
-    learningStore.fetchKnowledgeMastery(courseStore.currentCourseId)
-  }
 })
 
 // Overall score calculation (0-100)

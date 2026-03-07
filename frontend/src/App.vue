@@ -62,53 +62,46 @@
           <!-- Divider -->
           <div class="w-px h-7 bg-gradient-to-b from-transparent via-slate-200 to-transparent"></div>
           
-          <!-- Global Search -->
-          <div class="relative">
-            <div class="relative transition-all duration-300 ease-out" :class="isSearchFocused ? 'w-64' : 'w-48'">
-              <!-- Glow Effect -->
-              <div class="absolute -inset-0.5 bg-gradient-to-r from-primary-400/0 via-primary-500/30 to-primary-400/0 rounded-2xl opacity-0 blur-md transition-all duration-300" :class="isSearchFocused ? 'opacity-100' : ''"></div>
-              
-              <div class="relative flex items-center h-9 rounded-xl transition-all duration-300 overflow-hidden glass-input"
-                   :class="isSearchFocused ? 'ring-2 ring-primary-400/20' : ''">
-                <div class="pl-3 pr-2 transition-colors duration-200" :class="isSearchFocused ? 'text-primary-500' : 'text-slate-400'">
-                  <el-icon :size="16"><Search /></el-icon>
+          <!-- Global Search (Ctrl+F style) -->
+          <div class="relative w-44">
+            <div class="absolute right-0 top-1/2 -translate-y-1/2 flex items-center h-9 rounded-full overflow-hidden gap-1.5 px-3 transition-all duration-300 border z-10"
+                 :class="isSearchFocused 
+                   ? 'bg-white shadow-lg shadow-primary-500/10 border-primary-300 w-72' 
+                   : searchQuery 
+                     ? 'bg-white/90 border-primary-200/60 shadow-sm w-64' 
+                     : 'bg-slate-100/80 border-transparent hover:bg-white/80 hover:border-slate-200 w-44'">
+              <el-icon :size="14" class="flex-shrink-0 transition-colors duration-200" :class="isSearchFocused ? 'text-primary-500' : 'text-slate-400'"><Search /></el-icon>
+              <input
+                ref="globalSearchInputRef"
+                v-model="searchQuery"
+                type="text"
+                placeholder="搜索全书... ⌘F"
+                aria-label="搜索全书内容"
+                class="bg-transparent border-none outline-none text-sm text-slate-700 placeholder:text-slate-400/70 h-full flex-1 min-w-0"
+                @focus="isSearchFocused = true"
+                @blur="isSearchFocused = false"
+                @input="onSearchInput"
+                @keydown.enter.exact.prevent="goNextMatch"
+                @keydown.enter.shift.prevent="goPrevMatch"
+                @keydown.escape.prevent="clearSearch"
+              />
+              <template v-if="searchQuery">
+                <span class="text-[11px] font-medium whitespace-nowrap flex-shrink-0 px-1.5 py-0.5 rounded-md transition-colors"
+                      :class="searchMatchTotal > 0 ? 'text-primary-600 bg-primary-50' : 'text-slate-400 bg-slate-100'">
+                  {{ searchMatchTotal > 0 ? `${searchMatchIndex + 1}/${searchMatchTotal}` : '无结果' }}
+                </span>
+                <div class="flex items-center gap-0.5 ml-0.5">
+                  <button class="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-all" title="上一个 (Shift+Enter)" @click="goPrevMatch">
+                    <el-icon :size="13"><ArrowUp /></el-icon>
+                  </button>
+                  <button class="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-all" title="下一个 (Enter)" @click="goNextMatch">
+                    <el-icon :size="13"><ArrowDown /></el-icon>
+                  </button>
+                  <button class="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all" title="清除 (Esc)" @click="clearSearch">
+                    <el-icon :size="12"><CircleClose /></el-icon>
+                  </button>
                 </div>
-                <input 
-                  :value="courseStore.globalSearchQuery"
-                  type="text"
-                  placeholder="搜索全书..."
-                  aria-label="搜索全书内容"
-                  class="flex-1 bg-transparent border-none outline-none text-sm text-slate-700 placeholder:text-slate-400 h-full pr-2"
-                  @input="handleGlobalSearch"
-                  @focus="isSearchFocused = true"
-                  @blur="isSearchFocused = false"
-                />
-                <button 
-                  v-if="courseStore.globalSearchQuery"
-                  class="mr-2 p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all"
-                  aria-label="清除搜索"
-                  @click="courseStore.globalSearchQuery = ''; globalSearchResults = []"
-                >
-                  <el-icon :size="12"><CircleClose /></el-icon>
-                </button>
-              </div>
-            </div>
-
-            <!-- Search Results Dropdown -->
-            <div v-if="globalSearchResults.length > 0" class="absolute top-full left-0 right-0 mt-3 p-2 z-50 max-h-80 overflow-auto glass-panel-elevated rounded-xl">
-              <div class="flex items-center justify-between px-3 py-2 mb-2 border-b border-slate-100">
-                <span class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">搜索结果</span>
-                <span class="text-[10px] font-medium text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">{{ globalSearchResults.length }}</span>
-              </div>
-              <div v-for="(res, idx) in globalSearchResults" :key="idx" 
-                   class="px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-200 group/item hover:bg-primary-50/50"
-                   @click="scrollToSearchResult(res.id)">
-                <div class="flex items-center justify-between">
-                  <span class="font-medium text-slate-700 text-sm truncate group-hover/item:text-primary-600 transition-colors">{{ res.title }}</span>
-                  <el-icon class="text-slate-300 group-hover/item:text-primary-400 transition-all" :size="14"><ArrowRight /></el-icon>
-                </div>
-                <p class="text-xs text-slate-500 mt-1 line-clamp-1" v-html="res.preview"></p>
-              </div>
+              </template>
             </div>
           </div>
 
@@ -177,9 +170,15 @@
               class="btn-icon"
               :class="{'!text-primary-600 !bg-primary-50 !border-primary-200': courseStore.isFocusMode}"
               @click="toggleFocusMode"
-              title="专注模式 (F)"
+              :title="courseStore.isFocusMode ? '退出专注模式 (F)' : '专注模式 (F)'"
             >
-              <el-icon :size="17"><FullScreen /></el-icon>
+              <el-icon v-if="!courseStore.isFocusMode" :size="17"><FullScreen /></el-icon>
+              <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
             </button>
 
             <!-- Export Dropdown -->
@@ -217,7 +216,7 @@
       </main>
 
       <!-- Simple Status Bar -->
-      <div class="flex-shrink-0 glass-panel rounded-none xl:rounded-2xl h-9 xl:h-10 animate-fade-in-up flex items-center justify-center gap-6 px-6 text-xs font-medium text-slate-500" style="animation-delay: 0.2s;">
+      <div v-if="!courseStore.isFocusMode" class="flex-shrink-0 glass-panel rounded-none xl:rounded-2xl h-9 xl:h-10 animate-fade-in-up flex items-center justify-center gap-6 px-6 text-xs font-medium text-slate-500" style="animation-delay: 0.2s;">
         <span>课程: {{ courseStore.courseList.length }}</span>
         <span class="w-1 h-1 rounded-full bg-slate-300"></span>
         <span>节点: {{ courseStore.nodes.length }}</span>
@@ -231,21 +230,25 @@
     <!-- Modals & Overlays -->
     <KnowledgeGraph />
     
+    <!-- Global Floating AI Assistant -->
+    <FloatingAIAssistant />
+    
     <KeyboardShortcutsHelp ref="shortcutsHelpRef" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { 
-  Search, CircleClose, ArrowRight, Connection, Setting, 
+  Search, CircleClose, ArrowUp, ArrowDown, Connection, Setting, 
   Minus, Plus, FullScreen, Download, QuestionFilled
 } from '@element-plus/icons-vue'
 
 import KnowledgeGraph from './components/KnowledgeGraph.vue'
 import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp.vue'
+import FloatingAIAssistant from './components/FloatingAIAssistant.vue'
 
 import { useCourseStore } from './stores/course'
 import { useTaskWebSocket } from './composables/useTaskWebSocket'
@@ -258,35 +261,80 @@ useTaskWebSocket()
 
 // UI State
 const isSearchFocused = ref(false)
-const globalSearchResults = ref<any[]>([])
+const searchQuery = ref('')
+const searchMatchIndex = ref(0)
+const searchMatchTotal = ref(0)
+const globalSearchInputRef = ref<HTMLInputElement | null>(null)
+let searchDebounceTimer: number | null = null
 
 // Initialize - Load course list on mount
 onMounted(async () => {
   await courseStore.fetchCourseList()
+  window.addEventListener('keydown', handleGlobalKeydown)
 })
 
-// Debounce utility
-function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): (...args: Parameters<T>) => void {
-  let timer: number | null = null
-  return (...args: Parameters<T>) => {
-    if (timer) clearTimeout(timer)
-    timer = window.setTimeout(() => fn(...args), delay)
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
+})
+
+// Ctrl+F to focus search
+function handleGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f' && courseStore.currentCourseId) {
+    e.preventDefault()
+    globalSearchInputRef.value?.focus()
+    globalSearchInputRef.value?.select()
   }
 }
 
-// Global Search Handler with debounce
-const debouncedSearch = debounce((query: string) => {
-  courseStore.globalSearchQuery = query
-  // Search logic here
-}, 300)
-
-function handleGlobalSearch(e: Event) {
-  const query = (e.target as HTMLInputElement).value
-  debouncedSearch(query)
+function onSearchInput() {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = window.setTimeout(() => {
+    courseStore.globalSearchQuery = searchQuery.value
+    // MarkdownRenderer re-renders with throttle, wait for DOM update
+    setTimeout(() => countAndJumpMatches(0), 400)
+  }, 250)
 }
 
-function scrollToSearchResult(_id: string) {
-  // Scroll logic here
+function countAndJumpMatches(targetIndex: number) {
+  const container = document.getElementById('content-scroll-container')
+  if (!container) { searchMatchTotal.value = 0; return }
+  // Wait for DOM to update highlights
+  nextTick(() => {
+    const marks = container.querySelectorAll('span.bg-yellow-200')
+    searchMatchTotal.value = marks.length
+    // Remove previous active highlight
+    container.querySelectorAll('span.search-active').forEach(el => {
+      el.classList.remove('search-active')
+    })
+    if (marks.length === 0) { searchMatchIndex.value = 0; return }
+    // Clamp index
+    const idx = ((targetIndex % marks.length) + marks.length) % marks.length
+    searchMatchIndex.value = idx
+    const active = marks[idx] as HTMLElement
+    active.classList.add('search-active')
+    active.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  })
+}
+
+function goNextMatch() {
+  if (searchMatchTotal.value === 0) return
+  countAndJumpMatches(searchMatchIndex.value + 1)
+}
+
+function goPrevMatch() {
+  if (searchMatchTotal.value === 0) return
+  countAndJumpMatches(searchMatchIndex.value - 1)
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+  courseStore.globalSearchQuery = ''
+  searchMatchTotal.value = 0
+  searchMatchIndex.value = 0
+  const container = document.getElementById('content-scroll-container')
+  container?.querySelectorAll('span.search-active').forEach(el => {
+    el.classList.remove('search-active')
+  })
 }
 
 // Focus Mode Toggle
