@@ -1,5 +1,6 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useCourseStore } from '../stores/course'
+import { useGenerationStore } from '../stores/generation'
 import { ElMessage } from 'element-plus'
 
 export interface TaskUpdateMessage {
@@ -34,6 +35,7 @@ let reconnectTimer: number | null = null
 
 export function useTaskWebSocket() {
     const courseStore = useCourseStore()
+    const genStore = useGenerationStore()
     const connectionStatus = ref<ConnectionStatus>('disconnected')
     const lastMessageTime = ref<Date | null>(null)
 
@@ -182,7 +184,7 @@ export function useTaskWebSocket() {
     const handleTaskUpdate = (payload: TaskUpdateMessage['payload']) => {
         if (!payload.courseId) return
         
-        const task = courseStore.getTask(payload.courseId)
+        const task = genStore.getTask(payload.courseId)
         if (task) {
             if (payload.status) task.status = payload.status as any
             if (payload.progress !== undefined) task.progress = payload.progress
@@ -199,7 +201,7 @@ export function useTaskWebSocket() {
     const handleTaskCompleted = (payload: TaskUpdateMessage['payload']) => {
         if (!payload.courseId) return
         
-        const task = courseStore.getTask(payload.courseId)
+        const task = genStore.getTask(payload.courseId)
         if (task) {
             task.status = 'completed'
             task.progress = 100
@@ -217,7 +219,7 @@ export function useTaskWebSocket() {
     const handleTaskError = (payload: TaskUpdateMessage['payload']) => {
         if (!payload.courseId) return
         
-        const task = courseStore.getTask(payload.courseId)
+        const task = genStore.getTask(payload.courseId)
         if (task) {
             task.status = 'error'
             if (payload.error) task.logs.push(`[${new Date().toLocaleTimeString()}] ❌ 错误: ${payload.error}`)
@@ -229,8 +231,8 @@ export function useTaskWebSocket() {
     const handleTaskCancelled = (payload: TaskUpdateMessage['payload']) => {
         if (!payload.courseId) return
         
-        courseStore.tasks.delete(payload.courseId)
-        courseStore.queue = courseStore.queue.filter(i => i.courseId !== payload.courseId)
+        genStore.tasks.delete(payload.courseId)
+        genStore.queue = genStore.queue.filter((i: any) => i.courseId !== payload.courseId)
         
         ElMessage.info('任务已取消')
     }
@@ -238,17 +240,17 @@ export function useTaskWebSocket() {
     const handleProgressUpdate = (payload: TaskUpdateMessage['payload']) => {
         if (!payload.courseId) return
         
-        const task = courseStore.getTask(payload.courseId)
+        const task = genStore.getTask(payload.courseId)
         if (task) {
             if (payload.progress !== undefined) task.progress = payload.progress
             if (payload.currentNodeName) task.currentStep = payload.currentNodeName
             
-            courseStore.generationProgress = payload.progress || 0
-            courseStore.currentGeneratingNode = payload.currentNodeName || ''
+            genStore.generationProgress = payload.progress || 0
+            genStore.currentGeneratingNode = payload.currentNodeName || ''
         }
         
-        courseStore.taskProgress = {
-            ...courseStore.taskProgress,
+        genStore.taskProgress = {
+            ...genStore.taskProgress,
             [payload.courseId]: {
                 percentage: payload.progress || 0,
                 currentNodeName: payload.currentNodeName || '',
@@ -270,7 +272,7 @@ export function useTaskWebSocket() {
 
     const handleQueueUpdate = (payload: TaskUpdateMessage['payload']) => {
         if (payload.queue) {
-            courseStore.queue = payload.queue
+            genStore.queue = payload.queue
         }
     }
 

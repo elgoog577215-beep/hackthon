@@ -194,8 +194,8 @@
       v-if="!courseStore.isFocusMode"
       :notes-count="notesCount"
       :wrong-answers-count="wrongAnswersCount"
-      :notes="courseStore.notes"
-      :wrong-answers="courseStore.wrongAnswers"
+      :notes="noteStore.notes"
+      :wrong-answers="reviewStore.wrongAnswers"
       @start-quiz="handleStartQuiz"
       @summarize="handleSummarize"
       @show-stats="handleShowStats"
@@ -248,12 +248,20 @@ import LearningStats from '../components/LearningStats.vue'
 import SmartBar from '../components/SmartBar.vue'
 import KeyboardShortcutsHelp from '../components/KeyboardShortcutsHelp.vue'
 import { useCourseStore } from '../stores/course'
+import { useNoteStore } from '../stores/notes'
+import { useLearningStore } from '../stores/learning'
+import { useReviewStore } from '../stores/review'
+import { useGenerationStore } from '../stores/generation'
 import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Menu, ChatDotRound, ArrowLeft, ArrowRight, TrendCharts, Close } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 const courseStore = useCourseStore()
+const noteStore = useNoteStore()
+const learningStore = useLearningStore()
+const reviewStore = useReviewStore()
+const genStore = useGenerationStore()
 const route = useRoute()
 const containerRef = ref<HTMLElement | null>(null)
 const shortcutsHelpRef = ref<InstanceType<typeof KeyboardShortcutsHelp> | null>(null)
@@ -348,7 +356,7 @@ const showLearningStats = ref(false)
 // Completion rate for stats button badge
 const completionRate = computed(() => {
   const totalNodes = courseStore.courseTree.length
-  const completedCount = courseStore.learningStats.completedNodes.length
+  const completedCount = learningStore.learningStats.completedNodes.length
   if (totalNodes === 0) return 0
   return Math.round((completedCount / totalNodes) * 100)
 })
@@ -606,9 +614,9 @@ const checkScreenSize = () => {
 
 // Initialize
 onMounted(() => {
-  courseStore.restoreGenerationState()
-  courseStore.restoreLearningStats()
-  courseStore.restoreQuizData()
+  genStore.restoreGenerationState()
+  learningStore.restoreLearningStats()
+  reviewStore.restoreQuizData()
   
   checkScreenSize()
   window.addEventListener('resize', checkScreenSize)
@@ -635,13 +643,13 @@ watch(() => route.params.courseId, (newCourseId, oldCourseId) => {
     courseStore.courseTree = []
     courseStore.nodes = []
     courseStore.currentNode = null
-    courseStore.notes = []
+    noteStore.notes = []
   }
 }, { immediate: true })
 
 // SmartBar computed properties
-const notesCount = computed(() => courseStore.notes?.length || 0)
-const wrongAnswersCount = computed(() => courseStore.wrongAnswers?.length || 0)
+const notesCount = computed(() => noteStore.notes?.length || 0)
+const wrongAnswersCount = computed(() => reviewStore.wrongAnswers?.length || 0)
 
 const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 
@@ -694,7 +702,7 @@ const handleLocateNote = (note: any) => {
     courseStore.selectNode(note.nodeId)
     // Scroll to the note's highlight in content area
     setTimeout(() => {
-      courseStore.scrollToNote(note.id)
+      noteStore.scrollToNote(note.id)
     }, 100)
   }
 }

@@ -436,7 +436,7 @@ const loadGraph = async () => {
   if (!courseStore.currentCourseId) return
   
   try {
-    const res = await http.get(`/courses/${courseStore.currentCourseId}/knowledge_graph`)
+    const res = await http.get(`/api/courses/${courseStore.currentCourseId}/knowledge_graph`)
     const data = res.data
     
     if (data.status === 'success' && data.data.nodes?.length > 0) {
@@ -457,7 +457,7 @@ const generateGraph = async () => {
   
   loading.value = true
   try {
-    const res = await http.post(`/courses/${courseStore.currentCourseId}/knowledge_graph`)
+    const res = await http.post(`/api/courses/${courseStore.currentCourseId}/knowledge_graph`)
     const data = res.data
     
     if (data.status === 'success') {

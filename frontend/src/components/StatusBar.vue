@@ -119,7 +119,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Loading, ArrowUp, CircleClose, Check, Close, VideoPause, VideoPlay } from '@element-plus/icons-vue'
-import { type QueueItem } from '../stores/course'
+import { type QueueItem } from '../stores/types'
 
 const props = defineProps<{
   visible: boolean

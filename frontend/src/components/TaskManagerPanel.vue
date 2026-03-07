@@ -131,12 +131,13 @@ import {
   List, Document, VideoPause, VideoPlay, RefreshRight, Close, View,
   Loading, CircleCheck, CircleClose, Clock
 } from '@element-plus/icons-vue'
-import { useCourseStore } from '../stores/course'
+import { useGenerationStore } from '../stores/generation'
+import type { Task } from '../stores/types'
 import { useTaskWebSocket } from '../composables/useTaskWebSocket'
 import TaskProgressBar from './TaskProgressBar.vue'
 
 const router = useRouter()
-const courseStore = useCourseStore()
+const genStore = useGenerationStore()
 const { 
   connectionStatus, 
   pauseTask: wsPauseTask, 
@@ -144,11 +145,11 @@ const {
   cancelTask: wsCancelTask 
 } = useTaskWebSocket()
 
-const tasks = computed(() => {
-  return Array.from(courseStore.tasks.values())
+const tasks = computed((): Task[] => {
+  return Array.from(genStore.tasks.values())
 })
 
-const taskProgress = computed(() => courseStore.taskProgress || {})
+const taskProgress = computed(() => genStore.taskProgress || {})
 
 const activeTasksCount = computed(() => {
   return tasks.value.filter(t => ['pending', 'running', 'paused'].includes(t.status)).length

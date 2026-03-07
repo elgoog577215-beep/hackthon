@@ -87,19 +87,19 @@
                                     {{ course.node_count }} 章节
                                 </span>
                                 <!-- Status Badge -->
-                                <span v-if="courseStore.getTask(course.course_id)?.status === 'running'" class="flex items-center gap-1 text-primary-500 font-bold animate-pulse">
+                                <span v-if="genStore.getTask(course.course_id)?.status === 'running'" class="flex items-center gap-1 text-primary-500 font-bold animate-pulse">
                                     <span class="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
-                                    生成中 {{ courseStore.getTask(course.course_id)?.progress }}%
+                                    生成中 {{ genStore.getTask(course.course_id)?.progress }}%
                                 </span>
-                                <span v-else-if="courseStore.getTask(course.course_id)?.status === 'paused'" class="flex items-center gap-1 text-amber-500 font-bold">
+                                <span v-else-if="genStore.getTask(course.course_id)?.status === 'paused'" class="flex items-center gap-1 text-amber-500 font-bold">
                                     <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                                    已暂停 {{ courseStore.getTask(course.course_id)?.progress }}%
+                                    已暂停 {{ genStore.getTask(course.course_id)?.progress }}%
                                 </span>
-                                <span v-else-if="courseStore.getTask(course.course_id)?.status === 'pending'" class="flex items-center gap-1 text-blue-500 font-bold">
+                                <span v-else-if="genStore.getTask(course.course_id)?.status === 'pending'" class="flex items-center gap-1 text-blue-500 font-bold">
                                     <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
                                     排队中
                                 </span>
-                                <span v-else-if="courseStore.getTask(course.course_id)?.status === 'completed'" class="flex items-center gap-1 text-emerald-500 font-bold">
+                                <span v-else-if="genStore.getTask(course.course_id)?.status === 'completed'" class="flex items-center gap-1 text-emerald-500 font-bold">
                                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                                     已完成
                                 </span>
@@ -111,18 +111,18 @@
                      <div class="flex items-center gap-1.5 opacity-50 group-hover:opacity-100 transition-all duration-200" @click.stop>
                         <!-- Control Button -->
                         <button 
-                            v-if="courseStore.getTask(course.course_id)?.status === 'running' || courseStore.getTask(course.course_id)?.status === 'pending'"
+                            v-if="genStore.getTask(course.course_id)?.status === 'running' || genStore.getTask(course.course_id)?.status === 'pending'"
                             class="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-50/50 hover:bg-amber-100 text-amber-500 hover:text-amber-600 transition-all duration-200 hover:scale-105"
                             title="暂停生成"
-                            @click.stop="courseStore.pauseTask(course.course_id)"
+                            @click.stop="genStore.pauseTask(course.course_id)"
                         >
                             <el-icon :size="15"><VideoPause /></el-icon>
                         </button>
                         <button 
-                            v-else-if="courseStore.getTask(course.course_id)?.status === 'paused' || courseStore.getTask(course.course_id)?.status === 'idle'"
+                            v-else-if="genStore.getTask(course.course_id)?.status === 'paused' || genStore.getTask(course.course_id)?.status === 'idle'"
                             class="w-8 h-8 flex items-center justify-center rounded-lg bg-primary-50/50 hover:bg-primary-100 text-primary-500 hover:text-primary-600 transition-all duration-200 hover:scale-105"
                             title="继续生成"
-                            @click.stop="courseStore.startTask(course.course_id)"
+                            @click.stop="genStore.startTask(course.course_id)"
                         >
                             <el-icon :size="15"><VideoPlay /></el-icon>
                         </button>
@@ -211,18 +211,18 @@
             
             <div class="flex items-center gap-0.5">
                  <button 
-                    v-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'running'"
+                    v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running'"
                     class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-amber-50 text-slate-500 hover:text-amber-500 transition-colors"
                     title="暂停生成"
-                    @click="courseStore.pauseTask(courseStore.currentCourseId)"
+                    @click="genStore.pauseTask(courseStore.currentCourseId)"
                 >
                     <el-icon :size="16"><VideoPause /></el-icon>
                 </button>
                 <button 
-                    v-else-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'paused'"
+                    v-else-if="genStore.getTask(courseStore.currentCourseId)?.status === 'paused'"
                     class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary-50 text-slate-500 hover:text-primary-500 transition-colors"
                     title="继续生成"
-                    @click="courseStore.startTask(courseStore.currentCourseId)"
+                    @click="genStore.startTask(courseStore.currentCourseId)"
                 >
                     <el-icon :size="16"><VideoPlay /></el-icon>
                 </button>
@@ -238,12 +238,12 @@
         
         <!-- Task Progress Panel (When task is active) -->
         <div 
-            v-if="courseStore.getTask(courseStore.currentCourseId) && ['running', 'paused', 'pending'].includes(courseStore.getTask(courseStore.currentCourseId)?.status || '')"
+            v-if="genStore.getTask(courseStore.currentCourseId) && ['running', 'paused', 'pending'].includes(genStore.getTask(courseStore.currentCourseId)?.status || '')"
             class="mx-2 mb-2 p-3 rounded-xl glass-panel animate-fade-in-up"
             :class="{
-                'border-primary-200 bg-primary-50/50': courseStore.getTask(courseStore.currentCourseId)?.status === 'running',
-                'border-amber-200 bg-amber-50/50': courseStore.getTask(courseStore.currentCourseId)?.status === 'paused',
-                'border-blue-200 bg-blue-50/50': courseStore.getTask(courseStore.currentCourseId)?.status === 'pending'
+                'border-primary-200 bg-primary-50/50': genStore.getTask(courseStore.currentCourseId)?.status === 'running',
+                'border-amber-200 bg-amber-50/50': genStore.getTask(courseStore.currentCourseId)?.status === 'paused',
+                'border-blue-200 bg-blue-50/50': genStore.getTask(courseStore.currentCourseId)?.status === 'pending'
             }"
         >
             <div class="flex items-center justify-between mb-2">
@@ -251,46 +251,46 @@
                     <div 
                         class="w-6 h-6 rounded-md flex items-center justify-center"
                         :class="{
-                            'bg-primary-100': courseStore.getTask(courseStore.currentCourseId)?.status === 'running',
-                            'bg-amber-100': courseStore.getTask(courseStore.currentCourseId)?.status === 'paused',
-                            'bg-blue-100': courseStore.getTask(courseStore.currentCourseId)?.status === 'pending'
+                            'bg-primary-100': genStore.getTask(courseStore.currentCourseId)?.status === 'running',
+                            'bg-amber-100': genStore.getTask(courseStore.currentCourseId)?.status === 'paused',
+                            'bg-blue-100': genStore.getTask(courseStore.currentCourseId)?.status === 'pending'
                         }"
                     >
                         <el-icon 
                             :size="12" 
                             :class="{
-                                'text-primary-500 animate-spin': courseStore.getTask(courseStore.currentCourseId)?.status === 'running',
-                                'text-amber-500': courseStore.getTask(courseStore.currentCourseId)?.status === 'paused',
-                                'text-blue-500': courseStore.getTask(courseStore.currentCourseId)?.status === 'pending'
+                                'text-primary-500 animate-spin': genStore.getTask(courseStore.currentCourseId)?.status === 'running',
+                                'text-amber-500': genStore.getTask(courseStore.currentCourseId)?.status === 'paused',
+                                'text-blue-500': genStore.getTask(courseStore.currentCourseId)?.status === 'pending'
                             }"
                         >
-                            <Loading v-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'running'" />
-                            <VideoPause v-else-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'paused'" />
+                            <Loading v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running'" />
+                            <VideoPause v-else-if="genStore.getTask(courseStore.currentCourseId)?.status === 'paused'" />
                             <Clock v-else />
                         </el-icon>
                     </div>
                     <div>
                         <div class="text-xs font-semibold text-slate-700">
-                            {{ courseStore.getTask(courseStore.currentCourseId)?.status === 'running' ? '正在生成...' : courseStore.getTask(courseStore.currentCourseId)?.status === 'paused' ? '已暂停' : '等待中...' }}
+                            {{ genStore.getTask(courseStore.currentCourseId)?.status === 'running' ? '正在生成...' : genStore.getTask(courseStore.currentCourseId)?.status === 'paused' ? '已暂停' : '等待中...' }}
                         </div>
                         <div class="text-[10px] text-slate-400">
-                            {{ courseStore.getTask(courseStore.currentCourseId)?.currentStep || '准备中' }}
+                            {{ genStore.getTask(courseStore.currentCourseId)?.currentStep || '准备中' }}
                         </div>
                     </div>
                 </div>
                 <div class="flex items-center gap-1">
                     <button 
-                        v-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'running'"
+                        v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running'"
                         class="w-7 h-7 rounded-lg flex items-center justify-center text-amber-500 hover:bg-amber-100 transition-colors"
-                        @click="courseStore.pauseTask(courseStore.currentCourseId)"
+                        @click="genStore.pauseTask(courseStore.currentCourseId)"
                         title="暂停"
                     >
                         <el-icon :size="14"><VideoPause /></el-icon>
                     </button>
                     <button 
-                        v-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'paused'"
+                        v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'paused'"
                         class="w-7 h-7 rounded-lg flex items-center justify-center text-primary-500 hover:bg-primary-100 transition-colors"
-                        @click="courseStore.startTask(courseStore.currentCourseId)"
+                        @click="genStore.startTask(courseStore.currentCourseId)"
                         title="继续"
                     >
                         <el-icon :size="14"><VideoPlay /></el-icon>
@@ -310,20 +310,20 @@
                 <div 
                     class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
                     :class="{
-                        'bg-gradient-to-r from-primary-500 to-violet-500': courseStore.getTask(courseStore.currentCourseId)?.status === 'running',
-                        'bg-amber-400': courseStore.getTask(courseStore.currentCourseId)?.status === 'paused',
-                        'bg-blue-400': courseStore.getTask(courseStore.currentCourseId)?.status === 'pending'
+                        'bg-gradient-to-r from-primary-500 to-violet-500': genStore.getTask(courseStore.currentCourseId)?.status === 'running',
+                        'bg-amber-400': genStore.getTask(courseStore.currentCourseId)?.status === 'paused',
+                        'bg-blue-400': genStore.getTask(courseStore.currentCourseId)?.status === 'pending'
                     }"
-                    :style="{ width: `${courseStore.getTask(courseStore.currentCourseId)?.progress || 0}%` }"
+                    :style="{ width: `${genStore.getTask(courseStore.currentCourseId)?.progress || 0}%` }"
                 >
                     <div 
-                        v-if="courseStore.getTask(courseStore.currentCourseId)?.status === 'running'" 
+                        v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running'" 
                         class="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"
                     ></div>
                 </div>
             </div>
             <div class="flex justify-between mt-1">
-                <span class="text-[10px] text-slate-400">{{ courseStore.getTask(courseStore.currentCourseId)?.progress || 0 }}%</span>
+                <span class="text-[10px] text-slate-400">{{ genStore.getTask(courseStore.currentCourseId)?.progress || 0 }}%</span>
                 <span class="text-[10px] text-slate-400">{{ courseStore.taskProgress[courseStore.currentCourseId]?.completedNodes || 0 }}/{{ courseStore.taskProgress[courseStore.currentCourseId]?.totalNodes || 0 }} 节点</span>
             </div>
         </div>
@@ -569,6 +569,8 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted, computed, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
+import { useGenerationStore } from '../stores/generation'
+import { useLearningStore } from '../stores/learning'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
@@ -578,6 +580,8 @@ import SkeletonLoader from './SkeletonLoader.vue'
 import MarkdownImport from './MarkdownImport.vue'
 
 const courseStore = useCourseStore()
+const genStore = useGenerationStore()
+const learningStore = useLearningStore()
 const router = useRouter()
 const emit = defineEmits(['update:preferredWidth', 'node-selected', 'toggle-sidebar'])
 
@@ -592,8 +596,8 @@ const sortedCourseList = computed(() => {
     case 'recent':
       // Sort by last accessed time (if available) or keep original order
       return list.sort((a, b) => {
-        const posA = courseStore.learningStats.lastReadPosition[a.course_id]
-        const posB = courseStore.learningStats.lastReadPosition[b.course_id]
+        const posA = learningStore.learningStats.lastReadPosition[a.course_id]
+        const posB = learningStore.learningStats.lastReadPosition[b.course_id]
         if (posA && posB) return 0 // Both have positions, keep order
         if (posA) return -1 // A has position, put first
         if (posB) return 1 // B has position, put first
@@ -603,8 +607,8 @@ const sortedCourseList = computed(() => {
       return list.sort((a, b) => a.course_name.localeCompare(b.course_name, 'zh-CN'))
     case 'progress':
       return list.sort((a, b) => {
-        const taskA = courseStore.getTask(a.course_id)
-        const taskB = courseStore.getTask(b.course_id)
+        const taskA = genStore.getTask(a.course_id)
+        const taskB = genStore.getTask(b.course_id)
         const progressA = taskA?.progress || 0
         const progressB = taskB?.progress || 0
         return progressB - progressA // Higher progress first

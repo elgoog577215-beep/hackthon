@@ -1,5 +1,6 @@
-from typing import List, Optional, Literal
-from pydantic import BaseModel
+
+from typing import List, Optional, Literal, Dict
+from pydantic import BaseModel, Field
 from datetime import datetime
 import uuid
 import sys
@@ -10,6 +11,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 from shared.prompt_config import DifficultyLevel, TeachingStyle
 
+# === 课程相关 ===
 class Node(BaseModel):
     node_id: str
     parent_node_id: str
@@ -21,6 +23,7 @@ class Node(BaseModel):
     is_read: bool = False
     quiz_score: Optional[int] = None
 
+# === 标注与笔记 ===
 class Annotation(BaseModel):
     anno_id: str
     node_id: str
@@ -72,6 +75,7 @@ class AskQuestionRequest(BaseModel):
     session_metrics: Optional[dict] = None
     enable_long_term_memory: Optional[bool] = False
 
+# === 节点操作 ===
 class AddNodeRequest(BaseModel):
     parent_node_id: str = "root"
     node_name: str = "New Node"
@@ -92,9 +96,15 @@ class UpdateNodeRequest(BaseModel):
     is_read: Optional[bool] = None
     quiz_score: Optional[int] = None
 
+class SummarizeNodeRequest(BaseModel):
+    node_content: str
+    node_name: str
+    user_persona: Optional[str] = None
+
 class UpdateAnnotationRequest(BaseModel):
     content: str
 
+# === 测验 ===
 class GenerateQuizRequest(BaseModel):
     node_content: str
     node_name: Optional[str] = ""
@@ -111,7 +121,7 @@ class SummarizeChatRequest(BaseModel):
 class LocateNodeRequest(BaseModel):
     keyword: str
 
-# Learning Path & Recommendation Models
+# === 学习路径与推荐 ===
 class LearningProgressData(BaseModel):
     """学习进度数据"""
     node_id: str
@@ -164,7 +174,7 @@ class KnowledgePointMastery(BaseModel):
     last_tested: Optional[datetime] = None
 
 
-# Smart Review System Models
+# === 复习系统 ===
 class ReviewItem(BaseModel):
     """复习项目"""
     node_id: str
@@ -237,7 +247,7 @@ class ReviewProgressResponse(BaseModel):
     mastery_trend: List[dict]  # 掌握度趋势
 
 
-# Code Execution Models
+# === 代码执行 ===
 class ExecuteCodeRequest(BaseModel):
     """代码执行请求"""
     code: str
@@ -252,15 +262,61 @@ class ExecuteCodeResponse(BaseModel):
     execution_time: float  # milliseconds
     language: str
 
+# === 图表 ===
 class GenerateDiagramRequest(BaseModel):
-    description: str
-    diagram_type: str = "graph"  # graph, sequence, mindmap, etc.
-    context: Optional[str] = ""
+    """AI图表生成请求"""
+    description: str = Field(..., description="图表描述", min_length=1, max_length=2000)
+    diagram_type: str = Field(default="flowchart", description="图表类型")
+    context: str = Field(default="", description="额外上下文信息", max_length=1000)
+
+class GenerateDiagramResponse(BaseModel):
+    """AI图表生成响应"""
+    success: bool = Field(..., description="是否成功")
+    diagram_code: Optional[str] = Field(default=None, description="生成的Mermaid代码")
+    diagram_type: str = Field(default="flowchart", description="图表类型")
+    description: str = Field(default="", description="原始描述")
+    error: Optional[str] = Field(default=None, description="错误信息")
+
+# === 知识图谱 ===
+class KnowledgeGraphRequest(BaseModel):
+    course_id: str
 
 class GenerateKnowledgeGraphRequest(BaseModel):
     course_id: str
 
+# === AI 辅导 ===
+class CreateGoalRequest(BaseModel):
+    title: str
+    description: str
+    goal_type: str = "task_oriented"
+    target_value: float
+    unit: str = "个"
+    deadline: Optional[str] = None
+    related_nodes: List[str] = []
+    priority: int = 1
 
+class UpdateGoalProgressRequest(BaseModel):
+    progress_delta: float
+
+class RecordLearningRequest(BaseModel):
+    node_id: str
+    node_title: str
+    is_correct: Optional[bool] = None
+    time_spent: float = 0.0
+    question_data: Optional[Dict] = None
+
+class SessionSummaryRequest(BaseModel):
+    duration: float
+    questions_answered: int = 0
+    correct_count: int = 0
+    nodes_studied: List[str] = []
+
+class TutorContextRequest(BaseModel):
+    time_stuck: int = 0
+    consecutive_wrong: int = 0
+    current_node_id: Optional[str] = None
+
+# === 其他 ===
 class ImportMarkdownResponse(BaseModel):
     """Markdown 导入响应"""
     course_id: str
