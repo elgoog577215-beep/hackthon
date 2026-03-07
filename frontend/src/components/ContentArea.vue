@@ -340,150 +340,28 @@
             </div>
         </div>
         
-        <!-- Collapsed Notes Trigger - Fixed position that follows scroll -->
-        <div v-if="isNotesCollapsed && !courseStore.isFocusMode" class="fixed right-6 top-24 z-50 hidden md:block">
+        <!-- Collapsed Notes Trigger - Edge tab like sidebar -->
+        <div v-if="isNotesCollapsed && !courseStore.isFocusMode" class="fixed right-0 top-0 z-50 hidden md:flex items-start" style="padding-top: 92px;">
             <button 
                 @click="isNotesCollapsed = false" 
-                class="p-2.5 glass-panel-tech rounded-xl text-slate-500 hover:text-primary-600 shadow-lg hover:scale-105 transition-all bg-white/90 backdrop-blur-md border border-slate-200/60 flex items-center gap-2 group"
+                class="notes-expand-tab"
                 title="展开笔记"
             >
-                <el-icon :size="18"><Notebook /></el-icon>
-                <span class="text-xs font-medium max-w-0 overflow-hidden group-hover:max-w-[80px] transition-all duration-300 whitespace-nowrap">展开笔记</span>
-                <span class="absolute -top-1 -right-1 w-4 h-4 bg-primary-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold" v-if="noteCounts.notes + noteCounts.mistakes > 0">
-                    {{ noteCounts.notes + noteCounts.mistakes }}
-                </span>
+                <el-icon :size="14"><DArrowLeft /></el-icon>
             </button>
         </div>
 
         <!-- Note Column (Desktop Only) - Fixed position for sticky header -->
-        <div id="note-column" v-if="!courseStore.isFocusMode && !isNotesCollapsed" class="hidden md:flex flex-col fixed right-0 top-0 bottom-0 w-[260px] xl:w-[300px] bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50 z-20" style="padding-top: 80px; padding-bottom: 70px;">
-             <!-- Compact Header -->
-            <div class="flex-shrink-0 px-3 py-3 bg-white/90 backdrop-blur-xl border-b border-slate-200/60">
-                <!-- Header Row -->
-                <div class="flex items-center justify-between mb-2">
-                    <div class="flex items-center gap-2">
-                        <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-md shadow-primary-500/20">
-                            <el-icon class="text-white" :size="14"><Notebook /></el-icon>
-                        </div>
-                        <div>
-                            <h3 class="text-xs font-bold text-slate-800">笔记</h3>
-                            <p class="text-[9px] text-slate-400">{{ noteCounts.notes }} · {{ noteCounts.mistakes }} 错题</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-0.5">
-                        <el-tooltip content="收起" placement="bottom">
-                            <button @click="isNotesCollapsed = true" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-slate-100 rounded-lg transition-all duration-200">
-                                <el-icon :size="14"><ArrowRight /></el-icon>
-                            </button>
-                        </el-tooltip>
-                        <el-dropdown trigger="click" placement="bottom-end">
-                            <button class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all duration-200">
-                                <el-icon :size="16"><More /></el-icon>
-                            </button>
-                            <template #dropdown>
-                                <el-dropdown-menu>
-                                    <el-dropdown-item @click="openSettingsDialog">
-                                        <el-icon class="mr-2"><Setting /></el-icon>阅读设置
-                                    </el-dropdown-item>
-                                    <el-dropdown-item @click="openExportDialog('notes')">
-                                        <el-icon class="mr-2"><Download /></el-icon>导出笔记
-                                    </el-dropdown-item>
-                                    <el-dropdown-item @click="openExportDialog('mistakes')" v-if="noteCounts.mistakes > 0">
-                                        <el-icon class="mr-2"><Document /></el-icon>导出错题
-                                    </el-dropdown-item>
-                                </el-dropdown-menu>
-                            </template>
-                        </el-dropdown>
-                    </div>
-                </div>
-                
-                <!-- Tab Navigation -->
-                <div class="flex items-center gap-1 p-0.5 bg-slate-100/80 rounded-lg">
-                    <button v-for="tab in noteTabs" :key="tab.key"
-                        class="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 text-[11px] font-medium rounded-md transition-all duration-200"
-                        :class="activeNoteFilter === tab.key 
-                            ? 'bg-white text-slate-800 shadow-sm' 
-                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'"
-                        @click="activeNoteFilter = tab.key"
-                    >
-                        <el-icon :size="12" :class="tab.color"><component :is="tab.icon" /></el-icon>
-                        <span>{{ tab.label }}</span>
-                        <span v-if="tab.count > 0" class="ml-0.5 px-1 py-0.5 text-[9px] rounded-full"
-                              :class="activeNoteFilter === tab.key ? 'bg-slate-100 text-slate-600' : 'bg-slate-200/50 text-slate-500'">
-                            {{ tab.count }}
-                        </span>
-                    </button>
-                </div>
+        <div id="note-column" v-if="!courseStore.isFocusMode && !isNotesCollapsed" class="hidden md:block fixed right-0 top-0 bottom-0 w-[260px] xl:w-[300px] bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50 z-20 overflow-hidden" style="padding-top: 80px; padding-bottom: 70px;">
+            <!-- Collapse button -->
+            <button @click="isNotesCollapsed = true" class="absolute top-[84px] right-2 z-10 w-7 h-7 flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-white/80 rounded-lg transition-all duration-200" title="收起笔记">
+                <el-icon :size="14"><DArrowRight /></el-icon>
+            </button>
 
-                <!-- Search Bar -->
-                <div class="relative mt-2">
-                    <div class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">
-                        <el-icon :size="14"><Search /></el-icon>
-                    </div>
-                    <input 
-                        v-model="noteSearchQuery" 
-                        type="text"
-                        placeholder="搜索..."
-                        class="w-full pl-8 pr-8 py-2 bg-slate-100/50 border border-transparent rounded-lg text-xs text-slate-700 placeholder:text-slate-400 focus:bg-white focus:border-primary-300 focus:ring-2 focus:ring-primary-500/10 transition-all duration-200 outline-none"
-                    >
-                    <div v-if="noteSearchQuery" @click="noteSearchQuery = ''" 
-                         class="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full cursor-pointer transition-all">
-                        <el-icon :size="10"><Close /></el-icon>
-                    </div>
-                </div>
-            </div>
-
-            <div id="notes-container" class="relative flex-1 w-full flex flex-col">
-                <!-- Mistakes View (Linear List) -->
-                <div v-if="activeNoteFilter === 'mistakes'" class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-3">
-                     <div v-if="displayedNotes.length === 0" class="text-center py-8 text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
-                        {{ noteEmptyText }}
-                    </div>
-                    <div v-for="note in displayedNotes" :key="note.id"
-                         class="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-0 group hover:shadow-xl hover:shadow-red-500/5 hover:border-red-200 transition-all duration-300 cursor-pointer overflow-hidden relative"
-                         :class="{'ring-2 ring-red-100': activeNoteId === note.id}"
-                         @click="handleNoteClick(note)">
-                         
-                         <!-- Header -->
-                        <div class="flex justify-between items-center px-4 py-3 border-b border-red-50/50 bg-gradient-to-r from-red-50/30 to-transparent">
-                            <div class="flex flex-col gap-0.5">
-                                <div class="text-[11px] font-black text-red-500 flex items-center gap-1.5 uppercase tracking-wide bg-red-50 px-2 py-1 rounded-md">
-                                    <div class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
-                                    错题本
-                                </div>
-                                <div class="text-[10px] font-bold text-slate-400 truncate max-w-[180px] mt-1 pl-1">
-                                    {{ getNodeName(note.nodeId) }}
-                                </div>
-                            </div>
-                            
-                            <div class="flex gap-1">
-                                <button class="p-1.5 hover:bg-white rounded-md text-slate-400 hover:text-red-500 transition-all shadow-sm border border-transparent hover:border-slate-100" @click.stop="handleDeleteNote(note.id)">
-                                    <el-icon :size="14"><Delete /></el-icon>
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Content -->
-                        <div class="p-4">
-                            <div class="text-sm text-slate-700 leading-7 font-sans tracking-normal">
-                                <MarkdownRenderer :content="note.content" :search-words="searchTokens" />
-                            </div>
-                            <div class="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between text-[11px] text-slate-400">
-                                <div class="flex items-center gap-1.5 font-medium">
-                                    <el-icon><Timer /></el-icon> {{ dayjs(note.createdAt).fromNow() }}
-                                </div>
-                                <div class="flex items-center gap-3">
-                                    <button class="flex items-center gap-1 hover:text-primary-600 transition-colors px-2 py-1 rounded-full hover:bg-primary-50" @click.stop="handleNoteClick(note)">
-                                        <el-icon><Position /></el-icon> 跳转原文
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
+            <div id="notes-scroll-wrapper" class="w-full h-full overflow-hidden">
+            <div id="notes-container" class="relative w-full" style="min-height: 100%;">
                 <!-- Notes View (Aligned/Absolute) -->
-                <div v-else class="relative flex-1 w-full">
+                <div class="relative w-full h-full">
                     <div v-if="displayedNotes.length === 0" class="absolute inset-0 flex items-center justify-center">
                         <div class="px-3 py-2 text-xs text-slate-400 bg-white/80 backdrop-blur-sm border border-white rounded-xl">
                             {{ noteEmptyText }}
@@ -557,6 +435,7 @@
                         </div>
                     </transition-group>
                 </div>
+            </div>
             </div>
         </div>
       </div>
@@ -953,7 +832,7 @@ import { useNoteStore } from '../stores/notes'
 import CourseNode from './CourseNode.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useMermaid } from '../composables/useMermaid'
-import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, More, Document, Warning, CollectionTag, Folder, PriceTag, Setting } from '@element-plus/icons-vue'
+import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, CollectionTag, Folder, PriceTag, Setting, DArrowLeft, DArrowRight } from '@element-plus/icons-vue'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1082,16 +961,6 @@ const getExportSize = computed(() => {
     if (totalSize < 1024) return `${totalSize} KB`
     return `${(totalSize / 1024).toFixed(1)} MB`
 })
-
-// Open export dialog
-const openExportDialog = (type: 'notes' | 'mistakes' = 'notes') => {
-    exportDialog.type = type
-    exportDialog.title = type === 'mistakes' ? '导出错题' : '导出笔记'
-    exportDialog.subtitle = type === 'mistakes' ? '导出你的错题记录' : '导出你的学习笔记'
-    exportDialog.scope = 'all'
-    exportDialog.format = 'markdown'
-    exportDialog.visible = true
-}
 
 // Close export dialog
 const closeExportDialog = () => {
@@ -1256,14 +1125,6 @@ const fontOptions = [
     { value: '"JetBrains Mono", "Fira Code", monospace', label: '等宽字体' }
 ]
 
-// Open settings dialog
-const openSettingsDialog = () => {
-    settingsDialog.fontSize = courseStore.uiSettings.fontSize
-    settingsDialog.fontFamily = courseStore.uiSettings.fontFamily
-    settingsDialog.lineHeight = courseStore.uiSettings.lineHeight
-    settingsDialog.visible = true
-}
-
 // Close settings dialog
 const closeSettingsDialog = () => {
     settingsDialog.visible = false
@@ -1283,11 +1144,6 @@ const applySettings = () => {
 const scrollProgress = ref(0)
 const lightboxVisible = ref(false)
 const lightboxImage = ref('')
-// Note tabs configuration
-const noteTabs = computed(() => [
-    { key: 'notes', label: '笔记', icon: Notebook, count: noteCounts.value.notes, color: 'text-primary-500' },
-    { key: 'mistakes', label: '错题', icon: Warning, count: noteCounts.value.mistakes, color: 'text-red-500' }
-])
 
 const debounce = (fn: (...args: unknown[]) => void, delay: number) => {
     let timeout: ReturnType<typeof setTimeout> | null = null
@@ -1298,6 +1154,15 @@ const debounce = (fn: (...args: unknown[]) => void, delay: number) => {
 }
 
 const debouncedUpdatePositions = debounce(() => updateNotePositions(), 100)
+
+let rafUpdateId: number | null = null
+const rafUpdatePositions = () => {
+    if (rafUpdateId) cancelAnimationFrame(rafUpdateId)
+    rafUpdateId = requestAnimationFrame(() => {
+        updateNotePositions()
+        rafUpdateId = null
+    })
+}
 
 // Watch for scroll requests from sidebar
 watch(() => courseStore.scrollToNodeId, async (nodeId) => {
@@ -1566,6 +1431,11 @@ watch(noteSearchQuery, (val) => {
     handleSearchInput(val)
 })
 
+// Also react to global search from App header
+watch(() => courseStore.globalSearchQuery, (val) => {
+    handleSearchInput(val || '')
+})
+
 watch(quizVisible, (visible) => {
     if (visible) return
     quizQuestions.value = []
@@ -1646,14 +1516,6 @@ const noteMatchesSearch = (note: any, tokens: string[]) => {
     const text = noteSearchText(note)
     return tokens.every(token => text.includes(token))
 }
-
-const noteCounts = computed(() => {
-    const nodeIds = new Set(flatNodes.value.map(n => n.node_id))
-    const scoped = noteStore.notes.filter(n => nodeIds.has(n.nodeId))
-    const notes = scoped.filter(n => !isMistakeNote(n) && n.sourceType !== 'format').length
-    const mistakes = scoped.filter(n => isMistakeNote(n) && n.sourceType !== 'format').length
-    return { notes, mistakes }
-})
 
 const visibleNotes = computed(() => {
     const nodeIds = new Set(flatNodes.value.map(n => n.node_id))
@@ -2049,37 +1911,31 @@ const updateNotePositions = () => {
     const container = document.getElementById('notes-container')
     if (!container) return
 
+    const scrollContainer = document.getElementById('content-scroll-container')
+    if (!scrollContainer) return
+
     // --- Phase 1: Batch Read (DOM Measurements) ---
-    // Read container metrics once
-    const containerRect = container.getBoundingClientRect()
-    const containerTop = containerRect.top
+    const scrollTop = scrollContainer.scrollTop
+    const scrollContainerRect = scrollContainer.getBoundingClientRect()
     
-    // Detect Scale Factor (User might be using transform: scale())
-    // If container is scaled, getBoundingClientRect() returns scaled values,
-    // but style.top expects unscaled values (internal coordinate system).
+    // Detect Scale Factor
     let scaleY = 1
     if (container.offsetHeight > 0) {
+        const containerRect = container.getBoundingClientRect()
         scaleY = containerRect.height / container.offsetHeight
     }
-    // Safety clamp for scale to avoid division by zero or extreme values
     if (scaleY < 0.1 || scaleY > 10) scaleY = 1
     
-    // Create a map of element IDs to search to avoid repeated getElementById
     const elementIds = new Set<string>()
     notes.forEach(note => {
         if (note.highlightId) elementIds.add(note.highlightId)
         if (note.nodeId) elementIds.add('node-' + note.nodeId)
     })
 
-    // Batch query elements
-    // Note: getElementById is fast, but boundingClientRect causes reflow.
-    // We want to minimize interleaved read/write.
-    
-    // Store measurements
-    const measurements = new Map<string, number>() // id -> relativeTop
-    const noteHeights = new Map<string, number>() // noteId -> height
+    const measurements = new Map<string, number>()
+    const noteHeights = new Map<string, number>()
 
-    // Measure Targets (Highlights/Nodes)
+    // Measure Targets — calculate position relative to scroll content (not viewport)
     notes.forEach(note => {
         let el = document.getElementById(note.highlightId)
         let isFallback = false
@@ -2095,83 +1951,66 @@ const updateNotePositions = () => {
                 measurements.set(note.id, -9999)
                 return
             }
-            // Calculate unscaled relative top
-            // (Visual Difference) / Scale = Internal Difference
-            const relativeTop = (rect.top - containerTop) / scaleY
+            // Position relative to scroll container's content (scroll-absolute position)
+            const relativeToScrollContainer = (rect.top - scrollContainerRect.top + scrollTop) / scaleY
             
-            // Dynamic Offset for Alignment:
-            // Goal: Align the card connector (dot center at ~21px from card top) with the text center.
-            // rect.height is scaled height. We need unscaled height to calculate internal offset.
             const unscaledTextHeight = rect.height / scaleY
             const textCenter = unscaledTextHeight / 2
-            
-            // Connector position is fixed in CSS (21px from top of card)
             const connectorPos = 21 
             const offset = textCenter - connectorPos
             
-            measurements.set(note.id, relativeTop + (isFallback ? 10 : offset))
+            measurements.set(note.id, relativeToScrollContainer + (isFallback ? 10 : offset))
         } else {
             measurements.set(note.id, -9999)
         }
     })
 
     // Measure Note Card Heights
-    // We need to know how tall each note IS to stack them.
-    // This is tricky because if we change 'top', it doesn't affect height, 
-    // but if we caused a reflow above, it might. 
-    // Since notes are absolute positioned, reading their height is safe-ish 
-    // IF we haven't written to the DOM yet in this frame.
     notes.forEach(note => {
         const el = document.getElementById(note.id)
         if (el) {
             noteHeights.set(note.id, el.offsetHeight)
         } else {
-            // Estimate if not rendered yet
             const estimated = 100 + (isLongContent(note.content) ? 120 : Math.min(note.content.length, 100))
             noteHeights.set(note.id, estimated)
         }
     })
 
-    // --- Phase 2: Calculation (Pure JS) ---
-    // 1. Assign Natural Positions
+    // --- Phase 2: Calculation ---
     const positionedNotes = notes.map(note => ({
         note,
         top: measurements.get(note.id) || 0,
         height: noteHeights.get(note.id) || 100
     }))
 
-    // 2. Sort by Natural Top
     positionedNotes.sort((a, b) => a.top - b.top)
 
-    // 3. Collision Resolution (Stacking)
     let lastBottom = 0 
-    
-    // Increased gap to prevent visual overlap of shadows/borders
     const GAP = 24 
 
     positionedNotes.forEach(item => {
-        // If natural position is above the valid floor (lastBottom + GAP), push it down
         if (item.top < lastBottom + GAP) {
             item.top = lastBottom + GAP
         }
-        
-        // Update floor for next item
-        // Use a slightly larger buffer for height to account for varying font rendering
         lastBottom = item.top + item.height + 4
     })
 
-    // --- Phase 3: Batch Write (DOM Updates) ---
-    // Apply calculated tops
+    // --- Phase 3: Batch Write ---
     positionedNotes.forEach(item => {
-        // We update the reactive object. Vue will batch the DOM updates.
-        // If we were manipulating DOM directly, we would do style.top here.
-        // Since we bind :style="{ top: note.top + 'px' }", updating the prop is enough.
-        // However, we must ensure we are updating the SAME object reference in the array
-        // that Vue is rendering.
         if (item.note.top !== item.top) {
             item.note.top = item.top
         }
     })
+
+    // Sync notes-container scroll with content scroll
+    // The notes-container height should match content scrollHeight
+    container.style.height = scrollContainer.scrollHeight + 'px'
+    
+    // Use transform to shift the notes-container to match content scroll position
+    const wrapper = document.getElementById('notes-scroll-wrapper')
+    if (wrapper) {
+        wrapper.scrollTop = scrollTop
+    }
 }
 
 // Add ResizeObserver to monitor note height changes
@@ -2424,6 +2263,16 @@ const handleAsk = () => {
     // Format as a quote
     const quote = `> ${selection}\n\n`
     
+    // Detect which node the selection belongs to and switch context
+    if (selectionMenu.value.range) {
+        const nodeEl = selectionMenu.value.range.startContainer.parentElement?.closest('[id^="node-"]')
+        if (nodeEl) {
+            const nodeId = nodeEl.id.replace('node-', '')
+            const node = courseStore.nodes.find(n => n.node_id === nodeId)
+            if (node) courseStore.selectNode(node)
+        }
+    }
+    
     // Set to store to trigger ChatPanel update
     courseStore.setPendingChatInput(quote)
     
@@ -2441,16 +2290,22 @@ const handleTranslate = async () => {
     courseStore.addMessage('user', prompt)
     
     // 2. Find Context Node
-    let nodeId = undefined
+    let nodeId: string | undefined = undefined
     if (selectionMenu.value.range) {
          const nodeEl = selectionMenu.value.range.startContainer.parentElement?.closest('[id^="node-"]')
-         if (nodeEl) nodeId = nodeEl.id.replace('node-', '')
+         if (nodeEl) {
+             nodeId = nodeEl.id.replace('node-', '')
+             const node = courseStore.nodes.find(n => n.node_id === nodeId)
+             if (node) courseStore.selectNode(node)
+         }
     }
     
     // 3. Trigger AI
     selectionMenu.value.visible = false
     
-    ElMessage.success('正在翻译，请查看右侧助手')
+    ElMessage.success('正在翻译，请查看 AI 助手')
+    
+    courseStore.showFloatingAI = true
     
     await courseStore.askQuestion(prompt, selection, nodeId)
 }
@@ -2786,34 +2641,26 @@ const submitQuiz = () => {
     
     let correctCount = 0
     
+    const nodeId = quizConfig.value.nodeId
+    const nodeName = courseStore.nodes.find(n => n.node_id === nodeId)?.node_name || ''
+
     quizQuestions.value.forEach((q, idx) => {
         if (normalizedAnswers[idx] === q.answer) {
             correctCount++
         } else {
-            // Auto-save wrong question
-            const userAnswer = normalizedAnswers[idx]
-            const noteContent = `**错题记录**\n\n**题目**：${q.question}\n\n**你的答案**：${userAnswer} ❌\n**正确答案**：${q.answer} ✅\n\n**解析**：${q.explanation || '暂无解析'}\n\n#错题`
-            
-            // Check if this wrong question already exists (avoid duplicates)
-            const exists = noteStore.notes.some(n => 
-                n.nodeId === quizConfig.value.nodeId && 
-                n.sourceType === 'wrong' &&
-                n.content.includes(q.question)
-            )
-            
-            if (!exists) {
-                noteStore.createNote({
-                    id: `wrong-${Date.now()}-${idx}`,
-                    nodeId: quizConfig.value.nodeId,
-                    highlightId: '', // No highlight for quiz
-                    quote: '', 
-                    content: noteContent,
-                    color: 'red',
-                    createdAt: Date.now(),
-                    sourceType: 'wrong', // Mark as wrong question for UI handling
-                    style: 'highlight' // Visual indicator
-                })
-            }
+            // Save structured wrong answer (with options for re-test)
+            const userOptionIdx = q.options?.findIndex((o: string) => o === normalizedAnswers[idx]) ?? -1
+            const correctIdx = typeof q.correct_index === 'number' ? q.correct_index : (q.options?.findIndex((o: string) => o === q.answer) ?? 0)
+
+            courseStore.recordWrongAnswer({
+                question: q.question,
+                options: q.options || [],
+                correctIndex: correctIdx,
+                userIndex: userOptionIdx,
+                explanation: q.explanation || '暂无解析',
+                nodeId: nodeId,
+                nodeName: nodeName,
+            })
         }
     })
     
@@ -2941,6 +2788,9 @@ const handleScroll = (e: Event) => {
     if (target.scrollHeight > target.clientHeight) {
         scrollProgress.value = (target.scrollTop / (target.scrollHeight - target.clientHeight)) * 100
     }
+    
+    // Update note positions to follow content
+    rafUpdatePositions()
     
     // Save position (Debounce manually or just save)
     // We use a simple throttle or just save every scroll? Too frequent.
@@ -3201,8 +3051,8 @@ defineExpose({
 
 .back-to-top {
     position: fixed;
-    bottom: 1.5rem;
-    right: 1.5rem;
+    bottom: 5.5rem;
+    right: 1rem;
     z-index: 50;
     transition: all 0.3s ease;
 }
@@ -3229,6 +3079,28 @@ defineExpose({
 .back-to-top-leave-to {
     opacity: 0;
     transform: translateY(20px);
+}
+
+.notes-expand-tab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 48px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.notes-expand-tab:hover {
+    color: #6366f1;
+    background: #eef2ff;
+    border-color: #c7d2fe;
+    width: 28px;
 }
 
 .note-underline {

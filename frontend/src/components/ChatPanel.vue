@@ -8,9 +8,9 @@
             </div>
             <div class="min-w-0 overflow-hidden">
                 <div class="font-semibold text-slate-800 text-sm sm:text-base truncate">AI 助手</div>
-                <div class="flex items-center gap-1">
-                    <div class="w-1 h-1 rounded-full bg-emerald-400 flex-shrink-0"></div>
-                    <span class="text-xs sm:text-sm text-slate-400">在线</span>
+                <div class="flex items-center gap-1 max-w-[200px] sm:max-w-[300px]">
+                    <div class="w-1 h-1 rounded-full flex-shrink-0" :class="currentNodePath ? 'bg-primary-400' : 'bg-emerald-400'"></div>
+                    <span class="text-xs text-slate-400 truncate" :title="currentNodePath || '在线'">{{ currentNodePath || '在线' }}</span>
                 </div>
             </div>
         </div>
@@ -457,7 +457,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, reactive, computed } from 'vue'
 import { useCourseStore } from '../stores/course'
-import { useReviewStore } from '../stores/review'
 import { useNoteStore } from '../stores/notes'
 import { useTutorStore } from '../stores/tutor'
 import type { AIContent } from '../stores/types'
@@ -467,10 +466,22 @@ import { useMermaid } from '../composables/useMermaid'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 
 const courseStore = useCourseStore()
-const reviewStore = useReviewStore()
 const noteStore = useNoteStore()
 const tutorStore = useTutorStore()
 const inputMessage = ref('')
+
+// Build breadcrumb path for current node (e.g. "第1章 概述 > 1.2 基本概念")
+const currentNodePath = computed(() => {
+    const node = courseStore.currentNode
+    if (!node) return ''
+    const path: string[] = []
+    let current: typeof node | undefined = node
+    while (current) {
+        path.unshift(current.node_name)
+        current = courseStore.nodes.find(n => n.node_id === current!.parent_node_id)
+    }
+    return path.join(' › ')
+})
 const chatContainer = ref<HTMLElement | null>(null)
 const personaDialogVisible = ref(false)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
@@ -550,7 +561,7 @@ watch(() => courseStore.pendingChatInput, (newVal) => {
             courseStore.pendingChatInput = ''
         })
     }
-})
+}, { immediate: true })
 
 const handleSummarize = async () => {
     const summary = await courseStore.summarizeChat()
@@ -718,51 +729,54 @@ const saveWrongQuestion = async (quiz: any, msgIdx: number, quizIdx: number) => 
     const nodeName = courseStore.currentNode?.node_name || '未知章节'
     const nodeId = quiz.node_id || courseStore.currentNode?.node_id || 'global'
 
-    // Record to quiz system
-    reviewStore.recordWrongAnswer({
+    // Record to tutor system
+    await recordQuizToTutor(quiz, false, nodeId, nodeName)
+
+    // 1. Prompt for Reflection
+    let reflectionText = ''
+    try {
+        const result = await ElMessageBox.prompt('请简要分析错误原因（这将帮助你更好地避坑）：', '错题反思', {
+            confirmButtonText: '保存',
+            cancelButtonText: '跳过',
+            inputPlaceholder: '例如：概念混淆、粗心大意、公式记错...',
+            inputType: 'textarea',
+        })
+        reflectionText = typeof result === 'string' ? result : (result as { value?: string }).value || ''
+    } catch (e) {
+        // User cancelled / skipped — still record the wrong answer
+    }
+
+    // Record to quiz system (with reflection if provided)
+    courseStore.recordWrongAnswer({
         question: quiz.question,
         options: quiz.options,
         correctIndex: quiz.correct_index,
         userIndex: state.selected,
         explanation: quiz.explanation,
         nodeId: nodeId,
-        nodeName: nodeName
+        nodeName: nodeName,
+        reflection: reflectionText || undefined
     })
 
-    // Record to tutor system
-    await recordQuizToTutor(quiz, false, nodeId, nodeName)
+    // Also save reflection as a note for backend persistence
+    if (reflectionText) {
+        const wrongOpt = quiz.options[state.selected]
+        const correctOpt = quiz.options[quiz.correct_index]
 
-    // 1. Prompt for Reflection
-    try {
-        const result = await ElMessageBox.prompt('请简要分析错误原因（这将帮助你更好地避坑）：', '错题反思', {
-            confirmButtonText: '保存',
-            cancelButtonText: '取消',
-            inputPlaceholder: '例如：概念混淆、粗心大意、公式记错...',
-            inputType: 'textarea',
+        courseStore.addNote({
+            id: `wrong-${Date.now()}`,
+            nodeId: nodeId,
+            highlightId: '',
+            quote: quiz.question,
+            content: `🔴 **错题记录**\n\n**题目**：${quiz.question}\n\n**我的选择**：${wrongOpt} (❌)\n**正确答案**：${correctOpt} (✅)\n\n**解析**：${quiz.explanation}\n\n**💡 我的反思**：\n${reflectionText}`,
+            color: 'red',
+            createdAt: Date.now(),
+            sourceType: 'wrong',
+            style: 'highlight'
         })
-        const reflection = typeof result === 'string' ? result : (result as { value?: string }).value
-
-        if (reflection) {
-             const wrongOpt = quiz.options[state.selected]
-             const correctOpt = quiz.options[quiz.correct_index]
-
-             courseStore.addNote({
-                 id: `wrong-${Date.now()}`,
-                 nodeId: quiz.node_id || courseStore.currentNode?.node_id || 'global',
-                 highlightId: '',
-                 quote: quiz.question,
-                 content: `🔴 **错题记录**\n\n**题目**：${quiz.question}\n\n**我的选择**：${wrongOpt} (❌)\n**正确答案**：${correctOpt} (✅)\n\n**解析**：${quiz.explanation}\n\n**💡 我的反思**：\n${reflection}`,
-                 color: 'red',
-                 createdAt: Date.now(),
-                 sourceType: 'wrong', // Special type for mistakes,
-                 style: 'highlight'
-             })
-             
-             ElMessage.success('已加入错题本')
-        }
-    } catch (e) {
-        // Cancelled
     }
+
+    ElMessage.success('已加入错题本')
 }
 
 const handleSaveAsNote = async (content: string, msg?: any) => {

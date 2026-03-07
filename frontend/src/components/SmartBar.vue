@@ -2,13 +2,15 @@
   <div class="smart-bar">
     <!-- 主工具栏 -->
     <div class="bar-main">
-      <div class="status-section">
+      <!-- Reading Location -->
+      <div class="location-section" v-if="currentLocation">
         <div class="location-badge">
-          <el-icon class="location-icon"><Location /></el-icon>
+          <el-icon class="text-slate-400" :size="14"><Location /></el-icon>
           <span class="location-text">{{ currentLocation }}</span>
         </div>
       </div>
-      
+      <div v-else class="location-section"></div>
+
       <div class="actions-section">
         <!-- 笔记 -->
         <div class="action-wrapper" ref="notesRef">
@@ -39,37 +41,6 @@
           </Transition>
         </div>
 
-        <!-- 错题 -->
-        <div class="action-wrapper" ref="wrongRef">
-          <button class="action-btn" @click="togglePanel('wrong')">
-            <el-icon><CircleClose /></el-icon>
-            <span class="btn-label">错题</span>
-            <span v-if="(wrongAnswersCount ?? 0) > 0" class="btn-badge error">{{ wrongAnswersCount }}</span>
-          </button>
-          <Transition name="popup">
-            <div v-if="activePanel === 'wrong'" class="popup-panel wrong-panel">
-              <div class="panel-header">
-                <span class="panel-title">错题本</span>
-                <span class="panel-count">{{ wrongAnswersCount ?? 0 }} 道</span>
-              </div>
-              <div class="panel-content">
-                <div v-for="item in recentWrongAnswers" :key="item.id" class="list-item wrong">
-                  <div class="item-dot wrong"></div>
-                  <span class="item-text">{{ item.question?.slice(0, 40) }}...</span>
-                  <button class="item-action" @click.stop="$emit('retryWrong', item)">重做</button>
-                </div>
-                <div v-if="(wrongAnswersCount ?? 0) === 0" class="empty-tip success">
-                  <span>暂无错题，继续保持！</span>
-                </div>
-              </div>
-              <div v-if="(wrongAnswersCount ?? 0) > 0" class="panel-footer-row">
-                <button class="footer-btn" @click="$emit('viewAllWrongAnswers')">查看全部</button>
-                <button class="footer-btn primary" @click="$emit('retryAllWrong')">全部重做</button>
-              </div>
-            </div>
-          </Transition>
-        </div>
-
         <div class="divider"></div>
 
         <!-- 出题 -->
@@ -78,16 +49,17 @@
           <span class="btn-label">出题</span>
         </button>
 
-        <!-- 总结 -->
-        <button class="action-btn" @click="$emit('summarize')">
-          <el-icon><Document /></el-icon>
-          <span class="btn-label">总结</span>
-        </button>
-
         <!-- 统计 -->
         <button class="action-btn" @click="$emit('showStats')">
           <el-icon><DataLine /></el-icon>
           <span class="btn-label">统计</span>
+        </button>
+
+        <!-- 错题 -->
+        <button class="action-btn" @click="$emit('showWrongAnswers')">
+          <el-icon><DocumentDelete /></el-icon>
+          <span class="btn-label">错题</span>
+          <span v-if="(wrongCount ?? 0) > 0" class="btn-badge error">{{ wrongCount }}</span>
         </button>
 
         <!-- 知识图谱 -->
@@ -102,41 +74,28 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { Location, Notebook, CircleClose, EditPen, Document, DataLine, Share } from '@element-plus/icons-vue'
-import { useCourseStore } from '../stores/course'
+import { Notebook, EditPen, DataLine, Share, Location, DocumentDelete } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   notesCount?: number
-  wrongAnswersCount?: number
+  wrongCount?: number
   notes?: any[]
-  wrongAnswers?: any[]
+  currentLocation?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'startQuiz'): void
-  (e: 'summarize'): void
   (e: 'showStats'): void
+  (e: 'showWrongAnswers'): void
   (e: 'showGraph'): void
   (e: 'viewAllNotes'): void
-  (e: 'viewAllWrongAnswers'): void
-  (e: 'retryWrong', item: any): void
-  (e: 'retryAllWrong'): void
   (e: 'locateNote', note: any): void
 }>()
 
-const courseStore = useCourseStore()
 const activePanel = ref<string | null>(null)
 const notesRef = ref<HTMLElement | null>(null)
-const wrongRef = ref<HTMLElement | null>(null)
-
-const currentLocation = computed(() => {
-  const course = courseStore.currentCourse?.course_name || '未选择课程'
-  const node = courseStore.currentNode?.node_name || ''
-  return node ? `${course} · ${node}` : course
-})
 
 const recentNotes = computed(() => (props.notes || []).slice(0, 5))
-const recentWrongAnswers = computed(() => (props.wrongAnswers || []).slice(0, 5))
 
 function togglePanel(panel: string) {
   activePanel.value = activePanel.value === panel ? null : panel
@@ -150,8 +109,7 @@ function handleNoteClick(note: any) {
 function handleClickOutside(e: MouseEvent) {
   const target = e.target as HTMLElement
   if (
-    notesRef.value?.contains(target) ||
-    wrongRef.value?.contains(target)
+    notesRef.value?.contains(target)
   ) {
     return
   }
@@ -188,6 +146,31 @@ onUnmounted(() => {
   align-items: center;
   padding: 10px 20px;
   height: 56px;
+}
+
+.location-section {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.location-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  max-width: 240px;
+}
+
+.location-text {
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-section {

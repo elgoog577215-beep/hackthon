@@ -1038,3 +1038,26 @@ body {
     transform: none !important;
   }
 }
+
+/* ============================================
+   SEARCH HIGHLIGHT - Active match
+   ============================================ */
+span.search-active {
+  background-color: #f97316 !important;
+  color: #fff !important;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.3);
+}
+
+/* ============================================
+   FADE-SCALE Transition
+   ============================================ */
+.fade-scale-enter-active,
+.fade-scale-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fade-scale-enter-from,
+.fade-scale-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}

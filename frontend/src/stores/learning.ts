@@ -46,18 +46,19 @@ export const useLearningStore = defineStore('learning', {
     learningPathLoading: false,
   }),
   actions: {
-    recordStudyTime(minutes: number, nodeId?: string) {
+    /** Record study time in seconds. Internally stores seconds. */
+    recordStudyTime(seconds: number, nodeId?: string) {
       const today = dayjs().format('YYYY-MM-DD')
-      this.learningStats.totalStudyTime += minutes
+      this.learningStats.totalStudyTime += seconds
       if (!this.learningStats.dailyStudyTime[today]) {
         this.learningStats.dailyStudyTime[today] = 0
       }
-      this.learningStats.dailyStudyTime[today] += minutes
+      this.learningStats.dailyStudyTime[today] += seconds
       if (nodeId) {
         if (!this.learningStats.nodeReadTime[nodeId]) {
           this.learningStats.nodeReadTime[nodeId] = 0
         }
-        this.learningStats.nodeReadTime[nodeId] += minutes
+        this.learningStats.nodeReadTime[nodeId] += seconds
       }
       const todayStr = dayjs().format('YYYY-MM-DD')
       const lastDate = this.learningStats.lastStudyDate
@@ -99,23 +100,27 @@ export const useLearningStore = defineStore('learning', {
       return this.learningStats.nodeReadTime[nodeId] || 0
     },
 
+    /** Returns today's study time in minutes (stored as seconds internally). */
     getTodayStudyTime(): number {
       const today = dayjs().format('YYYY-MM-DD')
-      return this.learningStats.dailyStudyTime[today] || 0
+      const seconds = this.learningStats.dailyStudyTime[today] || 0
+      return Math.floor(seconds / 60)
     },
 
+    /** Returns weekly study time in minutes. */
     getWeeklyStudyTime(): number {
       let total = 0
       for (let i = 0; i < 7; i++) {
         const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD')
         total += this.learningStats.dailyStudyTime[date] || 0
       }
-      return total
+      return Math.floor(total / 60)
     },
 
     persistLearningStats() {
       try {
-        localStorage.setItem('learning_stats', JSON.stringify(this.learningStats))
+        const data = { ...this.learningStats, _version: 2 }
+        localStorage.setItem('learning_stats', JSON.stringify(data))
       } catch (e) {
         console.error('Failed to persist learning stats:', e)
       }
@@ -126,7 +131,24 @@ export const useLearningStore = defineStore('learning', {
         const raw = localStorage.getItem('learning_stats')
         if (raw) {
           const stats = JSON.parse(raw)
+          // Migrate v1 (minutes) → v2 (seconds)
+          if (!stats._version || stats._version < 2) {
+            if (stats.totalStudyTime) stats.totalStudyTime *= 60
+            if (stats.dailyStudyTime) {
+              for (const key of Object.keys(stats.dailyStudyTime)) {
+                stats.dailyStudyTime[key] *= 60
+              }
+            }
+            if (stats.nodeReadTime) {
+              for (const key of Object.keys(stats.nodeReadTime)) {
+                stats.nodeReadTime[key] *= 60
+              }
+            }
+            stats._version = 2
+          }
+          delete stats._version
           this.learningStats = { ...this.learningStats, ...stats }
+          this.persistLearningStats()
         }
       } catch (e) {
         console.error('Failed to restore learning stats:', e)

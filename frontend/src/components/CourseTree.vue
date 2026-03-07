@@ -12,7 +12,7 @@
                     @click="$emit('toggle-sidebar')"
                     title="收起侧边栏"
                 >
-                    <el-icon :size="18"><Fold /></el-icon>
+                    <el-icon :size="18"><DArrowLeft /></el-icon>
                 </button>
                 <span class="font-bold text-slate-700 tracking-tight text-base">我的课程</span>
             </div>
@@ -231,7 +231,7 @@
                     @click="$emit('toggle-sidebar')"
                     title="收起侧边栏"
                 >
-                    <el-icon :size="16"><Fold /></el-icon>
+                    <el-icon :size="16"><DArrowLeft /></el-icon>
                 </button>
             </div>
         </div>
@@ -574,7 +574,7 @@ import { useLearningStore } from '../stores/learning'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
-import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, Fold, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading, Sort, Timer, TrendCharts, Upload } from '@element-plus/icons-vue'
+import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, DArrowLeft, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading, Sort, Timer, TrendCharts, Upload } from '@element-plus/icons-vue'
 import { BookOpen, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
 import SkeletonLoader from './SkeletonLoader.vue'
 import MarkdownImport from './MarkdownImport.vue'

@@ -975,8 +975,8 @@ GENERATE_QUIZ = PromptTemplate(
     {{{{
       "type": "single_choice",
       "question": "题目内容",
-      "options": ["A. 选项1", "B. 选项2", "C. 选项3", "D. 选项4"],
-      "correct_answer": "A",
+      "options": ["选项1", "选项2", "选项3", "选项4"],
+      "correct_index": 0,
       "explanation": "答案解析（必须引用课程内容中的具体知识点）"
     }}}}
   ]
