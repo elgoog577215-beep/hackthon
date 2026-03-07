@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia'
 import http from '../utils/http'
 import { ElMessage } from 'element-plus'
+import { useCourseStore } from './course'
 import {
   DIFFICULTY_LEVELS,
   TEACHING_STYLES,
@@ -67,7 +68,6 @@ export const useGenerationStore = defineStore('generation', {
 
   actions: {
     _courseStore() {
-      const { useCourseStore } = require('./course')
       return useCourseStore()
     },
 

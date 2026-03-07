@@ -7,6 +7,7 @@ import http from '../utils/http'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import type { Note, Annotation } from './types'
+import { useCourseStore } from './course'
 
 // 复用 course.ts 中的工具函数
 const sanitizeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').trim()
@@ -242,7 +243,6 @@ export const useNoteStore = defineStore('notes', {
         return
       }
       // Lazy import to avoid circular dependency
-      const { useCourseStore } = require('./course')
       const courseStore = useCourseStore()
 
       const courseName = courseStore.courseList.find((c: { course_id: string; course_name: string }) => c.course_id === courseStore.currentCourseId)?.course_name || 'My Notes'
