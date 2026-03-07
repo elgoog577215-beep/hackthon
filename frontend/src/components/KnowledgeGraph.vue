@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="courseStore.showKnowledgeGraph" class="kg-modal-overlay" @click.self="handleClose">
@@ -435,7 +435,7 @@ const layoutGraph = () => {
   nodes.forEach(n => { children[n.id] = [] })
   edges.forEach(e => { if (children[e.source]) children[e.source].push(e.target) })
 
-  const root = nodes.find(n => n.type === 'root') || nodes[0]
+  const root = nodes.find(n => n.type === 'root') ?? (nodes.length > 0 ? nodes[0] : undefined)
   if (!root) return
   root.x = CENTER_X; root.y = CENTER_Y
 
@@ -512,7 +512,7 @@ const getNodeWidth = (node: any) => {
   return Math.max(base, (node.label?.length || 0) * charW + 56)
 }
 const getNodeHeight = (node: any) => node.type === 'root' ? 56 : 46
-const getNodeIcon = (type: string) => ''
+const getNodeIcon = (_type: string) => ''
 const getNodeAccent = (node: any) => nodeTypes.find(t => t.value === node.type)?.color || '#ffffff'
 const getTypeLabel = (type: string) => nodeTypes.find(t => t.value === type)?.label || type
 const getRelationLabel = (relation: string) => relationTypes[relation]?.label || relation
@@ -567,7 +567,7 @@ const getEdgeMidpoint = (edge: any) => {
 
 const getEdgeColor = (edge: any) => relationTypes[edge.relation]?.color || '#475569'
 
-const getEdgeGlowStyle = (edge: any) => {
+const getEdgeGlowStyle = (_edge: any) => {
   // No glow in pop-art style, return invisible
   return { stroke: 'none', strokeWidth: '0' }
 }
