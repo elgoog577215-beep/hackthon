@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="courseStore.showKnowledgeGraph" class="kg-overlay" @click.self="handleClose">
