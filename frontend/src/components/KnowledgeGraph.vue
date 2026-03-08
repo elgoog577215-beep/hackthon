@@ -148,6 +148,48 @@
                       <span class="kg-rel-tag">{{ getRelLabel(r.relation) }}</span>
                     </button>
                   </div>
+                  <!-- 相关笔记与错题 -->
+                  <div v-if="nodeNotes.length || nodeWrongAnswers.length" class="kg-detail-extra">
+                    <div v-if="nodeNotes.length" class="kg-detail-section">
+                      <button class="kg-sec-toggle" @click.stop="showNotesSection = !showNotesSection">
+                        <span class="kg-sec-icon">📝</span>
+                        <span class="kg-sec-label">相关笔记</span>
+                        <span class="kg-sec-count">{{ nodeNotes.length }}</span>
+                        <span class="kg-sec-arrow" :class="{ 'kg-sec-arrow--open': showNotesSection }">›</span>
+                      </button>
+                      <div v-if="showNotesSection" class="kg-sec-body">
+                        <div v-for="note in nodeNotes" :key="note.id" class="kg-note-item" @click.stop="navigateToNode(note.nodeId)">
+                          <span class="kg-note-bar" :style="{ background: note.color || '#6366f1' }"></span>
+                          <div class="kg-note-content">
+                            <p v-if="note.quote" class="kg-note-quote">{{ note.quote.slice(0, 40) }}{{ note.quote.length > 40 ? '...' : '' }}</p>
+                            <p class="kg-note-text">{{ note.content.slice(0, 50) }}{{ note.content.length > 50 ? '...' : '' }}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div v-if="nodeWrongAnswers.length" class="kg-detail-section">
+                      <button class="kg-sec-toggle" @click.stop="showWrongSection = !showWrongSection">
+                        <span class="kg-sec-icon">❌</span>
+                        <span class="kg-sec-label">相关错题</span>
+                        <span class="kg-sec-count">{{ nodeWrongAnswers.length }}</span>
+                        <span class="kg-sec-arrow" :class="{ 'kg-sec-arrow--open': showWrongSection }">›</span>
+                      </button>
+                      <div v-if="showWrongSection" class="kg-sec-body">
+                        <div v-for="(w, i) in nodeWrongAnswers" :key="w.question + w.nodeId" class="kg-wrong-item">
+                          <button class="kg-wrong-head" @click.stop="expandedWrongId = expandedWrongId === w.question ? null : w.question">
+                            <span class="kg-wrong-num">{{ i + 1 }}</span>
+                            <span class="kg-wrong-q">{{ w.question.slice(0, 36) }}{{ w.question.length > 36 ? '...' : '' }}</span>
+                            <span v-if="w.reviewCount > 1" class="kg-wrong-review">复习{{ w.reviewCount }}次</span>
+                          </button>
+                          <div v-if="expandedWrongId === w.question" class="kg-wrong-body">
+                            <div class="kg-wrong-opt kg-wrong-opt--wrong">✗ 你的答案：{{ w.options[w.userIndex] }}</div>
+                            <div class="kg-wrong-opt kg-wrong-opt--right">✓ 正确答案：{{ w.options[w.correctIndex] }}</div>
+                            <p v-if="w.explanation" class="kg-wrong-exp">{{ w.explanation.slice(0, 80) }}{{ w.explanation.length > 80 ? '...' : '' }}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                   <div v-if="selectedNode.chapter_id" class="kg-detail-foot">
                     <button class="kg-btn-primary kg-btn-block" @click="navigateToNode(selectedNode.chapter_id)">
                       <el-icon><Position /></el-icon> 前往学习
@@ -165,11 +207,15 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useCourseStore } from '../stores/course'
+import { useNoteStore } from '../stores/notes'
+import { useReviewStore } from '../stores/review'
 import { ElMessage } from 'element-plus'
 import { Share, Search, Close, MagicStick, Refresh, Download, Position, Plus, Minus, FullScreen } from '@element-plus/icons-vue'
 import http from '../utils/http'
 
 const courseStore = useCourseStore()
+const noteStore = useNoteStore()
+const reviewStore = useReviewStore()
 const NODE_W = 160, NODE_H = 42, COL_GAP = 110, ROW_GAP = 16
 
 const loading = ref(false)
@@ -187,6 +233,9 @@ const isPanning = ref(false)
 const panStart = ref({ x: 0, y: 0 })
 const viewBoxStart = ref({ x: 0, y: 0 })
 const viewBox = ref({ x: 0, y: 0, width: 1200, height: 700 })
+const showNotesSection = ref(false)
+const showWrongSection = ref(false)
+const expandedWrongId = ref<string | null>(null)
 
 const viewBoxStr = computed(() => `${viewBox.value.x} ${viewBox.value.y} ${viewBox.value.width} ${viewBox.value.height}`)
 const zoomLevel = computed(() => Math.round(1200 / viewBox.value.width * 100))
@@ -224,6 +273,44 @@ const relatedNodes = computed(() => {
     else if (e.target === id) { const n = graphData.value.nodes.find((n: any) => n.id === e.source); if (n) out.push({ node: n, relation: e.relation }) }
   })
   return out.slice(0, 6)
+})
+
+// 收集选中节点关联的所有课程节点 ID（含子节点）
+const selectedNodeIds = computed<Set<string>>(() => {
+  if (!selectedNode.value?.chapter_id) return new Set()
+  const cid = selectedNode.value.chapter_id
+  const ids = new Set<string>([cid])
+  if (selectedNode.value.type === 'root' || selectedNode.value.type === 'module') {
+    const allNodes = courseStore.getLinearNodes(courseStore.courseTree)
+    const collectChildren = (parentId: string) => {
+      for (const n of allNodes) {
+        if (n.parent_node_id === parentId && !ids.has(n.node_id)) {
+          ids.add(n.node_id)
+          collectChildren(n.node_id)
+        }
+      }
+    }
+    collectChildren(cid)
+  }
+  return ids
+})
+
+const nodeNotes = computed(() => {
+  const ids = selectedNodeIds.value
+  if (ids.size === 0) return []
+  return noteStore.notes
+    .filter(n => ids.has(n.nodeId) && n.sourceType !== 'format')
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 5)
+})
+
+const nodeWrongAnswers = computed(() => {
+  const ids = selectedNodeIds.value
+  if (ids.size === 0) return []
+  return reviewStore.wrongAnswers
+    .filter(w => ids.has(w.nodeId))
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 5)
 })
 
 const layoutGraph = () => {
@@ -305,8 +392,8 @@ const getEdgeStyle = (edge: any) => {
   return { stroke: isDimmed ? '#e2e8f0' : isActive ? color : '#c7d2fe', strokeWidth: isActive ? '2.5' : '1.5', opacity: isDimmed ? '0.2' : '1' }
 }
 
-const selectNode = (n: any) => { selectedNode.value = n }
-const deselectNode = () => { selectedNode.value = null }
+const selectNode = (n: any) => { selectedNode.value = n; showNotesSection.value = false; showWrongSection.value = false; expandedWrongId.value = null }
+const deselectNode = () => { selectedNode.value = null; showNotesSection.value = false; showWrongSection.value = false; expandedWrongId.value = null }
 const handleClose = () => { courseStore.showKnowledgeGraph = false }
 const resetView = () => fitView()
 
@@ -484,4 +571,31 @@ watch(() => courseStore.currentCourseId, () => { if (courseStore.showKnowledgeGr
 .modal-enter-from .kg-container, .modal-leave-to .kg-container { transform: scale(.96); }
 .slide-in-enter-active, .slide-in-leave-active { transition: all .2s ease; }
 .slide-in-enter-from, .slide-in-leave-to { opacity: 0; transform: translateX(16px); }
+.kg-detail-extra { margin-bottom: 12px; border-top: 1px solid #f1f5f9; padding-top: 10px; }
+.kg-detail-section { margin-bottom: 8px; }
+.kg-sec-toggle { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 6px; border-radius: 7px; border: none; background: #f8fafc; cursor: pointer; transition: background .15s; font-size: 12px; }
+.kg-sec-toggle:hover { background: #f1f5f9; }
+.kg-sec-icon { font-size: 13px; flex-shrink: 0; }
+.kg-sec-label { font-size: 11px; font-weight: 600; color: #475569; flex: 1; text-align: left; }
+.kg-sec-count { font-size: 10px; color: #94a3b8; background: #f1f5f9; padding: 1px 6px; border-radius: 10px; }
+.kg-sec-arrow { font-size: 14px; color: #94a3b8; transition: transform .2s; display: inline-block; }
+.kg-sec-arrow--open { transform: rotate(90deg); }
+.kg-sec-body { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.kg-note-item { display: flex; gap: 7px; padding: 5px 6px; border-radius: 6px; cursor: pointer; transition: background .15s; }
+.kg-note-item:hover { background: #f8fafc; }
+.kg-note-bar { width: 3px; border-radius: 2px; flex-shrink: 0; align-self: stretch; }
+.kg-note-content { flex: 1; min-width: 0; }
+.kg-note-quote { font-size: 10px; color: #94a3b8; margin: 0 0 2px; font-style: italic; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kg-note-text { font-size: 11px; color: #475569; margin: 0; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kg-wrong-item { border-radius: 6px; overflow: hidden; }
+.kg-wrong-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 6px; border: none; background: none; cursor: pointer; transition: background .15s; text-align: left; }
+.kg-wrong-head:hover { background: #fef2f2; }
+.kg-wrong-num { width: 18px; height: 18px; border-radius: 50%; background: #fee2e2; color: #ef4444; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.kg-wrong-q { font-size: 11px; color: #334155; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kg-wrong-review { font-size: 9px; color: #94a3b8; flex-shrink: 0; }
+.kg-wrong-body { padding: 4px 6px 8px 30px; }
+.kg-wrong-opt { font-size: 11px; line-height: 1.6; }
+.kg-wrong-opt--wrong { color: #ef4444; }
+.kg-wrong-opt--right { color: #10b981; }
+.kg-wrong-exp { font-size: 10px; color: #64748b; margin: 4px 0 0; line-height: 1.5; }
 </style>
