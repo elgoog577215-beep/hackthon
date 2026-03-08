@@ -85,46 +85,79 @@ class AIBase:
 
     def _detect_discipline_type(self, course_name: str, keyword: str = "") -> str:
         """
-        根据课程名称和关键词自动识别学科类型
-        
+        根据课程名称和关键词自动识别学科类型（加权评分机制）
+
+        使用核心关键词（权重=2）和普通关键词（权重=1）的加权评分，
+        支持中英文关键词匹配。
+
         Args:
             course_name: 课程名称
             keyword: 课程关键词
-            
+
         Returns:
             学科类型: "natural_science", "humanities", "skill_based"
         """
         text = f"{course_name} {keyword}".lower()
-        
-        natural_science_keywords = [
-            "量子", "力学", "物理", "化学", "代数", "几何", "数学", "算法", 
-            "统计", "机器学习", "深度学习", "编程", "计算机", "工程", "电子",
-            "热力", "量子力学", "线性代数", "微积分", "概率", "数据结构",
-            "神经网络", "优化", "计算", "科学", "技术"
-        ]
-        
-        humanities_keywords = [
-            "哲学", "伦理", "历史", "文学", "艺术", "社会学", "政治", "思想",
-            "文化", "宗教", "美学", "逻辑", "认识论", "本体论", "形而上学",
-            "辩证", "存在主义", "现象学", "诠释学"
-        ]
-        
-        skill_based_keywords = [
-            "辩论", "演讲", "写作", "设计", "实践", "沟通", "谈判", "领导力",
-            "项目管理", "创业", "营销", "销售", "面试", "职场", "技能",
-            "口才", "表达", "演示", "汇报"
-        ]
-        
-        natural_score = sum(1 for kw in natural_science_keywords if kw in text)
-        humanities_score = sum(1 for kw in humanities_keywords if kw in text)
-        skill_score = sum(1 for kw in skill_based_keywords if kw in text)
-        
-        if skill_score > natural_score and skill_score > humanities_score:
-            return "skill_based"
-        elif humanities_score > natural_score:
-            return "humanities"
-        else:
+
+        # 核心关键词（权重=2）— 高区分度词汇
+        core_keywords = {
+            "natural_science": [
+                "量子", "力学", "微积分", "线性代数", "概率", "算法", "数据结构",
+                "神经网络", "热力学", "电磁", "有机化学", "无机化学", "分子生物",
+                "天体物理", "流体力学", "量子计算",
+            ],
+            "humanities": [
+                "哲学", "伦理", "存在主义", "现象学", "诠释学", "辩证法", "形而上学",
+                "认识论", "本体论", "美学",
+            ],
+            "skill_based": [
+                "辩论", "演讲", "写作技巧", "项目管理", "面试技巧",
+            ],
+        }
+
+        # 普通关键词（权重=1）— 广覆盖词汇
+        normal_keywords = {
+            "natural_science": [
+                "物理", "化学", "数学", "编程", "计算机", "工程", "电子", "统计",
+                "科学", "技术", "生物", "地理", "天文", "医学", "基因", "细胞",
+                "光学", "声学", "材料", "能源", "环境科学", "地质",
+                "machine learning", "deep learning", "algorithm", "physics",
+                "chemistry", "mathematics", "biology", "computer science",
+                "data science", "artificial intelligence", "neural network",
+                "programming", "engineering", "statistics",
+            ],
+            "humanities": [
+                "历史", "文学", "艺术", "社会学", "政治", "思想", "文化", "宗教",
+                "逻辑", "经济学", "法学", "心理学", "教育学", "语言学", "人类学",
+                "考古", "传播学", "新闻学",
+                "philosophy", "history", "literature", "ethics", "sociology",
+                "psychology", "linguistics", "anthropology", "political science",
+            ],
+            "skill_based": [
+                "设计", "实践", "沟通", "谈判", "领导力", "创业", "营销", "销售",
+                "面试", "职场", "技能", "口才", "表达", "演示", "汇报", "教练",
+                "咨询", "培训",
+                "debate", "writing", "presentation", "negotiation", "leadership",
+                "communication", "public speaking", "coaching",
+            ],
+        }
+
+        # 计算加权得分
+        scores = {}
+        for discipline in ["natural_science", "humanities", "skill_based"]:
+            core_score = sum(2 for kw in core_keywords[discipline] if kw in text)
+            normal_score = sum(1 for kw in normal_keywords[discipline] if kw in text)
+            scores[discipline] = core_score + normal_score
+
+        # 所有得分为0时返回默认值
+        if all(s == 0 for s in scores.values()):
+            logger.warning(f"学科类型检测：所有学科得分均为0，课程名称='{course_name}'，关键词='{keyword}'，使用默认值 natural_science")
             return "natural_science"
+
+        # 按得分排序，取最高分
+        sorted_disciplines = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        return sorted_disciplines[0][0]
+
 
     def _extract_chapter_number(self, node_name: str) -> str:
         """

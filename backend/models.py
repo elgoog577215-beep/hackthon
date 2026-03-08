@@ -112,6 +112,8 @@ class GenerateQuizRequest(BaseModel):
     style: Optional[TeachingStyle] = "academic"
     user_persona: Optional[str] = ""
     question_count: int = 3
+    discipline_type: Optional[str] = None
+
 
 class SummarizeChatRequest(BaseModel):
     history: List[dict]

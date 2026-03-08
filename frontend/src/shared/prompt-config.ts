@@ -23,6 +23,9 @@ export type NodeLevel = 1 | 2 | 3;
 /** 节点类型 */
 export type NodeType = 'original' | 'expanded' | 'redefined';
 
+/** 学科类型 */
+export type DisciplineType = 'natural_science' | 'humanities' | 'skill_based';
+
 /** 提示词模板名称 */
 export type PromptTemplateName = 
   | 'generate_course'
@@ -53,10 +56,10 @@ export const TEACHING_STYLES = {
 /** 提示词版本号 */
 export const PROMPT_VERSIONS: Record<PromptTemplateName, string> = {
   generate_course: '4.0.0',
-  generate_sub_nodes: '4.0.0',
-  generate_content: '3.0.0',
+  generate_sub_nodes: '5.0.0',
+  generate_content: '4.0.0',
   redefine_content: '3.0.0',
-  generate_quiz: '3.0.0'
+  generate_quiz: '4.0.0'
 };
 
 /** 节点层级常量 */
@@ -71,6 +74,13 @@ export const NODE_TYPES = {
   ORIGINAL: 'original' as const,    // 原始生成
   EXPANDED: 'expanded' as const,    // 扩展生成
   REDEFINED: 'redefined' as const   // 重定义
+};
+
+/** 学科类型常量 */
+export const DISCIPLINE_TYPES = {
+  NATURAL_SCIENCE: 'natural_science' as const,
+  HUMANITIES: 'humanities' as const,
+  SKILL_BASED: 'skill_based' as const
 };
 
 // =============================================================================
@@ -128,6 +138,13 @@ export const VALID_NODE_TYPES: NodeType[] = [
   'redefined'
 ];
 
+/** 有效的学科类型列表 */
+export const VALID_DISCIPLINE_TYPES: DisciplineType[] = [
+  'natural_science',
+  'humanities',
+  'skill_based'
+];
+
 // =============================================================================
 // 提示词模板参数定义
 // =============================================================================
@@ -172,6 +189,7 @@ export interface GenerateQuizParams {
   difficulty: DifficultyLevel;
   style: TeachingStyle;
   question_count: number;
+  discipline_type?: DisciplineType;
 }
 
 /** 提示词参数映射 */
@@ -211,6 +229,13 @@ export function validateStyle(style: string): boolean {
  */
 export function validateNodeType(nodeType: string): boolean {
   return VALID_NODE_TYPES.includes(nodeType as NodeType);
+}
+
+/**
+ * 验证学科类型
+ */
+export function validateDisciplineType(disciplineType: string): boolean {
+  return VALID_DISCIPLINE_TYPES.includes(disciplineType as DisciplineType);
 }
 
 /**
@@ -565,10 +590,12 @@ export default {
   PROMPT_VERSIONS,
   NODE_LEVELS,
   NODE_TYPES,
+  DISCIPLINE_TYPES,
   PARAMETER_RULES,
   VALID_DIFFICULTY_LEVELS,
   VALID_TEACHING_STYLES,
   VALID_NODE_TYPES,
+  VALID_DISCIPLINE_TYPES,
   SMART_SUGGESTIONS,
   CONTEXT_SUGGESTION_TEMPLATES,
   CONTENT_TYPE_KEYWORDS
