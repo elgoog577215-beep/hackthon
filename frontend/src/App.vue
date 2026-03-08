@@ -42,15 +42,23 @@
           </div>
         </div>
         
-        <!-- Central Course Title - Pill Design -->
+        <!-- Central Knowledge Graph Button -->
         <div class="flex-1 flex justify-center" v-if="courseStore.currentCourseId">
-          <div class="flex items-center gap-2 glass-card rounded-full px-4 py-1.5 animate-fade-in-up">
-            <span class="font-medium text-slate-700 text-sm truncate max-w-[180px]">
-              {{ courseStore.courseList.find(c => c.course_id === courseStore.currentCourseId)?.course_name || '课程预览' }}
-            </span>
-            <span class="w-1 h-1 rounded-full bg-slate-300"></span>
-            <span class="text-xs text-slate-400 font-medium">全书模式</span>
-          </div>
+          <button 
+            class="flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-all duration-300 relative overflow-hidden group animate-fade-in-up"
+            :class="courseStore.showKnowledgeGraph 
+              ? 'text-white shadow-lg shadow-primary-500/25' 
+              : 'text-slate-600 hover:text-primary-600 hover:shadow-md'"
+            :style="courseStore.showKnowledgeGraph 
+              ? 'background: var(--gradient-primary);' 
+              : 'background: rgba(255,255,255,0.8); border: 1px solid rgba(226,232,240,0.8); backdrop-filter: blur(8px);'"
+            :aria-pressed="courseStore.showKnowledgeGraph"
+            aria-label="知识图谱"
+            @click="courseStore.showKnowledgeGraph = true"
+          >
+            <el-icon :size="16" class="transition-transform duration-300 group-hover:scale-110"><Connection /></el-icon>
+            <span>知识图谱</span>
+          </button>
         </div>
         
         <!-- Spacer when no course selected -->
@@ -104,26 +112,6 @@
               </template>
             </div>
           </div>
-
-          <!-- Divider -->
-          <div class="w-px h-7 bg-gradient-to-b from-transparent via-slate-200 to-transparent"></div>
-
-          <!-- Knowledge Graph Button -->
-          <button 
-            class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 relative overflow-hidden group"
-            :class="courseStore.showKnowledgeGraph 
-              ? 'text-white shadow-lg' 
-              : 'text-slate-600 hover:text-primary-600'"
-            :style="courseStore.showKnowledgeGraph 
-              ? 'background: var(--gradient-primary);' 
-              : 'background: rgba(255,255,255,0.7); border: 1px solid rgba(226,232,240,0.8);'"
-            :aria-pressed="courseStore.showKnowledgeGraph"
-            aria-label="知识图谱"
-            @click="courseStore.showKnowledgeGraph = true"
-          >
-            <el-icon :size="16" class="transition-transform duration-300 group-hover:scale-110"><Connection /></el-icon>
-            <span class="hidden lg:inline">知识图谱</span>
-          </button>
 
           <!-- Divider -->
           <div class="w-px h-7 bg-gradient-to-b from-transparent via-slate-200 to-transparent"></div>
