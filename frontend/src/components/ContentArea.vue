@@ -2010,15 +2010,10 @@ const updateNotePositions = () => {
         }
     })
 
-    // Sync notes-container scroll with content scroll
-    // The notes-container height should match content scrollHeight
+    // 用 transform 代替 scrollTop 同步，因为 overflow:hidden 的元素无法通过 scrollTop 滚动
+    // notes-container 高度设为内容高度，通过 translateY(-scrollTop) 跟随内容滚动
     container.style.height = scrollContainer.scrollHeight + 'px'
-    
-    // Use transform to shift the notes-container to match content scroll position
-    const wrapper = document.getElementById('notes-scroll-wrapper')
-    if (wrapper) {
-        wrapper.scrollTop = scrollTop
-    }
+    container.style.transform = `translateY(-${scrollTop}px)`
 }
 
 // Add ResizeObserver to monitor note height changes
