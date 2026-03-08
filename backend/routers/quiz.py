@@ -18,11 +18,14 @@ router = APIRouter(tags=["quiz"])
 async def generate_quiz(req: GenerateQuizRequest):
     return await ai_service.generate_quiz(
         req.node_content,
+        node_name=req.node_name,
         difficulty=req.difficulty,
         style=req.style,
         user_persona=req.user_persona,
-        question_count=req.question_count
+        question_count=req.question_count,
+        discipline_type=req.discipline_type
     )
+
 
 
 @router.post("/summarize_chat")

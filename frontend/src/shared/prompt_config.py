@@ -74,10 +74,10 @@ TEACHING_STYLES = {
 # 提示词版本号
 PROMPT_VERSIONS: Dict[str, str] = {
     "generate_course": "4.0.0",
-    "generate_sub_nodes": "4.0.0",
-    "generate_content": "3.0.0",
+    "generate_sub_nodes": "5.0.0",
+    "generate_content": "4.0.0",
     "redefine_content": "3.0.0",
-    "generate_quiz": "3.0.0"
+    "generate_quiz": "4.0.0"
 }
 
 # 节点层级常量

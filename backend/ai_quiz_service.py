@@ -10,7 +10,7 @@ from typing import List, Dict
 
 from ai_base import AIBase
 from shared.prompt_config import DIFFICULTY_LEVELS, TEACHING_STYLES, DifficultyLevel, TeachingStyle
-from prompts import get_prompt
+from prompts import get_prompt, get_difficulty_config, get_style_config, get_quiz_discipline_config
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,8 @@ class AIQuizService(AIBase):
         user_persona: str = "",
         question_count: int = 3,
         quiz_type: str = "mixed",
-        previous_mistakes: List[Dict] = None
+        previous_mistakes: List[Dict] = None,
+        discipline_type: str = None
     ) -> List[Dict]:
         """
         增强版测验生成 - 支持多种题型和自适应难度
@@ -35,7 +36,11 @@ class AIQuizService(AIBase):
         system_prompt = get_prompt("generate_quiz").format(
             difficulty=difficulty,
             style=style,
-            question_count=question_count
+            question_count=question_count,
+            discipline_type=discipline_type or "natural_science",
+            difficulty_config_text=get_difficulty_config(difficulty),
+            style_config_text=get_style_config(style),
+            quiz_discipline_config=get_quiz_discipline_config(discipline_type)
         )
         
         content_text = content
@@ -91,7 +96,7 @@ class AIQuizService(AIBase):
 
         # 智能回退：基于用户错题生成针对性题目
         logger.warning(f"Quiz generation failed for {node_name}. Using smart fallback.")
-        return self._generate_smart_fallback_quiz(node_name, question_count, previous_mistakes)
+        return self._generate_smart_fallback_quiz(node_name, question_count, previous_mistakes, discipline_type)
     
     def _validate_quiz_questions(self, questions: List[Dict], expected_count: int) -> List[Dict]:
         """验证并标准化测验题目"""
@@ -110,11 +115,11 @@ class AIQuizService(AIBase):
             validated.append(validated_q)
         return validated
     
-    def _generate_smart_fallback_quiz(self, node_name: str, question_count: int, previous_mistakes: List[Dict] = None) -> List[Dict]:
-        """智能回退测验生成 - 基于错题记录"""
+    def _generate_smart_fallback_quiz(self, node_name: str, question_count: int, previous_mistakes: List[Dict] = None, discipline_type: str = None) -> List[Dict]:
+        """智能回退测验生成 - 基于错题记录和学科类型"""
         fallback_topic = node_name if node_name else "此主题"
         
-        # 基础题目模板
+        # 基础通用题目模板（discipline_type 为 None 时使用）
         base_questions = [
             {
                 "id": 1,
@@ -193,15 +198,125 @@ class AIQuizService(AIBase):
             }
         ]
         
+        # 自然科学学科专用回退题目
+        natural_science_questions = [
+            {
+                "id": 1, "type": "conceptual",
+                "question": f"关于「{fallback_topic}」的核心定义，以下哪个描述最准确？",
+                "options": [f"{fallback_topic}是一个纯理论概念，没有实际应用", f"{fallback_topic}是该领域的基础概念，具有严格的数学/科学定义", f"{fallback_topic}是一个已被淘汰的过时理论", f"{fallback_topic}仅适用于极端条件下的特殊情况"],
+                "correct_index": 1, "explanation": f"**解析**：{fallback_topic}作为自然科学的核心概念，具有严格的定义和广泛的应用基础。", "knowledge_point": f"{fallback_topic}的核心定义", "difficulty_score": 2
+            },
+            {
+                "id": 2, "type": "conceptual",
+                "question": f"「{fallback_topic}」与相关概念之间的关系，以下说法正确的是？",
+                "options": ["它们之间完全独立，互不影响", "它们之间存在严格的逻辑推导关系", "它们之间仅有历史渊源，无逻辑联系", "它们之间的关系尚未被科学界认可"],
+                "correct_index": 1, "explanation": f"**解析**：在自然科学体系中，{fallback_topic}与相关概念之间通常存在严格的逻辑推导和数学关系。", "knowledge_point": f"{fallback_topic}的概念关系", "difficulty_score": 2
+            },
+            {
+                "id": 3, "type": "application",
+                "question": f"在工程或科研实践中，「{fallback_topic}」最常用于解决什么类型的问题？",
+                "options": ["文献综述和历史考证", "定量分析和模型构建", "主观评价和审美判断", "社会调查和问卷设计"],
+                "correct_index": 1, "explanation": f"**解析**：{fallback_topic}在工程和科研中主要用于定量分析、模型构建和问题求解。", "knowledge_point": f"{fallback_topic}的工程应用", "difficulty_score": 3
+            },
+            {
+                "id": 4, "type": "application",
+                "question": f"如果需要验证「{fallback_topic}」的正确性，最合适的方法是？",
+                "options": ["专家投票表决", "实验验证或数学证明", "网络搜索热度", "历史文献引用次数"],
+                "correct_index": 1, "explanation": f"**解析**：自然科学的核心方法论是通过实验验证或严格的数学证明来确认理论的正确性。", "knowledge_point": f"{fallback_topic}的验证方法", "difficulty_score": 3
+            },
+            {
+                "id": 5, "type": "analysis",
+                "question": f"学习「{fallback_topic}」时，以下哪种学习策略最有效？",
+                "options": ["死记硬背所有公式和定义", "理解推导过程并通过例题练习巩固", "只看结论不关心推导过程", "仅阅读科普文章了解大意"],
+                "correct_index": 1, "explanation": f"**解析**：对于自然科学概念，理解推导过程并通过例题练习是最有效的学习方法。", "knowledge_point": f"{fallback_topic}的学习方法", "difficulty_score": 2
+            }
+        ]
+        
+        # 人文学科专用回退题目
+        humanities_questions = [
+            {
+                "id": 1, "type": "conceptual",
+                "question": f"关于「{fallback_topic}」的概念界定，以下哪种理解最为准确？",
+                "options": [f"{fallback_topic}有唯一确定的标准定义", f"{fallback_topic}的内涵随历史语境和学术传统而有不同诠释", f"{fallback_topic}是一个无法定义的模糊概念", f"{fallback_topic}的定义已被学界完全统一"],
+                "correct_index": 1, "explanation": f"**解析**：人文学科中的概念往往具有历史性和语境依赖性，{fallback_topic}的内涵在不同学术传统中有不同的诠释。", "knowledge_point": f"{fallback_topic}的概念界定", "difficulty_score": 2
+            },
+            {
+                "id": 2, "type": "conceptual",
+                "question": f"不同学派对「{fallback_topic}」的看法，以下描述正确的是？",
+                "options": ["所有学派观点完全一致", "不同学派从各自理论框架出发，提出了不同的分析视角", "学派之间的分歧已经完全消除", "只有一个学派的观点是正确的"],
+                "correct_index": 1, "explanation": f"**解析**：人文学科的特点之一是多元视角并存，不同学派对{fallback_topic}的理解反映了各自的理论立场。", "knowledge_point": f"{fallback_topic}的多元视角", "difficulty_score": 3
+            },
+            {
+                "id": 3, "type": "application",
+                "question": f"将「{fallback_topic}」的理论应用于当代社会分析时，最需要注意什么？",
+                "options": ["直接套用原始理论，无需调整", "考虑历史语境差异，进行批判性转化", "完全抛弃原始理论，重新构建", "忽略理论背景，只关注实用性"],
+                "correct_index": 1, "explanation": f"**解析**：将人文理论应用于当代分析时，需要考虑历史语境的差异，进行批判性的转化和重新诠释。", "knowledge_point": f"{fallback_topic}的当代应用", "difficulty_score": 3
+            },
+            {
+                "id": 4, "type": "application",
+                "question": f"研究「{fallback_topic}」时，以下哪种研究方法最为适切？",
+                "options": ["纯定量统计分析", "文本分析与诠释学方法", "实验室控制实验", "大规模问卷调查"],
+                "correct_index": 1, "explanation": f"**解析**：人文学科研究通常采用文本分析、诠释学等质性研究方法来深入理解概念的内涵。", "knowledge_point": f"{fallback_topic}的研究方法", "difficulty_score": 3
+            },
+            {
+                "id": 5, "type": "analysis",
+                "question": f"批判性地审视「{fallback_topic}」时，最重要的思维能力是？",
+                "options": ["记忆大量事实和年代", "识别论证中的隐含前提和逻辑结构", "快速阅读大量文献", "精确引用原文"],
+                "correct_index": 1, "explanation": f"**解析**：批判性思维的核心是能够识别论证中的隐含前提、分析逻辑结构、评估论据的充分性。", "knowledge_point": f"{fallback_topic}的批判性分析", "difficulty_score": 4
+            }
+        ]
+        
+        # 技能学科专用回退题目
+        skill_based_questions = [
+            {
+                "id": 1, "type": "conceptual",
+                "question": f"关于「{fallback_topic}」这项技能，以下哪种理解最准确？",
+                "options": [f"{fallback_topic}是天生的能力，无法通过训练提升", f"{fallback_topic}是可以通过系统训练和刻意练习掌握的技能", f"{fallback_topic}只需要理论学习，不需要实践", f"{fallback_topic}没有明确的评估标准"],
+                "correct_index": 1, "explanation": f"**解析**：{fallback_topic}作为一项技能，可以通过系统的训练方法和持续的刻意练习来逐步提升。", "knowledge_point": f"{fallback_topic}的技能本质", "difficulty_score": 2
+            },
+            {
+                "id": 2, "type": "application",
+                "question": f"练习「{fallback_topic}」时，以下哪个步骤顺序最合理？",
+                "options": ["直接实战→总结→学习理论", "学习理论→观摩示范→模仿练习→实战应用→反思改进", "只看理论不练习", "随意练习，不需要计划"],
+                "correct_index": 1, "explanation": f"**解析**：技能学习的有效路径是：理论理解→示范观摩→模仿练习→实战应用→反思改进的循环过程。", "knowledge_point": f"{fallback_topic}的练习步骤", "difficulty_score": 2
+            },
+            {
+                "id": 3, "type": "application",
+                "question": f"在实际场景中运用「{fallback_topic}」时，遇到困难应该怎么做？",
+                "options": ["立即放弃，说明不适合", "分析问题原因，调整策略后重新尝试", "完全照搬他人的做法", "降低标准，敷衍了事"],
+                "correct_index": 1, "explanation": f"**解析**：技能提升的关键在于遇到困难时能够分析原因、调整策略并持续改进。", "knowledge_point": f"{fallback_topic}的问题解决", "difficulty_score": 3
+            },
+            {
+                "id": 4, "type": "conceptual",
+                "question": f"评估「{fallback_topic}」的掌握程度，最可靠的方式是？",
+                "options": ["自我感觉良好即可", "通过实际任务表现和他人反馈来评估", "只看理论考试成绩", "与他人比较排名"],
+                "correct_index": 1, "explanation": f"**解析**：技能的掌握程度最好通过实际任务中的表现和来自专业人士的反馈来综合评估。", "knowledge_point": f"{fallback_topic}的评估方法", "difficulty_score": 3
+            },
+            {
+                "id": 5, "type": "analysis",
+                "question": f"要从「{fallback_topic}」的初学者成长为高手，最关键的因素是？",
+                "options": ["天赋决定一切", "持续的刻意练习和及时的反馈调整", "学习时间越长越好", "只需要找到正确的方法论"],
+                "correct_index": 1, "explanation": f"**解析**：研究表明，刻意练习（有目标、有反馈、持续改进）是技能精进的最关键因素。", "knowledge_point": f"{fallback_topic}的精进路径", "difficulty_score": 4
+            }
+        ]
+        
+        # 根据学科类型选择题目模板
+        discipline_question_map = {
+            "natural_science": natural_science_questions,
+            "humanities": humanities_questions,
+            "skill_based": skill_based_questions,
+        }
+        questions = discipline_question_map.get(discipline_type, base_questions) if discipline_type else base_questions
+        
         # 如果有错题记录，优先返回相关类型的题目
         if previous_mistakes and len(previous_mistakes) > 0:
             weak_types = set(m.get('question_type', 'conceptual') for m in previous_mistakes[-5:])
-            prioritized = [q for q in base_questions if q['type'] in weak_types]
-            other = [q for q in base_questions if q['type'] not in weak_types]
+            prioritized = [q for q in questions if q['type'] in weak_types]
+            other = [q for q in questions if q['type'] not in weak_types]
             combined = prioritized + other
             return combined[:question_count]
         
-        return base_questions[:question_count]
+        return questions[:question_count]
     
     async def analyze_quiz_performance(
         self,

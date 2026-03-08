@@ -143,8 +143,10 @@ async def generate_node_quiz(course_id: str, node_id: str, req: GenerateQuizRequ
         difficulty=req.difficulty,
         style=req.style,
         user_persona=req.user_persona,
-        question_count=req.question_count
+        question_count=req.question_count,
+        discipline_type=req.discipline_type
     )
+
 
 
 @router.post("/{node_id}/extend")

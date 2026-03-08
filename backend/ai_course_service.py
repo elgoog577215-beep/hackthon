@@ -13,7 +13,7 @@ from typing import List, Dict
 
 from ai_base import AIBase
 from shared.prompt_config import DIFFICULTY_LEVELS, TEACHING_STYLES, DifficultyLevel, TeachingStyle
-from prompts import get_prompt
+from prompts import get_prompt, get_difficulty_config, get_style_config, get_discipline_structure, get_subnode_discipline_hints
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,10 @@ class AICourseService(AIBase):
             difficulty=difficulty,
             style=style,
             chapter_number=chapter_number,
-            discipline_type=discipline_type
+            discipline_type=discipline_type,
+            difficulty_config_text=get_difficulty_config(difficulty),
+            style_config_text=get_style_config(style),
+            subnode_hints=get_subnode_discipline_hints(discipline_type)
         )
         prompt = f"当前节点信息：名称={node_name}，层级={node_level}，章节编号={chapter_number}。请列出该章节下的所有子小节，确保编号以{chapter_number}.开头（如{chapter_number}.1、{chapter_number}.2...），结构完整且具备专业性。"
         
@@ -206,7 +209,10 @@ class AICourseService(AIBase):
             style=style,
             discipline_type=discipline_type,
             previous_node_content=previous_node_content[:500] if previous_node_content else "无",
-            used_cases=used_cases_str
+            used_cases=used_cases_str,
+            difficulty_config_text=get_difficulty_config(difficulty),
+            style_config_text=get_style_config(style),
+            discipline_structure=get_discipline_structure(discipline_type)
         )
         
         prompt = f"""请为'{node_name}'生成完整的详细正文内容。

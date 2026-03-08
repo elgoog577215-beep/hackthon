@@ -335,6 +335,234 @@ STRUCTURE_REQUIREMENTS = """
 
 
 # =============================================================================
+# 学科专用内容结构模板
+# =============================================================================
+
+STRUCTURE_NATURAL_SCIENCE = """
+## 结构化写作要求（自然科学）
+
+你必须严格按照以下板块结构组织内容，每个板块都是必需的：
+
+- ### 💡 核心定义与物理意义
+  精确的数学/科学定义，配合物理意义或几何直观解释。使用 LaTeX 公式（$...$）呈现关键公式。
+
+- ### 🔍 定理陈述与完整证明/推导
+  核心板块。给出定理的严格陈述，然后提供完整的证明或推导过程。每一步都要有清晰的逻辑依据。
+
+- ### 🛠️ 算法步骤/计算方法
+  具体的计算步骤、算法伪代码或求解流程。包含典型例题的分步求解。
+
+- ### 🎨 可视化图解
+  必须包含至少一个 Mermaid 图（流程图、结构图或关系图），帮助理解抽象概念。
+
+- ### 🏭 工程/科研应用案例
+  真实的工程项目或科研场景中的应用实例，展示理论与实践的连接。
+
+- ### ✅ 推导题/证明题
+  基于本节内容设计 1-2 道推导或证明练习题，要求学生运用所学定理和方法。
+"""
+
+STRUCTURE_HUMANITIES = """
+## 结构化写作要求（人文学科）
+
+你必须严格按照以下板块结构组织内容，每个板块都是必需的：
+
+- ### 💡 概念定义与历史语境
+  概念的界定与辨析，放置在思想史或学术史的脉络中理解其演变。
+
+- ### 🔍 论证链条展示
+  核心板块。展示完整的论证结构：观点→论据→可能的反驳→回应。呈现不同学派或思想家的立场对比。
+
+- ### 🛠️ 研究方法/分析框架
+  介绍适用于该主题的研究方法论、分析工具或理论框架。
+
+- ### 🎨 概念关系图
+  使用 Mermaid 图展示概念之间的逻辑关系、思想流派的谱系或论证结构。
+
+- ### 🏭 现实意义与当代关联
+  将思想或理论与当代社会现象、政策争论或文化议题建立联系。
+
+- ### ✅ 开放性问题/批判性思考题
+  设计 1-2 道没有标准答案的开放性问题，引导深度思辨和多角度分析。
+"""
+
+STRUCTURE_SKILL_BASED = """
+## 结构化写作要求（技能学科）
+
+你必须严格按照以下板块结构组织内容，每个板块都是必需的：
+
+- ### 💡 技能定义与学习价值
+  明确技能的定义、适用场景和掌握该技能的实际价值。
+
+- ### 🔍 技能背后的原理/机制
+  解释支撑该技能的理论基础、心理学机制或方法论原理。
+
+- ### 🛠️ 具体示范材料与练习任务
+  核心板块。提供可模仿的示范案例（如演讲稿片段、辩论论点展开、写作范例），配合分步练习任务。
+
+- ### 🎨 流程图/评分标准表
+  使用 Mermaid 图展示操作流程，或以表格形式呈现评分标准/评估维度。
+
+- ### 🏭 真实比赛/项目案例
+  来自真实比赛、项目或职业场景的案例分析，展示技能的高水平应用。
+
+- ### ✅ 实践任务/自我评估
+  设计 1-2 个动手练习任务，配合自我评估清单或评分标准。
+"""
+
+# =============================================================================
+# 学科专用测验配置
+# =============================================================================
+
+QUIZ_CONFIG_NATURAL_SCIENCE = """
+### 自然科学测验要求
+- 题型分布：计算/推导题 ≥ 30%，概念辨析题 30%，应用分析题 40%
+- 选项设计：包含常见计算错误作为干扰项（如符号错误、量纲错误、边界条件遗漏）
+- 公式要求：题目和解析中必须使用 LaTeX 公式（$...$）
+- 解析要求：包含分步骤求解过程，标注每步使用的定理或公式
+- 计算题必须有明确的数值答案或表达式结果
+"""
+
+QUIZ_CONFIG_HUMANITIES = """
+### 人文学科测验要求
+- 题型分布：论述分析题 40%，观点辨析题 30%，语境理解题 30%
+- 选项设计：涵盖不同学派/视角的观点，避免非此即彼的简单对立
+- 解析要求：展示论证逻辑链条，说明为何某个选项更合理而非绝对正确
+- 题目应考察对概念的深层理解而非表面记忆
+"""
+
+QUIZ_CONFIG_SKILL_BASED = """
+### 技能学科测验要求
+- 题型分布：情境判断题 40%，实操步骤排序题 30%，概念理解题 30%
+- 选项设计：基于真实操作场景，包含常见操作误区作为干扰项
+- 解析要求：包含操作要点和评分标准，说明正确操作的关键步骤
+- 情境题应提供具体的场景描述和约束条件
+"""
+
+# =============================================================================
+# 学科专用子节点生成建议
+# =============================================================================
+
+SUBNODE_HINTS_NATURAL_SCIENCE = """
+### 子节点类型建议（自然科学）
+建议包含以下类型的子节点：
+- 定理/公式推导节点：详细推导过程
+- 例题演练节点：典型题目的分步求解
+- 实验/仿真节点：实验设计或数值仿真
+"""
+
+SUBNODE_HINTS_HUMANITIES = """
+### 子节点类型建议（人文学科）
+建议包含以下类型的子节点：
+- 思想流派对比节点：不同学派观点的系统对比
+- 原典解读节点：经典文本的深度解读
+- 批判性讨论节点：开放性议题的多角度分析
+"""
+
+SUBNODE_HINTS_SKILL_BASED = """
+### 子节点类型建议（技能学科）
+建议包含以下类型的子节点：
+- 技能示范节点：高水平示范案例分析
+- 分步练习节点：从简单到复杂的渐进练习
+- 评估标准节点：评分维度和自我检查清单
+"""
+
+# =============================================================================
+# 配置查询函数
+# =============================================================================
+
+def get_difficulty_config(level: str) -> str:
+    """返回指定难度等级的配置文本片段"""
+    configs = {
+        "beginner": """### 难度配置：入门 (beginner)
+- 目标受众：零基础或仅有模糊概念的学习者
+- 内容特征：直观理解、生活类比、避免复杂推导
+- 章节长度：每章内容适合15-30分钟阅读
+- 公式密度：< 10%
+- 结构特点：层级化，每章包含4-7个子章节""",
+        "intermediate": """### 难度配置：进阶 (intermediate)
+- 目标受众：具备基础知识，希望系统掌握的从业者
+- 内容特征：工作原理、标准流程、最佳实践
+- 章节长度：每章内容适合30-60分钟阅读
+- 公式密度：10-30%
+- 结构特点：层级化，每章包含4-7个子章节""",
+        "advanced": """### 难度配置：专家 (advanced)
+- 目标受众：领域专家、资深架构师或研究人员
+- 内容特征：底层内核、数学证明、性能调优、前沿探索
+- 章节长度：每章内容适合60-120分钟阅读
+- 公式密度：> 30%
+- 结构特点：层级化，每章包含4-7个深度子章节"""
+    }
+    return configs.get(level, configs["intermediate"])
+
+
+def get_style_config(style: str) -> str:
+    """返回指定教学风格的配置文本片段"""
+    configs = {
+        "academic": """### 教学风格：学术严谨 (academic)
+- 核心特征：理论深度、逻辑严密、引用规范
+- 语言风格：使用学术术语，避免口语化表达
+- 内容侧重：数学推导、定理证明、理论框架
+- 示例表达："根据定理3.1，我们可以推导出..."、"从形式化定义出发..."
+- 适用场景：理论研究、学术论文、资格考试准备""",
+        "industrial": """### 教学风格：工业实战 (industrial)
+- 核心特征：工程导向、最佳实践、问题解决
+- 语言风格：简洁实用，强调可操作性
+- 内容侧重：架构设计、代码实现、性能优化、故障排查
+- 示例表达："在生产环境中，我们通常会..."、"实际项目中需要注意..."
+- 适用场景：工程实践、技术选型、项目实施""",
+        "socratic": """### 教学风格：苏格拉底式 (socratic)
+- 核心特征：启发引导、问题驱动、层层递进
+- 语言风格：提问式叙述，引导读者思考
+- 内容侧重：概念辨析、逻辑推理、批判性思维
+- 示例表达："为什么需要这样的设计？"、"如果换一种方式会怎样？"
+- 适用场景：概念理解、思维训练、深度思考""",
+        "humorous": """### 教学风格：生动幽默 (humorous)
+- 核心特征：生动有趣、比喻丰富、降低认知负担
+- 语言风格：轻松活泼，善用类比和故事
+- 内容侧重：概念可视化、记忆锚点、趣味案例
+- 示例表达："想象一下，如果数据是一位快递员..."、"这就像一个神奇的魔法..."
+- 适用场景：入门学习、概念初识、降低学习门槛"""
+    }
+    return configs.get(style, configs["academic"])
+
+
+def get_discipline_structure(discipline_type: str) -> str:
+    """返回指定学科类型的内容结构模板，无效值回退 STRUCTURE_NATURAL_SCIENCE"""
+    structures = {
+        "natural_science": STRUCTURE_NATURAL_SCIENCE,
+        "humanities": STRUCTURE_HUMANITIES,
+        "skill_based": STRUCTURE_SKILL_BASED,
+    }
+    return structures.get(discipline_type, STRUCTURE_NATURAL_SCIENCE)
+
+
+def get_quiz_discipline_config(discipline_type: str) -> str:
+    """返回指定学科类型的测验配置，无效值回退通用配置"""
+    configs = {
+        "natural_science": QUIZ_CONFIG_NATURAL_SCIENCE,
+        "humanities": QUIZ_CONFIG_HUMANITIES,
+        "skill_based": QUIZ_CONFIG_SKILL_BASED,
+    }
+    # 通用回退配置
+    default_config = """### 通用测验要求
+- 题型分布：选择题 60%，判断题 20%，简答题 20%
+- 选项设计：包含常见误解作为干扰项
+- 解析要求：每道题提供详细解析"""
+    return configs.get(discipline_type, default_config)
+
+
+def get_subnode_discipline_hints(discipline_type: str) -> str:
+    """返回指定学科类型的子节点建议，无效值返回空字符串"""
+    hints = {
+        "natural_science": SUBNODE_HINTS_NATURAL_SCIENCE,
+        "humanities": SUBNODE_HINTS_HUMANITIES,
+        "skill_based": SUBNODE_HINTS_SKILL_BASED,
+    }
+    return hints.get(discipline_type, "")
+
+
+# =============================================================================
 # Course Structure Configuration - 课程结构配置
 # =============================================================================
 
@@ -663,7 +891,7 @@ GENERATE_SUB_NODES = PromptTemplate(
     name="generate_sub_nodes",
     version="4.2.0",
     description="为父节点生成子章节（L1→L2），支持章节编号上下文传递",
-    parameters=["course_name", "parent_context", "course_outline", "difficulty", "style", "chapter_number", "discipline_type"],
+    parameters=["course_name", "parent_context", "course_outline", "difficulty", "style", "chapter_number", "discipline_type", "difficulty_config_text", "style_config_text", "subnode_hints"],
     tags=["sub-nodes", "generation", "L2", "numbering-context"],
     system_prompt=f"""{ACADEMIC_IDENTITY}
 
@@ -679,15 +907,15 @@ GENERATE_SUB_NODES = PromptTemplate(
 
 {COURSE_STRUCTURE_CONFIG}
 
-{DIFFICULTY_CONFIG}
+{{difficulty_config_text}}
 
-{STYLE_CONFIG}
+{{style_config_text}}
 
 {SUBNODE_GENERATION_RULES}
 
 {CHAPTER_NUMBERING_RULES}
 
-{DISCIPLINE_TYPE_CONFIG}
+{{subnode_hints}}
 
 ## 核心任务
 为当前父节点生成细化的子章节（L2）：
@@ -755,7 +983,7 @@ GENERATE_CONTENT = PromptTemplate(
     name="generate_content",
     version="4.0.0",
     description="为L2子章节生成详细正文内容，支持学科类型适配",
-    parameters=["node_name", "node_level", "course_context", "difficulty", "style", "discipline_type", "previous_node_content", "used_cases"],
+    parameters=["node_name", "node_level", "course_context", "difficulty", "style", "discipline_type", "previous_node_content", "used_cases", "discipline_structure", "difficulty_config_text", "style_config_text"],
     tags=["content", "generation", "L2", "body", "discipline-aware"],
     system_prompt=f"""{ACADEMIC_IDENTITY}
 
@@ -771,11 +999,9 @@ GENERATE_CONTENT = PromptTemplate(
 
 {COURSE_STRUCTURE_CONFIG}
 
-{DIFFICULTY_CONFIG}
+{{difficulty_config_text}}
 
-{STYLE_CONFIG}
-
-{DISCIPLINE_TYPE_CONFIG}
+{{style_config_text}}
 
 {VISUALIZATION_REQUIREMENTS}
 
@@ -802,45 +1028,6 @@ GENERATE_CONTENT = PromptTemplate(
 ### ⚠️ 思考题边界约束
 思考题只能涉及本节正文已介绍的概念，禁止引入外部概念。
 
-### 难度适配要求
-根据 {{difficulty}} 参数调整内容深度：
-
-**beginner (入门)**：
-- 使用生活类比和直观解释
-- 避免复杂数学推导
-- 重点讲清楚"是什么"和"为什么"
-- 公式密度 < 10%
-
-**intermediate (进阶)**：
-- 深入讲解工作原理
-- 包含标准算法和流程
-- 结合实际应用场景
-- 公式密度 10-30%
-
-**advanced (专家)**：
-- 深入底层实现细节
-- 包含数学证明和推导
-- 讨论性能优化和边界情况
-- 公式密度 > 30%
-
-### 学科类型适配（关键！）
-根据 {{discipline_type}} 调整内容结构：
-
-**natural_science (自然学科)**：
-- 🔍 深度原理板块**必须包含推导/证明过程**
-- 每个公式必须有来源说明或推导步骤
-- 可视化图解**必须**包含Mermaid图
-
-**humanities (人文学科)**：
-- 避免过度形式化，不强行使用数学符号
-- 展示论证链条：观点→论据→反驳→回应
-- "行业应用"改为"思想应用"，讨论现实意义
-
-**skill_based (技能学科)**：
-- "技术实现"改为"示范与练习"
-- 提供可直接模仿的示范材料
-- 包含评分标准或自我评估清单
-
 {FORMULA_STANDARDS}
 
 {MERMAID_STANDARDS}
@@ -850,14 +1037,11 @@ GENERATE_CONTENT = PromptTemplate(
 {OUTPUT_FORMAT_MARKDOWN}
 
 ## 内容结构要求
+{{discipline_structure}}
+
+### 通用结构框架
 1. **引言**：说明本节内容的重要性和学习目标
-2. **主体内容**：
-   - 💡 核心概念与背景：定义清晰，关键名词加粗
-   - 🔍 深度原理/底层机制：深入剖析（自然学科必须包含推导）
-   - 🛠️ 技术实现/方法论：具体步骤或方法
-   - 🎨 可视化图解：**必须包含Mermaid图或表格，禁止留空**
-   - 🏭 实战案例/行业应用：使用新案例，禁止重复
-   - ✅ 思考与挑战：基于本节内容，不引入外部概念
+2. **主体内容**：按照上述学科结构模板组织
 3. **总结**：
    - ### 🎯 本节核心概念（3-5个要点）
 4. **延伸阅读**：2-3个相关学习方向""")
@@ -922,7 +1106,7 @@ GENERATE_QUIZ = PromptTemplate(
     name="generate_quiz",
     version="3.1.0",
     description="基于内容生成测验题目",
-    parameters=["difficulty", "style", "question_count"],
+    parameters=["difficulty", "style", "question_count", "discipline_type", "difficulty_config_text", "style_config_text", "quiz_discipline_config"],
     tags=["quiz", "assessment", "questions"],
     system_prompt=f"""你是一位专业的教育测量专家，负责设计符合学术标准的评估工具。
 
@@ -930,9 +1114,9 @@ GENERATE_QUIZ = PromptTemplate(
 基于提供的**具体课程内容**，创建能够有效检验学习者对核心概念理解深度的专业测验。
 **严禁生成与课程内容无关的通用题目**。
 
-{DIFFICULTY_CONFIG}
+{{difficulty_config_text}}
 
-{STYLE_CONFIG}
+{{style_config_text}}
 
 ## 技术要求
 
@@ -957,9 +1141,7 @@ GENERATE_QUIZ = PromptTemplate(
   - advanced：侧重深度推理和创新应用
 
 ### 4. 题型分布
-- 选择题（单选/多选）：60%
-- 判断题：20%
-- 简答题/分析题：20%
+{{quiz_discipline_config}}
 
 ### 5. 禁止事项
 - ❌ 禁止生成与课程内容无关的通用题目
