@@ -72,7 +72,7 @@
                   <g v-for="edge in graphData.edges" :key="edge.source+'-'+edge.target">
                     <path :d="getEdgePath(edge)" fill="none" :style="getEdgeStyle(edge)"/>
                     <text v-if="showEdgeLabels && getEdgeMid(edge)"
-                      :x="getEdgeMid(edge).x" :y="getEdgeMid(edge).y - 6"
+                      :x="getEdgeMid(edge)!.x" :y="getEdgeMid(edge)!.y - 6"
                       class="kg-elabel">{{ getRelLabel(edge.relation) }}</text>
                   </g>
                 </g>
@@ -239,15 +239,16 @@ const layoutGraph = () => {
   while (q.length) {
     const id = q.shift()!
     for (const c of children[id] ?? []) {
-      if (!visited.has(c)) { visited.add(c); level[c] = level[id] + 1; q.push(c) }
+      if (!visited.has(c)) { visited.add(c); level[c] = (level[id] ?? 0) + 1; q.push(c) }
     }
   }
   const maxLvl = Math.max(0, ...Object.values(level))
   nodes.forEach((n: any) => { if (level[n.id] === undefined) level[n.id] = maxLvl + 1 })
   const groups: Record<number, any[]> = {}
-  nodes.forEach((n: any) => { const l = level[n.id]; (groups[l] ??= []).push(n) })
+  nodes.forEach((n: any) => { const l = level[n.id] ?? 0; (groups[l] ??= []).push(n) })
   Object.keys(groups).map(Number).sort((a, b) => a - b).forEach(l => {
     const g = groups[l]
+    if (!g) return
     const totalH = g.length * NODE_H + (g.length - 1) * ROW_GAP
     g.forEach((n: any, i: number) => {
       n.x = 80 + l * (NODE_W + COL_GAP)
