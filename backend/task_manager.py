@@ -250,7 +250,9 @@ class TaskManager:
             return candidates
 
     def _update_task_status(self, task_id: str, status: str, 
-                           message: str = None, error: str = None):
+                           message: str = None, error: str = None,
+                           completed_nodes: int = None,
+                           total_nodes: int = None):
         """更新任务状态"""
         with self.lock:
             if task_id in self.tasks:
@@ -259,6 +261,10 @@ class TaskManager:
                     self.tasks[task_id]["message"] = message
                 if error:
                     self.tasks[task_id]["error"] = error
+                if completed_nodes is not None:
+                    self.tasks[task_id]["completed_nodes"] = completed_nodes
+                if total_nodes is not None:
+                    self.tasks[task_id]["total_nodes"] = total_nodes
                 self.tasks[task_id]["updated_at"] = datetime.now().isoformat()
                 self.save_tasks()
 
@@ -373,6 +379,8 @@ class TaskManager:
         # 更新任务消息
         task["message"] = self._format_action_message(actions, progress_info)
         task["progress"] = min(95, int(progress_info["completed"] / max(1, progress_info["total"]) * 100))
+        task["completed_nodes"] = progress_info["completed"]
+        task["total_nodes"] = progress_info["total"]
         task["updated_at"] = datetime.now().isoformat()
         self.save_tasks()
         
