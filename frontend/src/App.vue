@@ -45,19 +45,16 @@
         <!-- Central Knowledge Graph Button -->
         <div class="flex-1 flex justify-center" v-if="courseStore.currentCourseId">
           <button 
-            class="flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-all duration-300 relative overflow-hidden group animate-fade-in-up"
-            :class="courseStore.showKnowledgeGraph 
-              ? 'text-white shadow-lg shadow-primary-500/25' 
-              : 'text-slate-600 hover:text-primary-600 hover:shadow-md'"
-            :style="courseStore.showKnowledgeGraph 
-              ? 'background: var(--gradient-primary);' 
-              : 'background: rgba(255,255,255,0.8); border: 1px solid rgba(226,232,240,0.8); backdrop-filter: blur(8px);'"
+            class="kg-center-btn group"
+            :class="{ 'kg-center-btn--active': courseStore.showKnowledgeGraph }"
             :aria-pressed="courseStore.showKnowledgeGraph"
             aria-label="知识图谱"
             @click="courseStore.showKnowledgeGraph = true"
           >
-            <el-icon :size="16" class="transition-transform duration-300 group-hover:scale-110"><Connection /></el-icon>
-            <span>知识图谱</span>
+            <span class="kg-center-glow"></span>
+            <el-icon :size="15" class="kg-center-icon"><Connection /></el-icon>
+            <span class="kg-center-label">知识图谱</span>
+            <span class="kg-center-dot" :class="{ 'kg-center-dot--on': courseStore.showKnowledgeGraph }"></span>
           </button>
         </div>
         
@@ -371,5 +368,83 @@ function handleExport(command: string) {
 :deep(.el-dropdown-menu__item:hover) {
   background: rgba(99, 102, 241, 0.08) !important;
   color: var(--color-primary-600) !important;
+}
+
+/* Knowledge Graph Center Button */
+.kg-center-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 20px 7px 16px;
+  border-radius: 100px;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(238,242,255,0.7));
+  backdrop-filter: blur(12px);
+  color: #6366f1;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.08), inset 0 1px 0 rgba(255,255,255,0.8);
+  overflow: hidden;
+}
+.kg-center-btn:hover {
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.15), inset 0 1px 0 rgba(255,255,255,0.9);
+  transform: translateY(-1px);
+}
+.kg-center-btn--active {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.35), inset 0 1px 0 rgba(255,255,255,0.15);
+}
+.kg-center-btn--active:hover {
+  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.45), inset 0 1px 0 rgba(255,255,255,0.2);
+  border-color: transparent;
+}
+.kg-center-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  background: radial-gradient(circle at 30% 50%, rgba(99,102,241,0.12) 0%, transparent 70%);
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.kg-center-btn:hover .kg-center-glow { opacity: 1; }
+.kg-center-btn--active .kg-center-glow {
+  opacity: 1;
+  background: radial-gradient(circle at 30% 50%, rgba(255,255,255,0.2) 0%, transparent 70%);
+}
+.kg-center-icon {
+  position: relative;
+  z-index: 1;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.kg-center-btn:hover .kg-center-icon { transform: scale(1.15) rotate(8deg); }
+.kg-center-label {
+  position: relative;
+  z-index: 1;
+}
+.kg-center-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.3);
+  transition: all 0.3s;
+  position: relative;
+  z-index: 1;
+}
+.kg-center-dot--on {
+  background: #a5f3fc;
+  box-shadow: 0 0 6px rgba(165, 243, 252, 0.6);
+  animation: kg-dot-pulse 2s ease-in-out infinite;
+}
+@keyframes kg-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.4); }
 }
 </style>
