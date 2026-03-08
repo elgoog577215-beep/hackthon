@@ -41,6 +41,13 @@
           </Transition>
         </div>
 
+        <!-- 错题 -->
+        <button class="action-btn" @click="$emit('showWrongAnswers')">
+          <el-icon><DocumentDelete /></el-icon>
+          <span class="btn-label">错题</span>
+          <span v-if="(wrongCount ?? 0) > 0" class="btn-badge error">{{ wrongCount }}</span>
+        </button>
+
         <div class="divider"></div>
 
         <!-- 出题 -->
@@ -53,13 +60,6 @@
         <button class="action-btn" @click="$emit('showStats')">
           <el-icon><DataLine /></el-icon>
           <span class="btn-label">统计</span>
-        </button>
-
-        <!-- 错题 -->
-        <button class="action-btn" @click="$emit('showWrongAnswers')">
-          <el-icon><DocumentDelete /></el-icon>
-          <span class="btn-label">错题</span>
-          <span v-if="(wrongCount ?? 0) > 0" class="btn-badge error">{{ wrongCount }}</span>
         </button>
 
         <!-- 知识图谱 -->
