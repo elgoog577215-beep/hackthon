@@ -1926,13 +1926,9 @@ const updateNotePositions = () => {
         noteColumnTop.value = actualTop
     }
     
-    // Detect Scale Factor
-    let scaleY = 1
-    if (container.offsetHeight > 0) {
-        const containerRect = container.getBoundingClientRect()
-        scaleY = containerRect.height / container.offsetHeight
-    }
-    if (scaleY < 0.1 || scaleY > 10) scaleY = 1
+    // scaleY 固定为 1：本项目内容区域没有 CSS scale 变换，
+    // 原来的动态检测在 overflow:hidden 环境下会得到错误值导致位置偏移
+    const scaleY = 1
     
     const elementIds = new Set<string>()
     notes.forEach(note => {
@@ -2067,6 +2063,13 @@ onMounted(() => {
     const noteColumn = document.getElementById('note-column')
     if (noteColumn) {
         resizeObserver.observe(noteColumn)
+    }
+
+    // 同时监听内容区域高度变化（字体加载、KaTeX渲染完成都会触发）
+    // 这样在魔搭等环境下字体/公式渲染完成后能自动重新对齐笔记位置
+    const scrollContainer = document.getElementById('content-scroll-container')
+    if (scrollContainer) {
+        resizeObserver.observe(scrollContainer)
     }
     
     setupChapterObserver()
@@ -2888,6 +2891,14 @@ onMounted(() => {
         updateNotePositions()
         restoreScrollPosition()
     }, 1000)
+
+    // 字体加载完成后重新计算笔记位置
+    // 魔搭/Linux 环境字体加载比本地慢，字体变化会导致内容高度改变，需要重新对齐
+    if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => {
+            setTimeout(() => updateNotePositions(), 200)
+        })
+    }
 })
 
 // Helper to re-observe nodes when data changes
