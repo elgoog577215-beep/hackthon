@@ -341,7 +341,7 @@
         </div>
         
         <!-- Collapsed Notes Trigger - Edge tab like sidebar -->
-        <div v-if="isNotesCollapsed && !courseStore.isFocusMode" class="fixed right-0 top-0 z-50 hidden md:flex items-start" style="padding-top: 92px;">
+        <div v-if="isNotesCollapsed && !courseStore.isFocusMode" class="fixed right-0 top-0 z-50 hidden md:flex items-start" :style="{ paddingTop: noteColumnTop + 'px' }">
             <button 
                 @click="isNotesCollapsed = false" 
                 class="notes-expand-tab"
@@ -352,9 +352,9 @@
         </div>
 
         <!-- Note Column (Desktop Only) - Fixed position for sticky header -->
-        <div id="note-column" v-if="!courseStore.isFocusMode && !isNotesCollapsed" class="hidden md:block fixed right-0 top-0 bottom-0 w-[260px] xl:w-[300px] bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50 z-20 overflow-hidden" style="padding-top: 80px; padding-bottom: 70px;">
+        <div id="note-column" v-if="!courseStore.isFocusMode && !isNotesCollapsed" class="hidden md:block fixed right-0 top-0 bottom-0 w-[260px] xl:w-[300px] bg-gradient-to-b from-slate-50/80 to-slate-100/50 transition-all duration-300 border-l border-slate-200/50 z-20 overflow-hidden" :style="{ paddingTop: noteColumnTop + 'px', paddingBottom: '70px' }">
             <!-- Collapse button -->
-            <button @click="isNotesCollapsed = true" class="absolute top-[84px] right-2 z-10 w-7 h-7 flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-white/80 rounded-lg transition-all duration-200" title="收起笔记">
+            <button @click="isNotesCollapsed = true" class="absolute right-2 z-10 w-7 h-7 flex items-center justify-center text-slate-400 hover:text-primary-600 hover:bg-white/80 rounded-lg transition-all duration-200" :style="{ top: (noteColumnTop + 4) + 'px' }" title="收起笔记">
                 <el-icon :size="14"><DArrowRight /></el-icon>
             </button>
 
@@ -847,6 +847,8 @@ dayjs.locale('zh-cn')
 const { scanMermaidDiagrams } = useMermaid()
 
 const isNotesCollapsed = ref(false)
+// 笔记列顶部偏移，动态跟随滚动容器的实际top位置，兼容魔搭等嵌入环境
+const noteColumnTop = ref(80)
 
 onUpdated(() => {
     scanMermaidDiagrams()
@@ -1917,6 +1919,12 @@ const updateNotePositions = () => {
     // --- Phase 1: Batch Read (DOM Measurements) ---
     const scrollTop = scrollContainer.scrollTop
     const scrollContainerRect = scrollContainer.getBoundingClientRect()
+    
+    // 动态更新笔记列顶部偏移，兼容魔搭等嵌入环境（scrollContainerRect.top 即为实际顶部偏移）
+    const actualTop = Math.round(scrollContainerRect.top)
+    if (actualTop > 0 && Math.abs(actualTop - noteColumnTop.value) > 2) {
+        noteColumnTop.value = actualTop
+    }
     
     // Detect Scale Factor
     let scaleY = 1
