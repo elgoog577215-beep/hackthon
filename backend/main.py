@@ -120,6 +120,8 @@ async def task_update_broadcaster():
                         "progress": task.get("progress"),
                         "message": task.get("message"),
                         "current_node_name": task.get("current_node_name"),
+                        "completed_nodes": task.get("completed_nodes", 0),
+                        "total_nodes": task.get("total_nodes", 0),
                         "updated_at": task.get("updated_at")
                     }
                     if task_id not in last_task_states:
@@ -128,15 +130,19 @@ async def task_update_broadcaster():
                     last_state = last_task_states[task_id]
                     if (current_state["status"] != last_state["status"] or
                         current_state["progress"] != last_state["progress"] or
-                        current_state["message"] != last_state["message"]):
+                        current_state["message"] != last_state["message"] or
+                        current_state["completed_nodes"] != last_state["completed_nodes"] or
+                        current_state["total_nodes"] != last_state["total_nodes"]):
                         await ws_manager.broadcast_task_update(
-                            task_id, "task_update",
+                            task_id, "progress_update",
                             {
                                 "taskId": task_id,
                                 "courseId": task.get("course_id"),
                                 "status": task.get("status"),
                                 "progress": task.get("progress"),
                                 "currentNodeName": task.get("current_node_name"),
+                                "completedNodes": task.get("completed_nodes", 0),
+                                "totalNodes": task.get("total_nodes", 0),
                                 "message": task.get("message")
                             }
                         )

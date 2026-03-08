@@ -105,7 +105,6 @@ export const useGenerationStore = defineStore('generation', {
     pauseTask(courseId: string) {
       const task = this.tasks.get(courseId)
       if (task) {
-        if (task.backendTaskId) { this.pauseBackendTask(courseId); return }
         task.status = 'paused'
         task.shouldStop = true
         this.addLogToTask(courseId, '⏸️ 任务已暂停')
@@ -116,7 +115,6 @@ export const useGenerationStore = defineStore('generation', {
     startTask(courseId: string) {
       const task = this.tasks.get(courseId)
       if (task) {
-        if (task.backendTaskId) { this.resumeBackendTask(courseId); return }
         this.startBackendTask(courseId)
       }
     },
@@ -271,27 +269,6 @@ export const useGenerationStore = defineStore('generation', {
       }
     },
 
-    async pauseBackendTask(courseId: string) {
-      const task = this.tasks.get(courseId)
-      if (!task || !task.backendTaskId) return
-      try {
-        await http.post(`/api/tasks/${task.backendTaskId}/pause`)
-        task.status = 'paused'
-        this.addLogToTask(courseId, '⏸️ 后台任务已暂停')
-      } catch (error) { console.error('Failed to pause task', error) }
-    },
-
-    async resumeBackendTask(courseId: string) {
-      const task = this.tasks.get(courseId)
-      if (!task || !task.backendTaskId) return
-      try {
-        await http.post(`/api/tasks/${task.backendTaskId}/resume`)
-        task.status = 'running'
-        this.addLogToTask(courseId, '▶️ 后台任务已恢复')
-        this.startGlobalMonitor()
-      } catch (error) { console.error('Failed to resume task', error) }
-    },
-
     startTypingEffect() {
       if (this.typingInterval) return
       this.typingInterval = window.setInterval(() => {
@@ -355,6 +332,15 @@ export const useGenerationStore = defineStore('generation', {
           cs.courseTree = cs.buildTree(cs.nodes)
           await cs.fetchCourseList()
           this.addLog(`✅ 大纲架构构建完成，包含 ${cs.nodes.length} 个节点`)
+          this.taskProgress[courseId] = {
+            percentage: 0,
+            currentNodeName: '',
+            completedNodes: 0,
+            totalNodes: cs.nodes.length,
+            estimatedTimeRemaining: 0,
+            bytesGenerated: 0,
+            updatedAt: new Date()
+          }
           this.persistGenerationState()
           await this.startBackendTask(courseId)
         }

@@ -58,6 +58,22 @@
             </div>
         </div>
 
+        <!-- Outline Generating Banner -->
+        <div v-if="isGeneratingOutline" class="mx-3 mt-2 mb-1 p-3 rounded-xl border border-primary-200 bg-primary-50/60 flex-shrink-0 animate-fade-in-up">
+            <div class="flex items-center gap-2.5">
+                <div class="w-7 h-7 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
+                    <el-icon :size="14" class="text-primary-500 animate-spin"><Loading /></el-icon>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-xs font-semibold text-slate-700">正在生成大纲</div>
+                    <div class="text-[10px] text-slate-400 mt-0.5">AI 正在分析课程结构，请稍候...</div>
+                </div>
+            </div>
+            <div class="mt-2.5 h-1 bg-primary-100 rounded-full overflow-hidden">
+                <div class="h-full bg-gradient-to-r from-primary-400 to-violet-500 rounded-full animate-outline-progress"></div>
+            </div>
+        </div>
+
         <!-- List Content - Optimized Scrollbar -->
         <div class="flex-1 overflow-y-auto overflow-x-hidden p-2 sidebar-scroll space-y-2 scroll-smooth pr-1">
             <div 
@@ -114,7 +130,7 @@
                             v-if="genStore.getTask(course.course_id)?.status === 'running' || genStore.getTask(course.course_id)?.status === 'pending'"
                             class="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-50/50 hover:bg-amber-100 text-amber-500 hover:text-amber-600 transition-all duration-200 hover:scale-105"
                             title="暂停生成"
-                            @click.stop="genStore.pauseTask(course.course_id)"
+                            @click.stop="wsPauseTask(course.course_id)"
                         >
                             <el-icon :size="15"><VideoPause /></el-icon>
                         </button>
@@ -122,7 +138,7 @@
                             v-else-if="genStore.getTask(course.course_id)?.status === 'paused' || genStore.getTask(course.course_id)?.status === 'idle'"
                             class="w-8 h-8 flex items-center justify-center rounded-lg bg-primary-50/50 hover:bg-primary-100 text-primary-500 hover:text-primary-600 transition-all duration-200 hover:scale-105"
                             title="继续生成"
-                            @click.stop="genStore.startTask(course.course_id)"
+                            @click.stop="wsResumeTask(course.course_id)"
                         >
                             <el-icon :size="15"><VideoPlay /></el-icon>
                         </button>
@@ -211,10 +227,10 @@
             
             <div class="flex items-center gap-0.5">
                  <button 
-                    v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running'"
+                     v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running'"
                     class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-amber-50 text-slate-500 hover:text-amber-500 transition-colors"
                     title="暂停生成"
-                    @click="genStore.pauseTask(courseStore.currentCourseId)"
+                    @click="wsPauseTask(courseStore.currentCourseId)"
                 >
                     <el-icon :size="16"><VideoPause /></el-icon>
                 </button>
@@ -222,7 +238,7 @@
                     v-else-if="genStore.getTask(courseStore.currentCourseId)?.status === 'paused'"
                     class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary-50 text-slate-500 hover:text-primary-500 transition-colors"
                     title="继续生成"
-                    @click="genStore.startTask(courseStore.currentCourseId)"
+                    @click="wsResumeTask(courseStore.currentCourseId)"
                 >
                     <el-icon :size="16"><VideoPlay /></el-icon>
                 </button>
@@ -274,7 +290,7 @@
                             {{ genStore.getTask(courseStore.currentCourseId)?.status === 'running' ? '正在生成...' : genStore.getTask(courseStore.currentCourseId)?.status === 'paused' ? '已暂停' : '等待中...' }}
                         </div>
                         <div class="text-[10px] text-slate-400">
-                            {{ genStore.getTask(courseStore.currentCourseId)?.currentStep || '准备中' }}
+                            {{ genStore.getTask(courseStore.currentCourseId)?.status !== 'running' ? (genStore.getTask(courseStore.currentCourseId)?.currentStep || '准备中') : '准备中' }}
                         </div>
                     </div>
                 </div>
@@ -282,7 +298,7 @@
                     <button 
                         v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running'"
                         class="w-7 h-7 rounded-lg flex items-center justify-center text-amber-500 hover:bg-amber-100 transition-colors"
-                        @click="genStore.pauseTask(courseStore.currentCourseId)"
+                        @click="wsPauseTask(courseStore.currentCourseId)"
                         title="暂停"
                     >
                         <el-icon :size="14"><VideoPause /></el-icon>
@@ -290,7 +306,7 @@
                     <button 
                         v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'paused'"
                         class="w-7 h-7 rounded-lg flex items-center justify-center text-primary-500 hover:bg-primary-100 transition-colors"
-                        @click="genStore.startTask(courseStore.currentCourseId)"
+                        @click="wsResumeTask(courseStore.currentCourseId)"
                         title="继续"
                     >
                         <el-icon :size="14"><VideoPlay /></el-icon>
@@ -324,7 +340,14 @@
             </div>
             <div class="flex justify-between mt-1">
                 <span class="text-[10px] text-slate-400">{{ genStore.getTask(courseStore.currentCourseId)?.progress || 0 }}%</span>
-                <span class="text-[10px] text-slate-400">{{ courseStore.taskProgress[courseStore.currentCourseId]?.completedNodes || 0 }}/{{ courseStore.taskProgress[courseStore.currentCourseId]?.totalNodes || 0 }} 节点</span>
+                <span class="text-[10px] text-slate-400">{{ genStore.taskProgress[courseStore.currentCourseId]?.completedNodes || 0 }}/{{ genStore.taskProgress[courseStore.currentCourseId]?.totalNodes || 0 }} 节点</span>
+            </div>
+            <div 
+                v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running' && genStore.getTask(courseStore.currentCourseId)?.currentStep"
+                class="mt-1.5 flex items-center gap-1.5 min-w-0"
+            >
+                <span class="shrink-0 text-[10px] text-slate-400">正在生成</span>
+                <span class="truncate text-[10px] font-medium text-primary-600">{{ genStore.getTask(courseStore.currentCourseId)?.currentStep }}</span>
             </div>
         </div>
         
@@ -571,6 +594,7 @@ import { ref, watch, onUnmounted, computed, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useLearningStore } from '../stores/learning'
+import { useTaskWebSocket } from '../composables/useTaskWebSocket'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
@@ -583,6 +607,7 @@ const courseStore = useCourseStore()
 const genStore = useGenerationStore()
 const learningStore = useLearningStore()
 const router = useRouter()
+const { pauseTask: wsPauseTask, resumeTask: wsResumeTask } = useTaskWebSocket()
 const emit = defineEmits(['update:preferredWidth', 'node-selected', 'toggle-sidebar'])
 
 const filterText = ref('')
@@ -825,6 +850,7 @@ const handleNodeClick = (data: any) => {
 }
 
 const createDialogVisible = ref(false)
+const isGeneratingOutline = ref(false)
 const markdownImportRef = ref<InstanceType<typeof MarkdownImport> | null>(null)
 const createForm = reactive({
     keyword: '',
@@ -848,6 +874,7 @@ const handleCreateConfirm = async () => {
         return
     }
     createDialogVisible.value = false
+    isGeneratingOutline.value = true
     
     // Trigger generation with options
     await courseStore.generateCourse(createForm.keyword, {
@@ -855,6 +882,8 @@ const handleCreateConfirm = async () => {
         style: createForm.style,
         requirements: createForm.requirements
     })
+    
+    isGeneratingOutline.value = false
     
     // Navigate to the new course route to persist state
     if (courseStore.currentCourseId) {
@@ -971,6 +1000,16 @@ const lightboxImage = ref('')
 
 .animate-shimmer {
     animation: shimmer 1.5s infinite;
+}
+
+@keyframes outline-progress {
+    0%   { width: 5%; margin-left: 0; }
+    50%  { width: 40%; margin-left: 55%; }
+    100% { width: 5%; margin-left: 0; }
+}
+
+.animate-outline-progress {
+    animation: outline-progress 1.8s ease-in-out infinite;
 }
 
 /* Transition Animations */

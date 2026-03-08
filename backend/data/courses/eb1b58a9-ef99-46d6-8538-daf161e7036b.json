@@ -8,7 +8,8 @@
       "node_name": "第一章 Python 内存管理与对象模型",
       "node_level": 1,
       "node_content": "本章将深入解析 Python 的对象模型、引用计数机制、垃圾回收策略以及 CPython 中的内存分配机制，帮助学员理解变量行为背后的底层逻辑。",
-      "node_type": "original"
+      "node_type": "original",
+      "is_read": true
     },
     {
       "node_id": "c1e54c4f-4b63-4155-aca2-ecc325788134",
