@@ -585,6 +585,10 @@ export const useCourseStore = defineStore('course', {
     },
 
     async generateQuiz(nodeId: string, nodeContent: string, style: TeachingStyle = TEACHING_STYLES.ACADEMIC, difficulty: DifficultyLevel = DIFFICULTY_LEVELS.INTERMEDIATE, options: { silent?: boolean, questionCount?: number } = {}) {
+        if (!this.currentCourseId) {
+            ElMessage.warning('请先选择一个课程')
+            return []
+        }
         this.chatLoading = true
         const silent = options.silent === true
         const questionCount = options.questionCount || 3
