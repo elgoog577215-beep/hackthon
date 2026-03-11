@@ -411,7 +411,7 @@
             </div>
 
             <div class="relative group">
-                <div class="relative bg-white/90 backdrop-blur-md rounded-xl border border-slate-200/60 group-focus-within:border-primary-300/60 shadow-sm group-focus-within:shadow-md transition-all duration-200">
+                <div class="relative bg-white/90 backdrop-blur-md rounded-xl border border-slate-200/60 group-focus-within:border-primary-400/70 shadow-sm group-focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.15),0_4px_12px_rgba(0,0,0,0.08)] transition-all duration-200">
                     <!-- Quick Command Trigger -->
                     <button
                         class="absolute left-2.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg bg-slate-100 hover:bg-primary-50 text-slate-400 hover:text-primary-600 transition-all flex items-center justify-center"
@@ -424,7 +424,7 @@
                     <textarea
                         ref="inputRef"
                         v-model="inputMessage"
-                        class="w-full bg-transparent border-none rounded-2xl pl-12 pr-12 py-3.5 text-[15px] focus:ring-0 resize-none h-[56px] max-h-[140px] custom-scrollbar placeholder:text-slate-400/70 text-slate-700 leading-relaxed"
+                        class="w-full bg-transparent border-none rounded-2xl pl-12 pr-12 py-3.5 text-[15px] focus:ring-0 focus-visible:shadow-none focus-visible:outline-none resize-none h-[56px] max-h-[140px] custom-scrollbar placeholder:text-slate-400/70 text-slate-700 leading-relaxed"
                         placeholder="输入 / 查看快捷指令，或输入问题..."
                         @keydown="handleKeydown"
                         @input="handleInput"

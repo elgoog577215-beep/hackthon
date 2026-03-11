@@ -467,6 +467,11 @@ h6 { font-size: var(--text-base); }
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3);
 }
 
+/* input/textarea 由外层容器统一处理 focus 视觉，自身不产生方形 ring */
+textarea:focus-visible,
+input:focus-visible {
+  box-shadow: none;
+}
 /* Skip Link */
 .skip-link {
   position: absolute;
