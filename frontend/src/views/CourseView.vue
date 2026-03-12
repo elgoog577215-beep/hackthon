@@ -65,11 +65,24 @@
       <!-- Content Area -->
       <ContentArea 
         ref="contentAreaRef"
+        v-model:notes-collapsed="notesCollapsed"
         :class="[
           'flex-1 overflow-hidden relative z-0',
           !leftVisible && !isMobile ? 'ml-2' : ''
         ]"
+        @quote-ask="openSideAIPanel"
       />
+
+      <!-- Side AI Panel -->
+      <Transition name="slide-in-right">
+        <SideAIPanel
+          v-if="sideAIPanelVisible"
+          :visible="sideAIPanelVisible"
+          :quote-text="sideAIQuoteText"
+          :quote-node-id="sideAIQuoteNodeId"
+          @close="closeSideAIPanel"
+        />
+      </Transition>
 
 
     </div>
@@ -140,6 +153,7 @@
 <script setup lang="ts">
 import CourseTree from '../components/CourseTree.vue'
 import ContentArea from '../components/ContentArea.vue'
+import SideAIPanel from '../components/SideAIPanel.vue'
 import LearningStats from '../components/LearningStats.vue'
 import SmartBar from '../components/SmartBar.vue'
 import NotesPanel from '../components/NotesPanel.vue'
@@ -240,6 +254,40 @@ const showOverlay = computed(() => {
 // Learning stats modal
 const showLearningStats = ref(false)
 const showNotesPanel = ref(false)
+
+// Notes collapsed state (lifted from ContentArea for panel coordination)
+const notesCollapsed = ref(false)
+
+// Side AI Panel state
+const sideAIPanelVisible = ref(false)
+const sideAIQuoteText = ref('')
+const sideAIQuoteNodeId = ref('')
+const layoutBeforePanel = ref<{ leftVisible: boolean; notesCollapsed: boolean } | null>(null)
+
+const openSideAIPanel = (payload: { text: string; nodeId: string }) => {
+  // Save current layout
+  layoutBeforePanel.value = {
+    leftVisible: leftVisible.value,
+    notesCollapsed: notesCollapsed.value
+  }
+  // Collapse sidebars to make room
+  leftVisible.value = false
+  notesCollapsed.value = true
+  // Open panel with quote
+  sideAIQuoteText.value = payload.text
+  sideAIQuoteNodeId.value = payload.nodeId
+  sideAIPanelVisible.value = true
+}
+
+const closeSideAIPanel = () => {
+  sideAIPanelVisible.value = false
+  // Restore layout
+  if (layoutBeforePanel.value) {
+    leftVisible.value = layoutBeforePanel.value.leftVisible
+    notesCollapsed.value = layoutBeforePanel.value.notesCollapsed
+    layoutBeforePanel.value = null
+  }
+}
 
 // Show resizers
 const showLeftResizer = computed(() => {
@@ -390,9 +438,15 @@ const handleKeydown = (e: KeyboardEvent) => {
     shortcutsHelpRef.value?.open()
   }
 
-  // Escape to close mobile sidebars
-  if (e.key === 'Escape' && showOverlay.value) {
-    closeAllSidebars()
+  // Escape to close mobile sidebars or Side AI Panel
+  if (e.key === 'Escape') {
+    if (sideAIPanelVisible.value) {
+      closeSideAIPanel()
+      return
+    }
+    if (showOverlay.value) {
+      closeAllSidebars()
+    }
   }
 }
 
@@ -447,6 +501,10 @@ onUnmounted(() => {
 
 // Watch route changes to load course
 watch(() => route.params.courseId, (newCourseId, oldCourseId) => {
+  // Auto-close SideAIPanel on course switch to prevent stale context
+  if (sideAIPanelVisible.value && oldCourseId && newCourseId !== oldCourseId) {
+    closeSideAIPanel()
+  }
   if (newCourseId) {
     courseStore.loadCourse(newCourseId as string)
   } else if (oldCourseId && !newCourseId) {
