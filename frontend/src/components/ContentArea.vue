@@ -846,7 +846,22 @@ dayjs.locale('zh-cn')
 // Lazy rendering for Mermaid diagrams
 const { scanMermaidDiagrams } = useMermaid()
 
-const isNotesCollapsed = ref(false)
+// Props & Emits (lifted state for panel coordination)
+const props = defineProps<{
+  notesCollapsed: boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'update:notesCollapsed', value: boolean): void
+  (e: 'quoteAsk', payload: { text: string; nodeId: string }): void
+}>()
+
+// isNotesCollapsed is now a computed proxy for the v-model prop
+const isNotesCollapsed = computed({
+  get: () => props.notesCollapsed,
+  set: (val: boolean) => emit('update:notesCollapsed', val)
+})
+
 // 笔记列顶部偏移，动态跟随滚动容器的实际top位置，兼容魔搭等嵌入环境
 const noteColumnTop = ref(80)
 
@@ -2265,22 +2280,19 @@ const handleMouseUp = (_e: MouseEvent) => {
 const handleAsk = () => {
     if (!selectionMenu.value.text) return
     
-    const selection = selectionMenu.value.text
-    // Format as a quote
-    const quote = `> ${selection}\n\n`
+    const text = selectionMenu.value.text
+    let nodeId = ''
     
-    // Detect which node the selection belongs to and switch context
+    // Detect which node the selection belongs to
     if (selectionMenu.value.range) {
         const nodeEl = selectionMenu.value.range.startContainer.parentElement?.closest('[id^="node-"]')
         if (nodeEl) {
-            const nodeId = nodeEl.id.replace('node-', '')
-            const node = courseStore.nodes.find(n => n.node_id === nodeId)
-            if (node) courseStore.selectNode(node)
+            nodeId = nodeEl.id.replace('node-', '')
         }
     }
     
-    // Set to store to trigger ChatPanel update
-    courseStore.setPendingChatInput(quote)
+    // Emit event for CourseView to open SideAIPanel
+    emit('quoteAsk', { text, nodeId })
     
     // Hide menu
     selectionMenu.value.visible = false
@@ -2292,28 +2304,23 @@ const handleTranslate = async () => {
     const selection = selectionMenu.value.text
     const prompt = `请将以下内容翻译为中文（如果是中文则翻译为英文），并保持专业术语的准确性：\n> "${selection}"`
     
-    // 1. Add User Message
-    courseStore.addMessage('user', prompt)
-    
-    // 2. Find Context Node
-    let nodeId: string | undefined = undefined
+    // Find context node
+    let nodeId = ''
     if (selectionMenu.value.range) {
          const nodeEl = selectionMenu.value.range.startContainer.parentElement?.closest('[id^="node-"]')
          if (nodeEl) {
              nodeId = nodeEl.id.replace('node-', '')
-             const node = courseStore.nodes.find(n => n.node_id === nodeId)
-             if (node) courseStore.selectNode(node)
          }
     }
     
-    // 3. Trigger AI
     selectionMenu.value.visible = false
     
-    ElMessage.success('正在翻译，请查看 AI 助手')
+    // Open SideAIPanel with the translation request
+    emit('quoteAsk', { text: selection, nodeId })
     
-    courseStore.showFloatingAI = true
-    
-    await courseStore.askQuestion(prompt, selection, nodeId)
+    // Send the translation prompt
+    courseStore.addMessage('user', prompt)
+    await courseStore.askQuestion(prompt, selection, nodeId || undefined)
 }
 
 const handleAddNote = () => {

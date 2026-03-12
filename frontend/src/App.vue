@@ -215,9 +215,6 @@
     <!-- Modals & Overlays -->
     <KnowledgeGraph />
     
-    <!-- Global Floating AI Assistant -->
-    <FloatingAIAssistant />
-    
     <KeyboardShortcutsHelp ref="shortcutsHelpRef" />
   </div>
 </template>
@@ -233,7 +230,6 @@ import {
 
 import KnowledgeGraph from './components/KnowledgeGraph.vue'
 import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp.vue'
-import FloatingAIAssistant from './components/FloatingAIAssistant.vue'
 
 import { useCourseStore } from './stores/course'
 import { useTaskWebSocket } from './composables/useTaskWebSocket'
