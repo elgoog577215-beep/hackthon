@@ -61,13 +61,11 @@ export const useCourseStore = defineStore('course', {
     chatHistory: [] as ChatMessage[],
     chatLoading: false,
     chatAbortController: null as AbortController | null,
-    pendingChatInput: '' as string,
     activeAnnotation: null as Annotation | null,
 
     // --- UI State ---
     isFocusMode: false,
     showKnowledgeGraph: false,
-    showFloatingAI: false,
     isMobileNotesVisible: false,
     globalSearchQuery: '',
     scrollToNodeId: null as string | null,
@@ -116,7 +114,6 @@ export const useCourseStore = defineStore('course', {
         const node = this.courseTree.find(n => n.node_id === nodeId)
         if (node) { this.currentNode = node }
     },
-    setPendingChatInput(text: string) { this.pendingChatInput = text },
     addMessage(type: 'user' | 'ai', content: string | AIContent) {
         this.chatHistory.push({ type, content })
     },

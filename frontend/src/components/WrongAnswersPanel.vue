@@ -133,13 +133,12 @@ function formatTime(ts: number) {
 function retry(item: any) {
   // Send the wrong question to AI assistant for re-practice
   const prompt = `请帮我重新出一道关于以下知识点的类似题目：\n题目：${item.question}\n正确答案：${item.options[item.correctIndex]}\n章节：${item.nodeName}`
-  courseStore.setPendingChatInput(prompt)
+  courseStore.sendMessage(prompt)
 }
 
 function retryAll() {
   reviewStore.generateSmartQuizFromMistakes()
-  courseStore.showFloatingAI = true
-  ElMessage.success('已生成错题复习，请查看 AI 助手')
+  ElMessage.success('已生成错题复习')
 }
 
 function markDone(item: any) {
