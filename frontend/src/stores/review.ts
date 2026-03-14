@@ -4,6 +4,7 @@
  */
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
+import logger from '../utils/logger'
 
 export const useReviewStore = defineStore('review', {
   state: () => ({
@@ -73,7 +74,7 @@ export const useReviewStore = defineStore('review', {
         localStorage.setItem('quiz_wrong_answers', JSON.stringify(this.wrongAnswers))
         localStorage.setItem('quiz_history', JSON.stringify(this.quizHistory))
       } catch (e) {
-        console.error('Failed to persist quiz data:', e)
+        logger.error('Failed to persist quiz data:', e)
       }
     },
 
@@ -88,7 +89,7 @@ export const useReviewStore = defineStore('review', {
           this.quizHistory = JSON.parse(historyRaw)
         }
       } catch (e) {
-        console.error('Failed to restore quiz data:', e)
+        logger.error('Failed to restore quiz data:', e)
       }
     },
 

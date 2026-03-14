@@ -6,6 +6,7 @@ import { defineStore } from 'pinia'
 import http from '../utils/http'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
+import logger from '../utils/logger'
 
 export const useLearningStore = defineStore('learning', {
   state: () => ({
@@ -122,7 +123,7 @@ export const useLearningStore = defineStore('learning', {
         const data = { ...this.learningStats, _version: 2 }
         localStorage.setItem('learning_stats', JSON.stringify(data))
       } catch (e) {
-        console.error('Failed to persist learning stats:', e)
+        logger.error('Failed to persist learning stats:', e)
       }
     },
 
@@ -151,7 +152,7 @@ export const useLearningStore = defineStore('learning', {
           this.persistLearningStats()
         }
       } catch (e) {
-        console.error('Failed to restore learning stats:', e)
+        logger.error('Failed to restore learning stats:', e)
       }
     },
 
@@ -172,7 +173,7 @@ export const useLearningStore = defineStore('learning', {
         ElMessage.success('学习路径生成成功')
         return this.learningPath
       } catch (error) {
-        console.error('Failed to generate learning path:', error)
+        logger.error('Failed to generate learning path:', error)
         ElMessage.error('学习路径生成失败')
         return null
       } finally {
@@ -188,7 +189,7 @@ export const useLearningStore = defineStore('learning', {
         this.knowledgeMastery = res.data.knowledge_mastery
         return this.knowledgeMastery
       } catch (error) {
-        console.error('Failed to fetch knowledge mastery:', error)
+        logger.error('Failed to fetch knowledge mastery:', error)
         return null
       } finally {
         this.learningPathLoading = false
@@ -201,7 +202,7 @@ export const useLearningStore = defineStore('learning', {
         const res = await http.get(`/api/courses/${courseId}/learning_stats`)
         return res.data
       } catch (error) {
-        console.error('Failed to fetch learning stats:', error)
+        logger.error('Failed to fetch learning stats:', error)
         return null
       }
     },

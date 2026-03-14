@@ -31,13 +31,13 @@ class Annotation(BaseModel):
     answer: str
     anno_summary: str
     source_type: Literal["internal", "external"] = "internal"
-    create_time: datetime = datetime.now()
+    create_time: datetime = Field(default_factory=datetime.now)
 
 class GenerateCourseRequest(BaseModel):
-    keyword: str
+    keyword: str = Field(..., min_length=1, max_length=200)
     difficulty: Optional[DifficultyLevel] = "intermediate"
     style: Optional[TeachingStyle] = "academic"
-    requirements: Optional[str] = ""
+    requirements: Optional[str] = Field(default="", max_length=2000)
 
 class GenerateSubNodesRequest(BaseModel):
     node_id: str
@@ -65,13 +65,13 @@ class ExtendContentRequest(BaseModel):
 class AskQuestionRequest(BaseModel):
     course_id: Optional[str] = None
     node_id: str
-    node_name: str
-    node_content: str
-    question: str
-    history: List[dict] = []
-    selection: Optional[str] = ""
-    user_notes: Optional[str] = ""
-    user_persona: Optional[str] = ""
+    node_name: str = Field(..., max_length=500)
+    node_content: str = Field(..., max_length=50000)
+    question: str = Field(..., min_length=1, max_length=5000)
+    history: List[dict] = Field(default=[], max_length=100)
+    selection: Optional[str] = Field(default="", max_length=10000)
+    user_notes: Optional[str] = Field(default="", max_length=10000)
+    user_persona: Optional[str] = Field(default="", max_length=500)
     session_metrics: Optional[dict] = None
     enable_long_term_memory: Optional[bool] = False
 
@@ -252,9 +252,9 @@ class ReviewProgressResponse(BaseModel):
 # === 代码执行 ===
 class ExecuteCodeRequest(BaseModel):
     """代码执行请求"""
-    code: str
-    language: str = "python"  # python, javascript, typescript, bash, etc.
-    timeout: int = 30  # seconds
+    code: str = Field(..., min_length=1, max_length=5000)
+    language: str = Field(default="python", max_length=20)
+    timeout: int = Field(default=10, ge=1, le=30)
 
 class ExecuteCodeResponse(BaseModel):
     """代码执行响应"""
