@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
 from typing import List
 import sys
 import os
@@ -46,7 +47,18 @@ from routers import (
     markdown_import
 )
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    if task_manager:
+        task_manager.start_worker()
+    asyncio.create_task(task_update_broadcaster())
+    yield
+    # Shutdown
+    if task_manager:
+        task_manager.stop_worker()
+
+app = FastAPI(lifespan=lifespan)
 
 # 初始化 Task Manager
 try:
@@ -164,25 +176,12 @@ async def task_update_broadcaster():
 
 
 # ============================================================================
-# Application Lifecycle Events
-# ============================================================================
-
-@app.on_event("startup")
-async def startup_event():
-    if task_manager:
-        task_manager.start_worker()
-    asyncio.create_task(task_update_broadcaster())
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    if task_manager:
-        task_manager.stop_worker()
-
-
-# ============================================================================
 # Middleware Configuration
 # ============================================================================
 
+from rate_limiter import RateLimitMiddleware
+
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
@@ -194,8 +193,8 @@ app.add_middleware(
         "http://127.0.0.1:8000",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 

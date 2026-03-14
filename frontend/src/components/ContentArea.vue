@@ -839,6 +839,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
+import logger from '../utils/logger'
 
 dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
@@ -1031,7 +1032,7 @@ const executeExport = async () => {
         
         closeExportDialog()
     } catch (error) {
-        console.error('Export failed:', error)
+        logger.error('Export failed:', error)
         ElMessage.error('导出失败，请重试')
     } finally {
         exportDialog.loading = false
@@ -1737,7 +1738,7 @@ const reapplyHighlights = () => {
                              if (firstWrapper) firstWrapper.id = note.highlightId
                          }
                      } catch (e) {
-                         console.warn('Highlight range creation failed', e)
+                         logger.warn('Highlight range creation failed', e)
                      }
                  }
             }
@@ -1869,7 +1870,7 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
 const scrollToNote = (noteId: string) => {
     const note = noteStore.notes.find(n => n.id === noteId)
     if (!note) {
-        console.warn('Note not found:', noteId)
+        logger.warn('Note not found:', noteId)
         return
     }
 
@@ -2733,7 +2734,7 @@ const confirmQuiz = async () => {
             ElMessage.warning('生成题目失败，请重试')
         }
     } catch (e) {
-        console.error(e)
+        logger.error(e)
         quizVisible.value = false
     } finally {
         generatingQuiz.value = false
