@@ -2886,13 +2886,18 @@ watch(() => courseStore.isFocusMode, (newVal, oldVal) => {
 
 const showBackToTop = ref(false)
 
-// Compute dynamic right offset for back-to-top button when AI panel is open
+// Compute dynamic right offset for back-to-top button — synced with AI button
 const backToTopStyle = computed(() => {
   if (props.sideAiPanelVisible) {
     // AI panel is ~33vw wide, min 320px. Shift button left of the panel.
     return { right: 'calc(33vw + 1rem)' }
   }
-  return {}
+  if (!isNotesCollapsed.value) {
+    // Notes column open — match AI button's right-[340px]
+    return { right: '340px' }
+  }
+  // Notes column collapsed — match AI button's right-6 (1.5rem)
+  return { right: '1.5rem' }
 })
 
 const handleScroll = (e: Event) => {
@@ -3179,24 +3184,12 @@ defineExpose({
 
 .back-to-top {
     position: fixed;
-    bottom: 5.5rem;
-    right: 1rem;
+    bottom: 8.5rem;
     z-index: 50;
     transition: all 0.3s ease;
 }
 
-/* Adjust position when notes panel is open */
-@media (min-width: 768px) {
-    .back-to-top {
-        right: 300px;
-    }
-}
-
-@media (min-width: 1280px) {
-    .back-to-top {
-        right: 320px;
-    }
-}
+/* back-to-top transition animations */
 
 .back-to-top-enter-active,
 .back-to-top-leave-active {
