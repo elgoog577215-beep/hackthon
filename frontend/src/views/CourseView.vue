@@ -45,7 +45,7 @@
       <!-- Left Resizer -->
       <div 
         v-if="showLeftResizer"
-        class="w-1 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative transition-all duration-200 hover:w-2 hover:-ml-0.5"
+        class="w-2 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative transition-all duration-200 hover:w-3 hover:-ml-0.5"
         @mousedown="startResizeLeft"
         @touchstart="startResizeLeft"
         @dblclick="resetLeftSidebar"
@@ -66,12 +66,26 @@
       <ContentArea 
         ref="contentAreaRef"
         v-model:notes-collapsed="notesCollapsed"
+        :side-ai-panel-visible="sideAIPanelVisible"
         :class="[
           'flex-1 overflow-hidden relative z-0',
           !leftVisible && !isMobile ? 'ml-2' : ''
         ]"
         @quote-ask="openSideAIPanel"
       />
+
+      <!-- Floating AI Assistant Button -->
+      <Transition name="fade">
+        <button
+          v-if="!sideAIPanelVisible && courseStore.currentCourseId"
+          class="fixed bottom-20 z-50 w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg hover:shadow-xl hover:scale-105 flex items-center justify-center transition-all duration-200 cursor-pointer"
+          :class="notesCollapsed ? 'right-6' : 'right-[340px]'"
+          title="AI 助手"
+          @click="openSideAIPanelDirect"
+        >
+          <Bot :size="22" />
+        </button>
+      </Transition>
 
       <!-- Side AI Panel -->
       <Transition name="slide-in-right">
@@ -166,6 +180,7 @@ import { useGenerationStore } from '../stores/generation'
 import { onMounted, onUnmounted, ref, computed, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { DArrowRight, TrendCharts, Close } from '@element-plus/icons-vue'
+import { Bot } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 
 const courseStore = useCourseStore()
@@ -210,7 +225,7 @@ const loadSidebarState = (): SidebarState => {
   return {
     leftVisible: true,
     rightVisible: true,
-    leftWidth: 300,
+    leftWidth: 250,
     rightWidth: 320
   }
 }
@@ -276,6 +291,21 @@ const openSideAIPanel = (payload: { text: string; nodeId: string }) => {
   // Open panel with quote
   sideAIQuoteText.value = payload.text
   sideAIQuoteNodeId.value = payload.nodeId
+  sideAIPanelVisible.value = true
+}
+
+const openSideAIPanelDirect = () => {
+  // Save current layout (same as openSideAIPanel)
+  layoutBeforePanel.value = {
+    leftVisible: leftVisible.value,
+    notesCollapsed: notesCollapsed.value
+  }
+  // Collapse sidebars to make room
+  leftVisible.value = false
+  notesCollapsed.value = true
+  // Open panel without quote
+  sideAIQuoteText.value = ''
+  sideAIQuoteNodeId.value = ''
   sideAIPanelVisible.value = true
 }
 
@@ -359,7 +389,7 @@ const startResizeLeft = (e: MouseEvent | TouchEvent) => {
 }
 
 const resetLeftSidebar = () => {
-    leftSidebarWidth.value = screenWidth.value < SCREEN_XL ? 280 : 300
+    leftSidebarWidth.value = screenWidth.value < SCREEN_XL ? 240 : 250
 }
 
 const handlePreferredWidth = (width: number) => {
@@ -518,7 +548,7 @@ watch(() => route.params.courseId, (newCourseId, oldCourseId) => {
 }, { immediate: true })
 
 // SmartBar computed properties
-const notesCount = computed(() => noteStore.notes?.length || 0)
+const notesCount = computed(() => noteStore.notes?.filter(n => n.sourceType !== 'format').length || 0)
 const wrongAnswersCount = computed(() => {
   const structuredCount = reviewStore.wrongAnswers?.length || 0
   const structuredQuestions = new Set((reviewStore.wrongAnswers || []).map(w => w.question))
