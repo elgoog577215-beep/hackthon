@@ -182,6 +182,7 @@ import { useRoute } from 'vue-router'
 import { DArrowRight, TrendCharts, Close } from '@element-plus/icons-vue'
 import { Bot } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
+import logger from '../utils/logger'
 
 const courseStore = useCourseStore()
 const noteStore = useNoteStore()
@@ -220,7 +221,7 @@ const loadSidebarState = (): SidebarState => {
       return JSON.parse(saved)
     }
   } catch (e) {
-    console.warn('Failed to load sidebar state:', e)
+    logger.warn('Failed to load sidebar state:', e)
   }
   return {
     leftVisible: true,

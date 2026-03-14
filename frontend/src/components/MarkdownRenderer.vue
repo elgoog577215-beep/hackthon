@@ -6,6 +6,7 @@
 import { ref, watch, nextTick } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
 import mermaid from 'mermaid'
+import logger from '../utils/logger'
 
 const props = defineProps<{
   content: string
@@ -20,7 +21,7 @@ const throttleDelay = 150 // 150ms 节流，平衡流畅度和性能
 mermaid.initialize({
     startOnLoad: false,
     theme: 'default',
-    securityLevel: 'loose',
+    securityLevel: 'strict',
     fontFamily: 'Inter, system-ui, sans-serif',
 })
 
@@ -125,7 +126,7 @@ const renderMermaid = async () => {
             mermaidEl.style.opacity = '1'
             
         } catch (err: any) {
-            console.error('Mermaid render error:', err)
+            logger.error('Mermaid render error:', err)
             
             // Show error UI with retry button
             const rawCode = mermaidEl.getAttribute('data-code') || mermaidEl.textContent || ''

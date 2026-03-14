@@ -1,11 +1,12 @@
 import { nextTick, onUnmounted } from 'vue'
 import mermaid from 'mermaid'
+import logger from '../utils/logger'
 
 // Initialize globally once
 mermaid.initialize({
     startOnLoad: false,
     theme: 'base',
-    securityLevel: 'loose',
+    securityLevel: 'strict',
     fontFamily: 'ui-sans-serif, system-ui, sans-serif',
     themeVariables: {
         primaryColor: '#8b5cf6',
@@ -38,7 +39,7 @@ const processQueue = async () => {
             try {
                 await task();
             } catch (e) {
-                console.error('Queue task failed', e);
+                logger.error('Queue task failed', e);
             }
             // Small delay to allow UI updates
             await new Promise(resolve => setTimeout(resolve, 50));
@@ -132,7 +133,7 @@ export function useMermaid() {
                  target.style.opacity = '1'
                  
              } catch (err: any) {
-                 console.error('Mermaid render error:', err)
+                 logger.error('Mermaid render error:', err)
                  
                  // If render fails, we construct a nice error UI
                  target.innerHTML = `
