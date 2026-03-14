@@ -1,0 +1,4 @@
+# file: D:\@AI\25AI黑客松浙大站\复赛\project\backend\ai_graph_service.py
+# hypothesis_version: 6.151.9
+
+[-1.0, 0.3, 200, 'Path/To/Node', 'Unknown', 'applies_to', 'basic', 'chapter_id', 'concept', 'contains', 'content', 'contrasts_with', 'description', 'edges', 'extends', 'id', 'implements', 'label', 'leads_to', 'level', 'match_node_id', 'match_node_name', 'module', 'name', 'node_content', 'node_id', 'node_level', 'node_name', 'node_path', 'nodes', 'parent_node_id', 'prerequisite', 'related', 'relation', 'root', 'root_', 'source', 'target', 'type', '关联', '包含', '课程核心', '课程根节点']
