@@ -112,17 +112,43 @@ class AIGraphService(AIBase):
                             best_match_id = n.get("node_id")
                             break
                 
-                # Priority 2: Match by Node Label (Substring)
+                # Priority 2: Match by similarity score (replaces simple substring)
                 if not best_match_id:
                     node_label = node.get("label", "")
-                    for n in course_nodes:
-                        if node_label in n.get("node_name", "") or n.get("node_name", "") in node_label:
-                            best_match_id = n.get("node_id")
-                            break
+                    if node_label:
+                        best_score = -1.0
+                        for n in course_nodes:
+                            name = n.get("node_name", "")
+                            if not name:
+                                continue
+                            # Character overlap ratio: count common chars / max length
+                            common = sum(1 for c in node_label if c in name)
+                            score = common / max(len(node_label), len(name))
+                            if score > best_score:
+                                best_score = score
+                                best_match_id = n.get("node_id")
+                        # Require minimum threshold
+                        min_threshold = 0.3
+                        if best_score < min_threshold:
+                            logger.warning(
+                                f"Low similarity score ({best_score:.2f}) for node '{node_label}', "
+                                f"rejecting match"
+                            )
+                            best_match_id = None
                 
-                # Fallback: Use first available node
+                # Fallback: Prefer leaf nodes (higher node_level) over root chapters
                 if not best_match_id and course_nodes:
-                    best_match_id = course_nodes[0].get("node_id")
+                    # Sort by node_level descending to prefer more specific (leaf) nodes
+                    sorted_nodes = sorted(
+                        course_nodes,
+                        key=lambda n: n.get("node_level", 0),
+                        reverse=True,
+                    )
+                    best_match_id = sorted_nodes[0].get("node_id")
+                    logger.warning(
+                        f"No confident match for node '{node.get('label', '')}', "
+                        f"falling back to leaf node '{sorted_nodes[0].get('node_name', '')}'"
+                    )
                 
                 if best_match_id:
                     node["chapter_id"] = best_match_id
