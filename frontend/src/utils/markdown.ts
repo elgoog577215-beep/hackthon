@@ -6,12 +6,13 @@ import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import linkAttributes from 'markdown-it-link-attributes';
 import 'highlight.js/styles/atom-one-dark.css';
+import logger from './logger';
 
 // Initialize mermaid
 mermaid.initialize({
     startOnLoad: false,
     theme: 'base',
-    securityLevel: 'loose',
+    securityLevel: 'strict',
     fontFamily: 'ui-sans-serif, system-ui, sans-serif',
     themeVariables: {
         primaryColor: '#8b5cf6', // primary-500
@@ -170,7 +171,7 @@ const mathPlugin = (md: any) => {
             });
         } catch (e: any) {
             // Fallback to error display if rendering fails
-            console.warn('KaTeX render error:', e);
+            logger.warn('KaTeX render error:', e);
             return `<span class="math-error" title="${e.message || 'Math render error'}">${content}</span>`;
         }
     };
@@ -560,8 +561,8 @@ export const renderMarkdown = (content: string) => {
         
         const html = md.render(content);
         const result = DOMPurify.sanitize(html, {
-            ADD_TAGS: ['math-field', 'iframe'], 
-            ADD_ATTR: ['target', 'allow', 'allowfullscreen', 'frameborder', 'scrolling']
+            ADD_TAGS: ['math-field'], 
+            ADD_ATTR: ['target']
         });
         
         // Cache management
@@ -824,8 +825,8 @@ export const renderMarkdown = (content: string) => {
 
         const rawHtml = md.render(normalized);
         sanitized = DOMPurify.sanitize(rawHtml, {
-            ADD_TAGS: ['iframe', 'span', 'div', 'p', 'button', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtable', 'mtr', 'mtd', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
-            ADD_ATTR: ['allow', 'allowfullscreen', 'frameborder', 'scrolling', 'target', 'class', 'style', 'xmlns', 'display', 'mathvariant', 'loading', 'data-code', 'title']
+            ADD_TAGS: ['span', 'div', 'p', 'button', 'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtable', 'mtr', 'mtd', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+            ADD_ATTR: ['target', 'class', 'xmlns', 'display', 'mathvariant', 'loading', 'data-code', 'title']
         });
     } catch (e) {
         sanitized = DOMPurify.sanitize(normalized)

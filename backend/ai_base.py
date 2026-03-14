@@ -38,11 +38,10 @@ from shared.prompt_config import DIFFICULTY_LEVELS, TEACHING_STYLES, DifficultyL
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# API密钥加载与验证
-api_key = os.getenv("AI_API_KEY")
-if api_key:
-    masked_key = f"{api_key[:8]}...{api_key[-4:]}"
-    logger.info(f"Loaded AI_API_KEY: {masked_key}")
+# API密钥存在性检查（不记录密钥内容）
+_api_key_present = bool(os.getenv("AI_API_KEY"))
+if _api_key_present:
+    logger.info("AI_API_KEY loaded successfully")
 else:
     logger.error("AI_API_KEY not found in environment variables")
 

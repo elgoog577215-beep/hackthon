@@ -2,6 +2,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { ElMessage } from 'element-plus'
+import logger from '../utils/logger'
 
 export interface TaskUpdateMessage {
     type: 'task_update' | 'task_created' | 'task_completed' | 'task_error' | 'task_cancelled' | 'progress_update' | 'node_completed' | 'queue_update'
@@ -62,7 +63,7 @@ export function useTaskWebSocket() {
                 connectionStatus.value = 'connected'
                 reconnectAttempts = 0
                 startHeartbeat()
-                console.log('[WebSocket] Connected to task server')
+                logger.info('[WebSocket] Connected to task server')
                 
                 wsInstance?.send(JSON.stringify({
                     type: 'subscribe',
@@ -77,14 +78,14 @@ export function useTaskWebSocket() {
                     const message: TaskUpdateMessage = JSON.parse(event.data)
                     handleMessage(message)
                 } catch (e) {
-                    console.error('[WebSocket] Failed to parse message:', e)
+                    logger.error('[WebSocket] Failed to parse message:', e)
                 }
             }
 
             wsInstance.onclose = (event) => {
                 connectionStatus.value = 'disconnected'
                 stopHeartbeat()
-                console.log('[WebSocket] Connection closed:', event.code, event.reason)
+                logger.info('[WebSocket] Connection closed:', event.code, event.reason)
                 
                 if (reconnectAttempts < WS_MAX_RECONNECT_ATTEMPTS) {
                     scheduleReconnect()
@@ -95,11 +96,11 @@ export function useTaskWebSocket() {
 
             wsInstance.onerror = (error) => {
                 connectionStatus.value = 'error'
-                console.error('[WebSocket] Connection error:', error)
+                logger.error('[WebSocket] Connection error:', error)
             }
         } catch (error) {
             connectionStatus.value = 'error'
-            console.error('[WebSocket] Failed to create connection:', error)
+            logger.error('[WebSocket] Failed to create connection:', error)
         }
     }
 
@@ -136,7 +137,7 @@ export function useTaskWebSocket() {
         reconnectAttempts++
         
         const delay = WS_RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts - 1)
-        console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`)
+        logger.info(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`)
         
         reconnectTimer = window.setTimeout(() => {
             connect()
@@ -195,7 +196,7 @@ export function useTaskWebSocket() {
 
     const handleTaskCreated = (payload: TaskUpdateMessage['payload']) => {
         if (!payload.courseId) return
-        console.log('[WebSocket] Task created:', payload.courseId)
+        logger.info('[WebSocket] Task created:', payload.courseId)
     }
 
     const handleTaskCompleted = (payload: TaskUpdateMessage['payload']) => {

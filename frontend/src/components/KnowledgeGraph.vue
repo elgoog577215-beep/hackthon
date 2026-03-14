@@ -212,6 +212,7 @@ import { useReviewStore } from '../stores/review'
 import { ElMessage } from 'element-plus'
 import { Share, Search, Close, MagicStick, Refresh, Download, Position, Plus, Minus, FullScreen } from '@element-plus/icons-vue'
 import http from '../utils/http'
+import logger from '../utils/logger'
 
 const courseStore = useCourseStore()
 const noteStore = useNoteStore()
@@ -469,7 +470,7 @@ const loadGraph = async () => {
   try {
     const res = await http.get(`/api/courses/${courseStore.currentCourseId}/knowledge_graph`)
     if (res.data.status === 'success' && res.data.data.nodes?.length) { graphData.value = res.data.data; layoutGraph() }
-  } catch (e) { console.error(e) }
+  } catch (e) { logger.error(e) }
 }
 const generateGraph = async () => {
   if (!courseStore.currentCourseId) { ElMessage.warning('请先选择课程'); return }

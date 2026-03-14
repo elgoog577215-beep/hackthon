@@ -52,6 +52,13 @@ class PromptTemplateName(str, Enum):
     GENERATE_QUIZ = "generate_quiz"
 
 
+class DisciplineType(str, Enum):
+    """学科类型"""
+    NATURAL_SCIENCE = "natural_science"
+    HUMANITIES = "humanities"
+    SKILL_BASED = "skill_based"
+
+
 # =============================================================================
 # 常量定义
 # =============================================================================
@@ -136,6 +143,9 @@ VALID_TEACHING_STYLES: List[str] = ["academic", "industrial", "socratic", "humor
 # 有效的节点类型列表
 VALID_NODE_TYPES: List[str] = ["original", "expanded", "redefined"]
 
+# 有效的学科类型列表
+VALID_DISCIPLINE_TYPES: List[str] = ["natural_science", "humanities", "skill_based"]
+
 # =============================================================================
 # 验证函数
 # =============================================================================
@@ -153,6 +163,11 @@ def validate_style(style: str) -> bool:
 def validate_node_type(node_type: str) -> bool:
     """验证节点类型"""
     return node_type in VALID_NODE_TYPES
+
+
+def validate_discipline_type(discipline_type: str) -> bool:
+    """验证学科类型"""
+    return discipline_type in VALID_DISCIPLINE_TYPES
 
 
 def validate_question_count(count: int, difficulty: str = "intermediate") -> bool:
@@ -276,6 +291,7 @@ __all__ = [
     "NodeLevel",
     "NodeType",
     "PromptTemplateName",
+    "DisciplineType",
     # 常量
     "DIFFICULTY_LEVELS",
     "TEACHING_STYLES",
@@ -286,10 +302,12 @@ __all__ = [
     "VALID_DIFFICULTY_LEVELS",
     "VALID_TEACHING_STYLES",
     "VALID_NODE_TYPES",
+    "VALID_DISCIPLINE_TYPES",
     # 验证函数
     "validate_difficulty",
     "validate_style",
     "validate_node_type",
+    "validate_discipline_type",
     "validate_question_count",
     "validate_chapter_count",
     "validate_sub_chapter_count",

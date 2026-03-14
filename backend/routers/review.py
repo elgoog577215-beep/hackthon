@@ -69,6 +69,8 @@ async def get_review_stats(course_id: str):
     due_today = 0
     overdue = 0
     completed_today = 0
+    total_reviewed = 0
+    total_correct = 0
 
     for node in nodes:
         node_id = node.get("node_id")
@@ -86,6 +88,19 @@ async def get_review_stats(course_id: str):
             if last_reviewed.date() == today.date():
                 completed_today += 1
 
+        # 根据复习历史计算实际保留率
+        review_count = node_review.get("review_count", 0)
+        if review_count > 0:
+            total_reviewed += review_count
+            # quality >= 3 视为"记住了"，ease_factor 越高说明掌握越好
+            ease = node_review.get("ease_factor", 2.5)
+            # 用 ease_factor 估算正确率：ease >= 2.5 表示大部分正确
+            estimated_correct = review_count * min(ease / 3.0, 1.0)
+            total_correct += estimated_correct
+
+    # 计算实际保留率，无数据时返回 0
+    retention_rate = round(total_correct / total_reviewed, 2) if total_reviewed > 0 else 0.0
+
     return {
         "course_id": course_id,
         "total_items": len(nodes),
@@ -93,7 +108,7 @@ async def get_review_stats(course_id: str):
         "overdue": overdue,
         "completed_today": completed_today,
         "streak_days": course_data.get("learning_streak", 0),
-        "retention_rate": 0.75,
+        "retention_rate": retention_rate,
         "last_review_date": course_data.get("last_review_date")
     }
 

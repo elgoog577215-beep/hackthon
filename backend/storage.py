@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import uuid
 import shutil
 import logging
@@ -18,6 +19,17 @@ KNOWLEDGE_GRAPH_DIR = os.path.join(DATA_DIR, "knowledge_graphs")
 LEGACY_COURSE_FILE = os.path.join(DATA_DIR, "course_tree.json")
 
 
+def _safe_filename(name: str) -> str:
+    """Sanitize filename to prevent path traversal attacks.
+    
+    Strips directory components and rejects empty or dot-only names.
+    """
+    sanitized = os.path.basename(name)
+    if not sanitized or sanitized in ('.', '..'):
+        raise ValueError(f"Invalid filename: {name!r}")
+    return sanitized
+
+
 class Storage:
     def __init__(self):
         if not os.path.exists(DATA_DIR):
@@ -34,6 +46,8 @@ class Storage:
         self._cache_initialized = False
         # 通用数据缓存，用于load_data/save_data
         self._data_cache: Dict[str, any] = {}
+        # 写操作锁，防止并发写入导致数据损坏
+        self._write_lock = threading.Lock()
 
         # Migrate legacy course if exists
         if os.path.exists(LEGACY_COURSE_FILE):
@@ -106,19 +120,24 @@ class Storage:
         if self._cache_initialized:
             return
 
-        if os.path.exists(COURSES_DIR):
-            for filename in os.listdir(COURSES_DIR):
-                if filename.endswith(".json"):
-                    course_id = filename.replace(".json", "")
-                    filepath = os.path.join(COURSES_DIR, filename)
-                    try:
-                        with open(filepath, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            self.courses_cache[course_id] = data
-                    except Exception as e:
-                        logger.warning(f"Failed to load course {filename}: {e}")
-                        continue
-        self._cache_initialized = True
+        with self._write_lock:
+            # Double-check after acquiring lock
+            if self._cache_initialized:
+                return
+
+            if os.path.exists(COURSES_DIR):
+                for filename in os.listdir(COURSES_DIR):
+                    if filename.endswith(".json"):
+                        course_id = filename.replace(".json", "")
+                        filepath = os.path.join(COURSES_DIR, filename)
+                        try:
+                            with open(filepath, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                                self.courses_cache[course_id] = data
+                        except Exception as e:
+                            logger.warning(f"Failed to load course {filename}: {e}")
+                            continue
+            self._cache_initialized = True
 
     def list_courses(self) -> List[Dict]:
         self._ensure_cache()
@@ -132,29 +151,36 @@ class Storage:
         return courses
 
     def save_course(self, course_id: str, tree: dict):
+        safe_id = _safe_filename(course_id)
         # Update Cache
         self._ensure_cache()
-        self.courses_cache[course_id] = tree
+        self.courses_cache[safe_id] = tree
         
-        # Write to Disk
-        filepath = os.path.join(COURSES_DIR, f"{course_id}.json")
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(tree, f, ensure_ascii=False, indent=2)
+        # Atomic write: write to temp file then rename to prevent corruption
+        filepath = os.path.join(COURSES_DIR, f"{safe_id}.json")
+        tmp_filepath = filepath + ".tmp"
+        with self._write_lock:
+            with open(tmp_filepath, 'w', encoding='utf-8') as f:
+                json.dump(tree, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_filepath, filepath)
         
         self._mark_dirty()
 
     def load_course(self, course_id: str) -> dict:
+        safe_id = _safe_filename(course_id)
         self._ensure_cache()
-        return self.courses_cache.get(course_id, {})
+        return self.courses_cache.get(safe_id, {})
     
     def delete_course(self, course_id: str):
+        safe_id = _safe_filename(course_id)
         self._ensure_cache()
-        if course_id in self.courses_cache:
-            del self.courses_cache[course_id]
+        if safe_id in self.courses_cache:
+            del self.courses_cache[safe_id]
             
-        filepath = os.path.join(COURSES_DIR, f"{course_id}.json")
-        if os.path.exists(filepath):
-            os.remove(filepath)
+        filepath = os.path.join(COURSES_DIR, f"{safe_id}.json")
+        with self._write_lock:
+            if os.path.exists(filepath):
+                os.remove(filepath)
             
         self._mark_dirty()
 
@@ -169,12 +195,14 @@ class Storage:
         else:
             annotations.append(annotation)
             
-        # Cache is updated by reference since load_annotations returns the list object
-        # But to be safe and explicit:
         self.annotations_cache = annotations
         
-        with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(annotations, f, ensure_ascii=False, indent=2)
+        # Atomic write
+        tmp_filepath = ANNOTATIONS_FILE + ".tmp"
+        with self._write_lock:
+            with open(tmp_filepath, 'w', encoding='utf-8') as f:
+                json.dump(annotations, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_filepath, ANNOTATIONS_FILE)
             
         self._mark_dirty()
 
@@ -199,8 +227,9 @@ class Storage:
         new_annotations = [a for a in annotations if a.get('anno_id') != anno_id]
         self.annotations_cache = new_annotations
         
-        with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(new_annotations, f, ensure_ascii=False, indent=2)
+        with self._write_lock:
+            with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(new_annotations, f, ensure_ascii=False, indent=2)
             
         self._mark_dirty()
 
@@ -217,8 +246,9 @@ class Storage:
         
         if updated:
             self.annotations_cache = annotations
-            with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
-                json.dump(annotations, f, ensure_ascii=False, indent=2)
+            with self._write_lock:
+                with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(annotations, f, ensure_ascii=False, indent=2)
             
             self._mark_dirty()
 
@@ -234,38 +264,44 @@ class Storage:
         
         if updated:
             self.annotations_cache = annotations
-            with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
-                json.dump(annotations, f, ensure_ascii=False, indent=2)
+            with self._write_lock:
+                with open(ANNOTATIONS_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(annotations, f, ensure_ascii=False, indent=2)
             
             self._mark_dirty()
         
         return updated
 
     def save_knowledge_graph(self, course_id: str, graph_data: dict):
-        """Save knowledge graph to disk and cache"""
-        self.knowledge_graph_cache[course_id] = graph_data
-        filepath = os.path.join(KNOWLEDGE_GRAPH_DIR, f"{course_id}.json")
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(graph_data, f, ensure_ascii=False, indent=2)
+        """Save knowledge graph to disk and cache (atomic write)"""
+        safe_id = _safe_filename(course_id)
+        self.knowledge_graph_cache[safe_id] = graph_data
+        filepath = os.path.join(KNOWLEDGE_GRAPH_DIR, f"{safe_id}.json")
+        tmp_filepath = filepath + ".tmp"
+        with self._write_lock:
+            with open(tmp_filepath, 'w', encoding='utf-8') as f:
+                json.dump(graph_data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_filepath, filepath)
             
         self._mark_dirty()
 
     def load_knowledge_graph(self, course_id: str) -> Optional[dict]:
         """Load knowledge graph from cache or disk"""
+        safe_id = _safe_filename(course_id)
         # Check cache first
-        if course_id in self.knowledge_graph_cache:
-            return self.knowledge_graph_cache[course_id]
+        if safe_id in self.knowledge_graph_cache:
+            return self.knowledge_graph_cache[safe_id]
         
         # Load from disk
-        filepath = os.path.join(KNOWLEDGE_GRAPH_DIR, f"{course_id}.json")
+        filepath = os.path.join(KNOWLEDGE_GRAPH_DIR, f"{safe_id}.json")
         if os.path.exists(filepath):
             try:
                 with open(filepath, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self.knowledge_graph_cache[course_id] = data
+                    self.knowledge_graph_cache[safe_id] = data
                     return data
             except Exception as e:
-                logger.warning(f"Failed to load knowledge graph for {course_id}: {e}")
+                logger.warning(f"Failed to load knowledge graph for {safe_id}: {e}")
         return None
 
     # =========================================================================
@@ -283,24 +319,25 @@ class Storage:
         Returns:
             解析后的数据对象，如果文件不存在则返回None
         """
+        safe_name = _safe_filename(filename)
         # 先检查缓存
-        if filename in self._data_cache:
-            return self._data_cache[filename]
+        if safe_name in self._data_cache:
+            return self._data_cache[safe_name]
         
-        filepath = os.path.join(DATA_DIR, filename)
+        filepath = os.path.join(DATA_DIR, safe_name)
         if not os.path.exists(filepath):
             return None
         
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                self._data_cache[filename] = data
+                self._data_cache[safe_name] = data
                 return data
         except json.JSONDecodeError:
-            logger.warning(f"Failed to parse JSON from {filename}")
+            logger.warning(f"Failed to parse JSON from {safe_name}")
             return None
         except Exception as e:
-            logger.error(f"Failed to load data from {filename}: {e}")
+            logger.error(f"Failed to load data from {safe_name}: {e}")
             return None
 
     def save_data(self, filename: str, data: any):
@@ -311,17 +348,27 @@ class Storage:
             filename: 数据文件名
             data: 要保存的数据对象
         """
+        safe_name = _safe_filename(filename)
         # 更新缓存
-        self._data_cache[filename] = data
+        self._data_cache[safe_name] = data
         
-        # 写入磁盘
-        filepath = os.path.join(DATA_DIR, filename)
+        # Atomic write: write to temp file then rename
+        filepath = os.path.join(DATA_DIR, safe_name)
+        tmp_filepath = filepath + ".tmp"
         try:
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            with self._write_lock:
+                with open(tmp_filepath, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_filepath, filepath)
             self._mark_dirty()
         except Exception as e:
-            logger.error(f"Failed to save data to {filename}: {e}")
+            logger.error(f"Failed to save data to {safe_name}: {e}")
+            # Clean up temp file on failure
+            if os.path.exists(tmp_filepath):
+                try:
+                    os.unlink(tmp_filepath)
+                except OSError:
+                    pass
             raise
 
 

@@ -8,6 +8,7 @@ import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import type { Note, Annotation } from './types'
 import { useCourseStore } from './course'
+import logger from '../utils/logger'
 
 // 复用 course.ts 中的工具函数
 const sanitizeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').trim()
@@ -52,7 +53,7 @@ export const useNoteStore = defineStore('notes', {
           ElMessage.success('笔记已保存')
         }
       } catch (e) {
-        console.error('Failed to persist note', e)
+        logger.error('Failed to persist note', e)
         ElMessage.error('保存失败')
       }
     },
@@ -64,7 +65,7 @@ export const useNoteStore = defineStore('notes', {
         try {
           await http.put(`/api/annotations/${id}`, { content })
         } catch (e) {
-          console.error('Failed to update note persistence', e)
+          logger.error('Failed to update note persistence', e)
           ElMessage.warning('笔记保存失败，请重试')
         }
       }
@@ -77,7 +78,7 @@ export const useNoteStore = defineStore('notes', {
         try {
           await http.delete(`/api/annotations/${id}`)
         } catch (e) {
-          console.error('Failed to delete note persistence', e)
+          logger.error('Failed to delete note persistence', e)
         }
       }
     },
@@ -90,7 +91,7 @@ export const useNoteStore = defineStore('notes', {
         try {
           await http.put(`/api/annotations/${id}/tags`, { tags })
         } catch (e) {
-          console.error('Failed to update note tags', e)
+          logger.error('Failed to update note tags', e)
         }
       }
     },
@@ -102,7 +103,7 @@ export const useNoteStore = defineStore('notes', {
         try {
           await http.put(`/api/annotations/${id}/category`, { category })
         } catch (e) {
-          console.error('Failed to update note category', e)
+          logger.error('Failed to update note category', e)
         }
       }
     },
@@ -114,7 +115,7 @@ export const useNoteStore = defineStore('notes', {
         try {
           await http.put(`/api/annotations/${id}/priority`, { priority })
         } catch (e) {
-          console.error('Failed to update note priority', e)
+          logger.error('Failed to update note priority', e)
         }
       }
     },
