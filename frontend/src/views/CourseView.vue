@@ -548,7 +548,7 @@ watch(() => route.params.courseId, (newCourseId, oldCourseId) => {
 }, { immediate: true })
 
 // SmartBar computed properties
-const notesCount = computed(() => noteStore.notes?.filter(n => n.sourceType !== 'format').length || 0)
+const notesCount = computed(() => noteStore.notes?.filter(n => n.sourceType !== 'format' && n.sourceType !== 'wrong').length || 0)
 const wrongAnswersCount = computed(() => {
   const structuredCount = reviewStore.wrongAnswers?.length || 0
   const structuredQuestions = new Set((reviewStore.wrongAnswers || []).map(w => w.question))
