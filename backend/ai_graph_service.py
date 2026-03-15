@@ -180,7 +180,8 @@ class AIGraphService(AIBase):
         # Step 4: Validate and fix edges
         valid_relations = {
             "contains", "prerequisite", "extends", "applies_to", 
-            "implements", "contrasts_with", "leads_to"
+            "implements", "contrasts_with", "leads_to",
+            "derives", "related"
         }
         
         valid_edges = []
@@ -200,6 +201,17 @@ class AIGraphService(AIBase):
             # Fix invalid relation types
             if relation not in valid_relations:
                 edge["relation"] = "contains"  # Default to contains
+            
+            # 确保 weight 字段存在且合理（1-10）
+            w = edge.get("weight")
+            if w is None or not isinstance(w, (int, float)) or w < 1 or w > 10:
+                # 根据关系类型推断默认权重
+                relation_default_weights = {
+                    "prerequisite": 8, "derives": 7, "implements": 7,
+                    "applies_to": 6, "extends": 6, "contrasts_with": 5,
+                    "contains": 7, "leads_to": 5, "related": 3,
+                }
+                edge["weight"] = relation_default_weights.get(edge["relation"], 5)
             
             valid_edges.append(edge)
         
@@ -234,7 +246,8 @@ class AIGraphService(AIBase):
                     valid_edges.append({
                         "source": root_id,
                         "target": node.get("id"),
-                        "relation": "contains"
+                        "relation": "contains",
+                        "weight": 7
                     })
         
         # Step 7: Detect and break cycles (simple approach)
@@ -329,7 +342,8 @@ class AIGraphService(AIBase):
                     "source": root_id,
                     "target": node["id"],
                     "relation": "contains",
-                    "label": "包含"
+                    "label": "包含",
+                    "weight": 8
                 })
 
         # Create edges based on parent-child relationships
@@ -343,42 +357,15 @@ class AIGraphService(AIBase):
                     "source": parent_id,
                     "target": node_id,
                     "relation": "contains",
-                    "label": "包含"
+                    "label": "包含",
+                    "weight": 7
                 })
         
-        # Add some cross-references between same-level nodes
-        level_groups = {}
-        for node in graph_nodes:
-            level = node.get("type", "basic")
-            if level not in level_groups:
-                level_groups[level] = []
-            level_groups[level].append(node)
-        
-        # Connect nodes within same level
-        for level, group in level_groups.items():
-            for i in range(len(group) - 1):
-                if len(graph_edges) < 30:  # Limit total edges
-                    graph_edges.append({
-                        "source": group[i]["id"],
-                        "target": group[i + 1]["id"],
-                        "relation": "related",
-                        "label": "关联"
-                    })
+        # Only parent-child edges — no cross-references between same-level nodes
         
         return {
             "nodes": graph_nodes,
             "edges": graph_edges
         }
 
-    def locate_node(self, keyword: str, all_nodes: List[Dict]) -> Dict:
-        """
-        定位节点
-        """
-        for node in all_nodes:
-            if keyword in node['node_name']:
-                return {
-                    "match_node_id": node['node_id'],
-                    "match_node_name": node['node_name'],
-                    "node_path": "Path/To/Node"  # Mock path
-                }
-        return {}
+

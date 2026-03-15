@@ -352,3 +352,24 @@ class AICourseService(AIBase):
             return self.clean_response_text(response)
 
         return f"### {node_name} 总结\n\n核心内容已总结完成。"
+
+    def locate_node(self, keyword: str, all_nodes: list) -> dict:
+        """按关键词定位课程节点"""
+        for node in all_nodes:
+            if keyword in node.get('node_name', ''):
+                return {
+                    "match_node_id": node['node_id'],
+                    "match_node_name": node['node_name'],
+                }
+        return {}
+
+    def locate_node(self, keyword: str, all_nodes: list) -> dict:
+        """按关键词定位课程节点"""
+        for node in all_nodes:
+            if keyword in node.get('node_name', ''):
+                return {
+                    "match_node_id": node['node_id'],
+                    "match_node_name": node['node_name'],
+                }
+        return {}
+
