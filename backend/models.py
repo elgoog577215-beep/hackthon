@@ -280,11 +280,43 @@ class GenerateDiagramResponse(BaseModel):
     error: Optional[str] = Field(default=None, description="错误信息")
 
 # === 知识图谱 ===
-class KnowledgeGraphRequest(BaseModel):
-    course_id: str
+class KGNodeCreate(BaseModel):
+    """创建知识图谱节点"""
+    label: str = Field(..., min_length=1, max_length=100, description="节点标签")
+    type: str = Field(default="custom", description="节点类型")
+    description: str = Field(default="", max_length=500, description="节点描述")
+    chapter_id: Optional[str] = Field(default=None, description="关联课程章节ID")
+    x: Optional[float] = Field(default=None, description="X坐标")
+    y: Optional[float] = Field(default=None, description="Y坐标")
+    color: Optional[str] = Field(default=None, description="自定义颜色")
 
-class GenerateKnowledgeGraphRequest(BaseModel):
-    course_id: str
+class KGNodeUpdate(BaseModel):
+    """更新知识图谱节点"""
+    label: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    type: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=500)
+    chapter_id: Optional[str] = None
+    x: Optional[float] = None
+    y: Optional[float] = None
+    color: Optional[str] = None
+
+class KGEdgeCreate(BaseModel):
+    """创建知识图谱关系"""
+    source: str = Field(..., description="源节点ID")
+    target: str = Field(..., description="目标节点ID")
+    relation: str = Field(default="related", description="关系类型")
+    weight: float = Field(default=5.0, ge=1.0, le=10.0, description="关系权重")
+    label: Optional[str] = Field(default=None, max_length=50, description="自定义标签")
+
+class KGEdgeUpdate(BaseModel):
+    """更新知识图谱关系"""
+    relation: Optional[str] = None
+    weight: Optional[float] = Field(default=None, ge=1.0, le=10.0)
+    label: Optional[str] = Field(default=None, max_length=50)
+
+class KGBatchPositionUpdate(BaseModel):
+    """批量更新节点坐标"""
+    positions: dict = Field(..., description="节点ID到坐标的映射 {node_id: {x, y}}")
 
 # === AI 辅导 ===
 class CreateGoalRequest(BaseModel):
