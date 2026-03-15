@@ -118,8 +118,10 @@
 
             <div class="bg-white/60 backdrop-blur-sm p-3 sm:p-4 lg:p-5 xl:p-6 rounded-lg sm:rounded-xl relative overflow-hidden border border-slate-100/60 group-hover:bg-white/80 group-hover:border-slate-200/80 group-hover:shadow-sm transition-all duration-300">
                 <div
-                    class="prose prose-slate max-w-none content-render prose-base sm:prose-lg"
+                    class="prose prose-slate max-w-none content-render"
                     :style="{
+                        '--content-font-size': fontSize + 'px',
+                        '--content-line-height': String(lineHeight),
                         fontSize: fontSize + 'px',
                         fontFamily: fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' : (fontFamily === 'serif' ? 'ui-serif, Georgia, Cambria, Times New Roman, Times, serif' : '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji'),
                         lineHeight: lineHeight

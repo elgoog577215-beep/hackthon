@@ -200,7 +200,7 @@
     </Teleport>
 
     <!-- Content List (Continuous Scroll) -->
-    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
+    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative custom-scrollbar" style="scroll-behavior: auto;" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
       
         <!-- Note Hover Preview -->
         <Teleport to="body">
@@ -327,7 +327,7 @@
                     v-for="(node, index) in visibleNodes" 
                     :key="node.node_id"
                     :node="node" 
-                    :index="index"
+                    :index="getChapterIndex(node, index)"
                     :font-size="fontSize"
                     :font-family="fontFamily"
                     :line-height="lineHeight"
@@ -477,7 +477,7 @@
                 <div v-for="note in displayedNotes" :key="'mobile-'+note.id" 
                      class="bg-white rounded-xl shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] border border-slate-200/60 p-4 active:scale-98 transition-all duration-200"
                      :class="{'!border-purple-200 !bg-purple-50/10 shadow-purple-100': note.sourceType === 'ai'}"
-                     @click="scrollToHighlight(note.highlightId, note.id); courseStore.isMobileNotesVisible = false">
+                     @click="handleNoteClick(note); courseStore.isMobileNotesVisible = false">
                     <div class="flex justify-between items-start mb-3">
                         <div v-if="note.sourceType === 'ai'" class="text-[11px] font-bold text-purple-600 bg-purple-100/50 px-2 py-1 rounded-md flex items-center gap-1"><el-icon><MagicStick /></el-icon> AI 助手</div>
                         <div v-else class="text-[11px] font-bold px-2 py-1 rounded-md bg-slate-100 text-slate-500" :class="noteBadgeClass(note)">笔记</div>
@@ -634,144 +634,98 @@
     <el-dialog
         v-model="noteDetailVisible"
         title="笔记详情"
-        width="700px"
+        width="720px"
         class="note-detail-dialog"
         align-center
         append-to-body
+        :before-close="handleNoteDetailClose"
     >
-        <div v-if="selectedNote" class="flex flex-col gap-4">
-            <!-- Quote Context -->
-                <div v-if="selectedNote.quote" class="p-4 bg-slate-50 rounded-xl border-l-4 italic text-slate-600 text-sm" :class="noteQuoteBorderClass(selectedNote)">
-                    "{{ selectedNote.quote }}"
+        <div v-if="selectedNote" class="flex flex-col gap-5">
+            <!-- Note Type Header -->
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                     :class="selectedNote.sourceType === 'ai' ? 'bg-gradient-to-br from-violet-100 to-purple-100 text-purple-600' : 'bg-gradient-to-br from-primary-100 to-blue-100 text-primary-600'">
+                    <el-icon v-if="selectedNote.sourceType === 'ai'" :size="20"><MagicStick /></el-icon>
+                    <el-icon v-else :size="20"><EditPen /></el-icon>
                 </div>
-
-                <!-- Summary Section -->
-                <div v-if="selectedNote.summary" class="p-4 bg-purple-50/50 rounded-xl border border-purple-100">
-                    <div class="text-[11px] font-bold text-purple-600 mb-2 uppercase tracking-wide flex items-center gap-1">
-                        <el-icon><CollectionTag /></el-icon> 核心概括
+                <div class="min-w-0">
+                    <div class="text-sm font-bold text-slate-700">
+                        {{ selectedNote.sourceType === 'ai' ? 'AI 生成笔记' : '手动笔记' }}
                     </div>
-                    <div class="text-sm text-slate-700 leading-relaxed note-content-markdown">
-                        <MarkdownRenderer :content="selectedNote.summary" :search-words="searchTokens" />
+                    <div class="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
+                        <span v-if="noteDetailNodeName">{{ noteDetailNodeName }}</span>
+                        <span v-if="noteDetailNodeName">·</span>
+                        <span>{{ dayjs(selectedNote.createdAt).format('YYYY-MM-DD HH:mm') }}</span>
                     </div>
                 </div>
-
-                <!-- Tags & Category Section -->
-                <div class="flex flex-wrap items-center gap-2">
-                    <!-- Category Badge -->
-                    <el-select
-                        v-if="isDialogEditing"
-                        v-model="editingCategory"
-                        placeholder="选择分类"
-                        size="small"
-                        class="w-32"
-                        @change="updateNoteCategory"
-                    >
-                        <el-option
-                            v-for="cat in availableCategories"
-                            :key="cat"
-                            :label="cat"
-                            :value="cat"
-                        />
-                    </el-select>
-                    <el-tag
-                        v-else-if="selectedNote.category"
-                        :type="getCategoryType(selectedNote.category)"
-                        size="small"
-                        effect="light"
-                    >
-                        <el-icon class="mr-1"><Folder /></el-icon>
-                        {{ selectedNote.category }}
-                    </el-tag>
-                    
-                    <!-- Priority Badge -->
-                    <el-select
-                        v-if="isDialogEditing"
-                        v-model="editingPriority"
-                        placeholder="优先级"
-                        size="small"
-                        class="w-28"
-                        @change="updateNotePriority"
-                    >
-                        <el-option label="🔴 高" value="high" />
-                        <el-option label="🟡 中" value="medium" />
-                        <el-option label="🟢 低" value="low" />
-                    </el-select>
-                    <el-tag
-                        v-else-if="selectedNote.priority"
-                        :type="selectedNote.priority === 'high' ? 'danger' : selectedNote.priority === 'medium' ? 'warning' : 'info'"
-                        size="small"
-                        effect="light"
-                    >
-                        {{ getPriorityLabel(selectedNote.priority) }}
-                    </el-tag>
-
-                    <!-- Tags -->
-                    <el-select
-                        v-if="isDialogEditing"
-                        v-model="editingTags"
-                        multiple
-                        filterable
-                        allow-create
-                        default-first-option
-                        placeholder="添加标签"
-                        size="small"
-                        class="flex-1 min-w-[200px]"
-                        @change="updateNoteTags"
-                    >
-                        <el-option
-                            v-for="tag in availableTags"
-                            :key="tag"
-                            :label="tag"
-                            :value="tag"
-                        />
-                    </el-select>
-                    <template v-else>
-                        <el-tag
-                            v-for="tag in selectedNote.tags"
-                            :key="tag"
-                            size="small"
-                            effect="plain"
-                            class="cursor-pointer hover:bg-primary-50"
-                            @click="filterByTag(tag)"
-                        >
-                            <el-icon class="mr-1"><PriceTag /></el-icon>
-                            {{ tag }}
-                        </el-tag>
-                    </template>
-                </div>
-
-                <!-- Main Content / Edit Area -->
-            <div v-if="isDialogEditing" class="flex flex-col gap-2">
-                <!-- Editor Toolbar -->
-                <div class="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
-                    <span class="text-xs text-slate-400">支持 Markdown 语法</span>
-                </div>
-                <el-input
-                    v-model="editingContent"
-                    type="textarea"
-                    :rows="10"
-                    placeholder="请输入笔记内容..."
-                    class="glass-input-clean text-base"
-                />
             </div>
-            <div v-else class="bg-white p-6 rounded-xl border border-slate-100 shadow-sm note-content-markdown min-h-[150px]">
+
+            <!-- Quote Context -->
+            <div v-if="selectedNote.quote" class="relative pl-4">
+                <div class="absolute left-0 top-0 bottom-0 w-1 rounded-full" :class="noteQuoteBarClass(selectedNote)"></div>
+                <div class="text-sm text-slate-500 italic leading-relaxed">"{{ selectedNote.quote }}"</div>
+            </div>
+
+            <!-- Summary Section -->
+            <div v-if="selectedNote.summary" class="p-4 bg-gradient-to-br from-violet-50/80 to-purple-50/60 rounded-xl border border-purple-100/60">
+                <div class="text-[11px] font-bold text-purple-500 mb-2 tracking-wide flex items-center gap-1.5">
+                    <el-icon :size="12"><CollectionTag /></el-icon> 核心概括
+                </div>
+                <div class="text-sm text-slate-700 leading-relaxed note-content-markdown">
+                    <MarkdownRenderer :content="selectedNote.summary" :search-words="searchTokens" />
+                </div>
+            </div>
+
+            <!-- Tags & Category Chips -->
+            <div v-if="!isDialogEditing && (selectedNote.category || selectedNote.priority || (selectedNote.tags && selectedNote.tags.length))" class="flex flex-wrap items-center gap-2">
+                <span v-if="selectedNote.category"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium"
+                    :class="categoryChipClass(selectedNote.category)">
+                    <el-icon :size="11"><Folder /></el-icon> {{ selectedNote.category }}
+                </span>
+                <span v-if="selectedNote.priority"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium"
+                    :class="priorityChipClass(selectedNote.priority)">
+                    {{ priorityIcon(selectedNote.priority) }} {{ getPriorityLabel(selectedNote.priority) }}
+                </span>
+                <span v-for="tag in selectedNote.tags" :key="tag"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 cursor-pointer hover:bg-primary-50 hover:text-primary-600 transition-colors"
+                    @click="filterByTag(tag)">
+                    # {{ tag }}
+                </span>
+            </div>
+
+            <!-- Editing: metadata selectors -->
+            <div v-if="isDialogEditing" class="flex flex-wrap items-center gap-3 p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                <el-select v-model="editingCategory" placeholder="分类" size="small" class="w-28" @change="updateNoteCategory">
+                    <el-option v-for="cat in availableCategories" :key="cat" :label="cat" :value="cat" />
+                </el-select>
+                <el-select v-model="editingPriority" placeholder="优先级" size="small" class="w-28" @change="updateNotePriority">
+                    <el-option label="🔴 高" value="high" />
+                    <el-option label="🟡 中" value="medium" />
+                    <el-option label="🟢 低" value="low" />
+                </el-select>
+                <el-select v-model="editingTags" multiple filterable allow-create default-first-option placeholder="标签" size="small" class="flex-1 min-w-[160px]" @change="updateNoteTags">
+                    <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
+                </el-select>
+            </div>
+
+            <!-- Main Content -->
+            <div v-if="isDialogEditing" class="flex flex-col gap-2">
+                <div class="text-[11px] text-slate-400 px-1">支持 Markdown 语法</div>
+                <el-input v-model="editingContent" type="textarea" :rows="12" placeholder="请输入笔记内容..." class="glass-input-clean text-base" />
+            </div>
+            <div v-else class="note-detail-content note-content-markdown">
                 <MarkdownRenderer :content="getCleanedNoteContent(selectedNote)" :search-words="searchTokens" />
             </div>
 
-            <!-- Metadata (View Mode Only) -->
+            <!-- Metadata -->
             <div v-if="!isDialogEditing" class="flex items-center justify-between pt-4 border-t border-slate-100 text-xs text-slate-400">
-                <div class="flex items-center gap-2">
-                    <el-icon><Timer /></el-icon>
-                    创建于 {{ dayjs(selectedNote.createdAt).format('YYYY-MM-DD HH:mm') }}
-                </div>
-                <div class="flex items-center gap-2">
-                    <el-button v-if="selectedNote.nodeId" size="small" text @click="jumpToNoteSource(selectedNote); noteDetailVisible = false">
-                        <el-icon class="mr-1"><Position /></el-icon>跳转原文
-                    </el-button>
-                    <div v-if="selectedNote.sourceType === 'ai'" class="flex items-center gap-1 text-primary-600 font-bold bg-primary-50 px-2 py-1 rounded">
-                        <el-icon><MagicStick /></el-icon> AI 助手生成
-                    </div>
-                </div>
+                <button v-if="selectedNote.nodeId" @click="jumpToNoteSource(selectedNote); noteDetailVisible = false"
+                    class="inline-flex items-center gap-1.5 text-slate-500 hover:text-primary-600 transition-colors px-2 py-1.5 rounded-lg hover:bg-primary-50">
+                    <el-icon :size="14"><Position /></el-icon> 跳转原文
+                </button>
+                <span v-else></span>
             </div>
         </div>
         <template #footer>
@@ -836,7 +790,7 @@ import { useNoteStore } from '../stores/notes'
 import CourseNode from './CourseNode.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useMermaid } from '../composables/useMermaid'
-import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, CollectionTag, Folder, PriceTag, Setting, DArrowLeft, DArrowRight } from '@element-plus/icons-vue'
+import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, CollectionTag, Folder, Setting, DArrowLeft, DArrowRight, EditPen } from '@element-plus/icons-vue'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1188,40 +1142,113 @@ const rafUpdatePositions = () => {
 }
 
 // Watch for scroll requests from sidebar
+/**
+ * 智能滚动：近距离平滑滚动，远距离做精美瞬移动画
+ * @param container 滚动容器
+ * @param targetTop 目标 scrollTop 值（远距离时仅作粗定位，之后会精修）
+ * @param threshold 距离阈值（px），超过则使用瞬移动画，默认 1500
+ */
+const smartScrollTo = (container: HTMLElement, targetTop: number, threshold = 1500): Promise<void> => {
+    return new Promise((resolve) => {
+        const distance = Math.abs(container.scrollTop - targetTop)
+        if (distance < threshold) {
+            container.scrollTo({ top: targetTop, behavior: 'smooth' })
+            setTimeout(resolve, Math.min(distance * 0.5, 600))
+        } else {
+            // 远距离：缩小+模糊淡出 → 瞬移 → 放大+清晰淡入
+            container.style.transition = 'transform 180ms ease-in, opacity 180ms ease-in, filter 180ms ease-in'
+            container.style.opacity = '0.15'
+            container.style.transform = 'scale(0.97)'
+            container.style.filter = 'blur(6px)'
+            setTimeout(() => {
+                // 瞬移
+                container.scrollTop = targetTop
+                // 立即设置入场起始状态（无过渡）
+                container.style.transition = 'none'
+                container.style.transform = 'scale(1.01)'
+                container.style.filter = 'blur(4px)'
+                container.style.opacity = '0.2'
+                // 强制回流后启动入场动画
+                void container.offsetHeight
+                container.style.transition = 'transform 220ms cubic-bezier(0.22,1,0.36,1), opacity 220ms ease-out, filter 220ms ease-out'
+                container.style.opacity = '1'
+                container.style.transform = 'scale(1)'
+                container.style.filter = 'blur(0px)'
+                setTimeout(() => {
+                    container.style.transition = ''
+                    container.style.opacity = ''
+                    container.style.transform = ''
+                    container.style.filter = ''
+                    resolve()
+                }, 230)
+            }, 190)
+        }
+    })
+}
+
+/**
+ * 计算元素在滚动容器内的绝对 offsetTop（遍历 offsetParent 链）
+ */
+const getOffsetTopInContainer = (el: HTMLElement, container: HTMLElement): number => {
+    let offsetTop = 0
+    let current: HTMLElement | null = el
+    while (current && current !== container) {
+        offsetTop += current.offsetTop
+        current = current.offsetParent as HTMLElement | null
+    }
+    return offsetTop
+}
+
+/**
+ * 智能滚动到指定元素，使用 offsetTop 计算绝对位置（不受当前滚动位置影响）
+ * @param el 目标元素
+ * @param container 滚动容器
+ * @param topOffset 元素顶部距容器顶部的期望距离（px）
+ */
+const scrollToElementInContainer = async (el: HTMLElement, container: HTMLElement, topOffset = 20): Promise<void> => {
+    const targetTop = Math.max(0, getOffsetTopInContainer(el, container) - topOffset)
+    await smartScrollTo(container, targetTop)
+}
+
 watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     if (!nodeId) return
+    
+    isManualScrolling.value = true
+    
+    const scrollContainer = document.getElementById('content-scroll-container')
+    if (!scrollContainer) { isManualScrolling.value = false; return }
     
     // Ensure node is rendered if it's outside the current view
     const index = flatNodes.value.findIndex(n => n.node_id === nodeId)
     if (index !== -1 && index >= renderedCount.value) {
         renderedCount.value = index + 5
         await nextTick()
+        await new Promise(r => setTimeout(r, 50))
     }
     
-    const element = document.getElementById(`node-${nodeId}`)
-    if (element) {
-        isManualScrolling.value = true
-        
-        // Add a small offset for the sticky header
-        const offset = 80
-        const scrollContainer = document.getElementById('content-scroll-container')
-        
-        if (scrollContainer) {
-            const containerRect = scrollContainer.getBoundingClientRect()
-            const elementRect = element.getBoundingClientRect()
-            const relativeTop = elementRect.top - containerRect.top + scrollContainer.scrollTop
-            
-            scrollContainer.scrollTo({
-                top: relativeTop - offset,
-                behavior: 'smooth'
-            })
-            
-            // Reset flag after animation
-            setTimeout(() => {
-                isManualScrolling.value = false
-            }, 1000)
-        }
+    // 等待元素出现在 DOM 中
+    let element: HTMLElement | null = null
+    for (let attempt = 0; attempt < 6; attempt++) {
+        element = document.getElementById(`node-${nodeId}`)
+        if (element) break
+        await new Promise(r => setTimeout(r, 30))
     }
+    
+    if (element) {
+        // 直接计算元素在滚动容器内的绝对位置
+        let offsetTop = 0
+        let el: HTMLElement | null = element
+        while (el && el !== scrollContainer) {
+            offsetTop += el.offsetTop
+            el = el.offsetParent as HTMLElement | null
+        }
+        const targetTop = Math.max(0, offsetTop - 20)
+        
+        await smartScrollTo(scrollContainer, targetTop)
+    }
+    
+    // 延迟释放手动滚动锁
+    setTimeout(() => { isManualScrolling.value = false }, 200)
 })
 
 // Watch for focus note requests (AI Teacher Mode)
@@ -1263,11 +1290,11 @@ const fontSize = computed(() => courseStore.uiSettings.fontSize)
 const fontFamily = computed(() => courseStore.uiSettings.fontFamily)
 const lineHeight = computed(() => courseStore.uiSettings.lineHeight)
 const editingContent = ref('')
-let observer: IntersectionObserver | null = null
 
 const noteDetailVisible = ref(false)
 const isDialogEditing = ref(false)
 const selectedNote = ref<any>(null)
+const noteDetailCloseCallback = ref<(() => void) | null>(null)
 
 // Note tags, category, and priority editing
 const editingTags = ref<string[]>([])
@@ -1324,6 +1351,26 @@ const visibleNodes = computed(() => {
     if (!flatNodes.value) return []
     return flatNodes.value.slice(0, renderedCount.value)
 })
+
+// 为 level 2 节点计算章节编号（跳过 root），其他 level 返回原始 index（仅用于动画延迟）
+const chapterIndexMap = computed(() => {
+    const map = new Map<string, number>()
+    let chapterCount = 0
+    for (const node of flatNodes.value) {
+        if (node.node_level === 2) {
+            map.set(node.node_id, chapterCount++)
+        }
+    }
+    return map
+})
+
+function getChapterIndex(node: any, flatIndex: number): number {
+    if (node.node_level === 2) {
+        return chapterIndexMap.value.get(node.node_id) ?? flatIndex
+    }
+    return flatIndex
+}
+
 
 const initSentinelObserver = () => {
     if (sentinelObserver) sentinelObserver.disconnect()
@@ -1526,7 +1573,47 @@ const noteDotClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || def
 const noteHighlightClass = (color: string) => (noteColorMap[color] || defaultNoteStyle).highlight
 const noteCardBorderClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || defaultNoteStyle).border
 const noteBadgeClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || defaultNoteStyle).badge
-const noteQuoteBorderClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || defaultNoteStyle).quote
+
+// 笔记详情弹窗用的引用条颜色
+const noteQuoteBarColorMap: Record<string, string> = {
+    amber: 'bg-amber-400', teal: 'bg-teal-400', indigo: 'bg-indigo-400', rose: 'bg-rose-400',
+    purple: 'bg-purple-400', red: 'bg-red-400', green: 'bg-green-400', blue: 'bg-blue-400',
+    orange: 'bg-orange-400', pink: 'bg-pink-400', yellow: 'bg-yellow-400'
+}
+const noteQuoteBarClass = (note: any) => noteQuoteBarColorMap[resolveNoteColor(note)] || 'bg-primary-400'
+
+// 笔记详情弹窗所属节点名
+const noteDetailNodeName = computed(() => {
+    if (!selectedNote.value?.nodeId) return ''
+    return courseStore.nodes.find(n => n.node_id === selectedNote.value.nodeId)?.node_name || ''
+})
+
+// 分类 chip 样式
+const categoryChipClass = (category: string): string => {
+    const map: Record<string, string> = {
+        '重点': 'bg-red-50 text-red-600',
+        '难点': 'bg-amber-50 text-amber-600',
+        '疑问': 'bg-blue-50 text-blue-600',
+        '总结': 'bg-emerald-50 text-emerald-600',
+        '错题': 'bg-rose-50 text-rose-600'
+    }
+    return map[category] || 'bg-slate-100 text-slate-600'
+}
+
+// 优先级 chip 样式
+const priorityChipClass = (priority: string): string => {
+    const map: Record<string, string> = {
+        high: 'bg-red-50 text-red-600',
+        medium: 'bg-amber-50 text-amber-600',
+        low: 'bg-emerald-50 text-emerald-600'
+    }
+    return map[priority] || 'bg-slate-100 text-slate-600'
+}
+
+const priorityIcon = (priority: string): string => {
+    const map: Record<string, string> = { high: '🔴', medium: '🟡', low: '🟢' }
+    return map[priority] || ''
+}
 
 const noteSearchText = (note: any) => {
     const nodeName = nodeNameMap.value.get(note.nodeId) || ''
@@ -1968,53 +2055,46 @@ const scrollToNote = (noteId: string) => {
     }
 
     activeNoteId.value = note.id
+    const scrollContainer = document.getElementById('content-scroll-container')
 
-    // First, try to scroll to the highlight in content area (preferred)
-    if (note.highlightId) {
-        const highlightEl = document.getElementById(note.highlightId)
-        if (highlightEl) {
-            highlightEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            highlightEl.classList.add('pulse-highlight')
-            setTimeout(() => highlightEl.classList.remove('pulse-highlight'), 1500)
-
-            // Also scroll the note card in sidebar
+    const flashNoteCard = () => {
+        nextTick(() => {
             const noteEl = document.getElementById(note.id)
             if (noteEl) {
                 noteEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
                 noteEl.classList.add('flash-card', 'ring-4', 'ring-primary-200')
-                setTimeout(() => {
-                    noteEl.classList.remove('flash-card', 'ring-4', 'ring-primary-200')
-                }, 1000)
+                setTimeout(() => noteEl.classList.remove('flash-card', 'ring-4', 'ring-primary-200'), 1000)
             }
+        })
+    }
+
+    // First, try to scroll to the highlight in content area (preferred)
+    if (note.highlightId) {
+        const highlightEl = document.getElementById(note.highlightId)
+        if (highlightEl && scrollContainer) {
+            scrollToElementInContainer(highlightEl, scrollContainer).then(() => {
+                highlightEl.classList.add('pulse-highlight')
+                setTimeout(() => highlightEl.classList.remove('pulse-highlight'), 1500)
+            })
+            flashNoteCard()
             return
         }
     }
 
     // If no highlight or highlight not found, scroll to the node
     if (note.nodeId) {
-        // First ensure the node is rendered
         const nodeEl = document.getElementById(`node-${note.nodeId}`)
-        if (nodeEl) {
-            nodeEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            nodeEl.classList.add('pulse-highlight')
-            setTimeout(() => nodeEl.classList.remove('pulse-highlight'), 1500)
+        if (nodeEl && scrollContainer) {
+            scrollToElementInContainer(nodeEl, scrollContainer).then(() => {
+                nodeEl.classList.add('pulse-highlight')
+                setTimeout(() => nodeEl.classList.remove('pulse-highlight'), 1500)
+            })
         } else {
-            // Node not rendered, use store method to scroll
             courseStore.scrollToNode(note.nodeId)
         }
     }
 
-    // Scroll note card in sidebar
-    nextTick(() => {
-        const noteEl = document.getElementById(note.id)
-        if (noteEl) {
-            noteEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-            noteEl.classList.add('flash-card', 'ring-4', 'ring-primary-200')
-            setTimeout(() => {
-                noteEl.classList.remove('flash-card', 'ring-4', 'ring-primary-200')
-            }, 1000)
-        }
-    })
+    flashNoteCard()
 }
 
 const updateNotePositions = () => {
@@ -2528,10 +2608,21 @@ const handleAddNote = () => {
 
 const handleNoteClick = (note: any) => {
     // Open note detail dialog instead of jumping
+    noteDetailCloseCallback.value = null
     selectedNote.value = note
     noteDetailVisible.value = true
     activeNoteId.value = note.id
     isDialogEditing.value = false
+}
+
+const handleNoteDetailClose = (done: () => void) => {
+    const cb = noteDetailCloseCallback.value
+    noteDetailCloseCallback.value = null
+    done()
+    // 等对话框关闭动画结束后再执行回调（如重新打开笔记面板）
+    if (cb) {
+        setTimeout(cb, 300)
+    }
 }
 
 const handleEditNote = (note: any) => {
@@ -2558,17 +2649,6 @@ const startEditing = () => {
 }
 
 // Helper functions for tags and categories
-const getCategoryType = (category: string): string => {
-    const typeMap: Record<string, string> = {
-        '重点': 'danger',
-        '难点': 'warning',
-        '疑问': 'info',
-        '总结': 'success',
-        '错题': 'danger'
-    }
-    return typeMap[category] || 'info'
-}
-
 const getPriorityLabel = (priority: string): string => {
     const labelMap: Record<string, string> = {
         'high': '高优先级',
@@ -2673,13 +2753,10 @@ const scrollToHighlight = (highlightId: string, noteId?: string) => {
         }
         return
     }
-    const el = document.getElementById(highlightId)
-    if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        el.classList.add('pulse-highlight')
-        setTimeout(() => el.classList.remove('pulse-highlight'), 1500)
-        
-        const note = noteStore.notes.find(n => n.highlightId === highlightId)
+    const scrollContainer = document.getElementById('content-scroll-container')
+
+    const flashNoteCard = (hId: string) => {
+        const note = noteStore.notes.find(n => n.highlightId === hId)
         if (note) {
             activeNoteId.value = note.id
             const noteCard = document.getElementById(note.id)
@@ -2689,15 +2766,26 @@ const scrollToHighlight = (highlightId: string, noteId?: string) => {
                 setTimeout(() => noteCard.classList.remove('flash-card', 'ring-4', 'ring-primary-200'), 1000)
             }
         }
+    }
+
+    const el = document.getElementById(highlightId)
+    if (el && scrollContainer) {
+        scrollToElementInContainer(el, scrollContainer).then(() => {
+            el.classList.add('pulse-highlight')
+            setTimeout(() => el.classList.remove('pulse-highlight'), 1500)
+        })
+        flashNoteCard(highlightId)
         return
     }
     reapplyHighlights()
     nextTick(() => {
         const retryEl = document.getElementById(highlightId)
-        if (retryEl) {
-            retryEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            retryEl.classList.add('pulse-highlight')
-            setTimeout(() => retryEl.classList.remove('pulse-highlight'), 1500)
+        if (retryEl && scrollContainer) {
+            scrollToElementInContainer(retryEl, scrollContainer).then(() => {
+                retryEl.classList.add('pulse-highlight')
+                setTimeout(() => retryEl.classList.remove('pulse-highlight'), 1500)
+            })
+            flashNoteCard(highlightId)
             return
         }
         if (noteId) {
@@ -2913,10 +3001,61 @@ const handleScroll = (e: Event) => {
     // Update note positions to follow content
     rafUpdatePositions()
     
+    // 实时检测当前可见节点，同步左侧树
+    if (!isManualScrolling.value) {
+        detectCurrentVisibleNode(target)
+    }
+    
     // Save position (Debounce manually or just save)
     // We use a simple throttle or just save every scroll? Too frequent.
     // Let's debounce the save action.
     saveScrollPosition(target.scrollTop)
+}
+
+let _detectRafId = 0
+const detectCurrentVisibleNode = (container: HTMLElement) => {
+    if (_detectRafId) return // 节流：每帧最多检测一次
+    _detectRafId = requestAnimationFrame(() => {
+        _detectRafId = 0
+        const containerTop = container.getBoundingClientRect().top + 100 // 偏移量，对应 sticky header
+        const nodes = visibleNodes.value
+        // 如果侧边栏剥离了根节点，检测时也跳过 level 1
+        const skipRoot = courseStore.courseTree.length === 1 
+            && courseStore.courseTree[0]?.children 
+            && courseStore.courseTree[0].children.length > 0
+        let bestNode: any = null
+        let bestDist = Infinity
+        
+        for (let i = nodes.length - 1; i >= 0; i--) {
+            if (skipRoot && nodes[i].node_level === 1) continue
+            const el = document.getElementById(`node-${nodes[i].node_id}`)
+            if (!el) continue
+            const top = el.getBoundingClientRect().top
+            // 找到最接近且在视口顶部以上或刚好在顶部的节点
+            const dist = top - containerTop
+            if (dist <= 0 && Math.abs(dist) < bestDist) {
+                bestDist = Math.abs(dist)
+                bestNode = nodes[i]
+            }
+        }
+        // 如果没有在顶部以上的，取第一个可见的（跳过 root）
+        if (!bestNode) {
+            for (const n of nodes) {
+                if (skipRoot && n.node_level === 1) continue
+                const el = document.getElementById(`node-${n.node_id}`)
+                if (!el) continue
+                const top = el.getBoundingClientRect().top - containerTop
+                if (top >= 0) {
+                    bestNode = n
+                    break
+                }
+            }
+        }
+        
+        if (bestNode && courseStore.currentNode?.node_id !== bestNode.node_id) {
+            courseStore.setCurrentNodeSilent(bestNode)
+        }
+    })
 }
 
 const saveScrollPosition = debounce((scrollTop: unknown) => {
@@ -2928,7 +3067,7 @@ const saveScrollPosition = debounce((scrollTop: unknown) => {
 const scrollToTop = () => {
     const container = document.getElementById('content-scroll-container')
     if (container) {
-        container.scrollTo({ top: 0, behavior: 'smooth' })
+        smartScrollTo(container, 0)
     }
 }
 
@@ -2963,38 +3102,6 @@ onMounted(() => {
     const container = document.getElementById('content-scroll-container')
     if (container) {
         container.addEventListener('scroll', handleScroll)
-        
-        observer = new IntersectionObserver((entries: IntersectionObserverEntry[]) => {
-            if (isManualScrolling.value) return 
-
-            // Find the intersecting entry that is closest to the top of viewport
-            let bestCandidate: any = null
-            let maxRatio = -1
-
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    if (entry.intersectionRatio > maxRatio) {
-                        maxRatio = entry.intersectionRatio
-                        bestCandidate = entry
-                    }
-                }
-            })
-            
-            if (bestCandidate) {
-                const target = bestCandidate.target as HTMLElement | null
-                const nodeId = target ? target.id.replace('node-', '') : ''
-                if (nodeId && courseStore.currentNode?.node_id !== nodeId) {
-                    const node = flatNodes.value.find(n => n.node_id === nodeId)
-                    if (node) {
-                        courseStore.setCurrentNodeSilent(node)
-                    }
-                }
-            }
-        }, {
-            root: container,
-            threshold: [0.1, 0.3, 0.6], // More triggers
-            rootMargin: '-10% 0px -60% 0px' // Focus on top area
-        })
     }
     
     // Listen for resize to update note positions
@@ -3016,25 +3123,18 @@ onMounted(() => {
     }
 })
 
-// Helper to re-observe nodes when data changes
-watch(() => flatNodes.value, () => {
-    nextTick(() => {
-        if (!observer) return
-        observer.disconnect()
-        flatNodes.value.forEach(node => {
-            const el = document.getElementById(`node-${node.node_id}`)
-            if (el) observer?.observe(el)
-        })
-    })
-}, { immediate: true })
-
 onUnmounted(() => {
     window.removeEventListener('resize', debouncedUpdatePositions)
-    if (observer) observer.disconnect()
+    if (_detectRafId) cancelAnimationFrame(_detectRafId)
 })
 
 defineExpose({
-    startQuiz: handleStartQuiz
+    startQuiz: handleStartQuiz,
+    showNoteDetail: (note: any, onClose?: () => void) => {
+        handleNoteClick(note)
+        // 设置回调必须在 handleNoteClick 之后，因为它会清除回调
+        noteDetailCloseCallback.value = onClose || null
+    }
 })
 </script>
 
@@ -3311,9 +3411,9 @@ defineExpose({
 
 .content-render :deep(p) {
     color: #475569;
-    line-height: 1.8;
+    line-height: inherit;
     margin-bottom: 1.25rem;
-    font-size: 15px;
+    font-size: inherit !important;
 }
 
 .content-render :deep(a) {
@@ -3363,8 +3463,8 @@ defineExpose({
 
 .content-render :deep(li) {
     color: #475569;
-    font-size: 15px;
-    line-height: 1.8;
+    font-size: inherit !important;
+    line-height: inherit;
     margin: 0.375rem 0;
 }
 
@@ -3380,14 +3480,14 @@ defineExpose({
     font-weight: 500;
 }
 
-/* Note Detail Dialog Markdown Styles */
+/* Note Detail Dialog Styles */
 :deep(.note-detail-dialog) {
-    background: rgba(255, 255, 255, 0.95) !important;
+    background: rgba(255, 255, 255, 0.97) !important;
     backdrop-filter: blur(24px) saturate(180%);
     border-radius: 20px;
     box-shadow:
         0 0 0 1px rgba(255, 255, 255, 0.2),
-        0 20px 40px -12px rgba(0, 0, 0, 0.12),
+        0 24px 48px -12px rgba(0, 0, 0, 0.15),
         0 0 0 1px rgba(0,0,0,0.02);
     border: none;
     overflow: hidden;
@@ -3396,7 +3496,7 @@ defineExpose({
 :deep(.note-detail-dialog .el-dialog__header) {
     margin-right: 0;
     padding: 20px 24px 16px;
-    border-bottom: 1px solid rgba(0,0,0,0.05);
+    border-bottom: 1px solid rgba(0,0,0,0.04);
 }
 
 :deep(.note-detail-dialog .el-dialog__title) {
@@ -3406,14 +3506,22 @@ defineExpose({
 }
 
 :deep(.note-detail-dialog .el-dialog__body) {
-    padding: 20px 24px;
+    padding: 24px;
     max-height: 60vh;
     overflow-y: auto;
 }
 
 :deep(.note-detail-dialog .el-dialog__footer) {
     padding: 16px 24px 20px;
-    border-top: 1px solid rgba(0,0,0,0.05);
+    border-top: 1px solid rgba(0,0,0,0.04);
+}
+
+.note-detail-content {
+    background: linear-gradient(135deg, #fafbfc 0%, #f8f9fb 100%);
+    padding: 24px;
+    border-radius: 16px;
+    border: 1px solid rgba(0,0,0,0.04);
+    min-height: 120px;
 }
 
 .note-content-markdown {

@@ -105,9 +105,12 @@ const courseStore = useCourseStore()
 const reviewStore = useReviewStore()
 const noteStore = useNoteStore()
 
-const wrongAnswers = computed(() =>
-  [...reviewStore.wrongAnswers].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-)
+const wrongAnswers = computed(() => {
+  const currentNodeIds = new Set(courseStore.nodes.map((n: any) => n.node_id))
+  return reviewStore.wrongAnswers
+    .filter(w => currentNodeIds.has(w.nodeId))
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+})
 
 // Get reflection text: first from wrongAnswers item, then fallback to notes with sourceType 'wrong'
 function getReflection(item: any): string {

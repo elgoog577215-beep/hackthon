@@ -539,8 +539,9 @@ const recentAchievements = computed(() => {
 
 // Quiz stats - safely access quiz data with defaults
 const quizStats = computed(() => {
-  const wrongAnswers = reviewStore.wrongAnswers || []
-  const quizHistory = reviewStore.quizHistory || []
+  const currentNodeIds = new Set(courseStore.nodes.map(n => n.node_id))
+  const wrongAnswers = (reviewStore.wrongAnswers || []).filter(w => currentNodeIds.has(w.nodeId))
+  const quizHistory = (reviewStore.quizHistory || []).filter(h => currentNodeIds.has(h.nodeId))
   const totalQuizzes = quizHistory.length
   const totalQuestions = quizHistory.reduce((sum: number, h: any) => sum + (h.totalQuestions || 0), 0)
   const totalCorrect = quizHistory.reduce((sum: number, h: any) => sum + (h.correctCount || 0), 0)
@@ -557,7 +558,8 @@ const quizStats = computed(() => {
 
 // Start wrong answer review
 const startWrongAnswerReview = async () => {
-  const wrongAnswers = reviewStore.wrongAnswers || []
+  const currentNodeIds = new Set(courseStore.nodes.map(n => n.node_id))
+  const wrongAnswers = (reviewStore.wrongAnswers || []).filter(w => currentNodeIds.has(w.nodeId))
   if (wrongAnswers.length === 0) return
 
   // Sort by review count and time
@@ -778,7 +780,8 @@ const estimatedRemainingTime = computed(() => {
 
 // Weak areas analysis
 const weakAreas = computed(() => {
-  const wrongAnswers = reviewStore.wrongAnswers || []
+  const currentNodeIds = new Set(courseStore.nodes.map(n => n.node_id))
+  const wrongAnswers = (reviewStore.wrongAnswers || []).filter(w => currentNodeIds.has(w.nodeId))
   const nodeWrongCounts = new Map<string, { name: string; count: number }>()
 
   wrongAnswers.forEach((w: any) => {
