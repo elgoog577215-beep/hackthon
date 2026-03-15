@@ -305,6 +305,9 @@
                     <el-tooltip content="波浪线 (Ctrl+I)" placement="bottom" :show-after="500">
                         <button class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 decoration-wavy underline text-sm transition-colors" @click="applyFormat('underline', 'wavy')">~</button>
                     </el-tooltip>
+                    <el-tooltip content="清除格式" placement="bottom" :show-after="500">
+                        <button class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 text-sm transition-colors" @click="clearFormats()">✕</button>
+                    </el-tooltip>
                 </div>
             </div>
             
@@ -816,6 +819,7 @@
         <transition name="back-to-top">
             <button v-if="showBackToTop" 
                     class="back-to-top p-3 bg-white/90 backdrop-blur-md border border-slate-200 rounded-full shadow-lg text-slate-500 hover:text-primary-600 hover:border-primary-300 hover:shadow-xl hover:shadow-primary-100/50 transition-all active:scale-95"
+                    :style="backToTopStyle"
                     @click="scrollToTop">
                 <el-icon :size="20"><ArrowUp /></el-icon>
             </button>
@@ -850,6 +854,7 @@ const { scanMermaidDiagrams } = useMermaid()
 // Props & Emits (lifted state for panel coordination)
 const props = defineProps<{
   notesCollapsed: boolean
+  sideAiPanelVisible?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -1609,7 +1614,7 @@ const reapplyHighlights = () => {
     // Identify active highlight IDs from quotedNotes
     const activeIds = new Set(quotedNotes.value.map(n => n.highlightId))
     
-    document.querySelectorAll('.highlight-marker').forEach(el => {
+    document.querySelectorAll('.highlight-marker, .format-marker').forEach(el => {
         // ID format: highlightId or highlightId-part-*
         const id = el.id ? el.id.split('-part-')[0] : ''
         
@@ -1751,13 +1756,7 @@ const reapplyHighlights = () => {
 const applyFormat = (style: string, value?: string) => {
     if (!selectionMenu.value.range || !selectionMenu.value.text) return
     
-    const highlightId = 'highlight-' + Math.random().toString(36).substr(2, 9)
-    
-    // Determine color based on style
-    let color = 'transparent'
-    if (style === 'highlight') color = value || 'yellow'
-    
-    // Determine Note Style
+    // Determine Note Style early (needed for toggle check)
     let noteStyle = style
     if (style === 'underline') noteStyle = value || 'solid'
     
@@ -1770,6 +1769,53 @@ const applyFormat = (style: string, value?: string) => {
         }
         curr = curr.parentNode
     }
+    
+    // Toggle logic: check if an identical format note already exists
+    if (nodeId) {
+        // For highlight: match any existing highlight (regardless of color)
+        // For bold/solid/wavy: match by exact style
+        const existingNote = noteStore.notes.find(
+            (n) =>
+                n.sourceType === 'format' &&
+                n.nodeId === nodeId &&
+                n.quote === selectionMenu.value.text &&
+                (style === 'highlight' ? n.style === 'highlight' : n.style === noteStyle)
+        )
+        if (existingNote) {
+            // For highlight with different color: delete old, then continue to create new (replace)
+            const isHighlightReplace = style === 'highlight' && existingNote.color !== (value || 'yellow')
+            
+            // Remove the existing format note
+            noteStore.deleteNote(existingNote.id)
+            // Remove DOM highlight span by unwrapping its inner text
+            if (existingNote.highlightId) {
+                const spans = document.querySelectorAll(`[id^="${existingNote.highlightId}"]`)
+                spans.forEach((span) => {
+                    const parent = span.parentNode
+                    if (parent) {
+                        while (span.firstChild) {
+                            parent.insertBefore(span.firstChild, span)
+                        }
+                        parent.removeChild(span)
+                    }
+                })
+            }
+            
+            // If highlight replace (different color), continue to create new note below
+            // Otherwise (same color toggle off, or non-highlight toggle), return early
+            if (!isHighlightReplace) {
+                selectionMenu.value.visible = false
+                window.getSelection()?.removeAllRanges()
+                return
+            }
+        }
+    }
+    
+    const highlightId = 'highlight-' + Math.random().toString(36).substr(2, 9)
+    
+    // Determine color based on style
+    let color = 'transparent'
+    if (style === 'highlight') color = value || 'yellow'
     
     if (nodeId) {
         noteStore.createNote({
@@ -1787,6 +1833,51 @@ const applyFormat = (style: string, value?: string) => {
         selectionMenu.value.visible = false
         window.getSelection()?.removeAllRanges()
     }
+}
+
+const clearFormats = () => {
+    if (!selectionMenu.value.text) return
+    
+    // Find nodeId from selection range
+    let nodeId = ''
+    if (selectionMenu.value.range) {
+        let curr: Node | null = selectionMenu.value.range.startContainer
+        while (curr && !nodeId) {
+            if (curr.nodeType === 1 && (curr as Element).id.startsWith('node-')) {
+                nodeId = (curr as Element).id.replace('node-', '')
+            }
+            curr = curr.parentNode
+        }
+    }
+    if (!nodeId) return
+    
+    // Find all format notes matching this selection
+    const formatNotes = noteStore.notes.filter(
+        (n) =>
+            n.sourceType === 'format' &&
+            n.nodeId === nodeId &&
+            n.quote === selectionMenu.value.text
+    )
+    
+    // Delete each note and unwrap its DOM span
+    formatNotes.forEach((note) => {
+        noteStore.deleteNote(note.id)
+        if (note.highlightId) {
+            const spans = document.querySelectorAll(`[id^="${note.highlightId}"]`)
+            spans.forEach((span) => {
+                const parent = span.parentNode
+                if (parent) {
+                    while (span.firstChild) {
+                        parent.insertBefore(span.firstChild, span)
+                    }
+                    parent.removeChild(span)
+                }
+            })
+        }
+    })
+    
+    selectionMenu.value.visible = false
+    window.getSelection()?.removeAllRanges()
 }
 
 const setHovered = (noteId: string | null, event?: MouseEvent) => {
@@ -1825,27 +1916,29 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
         span.id = id
         
         // Dynamic Class based on Note Type/Style
-        let className = 'highlight-marker transition-colors cursor-pointer '
+        // Non-highlight formats (bold/solid/wavy) use format-marker to avoid
+        // .highlight-marker CSS pollution (yellow background/border)
+        let className = 'transition-colors cursor-pointer '
         
         if (note?.sourceType === 'format') {
             if (note.style === 'bold') {
-                className += 'font-bold '
+                className += 'format-marker font-bold '
             } else if (note.style === 'solid') { // Underline solid
-                className += 'border-b-2 border-slate-800 '
+                className += 'format-marker border-b-2 border-slate-800 '
             } else if (note.style === 'wavy') {
-                className += 'underline decoration-wavy decoration-slate-800 '
+                className += 'format-marker underline decoration-wavy decoration-slate-800 '
             } else if (note.color && note.color !== 'transparent') {
-                // Highlight
+                // Highlight — keep highlight-marker for colored background
                 const colorClass = formatHighlightMap[note.color] || 'bg-yellow-200/50 hover:bg-yellow-300/50'
-                className += colorClass + ' '
+                className += 'highlight-marker ' + colorClass + ' '
             }
         } else if (note?.sourceType === 'ai') {
             // AI Teacher Style
-            className += noteHighlightClass('purple') + ' '
+            className += 'highlight-marker ' + noteHighlightClass('purple') + ' '
         } else {
             // Default Note Style
             const resolvedColor = resolveNoteColor(note)
-            className += noteHighlightClass(resolvedColor) + ' '
+            className += 'highlight-marker ' + noteHighlightClass(resolvedColor) + ' '
         }
         
         span.className = className
@@ -2794,6 +2887,20 @@ watch(() => courseStore.isFocusMode, (newVal, oldVal) => {
 
 const showBackToTop = ref(false)
 
+// Compute dynamic right offset for back-to-top button — synced with AI button
+const backToTopStyle = computed(() => {
+  if (props.sideAiPanelVisible) {
+    // AI panel is ~33vw wide, min 320px. Shift button left of the panel.
+    return { right: 'calc(33vw + 1rem)' }
+  }
+  if (!isNotesCollapsed.value) {
+    // Notes column open — match AI button's right-[340px]
+    return { right: '340px' }
+  }
+  // Notes column collapsed — match AI button's right-6 (1.5rem)
+  return { right: '1.5rem' }
+})
+
 const handleScroll = (e: Event) => {
     const target = e.target as HTMLElement
     showBackToTop.value = target.scrollTop > 500
@@ -3022,6 +3129,11 @@ defineExpose({
     background-color: transparent !important;
 }
 
+.format-marker {
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
 .highlight-marker {
     mix-blend-mode: multiply;
     border-radius: 2px;
@@ -3073,24 +3185,12 @@ defineExpose({
 
 .back-to-top {
     position: fixed;
-    bottom: 5.5rem;
-    right: 1rem;
+    bottom: 8.5rem;
     z-index: 50;
     transition: all 0.3s ease;
 }
 
-/* Adjust position when notes panel is open */
-@media (min-width: 768px) {
-    .back-to-top {
-        right: 300px;
-    }
-}
-
-@media (min-width: 1280px) {
-    .back-to-top {
-        right: 320px;
-    }
-}
+/* back-to-top transition animations */
 
 .back-to-top-enter-active,
 .back-to-top-leave-active {
