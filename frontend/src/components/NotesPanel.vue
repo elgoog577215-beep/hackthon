@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col h-full">
     <!-- Header -->
-    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0 pr-14">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white"
              :class="activeTab === 'wrong' ? 'bg-gradient-to-br from-red-400 to-rose-500' : 'bg-gradient-to-br from-indigo-400 to-purple-500'">
@@ -30,7 +30,14 @@
     </div>
 
     <!-- ========== WRONG ANSWERS VIEW ========== -->
-    <div v-if="activeTab === 'wrong'" class="flex-1 overflow-y-auto p-4 space-y-3">
+    <div v-if="activeTab === 'wrong' && !drillMode" class="flex-1 overflow-y-auto p-4 space-y-3">
+      <!-- 闯关练习入口 -->
+      <div v-if="wrongAnswers.filter(w => w.options && w.options.length > 0).length > 0" class="mb-2">
+        <button @click="startDrill" class="w-full py-3 px-4 bg-gradient-to-r from-orange-400 to-rose-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-orange-200/50 transition-all active:scale-[0.98]">
+          <el-icon :size="16"><TrophyBase /></el-icon> 闯关练习 · {{ wrongAnswers.filter(w => w.options && w.options.length > 0).length }} 题
+        </button>
+      </div>
+
       <div v-if="wrongAnswers.length === 0" class="flex flex-col items-center justify-center py-16 text-emerald-500">
         <el-icon :size="40" class="mb-3"><CircleCheckFilled /></el-icon>
         <p class="text-sm font-medium">暂无错题，继续保持</p>
@@ -48,7 +55,7 @@
               <span>{{ item.nodeName }}</span>
               <span>·</span>
               <span>{{ formatTime(item.timestamp) }}</span>
-              <span v-if="item.reviewCount > 0">· 已复习 {{ item.reviewCount }} 次</span>
+              <span v-if="item.reviewCount !== 0" class="px-1.5 py-0.5 rounded" :class="item.reviewCount < 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'">{{ formatScore(item.reviewCount) }}</span>
             </div>
           </div>
           <el-icon :size="14" class="text-slate-400 mt-1 transition-transform duration-200" :class="{ 'rotate-180': expandedKey === wrongItemKey(item) }">
@@ -59,7 +66,6 @@
         <!-- Expanded: Quiz Re-test -->
         <Transition name="expand">
           <div v-if="expandedKey === wrongItemKey(item)" class="border-t border-slate-100">
-            <!-- Options (re-testable, only for structured items) -->
             <template v-if="item.options && item.options.length > 0">
               <div class="px-5 py-4 space-y-2 ml-10">
                 <button
@@ -79,8 +85,6 @@
                   <el-icon v-else-if="retestStates[wrongItemKey(item)]?.answered && retestStates[wrongItemKey(item)]?.selected === oIdx && oIdx !== item.correctIndex" class="ml-auto text-red-500" :size="18"><CircleCloseFilled /></el-icon>
                 </button>
               </div>
-
-              <!-- Explanation (shown after answering) -->
               <div v-if="retestStates[wrongItemKey(item)]?.answered && item.explanation" class="px-5 pb-3 ml-10">
                 <div class="bg-slate-50 rounded-xl p-4 border border-slate-100">
                   <div class="text-xs font-bold text-slate-500 mb-1.5 flex items-center gap-1">
@@ -90,8 +94,6 @@
                 </div>
               </div>
             </template>
-
-            <!-- Legacy note-based wrong answer (no options) -->
             <template v-else>
               <div v-if="item.explanation" class="px-5 py-4 ml-10">
                 <div class="bg-slate-50 rounded-xl p-4 border border-slate-100">
@@ -102,16 +104,12 @@
                 </div>
               </div>
             </template>
-
-            <!-- Reflection (if exists) -->
             <div v-if="item.reflection" class="px-5 pb-3 ml-10">
               <div class="bg-amber-50 rounded-xl p-4 border border-amber-100">
                 <div class="text-xs font-bold text-amber-600 mb-1.5">💡 我的反思</div>
                 <div class="text-sm text-amber-800 leading-relaxed whitespace-pre-wrap">{{ item.reflection }}</div>
               </div>
             </div>
-
-            <!-- Wrong Note (separate from main notes) -->
             <div v-if="getWrongNote(item)" class="px-5 pb-3 ml-10">
               <div class="bg-blue-50 rounded-xl p-4 border border-blue-100">
                 <div class="text-xs font-bold text-blue-600 mb-1.5 flex items-center justify-between">
@@ -123,8 +121,6 @@
                 <div class="text-sm text-blue-800 leading-relaxed whitespace-pre-wrap">{{ getWrongNote(item) }}</div>
               </div>
             </div>
-
-            <!-- Actions -->
             <div class="px-5 pb-4 flex items-center gap-2 ml-10">
               <button
                 v-if="retestStates[wrongItemKey(item)]?.answered && item.options?.length > 0"
@@ -151,6 +147,105 @@
       </div>
     </div>
 
+    <!-- ========== 闯关练习模式 ========== -->
+    <div v-else-if="activeTab === 'wrong' && drillMode" class="flex-1 flex flex-col overflow-hidden">
+      <!-- 顶部进度条 -->
+      <div class="px-5 pt-4 pb-3 flex-shrink-0">
+        <div class="flex items-center justify-between mb-2">
+          <button @click="exitDrill" class="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors">
+            <el-icon :size="12"><ArrowLeft /></el-icon> 返回错题本
+          </button>
+          <span class="text-xs text-slate-500 font-medium">{{ drillIndex + 1 }} / {{ drillQuestions.length }}</span>
+        </div>
+        <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div class="h-full bg-gradient-to-r from-orange-400 to-rose-500 rounded-full transition-all duration-300" :style="{ width: drillProgress + '%' }"></div>
+        </div>
+      </div>
+
+      <!-- 答题完成页 -->
+      <div v-if="drillFinished" class="flex-1 flex flex-col items-center justify-center p-6 text-center">
+        <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-400 to-rose-500 flex items-center justify-center text-white mb-4">
+          <el-icon :size="32"><TrophyBase /></el-icon>
+        </div>
+        <h3 class="text-lg font-bold text-slate-800 mb-1">练习完成</h3>
+        <p class="text-sm text-slate-500 mb-6">共 {{ drillResults.length }} 题</p>
+        <div class="flex gap-6 mb-6">
+          <div class="text-center">
+            <div class="text-2xl font-bold text-emerald-500">{{ drillResults.filter(r => r.correct).length }}</div>
+            <div class="text-xs text-slate-400 mt-1">答对</div>
+          </div>
+          <div class="text-center">
+            <div class="text-2xl font-bold text-red-500">{{ drillResults.filter(r => !r.correct).length }}</div>
+            <div class="text-xs text-slate-400 mt-1">答错</div>
+          </div>
+          <div class="text-center">
+            <div class="text-2xl font-bold text-purple-500">{{ drillResults.filter(r => r.mastered).length }}</div>
+            <div class="text-xs text-slate-400 mt-1">已掌握</div>
+          </div>
+        </div>
+        <div v-if="drillResults.length > 0" class="w-full max-w-xs space-y-1.5 mb-6">
+          <div v-for="(r, i) in drillResults" :key="i" class="flex items-center gap-2 text-xs px-3 py-2 rounded-lg" :class="r.correct ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'">
+            <el-icon :size="14"><CircleCheckFilled v-if="r.correct" /><CircleCloseFilled v-else /></el-icon>
+            <span class="truncate flex-1">{{ r.question }}</span>
+            <span v-if="r.mastered" class="text-purple-500 font-medium flex-shrink-0">已掌握</span>
+          </div>
+        </div>
+        <button @click="exitDrill" class="px-6 py-2.5 bg-gradient-to-r from-orange-400 to-rose-500 text-white rounded-xl font-medium text-sm hover:shadow-lg transition-all">
+          返回错题本
+        </button>
+      </div>
+
+      <!-- 答题中 -->
+      <div v-else-if="drillCurrent" class="flex-1 flex flex-col overflow-y-auto p-5">
+        <div class="flex-1">
+          <!-- 题目 -->
+          <div class="mb-6">
+            <div class="text-base text-slate-800 font-medium leading-relaxed">{{ drillCurrent.question }}</div>
+            <div class="text-xs text-slate-400 mt-2">{{ drillCurrent.nodeName }}</div>
+          </div>
+          <!-- 选项 -->
+          <div class="space-y-2.5">
+            <button
+              v-for="(opt, oIdx) in drillCurrent.options"
+              :key="oIdx"
+              class="w-full text-left p-4 rounded-xl border-2 transition-all duration-200 flex items-center gap-3"
+              :class="drillOptionClass(oIdx)"
+              :disabled="drillAnswered"
+              @click="drillSelectOption(oIdx)"
+            >
+              <span class="w-7 h-7 rounded-lg border-2 flex items-center justify-center text-xs font-bold flex-shrink-0"
+                    :class="drillBadgeClass(oIdx)">
+                {{ String.fromCharCode(65 + oIdx) }}
+              </span>
+              <span class="text-sm flex-1">{{ opt }}</span>
+              <el-icon v-if="drillAnswered && oIdx === drillCurrent.correctIndex" class="text-emerald-500" :size="20"><CircleCheckFilled /></el-icon>
+              <el-icon v-else-if="drillAnswered && drillSelected === oIdx && oIdx !== drillCurrent.correctIndex" class="text-red-500" :size="20"><CircleCloseFilled /></el-icon>
+            </button>
+          </div>
+          <!-- 解析 -->
+          <div v-if="drillAnswered && drillCurrent.explanation" class="mt-4 bg-slate-50 rounded-xl p-4 border border-slate-100">
+            <div class="text-xs font-bold text-slate-500 mb-1.5 flex items-center gap-1">
+              <el-icon :size="12"><InfoFilled /></el-icon> 解析
+            </div>
+            <div class="text-sm text-slate-600 leading-relaxed">{{ drillCurrent.explanation }}</div>
+          </div>
+        </div>
+        <!-- 底部操作 -->
+        <div class="pt-4 flex-shrink-0">
+          <button v-if="!drillAnswered" @click="drillConfirm" :disabled="drillSelected === null"
+            class="w-full py-3 rounded-xl font-medium text-sm transition-all"
+            :class="drillSelected !== null ? 'bg-primary-500 text-white hover:bg-primary-600' : 'bg-slate-100 text-slate-400 cursor-not-allowed'">
+            确认答案
+          </button>
+          <button v-else @click="drillNext"
+            class="w-full py-3 bg-gradient-to-r from-orange-400 to-rose-500 text-white rounded-xl font-medium text-sm hover:shadow-lg transition-all flex items-center justify-center gap-1.5">
+            {{ drillIndex >= drillQuestions.length - 1 ? '查看结果' : '下一题' }}
+            <el-icon :size="14"><ArrowRight /></el-icon>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- ========== NOTES VIEW ========== -->
     <div v-else class="flex-1 overflow-y-auto p-4 space-y-3">
       <div v-if="filteredNotes.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
@@ -160,7 +255,8 @@
       </div>
 
       <div v-for="note in filteredNotes" :key="note.id"
-        class="group bg-white rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all overflow-hidden">
+        class="group bg-white rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all overflow-hidden cursor-pointer"
+        @click="$emit('viewDetail', note)">
         <div v-if="note.quote" class="px-4 pt-3 pb-1">
           <div class="text-xs text-slate-500 italic border-l-2 border-primary-300 pl-3 py-1 line-clamp-2">"{{ note.quote }}"</div>
         </div>
@@ -191,7 +287,7 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive } from 'vue'
-import { Notebook, Location, Delete, ArrowDown, CircleCheckFilled, CircleCloseFilled, InfoFilled, RefreshRight, EditPen } from '@element-plus/icons-vue'
+import { Notebook, Location, Delete, ArrowDown, CircleCheckFilled, CircleCloseFilled, InfoFilled, RefreshRight, EditPen, TrophyBase, ArrowRight, ArrowLeft } from '@element-plus/icons-vue'
 import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
 import { useReviewStore } from '../stores/review'
@@ -210,6 +306,7 @@ defineProps<{
 
 defineEmits<{
   (e: 'locate', note: Note): void
+  (e: 'viewDetail', note: Note): void
 }>()
 
 defineExpose({ setTab: (tab: string) => { activeTab.value = tab } })
@@ -268,12 +365,15 @@ function wrongItemKey(item: any): string {
 }
 
 const wrongAnswers = computed(() => {
-  const structured = [...reviewStore.wrongAnswers]
+  // 只显示当前课程的错题
+  const currentNodeIds = new Set(courseStore.nodes.map(n => n.node_id))
+  const structured = reviewStore.wrongAnswers.filter(w => currentNodeIds.has(w.nodeId))
   const structuredQuestions = new Set(structured.map(w => w.question))
   
   // Parse legacy notes with sourceType 'wrong' that aren't in structured data
   const wrongNoteItems = noteStore.notes
     .filter(n => n.sourceType === 'wrong')
+    .filter(n => currentNodeIds.has(n.nodeId || ''))
     .filter(n => !structuredQuestions.has(n.quote || ''))
     .map(n => {
       // Parse the formatted content to extract data
@@ -408,6 +508,98 @@ function markMastered(item: any) {
   }
   expandedKey.value = null
   ElMessage.success('已标记为掌握')
+}
+
+// ========== 闯关练习 ==========
+const drillMode = ref(false)
+const drillQuestions = ref<any[]>([])
+const drillIndex = ref(0)
+const drillSelected = ref<number | null>(null)
+const drillAnswered = ref(false)
+const drillResults = ref<Array<{ question: string, correct: boolean, mastered: boolean }>>([])
+const drillFinished = ref(false)
+
+const drillCurrent = computed(() => drillQuestions.value[drillIndex.value] || null)
+const drillProgress = computed(() => drillQuestions.value.length > 0 ? Math.round(((drillIndex.value + (drillAnswered.value ? 1 : 0)) / drillQuestions.value.length) * 100) : 0)
+
+function startDrill() {
+  // 只取有选项的结构化错题，打乱顺序
+  const eligible = wrongAnswers.value.filter(w => w.options && w.options.length > 0 && w.correctIndex >= 0)
+  if (eligible.length === 0) {
+    ElMessage.warning('没有可练习的选择题')
+    return
+  }
+  drillQuestions.value = [...eligible].sort(() => Math.random() - 0.5)
+  drillIndex.value = 0
+  drillSelected.value = null
+  drillAnswered.value = false
+  drillResults.value = []
+  drillFinished.value = false
+  drillMode.value = true
+}
+
+function drillSelectOption(idx: number) {
+  if (drillAnswered.value) return
+  drillSelected.value = idx
+}
+
+function drillConfirm() {
+  if (drillSelected.value === null || !drillCurrent.value) return
+  drillAnswered.value = true
+  const correct = drillSelected.value === drillCurrent.value.correctIndex
+  const mastered = reviewStore.updateDrillResult(drillCurrent.value.question, drillCurrent.value.nodeId, correct)
+  drillResults.value.push({ question: drillCurrent.value.question, correct, mastered })
+}
+
+function drillNext() {
+  if (drillIndex.value >= drillQuestions.value.length - 1) {
+    drillFinished.value = true
+    return
+  }
+  drillIndex.value++
+  drillSelected.value = null
+  drillAnswered.value = false
+}
+
+function exitDrill() {
+  drillMode.value = false
+  drillFinished.value = false
+}
+
+function drillOptionClass(oIdx: number): string {
+  if (!drillAnswered.value) {
+    return drillSelected.value === oIdx
+      ? 'border-primary-400 bg-primary-50 text-primary-700'
+      : 'border-slate-200 hover:border-primary-300 hover:bg-slate-50 text-slate-600'
+  }
+  if (oIdx === drillCurrent.value?.correctIndex) {
+    return 'border-emerald-500 bg-emerald-50 text-emerald-700'
+  }
+  if (drillSelected.value === oIdx && oIdx !== drillCurrent.value?.correctIndex) {
+    return 'border-red-500 bg-red-50 text-red-700'
+  }
+  return 'border-slate-100 text-slate-400 opacity-60'
+}
+
+function drillBadgeClass(oIdx: number): string {
+  if (!drillAnswered.value) {
+    return drillSelected.value === oIdx
+      ? 'border-primary-400 bg-primary-500 text-white'
+      : 'border-slate-300 text-slate-500'
+  }
+  if (oIdx === drillCurrent.value?.correctIndex) {
+    return 'border-emerald-500 bg-emerald-500 text-white'
+  }
+  if (drillSelected.value === oIdx && oIdx !== drillCurrent.value?.correctIndex) {
+    return 'border-red-500 bg-red-500 text-white'
+  }
+  return 'border-slate-200 text-slate-300'
+}
+
+function formatScore(reviewCount: number): string {
+  if (reviewCount < 0) return `答对 ${Math.abs(reviewCount)} 次`
+  if (reviewCount === 0) return '未练习'
+  return `答错 ${reviewCount} 次`
 }
 </script>
 

@@ -1061,3 +1061,8 @@ span.search-active {
   opacity: 0;
   transform: scale(0.95);
 }
+
+/* ============================================
+   CONTENT FONT SIZE OVERRIDE
+   Handled dynamically by App.vue via <style id="dynamic-font-size">
+   ============================================ */

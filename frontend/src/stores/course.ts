@@ -76,11 +76,15 @@ export const useCourseStore = defineStore('course', {
     // --- 多对话管理 ---
     conversations: JSON.parse(localStorage.getItem('chat_conversations') || '[]') as ChatConversation[],
     currentConversationId: localStorage.getItem('chat_current_conversation') || '' as string,
-    uiSettings: {
-        fontSize: 17,
-        fontFamily: 'sans' as 'sans' | 'serif' | 'mono',
-        lineHeight: 1.75
-    },
+    uiSettings: (() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem('ui_settings') || 'null')
+            if (saved && typeof saved.fontSize === 'number' && saved.fontSize >= 8 && saved.fontSize <= 72) {
+                return { fontSize: saved.fontSize, fontFamily: saved.fontFamily || 'sans', lineHeight: saved.lineHeight || 1.75 }
+            }
+        } catch {}
+        return { fontSize: 17, fontFamily: 'sans' as 'sans' | 'serif' | 'mono', lineHeight: 1.75 }
+    })(),
   }),
   getters: {
     treeData: (state) => state.courseTree,
@@ -95,6 +99,7 @@ export const useCourseStore = defineStore('course', {
     // ========== UI Actions ==========
     setUiSettings(settings: Partial<{ fontSize: number; fontFamily: 'sans' | 'serif' | 'mono'; lineHeight: number }>) {
         this.uiSettings = { ...this.uiSettings, ...settings }
+        localStorage.setItem('ui_settings', JSON.stringify(this.uiSettings))
     },
     toggleFocusMode() { this.isFocusMode = !this.isFocusMode },
     updateUserPersona(persona: string) {

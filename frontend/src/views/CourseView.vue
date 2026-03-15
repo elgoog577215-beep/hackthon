@@ -153,7 +153,7 @@
             <button @click="showNotesPanel = false" class="absolute top-4 right-4 z-10 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all">
               <el-icon :size="20"><Close /></el-icon>
             </button>
-            <NotesPanel ref="notesPanelRef" class="flex-1 min-h-0" @locate="handleLocateFromPanel" />
+            <NotesPanel ref="notesPanelRef" class="flex-1 min-h-0" @locate="handleLocateFromPanel" @view-detail="handleViewDetailFromPanel" />
           </div>
         </div>
       </Transition>
@@ -551,12 +551,13 @@ watch(() => route.params.courseId, (newCourseId, oldCourseId) => {
 // SmartBar computed properties
 const notesCount = computed(() => noteStore.notes?.filter(n => n.sourceType !== 'format' && n.sourceType !== 'wrong').length || 0)
 const wrongAnswersCount = computed(() => {
-  const structuredCount = reviewStore.wrongAnswers?.length || 0
-  const structuredQuestions = new Set((reviewStore.wrongAnswers || []).map(w => w.question))
+  const currentNodeIds = new Set(courseStore.nodes.map(n => n.node_id))
+  const structured = (reviewStore.wrongAnswers || []).filter(w => currentNodeIds.has(w.nodeId))
+  const structuredQuestions = new Set(structured.map(w => w.question))
   const legacyCount = (noteStore.notes || [])
-    .filter(n => n.sourceType === 'wrong' && !structuredQuestions.has(n.quote || ''))
+    .filter(n => n.sourceType === 'wrong' && currentNodeIds.has(n.nodeId || '') && !structuredQuestions.has(n.quote || ''))
     .length
-  return structuredCount + legacyCount
+  return structured.length + legacyCount
 })
 
 // Reading location indicator
@@ -618,6 +619,13 @@ const handleLocateNote = (note: any) => {
 const handleLocateFromPanel = (note: any) => {
   showNotesPanel.value = false
   handleLocateNote(note)
+}
+
+const handleViewDetailFromPanel = (note: any) => {
+  showNotesPanel.value = false
+  contentAreaRef.value?.showNoteDetail(note, () => {
+    showNotesPanel.value = true
+  })
 }
 
 // ========== Study Time Tracking ==========
