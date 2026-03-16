@@ -39,8 +39,11 @@ async def add_custom_node(course_id: str, req: AddNodeRequest):
         "parent_node_id": req.parent_node_id,
         "node_name": req.node_name,
         "node_level": level,
-        "node_content": "Custom content...",
-        "node_type": "custom"
+        "node_content": "",
+        "node_type": "custom",
+        "generation_status": "pending",
+        "generated_chars": 0,
+        "error_summary": None,
     }
 
     if "nodes" not in tree_data:

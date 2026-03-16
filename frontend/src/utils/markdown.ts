@@ -155,21 +155,35 @@ const mathPlugin = (md: any) => {
     // Renderers
     const renderMath = (content: string, displayMode: boolean) => {
         try {
-            // Clean up the content before rendering
             let cleanedContent = content.trim();
             
-            // Remove unnecessary escaping that might cause issues
             cleanedContent = cleanedContent.replace(/\\([^a-zA-Z0-9\s{}\[\]()])/g, '$1');
             
+            cleanedContent = cleanedContent.replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ');
+            
+            cleanedContent = cleanedContent.replace(/[ \t]+/g, ' ');
+            
+            cleanedContent = cleanedContent.replace(/\n\s*\n/g, '\n');
+            
+            cleanedContent = cleanedContent.replace(/\s*([=+\-*/<>{}[\]()^_&\\])\s*/g, '$1');
+            
+            cleanedContent = cleanedContent.replace(/\\left\s*/g, '\\left ');
+            cleanedContent = cleanedContent.replace(/\\right\s*/g, '\\right ');
+            cleanedContent = cleanedContent.replace(/\\frac\s*/g, '\\frac');
+            cleanedContent = cleanedContent.replace(/\\sum\s*/g, '\\sum');
+            cleanedContent = cleanedContent.replace(/\\int\s*/g, '\\int');
+            cleanedContent = cleanedContent.replace(/\\sqrt\s*/g, '\\sqrt');
+            
+            cleanedContent = cleanedContent.replace(/\s+/g, ' ').trim();
+            
             return katex.renderToString(cleanedContent, { 
-                throwOnError: false, // Don't throw, render error in output
+                throwOnError: false,
                 displayMode,
-                output: 'html', // Render to HTML
-                strict: false, // Be more lenient with syntax
-                trust: true // Allow trusted commands
+                output: 'html',
+                strict: false,
+                trust: true
             });
         } catch (e: any) {
-            // Fallback to error display if rendering fails
             console.warn('KaTeX render error:', e);
             return `<span class="math-error" title="${e.message || 'Math render error'}">${content}</span>`;
         }

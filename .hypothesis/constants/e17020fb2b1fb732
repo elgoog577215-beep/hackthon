@@ -1,0 +1,4 @@
+# file: C:\Users\Administrator\Desktop\灵知\KnowledgeMap\backend\models.py
+# hypothesis_version: 6.151.9
+
+[0.0, 2.5, 800, 1000, 2000, 'New Node', 'academic', 'advanced', 'ai', 'auto_generate', 'broken_reference', 'complete', 'completed', 'critical', 'custom', 'due', 'duplicate_example', 'error', 'extend', 'external', 'flowchart', 'format', 'generating', 'high', 'info', 'insufficient_reading', 'intermediate', 'internal', 'low', 'low_quiz_score', 'medium', 'original', 'overdue', 'paused', 'pending', 'python', 'retry', 'root', 'running', 'skip', 'skipped', 'start', 'task_oriented', 'user', 'user_saved', 'warning', 'wrong', '个', '原始描述', '图表描述', '图表类型', '是否成功', '生成的Mermaid代码', '错误信息', '额外上下文信息']
