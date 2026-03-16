@@ -6,7 +6,7 @@ AI 测验服务模块
 """
 
 import logging
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from ai_base import AIBase
 from shared.prompt_config import DIFFICULTY_LEVELS, TEACHING_STYLES, DifficultyLevel, TeachingStyle
@@ -66,37 +66,82 @@ class AIQuizService(AIBase):
             "analysis": "分析题型：侧重逻辑推理和深度分析"
         }
         
-        prompt = f"""内容：
+        prompt = f"""以下是课程内容，请仔细阅读后基于内容出题：
+
+---
 {content_text}
+---
 {personalization}
 {mistake_focus}
 
 题型要求：{type_distribution.get(quiz_type, type_distribution['mixed'])}
 难度级别：{difficulty}
 
-请生成恰好 {question_count} 道题目，JSON格式。
-每道题必须包含以下字段：
-- id: 题号
-- type: 题型 (conceptual/application/analysis/synthesis)
-- question: 题目内容
-- options: 选项数组
-- correct_index: 正确答案索引
-- explanation: 详细解析（可用Markdown表格或Mermaid图表辅助说明）
-- knowledge_point: 考察的知识点
-- difficulty_score: 难度评分 (1-5)
+请严格基于以上课程内容，生成恰好 {question_count} 道选择题。
+直接输出 JSON 数组，不要输出任何其他文字。
 """
         
-        response = await self._call_llm(prompt, system_prompt)
-        if response:
-            result = self._extract_json(response)
-            if result:
-                # 验证并补充题目字段
-                validated_quiz = self._validate_quiz_questions(result, question_count)
-                return validated_quiz
+        result = await self._generate_quiz_with_retry(prompt, system_prompt, question_count)
+        if result:
+            return result
 
         # 智能回退：基于用户错题生成针对性题目
-        logger.warning(f"Quiz generation failed for {node_name}. Using smart fallback.")
+        logger.warning(f"Quiz generation failed for '{node_name}' after retries. Using smart fallback.")
         return self._generate_smart_fallback_quiz(node_name, question_count, previous_mistakes, discipline_type)
+    
+    async def _generate_quiz_with_retry(self, prompt: str, system_prompt: str, question_count: int, max_attempts: int = 2) -> Optional[List[Dict]]:
+        """尝试生成测验，JSON 解析失败时自动重试一次"""
+        last_raw_response = None
+        
+        for attempt in range(max_attempts):
+            if attempt == 0:
+                current_prompt = prompt
+            else:
+                # 第二次尝试：把上次的原始输出发回去，让 LLM 修正格式
+                logger.info(f"Quiz JSON parse failed, retrying with format correction (attempt {attempt + 1})")
+                current_prompt = f"""你上次的输出无法被解析为有效 JSON。请修正格式后重新输出。
+
+上次的输出：
+{last_raw_response[:2000]}
+
+要求：
+1. 只输出一个 JSON 数组 [...]
+2. 不要用 {{"questions": [...]}} 包装
+3. 不要输出任何解释文字
+4. 确保字符串中没有未转义的特殊字符
+"""
+            
+            response = await self._call_llm(current_prompt, system_prompt)
+            if not response:
+                logger.warning(f"Empty LLM response on quiz attempt {attempt + 1}")
+                continue
+            
+            last_raw_response = response
+            result = self._extract_json(response)
+            
+            if result:
+                # 解包 dict wrapper
+                if isinstance(result, dict):
+                    for key in ("questions", "quiz", "data", "items"):
+                        if key in result and isinstance(result[key], list):
+                            result = result[key]
+                            break
+                    else:
+                        if "question" in result:
+                            result = [result]
+                        else:
+                            vals = list(result.values())
+                            result = vals[0] if vals and isinstance(vals[0], list) else []
+                
+                if isinstance(result, list) and len(result) > 0:
+                    validated_quiz = self._validate_quiz_questions(result, question_count)
+                    if validated_quiz:
+                        logger.info(f"Quiz generated successfully on attempt {attempt + 1}: {len(validated_quiz)} questions")
+                        return validated_quiz
+            
+            logger.warning(f"Quiz attempt {attempt + 1} failed: JSON extraction returned {type(result).__name__}")
+        
+        return None
     
     def _validate_quiz_questions(self, questions: List[Dict], expected_count: int) -> List[Dict]:
         """验证并标准化测验题目"""

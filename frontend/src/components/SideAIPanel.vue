@@ -62,20 +62,35 @@
         </div>
       </div>
 
-      <!-- Loading Indicator -->
-      <div v-if="courseStore.chatLoading" class="flex gap-2 p-3 items-center justify-between">
-        <div class="flex gap-2 items-center animate-pulse">
-          <div class="w-6 h-6 rounded-full bg-slate-200"></div>
-          <div class="h-6 bg-slate-100 rounded-lg w-24"></div>
+      <!-- Loading Indicator — Thinking Robot -->
+      <div v-if="courseStore.chatLoading" class="self-start max-w-[85%]">
+        <div class="p-3 rounded-xl rounded-tl-sm bg-white border border-slate-100 shadow-sm">
+          <div class="flex items-center gap-3">
+            <!-- Animated robot face -->
+            <div class="thinking-robot flex-shrink-0">
+              <div class="robot-face">
+                <div class="robot-eye left"></div>
+                <div class="robot-eye right"></div>
+                <div class="robot-mouth"></div>
+              </div>
+            </div>
+            <div class="flex flex-col gap-1">
+              <span class="text-xs font-medium text-slate-500">{{ thinkingText }}</span>
+              <div class="flex gap-1">
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot" style="animation-delay: 0.2s"></span>
+                <span class="thinking-dot" style="animation-delay: 0.4s"></span>
+              </div>
+            </div>
+            <button
+              class="ml-auto flex-shrink-0 px-2 py-1 text-xs bg-white border border-slate-200 hover:border-red-300 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+              @click="courseStore.cancelChat()"
+              title="停止生成"
+            >
+              停止
+            </button>
+          </div>
         </div>
-        <button
-          class="px-2.5 py-1 text-xs bg-white border border-slate-200 hover:border-red-300 hover:bg-red-50 text-slate-500 hover:text-red-500 rounded-lg transition-colors flex items-center gap-1"
-          @click="courseStore.cancelChat()"
-          title="停止生成"
-        >
-          <el-icon :size="12"><Close /></el-icon>
-          <span>停止</span>
-        </button>
       </div>
     </div>
 
@@ -197,6 +212,23 @@ const canSend = computed(() => {
   return inputMessage.value.trim().length > 0 && !courseStore.chatLoading
 })
 
+// Thinking text rotation
+const thinkingPhrases = ['正在思考', '翻阅笔记中', '组织语言中', '灵感涌现中', '认真分析中']
+const thinkingIndex = ref(0)
+const thinkingText = computed(() => thinkingPhrases[thinkingIndex.value % thinkingPhrases.length])
+let thinkingTimer: ReturnType<typeof setInterval> | null = null
+
+watch(() => courseStore.chatLoading, (loading) => {
+  if (loading) {
+    thinkingIndex.value = 0
+    thinkingTimer = setInterval(() => { thinkingIndex.value++ }, 2000)
+  } else if (thinkingTimer) {
+    clearInterval(thinkingTimer)
+    thinkingTimer = null
+  }
+})
+onUnmounted(() => { if (thinkingTimer) clearInterval(thinkingTimer) })
+
 // Helpers
 const getMessageText = (content: string | AIContent): string => {
   if (typeof content === 'string') return content
@@ -269,5 +301,113 @@ watch(
 <style scoped>
 .border-l-3 {
   border-left-width: 3px;
+}
+
+/* Thinking robot animation */
+.thinking-robot {
+  width: 36px;
+  height: 36px;
+  position: relative;
+}
+
+.robot-face {
+  width: 36px;
+  height: 32px;
+  background: linear-gradient(135deg, #818cf8, #6366f1);
+  border-radius: 8px 8px 10px 10px;
+  position: relative;
+  animation: robot-bob 1.5s ease-in-out infinite;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.robot-face::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 8px;
+  background: #a5b4fc;
+  border-radius: 50%;
+  animation: antenna-glow 1s ease-in-out infinite alternate;
+}
+
+.robot-eye {
+  position: absolute;
+  top: 10px;
+  width: 8px;
+  height: 8px;
+  background: white;
+  border-radius: 50%;
+  animation: robot-blink 3s ease-in-out infinite;
+}
+
+.robot-eye.left { left: 7px; }
+.robot-eye.right { right: 7px; }
+
+.robot-eye::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 4px;
+  height: 4px;
+  background: #1e1b4b;
+  border-radius: 50%;
+  animation: eye-look 4s ease-in-out infinite;
+}
+
+.robot-mouth {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 2px;
+  animation: robot-talk 0.8s ease-in-out infinite;
+}
+
+.thinking-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #a5b4fc;
+  border-radius: 50%;
+  animation: dot-bounce 1.2s ease-in-out infinite;
+}
+
+@keyframes robot-bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-2px) rotate(-2deg); }
+  75% { transform: translateY(-2px) rotate(2deg); }
+}
+
+@keyframes robot-blink {
+  0%, 42%, 44%, 100% { transform: scaleY(1); }
+  43% { transform: scaleY(0.1); }
+}
+
+@keyframes eye-look {
+  0%, 40% { transform: translateX(0); }
+  45%, 55% { transform: translateX(2px); }
+  60%, 100% { transform: translateX(0); }
+}
+
+@keyframes robot-talk {
+  0%, 100% { width: 12px; height: 3px; border-radius: 2px; }
+  50% { width: 10px; height: 6px; border-radius: 50%; }
+}
+
+@keyframes antenna-glow {
+  from { background: #a5b4fc; box-shadow: 0 0 4px rgba(165, 180, 252, 0.5); }
+  to { background: #c7d2fe; box-shadow: 0 0 8px rgba(199, 210, 254, 0.8); }
+}
+
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-6px); opacity: 1; }
 }
 </style>

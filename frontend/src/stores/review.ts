@@ -19,6 +19,8 @@ export const useReviewStore = defineStore('review', {
       timestamp: number
       reviewCount: number
       reflection?: string
+      textDraft?: string
+      drawingDraft?: string
     }>,
     quizHistory: [] as Array<{
       nodeId: string
@@ -38,6 +40,8 @@ export const useReviewStore = defineStore('review', {
       nodeId: string
       nodeName: string
       reflection?: string
+      textDraft?: string
+      drawingDraft?: string
     }) {
       const existingIndex = this.wrongAnswers.findIndex(
         w => w.question === quizData.question && w.nodeId === quizData.nodeId
@@ -47,6 +51,9 @@ export const useReviewStore = defineStore('review', {
         if (existing) {
           existing.reviewCount += 1
           existing.timestamp = Date.now()
+          // 更新草稿（新的草稿覆盖旧的）
+          if (quizData.textDraft !== undefined) existing.textDraft = quizData.textDraft
+          if (quizData.drawingDraft !== undefined) existing.drawingDraft = quizData.drawingDraft
         }
       } else {
         this.wrongAnswers.push({

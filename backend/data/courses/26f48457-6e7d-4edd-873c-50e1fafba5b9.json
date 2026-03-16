@@ -16,7 +16,8 @@
       "node_id": "0e6ae942-bf26-494e-9d48-1240c78d757e",
       "parent_node_id": "1737415f-31a4-490e-b127-507241aa431d",
       "node_level": 2,
-      "node_type": "original"
+      "node_type": "original",
+      "is_read": true
     },
     {
       "node_name": "1.2 开发环境配置（Windows/Linux）",
@@ -24,7 +25,8 @@
       "node_id": "c42c2e76-997f-4994-a8e0-c10d77328021",
       "parent_node_id": "1737415f-31a4-490e-b127-507241aa431d",
       "node_level": 2,
-      "node_type": "original"
+      "node_type": "original",
+      "is_read": true
     },
     {
       "node_name": "1.3 第一个 C++ 程序：Hello World",
@@ -40,7 +42,8 @@
       "node_id": "b2346451-0aee-4f27-9e5e-3d996a80c295",
       "parent_node_id": "1737415f-31a4-490e-b127-507241aa431d",
       "node_level": 2,
-      "node_type": "original"
+      "node_type": "original",
+      "is_read": true
     },
     {
       "node_id": "56215ba5-b91a-4416-a4df-d2c4a3e30066",
@@ -56,7 +59,8 @@
       "node_id": "bb38ff1f-f9c8-416d-b035-cdc7447a8032",
       "parent_node_id": "56215ba5-b91a-4416-a4df-d2c4a3e30066",
       "node_level": 2,
-      "node_type": "original"
+      "node_type": "original",
+      "is_read": true
     },
     {
       "node_name": "2.2 运算符与表达式",
@@ -64,7 +68,8 @@
       "node_id": "d6bbd8c4-ab89-4ae6-8290-a4498a946a13",
       "parent_node_id": "56215ba5-b91a-4416-a4df-d2c4a3e30066",
       "node_level": 2,
-      "node_type": "original"
+      "node_type": "original",
+      "is_read": true
     },
     {
       "node_name": "2.3 条件语句（if-else, switch-case）",

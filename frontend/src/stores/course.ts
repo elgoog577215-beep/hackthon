@@ -582,6 +582,8 @@ export const useCourseStore = defineStore('course', {
 
     // ========== Chat & Quiz (deeply coupled to course state) ==========
     async sendMessage(message: string) {
+        // Push user message first so it appears in the chat UI
+        this.addMessage('user', message)
         this.chatLoading = true
         try { await this.askQuestion(message) }
         finally { this.chatLoading = false }
@@ -950,7 +952,7 @@ export const useCourseStore = defineStore('course', {
         
         return useReviewStore().quizHistory
     },
-    recordWrongAnswer(quizData: { question: string; options: string[]; correctIndex: number; userIndex: number; explanation: string; nodeId: string; nodeName: string; reflection?: string }) {
+    recordWrongAnswer(quizData: { question: string; options: string[]; correctIndex: number; userIndex: number; explanation: string; nodeId: string; nodeName: string; reflection?: string; textDraft?: string; drawingDraft?: string }) {
         
         return useReviewStore().recordWrongAnswer(quizData)
     },

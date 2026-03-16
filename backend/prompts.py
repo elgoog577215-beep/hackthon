@@ -1104,7 +1104,7 @@ REDEFINE_CONTENT = PromptTemplate(
 # -----------------------------------------------------------------------------
 GENERATE_QUIZ = PromptTemplate(
     name="generate_quiz",
-    version="3.1.0",
+    version="3.2.0",
     description="基于内容生成测验题目",
     parameters=["difficulty", "style", "question_count", "discipline_type", "difficulty_config_text", "style_config_text", "quiz_discipline_config"],
     tags=["quiz", "assessment", "questions"],
@@ -1148,26 +1148,36 @@ GENERATE_QUIZ = PromptTemplate(
 - ❌ 禁止生成需要额外背景知识的题目
 - ❌ 禁止生成过于简单或过于困难的题目（与难度级别不符）
 
-{OUTPUT_FORMAT_JSON}
+## ⚠️ 输出格式（极其重要，必须严格遵守）
 
-**输出格式**：
+你必须**只输出一个 JSON 数组**，不要输出任何其他文字、解释或对话。
+
+格式要求：
+1. 直接输出 JSON 数组 `[...]`，**不要**用 `{{"questions": [...]}}` 包装
+2. **推荐**用 ```json ... ``` 代码块包裹，便于提取
+3. JSON 中**禁止使用 LaTeX 反斜杠命令**（如 `\\alpha`、`\\frac`），用纯文本或 Unicode 替代
+4. 确保 JSON 语法正确：键名双引号，无尾随逗号，字符串内的引号用 `\\"` 转义
+
+**输出示例**：
 ```json
-{{{{
-  "questions": [
-    {{{{
-      "type": "single_choice",
-      "question": "题目内容",
-      "options": ["选项1", "选项2", "选项3", "选项4"],
-      "correct_index": 0,
-      "explanation": "答案解析（必须引用课程内容中的具体知识点）"
-    }}}}
-  ]
-}}}}
+[
+  {{{{
+    "id": 1,
+    "type": "conceptual",
+    "question": "关于XX概念，以下哪个说法正确？",
+    "options": ["选项A", "选项B", "选项C", "选项D"],
+    "correct_index": 2,
+    "explanation": "正确答案是C。根据课程内容中关于XX的描述，...",
+    "knowledge_point": "XX的核心定义",
+    "difficulty_score": 3
+  }}}}
+]
 ```
 
 **重要提醒**：
-- 每道题都必须在解析中说明考察的是课程中的哪个具体知识点
-- 如果提供的课程内容不足，请明确说明，而不是编造无关题目"""
+- 每道题都必须在 explanation 中说明考察的是课程中的哪个具体知识点
+- 如果提供的课程内容不足以出题，仍然要基于主题名称出与该主题直接相关的题目，不要出通用学习方法类的题目
+- explanation 字段使用纯文本，不要包含 LaTeX 公式或特殊转义字符"""
 )
 
 

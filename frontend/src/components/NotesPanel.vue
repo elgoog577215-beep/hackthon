@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full min-h-0">
     <!-- Header -->
     <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0 pr-14">
       <div class="flex items-center gap-3">
@@ -30,7 +30,7 @@
     </div>
 
     <!-- ========== WRONG ANSWERS VIEW ========== -->
-    <div v-if="activeTab === 'wrong' && !drillMode" class="flex-1 overflow-y-auto p-4 space-y-3">
+    <div v-if="activeTab === 'wrong' && !drillMode" class="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
       <!-- 闯关练习入口 -->
       <div v-if="wrongAnswers.filter(w => w.options && w.options.length > 0).length > 0" class="mb-2">
         <button @click="startDrill" class="w-full py-3 px-4 bg-gradient-to-r from-orange-400 to-rose-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-orange-200/50 transition-all active:scale-[0.98]">
@@ -50,7 +50,7 @@
         <div class="px-5 py-4 cursor-pointer flex items-start gap-3" @click="toggleExpand(wrongItemKey(item))">
           <span class="flex-shrink-0 w-7 h-7 rounded-lg bg-red-50 text-red-500 flex items-center justify-center text-sm font-bold">{{ wrongAnswers.indexOf(item) + 1 }}</span>
           <div class="flex-1 min-w-0">
-            <div class="text-sm text-slate-800 font-medium leading-relaxed">{{ item.question }}</div>
+            <div class="text-sm text-slate-800 font-medium leading-relaxed"><MarkdownRenderer :content="item.question" /></div>
             <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
               <span>{{ item.nodeName }}</span>
               <span>·</span>
@@ -80,7 +80,7 @@
                         :class="getRetestBadgeClass(wrongItemKey(item), oIdx, item)">
                     {{ String.fromCharCode(65 + oIdx) }}
                   </span>
-                  <span class="text-sm">{{ opt }}</span>
+                  <span class="text-sm"><MarkdownRenderer :content="opt" /></span>
                   <el-icon v-if="retestStates[wrongItemKey(item)]?.answered && oIdx === item.correctIndex" class="ml-auto text-emerald-500" :size="18"><CircleCheckFilled /></el-icon>
                   <el-icon v-else-if="retestStates[wrongItemKey(item)]?.answered && retestStates[wrongItemKey(item)]?.selected === oIdx && oIdx !== item.correctIndex" class="ml-auto text-red-500" :size="18"><CircleCloseFilled /></el-icon>
                 </button>
@@ -90,7 +90,7 @@
                   <div class="text-xs font-bold text-slate-500 mb-1.5 flex items-center gap-1">
                     <el-icon :size="12"><InfoFilled /></el-icon> 解析
                   </div>
-                  <div class="text-sm text-slate-600 leading-relaxed">{{ item.explanation }}</div>
+                  <div class="text-sm text-slate-600 leading-relaxed"><MarkdownRenderer :content="item.explanation" /></div>
                 </div>
               </div>
             </template>
@@ -100,7 +100,7 @@
                   <div class="text-xs font-bold text-slate-500 mb-1.5 flex items-center gap-1">
                     <el-icon :size="12"><InfoFilled /></el-icon> 解析
                   </div>
-                  <div class="text-sm text-slate-600 leading-relaxed">{{ item.explanation }}</div>
+                  <div class="text-sm text-slate-600 leading-relaxed"><MarkdownRenderer :content="item.explanation" /></div>
                 </div>
               </div>
             </template>
@@ -119,6 +119,40 @@
                   </button>
                 </div>
                 <div class="text-sm text-blue-800 leading-relaxed whitespace-pre-wrap">{{ getWrongNote(item) }}</div>
+              </div>
+            </div>
+            <!-- 文字草稿笔记 -->
+            <div v-if="item.textDraft" class="px-5 pb-3 ml-10">
+              <button v-if="!draftExpanded[wrongItemKey(item) + '_text']"
+                class="px-3 py-1.5 text-xs font-medium text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-lg transition-colors flex items-center gap-1.5"
+                @click="draftExpanded[wrongItemKey(item) + '_text'] = true">
+                📝 查看文字笔记
+              </button>
+              <div v-else class="bg-violet-50 rounded-xl p-4 border border-violet-100">
+                <div class="text-xs font-bold text-violet-600 mb-1.5 flex items-center justify-between">
+                  <span>📝 文字草稿</span>
+                  <button class="text-violet-400 hover:text-violet-600 transition-colors" @click="draftExpanded[wrongItemKey(item) + '_text'] = false">
+                    <el-icon :size="12"><ArrowDown /></el-icon>
+                  </button>
+                </div>
+                <div class="text-sm text-violet-800 leading-relaxed whitespace-pre-wrap">{{ item.textDraft }}</div>
+              </div>
+            </div>
+            <!-- 图画草稿笔记 -->
+            <div v-if="item.drawingDraft" class="px-5 pb-3 ml-10">
+              <button v-if="!draftExpanded[wrongItemKey(item) + '_draw']"
+                class="px-3 py-1.5 text-xs font-medium text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors flex items-center gap-1.5"
+                @click="draftExpanded[wrongItemKey(item) + '_draw'] = true">
+                🎨 查看图画笔记
+              </button>
+              <div v-else class="bg-orange-50 rounded-xl p-4 border border-orange-100">
+                <div class="text-xs font-bold text-orange-600 mb-1.5 flex items-center justify-between">
+                  <span>🎨 图画草稿</span>
+                  <button class="text-orange-400 hover:text-orange-600 transition-colors" @click="draftExpanded[wrongItemKey(item) + '_draw'] = false">
+                    <el-icon :size="12"><ArrowDown /></el-icon>
+                  </button>
+                </div>
+                <img :src="item.drawingDraft" class="max-w-full rounded-lg border border-orange-200" alt="图画草稿" @error="($event.target as HTMLImageElement).style.display='none'" />
               </div>
             </div>
             <div class="px-5 pb-4 flex items-center gap-2 ml-10">
@@ -200,7 +234,7 @@
         <div class="flex-1">
           <!-- 题目 -->
           <div class="mb-6">
-            <div class="text-base text-slate-800 font-medium leading-relaxed">{{ drillCurrent.question }}</div>
+            <div class="text-base text-slate-800 font-medium leading-relaxed"><MarkdownRenderer :content="drillCurrent.question" /></div>
             <div class="text-xs text-slate-400 mt-2">{{ drillCurrent.nodeName }}</div>
           </div>
           <!-- 选项 -->
@@ -217,7 +251,7 @@
                     :class="drillBadgeClass(oIdx)">
                 {{ String.fromCharCode(65 + oIdx) }}
               </span>
-              <span class="text-sm flex-1">{{ opt }}</span>
+              <span class="text-sm flex-1"><MarkdownRenderer :content="opt" /></span>
               <el-icon v-if="drillAnswered && oIdx === drillCurrent.correctIndex" class="text-emerald-500" :size="20"><CircleCheckFilled /></el-icon>
               <el-icon v-else-if="drillAnswered && drillSelected === oIdx && oIdx !== drillCurrent.correctIndex" class="text-red-500" :size="20"><CircleCloseFilled /></el-icon>
             </button>
@@ -227,7 +261,24 @@
             <div class="text-xs font-bold text-slate-500 mb-1.5 flex items-center gap-1">
               <el-icon :size="12"><InfoFilled /></el-icon> 解析
             </div>
-            <div class="text-sm text-slate-600 leading-relaxed">{{ drillCurrent.explanation }}</div>
+            <div class="text-sm text-slate-600 leading-relaxed"><MarkdownRenderer :content="drillCurrent.explanation" /></div>
+          </div>
+          <!-- 草稿按钮 -->
+          <div v-if="!drillAnswered" class="mt-4 flex items-center gap-2">
+            <button
+              class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5"
+              :class="drillTextDraftVisible ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'"
+              @click="drillTextDraftVisible = !drillTextDraftVisible"
+            >
+              <el-icon :size="12"><EditPen /></el-icon> 文字草稿
+            </button>
+            <button
+              class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5"
+              :class="drillDrawingOverlayVisible ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'"
+              @click="drillDrawingOverlayVisible = !drillDrawingOverlayVisible"
+            >
+              🎨 图画草稿
+            </button>
           </div>
         </div>
         <!-- 底部操作 -->
@@ -258,10 +309,10 @@
         class="group bg-white rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all overflow-hidden cursor-pointer"
         @click="$emit('viewDetail', note)">
         <div v-if="note.quote" class="px-4 pt-3 pb-1">
-          <div class="text-xs text-slate-500 italic border-l-2 border-primary-300 pl-3 py-1 line-clamp-2">"{{ note.quote }}"</div>
+          <div class="text-xs text-slate-500 italic border-l-2 border-primary-300 pl-3 py-1 line-clamp-2"><MarkdownRenderer :content="note.quote" /></div>
         </div>
         <div class="px-4 py-3">
-          <div class="text-sm text-slate-700 leading-relaxed line-clamp-4 whitespace-pre-wrap">{{ getPlainText(note.content) }}</div>
+          <div class="text-sm text-slate-700 leading-relaxed line-clamp-4"><MarkdownRenderer :content="note.content" /></div>
         </div>
         <div class="px-4 pb-3 flex items-center justify-between">
           <div class="flex items-center gap-2 text-xs text-slate-400">
@@ -283,22 +334,44 @@
       </div>
     </div>
   </div>
+
+  <!-- 闯关练习草稿面板 (Teleport 到 body) -->
+  <Teleport to="body">
+    <TextDraftPanel
+      v-model:visible="drillTextDraftVisible"
+      :question-index="0"
+    />
+  </Teleport>
+  <Teleport to="body">
+    <DrawingOverlay
+      v-model:visible="drillDrawingOverlayVisible"
+      :question-index="0"
+    />
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, watch } from 'vue'
 import { Notebook, Location, Delete, ArrowDown, CircleCheckFilled, CircleCloseFilled, InfoFilled, RefreshRight, EditPen, TrophyBase, ArrowRight, ArrowLeft } from '@element-plus/icons-vue'
+import TextDraftPanel from './TextDraftPanel.vue'
+import DrawingOverlay from './DrawingOverlay.vue'
+import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
 import { useReviewStore } from '../stores/review'
+import { useDraftStore } from '../stores/draft'
 import type { Note } from '../stores/types'
 import { ElMessageBox, ElMessage } from 'element-plus'
 
 const courseStore = useCourseStore()
 const noteStore = useNoteStore()
 const reviewStore = useReviewStore()
+const draftStore = useDraftStore()
 const search = ref('')
 const activeTab = ref('all')
+const draftExpanded = reactive<Record<string, boolean>>({})
+const drillTextDraftVisible = ref(false)
+const drillDrawingOverlayVisible = ref(false)
 
 defineProps<{
   initialTab?: string
@@ -535,6 +608,11 @@ function startDrill() {
   drillAnswered.value = false
   drillResults.value = []
   drillFinished.value = false
+  drillTextDraftVisible.value = false
+  drillDrawingOverlayVisible.value = false
+  // 加载第一题的草稿到 draftStore
+  draftStore.clearAll()
+  loadDrillDrafts(0)
   drillMode.value = true
 }
 
@@ -547,6 +625,8 @@ function drillConfirm() {
   if (drillSelected.value === null || !drillCurrent.value) return
   drillAnswered.value = true
   const correct = drillSelected.value === drillCurrent.value.correctIndex
+  // 保存修改后的草稿回错题记录
+  saveDrillDrafts(drillIndex.value)
   const mastered = reviewStore.updateDrillResult(drillCurrent.value.question, drillCurrent.value.nodeId, correct)
   drillResults.value.push({ question: drillCurrent.value.question, correct, mastered })
 }
@@ -554,16 +634,53 @@ function drillConfirm() {
 function drillNext() {
   if (drillIndex.value >= drillQuestions.value.length - 1) {
     drillFinished.value = true
+    drillTextDraftVisible.value = false
+    drillDrawingOverlayVisible.value = false
+    draftStore.clearAll()
     return
   }
   drillIndex.value++
   drillSelected.value = null
   drillAnswered.value = false
+  // 加载下一题的草稿
+  draftStore.clearAll()
+  loadDrillDrafts(drillIndex.value)
 }
 
 function exitDrill() {
+  // 中途退出时，保存当前题的草稿
+  saveDrillDrafts(drillIndex.value)
   drillMode.value = false
   drillFinished.value = false
+  drillTextDraftVisible.value = false
+  drillDrawingOverlayVisible.value = false
+  draftStore.clearAll()
+}
+
+/** 从错题记录加载草稿到 draftStore（用 index=0 作为当前题的 key） */
+function loadDrillDrafts(idx: number) {
+  const q = drillQuestions.value[idx]
+  if (!q) return
+  if (q.textDraft) draftStore.setTextDraft(0, q.textDraft)
+  if (q.drawingDraft) draftStore.setDrawingDraft(0, q.drawingDraft)
+}
+
+/** 将 draftStore 中的草稿保存回错题记录 */
+function saveDrillDrafts(idx: number) {
+  const q = drillQuestions.value[idx]
+  if (!q) return
+  const text = draftStore.getTextDraft(0)
+  const drawing = draftStore.getDrawingDraft(0)
+  // 更新 drillQuestions 中的引用（它们是 wrongAnswers 的浅拷贝）
+  // 需要找到 reviewStore 中的原始记录并更新
+  const original = reviewStore.wrongAnswers.find(
+    w => w.question === q.question && w.nodeId === q.nodeId
+  )
+  if (original) {
+    original.textDraft = text || undefined
+    original.drawingDraft = drawing || undefined
+    reviewStore.persistQuizData()
+  }
 }
 
 function drillOptionClass(oIdx: number): string {
