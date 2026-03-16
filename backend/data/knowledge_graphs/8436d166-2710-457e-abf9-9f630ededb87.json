@@ -139,175 +139,233 @@
       "source": "root",
       "target": "module_1",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "3d5767e2",
+      "weight": 5
     },
     {
       "source": "root",
       "target": "module_2",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "0044e74a",
+      "weight": 5
     },
     {
       "source": "root",
       "target": "module_3",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "4c9a2424",
+      "weight": 5
     },
     {
       "source": "root",
       "target": "module_4",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "302e8df4",
+      "weight": 5
     },
     {
       "source": "root",
       "target": "module_5",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "da55129f",
+      "weight": 5
     },
     {
       "source": "module_1",
       "target": "concept_1",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "84fb3976",
+      "weight": 5
     },
     {
       "source": "module_1",
       "target": "concept_2",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "79b8196b",
+      "weight": 5
     },
     {
       "source": "module_1",
       "target": "concept_3",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "b6d9f605",
+      "weight": 5
     },
     {
       "source": "module_1",
       "target": "concept_4",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "71536da4",
+      "weight": 5
     },
     {
       "source": "module_1",
       "target": "concept_5",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "8e93683d",
+      "weight": 5
     },
     {
       "source": "module_1",
       "target": "concept_6",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "3bba2bdf",
+      "weight": 5
     },
     {
       "source": "module_2",
       "target": "concept_7",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "b06b7896",
+      "weight": 5
     },
     {
       "source": "module_2",
       "target": "concept_8",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "b65beff5",
+      "weight": 5
     },
     {
       "source": "module_3",
       "target": "concept_9",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "6fe9da13",
+      "weight": 5
     },
     {
       "source": "module_4",
       "target": "concept_10",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "4a24acbf",
+      "weight": 5
     },
     {
       "source": "module_4",
       "target": "concept_11",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "34957cad",
+      "weight": 5
     },
     {
       "source": "module_5",
       "target": "method_1",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "47e6a5b5",
+      "weight": 5
     },
     {
       "source": "module_5",
       "target": "method_2",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "id": "66452482",
+      "weight": 5
     },
     {
       "source": "concept_1",
       "target": "concept_2",
       "relation": "leads_to",
-      "label": "推导出"
+      "label": "推导出",
+      "id": "00f23fcd",
+      "weight": 5
     },
     {
       "source": "concept_2",
       "target": "concept_3",
       "relation": "depends_on",
-      "label": "依赖"
+      "label": "依赖",
+      "id": "430c9744",
+      "weight": 5
     },
     {
       "source": "concept_3",
       "target": "concept_4",
       "relation": "related",
-      "label": "相关"
+      "label": "相关",
+      "id": "d5b5bf89",
+      "weight": 5
     },
     {
       "source": "concept_4",
       "target": "concept_5",
       "relation": "leads_to",
-      "label": "推导出"
+      "label": "推导出",
+      "id": "73389117",
+      "weight": 5
     },
     {
       "source": "concept_5",
       "target": "concept_6",
       "relation": "leads_to",
-      "label": "定义"
+      "label": "定义",
+      "id": "fb1f56c6",
+      "weight": 5
     },
     {
       "source": "concept_7",
       "target": "concept_8",
       "relation": "leads_to",
-      "label": "表示为"
+      "label": "表示为",
+      "id": "ba25c8ce",
+      "weight": 5
     },
     {
       "source": "concept_8",
       "target": "concept_9",
       "relation": "related",
-      "label": "相关"
+      "label": "相关",
+      "id": "b31b546d",
+      "weight": 5
     },
     {
       "source": "concept_9",
       "target": "concept_10",
       "relation": "leads_to",
-      "label": "关联"
+      "label": "关联",
+      "id": "913bb2ed",
+      "weight": 5
     },
     {
       "source": "concept_10",
       "target": "concept_11",
       "relation": "related",
-      "label": "相关"
+      "label": "相关",
+      "id": "13c443bb",
+      "weight": 5
     },
     {
       "source": "method_1",
       "target": "concept_5",
       "relation": "applies_to",
-      "label": "应用于"
+      "label": "应用于",
+      "id": "325137e2",
+      "weight": 5
     },
     {
       "source": "method_2",
       "target": "concept_7",
       "relation": "applies_to",
-      "label": "应用于"
+      "label": "应用于",
+      "id": "c9e557d4",
+      "weight": 5
     }
   ]
 }

@@ -243,33 +243,49 @@ class AIBase:
         except json.JSONDecodeError:
             pass
 
+        # 辅助函数：修复 LLM 输出中的非法反斜杠转义（如 LaTeX \alpha, \beta 等）
+        def _fix_invalid_escapes(s: str) -> str:
+            # JSON 合法转义: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX
+            # 其他 \x 都是非法的，替换为 \\x
+            return re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', s)
+
         # 策略2: 从 markdown JSON 代码块提取
         json_match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
         if json_match:
+            raw = json_match.group(1)
             try:
-                return json.loads(json_match.group(1))
-            except json.JSONDecodeError as e:
-                logger.warning(f"Markdown JSON decode error: {e}")
-                pass
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                try:
+                    return json.loads(_fix_invalid_escapes(raw))
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Markdown JSON decode error after fix: {e}")
 
         # 策略3: 从任意代码块提取
         code_match = re.search(r'```\s*(.*?)\s*```', text, re.DOTALL)
         if code_match:
+            raw = code_match.group(1)
             try:
-                return json.loads(code_match.group(1))
+                return json.loads(raw)
             except json.JSONDecodeError:
-                pass
+                try:
+                    return json.loads(_fix_invalid_escapes(raw))
+                except json.JSONDecodeError:
+                    pass
 
-        # 策略4: 从文本边界提取
-        try:
-            start_idx = text.find('{')
-            end_idx = text.rfind('}')
-            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                json_str = text[start_idx:end_idx+1]
-                return json.loads(json_str)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Substring JSON decode error: {e}")
-            pass
+        # 策略4: 从文本边界提取（支持对象和数组）
+        for open_char, close_char in [('{', '}'), ('[', ']')]:
+            try:
+                start_idx = text.find(open_char)
+                end_idx = text.rfind(close_char)
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    json_str = text[start_idx:end_idx+1]
+                    try:
+                        return json.loads(json_str)
+                    except json.JSONDecodeError:
+                        return json.loads(_fix_invalid_escapes(json_str))
+            except json.JSONDecodeError:
+                continue
 
         # 所有策略失败
         logger.warning(f"Failed to extract JSON from: {text[:500]}...")

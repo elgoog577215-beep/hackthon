@@ -559,57 +559,113 @@
     <el-dialog
       v-model="quizVisible"
       title="智能测验"
-      width="600px"
+      width="85vw"
+      style="max-width: 900px;"
       class="glass-dialog-clean"
       align-center
       append-to-body
     >
-      <div v-if="generatingQuiz" class="flex flex-col items-center justify-center py-12">
-        <div class="w-16 h-16 relative mb-4">
-             <div class="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
-             <div class="absolute inset-0 border-4 border-primary-500 rounded-full border-t-transparent animate-spin"></div>
+      <div v-if="generatingQuiz" class="flex flex-col items-center justify-center py-14">
+        <!-- Animated quiz cards -->
+        <div class="quiz-loading-cards mb-6">
+          <div class="quiz-card card-1">
+            <div class="card-line long"></div>
+            <div class="card-dots">
+              <div class="card-dot"></div>
+              <div class="card-dot"></div>
+              <div class="card-dot"></div>
+              <div class="card-dot"></div>
+            </div>
+          </div>
+          <div class="quiz-card card-2">
+            <div class="card-line long"></div>
+            <div class="card-dots">
+              <div class="card-dot"></div>
+              <div class="card-dot"></div>
+              <div class="card-dot"></div>
+              <div class="card-dot"></div>
+            </div>
+          </div>
+          <div class="quiz-card card-3">
+            <div class="card-line long"></div>
+            <div class="card-dots">
+              <div class="card-dot"></div>
+              <div class="card-dot"></div>
+              <div class="card-dot"></div>
+              <div class="card-dot"></div>
+            </div>
+          </div>
         </div>
-        <p class="text-slate-600 font-medium">AI 正在出题中...</p>
+        <div class="flex items-center gap-2 mb-2">
+          <div class="quiz-pencil">✏️</div>
+          <p class="text-slate-700 font-semibold text-base">AI 正在精心出题</p>
+        </div>
+        <p class="text-xs text-slate-400">根据章节内容生成个性化测验题目...</p>
       </div>
-      <div v-else class="py-2">
+      <div v-else class="py-2 relative" style="min-height: 300px;">
         <div v-if="quizQuestions && quizQuestions.length > 0">
-            <div v-for="(q, idx) in quizQuestions" :key="idx" class="mb-8 last:mb-0">
-            <div class="flex gap-2 font-bold text-slate-800 mb-3 text-lg">
-                <span class="shrink-0">{{ idx + 1 }}.</span>
-                <MarkdownRenderer :content="q.question" />
-            </div>
-            <div class="space-y-2">
+            <!-- 题目导航 -->
+            <QuestionNavigator
+              :current-index="currentQuestionIndex"
+              :total-count="quizQuestions.length"
+              @prev="currentQuestionIndex = Math.max(0, currentQuestionIndex - 1)"
+              @next="currentQuestionIndex = Math.min(quizQuestions.length - 1, currentQuestionIndex + 1)"
+            />
+            <!-- 单题显示 -->
+            <div class="mt-3">
+              <div class="flex gap-2 font-bold text-slate-800 mb-3 text-lg">
+                <span class="shrink-0">{{ currentQuestionIndex + 1 }}.</span>
+                <MarkdownRenderer :content="currentQuestion.question" />
+              </div>
+              <div class="space-y-2">
                 <div 
-                v-for="(opt, oIdx) in q.options" 
-                :key="oIdx"
-                class="p-3 rounded-xl border border-slate-200 cursor-pointer transition-all duration-200 hover:border-primary-300 hover:bg-primary-50/30 flex items-center gap-3"
-                :class="{ 
-                    '!bg-emerald-50 !border-emerald-500': quizSubmitted && opt === q.answer,
-                    '!bg-red-50 !border-red-500': quizSubmitted && userAnswers[idx] === opt && opt !== q.answer,
-                    'bg-primary-50 border-primary-500': userAnswers[idx] === opt && !quizSubmitted
-                }"
-                @click="!quizSubmitted && (userAnswers[idx] = opt)"
+                  v-for="(opt, oIdx) in currentQuestion.options" 
+                  :key="oIdx"
+                  class="p-3 rounded-xl border border-slate-200 cursor-pointer transition-all duration-200 hover:border-primary-300 hover:bg-primary-50/30 flex items-center gap-3"
+                  :class="{ 
+                    '!bg-emerald-50 !border-emerald-500': quizSubmitted && oIdx === getCorrectIndex(currentQuestion),
+                    '!bg-red-50 !border-red-500': quizSubmitted && userAnswers[currentQuestionIndex] === oIdx && oIdx !== getCorrectIndex(currentQuestion),
+                    'bg-primary-50 border-primary-500': userAnswers[currentQuestionIndex] === oIdx && !quizSubmitted
+                  }"
+                  @click="!quizSubmitted && (userAnswers[currentQuestionIndex] = oIdx)"
                 >
-                <div class="w-5 h-5 rounded-full border flex items-center justify-center text-xs transition-colors"
+                  <div class="w-5 h-5 rounded-full border flex items-center justify-center text-xs transition-colors"
                     :class="{
-                        'border-emerald-500 bg-emerald-500 text-white': quizSubmitted && opt === q.answer,
-                        'border-red-500 bg-red-500 text-white': quizSubmitted && userAnswers[idx] === opt && opt !== q.answer,
-                        'border-primary-500 bg-primary-500 text-white': userAnswers[idx] === opt && !quizSubmitted,
-                        'border-slate-300 text-slate-400': userAnswers[idx] !== opt && !(quizSubmitted && opt === q.answer)
+                      'border-emerald-500 bg-emerald-500 text-white': quizSubmitted && oIdx === getCorrectIndex(currentQuestion),
+                      'border-red-500 bg-red-500 text-white': quizSubmitted && userAnswers[currentQuestionIndex] === oIdx && oIdx !== getCorrectIndex(currentQuestion),
+                      'border-primary-500 bg-primary-500 text-white': userAnswers[currentQuestionIndex] === oIdx && !quizSubmitted,
+                      'border-slate-300 text-slate-400': userAnswers[currentQuestionIndex] !== oIdx && !(quizSubmitted && oIdx === getCorrectIndex(currentQuestion))
                     }">
-                    <span v-if="quizSubmitted && opt === q.answer"><el-icon><Check /></el-icon></span>
-                    <span v-else-if="quizSubmitted && userAnswers[idx] === opt && opt !== q.answer"><el-icon><Close /></el-icon></span>
+                    <span v-if="quizSubmitted && oIdx === getCorrectIndex(currentQuestion)"><el-icon><Check /></el-icon></span>
+                    <span v-else-if="quizSubmitted && userAnswers[currentQuestionIndex] === oIdx && oIdx !== getCorrectIndex(currentQuestion)"><el-icon><Close /></el-icon></span>
                     <span v-else>{{ String.fromCharCode(65 + Number(oIdx)) }}</span>
-                </div>
-                <div class="text-slate-700 font-medium">
+                  </div>
+                  <div class="text-slate-700 font-medium">
                     <MarkdownRenderer :content="opt" />
+                  </div>
                 </div>
-                </div>
-            </div>
-            <div v-if="quizSubmitted" class="mt-3 text-sm bg-slate-50 p-3 rounded-lg text-slate-600">
+              </div>
+              <div v-if="quizSubmitted" class="mt-3 text-sm bg-slate-50 p-3 rounded-lg text-slate-600">
                 <span class="font-bold text-slate-800 block mb-1">解析：</span> 
-                <MarkdownRenderer :content="q.explanation || '暂无解析'" />
-            </div>
+                <MarkdownRenderer :content="currentQuestion.explanation || '暂无解析'" />
+              </div>
+              <!-- 草稿按钮 -->
+              <div v-if="!quizSubmitted" class="mt-4 flex items-center gap-2">
+                <button
+                  class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5"
+                  :class="textDraftVisible ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'"
+                  @click="textDraftVisible = !textDraftVisible"
+                >
+                  <el-icon :size="12"><EditPen /></el-icon> 文字草稿
+                </button>
+                <button
+                  class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5"
+                  :class="drawingOverlayVisible ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'"
+                  @click="drawingOverlayVisible = !drawingOverlayVisible"
+                >
+                  🎨 图画草稿
+                </button>
+              </div>
             </div>
         </div>
         <div v-else class="text-center text-slate-500 py-10">
@@ -629,6 +685,22 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 文字草稿面板 (Teleport 到 body，定位在 dialog 右侧) -->
+    <Teleport to="body">
+      <TextDraftPanel
+        v-model:visible="textDraftVisible"
+        :question-index="currentQuestionIndex"
+      />
+    </Teleport>
+
+    <!-- 图画草稿覆盖层 (Teleport 到 body，覆盖大部分屏幕) -->
+    <Teleport to="body">
+      <DrawingOverlay
+        v-model:visible="drawingOverlayVisible"
+        :question-index="currentQuestionIndex"
+      />
+    </Teleport>
 
     <!-- Note Detail Dialog -->
     <el-dialog
@@ -786,9 +858,13 @@
 import { computed, ref, onMounted, onUnmounted, watch, nextTick, onUpdated, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
+import { useDraftStore } from '../stores/draft'
 
 import CourseNode from './CourseNode.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import QuestionNavigator from './QuestionNavigator.vue'
+import TextDraftPanel from './TextDraftPanel.vue'
+import DrawingOverlay from './DrawingOverlay.vue'
 import { useMermaid } from '../composables/useMermaid'
 import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, CollectionTag, Folder, Setting, DArrowLeft, DArrowRight, EditPen } from '@element-plus/icons-vue'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
@@ -1265,18 +1341,32 @@ watch(() => courseStore.focusNoteId, (noteId) => {
 const quizVisible = ref(false)
 const generatingQuiz = ref(false)
 const quizQuestions = ref<any[]>([])
-const userAnswers = ref<string[]>([])
+const userAnswers = ref<number[]>([])  // stores option INDEX, -1 = unanswered
 const quizSubmitted = ref(false)
+const currentQuestionIndex = ref(0)
+const textDraftVisible = ref(false)
+const drawingOverlayVisible = ref(false)
+const draftStore = useDraftStore()
+const currentQuestion = computed(() => quizQuestions.value[currentQuestionIndex.value] || { question: '', options: [], explanation: '' })
+const getCorrectIndex = (q: any): number => {
+    if (typeof q.correct_index === 'number') return q.correct_index
+    // fallback: try matching answer text to options
+    if (q.answer && Array.isArray(q.options)) {
+        const idx = q.options.indexOf(q.answer)
+        if (idx !== -1) return idx
+    }
+    return 0
+}
 const quizScore = computed(() => {
-              if (!quizSubmitted.value || !quizQuestions.value || quizQuestions.value.length === 0) return 0
-              let correct = 0
-              quizQuestions.value.forEach((q, idx) => {
-                  if (userAnswers.value[idx] && userAnswers.value[idx] === q.answer) {
-                      correct += 1
-                  }
-              })
-              return Math.round((correct / quizQuestions.value.length) * 100)
-          })
+    if (!quizSubmitted.value || !quizQuestions.value || quizQuestions.value.length === 0) return 0
+    let correct = 0
+    quizQuestions.value.forEach((q, idx) => {
+        if (userAnswers.value[idx] >= 0 && userAnswers.value[idx] === getCorrectIndex(q)) {
+            correct += 1
+        }
+    })
+    return Math.round((correct / quizQuestions.value.length) * 100)
+})
 const isManualScrolling = ref(false)
 const activeNoteId = ref<string | null>(null)
 const hoveredNoteId = ref<string | null>(null)
@@ -1512,6 +1602,10 @@ watch(quizVisible, (visible) => {
     userAnswers.value = []
     quizSubmitted.value = false
     generatingQuiz.value = false
+    currentQuestionIndex.value = 0
+    textDraftVisible.value = false
+    drawingOverlayVisible.value = false
+    draftStore.clearAll()
 })
 
 
@@ -2828,8 +2922,7 @@ const submitQuiz = () => {
         return
     }
     
-    const normalizedAnswers = quizQuestions.value.map((_, idx) => userAnswers.value[idx] || '')
-    if (normalizedAnswers.some(a => !a)) {
+    if (userAnswers.value.some(a => a < 0)) {
         ElMessage.warning('请完成所有题目后再提交')
         return
     }
@@ -2840,28 +2933,29 @@ const submitQuiz = () => {
     const nodeName = courseStore.nodes.find(n => n.node_id === nodeId)?.node_name || ''
 
     quizQuestions.value.forEach((q, idx) => {
-        if (normalizedAnswers[idx] === q.answer) {
+        const correctIdx = getCorrectIndex(q)
+        if (userAnswers.value[idx] === correctIdx) {
             correctCount++
         } else {
-            // Save structured wrong answer (with options for re-test)
-            const userOptionIdx = q.options?.findIndex((o: string) => o === normalizedAnswers[idx]) ?? -1
-            const correctIdx = typeof q.correct_index === 'number' ? q.correct_index : (q.options?.findIndex((o: string) => o === q.answer) ?? 0)
-
+            // 错题附加草稿数据
+            const textDraft = draftStore.getTextDraft(idx) || undefined
+            const drawingDraft = draftStore.getDrawingDraft(idx) || undefined
             courseStore.recordWrongAnswer({
                 question: q.question,
                 options: q.options || [],
                 correctIndex: correctIdx,
-                userIndex: userOptionIdx,
+                userIndex: userAnswers.value[idx],
                 explanation: q.explanation || '暂无解析',
                 nodeId: nodeId,
                 nodeName: nodeName,
+                textDraft,
+                drawingDraft,
             })
         }
     })
     
     const score = Math.round((correctCount / total) * 100)
     
-    // Persist Score
     courseStore.updateNodeScore(quizConfig.value.nodeId, score)
     
     quizSubmitted.value = true
@@ -2888,6 +2982,10 @@ const confirmQuiz = async () => {
     quizQuestions.value = []
     userAnswers.value = []
     quizSubmitted.value = false
+    currentQuestionIndex.value = 0
+    textDraftVisible.value = false
+    drawingOverlayVisible.value = false
+    draftStore.clearAll()
     
     try {
         // Use generateQuiz but we want QUESTIONS, not chat history.
@@ -2909,7 +3007,7 @@ const confirmQuiz = async () => {
         
         if (res && Array.isArray(res)) {
             quizQuestions.value = res
-            userAnswers.value = new Array(res.length).fill('')
+            userAnswers.value = new Array(res.length).fill(-1)
         } else {
             quizVisible.value = false
             ElMessage.warning('生成题目失败，请重试')
@@ -3140,6 +3238,98 @@ defineExpose({
 
 <style scoped>
 /* ContentArea Styles */
+
+/* Quiz Loading Animation */
+.quiz-loading-cards {
+  position: relative;
+  width: 180px;
+  height: 100px;
+}
+
+.quiz-card {
+  position: absolute;
+  width: 160px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: white;
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.quiz-card .card-line {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  margin-bottom: 10px;
+}
+
+.quiz-card .card-line.long { width: 85%; }
+
+.quiz-card .card-dots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quiz-card .card-dot {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  width: 70%;
+}
+
+.quiz-card .card-dot:nth-child(2) { width: 60%; animation-delay: 0.1s; }
+.quiz-card .card-dot:nth-child(3) { width: 75%; animation-delay: 0.2s; }
+.quiz-card .card-dot:nth-child(4) { width: 55%; animation-delay: 0.3s; }
+
+.quiz-card.card-1 {
+  bottom: 0;
+  z-index: 3;
+  animation: card-float 2s ease-in-out infinite;
+}
+
+.quiz-card.card-2 {
+  bottom: 8px;
+  z-index: 2;
+  opacity: 0.6;
+  transform: translateX(-50%) scale(0.94);
+}
+
+.quiz-card.card-3 {
+  bottom: 16px;
+  z-index: 1;
+  opacity: 0.3;
+  transform: translateX(-50%) scale(0.88);
+}
+
+.quiz-pencil {
+  display: inline-block;
+  animation: pencil-write 1s ease-in-out infinite;
+  font-size: 20px;
+}
+
+@keyframes card-float {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-4px); }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes pencil-write {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  25% { transform: rotate(-8deg) translateX(2px); }
+  75% { transform: rotate(8deg) translateX(-2px); }
+}
+
 .fade-slide-enter-active,
 .fade-slide-leave-active {
   transition: all 0.2s ease;
