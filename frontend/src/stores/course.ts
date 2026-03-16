@@ -12,6 +12,7 @@ import { useNoteStore } from './notes'
 import { useGenerationStore } from './generation'
 import { useLearningStore } from './learning'
 import { useReviewStore } from './review'
+import logger from '../utils/logger'
 
 // =============================================================================
 // Course Store - 核心课程状态管理
@@ -61,13 +62,11 @@ export const useCourseStore = defineStore('course', {
     chatHistory: [] as ChatMessage[],
     chatLoading: false,
     chatAbortController: null as AbortController | null,
-    pendingChatInput: '' as string,
     activeAnnotation: null as Annotation | null,
 
     // --- UI State ---
     isFocusMode: false,
     showKnowledgeGraph: false,
-    showFloatingAI: false,
     isMobileNotesVisible: false,
     globalSearchQuery: '',
     scrollToNodeId: null as string | null,
@@ -77,11 +76,15 @@ export const useCourseStore = defineStore('course', {
     // --- 多对话管理 ---
     conversations: JSON.parse(localStorage.getItem('chat_conversations') || '[]') as ChatConversation[],
     currentConversationId: localStorage.getItem('chat_current_conversation') || '' as string,
-    uiSettings: {
-        fontSize: 17,
-        fontFamily: 'sans' as 'sans' | 'serif' | 'mono',
-        lineHeight: 1.75
-    },
+    uiSettings: (() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem('ui_settings') || 'null')
+            if (saved && typeof saved.fontSize === 'number' && saved.fontSize >= 8 && saved.fontSize <= 72) {
+                return { fontSize: saved.fontSize, fontFamily: saved.fontFamily || 'sans', lineHeight: saved.lineHeight || 1.75 }
+            }
+        } catch {}
+        return { fontSize: 17, fontFamily: 'sans' as 'sans' | 'serif' | 'mono', lineHeight: 1.75 }
+    })(),
   }),
   getters: {
     treeData: (state) => state.courseTree,
@@ -96,6 +99,7 @@ export const useCourseStore = defineStore('course', {
     // ========== UI Actions ==========
     setUiSettings(settings: Partial<{ fontSize: number; fontFamily: 'sans' | 'serif' | 'mono'; lineHeight: number }>) {
         this.uiSettings = { ...this.uiSettings, ...settings }
+        localStorage.setItem('ui_settings', JSON.stringify(this.uiSettings))
     },
     toggleFocusMode() { this.isFocusMode = !this.isFocusMode },
     updateUserPersona(persona: string) {
@@ -116,7 +120,6 @@ export const useCourseStore = defineStore('course', {
         const node = this.courseTree.find(n => n.node_id === nodeId)
         if (node) { this.currentNode = node }
     },
-    setPendingChatInput(text: string) { this.pendingChatInput = text },
     addMessage(type: 'user' | 'ai', content: string | AIContent) {
         this.chatHistory.push({ type, content })
     },
@@ -189,7 +192,7 @@ export const useCourseStore = defineStore('course', {
             localStorage.setItem('chat_conversations', JSON.stringify(this.conversations))
             localStorage.setItem('chat_current_conversation', this.currentConversationId)
         } catch (e) {
-            console.error('Failed to save conversations:', e)
+            logger.error('Failed to save conversations:', e)
         }
     },
 
@@ -218,7 +221,7 @@ export const useCourseStore = defineStore('course', {
                 await this.fetchCourseList()
                 return res.data.course_id
             }
-        } catch (error) { console.error(error); throw error }
+        } catch (error) { logger.error(error); throw error }
     },
 
     async importMarkdown(file: File): Promise<{ course_id: string; course_name: string }> {
@@ -232,7 +235,7 @@ export const useCourseStore = defineStore('course', {
             await this.fetchCourseList()
             await this.loadCourse(course_id)
             return { course_id, course_name }
-        } catch (error) { console.error(error); throw error }
+        } catch (error) { logger.error(error); throw error }
     },
 
     async fetchCourseList() {
@@ -240,7 +243,7 @@ export const useCourseStore = defineStore('course', {
         try {
             const res = await http.get('/api/courses')
             this.courseList = res.data
-        } catch (error) { console.error(error); this.courseList = [] }
+        } catch (error) { logger.error(error); this.courseList = [] }
         finally { this.loading = false }
     },
 
@@ -297,7 +300,7 @@ export const useCourseStore = defineStore('course', {
                 throw new Error('课程数据为空')
             }
         } catch (error) {
-            console.error(error)
+            logger.error(error)
             ElMessage.error('加载课程失败')
             this.currentCourseId = ''
             this.currentNode = null
@@ -339,7 +342,7 @@ export const useCourseStore = defineStore('course', {
                 this.nodes = res.data.nodes
                 this.courseTree = this.buildTree(this.nodes)
             }
-        } catch (e) { console.error('Failed to refresh course data', e) }
+        } catch (e) { logger.error('Failed to refresh course data', e) }
     },
 
     // ========== Node Operations ==========
@@ -348,7 +351,7 @@ export const useCourseStore = defineStore('course', {
         if (node && !node.is_read) {
             node.is_read = true
             try { await http.put(`/api/courses/${this.currentCourseId}/nodes/${nodeId}`, { is_read: true }) }
-            catch (e) { console.error('Failed to sync read status', e) }
+            catch (e) { logger.error('Failed to sync read status', e) }
         }
     },
 
@@ -357,7 +360,7 @@ export const useCourseStore = defineStore('course', {
         if (node && (!node.quiz_score || score > node.quiz_score)) {
             node.quiz_score = score
             try { await http.put(`/api/courses/${this.currentCourseId}/nodes/${nodeId}`, { quiz_score: score }) }
-            catch (e) { console.error('Failed to sync quiz score', e) }
+            catch (e) { logger.error('Failed to sync quiz score', e) }
         }
     },
 
@@ -489,7 +492,7 @@ export const useCourseStore = defineStore('course', {
                 while (true) { const { done, value } = await reader.read(); if (done) break; genStore.addToBuffer(node.node_id, decoder.decode(value, { stream: true })) }
             }
             ElMessage.success('正文生成完成')
-        } catch (error) { ElMessage.error('生成失败'); console.error(error) }
+        } catch (error) { ElMessage.error('生成失败'); logger.error(error) }
         finally { this.loading = false }
     },
 
@@ -524,7 +527,7 @@ export const useCourseStore = defineStore('course', {
                     })
                 }
             })
-        } catch (error) { console.error("Failed to load annotations", error) }
+        } catch (error) { logger.error("Failed to load annotations", error) }
     },
 
     async saveAnnotation(anno: Partial<Annotation>) {
@@ -543,7 +546,7 @@ export const useCourseStore = defineStore('course', {
             this.annotations.push(newAnno)
             if (newAnno.source_type !== 'format') { ElMessage.success('笔记已保存') }
             this.activeAnnotation = newAnno
-        } catch (e) { ElMessage.error('保存失败'); console.error(e) }
+        } catch (e) { ElMessage.error('保存失败'); logger.error(e) }
     },
 
     async deleteAnnotation(annoId: string) {
@@ -579,6 +582,8 @@ export const useCourseStore = defineStore('course', {
 
     // ========== Chat & Quiz (deeply coupled to course state) ==========
     async sendMessage(message: string) {
+        // Push user message first so it appears in the chat UI
+        this.addMessage('user', message)
         this.chatLoading = true
         try { await this.askQuestion(message) }
         finally { this.chatLoading = false }
@@ -635,7 +640,7 @@ export const useCourseStore = defineStore('course', {
             })
             this.chatHistory.push({ type: 'ai', content: { answer: res.data.summary || res.data.content || '总结生成完成', core_answer: res.data.summary || res.data.content || '总结生成完成' } })
         } catch (e) {
-            console.error(e)
+            logger.error(e)
             this.chatHistory.push({ type: 'ai', content: '总结生成失败，请稍后再试' })
         } finally { this.chatLoading = false }
     },
@@ -651,7 +656,7 @@ export const useCourseStore = defineStore('course', {
             const context = this.currentNode ? `当前章节：${this.currentNode.node_name}` : '全书概览'
             const res = await http.post(`/api/summarize_chat`, { history, course_context: context, user_persona: this.userPersona })
             return res.data
-        } catch (e) { console.error(e); ElMessage.error('总结生成失败'); return null }
+        } catch (e) { logger.error(e); ElMessage.error('总结生成失败'); return null }
         finally { this.chatLoading = false }
     },
 
@@ -780,7 +785,7 @@ export const useCourseStore = defineStore('course', {
                         }
                     }
                 }
-            } catch (e) { console.warn("Failed to parse metadata", e) }
+            } catch (e) { logger.warn("Failed to parse metadata", e) }
         } else {
             aiMessage.content.core_answer = fullText
             aiMessage.content.answer = fullText
@@ -792,7 +797,7 @@ export const useCourseStore = defineStore('course', {
             }
             return
         }
-        console.error(error); ElMessage.error('提问失败')
+        logger.error(error); ElMessage.error('提问失败')
         if (aiMessage && typeof aiMessage.content !== 'string') {
             aiMessage.content.core_answer = '生成失败，请稍后重试。'; aiMessage.content.answer = '生成失败，请稍后重试。'; aiMessage.content.anno_summary = '生成失败'
         }
@@ -843,7 +848,7 @@ export const useCourseStore = defineStore('course', {
             memories.push(memory)
             if (memories.length > 50) { memories = memories.slice(-50) }
             localStorage.setItem(key, JSON.stringify(memories))
-        } catch (e) { console.warn('Failed to save session memory:', e) }
+        } catch (e) { logger.warn('Failed to save session memory:', e) }
     },
 
     getSessionMemories(sessionId: string, limit: number = 10): any[] {
@@ -852,12 +857,12 @@ export const useCourseStore = defineStore('course', {
             const data = localStorage.getItem(key)
             if (!data) return []
             return JSON.parse(data).slice(-limit)
-        } catch (e) { console.warn('Failed to get session memories:', e); return [] }
+        } catch (e) { logger.warn('Failed to get session memories:', e); return [] }
     },
 
     clearSessionMemories(sessionId: string) {
         try { localStorage.removeItem(`session_memory_${sessionId}`) }
-        catch (e) { console.warn('Failed to clear session memories:', e) }
+        catch (e) { logger.warn('Failed to clear session memories:', e) }
     },
 
     // ========== Backward-compat: Learning Store delegations ==========
@@ -947,7 +952,7 @@ export const useCourseStore = defineStore('course', {
         
         return useReviewStore().quizHistory
     },
-    recordWrongAnswer(quizData: { question: string; options: string[]; correctIndex: number; userIndex: number; explanation: string; nodeId: string; nodeName: string; reflection?: string }) {
+    recordWrongAnswer(quizData: { question: string; options: string[]; correctIndex: number; userIndex: number; explanation: string; nodeId: string; nodeName: string; reflection?: string; textDraft?: string; drawingDraft?: string }) {
         
         return useReviewStore().recordWrongAnswer(quizData)
     },

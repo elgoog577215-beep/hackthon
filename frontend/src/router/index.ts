@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import logger from '../utils/logger'
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -24,7 +25,7 @@ const router = createRouter({
 })
 
 router.onError((error) => {
-    console.error('Router Error:', error)
+    logger.error('Router Error:', error)
     document.body.innerHTML += `<div style="color: red; padding: 20px; z-index: 9999; position: fixed; top: 50px; left: 0; background: white; border: 2px solid orange;">
         Router Error: ${error.message}
     </div>`

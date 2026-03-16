@@ -4,6 +4,7 @@
  */
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
+import logger from '../utils/logger'
 
 export const useReviewStore = defineStore('review', {
   state: () => ({
@@ -18,6 +19,8 @@ export const useReviewStore = defineStore('review', {
       timestamp: number
       reviewCount: number
       reflection?: string
+      textDraft?: string
+      drawingDraft?: string
     }>,
     quizHistory: [] as Array<{
       nodeId: string
@@ -37,6 +40,8 @@ export const useReviewStore = defineStore('review', {
       nodeId: string
       nodeName: string
       reflection?: string
+      textDraft?: string
+      drawingDraft?: string
     }) {
       const existingIndex = this.wrongAnswers.findIndex(
         w => w.question === quizData.question && w.nodeId === quizData.nodeId
@@ -46,6 +51,9 @@ export const useReviewStore = defineStore('review', {
         if (existing) {
           existing.reviewCount += 1
           existing.timestamp = Date.now()
+          // 更新草稿（新的草稿覆盖旧的）
+          if (quizData.textDraft !== undefined) existing.textDraft = quizData.textDraft
+          if (quizData.drawingDraft !== undefined) existing.drawingDraft = quizData.drawingDraft
         }
       } else {
         this.wrongAnswers.push({
@@ -73,7 +81,7 @@ export const useReviewStore = defineStore('review', {
         localStorage.setItem('quiz_wrong_answers', JSON.stringify(this.wrongAnswers))
         localStorage.setItem('quiz_history', JSON.stringify(this.quizHistory))
       } catch (e) {
-        console.error('Failed to persist quiz data:', e)
+        logger.error('Failed to persist quiz data:', e)
       }
     },
 
@@ -88,7 +96,7 @@ export const useReviewStore = defineStore('review', {
           this.quizHistory = JSON.parse(historyRaw)
         }
       } catch (e) {
-        console.error('Failed to restore quiz data:', e)
+        logger.error('Failed to restore quiz data:', e)
       }
     },
 
@@ -117,6 +125,29 @@ export const useReviewStore = defineStore('review', {
         }
         this.persistQuizData()
       }
+    },
+
+    /**
+     * 闯关练习专用：答对 reviewCount-1，答错 reviewCount+1
+     * reviewCount <= -3 时自动剔除（已掌握）
+     * 返回是否被剔除
+     */
+    updateDrillResult(question: string, nodeId: string, correct: boolean): boolean {
+      const index = this.wrongAnswers.findIndex(
+        w => w.question === question && w.nodeId === nodeId
+      )
+      if (index < 0) return false
+      const item = this.wrongAnswers[index]
+      if (!item) return false
+      item.reviewCount += correct ? -1 : 1
+      item.timestamp = Date.now()
+      if (item.reviewCount <= -3) {
+        this.wrongAnswers.splice(index, 1)
+        this.persistQuizData()
+        return true
+      }
+      this.persistQuizData()
+      return false
     },
 
     /**

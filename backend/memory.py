@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from storage import storage
 import hashlib
 import json
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,6 @@ class ConversationTopicTracker:
         for msg in messages:
             content = msg.get('content', '')
             # 简单提取引号内的内容和特定模式
-            import re
             # 提取英文术语
             english_terms = re.findall(r'\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\b', content)
             entities.update(english_terms)

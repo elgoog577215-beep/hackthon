@@ -9,6 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+<<<<<<< HEAD
+=======
+from contextlib import asynccontextmanager
+from typing import List
+>>>>>>> classmate/main
 import sys
 import os
 import logging
@@ -45,9 +50,24 @@ from routers import (
     markdown_import
 )
 
+<<<<<<< HEAD
 # ============================================================================
 # Service Initialization
 # ============================================================================
+=======
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    if task_manager:
+        task_manager.start_worker()
+    asyncio.create_task(task_update_broadcaster())
+    yield
+    # Shutdown
+    if task_manager:
+        task_manager.stop_worker()
+
+app = FastAPI(lifespan=lifespan)
+>>>>>>> classmate/main
 
 # Create WebSocket service
 ws_service = WebSocketService()
@@ -72,6 +92,7 @@ except NameError:
 # Application Lifespan (replaces @app.on_event startup/shutdown)
 # ============================================================================
 
+<<<<<<< HEAD
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -85,12 +106,71 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+=======
+async def task_update_broadcaster():
+    last_task_states = {}
+    while True:
+        try:
+            if task_manager:
+                tasks_list = task_manager.get_all_tasks()
+                for task in tasks_list:
+                    task_id = task["id"]
+                    current_state = {
+                        "status": task.get("status"),
+                        "progress": task.get("progress"),
+                        "message": task.get("message"),
+                        "current_node_name": task.get("current_node_name"),
+                        "completed_nodes": task.get("completed_nodes", 0),
+                        "total_nodes": task.get("total_nodes", 0),
+                        "updated_at": task.get("updated_at")
+                    }
+                    if task_id not in last_task_states:
+                        last_task_states[task_id] = current_state
+                        continue
+                    last_state = last_task_states[task_id]
+                    if (current_state["status"] != last_state["status"] or
+                        current_state["progress"] != last_state["progress"] or
+                        current_state["message"] != last_state["message"] or
+                        current_state["completed_nodes"] != last_state["completed_nodes"] or
+                        current_state["total_nodes"] != last_state["total_nodes"]):
+                        await ws_manager.broadcast_task_update(
+                            task_id, "progress_update",
+                            {
+                                "taskId": task_id,
+                                "courseId": task.get("course_id"),
+                                "status": task.get("status"),
+                                "progress": task.get("progress"),
+                                "currentNodeName": task.get("current_node_name"),
+                                "completedNodes": task.get("completed_nodes", 0),
+                                "totalNodes": task.get("total_nodes", 0),
+                                "message": task.get("message")
+                            }
+                        )
+                        last_task_states[task_id] = current_state
+                        if task.get("status") == "completed":
+                            await ws_manager.broadcast_task_update(
+                                task_id, "task_completed",
+                                {"taskId": task_id, "courseId": task.get("course_id"), "message": "课程生成完成"}
+                            )
+                        elif task.get("status") == "failed":
+                            await ws_manager.broadcast_task_update(
+                                task_id, "task_error",
+                                {"taskId": task_id, "courseId": task.get("course_id"), "error": task.get("error", "Unknown error")}
+                            )
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.error(f"Error in task update broadcaster: {e}")
+            await asyncio.sleep(1)
+>>>>>>> classmate/main
 
 
 # ============================================================================
 # Middleware Configuration
 # ============================================================================
 
+from rate_limiter import RateLimitMiddleware
+
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
@@ -106,8 +186,8 @@ app.add_middleware(
         "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 

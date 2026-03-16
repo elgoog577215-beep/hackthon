@@ -2,8 +2,8 @@
 FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-# Install dependencies (using npm ci for faster, reliable builds)
-RUN npm install
+# Install dependencies using npm ci for reproducible builds
+RUN npm ci
 COPY frontend/ .
 # Build the application
 RUN npm run build
@@ -41,8 +41,8 @@ RUN chmod +x /app/backend/start.sh && \
 # This allows FastAPI to serve the frontend
 COPY --from=frontend-builder --chown=user /app/frontend/dist /app/backend/static
 
-# Ensure data directory is writable
-RUN mkdir -p /app/backend/data && chmod 777 /app/backend/data
+# Ensure data directory is writable by the app user
+RUN mkdir -p /app/backend/data && chmod 755 /app/backend/data
 
 # Expose the port that ModelScope expects (7860)
 EXPOSE 7860

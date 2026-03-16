@@ -149,13 +149,20 @@ class Annotation(BaseModel):
     answer: str
     anno_summary: str
     source_type: Literal["internal", "external"] = "internal"
-    create_time: datetime = datetime.now()
+    create_time: datetime = Field(default_factory=datetime.now)
 
 class GenerateCourseRequest(BaseModel):
+<<<<<<< HEAD
     keyword: str
     difficulty: str | None = "intermediate"
     style: str | None = "academic"
     requirements: str | None = ""
+=======
+    keyword: str = Field(..., min_length=1, max_length=200)
+    difficulty: Optional[DifficultyLevel] = "intermediate"
+    style: Optional[TeachingStyle] = "academic"
+    requirements: Optional[str] = Field(default="", max_length=2000)
+>>>>>>> classmate/main
 
 class GenerateSubNodesRequest(BaseModel):
     node_id: str
@@ -183,6 +190,7 @@ class ExtendContentRequest(BaseModel):
 class AskQuestionRequest(BaseModel):
     course_id: str | None = None
     node_id: str
+<<<<<<< HEAD
     node_name: str
     node_content: str
     question: str
@@ -192,6 +200,17 @@ class AskQuestionRequest(BaseModel):
     user_persona: str | None = ""
     session_metrics: dict | None = None
     enable_long_term_memory: bool | None = False
+=======
+    node_name: str = Field(..., max_length=500)
+    node_content: str = Field(..., max_length=50000)
+    question: str = Field(..., min_length=1, max_length=5000)
+    history: List[dict] = Field(default=[], max_length=100)
+    selection: Optional[str] = Field(default="", max_length=10000)
+    user_notes: Optional[str] = Field(default="", max_length=10000)
+    user_persona: Optional[str] = Field(default="", max_length=500)
+    session_metrics: Optional[dict] = None
+    enable_long_term_memory: Optional[bool] = False
+>>>>>>> classmate/main
 
 # === 节点操作 ===
 class AddNodeRequest(BaseModel):
@@ -370,9 +389,9 @@ class ReviewProgressResponse(BaseModel):
 # === 代码执行 ===
 class ExecuteCodeRequest(BaseModel):
     """代码执行请求"""
-    code: str
-    language: str = "python"  # python, javascript, typescript, bash, etc.
-    timeout: int = 30  # seconds
+    code: str = Field(..., min_length=1, max_length=5000)
+    language: str = Field(default="python", max_length=20)
+    timeout: int = Field(default=10, ge=1, le=30)
 
 class ExecuteCodeResponse(BaseModel):
     """代码执行响应"""
@@ -398,11 +417,43 @@ class GenerateDiagramResponse(BaseModel):
     error: str | None = Field(default=None, description="错误信息")
 
 # === 知识图谱 ===
-class KnowledgeGraphRequest(BaseModel):
-    course_id: str
+class KGNodeCreate(BaseModel):
+    """创建知识图谱节点"""
+    label: str = Field(..., min_length=1, max_length=100, description="节点标签")
+    type: str = Field(default="custom", description="节点类型")
+    description: str = Field(default="", max_length=500, description="节点描述")
+    chapter_id: Optional[str] = Field(default=None, description="关联课程章节ID")
+    x: Optional[float] = Field(default=None, description="X坐标")
+    y: Optional[float] = Field(default=None, description="Y坐标")
+    color: Optional[str] = Field(default=None, description="自定义颜色")
 
-class GenerateKnowledgeGraphRequest(BaseModel):
-    course_id: str
+class KGNodeUpdate(BaseModel):
+    """更新知识图谱节点"""
+    label: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    type: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=500)
+    chapter_id: Optional[str] = None
+    x: Optional[float] = None
+    y: Optional[float] = None
+    color: Optional[str] = None
+
+class KGEdgeCreate(BaseModel):
+    """创建知识图谱关系"""
+    source: str = Field(..., description="源节点ID")
+    target: str = Field(..., description="目标节点ID")
+    relation: str = Field(default="related", description="关系类型")
+    weight: float = Field(default=5.0, ge=1.0, le=10.0, description="关系权重")
+    label: Optional[str] = Field(default=None, max_length=50, description="自定义标签")
+
+class KGEdgeUpdate(BaseModel):
+    """更新知识图谱关系"""
+    relation: Optional[str] = None
+    weight: Optional[float] = Field(default=None, ge=1.0, le=10.0)
+    label: Optional[str] = Field(default=None, max_length=50)
+
+class KGBatchPositionUpdate(BaseModel):
+    """批量更新节点坐标"""
+    positions: dict = Field(..., description="节点ID到坐标的映射 {node_id: {x, y}}")
 
 # === AI 辅导 ===
 class CreateGoalRequest(BaseModel):
