@@ -41,7 +41,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
 }
 
 // --- 类型重新导出（向后兼容） ---
-export type { Node, Annotation, Note, Course, QueueItem, AIContent, ChatMessage, ChatConversation } from './types'
+export type { Node, Annotation, Note, Course, QueueItem, AIContent, ChatMessage, ChatConversation, NodeGenerationConfig, NodeGenerationStatus, TaskProgress, FailureReport, WSMessage, WSCommand } from './types'
 import type { Node, Annotation, Note, Course, QueueItem, Task, AIContent, ChatMessage, ChatConversation } from './types'
 
 export const useCourseStore = defineStore('course', {

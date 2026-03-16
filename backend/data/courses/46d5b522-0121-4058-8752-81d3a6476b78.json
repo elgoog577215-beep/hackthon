@@ -8,7 +8,8 @@
       "node_name": "第一章 数学预备知识",
       "node_level": 1,
       "node_content": "线性代数（向量空间、内积、算子）、复变函数、微分方程与傅里叶变换的基本回顾，为后续章节提供必要的数学语言和计算工具。",
-      "node_type": "original"
+      "node_type": "original",
+      "is_read": true
     },
     {
       "node_id": "f85b319d-a9c7-4be5-8442-73a0798a9c78",

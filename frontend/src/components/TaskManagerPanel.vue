@@ -104,6 +104,9 @@
             v-if="task.status !== 'completed'"
             :progress="task.progress"
             :current-node="task.currentStep"
+            :current-nodes="task.currentNodes"
+            :current-phase="task.currentPhase"
+            :phase-progress="task.phaseProgress"
             :status="task.status"
             :estimated-time="taskProgress[task.id]?.estimatedTimeRemaining"
           />

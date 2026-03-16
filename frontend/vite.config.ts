@@ -26,14 +26,14 @@ export default defineConfig({
     },
     chunkSizeWarningLimit: 1000
   },
-  server: {
+ server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:5000',
         changeOrigin: true
       },
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: 'ws://localhost:5000',
         ws: true,
         changeOrigin: true
       }
