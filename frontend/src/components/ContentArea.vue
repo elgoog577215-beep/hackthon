@@ -332,7 +332,6 @@
                     :font-family="fontFamily"
                     :line-height="lineHeight"
                     :search-words="searchTokens"
-                    :is-streaming="genStore.currentGeneratingNodeId === node.node_id"
                     @start-quiz="handleStartQuiz"
                 />
             
@@ -852,20 +851,6 @@
             </button>
         </transition>
     </Teleport>
-
-    <!-- Stop Generation Button -->
-    <Teleport to="body">
-        <transition name="fade-scale">
-            <button 
-                v-if="genStore.isGenerating && genStore.currentGeneratingNodeId"
-                class="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 transition-all duration-200 hover:-translate-y-0.5"
-                @click="genStore.stopGeneration()"
-            >
-                <el-icon :size="16"><VideoPause /></el-icon>
-                <span class="text-sm font-medium">停止生成</span>
-            </button>
-        </transition>
-    </Teleport>
   </div>
 </template>
 
@@ -873,11 +858,7 @@
 import { computed, ref, onMounted, onUnmounted, watch, nextTick, onUpdated, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
-<<<<<<< HEAD
-import { useGenerationStore } from '../stores/generation'
-=======
 import { useDraftStore } from '../stores/draft'
->>>>>>> classmate/main
 
 import CourseNode from './CourseNode.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
@@ -885,11 +866,7 @@ import QuestionNavigator from './QuestionNavigator.vue'
 import TextDraftPanel from './TextDraftPanel.vue'
 import DrawingOverlay from './DrawingOverlay.vue'
 import { useMermaid } from '../composables/useMermaid'
-<<<<<<< HEAD
-import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, CollectionTag, Folder, PriceTag, Setting, DArrowLeft, DArrowRight, VideoPause } from '@element-plus/icons-vue'
-=======
 import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, CollectionTag, Folder, Setting, DArrowLeft, DArrowRight, EditPen } from '@element-plus/icons-vue'
->>>>>>> classmate/main
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -967,7 +944,6 @@ const handleContentClick = async (e: MouseEvent) => {
 
 const courseStore = useCourseStore()
 const noteStore = useNoteStore()
-const genStore = useGenerationStore()
 const selectionMenu = ref({ visible: false, x: 0, y: 0, arrowOffset: 0, placement: 'top', text: '', range: null as Range | null })
 const noteSearchQuery = ref('')
 const activeNoteFilter = ref('notes')

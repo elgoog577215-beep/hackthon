@@ -1,20 +1,5 @@
 <template>
   <div ref="containerRef" class="course-view-container">
-
-    <!-- WebSocket Connection Status -->
-    <div v-if="genStore.wsConnectionState !== 'connected' && courseStore.currentCourseId" 
-         class="fixed top-2 right-2 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium shadow-sm"
-         :class="{
-           'bg-yellow-50 text-yellow-700 border border-yellow-200': genStore.wsConnectionState === 'connecting',
-           'bg-red-50 text-red-700 border border-red-200': genStore.wsConnectionState === 'disconnected' || genStore.wsConnectionState === 'error'
-         }">
-      <span class="w-2 h-2 rounded-full"
-        :class="{
-          'bg-yellow-400 animate-pulse': genStore.wsConnectionState === 'connecting',
-          'bg-red-400': genStore.wsConnectionState === 'disconnected' || genStore.wsConnectionState === 'error'
-        }"></span>
-      {{ genStore.wsConnectionState === 'connecting' ? '正在连接...' : '连接断开' }}
-    </div>
     
     <!-- Mobile/Tablet Overlay -->
     <Transition name="fade">
@@ -174,45 +159,6 @@
       </Transition>
     </Teleport>
 
-    <!-- Failure Report Dialog -->
-    <Teleport to="body">
-      <Transition name="fade-scale">
-        <div v-if="genStore.failureReport" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="genStore.failureReport = null"></div>
-          <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div class="px-6 py-4 bg-red-50 border-b border-red-100 flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-                  <el-icon class="text-red-500" :size="20"><WarningFilled /></el-icon>
-                </div>
-                <div>
-                  <h3 class="text-base font-bold text-slate-800">生成失败汇总</h3>
-                  <p class="text-xs text-slate-500">{{ genStore.failureReport.total_failed }} 个节点生成失败</p>
-                </div>
-              </div>
-              <button @click="genStore.failureReport = null" class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all">
-                <el-icon :size="18"><Close /></el-icon>
-              </button>
-            </div>
-            <div class="p-4 max-h-60 overflow-y-auto space-y-2">
-              <div v-for="node in genStore.failureReport.failed_nodes" :key="node.node_id"
-                class="p-3 rounded-lg bg-slate-50 border border-slate-100">
-                <div class="font-medium text-sm text-slate-700">{{ node.node_name }}</div>
-                <div class="text-xs text-red-500 mt-1">{{ node.error }}</div>
-                <div class="text-[10px] text-slate-400 mt-0.5">重试次数: {{ node.retry_count }}</div>
-              </div>
-            </div>
-            <div class="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
-              <el-button @click="genStore.failureReport = null" size="small">关闭</el-button>
-              <el-button type="primary" size="small" @click="handleRetryAllFailed">
-                <el-icon class="mr-1"><RefreshRight /></el-icon>重试所有失败
-              </el-button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
-
     <!-- Keyboard Shortcuts Help -->
     <KeyboardShortcutsHelp ref="shortcutsHelpRef" />
   </div>
@@ -233,12 +179,8 @@ import { useReviewStore } from '../stores/review'
 import { useGenerationStore } from '../stores/generation'
 import { onMounted, onUnmounted, ref, computed, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-<<<<<<< HEAD
-import { DArrowRight, TrendCharts, Close, WarningFilled, RefreshRight } from '@element-plus/icons-vue'
-=======
 import { DArrowRight, TrendCharts, Close } from '@element-plus/icons-vue'
 import { Bot } from 'lucide-vue-next'
->>>>>>> classmate/main
 import { ElMessage } from 'element-plus'
 import logger from '../utils/logger'
 
@@ -570,7 +512,6 @@ const checkScreenSize = () => {
 // Initialize
 onMounted(() => {
   genStore.restoreGenerationState()
-  genStore.initWebSocket()
   learningStore.restoreLearningStats()
   reviewStore.restoreQuizData()
   
@@ -680,19 +621,11 @@ const handleLocateFromPanel = (note: any) => {
   handleLocateNote(note)
 }
 
-<<<<<<< HEAD
-const handleRetryAllFailed = () => {
-  if (courseStore.currentCourseId) {
-    genStore.retryAllFailed(courseStore.currentCourseId)
-    genStore.failureReport = null
-  }
-=======
 const handleViewDetailFromPanel = (note: any) => {
   showNotesPanel.value = false
   contentAreaRef.value?.showNoteDetail(note, () => {
     showNotesPanel.value = true
   })
->>>>>>> classmate/main
 }
 
 // ========== Study Time Tracking ==========

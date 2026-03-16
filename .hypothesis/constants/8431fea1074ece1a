@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-# file: C:\Users\Administrator\Desktop\灵知\KnowledgeMap\shared\prompt_config.py
-=======
 # file: D:\@AI\25AI黑客松浙大站\复赛\project\shared\prompt_config.py
->>>>>>> classmate/main
 # hypothesis_version: 6.151.9
 
 [100, 10000, '3.0.0', '4.0.0', '5.0.0', 'ACADEMIC', 'ADVANCED', 'BEGINNER', 'CHAPTER', 'DIFFICULTY_LEVELS', 'DifficultyLevel', 'DisciplineType', 'EXPANDED', 'HUMOROUS', 'INDUSTRIAL', 'INTERMEDIATE', 'NODE_LEVELS', 'NODE_TYPES', 'NodeLevel', 'NodeType', 'ORIGINAL', 'PARAMETER_RULES', 'PROMPT_VERSIONS', 'PromptTemplateName', 'REDEFINED', 'SECTION', 'SMART_SUGGESTIONS', 'SOCRATIC', 'SUBSECTION', 'TEACHING_STYLES', 'TeachingStyle', 'VALID_NODE_TYPES', 'ValidationResult', 'academic', 'advanced', 'algorithm', 'application', 'architecture', 'beginner', 'chapter_count', 'code', 'complexity', 'conceptual', 'connection', 'content_length', 'context', 'design', 'errors', 'expanded', 'explanation', 'formula', 'formula_density', 'general', 'generate_content', 'generate_course', 'generate_quiz', 'generate_sub_nodes', 'humanities', 'humorous', 'implementation', 'industrial', 'intermediate', 'keywords', 'max', 'max_suggestions', 'min', 'natural_science', 'optimization', 'original', 'patterns', 'performance', 'practical', 'practice', 'proof', 'question_count', 'redefine_content', 'redefined', 'skill_based', 'socratic', 'sub_chapter_count', 'summary', 'technical', 'template', 'text', 'type', 'valid', 'validate_all_params', 'validate_difficulty', 'validate_node_type', 'validate_style', '代码', '优化', '公式', '复杂度', '如何优化{nodeName}的性能？', '实现', '性能', '推导', '架构', '算法', '给我一些相关的练习题', '能否用更通俗的方式解释一下？', '设计', '请展示{nodeName}的代码实现示例', '请帮我总结一下本章的核心概念', '这个概念在实际项目中如何应用？', '这部分内容与其他章节有什么联系？']

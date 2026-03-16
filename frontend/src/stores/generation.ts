@@ -11,12 +11,7 @@ import {
   type DifficultyLevel,
   type TeachingStyle
 } from '@/shared/prompt-config'
-<<<<<<< HEAD
 import type { Node, QueueItem, Task, WSMessage, FailureReport } from './types'
-=======
-import type { Node, QueueItem, Task } from './types'
-import logger from '../utils/logger'
->>>>>>> classmate/main
 
 // vue-tsc + Pinia Options API: re-export to suppress TS6133
 export { ElMessage, TEACHING_STYLES }
@@ -448,7 +443,7 @@ export const useGenerationStore = defineStore('generation', {
         const cs = this._courseStore()
         const data = { version: 1, currentCourseId: cs.currentCourseId, tasks, queue }
         localStorage.setItem(GENERATION_STATE_KEY, JSON.stringify(data))
-      } catch (e) { logger.error(e) }
+      } catch (e) { console.error(e) }
     },
 
     restoreGenerationState() {
@@ -478,7 +473,7 @@ export const useGenerationStore = defineStore('generation', {
         })
         this.stateRestored = true
         return null
-      } catch (e) { logger.error(e); return null }
+      } catch (e) { console.error(e); return null }
     },
 
     finalizeIdleTasks() {
@@ -535,7 +530,7 @@ export const useGenerationStore = defineStore('generation', {
             }
           }
         })
-      } catch (e) { logger.error('Failed to fetch global tasks', e) }
+      } catch (e) { console.error('Failed to fetch global tasks', e) }
     },
 
     startGlobalMonitor() {
@@ -578,7 +573,7 @@ export const useGenerationStore = defineStore('generation', {
           this.startGlobalMonitor()
         }
       } catch (error) {
-        logger.error('Failed to start backend task', error)
+        console.error('Failed to start backend task', error)
         ElMessage.error('启动后台生成失败')
       }
     },
@@ -881,7 +876,7 @@ export const useGenerationStore = defineStore('generation', {
             })
             task.nodes.push(res.data)
             this.addToQueue({ courseId: item.courseId, type: 'content', targetNodeId: res.data.node_id, title: `撰写正文: ${res.data.node_name}` })
-          } catch (e) { logger.error('Manual create failed, trying fallback', e) }
+          } catch (e) { console.error('Manual create failed, trying fallback', e) }
         }
       } else {
         this.addLogToTask(item.courseId, `🤖 智能生成子章节...`)
@@ -905,7 +900,7 @@ export const useGenerationStore = defineStore('generation', {
       try {
         await http.post(`/api/courses/${item.courseId}/knowledge_graph`)
         this.addLogToTask(item.courseId, `✅ 知识图谱生成完成`)
-      } catch (e) { logger.error('Failed to generate knowledge graph', e); throw e }
+      } catch (e) { console.error('Failed to generate knowledge graph', e); throw e }
     },
 
     async generateSubChapters(node: Node) {

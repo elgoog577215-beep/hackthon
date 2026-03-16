@@ -3,20 +3,19 @@
 # 初始化 FastAPI 应用，配置中间件，注册路由模块，管理 WebSocket 连接。
 # =============================================================================
 
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-<<<<<<< HEAD
-=======
 from contextlib import asynccontextmanager
 from typing import List
->>>>>>> classmate/main
 import sys
 import os
 import logging
+import json
+import asyncio
+import threading
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
@@ -29,15 +28,13 @@ try:
     from storage import storage
     from ai_service import ai_service
     from task_manager import TaskManager
-    from websocket_service import WebSocketService
-    from dependencies import init_task_manager, init_ws_service
+    from dependencies import init_task_manager
 except ImportError:
     try:
         from backend.storage import storage
         from backend.ai_service import ai_service
         from backend.task_manager import TaskManager
-        from backend.websocket_service import WebSocketService
-        from backend.dependencies import init_task_manager, init_ws_service
+        from backend.dependencies import init_task_manager
     except ImportError as e:
         logger.error(f"Failed to import required modules: {e}")
         raise
@@ -50,11 +47,6 @@ from routers import (
     markdown_import
 )
 
-<<<<<<< HEAD
-# ============================================================================
-# Service Initialization
-# ============================================================================
-=======
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -67,46 +59,66 @@ async def lifespan(app: FastAPI):
         task_manager.stop_worker()
 
 app = FastAPI(lifespan=lifespan)
->>>>>>> classmate/main
 
-# Create WebSocket service
-ws_service = WebSocketService()
-
-# Create TaskManager with dependency injection
+# 初始化 Task Manager
 try:
-    task_manager = TaskManager(
-        storage=storage,
-        course_service=ai_service,  # AIService extends CourseService
-        ws_service=ws_service,
-        max_concurrency=5,
-    )
-    # Wire up command handler so WebSocketService delegates commands to TaskManager
-    ws_service.set_command_handler(task_manager.handle_command)
+    task_manager = TaskManager(storage, ai_service)
     init_task_manager(task_manager)
-    init_ws_service(ws_service)
 except NameError:
     task_manager = None
 
+# ============================================================================
+# WebSocket Connection Manager
+# ============================================================================
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+        self._lock = threading.Lock()
+        self._broadcast_task = None
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        with self._lock:
+            self.active_connections.append(websocket)
+        logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
+
+    def disconnect(self, websocket: WebSocket):
+        with self._lock:
+            if websocket in self.active_connections:
+                self.active_connections.remove(websocket)
+        logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
+
+    async def send_personal_message(self, message: dict, websocket: WebSocket):
+        try:
+            await websocket.send_json(message)
+        except Exception as e:
+            logger.error(f"Failed to send personal message: {e}")
+
+    async def broadcast(self, message: dict):
+        with self._lock:
+            connections = self.active_connections.copy()
+        disconnected = []
+        for connection in connections:
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Failed to broadcast to connection: {e}")
+                disconnected.append(connection)
+        for conn in disconnected:
+            self.disconnect(conn)
+
+    async def broadcast_task_update(self, task_id: str, update_type: str, payload: dict):
+        message = {"type": update_type, "payload": payload}
+        await self.broadcast(message)
+
+ws_manager = ConnectionManager()
+
 
 # ============================================================================
-# Application Lifespan (replaces @app.on_event startup/shutdown)
+# Background Task Broadcaster
 # ============================================================================
 
-<<<<<<< HEAD
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    await storage.validate_all_courses()
-    if task_manager:
-        await task_manager.start()
-    yield
-    # Shutdown
-    if task_manager:
-        await task_manager.shutdown(timeout=30.0)
-
-
-app = FastAPI(lifespan=lifespan)
-=======
 async def task_update_broadcaster():
     last_task_states = {}
     while True:
@@ -161,7 +173,6 @@ async def task_update_broadcaster():
         except Exception as e:
             logger.error(f"Error in task update broadcaster: {e}")
             await asyncio.sleep(1)
->>>>>>> classmate/main
 
 
 # ============================================================================
@@ -178,12 +189,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:8000",
-        "http://localhost:4000",
-        "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8000",
-        "http://127.0.0.1:4000",
-        "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
@@ -228,34 +235,106 @@ app.include_router(markdown_import.router)
 # WebSocket Endpoints
 # ============================================================================
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """Primary WebSocket endpoint using the new WebSocketService."""
-    connection_id = await ws_service.connect(websocket)
-    try:
-        while True:
-            data = await websocket.receive_json()
-            await ws_service.handle_client_command(connection_id, data)
-    except WebSocketDisconnect:
-        await ws_service.disconnect(connection_id)
-    except Exception as e:
-        logger.error("WebSocket error: %s", e)
-        await ws_service.disconnect(connection_id)
-
-
 @app.websocket("/ws/tasks")
-async def websocket_tasks_compat(websocket: WebSocket):
-    """Backward-compatible alias for the old /ws/tasks endpoint."""
-    connection_id = await ws_service.connect(websocket)
+async def websocket_tasks(websocket: WebSocket):
+    await ws_manager.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_json()
-            await ws_service.handle_client_command(connection_id, data)
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+
+                if message.get("type") == "ping":
+                    await ws_manager.send_personal_message({"type": "pong"}, websocket)
+
+                elif message.get("type") == "subscribe":
+                    course_id = message.get("payload", {}).get("courseId")
+                    if course_id and course_id != "all" and task_manager:
+                        ws_tasks = task_manager.get_tasks_by_course(course_id)
+                        for t in ws_tasks:
+                            await ws_manager.send_personal_message({
+                                "type": "task_update",
+                                "payload": {
+                                    "taskId": t["id"],
+                                    "courseId": t["course_id"],
+                                    "status": t["status"],
+                                    "progress": t.get("progress", 0),
+                                    "currentNodeName": t.get("current_node_name", ""),
+                                    "message": t.get("message", "")
+                                }
+                            }, websocket)
+
+                elif message.get("type") == "command":
+                    command = message.get("command")
+                    payload = message.get("payload", {})
+
+                    if not task_manager:
+                        await ws_manager.send_personal_message({
+                            "type": "error",
+                            "payload": {"message": "Task manager not available"}
+                        }, websocket)
+                        continue
+
+                    if command == "pause_task":
+                        course_id = payload.get("courseId")
+                        ws_tasks = task_manager.get_tasks_by_course(course_id)
+                        for t in ws_tasks:
+                            if t["status"] in ["pending", "running"]:
+                                task_manager.pause_task(t["id"])
+                                await ws_manager.send_personal_message({
+                                    "type": "task_update",
+                                    "payload": {"taskId": t["id"], "courseId": course_id, "status": "paused"}
+                                }, websocket)
+
+                    elif command == "resume_task":
+                        course_id = payload.get("courseId")
+                        ws_tasks = task_manager.get_tasks_by_course(course_id)
+                        for t in ws_tasks:
+                            if t["status"] == "paused":
+                                task_manager.resume_task(t["id"])
+                                await ws_manager.send_personal_message({
+                                    "type": "task_update",
+                                    "payload": {"taskId": t["id"], "courseId": course_id, "status": "pending"}
+                                }, websocket)
+
+                    elif command == "cancel_task":
+                        course_id = payload.get("courseId")
+                        ws_tasks = task_manager.get_tasks_by_course(course_id)
+                        for t in ws_tasks:
+                            if t["status"] in ["pending", "running", "paused"]:
+                                task_manager.delete_task(t["id"])
+                                await ws_manager.send_personal_message({
+                                    "type": "task_cancelled",
+                                    "payload": {"taskId": t["id"], "courseId": course_id}
+                                }, websocket)
+
+                    elif command == "retry_node":
+                        course_id = payload.get("courseId")
+                        node_id = payload.get("nodeId")
+                        await ws_manager.send_personal_message({
+                            "type": "progress_update",
+                            "payload": {"courseId": course_id, "message": f"Retrying node {node_id}..."}
+                        }, websocket)
+
+                    elif command == "set_priority":
+                        course_id = payload.get("courseId")
+                        priority = payload.get("priority", "normal")
+                        await ws_manager.send_personal_message({
+                            "type": "task_update",
+                            "payload": {"courseId": course_id, "message": f"Priority set to {priority}"}
+                        }, websocket)
+
+            except json.JSONDecodeError:
+                await ws_manager.send_personal_message({
+                    "type": "error",
+                    "payload": {"message": "Invalid JSON"}
+                }, websocket)
+
     except WebSocketDisconnect:
-        await ws_service.disconnect(connection_id)
+        ws_manager.disconnect(websocket)
     except Exception as e:
-        logger.error("WebSocket error: %s", e)
-        await ws_service.disconnect(connection_id)
+        logger.error(f"WebSocket error: {e}")
+        ws_manager.disconnect(websocket)
 
 
 # ============================================================================
