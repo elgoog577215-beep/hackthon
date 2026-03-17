@@ -62,7 +62,7 @@ export interface WSMessage {
 }
 
 export interface WSCommand {
-  type: 'subscribe' | 'unsubscribe' | 'skip_node' | 'retry_node' | 'stop_node' | 'custom_instruction' | 'retry_all_failed'
+  type: 'subscribe' | 'unsubscribe' | 'skip_node' | 'retry_node' | 'stop_node' | 'custom_instruction' | 'retry_all_failed' | 'pause_task' | 'resume_task' | 'cancel_task'
   course_id: string
   node_id?: string
   payload?: Record<string, unknown>

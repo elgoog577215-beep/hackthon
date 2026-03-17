@@ -293,6 +293,7 @@ const layoutGraph = () => {
   })
 
   const root = nodes.find(n => n.type === 'root') ?? nodes[0]
+  if (!root) return
   const level: Record<string, number> = {}
   const q = [root.id]
   level[root.id] = 0

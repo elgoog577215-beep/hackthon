@@ -59,6 +59,7 @@ interface CurrentNode {
   name: string
   action: string
   type: string
+  node_name?: string
 }
 
 interface Props {

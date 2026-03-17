@@ -122,7 +122,7 @@
               </div>
             </div>
             <!-- 文字草稿笔记 -->
-            <div v-if="item.textDraft" class="px-5 pb-3 ml-10">
+            <div v-if="'textDraft' in item && item.textDraft" class="px-5 pb-3 ml-10">
               <button v-if="!draftExpanded[wrongItemKey(item) + '_text']"
                 class="px-3 py-1.5 text-xs font-medium text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-lg transition-colors flex items-center gap-1.5"
                 @click="draftExpanded[wrongItemKey(item) + '_text'] = true">
@@ -139,7 +139,7 @@
               </div>
             </div>
             <!-- 图画草稿笔记 -->
-            <div v-if="item.drawingDraft" class="px-5 pb-3 ml-10">
+            <div v-if="'drawingDraft' in item && item.drawingDraft" class="px-5 pb-3 ml-10">
               <button v-if="!draftExpanded[wrongItemKey(item) + '_draw']"
                 class="px-3 py-1.5 text-xs font-medium text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors flex items-center gap-1.5"
                 @click="draftExpanded[wrongItemKey(item) + '_draw'] = true">
@@ -351,7 +351,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, watch } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { Notebook, Location, Delete, ArrowDown, CircleCheckFilled, CircleCloseFilled, InfoFilled, RefreshRight, EditPen, TrophyBase, ArrowRight, ArrowLeft } from '@element-plus/icons-vue'
 import TextDraftPanel from './TextDraftPanel.vue'
 import DrawingOverlay from './DrawingOverlay.vue'
@@ -409,10 +409,6 @@ const filteredNotes = computed(() => {
 
 function getNodeName(nodeId: string) {
   return courseStore.nodes.find(n => n.node_id === nodeId)?.node_name || ''
-}
-
-function getPlainText(content: string) {
-  return content?.replace(/[#*>`_~\[\]()!]/g, '').replace(/\n{2,}/g, '\n').trim().slice(0, 200) || ''
 }
 
 function formatTime(ts: number) {

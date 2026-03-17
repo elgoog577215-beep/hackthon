@@ -1009,11 +1009,12 @@ const handleRetryNode = (data: any) => {
 
 const handleCustomInstruction = async (data: any) => {
   try {
-    const { value } = await ElMessageBox.prompt('输入自定义生成指令', '自定义指令', {
+    const result = await ElMessageBox.prompt('输入自定义生成指令', '自定义指令', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       inputPlaceholder: '例如：多加代码示例、侧重实际应用...'
     })
+    const value = typeof result === 'object' && 'value' in result ? result.value : null
     if (value && courseStore.currentCourseId) {
       genStore.setCustomInstruction(courseStore.currentCourseId, data.node_id, value)
       ElMessage.success('指令已设置')
