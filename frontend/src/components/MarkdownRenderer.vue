@@ -31,56 +31,49 @@ let hasPendingUpdate = false
 const escapeRegExp = (val: string) => val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 const cleanMermaidCode = (code: string): string => {
-    // Helper to escape quotes and wrap in quotes
-    const cleanLabel = (text: string): string => {
-        text = text.trim()
-        // If already wrapped in quotes, strip them first to avoid double quoting
-        if (text.startsWith('"') && text.endsWith('"') && text.length >= 2) {
-            text = text.slice(1, -1)
+    const sanitizeQuotedLabels = (input: string): string => {
+        const pairs: Record<string, string> = {
+            '[': ']',
+            '(': ')',
+            '{': '}',
+            '|': '|',
         }
-        // Escape internal double quotes
-        text = text.replace(/"/g, '#quot;')
-        // Also escape parentheses if they are causing issues, but usually quotes are enough
-        // text = text.replace(/\(/g, '#40;').replace(/\)/g, '#41;')
-        return `"${text}"`
+
+        let output = ''
+        for (let i = 0; i < input.length; i++) {
+            const start = input[i]
+            const end = pairs[start]
+
+            if (end && input[i + 1] === '"') {
+                let j = i + 2
+                while (j < input.length) {
+                    if (input[j] === '"' && input[j + 1] === end) {
+                        const content = input.slice(i + 2, j).replace(/"/g, "'")
+                        output += `${start}"${content}"${end}`
+                        i = j + 1
+                        break
+                    }
+                    j++
+                }
+
+                if (j < input.length) {
+                    continue
+                }
+            }
+
+            output += start
+        }
+
+        return output
     }
 
-    let cleaned = code
-
-    // 1. Clean node labels
-    // Order matters: match longest/most specific delimiters first
-    
-    // {{...}} -> {{"..."}}
-    cleaned = cleaned.replace(/\{\{(?!\{)(.*?)\}\}/g, (_, content) => `{{${cleanLabel(content)}}}`)
-    
-    // [[...]] -> [["..."]]
-    cleaned = cleaned.replace(/\[\[(?!\[)(.*?)\]\]/g, (_, content) => `[[${cleanLabel(content)}]]`)
-    
-    // [(...)] -> [("...")]
-    cleaned = cleaned.replace(/\[\((?!\()(.*?)\)\]/g, (_, content) => `[(${cleanLabel(content)})]`)
-    
-    // ((...)) -> (("..."))
-    cleaned = cleaned.replace(/\(\((?!\()(.*?)\)\)/g, (_, content) => `((${cleanLabel(content)}))`)
-    
-    // ([...]) -> (["..."])
-    cleaned = cleaned.replace(/\(\[(?!\[)(.*?)\]\)/g, (_, content) => `([${cleanLabel(content)}])`)
-    
-    // [...] -> ["..."]
-    // Exclude [[, [(, [/, [\
-    cleaned = cleaned.replace(/(?<!\()\[(?![(\[\/\\])(.*?)(?<![)\]\/\\])\](?!\])/g, (_, content) => `[${cleanLabel(content)}]`)
-    
-    // (...) -> ("...")
-    // Exclude ((, ([
-    cleaned = cleaned.replace(/(?<!\()(\()(?!\(|\[)(.*?)(?<!\))(\))/g, (_, _p1, content, _p3) => `(${cleanLabel(content)})`)
-    
-    // {...} -> {"..."}
-    // Exclude {{
-    cleaned = cleaned.replace(/(?<!\{)\{(?!\{)(.*?)\}(?!\})/g, (_, content) => `{${cleanLabel(content)}}`)
-
-    // 2. Clean link labels: |...| -> |"..."|
-    cleaned = cleaned.replace(/\|(.*?)\|/g, (_, content) => `|${cleanLabel(content)}|`)
-
-    return cleaned
+    return sanitizeQuotedLabels(code)
+        .replace(/\r\n?/g, '\n')
+        .replace(/[\u201C\u201D]/g, '"')
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/\u00A0/g, ' ')
+        .replace(/\t/g, '    ')
+        .trim()
 }
 
 const renderMermaid = async () => {
