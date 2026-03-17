@@ -855,7 +855,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, watch, nextTick, onUpdated, reactive } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch, nextTick, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
 import { useDraftStore } from '../stores/draft'
@@ -865,7 +865,6 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import QuestionNavigator from './QuestionNavigator.vue'
 import TextDraftPanel from './TextDraftPanel.vue'
 import DrawingOverlay from './DrawingOverlay.vue'
-import { useMermaid } from '../composables/useMermaid'
 import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, CollectionTag, Folder, Setting, DArrowLeft, DArrowRight, EditPen } from '@element-plus/icons-vue'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
 
@@ -878,8 +877,6 @@ import logger from '../utils/logger'
 dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
-// Lazy rendering for Mermaid diagrams
-const { scanMermaidDiagrams } = useMermaid()
 
 // Props & Emits (lifted state for panel coordination)
 const props = defineProps<{
@@ -900,14 +897,6 @@ const isNotesCollapsed = computed({
 
 // 笔记列顶部偏移，动态跟随滚动容器的实际top位置，兼容魔搭等嵌入环境
 const noteColumnTop = ref(80)
-
-onUpdated(() => {
-    scanMermaidDiagrams()
-})
-
-onMounted(() => {
-    scanMermaidDiagrams()
-})
 
 // Handle clicks inside content (Copy buttons, etc.)
 const handleContentClick = async (e: MouseEvent) => {
@@ -1361,8 +1350,7 @@ const quizScore = computed(() => {
     if (!quizSubmitted.value || !quizQuestions.value || quizQuestions.value.length === 0) return 0
     let correct = 0
     quizQuestions.value.forEach((q, idx) => {
-        const answer = userAnswers.value[idx]
-        if (answer !== undefined && answer >= 0 && answer === getCorrectIndex(q)) {
+        if (userAnswers.value[idx] >= 0 && userAnswers.value[idx] === getCorrectIndex(q)) {
             correct += 1
         }
     })
@@ -2945,7 +2933,7 @@ const submitQuiz = () => {
                 question: q.question,
                 options: q.options || [],
                 correctIndex: correctIdx,
-                userIndex: userAnswers.value[idx] ?? -1,
+                userIndex: userAnswers.value[idx],
                 explanation: q.explanation || '暂无解析',
                 nodeId: nodeId,
                 nodeName: nodeName,

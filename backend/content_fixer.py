@@ -172,6 +172,52 @@ class ContentFixer:
         content = re.sub(r'\\\((.+?)\\\)', r'$\1$', content, flags=re.DOTALL)
         changes.append("转换 \\(...\\) 为 $...$")
         
+        def fix_broken_cases_and_envs(content: str) -> str:
+            """修复被错误分割的 LaTeX 环境，如 $$...$$\begin{cases}...\end{cases}$$$$"""
+            env_names = ['aligned', 'cases', 'matrix', 'pmatrix', 'bmatrix', 'vmatrix', 'eqnarray', 'gather', 'split']
+            
+            for env_name in env_names:
+                pattern = r'\$\$([^$]*?)\$\$\\begin\{' + env_name + r'\}(.*?)\\end\{' + env_name + r'\}\$\$'
+                
+                def make_replacer(env):
+                    def replacer(match):
+                        prefix = match.group(1).strip()
+                        inner = match.group(2).strip()
+                        
+                        prefix = re.sub(r'\$\$', '', prefix)
+                        prefix = re.sub(r'\$', '', prefix)
+                        
+                        if prefix:
+                            return f'$$\n{prefix}\\begin{{{env}}}\n{inner}\n\\end{{{env}}}\n$$'
+                        else:
+                            return f'$$\n\\begin{{{env}}}\n{inner}\n\\end{{{env}}}\n$$'
+                    return replacer
+                
+                content = re.sub(pattern, make_replacer(env_name), content, flags=re.DOTALL)
+                
+                pattern2 = r'\$\$([^$]*?)\$\$\\begin\{' + env_name + r'\}(.*?)\\end\{' + env_name + r'\}\$\$\$\$'
+                
+                def make_replacer2(env):
+                    def replacer(match):
+                        prefix = match.group(1).strip()
+                        inner = match.group(2).strip()
+                        
+                        prefix = re.sub(r'\$\$', '', prefix)
+                        prefix = re.sub(r'\$', '', prefix)
+                        
+                        if prefix:
+                            return f'$$\n{prefix}\\begin{{{env}}}\n{inner}\n\\end{{{env}}}\n$$'
+                        else:
+                            return f'$$\n\\begin{{{env}}}\n{inner}\n\\end{{{env}}}\n$$'
+                    return replacer
+                
+                content = re.sub(pattern2, make_replacer2(env_name), content, flags=re.DOTALL)
+            
+            return content
+        
+        content = fix_broken_cases_and_envs(content)
+        changes.append("修复被分割的 LaTeX 环境格式")
+        
         def fix_broken_aligned(match):
             full_match = match.group(0)
             inner = match.group(1) if match.lastindex else ''
@@ -212,6 +258,10 @@ class ContentFixer:
             flags=re.DOTALL
         )
         changes.append("修复 LaTeX 环境格式")
+        
+        content = re.sub(r'\$\$\$\$', '$$\n$$', content)
+        content = re.sub(r'\$\$\$', '$$', content)
+        changes.append("修复多余的美元符号")
         
         content = re.sub(r'\$\s+', '$', content)
         content = re.sub(r'\s+\$', '$', content)
