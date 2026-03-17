@@ -135,6 +135,7 @@ export const addMermaidSafetyMargin = (svgMarkup: string): string => {
   }
 
   const extraNodeWidth = 20
+  const extraNodeHeight = 12
 
   const viewBox = svg.getAttribute('viewBox')
   if (viewBox) {
@@ -159,20 +160,36 @@ export const addMermaidSafetyMargin = (svgMarkup: string): string => {
     : `${currentStyle}${currentStyle && !currentStyle.trim().endsWith(';') ? ';' : ''}overflow: visible;`
   svg.setAttribute('style', nextStyle)
 
-  const widenAndRecenter = (node: Element, extraWidth: number) => {
+  const expandAndRecenter = (node: Element, extraWidth: number, extraHeight: number) => {
     const widthAttr = node.getAttribute('width')
-    if (!widthAttr) return
-
-    const currentWidth = Number(widthAttr)
-    if (!Number.isFinite(currentWidth)) return
-
-    node.setAttribute('width', String(currentWidth + extraWidth))
+    if (widthAttr) {
+      const currentWidth = Number(widthAttr)
+      if (Number.isFinite(currentWidth)) {
+        node.setAttribute('width', String(currentWidth + extraWidth))
+      }
+    }
 
     const xAttr = node.getAttribute('x')
-    if (xAttr) {
+    if (xAttr && extraWidth !== 0) {
       const currentX = Number(xAttr)
       if (Number.isFinite(currentX)) {
         node.setAttribute('x', String(currentX - extraWidth / 2))
+      }
+    }
+
+    const heightAttr = node.getAttribute('height')
+    if (heightAttr) {
+      const currentHeight = Number(heightAttr)
+      if (Number.isFinite(currentHeight)) {
+        node.setAttribute('height', String(currentHeight + extraHeight))
+      }
+    }
+
+    const yAttr = node.getAttribute('y')
+    if (yAttr && extraHeight !== 0) {
+      const currentY = Number(yAttr)
+      if (Number.isFinite(currentY)) {
+        node.setAttribute('y', String(currentY - extraHeight / 3))
       }
     }
   }
@@ -189,7 +206,7 @@ export const addMermaidSafetyMargin = (svgMarkup: string): string => {
       if (adjusted.has(node)) return
       adjusted.add(node)
 
-      widenAndRecenter(node, extraNodeWidth)
+      expandAndRecenter(node, extraNodeWidth, extraNodeHeight)
     })
   })
 

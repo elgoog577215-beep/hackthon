@@ -473,4 +473,25 @@ describe('MarkdownRenderer – Mermaid', () => {
     expect(html).not.toContain('图表渲染失败')
     expect(html).not.toContain("cos('ωt - kz')")
   })
+
+  it('为多行 Mermaid 标签保留上下安全空间', async () => {
+    const content = [
+      '```mermaid',
+      'graph TD',
+      '    A["第一行<br/>第二行<br/>第三行"] --> B["结果节点"]',
+      '```',
+    ].join('\n')
+
+    const wrapper = mount(MarkdownRenderer, {
+      props: { content },
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    const html = wrapper.html()
+    expect(html).toContain('<svg')
+    expect(html).toContain('overflow: visible;')
+    expect(html).not.toContain('图表渲染失败')
+  })
 })
