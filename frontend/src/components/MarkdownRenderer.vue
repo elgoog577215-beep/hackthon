@@ -5,8 +5,8 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
-import mermaid from 'mermaid'
 import logger from '../utils/logger'
+import { renderMermaidSvg } from '../utils/mermaid'
 
 const props = defineProps<{
   content: string
@@ -17,123 +17,10 @@ const containerRef = ref<HTMLElement | null>(null)
 const renderedContent = ref('')
 const throttleDelay = 150 // 150ms 节流，平衡流畅度和性能
 
-// Initialize mermaid
-mermaid.initialize({
-    startOnLoad: false,
-    theme: 'default',
-    securityLevel: 'strict',
-    fontFamily: 'Inter, system-ui, sans-serif',
-})
-
 let isThrottled = false
 let hasPendingUpdate = false
 
 const escapeRegExp = (val: string) => val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-const cleanMermaidCode = (code: string): string => {
-    const sanitizeQuotedLabels = (input: string): string => {
-        const pairs: Record<string, string> = {
-            '[': ']',
-            '(': ')',
-            '{': '}',
-            '|': '|',
-        }
-
-        let output = ''
-        for (let i = 0; i < input.length; i++) {
-            const start = input[i]
-            const end = pairs[start]
-
-            if (end && input[i + 1] === '"') {
-                let j = i + 2
-                while (j < input.length) {
-                    if (input[j] === '"' && input[j + 1] === end) {
-                        const content = input.slice(i + 2, j).replace(/"/g, "'")
-                        output += `${start}"${content}"${end}`
-                        i = j + 1
-                        break
-                    }
-                    j++
-                }
-
-                if (j < input.length) {
-                    continue
-                }
-            }
-
-            output += start
-        }
-
-        return output
-    }
-
-    return sanitizeQuotedLabels(code)
-        .replace(/\r\n?/g, '\n')
-        .replace(/[\u201C\u201D]/g, '"')
-        .replace(/[\u2018\u2019]/g, "'")
-        .replace(/\u00A0/g, ' ')
-        .replace(/\t/g, '    ')
-        .trim()
-}
-
-const addMermaidSafetyMargin = (svgMarkup: string): string => {
-    if (typeof window === 'undefined') return svgMarkup
-
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(svgMarkup, 'image/svg+xml')
-    const svg = doc.documentElement
-
-    if (!svg || svg.tagName.toLowerCase() !== 'svg') {
-        return svgMarkup
-    }
-
-    const extraRight = 24
-    const extraNodeWidth = 12
-
-    const viewBox = svg.getAttribute('viewBox')
-    if (viewBox) {
-        const parts = viewBox.split(/\s+/).map(Number)
-        if (parts.length === 4 && parts.every(Number.isFinite)) {
-            parts[2] += extraRight
-            svg.setAttribute('viewBox', parts.join(' '))
-        }
-    }
-
-    const width = svg.getAttribute('width')
-    if (width) {
-        const match = width.match(/^([\d.]+)(px)?$/)
-        if (match) {
-            const nextWidth = Number(match[1]) + extraRight
-            svg.setAttribute('width', `${nextWidth}${match[2] || ''}`)
-        }
-    }
-
-    const currentStyle = svg.getAttribute('style') || ''
-    const nextStyle = /overflow\s*:/.test(currentStyle)
-        ? currentStyle
-        : `${currentStyle}${currentStyle && !currentStyle.trim().endsWith(';') ? ';' : ''}overflow: visible;`
-    svg.setAttribute('style', nextStyle)
-
-    const shapeSelectors = ['rect.basic.label-container', 'rect.label-container', 'g.node rect']
-    const adjusted = new Set<Element>()
-
-    shapeSelectors.forEach(selector => {
-        svg.querySelectorAll(selector).forEach(node => {
-            if (adjusted.has(node)) return
-            adjusted.add(node)
-
-            const widthAttr = node.getAttribute('width')
-            if (widthAttr) {
-                const currentWidth = Number(widthAttr)
-                if (Number.isFinite(currentWidth)) {
-                    node.setAttribute('width', String(currentWidth + extraNodeWidth))
-                }
-            }
-        })
-    })
-
-    return svg.outerHTML
-}
 
 const renderMermaid = async () => {
     await nextTick()
@@ -164,14 +51,9 @@ const renderMermaid = async () => {
             }
             
             // Clean the syntax
-            const cleaned = cleanMermaidCode(code)
-            
             // Generate unique ID
             const id = `mermaid-${Date.now()}-${Math.floor(Math.random() * 10000)}`
-            
-            // Render using mermaid.render for better error handling
-            const { svg } = await mermaid.render(id, cleaned)
-            const adjustedSvg = addMermaidSafetyMargin(svg)
+            const adjustedSvg = await renderMermaidSvg(id, code)
             
             // Update the element
             mermaidEl.innerHTML = adjustedSvg

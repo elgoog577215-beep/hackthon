@@ -1,34 +1,14 @@
 import MarkdownIt from 'markdown-it';
 // import markdownItKatex from 'markdown-it-katex'; // Replaced by custom implementation
 import katex from 'katex';
-import mermaid from 'mermaid';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import linkAttributes from 'markdown-it-link-attributes';
 import 'highlight.js/styles/atom-one-dark.css';
 import logger from './logger';
+import { prepareMermaidBlockSource, initializeMermaid } from './mermaid';
 
-// Initialize mermaid
-mermaid.initialize({
-    startOnLoad: false,
-    theme: 'base',
-    securityLevel: 'strict',
-    fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-    themeVariables: {
-        primaryColor: '#8b5cf6', // primary-500
-        primaryTextColor: '#0f172a', // slate-900 (Black text for better visibility)
-        primaryBorderColor: '#7c3aed', // primary-600
-        lineColor: '#334155', // slate-700
-        secondaryColor: '#ede9fe', // primary-100
-        tertiaryColor: '#ffffff',
-        mainBkg: '#f8fafc', // slate-50
-        nodeBorder: '#cbd5e1', // slate-300
-        clusterBkg: '#f1f5f9', // slate-100
-        clusterBorder: '#cbd5e1', // slate-300
-        titleColor: '#0f172a', // slate-900
-        edgeLabelBackground: '#ffffff',
-    }
-});
+initializeMermaid();
 
 // Markdown Configuration
 const md = new MarkdownIt({
@@ -214,26 +194,7 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any) {
   const info = token.info ? token.info.trim() : '';
   
   if (info === 'mermaid') {
-    let code = token.content.trim();
-    
-    // Auto-fix 1: Ensure valid diagram type header
-    // If code doesn't start with a known type, default to graph TD
-    const knownTypes = [
-        'graph', 'flowchart', 'sequenceDiagram', 'classDiagram', 
-        'stateDiagram', 'erDiagram', 'gantt', 'pie', 'mindmap', 
-        'timeline', 'gitGraph', 'journey', 'sankey-beta', 'quadrantChart'
-    ];
-    
-    // Simple heuristic: if it doesn't start with a known type, assume it's a graph
-    const firstWord = code.split(/[\s\n]/)[0];
-    if (!knownTypes.includes(firstWord) && !code.trim().startsWith('%%')) {
-        if (code.includes('-->') || code.includes('---')) {
-            code = 'graph TD\n' + code;
-        }
-    }
-
-    // Auto-fix 2: Removed aggressive text quoting as it was causing syntax errors with modern Mermaid versions
-    // Mermaid 10+ handles special characters much better
+    const code = prepareMermaidBlockSource(token.content);
 
     // Encode the code to prevent HTML tag parsing issues (e.g. A["<Label>"])
     const encodedCode = md.utils.escapeHtml(code);

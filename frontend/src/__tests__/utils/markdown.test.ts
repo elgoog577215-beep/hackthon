@@ -11,7 +11,11 @@ vi.mock('mermaid', () => ({
     initialize: vi.fn(),
     run: vi.fn(),
     render: vi.fn(async (_id: string, code: string) => ({
-      svg: `<svg data-mermaid="${code.replace(/"/g, '&quot;')}"></svg>`,
+      svg: `<svg data-mermaid="${code
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')}"></svg>`,
     })),
   },
 }))
@@ -342,6 +346,34 @@ describe('renderMarkdown – 缓存', () => {
 // ---------------------------------------------------------------------------
 
 describe('MarkdownRenderer – Mermaid', () => {
+  it('保留 Mermaid 前后的 Markdown 标题和正文结构', async () => {
+    const content = [
+      '### 🎨 可视化图解',
+      '',
+      '```mermaid',
+      'graph TD',
+      '    A["电磁波传播"] --> B["电场E"]',
+      '```',
+      '',
+      '图后说明文字。',
+    ].join('\n')
+
+    const wrapper = mount(MarkdownRenderer, {
+      props: { content },
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    const html = wrapper.html()
+    expect(html).toContain('<h3>')
+    expect(html).toContain('🎨 可视化图解')
+    expect(html).toContain('图后说明文字')
+    expect(html).not.toContain('&lt;h3&gt;')
+    expect(html).not.toContain('### 🎨 可视化图解</div>')
+    expect(html).not.toContain('图表渲染失败')
+  })
+
   it('保留含引号和括号的 Mermaid 标签文本，不进行破坏性重写', async () => {
     const content = [
       '```mermaid',
@@ -359,7 +391,7 @@ describe('MarkdownRenderer – Mermaid', () => {
 
     const html = wrapper.html()
     expect(html).toContain('<svg')
-    expect(html).toContain("&quot;B('r') = μ₀I/(2πr)&quot;")
+    expect(html).toContain('&quot;B(r) = μ₀I/(2πr)&quot;')
     expect(html).toContain('方向遵循右手螺旋法则')
     expect(html).not.toContain('图表渲染失败')
   })
@@ -381,8 +413,9 @@ describe('MarkdownRenderer – Mermaid', () => {
 
     const html = wrapper.html()
     expect(html).toContain('<svg')
-    expect(html).toContain("&quot;E = E₀ cos('ωt - kz')&quot;")
-    expect(html).toContain("&quot;H = E₀/η cos('ωt - kz')&quot;")
+    expect(html).toContain('&quot;E = E₀ cos(ωt - kz)&quot;')
+    expect(html).toContain('&quot;H = E₀/η cos(ωt - kz)&quot;')
+    expect(html).not.toContain("cos('ωt - kz')")
     expect(html).not.toContain('图表渲染失败')
   })
 
@@ -404,5 +437,40 @@ describe('MarkdownRenderer – Mermaid', () => {
     const html = wrapper.html()
     expect(html).toContain('<svg')
     expect(html).toContain('overflow: visible;')
+  })
+
+  it('覆盖导入样本中的 Mermaid 回归片段', async () => {
+    const content = [
+      '## 第六章 电磁能流与辐射 - 子节点 2',
+      '',
+      '### 🎨 可视化图解',
+      '',
+      '```mermaid',
+      'graph TD',
+      '    A["电磁波传播"] --> B("电场E")',
+      '    A --> C("磁场H")',
+      '    B --> D["E = E₀ cos("ωt - kz")"]',
+      '    C --> E["H = E₀/η cos("ωt - kz")"]',
+      '    D & E --> F["坡印廷矢量 S = E × H"]',
+      '    F --> G["方向: 能量流动方向"]',
+      '```',
+    ].join('\n')
+
+    const wrapper = mount(MarkdownRenderer, {
+      props: { content },
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    const html = wrapper.html()
+    expect(html).toContain('<h3>🎨 可视化图解</h3>')
+    expect(html).toContain('&quot;E = E₀ cos(ωt - kz)&quot;')
+    expect(html).toContain('&quot;H = E₀/η cos(ωt - kz)&quot;')
+    expect(html).toContain('坡印廷矢量 S = E × H')
+    expect(html).toContain('方向: 能量流动方向')
+    expect(html).toContain('overflow: visible;')
+    expect(html).not.toContain('图表渲染失败')
+    expect(html).not.toContain("cos('ωt - kz')")
   })
 })
