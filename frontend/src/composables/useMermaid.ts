@@ -1,28 +1,6 @@
 import { nextTick, onUnmounted } from 'vue'
-import mermaid from 'mermaid'
 import logger from '../utils/logger'
-
-// Initialize globally once
-mermaid.initialize({
-    startOnLoad: false,
-    theme: 'base',
-    securityLevel: 'strict',
-    fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-    themeVariables: {
-        primaryColor: '#8b5cf6',
-        primaryTextColor: '#0f172a',
-        primaryBorderColor: '#7c3aed',
-        lineColor: '#334155',
-        secondaryColor: '#ede9fe',
-        tertiaryColor: '#ffffff',
-        mainBkg: '#f8fafc',
-        nodeBorder: '#cbd5e1',
-        clusterBkg: '#f1f5f9',
-        clusterBorder: '#cbd5e1',
-        titleColor: '#0f172a',
-        edgeLabelBackground: '#ffffff',
-    }
-});
+import { renderMermaidSvg } from '../utils/mermaid'
 
 // Render Queue System
 // Mermaid is not concurrency-safe for rendering. We must process one by one.
@@ -57,38 +35,6 @@ export function useMermaid() {
     const observedElements = new WeakSet()
     let observer: IntersectionObserver | null = null
 
-    // Helper to fix common Mermaid syntax errors
-    const fixMermaidCode = (code: string): string => {
-        let fixed = code;
-        const replaceQuotes = (_: string, start: string, content: string, end: string) => {
-            const safeContent = content.replace(/"/g, "'");
-            return `${start}${safeContent}${end}`;
-        };
-
-        // Fix various bracket types with quoted content
-        // 1. ["..."]
-        fixed = fixed.replace(/(\[")([\s\S]*?)("\])/g, replaceQuotes);
-        // 2. ("...")
-        fixed = fixed.replace(/(\(")([\s\S]*?)("\))/g, replaceQuotes);
-        // 3. {"..."}
-        fixed = fixed.replace(/(\{")([\s\S]*?)("\})/g, replaceQuotes);
-        // 4. [["..."]]
-        fixed = fixed.replace(/(\[\[")([\s\S]*?)("\]\])/g, replaceQuotes);
-        // 5. (["..."])
-        fixed = fixed.replace(/(\(\[")([\s\S]*?)("\]\))/g, replaceQuotes);
-        // 6. [("...")]
-        fixed = fixed.replace(/(\[\(")([\s\S]*?)("\)\])/g, replaceQuotes);
-        // 7. (("..."))
-        fixed = fixed.replace(/(\(\(")([\s\S]*?)("\)\))/g, replaceQuotes);
-        // 8. {{"..."}}
-        fixed = fixed.replace(/(\{\{")([\s\S]*?)("\}\})/g, replaceQuotes);
-        
-        // Fix: Replace backslash in labels if not escaping something? 
-        // Actually, LLMs sometimes output \ without escaping. But let's stick to quotes for now.
-        
-        return fixed;
-    }
-
     const renderDiagram = (target: HTMLElement) => {
         // Double check to prevent duplicate processing
         if (target.getAttribute('data-processed') === 'true') return
@@ -113,9 +59,6 @@ export function useMermaid() {
                  code = target.textContent || ''
              }
              
-             // Auto-fix common syntax errors
-             code = fixMermaidCode(code);
-             
              // Generate unique ID for this diagram
              const id = `mermaid-${Date.now()}-${Math.floor(Math.random() * 10000)}`
              
@@ -125,11 +68,10 @@ export function useMermaid() {
                      throw new Error('Empty diagram code')
                  }
      
-                 // Use mermaid.render instead of mermaid.run for better control and stability
-                 const { svg } = await mermaid.render(id, code)
-                 
-                 // Update target content with generated SVG
-                 target.innerHTML = svg
+                  const svg = await renderMermaidSvg(id, code)
+
+                  // Update target content with generated SVG
+                  target.innerHTML = svg
                  target.style.opacity = '1'
                  
              } catch (err: any) {

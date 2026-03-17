@@ -5,8 +5,8 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
-import mermaid from 'mermaid'
 import logger from '../utils/logger'
+import { renderMermaidSvg } from '../utils/mermaid'
 
 const props = defineProps<{
   content: string
@@ -17,71 +17,10 @@ const containerRef = ref<HTMLElement | null>(null)
 const renderedContent = ref('')
 const throttleDelay = 150 // 150ms 节流，平衡流畅度和性能
 
-// Initialize mermaid
-mermaid.initialize({
-    startOnLoad: false,
-    theme: 'default',
-    securityLevel: 'strict',
-    fontFamily: 'Inter, system-ui, sans-serif',
-})
-
 let isThrottled = false
 let hasPendingUpdate = false
 
 const escapeRegExp = (val: string) => val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-const cleanMermaidCode = (code: string): string => {
-    // Helper to escape quotes and wrap in quotes
-    const cleanLabel = (text: string): string => {
-        text = text.trim()
-        // If already wrapped in quotes, strip them first to avoid double quoting
-        if (text.startsWith('"') && text.endsWith('"') && text.length >= 2) {
-            text = text.slice(1, -1)
-        }
-        // Escape internal double quotes
-        text = text.replace(/"/g, '#quot;')
-        // Also escape parentheses if they are causing issues, but usually quotes are enough
-        // text = text.replace(/\(/g, '#40;').replace(/\)/g, '#41;')
-        return `"${text}"`
-    }
-
-    let cleaned = code
-
-    // 1. Clean node labels
-    // Order matters: match longest/most specific delimiters first
-    
-    // {{...}} -> {{"..."}}
-    cleaned = cleaned.replace(/\{\{(?!\{)(.*?)\}\}/g, (_, content) => `{{${cleanLabel(content)}}}`)
-    
-    // [[...]] -> [["..."]]
-    cleaned = cleaned.replace(/\[\[(?!\[)(.*?)\]\]/g, (_, content) => `[[${cleanLabel(content)}]]`)
-    
-    // [(...)] -> [("...")]
-    cleaned = cleaned.replace(/\[\((?!\()(.*?)\)\]/g, (_, content) => `[(${cleanLabel(content)})]`)
-    
-    // ((...)) -> (("..."))
-    cleaned = cleaned.replace(/\(\((?!\()(.*?)\)\)/g, (_, content) => `((${cleanLabel(content)}))`)
-    
-    // ([...]) -> (["..."])
-    cleaned = cleaned.replace(/\(\[(?!\[)(.*?)\]\)/g, (_, content) => `([${cleanLabel(content)}])`)
-    
-    // [...] -> ["..."]
-    // Exclude [[, [(, [/, [\
-    cleaned = cleaned.replace(/(?<!\()\[(?![(\[\/\\])(.*?)(?<![)\]\/\\])\](?!\])/g, (_, content) => `[${cleanLabel(content)}]`)
-    
-    // (...) -> ("...")
-    // Exclude ((, ([
-    cleaned = cleaned.replace(/(?<!\()(\()(?!\(|\[)(.*?)(?<!\))(\))/g, (_, _p1, content, _p3) => `(${cleanLabel(content)})`)
-    
-    // {...} -> {"..."}
-    // Exclude {{
-    cleaned = cleaned.replace(/(?<!\{)\{(?!\{)(.*?)\}(?!\})/g, (_, content) => `{${cleanLabel(content)}}`)
-
-    // 2. Clean link labels: |...| -> |"..."|
-    cleaned = cleaned.replace(/\|(.*?)\|/g, (_, content) => `|${cleanLabel(content)}|`)
-
-    return cleaned
-}
 
 const renderMermaid = async () => {
     await nextTick()
@@ -112,16 +51,12 @@ const renderMermaid = async () => {
             }
             
             // Clean the syntax
-            const cleaned = cleanMermaidCode(code)
-            
             // Generate unique ID
             const id = `mermaid-${Date.now()}-${Math.floor(Math.random() * 10000)}`
-            
-            // Render using mermaid.render for better error handling
-            const { svg } = await mermaid.render(id, cleaned)
+            const adjustedSvg = await renderMermaidSvg(id, code)
             
             // Update the element
-            mermaidEl.innerHTML = svg
+            mermaidEl.innerHTML = adjustedSvg
             mermaidEl.setAttribute('data-processed', 'true')
             mermaidEl.style.opacity = '1'
             

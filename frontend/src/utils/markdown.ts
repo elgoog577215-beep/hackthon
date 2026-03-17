@@ -1,34 +1,14 @@
 import MarkdownIt from 'markdown-it';
 // import markdownItKatex from 'markdown-it-katex'; // Replaced by custom implementation
 import katex from 'katex';
-import mermaid from 'mermaid';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import linkAttributes from 'markdown-it-link-attributes';
 import 'highlight.js/styles/atom-one-dark.css';
 import logger from './logger';
+import { prepareMermaidBlockSource, initializeMermaid } from './mermaid';
 
-// Initialize mermaid
-mermaid.initialize({
-    startOnLoad: false,
-    theme: 'base',
-    securityLevel: 'strict',
-    fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-    themeVariables: {
-        primaryColor: '#8b5cf6', // primary-500
-        primaryTextColor: '#0f172a', // slate-900 (Black text for better visibility)
-        primaryBorderColor: '#7c3aed', // primary-600
-        lineColor: '#334155', // slate-700
-        secondaryColor: '#ede9fe', // primary-100
-        tertiaryColor: '#ffffff',
-        mainBkg: '#f8fafc', // slate-50
-        nodeBorder: '#cbd5e1', // slate-300
-        clusterBkg: '#f1f5f9', // slate-100
-        clusterBorder: '#cbd5e1', // slate-300
-        titleColor: '#0f172a', // slate-900
-        edgeLabelBackground: '#ffffff',
-    }
-});
+initializeMermaid();
 
 // Markdown Configuration
 const md = new MarkdownIt({
@@ -56,18 +36,19 @@ md.use(linkAttributes, {
 
 // Custom Math Plugin for KaTeX
 const mathPlugin = (md: any) => {
-    // Inline math rule ($...$ and $$...$$)
+    // Inline math rule ($...$ only)
     md.inline.ruler.after('escape', 'math_inline', (state: any, silent: boolean) => {
         const start = state.pos;
         if (state.src[start] !== '$') return false;
 
-        let isDisplay = false;
-        let marker = '$';
-        
+        // Reserve $$...$$ for the block rule. If inline parsing consumes the
+        // first '$' of a multiline display block, the second '$' can be
+        // reparsed and produce leaked delimiters or partial math tokens.
         if (start + 1 < state.posMax && state.src[start + 1] === '$') {
-            isDisplay = true;
-            marker = '$$';
+            return false;
         }
+
+        let marker = '$';
 
         const markerLen = marker.length;
         let pos = start + markerLen;
@@ -101,7 +82,7 @@ const mathPlugin = (md: any) => {
         // But markdown-it inline usually doesn't span newlines unless breaks enabled.
         // My robust preprocessing ensures blocks are clean.
         
-        const token = state.push(isDisplay ? 'math_display' : 'math_inline', 'math', 0);
+        const token = state.push('math_inline', 'math', 0);
         token.content = content.trim();
         token.markup = marker;
 
@@ -119,15 +100,17 @@ const mathPlugin = (md: any) => {
         let next = start;
         let found = false;
         
+        const trimmedFirstLine = firstLine.trim();
+
         // If single line $$...$$
-        if (firstLine.trim().length > 2 && firstLine.trim().endsWith('$$')) {
+        if (trimmedFirstLine.length > 4 && trimmedFirstLine.endsWith('$$')) {
             found = true;
         } else {
             // Multiline
             next++;
             while (next < end) {
                 const line = state.src.slice(state.bMarks[next] + state.tShift[next], state.eMarks[next]);
-                if (line.trim().endsWith('$$')) {
+                if (line.trim() === '$$') {
                     found = true;
                     break;
                 }
@@ -139,11 +122,19 @@ const mathPlugin = (md: any) => {
         if (silent) return true;
 
         const token = state.push('math_display_block', 'math', 0);
-        // Extract content
-        const lines = state.getLines(start, next + 1, state.tShift[start], false);
-        let content = lines.trim();
-        if (content.startsWith('$$')) content = content.slice(2);
-        if (content.endsWith('$$')) content = content.slice(0, -2);
+        let content = '';
+
+        if (trimmedFirstLine.length > 4 && trimmedFirstLine.endsWith('$$')) {
+            content = trimmedFirstLine.slice(2, -2).trim();
+        } else {
+            const contentLines: string[] = [];
+            for (let lineNo = start + 1; lineNo < next; lineNo++) {
+                const lineStart = state.bMarks[lineNo] + state.tShift[lineNo];
+                const lineEnd = state.eMarks[lineNo];
+                contentLines.push(state.src.slice(lineStart, lineEnd));
+            }
+            content = contentLines.join('\n').trim();
+        }
         
         token.content = content.trim();
         token.map = [start, next + 1];
@@ -203,26 +194,7 @@ md.renderer.rules.fence = function(tokens: any, idx: number, options: any) {
   const info = token.info ? token.info.trim() : '';
   
   if (info === 'mermaid') {
-    let code = token.content.trim();
-    
-    // Auto-fix 1: Ensure valid diagram type header
-    // If code doesn't start with a known type, default to graph TD
-    const knownTypes = [
-        'graph', 'flowchart', 'sequenceDiagram', 'classDiagram', 
-        'stateDiagram', 'erDiagram', 'gantt', 'pie', 'mindmap', 
-        'timeline', 'gitGraph', 'journey', 'sankey-beta', 'quadrantChart'
-    ];
-    
-    // Simple heuristic: if it doesn't start with a known type, assume it's a graph
-    const firstWord = code.split(/[\s\n]/)[0];
-    if (!knownTypes.includes(firstWord) && !code.trim().startsWith('%%')) {
-        if (code.includes('-->') || code.includes('---')) {
-            code = 'graph TD\n' + code;
-        }
-    }
-
-    // Auto-fix 2: Removed aggressive text quoting as it was causing syntax errors with modern Mermaid versions
-    // Mermaid 10+ handles special characters much better
+    const code = prepareMermaidBlockSource(token.content);
 
     // Encode the code to prevent HTML tag parsing issues (e.g. A["<Label>"])
     const encodedCode = md.utils.escapeHtml(code);
@@ -693,18 +665,25 @@ export const renderMarkdown = (content: string) => {
 
     // --- Unmask Math ---
     // Now that heuristics have run on "naked" content, we restore the original math blocks.
+    // NOTE: Must use a function replacement to avoid $$ being interpreted as
+    // a special replacement pattern (literal $) by String.prototype.replace.
     mathMaskMap.forEach((value, key) => {
-         normalized = normalized.replace(key, value);
+         normalized = normalized.replace(key, () => value);
     });
 
     // Normalize LaTeX delimiters for compatibility
     // Replace \[ ... \] with $$ ... $$
-    normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, '\n$$\n$1\n$$\n');
+    normalized = normalized.replace(/\\\[([\s\S]*?)\\\]/g, (_match, content) => {
+        return `\n$$\n${String(content).trim()}\n$$\n`;
+    });
     // Replace \( ... \) with $ ... $ (Inline math)
-    normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
+    normalized = normalized.replace(/\\\(([\s\S]*?)\\\)/g, (_match, content) => {
+        return `$${String(content).trim()}$`;
+    });
     
-    // Fix: Ensure display math $$...$$ has proper spacing for rendering
-    normalized = normalized.replace(/\$\$([\s\S]*?)\$\$/g, (_match, content) => {
+    // Normalize single-line display math into a block form. Existing multiline
+    // $$ blocks were already masked and restored, so avoid rewriting them again.
+    normalized = normalized.replace(/\$\$([^\n$][^\n]*?)\$\$/g, (_match, content) => {
         return `\n$$\n${content.trim()}\n$$\n`;
     });
     
@@ -730,97 +709,18 @@ export const renderMarkdown = (content: string) => {
     normalized = normalized.replace(/(\$\$[\s\S]*?)[^$]\$$/gm, "$1$$")
 
 
-    // Fix: Auto-wrap equations that are missing delimiters (common LLM issue)
-    // Heuristic: If a line contains a math command (vec, frac, int, sum, lim, etc.) AND an equals sign or typical math operators,
-    // and is not already wrapped in $, wrap the math part in $$
-    // Example: "Label: \vec{v} = ..." -> "Label: $$\vec{v} = ...$$"
-    // Added boundary check (?![a-zA-Z]) to prevent partial matches (e.g. \in matching \infty)
-    const mathCmds = [
-        'vec', 'frac', 'int', 'sum', 'lim', 'mathbb', 'mathcal', 'in', 'times', 'cdot', 
-        'leq', 'geq', 'neq', 'approx', 'equiv', 'forall', 'exists', 'partial', 'nabla', 
-        'alpha', 'beta', 'gamma', 'sigma', 'lambda', 'mu', 'pi', 'infty', 'ell', 'mid', 
-        'langle', 'rangle', 'lVert', 'rVert', 'left', 'right'
-    ].join('|');
-    
-    const mathCmdRegex = new RegExp(`(^|\\n)([^\\n$]*?)(\\\\(${mathCmds}))(?![a-zA-Z])([^$\\n]*[=><\\u2248\\u2260\\u2264\\u2265\\u2208][^$\\n]*)(\\n|$)`, 'g');
-
-    normalized = normalized.replace(mathCmdRegex, (match, prefix, label, cmdFull, _cmdName, rest, suffix) => {
-        // If the label contains $ or the rest contains $, abort (already wrapped)
-        if (label.includes('$') || rest.includes('$')) return match;
-        
-        // Don't wrap if it looks like code (e.g. inside `...`) - simple check
-        if (label.includes('`') || rest.includes('`')) return match;
-
-        // Try to capture preceding math content in label (e.g. "f(x) = " or "\ell^2 = ")
-        // This is a simple heuristic to include "x =" or "f(x) =" into the math block
-        // We look for a suffix of label that looks like math
-        
-        // Revised Logic:
-        // 1. If label contains any LaTeX-like commands (backslashes), treat the whole label as part of the formula.
-        //    (Except if it looks like typical text, but checking for \ is a strong signal).
-        // 2. If label ends with typical math structure (A = , f(x) = ), capture it.
-        
-        let preMath = '';
-        let textLabel = label;
-
-        if (label.includes('\\') || label.match(/[=><]\s*$/)) {
-             // Strong signal: Label contains LaTeX or ends with operator.
-             // We should probably wrap the whole thing, or at least from the first math-char.
-             // Let's try to find the split point between "Text: " and "Math".
-             // We look for the last occurrence of common text punctuation (: or .) followed by space.
-             const splitMatch = label.match(/^(.*[:。，,]\s*)(.*)$/);
-             if (splitMatch) {
-                 textLabel = splitMatch[1];
-                 preMath = splitMatch[2];
-             } else {
-                 // No punctuation split, assume it's all math if it has backslash?
-                 // Or maybe it's just "Therefore " + math.
-                 // Let's use a safe heuristic: if it has backslash, wrap it all.
-                 if (label.includes('\\')) {
-                     preMath = label;
-                     textLabel = '';
-                 } else {
-                     // Just text ending in = ?
-                     const labelMatch = label.match(/([a-zA-Z0-9_{}\(\)\^\|\s]+(=|:)\s*)$/);
-                     if (labelMatch) {
-                        preMath = labelMatch[0];
-                        textLabel = label.substring(0, label.length - preMath.length);
-                     }
-                 }
-             }
-        } else {
-             // Standard short label check
-             if (label.trim().length < 10 && !label.match(/[.,;!?]$/)) {
-                 preMath = label;
-                 textLabel = '';
-             }
-        }
-
-        return `${prefix}${textLabel}$$${preMath}${cmdFull}${rest}$$${suffix}`;
-    });
-
-    // Heuristic 2: Wrap standalone math lines that start with typical LaTeX commands but miss delimiters
-    // e.g. "A \in \mathbb{R}^{m \times n}"
-    const standaloneCmds = ['mathbb', 'mathcal', 'in', 'times', 'ell', 'infty', 'sum', 'int'].join('|');
-    const standaloneRegex = new RegExp(`(^|\\n)([^\\n$]*?)(\\\\(${standaloneCmds}))(?![a-zA-Z])([^$\\n]*)(\\n|$)`, 'g');
-    
-    normalized = normalized.replace(standaloneRegex, (match, prefix, label, cmdFull, _cmdName, rest, suffix) => {
-         if (label.includes('$') || rest.includes('$')) return match;
-         if (label.includes('`') || rest.includes('`')) return match;
-         
-         if (rest.match(/[\^_{}=]/) || label.match(/[A-Za-z0-9]\s*$/)) {
-             return `${prefix}${label}$$${cmdFull}${rest}$$${suffix}`;
-         }
-         return match;
-    });
+    // NOTE: Do not run additional auto-wrapping heuristics after restoring valid
+    // math delimiters. They can mistakenly re-wrap already-correct imported
+    // formulas and cause red error spans, leaked delimiters, or missing inline math.
 
     let sanitized = ''
     try {
         // Restore code blocks before rendering? 
         // No, markdown-it needs to see the code blocks to render them as code.
         // So we must restore them now.
+        // NOTE: Must use function replacement to avoid $ special patterns in String.replace.
         codeBlockMap.forEach((value, key) => {
-             normalized = normalized.replace(key, value);
+             normalized = normalized.replace(key, () => value);
         });
 
         const rawHtml = md.render(normalized);
