@@ -472,7 +472,7 @@ SUBNODE_HINTS_SKILL_BASED = """
 # =============================================================================
 
 def get_difficulty_config(level: str) -> str:
-    """返回指定难度等级的配置文本片段"""
+    """返回指定难度等级的配置文本片段（同时用于课程生成和出题）"""
     configs = {
         "beginner": """### 难度配置：入门 (beginner)
 - 目标受众：零基础或仅有模糊概念的学习者
@@ -492,6 +492,37 @@ def get_difficulty_config(level: str) -> str:
 - 章节长度：每章内容适合60-120分钟阅读
 - 公式密度：> 30%
 - 结构特点：层级化，每章包含4-7个深度子章节"""
+    }
+    return configs.get(level, configs["intermediate"])
+
+
+def get_quiz_difficulty_constraints(level: str) -> str:
+    """返回出题专用的难度约束文本，用于 user prompt 中强制 LLM 遵守难度要求"""
+    configs = {
+        "beginner": """## ⚠️ 入门难度出题约束（必须严格遵守）
+- 只考最基本的概念定义和直观理解，不考原理推导
+- 题干用日常语言描述，避免堆砌专业术语
+- 选项之间差异明显，不设置容易混淆的干扰项
+- 不涉及公式计算、代码实现、多步推理
+- 正确答案可以直接从课程内容中找到原文对应
+- 错误选项应该是明显不相关或常见误解，而非细微差别
+- difficulty_score 应在 1-3 之间""",
+        "intermediate": """## ⚠️ 进阶难度出题约束（必须严格遵守）
+- 考察对概念的理解和应用，而非简单记忆
+- 需要理解原理后才能判断，不能直接从原文找到答案
+- 选项之间有一定相似性，需要辨析才能选出正确答案
+- 可以涉及简单的推理、比较、因果关系分析
+- 可以包含公式的含义理解，但不要求复杂计算
+- 错误选项应该是看似合理但有关键错误的表述
+- difficulty_score 应在 4-6 之间""",
+        "advanced": """## ⚠️ 精通难度出题约束（必须严格遵守）
+- 考察深层理解、跨概念关联、边界条件和特殊情况
+- 需要多步推理或综合多个知识点才能得出答案
+- 选项之间差异细微，需要精确理解才能区分
+- 可以涉及复杂计算、代码分析、反直觉的结论
+- 可以设置"以上都对"或"以上都不对"类型的选项
+- 错误选项应该是常见的高级误解或容易忽略的细节错误
+- difficulty_score 应在 7-9 之间"""
     }
     return configs.get(level, configs["intermediate"])
 
@@ -1487,6 +1518,95 @@ SUMMARIZE_HISTORY = PromptTemplate(
 # Prompt Registry - 提示词注册表
 # =============================================================================
 
+# =============================================================================
+# Learner Profile - 学习者画像生成
+# =============================================================================
+
+GENERATE_LEARNER_PROFILE = PromptTemplate(
+    name="generate_learner_profile",
+    version="1.1.0",
+    description="基于学习数据生成学习者画像分析",
+    parameters=["wrong_answers", "notes", "chat_summary", "self_evaluation"],
+    tags=["profile", "analysis", "learner"],
+    system_prompt="""你是一位资深教育分析师。根据学习数据直接给出结论性画像，不需要冗长的分析过程。
+
+## 数据说明
+- 错题记录：重点关注用户在哪些知识点上犯错，归纳薄弱知识点
+- 笔记分两类：
+  - 【用户手写笔记】：用户主动记录的内容，反映学习习惯和关注点
+  - 【用户困惑并提问AI的内容】：用户在学习中感到困惑的地方，反映理解障碍
+- 问答历史：用户与AI的交互，反映学习深度和思考方式
+
+## 输出格式（Markdown，简洁结论式）
+
+### 🎯 薄弱知识点
+直接列出未掌握的知识点，每个附一句话说明判断依据。
+
+### 🧠 学习特征
+用2-3句话概括学习者的学习风格、习惯和思维特点。
+
+## 要求
+- 直接给结论，不要大段分析过程
+- 不要给出学习建议（建议由另一个模块负责）
+- 薄弱知识点从错题中归纳，不要逐题罗列
+- 如果某类数据为空，跳过，不要编造
+- 使用中文输出"""
+)
+
+GENERATE_LEARNER_PROFILE_INCREMENTAL = PromptTemplate(
+    name="generate_learner_profile_incremental",
+    version="1.0.0",
+    description="基于现有画像和新增内容进行增量更新",
+    parameters=["current_profile", "new_content", "self_evaluation"],
+    tags=["profile", "analysis", "incremental"],
+    system_prompt="""你是一位资深教育分析师。
+
+## 任务
+基于现有的学习者画像和新增的学习内容，更新画像分析。
+
+## 要求
+- 保留现有画像中仍然准确的分析
+- 根据新增内容调整或补充分析
+- 如果新内容改变了某个结论（如某个薄弱点已改善），要更新
+- 输出完整的更新后画像（格式同全量生成）
+- 使用中文输出"""
+)
+
+GENERATE_AGENT_COMMENTARY = PromptTemplate(
+    name="generate_agent_commentary",
+    version="1.1.0",
+    description="基于AI画像生成系统独立评论和建议",
+    parameters=["ai_profile"],
+    tags=["profile", "commentary", "suggestions"],
+    system_prompt="""你是学习者的 AI 学习伙伴，语气友好、鼓励但不敷衍。
+
+## 任务
+基于 AI 生成的学习者画像，给出具体的学习建议和鼓励。
+
+## 要求
+- 针对画像中的薄弱知识点，给出2-3条具体、可操作的改进建议（如"建议先复习XX概念再做相关练习"）
+- 指出学习者的优势和进步
+- 语气温和鼓励，像朋友一样交流
+- 控制在 200 字以内
+- 使用中文输出"""
+)
+
+GENERATE_PERSONA_SUMMARY = PromptTemplate(
+    name="generate_persona_summary",
+    version="1.0.0",
+    description="将完整画像压缩为精简版，用于注入prompt",
+    parameters=["ai_profile", "self_evaluation"],
+    tags=["profile", "persona", "summary"],
+    system_prompt="""将以下学习者画像和自我评价压缩为一段精简描述（不超过200字），用于作为AI出题和问答时的用户背景信息。
+
+## 要求
+- 保留关键信息：薄弱领域、未掌握知识点、学习水平
+- 去掉细节和证据，只保留结论
+- 格式为一段连续文本，不要用列表
+- 使用中文输出"""
+)
+
+
 PROMPT_REGISTRY: Dict[str, PromptTemplate] = {
     "generate_course": GENERATE_COURSE,
     "generate_sub_nodes": GENERATE_SUB_NODES,
@@ -1498,6 +1618,10 @@ PROMPT_REGISTRY: Dict[str, PromptTemplate] = {
     "generate_diagram": GENERATE_DIAGRAM,
     "generate_learning_path": GENERATE_LEARNING_PATH,
     "summarize_history": SUMMARIZE_HISTORY,
+    "generate_learner_profile": GENERATE_LEARNER_PROFILE,
+    "generate_learner_profile_incremental": GENERATE_LEARNER_PROFILE_INCREMENTAL,
+    "generate_agent_commentary": GENERATE_AGENT_COMMENTARY,
+    "generate_persona_summary": GENERATE_PERSONA_SUMMARY,
 }
 
 

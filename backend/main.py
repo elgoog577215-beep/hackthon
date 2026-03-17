@@ -44,7 +44,7 @@ from routers import (
     courses, nodes, annotations, quiz,
     knowledge_graph, learning, review,
     tutor, code_execution, diagrams, tasks,
-    markdown_import
+    markdown_import, profile
 )
 
 @asynccontextmanager
@@ -229,6 +229,7 @@ app.include_router(code_execution.router)
 app.include_router(diagrams.router)
 app.include_router(tasks.router, prefix="/api")
 app.include_router(markdown_import.router)
+app.include_router(profile.router, prefix="/api")
 
 
 # ============================================================================

@@ -12,6 +12,7 @@ import { useNoteStore } from './notes'
 import { useGenerationStore } from './generation'
 import { useLearningStore } from './learning'
 import { useReviewStore } from './review'
+import { useProfileStore } from './profile'
 import logger from '../utils/logger'
 
 // =============================================================================
@@ -94,6 +95,10 @@ export const useCourseStore = defineStore('course', {
       return (nodeId: string) => noteStore.notes.filter((n: Note) => n.nodeId === nodeId)
     },
     currentCourse: (state) => state.courseList.find(c => c.course_id === state.currentCourseId),
+    effectivePersona(): string {
+      const profileStore = useProfileStore()
+      return profileStore.personaSummary || this.userPersona
+    },
   },
   actions: {
     // ========== UI Actions ==========
@@ -607,7 +612,7 @@ export const useCourseStore = defineStore('course', {
             const res = await http.post(`/api/courses/${this.currentCourseId}/nodes/${nodeId}/quiz`, {
                 node_content: nodeContent,
                 node_name: this.nodes.find(n => n.node_id === nodeId)?.node_name || '',
-                difficulty, style, user_persona: this.userPersona, question_count: questionCount
+                difficulty, style, user_persona: this.effectivePersona, question_count: questionCount
             })
             const processedQuizzes = Array.isArray(res.data) ? res.data.map((quizItem: any) => ({
                 ...quizItem,
@@ -636,7 +641,7 @@ export const useCourseStore = defineStore('course', {
         this.chatHistory.push({ type: 'user', content: `请帮我总结一下「${this.currentNode.node_name}」的核心内容` })
         try {
             const res = await http.post(`/api/courses/${this.currentCourseId}/nodes/${this.currentNode.node_id}/summarize`, {
-                node_content: this.currentNode.node_content, node_name: this.currentNode.node_name, user_persona: this.userPersona
+                node_content: this.currentNode.node_content, node_name: this.currentNode.node_name, user_persona: this.effectivePersona
             })
             this.chatHistory.push({ type: 'ai', content: { answer: res.data.summary || res.data.content || '总结生成完成', core_answer: res.data.summary || res.data.content || '总结生成完成' } })
         } catch (e) {
@@ -654,7 +659,7 @@ export const useCourseStore = defineStore('course', {
                 content: typeof msg.content === 'string' ? msg.content : (msg.content.core_answer || '')
             }))
             const context = this.currentNode ? `当前章节：${this.currentNode.node_name}` : '全书概览'
-            const res = await http.post(`/api/summarize_chat`, { history, course_context: context, user_persona: this.userPersona })
+            const res = await http.post(`/api/summarize_chat`, { history, course_context: context, user_persona: this.effectivePersona })
             return res.data
         } catch (e) { logger.error(e); ElMessage.error('总结生成失败'); return null }
         finally { this.chatLoading = false }
@@ -716,7 +721,7 @@ export const useCourseStore = defineStore('course', {
             body: JSON.stringify({
                 node_id: targetNode.node_id, node_name: targetNode.node_name,
                 node_content: fullContext, question, history, selection,
-                user_notes: userNotes, user_persona: this.userPersona,
+                user_notes: userNotes, user_persona: this.effectivePersona,
                 session_metrics: sessionMetrics, enable_long_term_memory: true
             }),
             signal: controller.signal

@@ -10,7 +10,7 @@ from typing import List, Dict, Optional
 
 from ai_base import AIBase
 from shared.prompt_config import DIFFICULTY_LEVELS, TEACHING_STYLES, DifficultyLevel, TeachingStyle
-from prompts import get_prompt, get_difficulty_config, get_style_config, get_quiz_discipline_config
+from prompts import get_prompt, get_difficulty_config, get_style_config, get_quiz_discipline_config, get_quiz_difficulty_constraints
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,9 @@ class AIQuizService(AIBase):
             "analysis": "分析题型：侧重逻辑推理和深度分析"
         }
         
+        # 出题专用难度约束
+        quiz_difficulty_text = get_quiz_difficulty_constraints(difficulty)
+        
         prompt = f"""以下是课程内容，请仔细阅读后基于内容出题：
 
 ---
@@ -74,10 +77,11 @@ class AIQuizService(AIBase):
 {personalization}
 {mistake_focus}
 
-题型要求：{type_distribution.get(quiz_type, type_distribution['mixed'])}
-难度级别：{difficulty}
+{quiz_difficulty_text}
 
-请严格基于以上课程内容，生成恰好 {question_count} 道选择题。
+题型要求：{type_distribution.get(quiz_type, type_distribution['mixed'])}
+
+请严格基于以上课程内容，并严格遵守上述难度约束，生成恰好 {question_count} 道选择题。
 直接输出 JSON 数组，不要输出任何其他文字。
 """
         

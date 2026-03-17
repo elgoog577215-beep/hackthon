@@ -355,3 +355,20 @@ class ImportMarkdownResponse(BaseModel):
     """Markdown 导入响应"""
     course_id: str
     course_name: str
+
+# === 学习者画像 ===
+class GenerateProfileRequest(BaseModel):
+    """学习者画像生成请求"""
+    wrong_answers: List[dict] = []
+    notes: List[dict] = []
+    chat_summary: str = ""
+    self_evaluation: str = ""
+    current_profile: Optional[str] = None
+    mode: Literal["full", "incremental"] = "full"
+    new_content: Optional[str] = None
+
+class ProfileResponse(BaseModel):
+    """学习者画像生成响应"""
+    ai_profile: str
+    agent_commentary: str
+    persona_summary: str

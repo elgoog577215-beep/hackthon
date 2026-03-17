@@ -20,10 +20,12 @@ from ai_qa_service import AIQAService
 from ai_graph_service import AIGraphService
 from ai_learning_service import AILearningService
 from ai_diagram_service import AIDiagramService
+from ai_profile_service import AIProfileService
 
 
 class AIService(AICourseService, AIQuizService, AIQAService,
-                AIGraphService, AILearningService, AIDiagramService):
+                AIGraphService, AILearningService, AIDiagramService,
+                AIProfileService):
     """向后兼容的门面类，聚合所有 AI 服务功能"""
     pass
 
