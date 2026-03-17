@@ -385,4 +385,24 @@ describe('MarkdownRenderer – Mermaid', () => {
     expect(html).toContain("&quot;H = E₀/η cos('ωt - kz')&quot;")
     expect(html).not.toContain('图表渲染失败')
   })
+
+  it('为 Mermaid 输出添加安全余量，避免节点文字末尾被裁切', async () => {
+    const content = [
+      '```mermaid',
+      'graph TD',
+      '    A["方向遵循右手螺旋法则"] --> B["B(' + "'" + 'r' + "'" + ') = μ₀I/(2πr)"]',
+      '```',
+    ].join('\n')
+
+    const wrapper = mount(MarkdownRenderer, {
+      props: { content },
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    const html = wrapper.html()
+    expect(html).toContain('<svg')
+    expect(html).toContain('overflow: visible;')
+  })
 })

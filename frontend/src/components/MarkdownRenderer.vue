@@ -76,6 +76,65 @@ const cleanMermaidCode = (code: string): string => {
         .trim()
 }
 
+const addMermaidSafetyMargin = (svgMarkup: string): string => {
+    if (typeof window === 'undefined') return svgMarkup
+
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(svgMarkup, 'image/svg+xml')
+    const svg = doc.documentElement
+
+    if (!svg || svg.tagName.toLowerCase() !== 'svg') {
+        return svgMarkup
+    }
+
+    const extraRight = 24
+    const extraNodeWidth = 12
+
+    const viewBox = svg.getAttribute('viewBox')
+    if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(Number)
+        if (parts.length === 4 && parts.every(Number.isFinite)) {
+            parts[2] += extraRight
+            svg.setAttribute('viewBox', parts.join(' '))
+        }
+    }
+
+    const width = svg.getAttribute('width')
+    if (width) {
+        const match = width.match(/^([\d.]+)(px)?$/)
+        if (match) {
+            const nextWidth = Number(match[1]) + extraRight
+            svg.setAttribute('width', `${nextWidth}${match[2] || ''}`)
+        }
+    }
+
+    const currentStyle = svg.getAttribute('style') || ''
+    const nextStyle = /overflow\s*:/.test(currentStyle)
+        ? currentStyle
+        : `${currentStyle}${currentStyle && !currentStyle.trim().endsWith(';') ? ';' : ''}overflow: visible;`
+    svg.setAttribute('style', nextStyle)
+
+    const shapeSelectors = ['rect.basic.label-container', 'rect.label-container', 'g.node rect']
+    const adjusted = new Set<Element>()
+
+    shapeSelectors.forEach(selector => {
+        svg.querySelectorAll(selector).forEach(node => {
+            if (adjusted.has(node)) return
+            adjusted.add(node)
+
+            const widthAttr = node.getAttribute('width')
+            if (widthAttr) {
+                const currentWidth = Number(widthAttr)
+                if (Number.isFinite(currentWidth)) {
+                    node.setAttribute('width', String(currentWidth + extraNodeWidth))
+                }
+            }
+        })
+    })
+
+    return svg.outerHTML
+}
+
 const renderMermaid = async () => {
     await nextTick()
     if (!containerRef.value) return
@@ -112,9 +171,10 @@ const renderMermaid = async () => {
             
             // Render using mermaid.render for better error handling
             const { svg } = await mermaid.render(id, cleaned)
+            const adjustedSvg = addMermaidSafetyMargin(svg)
             
             // Update the element
-            mermaidEl.innerHTML = svg
+            mermaidEl.innerHTML = adjustedSvg
             mermaidEl.setAttribute('data-processed', 'true')
             mermaidEl.style.opacity = '1'
             
