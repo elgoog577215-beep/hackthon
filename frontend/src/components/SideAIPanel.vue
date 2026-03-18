@@ -94,6 +94,9 @@
       </div>
     </div>
 
+    <!-- Learner Profile -->
+    <LearnerProfile />
+
     <!-- Bottom Section: QuoteCard + Suggestions + Input -->
     <div class="flex-shrink-0 border-t border-slate-200/50 bg-white/80 backdrop-blur-md">
       <!-- Quote Card -->
@@ -161,6 +164,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useCourseStore } from '../stores/course'
 import type { AIContent } from '../stores/types'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import LearnerProfile from './LearnerProfile.vue'
 import { ChatDotRound, Close, MagicStick, RefreshLeft, Promotion } from '@element-plus/icons-vue'
 
 // Props & Emits

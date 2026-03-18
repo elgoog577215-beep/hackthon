@@ -12,6 +12,7 @@ import { useNoteStore } from './notes'
 import { useGenerationStore } from './generation'
 import { useLearningStore } from './learning'
 import { useReviewStore } from './review'
+import { useProfileStore } from './profile'
 import logger from '../utils/logger'
 
 // =============================================================================
@@ -42,7 +43,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
 }
 
 // --- 类型重新导出（向后兼容） ---
-export type { Node, Annotation, Note, Course, QueueItem, AIContent, ChatMessage, ChatConversation, NodeGenerationConfig, NodeGenerationStatus, TaskProgress, FailureReport, WSMessage, WSCommand } from './types'
+export type { Node, Annotation, Note, Course, QueueItem, AIContent, ChatMessage, ChatConversation } from './types'
 import type { Node, Annotation, Note, Course, QueueItem, Task, AIContent, ChatMessage, ChatConversation } from './types'
 
 export const useCourseStore = defineStore('course', {
@@ -74,8 +75,8 @@ export const useCourseStore = defineStore('course', {
     userPersona: localStorage.getItem('user_persona') || '',
 
     // --- 多对话管理 ---
-    conversations: JSON.parse(localStorage.getItem('chat_conversations') || '[]') as ChatConversation[],
-    currentConversationId: localStorage.getItem('chat_current_conversation') || '' as string,
+    conversations: [] as ChatConversation[],
+    currentConversationId: '' as string,
     uiSettings: (() => {
         try {
             const saved = JSON.parse(localStorage.getItem('ui_settings') || 'null')
@@ -94,6 +95,10 @@ export const useCourseStore = defineStore('course', {
       return (nodeId: string) => noteStore.notes.filter((n: Note) => n.nodeId === nodeId)
     },
     currentCourse: (state) => state.courseList.find(c => c.course_id === state.currentCourseId),
+    effectivePersona(): string {
+      const profileStore = useProfileStore()
+      return profileStore.personaSummary || this.userPersona
+    },
   },
   actions: {
     // ========== UI Actions ==========
@@ -122,6 +127,8 @@ export const useCourseStore = defineStore('course', {
     },
     addMessage(type: 'user' | 'ai', content: string | AIContent) {
         this.chatHistory.push({ type, content })
+        this.syncCurrentConversation()
+        this.saveConversations()
     },
     cancelChat() {
         if (this.chatAbortController) { this.chatAbortController.abort() }
@@ -188,12 +195,25 @@ export const useCourseStore = defineStore('course', {
         this.saveConversations()
     },
     saveConversations() {
+        const cid = this.currentCourseId
+        const suffix = cid ? `_${cid}` : ''
         try {
-            localStorage.setItem('chat_conversations', JSON.stringify(this.conversations))
-            localStorage.setItem('chat_current_conversation', this.currentConversationId)
+            localStorage.setItem(`chat_conversations${suffix}`, JSON.stringify(this.conversations))
+            localStorage.setItem(`chat_current_conversation${suffix}`, this.currentConversationId)
         } catch (e) {
             logger.error('Failed to save conversations:', e)
         }
+    },
+    loadConversations(courseId: string) {
+        const suffix = courseId ? `_${courseId}` : ''
+        try {
+            this.conversations = JSON.parse(localStorage.getItem(`chat_conversations${suffix}`) || '[]')
+            this.currentConversationId = localStorage.getItem(`chat_current_conversation${suffix}`) || ''
+        } catch {
+            this.conversations = []
+            this.currentConversationId = ''
+        }
+        this.initConversations()
     },
 
     // ========== Delegation helpers ==========
@@ -296,6 +316,9 @@ export const useCourseStore = defineStore('course', {
                 const learningStore = useLearningStore()
                 const pos = learningStore.getReadingPosition(courseId)
                 if (pos) { this.scrollToNodeId = pos.nodeId }
+
+                // 加载该课程的对话记录
+                this.loadConversations(courseId)
             } else {
                 throw new Error('课程数据为空')
             }
@@ -607,7 +630,7 @@ export const useCourseStore = defineStore('course', {
             const res = await http.post(`/api/courses/${this.currentCourseId}/nodes/${nodeId}/quiz`, {
                 node_content: nodeContent,
                 node_name: this.nodes.find(n => n.node_id === nodeId)?.node_name || '',
-                difficulty, style, user_persona: this.userPersona, question_count: questionCount
+                difficulty, style, user_persona: this.effectivePersona, question_count: questionCount
             })
             const processedQuizzes = Array.isArray(res.data) ? res.data.map((quizItem: any) => ({
                 ...quizItem,
@@ -627,7 +650,7 @@ export const useCourseStore = defineStore('course', {
             ElMessage.error('生成测验失败')
             if (!silent) { this.chatHistory.push({ type: 'ai', content: '生成测验时遇到错误，请稍后再试。' }) }
             return []
-        } finally { this.chatLoading = false }
+        } finally { this.chatLoading = false; this.syncCurrentConversation(); this.saveConversations() }
     },
 
     async quickSummarize() {
@@ -636,13 +659,13 @@ export const useCourseStore = defineStore('course', {
         this.chatHistory.push({ type: 'user', content: `请帮我总结一下「${this.currentNode.node_name}」的核心内容` })
         try {
             const res = await http.post(`/api/courses/${this.currentCourseId}/nodes/${this.currentNode.node_id}/summarize`, {
-                node_content: this.currentNode.node_content, node_name: this.currentNode.node_name, user_persona: this.userPersona
+                node_content: this.currentNode.node_content, node_name: this.currentNode.node_name, user_persona: this.effectivePersona
             })
             this.chatHistory.push({ type: 'ai', content: { answer: res.data.summary || res.data.content || '总结生成完成', core_answer: res.data.summary || res.data.content || '总结生成完成' } })
         } catch (e) {
             logger.error(e)
             this.chatHistory.push({ type: 'ai', content: '总结生成失败，请稍后再试' })
-        } finally { this.chatLoading = false }
+        } finally { this.chatLoading = false; this.syncCurrentConversation(); this.saveConversations() }
     },
 
     async summarizeChat() {
@@ -654,7 +677,7 @@ export const useCourseStore = defineStore('course', {
                 content: typeof msg.content === 'string' ? msg.content : (msg.content.core_answer || '')
             }))
             const context = this.currentNode ? `当前章节：${this.currentNode.node_name}` : '全书概览'
-            const res = await http.post(`/api/summarize_chat`, { history, course_context: context, user_persona: this.userPersona })
+            const res = await http.post(`/api/summarize_chat`, { history, course_context: context, user_persona: this.effectivePersona })
             return res.data
         } catch (e) { logger.error(e); ElMessage.error('总结生成失败'); return null }
         finally { this.chatLoading = false }
@@ -716,7 +739,7 @@ export const useCourseStore = defineStore('course', {
             body: JSON.stringify({
                 node_id: targetNode.node_id, node_name: targetNode.node_name,
                 node_content: fullContext, question, history, selection,
-                user_notes: userNotes, user_persona: this.userPersona,
+                user_notes: userNotes, user_persona: this.effectivePersona,
                 session_metrics: sessionMetrics, enable_long_term_memory: true
             }),
             signal: controller.signal
@@ -804,6 +827,8 @@ export const useCourseStore = defineStore('course', {
       } finally {
         this.loading = false; this.chatLoading = false
         if (this.chatAbortController === controller) { this.chatAbortController = null }
+        this.syncCurrentConversation()
+        this.saveConversations()
       }
     },
 

@@ -12,4 +12,5 @@ from routers import (
     diagrams,
     tasks,
     markdown_import,
+    profile,
 )

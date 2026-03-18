@@ -1,127 +1,15 @@
 
-import sys
-from datetime import datetime
-from enum import Enum
-from pathlib import Path
-from typing import Literal, Optional, List, Dict
-
+from typing import List, Optional, Literal, Dict
 from pydantic import BaseModel, Field
+from datetime import datetime
+import uuid
+import sys
+from pathlib import Path
 
+# 添加项目根目录到系统路径以导入共享配置
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 from shared.prompt_config import DifficultyLevel, TeachingStyle
-
-
-# === 节点生成状态枚举 ===
-class NodeStatus(str, Enum):
-    """节点生成状态"""
-    PENDING = "pending"
-    GENERATING = "generating"
-    COMPLETED = "completed"
-    ERROR = "error"
-    SKIPPED = "skipped"
-
-
-# === 错误严重级别枚举 ===
-class ErrorSeverity(str, Enum):
-    """错误严重级别"""
-    CRITICAL = "critical"
-    WARNING = "warning"
-    INFO = "info"
-
-
-# === 节点生成配置 ===
-class NodeGenerationConfig(BaseModel):
-    """单节点生成配置"""
-    difficulty: DifficultyLevel = DifficultyLevel.INTERMEDIATE
-    style: TeachingStyle = TeachingStyle.ACADEMIC
-    target_word_range: tuple[int, int] = (800, 2000)
-    include_code_examples: bool = True
-    include_exercises: bool = False
-    custom_instruction: str | None = None
-
-
-# === 任务执行日志条目 ===
-class TaskLogEntry(BaseModel):
-    """任务执行日志条目"""
-    timestamp: datetime
-    node_id: str | None = None
-    node_name: str | None = None
-    event: Literal["start", "complete", "error", "retry", "skip"]
-    message: str
-    retry_count: int = 0
-    generated_chars: int = 0
-    duration_ms: float | None = None
-
-
-# === 任务状态 ===
-class TaskState(BaseModel):
-    """任务状态（替代当前 dict 结构）"""
-    task_id: str
-    course_id: str
-    task_type: str = "auto_generate"
-    status: Literal["pending", "running", "paused", "completed", "error"] = "pending"
-    progress: float = 0.0
-    current_node_name: str = ""
-    completed_nodes: int = 0
-    total_nodes: int = 0
-    created_at: datetime
-    updated_at: datetime
-    logs: list[TaskLogEntry] = []
-    failed_nodes: list[str] = []
-    error_message: str | None = None
-
-
-# === 内容质量评分 ===
-class QualityScore(BaseModel):
-    """内容质量评分"""
-    overall: float  # 0.0 - 1.0
-    structure_completeness: float
-    content_depth: float
-    readability: float
-    format_correctness: float
-    details: dict[str, str] = {}
-
-
-# === 一致性问题 ===
-class ConsistencyIssue(BaseModel):
-    """一致性问题"""
-    severity: Literal["critical", "warning"]
-    issue_type: Literal["duplicate_example", "contradicting_definition", "broken_reference"]
-    node_ids: list[str]
-    description: str
-    auto_fixable: bool
-
-
-# === 相似案例 ===
-class SimilarExample(BaseModel):
-    """相似案例"""
-    existing_title: str
-    existing_node_id: str
-    similarity_score: float
-    summary: str
-
-
-# === 课程数据快照 ===
-class CourseSnapshot(BaseModel):
-    """课程数据快照"""
-    version: int
-    created_at: datetime
-    course_id: str
-    data_hash: str
-    filepath: str
-
-
-# === 验证报告 ===
-class ValidationReport(BaseModel):
-    """启动时课程 JSON 完整性验证报告"""
-    course_id: str
-    filepath: str
-    is_valid: bool
-    error_message: str | None = None
-    recovered_from_snapshot: bool = False
-    snapshot_version: int | None = None
-
 
 # === 课程相关 ===
 class Node(BaseModel):
@@ -131,14 +19,9 @@ class Node(BaseModel):
     node_level: int
     node_content: str = ""
     node_type: Literal["original", "custom", "extend"] = "original"
-    create_time: datetime | None = None
+    create_time: Optional[datetime] = None
     is_read: bool = False
-    quiz_score: int | None = None
-    # 新增字段：节点生成状态与配置
-    generation_status: NodeStatus = NodeStatus.PENDING
-    generation_config: NodeGenerationConfig | None = None
-    generated_chars: int = 0
-    error_summary: str | None = None
+    quiz_score: Optional[int] = None
 
 # === 标注与笔记 ===
 class Annotation(BaseModel):
@@ -148,30 +31,30 @@ class Annotation(BaseModel):
     answer: str
     anno_summary: str
     source_type: Literal["internal", "external"] = "internal"
-    create_time: datetime = datetime.now()
+    create_time: datetime = Field(default_factory=datetime.now)
 
 class GenerateCourseRequest(BaseModel):
-    keyword: str
-    difficulty: str | None = "intermediate"
-    style: str | None = "academic"
-    requirements: str | None = ""
+    keyword: str = Field(..., min_length=1, max_length=200)
+    difficulty: Optional[DifficultyLevel] = "intermediate"
+    style: Optional[TeachingStyle] = "academic"
+    requirements: Optional[str] = Field(default="", max_length=2000)
 
 class GenerateSubNodesRequest(BaseModel):
     node_id: str
     node_name: str
     node_level: int
-    difficulty: str | None = "intermediate"
-    style: str | None = "academic"
+    difficulty: Optional[DifficultyLevel] = "intermediate"  # beginner, intermediate, advanced
+    style: Optional[TeachingStyle] = "academic"  # academic, industrial, socratic, humorous
 
 class RedefineContentRequest(BaseModel):
     node_id: str
     node_name: str
     original_content: str
     user_requirement: str
-    course_context: str | None = ""
-    previous_context: str | None = ""
-    difficulty: str | None = "advanced"
-    style: str | None = "academic"
+    course_context: Optional[str] = ""
+    previous_context: Optional[str] = ""
+    difficulty: Optional[DifficultyLevel] = "advanced"
+    style: Optional[TeachingStyle] = "academic"
 
 class ExtendContentRequest(BaseModel):
     node_id: str
@@ -180,17 +63,17 @@ class ExtendContentRequest(BaseModel):
     user_requirement: str
 
 class AskQuestionRequest(BaseModel):
-    course_id: str | None = None
+    course_id: Optional[str] = None
     node_id: str
-    node_name: str
-    node_content: str
-    question: str
-    history: list[dict] = []
-    selection: str | None = ""
-    user_notes: str | None = ""
-    user_persona: str | None = ""
-    session_metrics: dict | None = None
-    enable_long_term_memory: bool | None = False
+    node_name: str = Field(..., max_length=500)
+    node_content: str = Field(..., max_length=50000)
+    question: str = Field(..., min_length=1, max_length=5000)
+    history: List[dict] = Field(default=[], max_length=100)
+    selection: Optional[str] = Field(default="", max_length=10000)
+    user_notes: Optional[str] = Field(default="", max_length=10000)
+    user_persona: Optional[str] = Field(default="", max_length=500)
+    session_metrics: Optional[dict] = None
+    enable_long_term_memory: Optional[bool] = False
 
 # === 节点操作 ===
 class AddNodeRequest(BaseModel):
@@ -198,25 +81,25 @@ class AddNodeRequest(BaseModel):
     node_name: str = "New Node"
 
 class SaveAnnotationRequest(BaseModel):
-    anno_id: str | None = None
+    anno_id: Optional[str] = None
     node_id: str
-    course_id: str | None = None
+    course_id: Optional[str] = None
     question: str
     answer: str
     anno_summary: str
     source_type: Literal["user", "ai", "user_saved", "wrong", "format"] = "user"
-    quote: str | None = None
+    quote: Optional[str] = None
 
 class UpdateNodeRequest(BaseModel):
-    node_name: str | None = None
-    node_content: str | None = None
-    is_read: bool | None = None
-    quiz_score: int | None = None
+    node_name: Optional[str] = None
+    node_content: Optional[str] = None
+    is_read: Optional[bool] = None
+    quiz_score: Optional[int] = None
 
 class SummarizeNodeRequest(BaseModel):
     node_content: str
     node_name: str
-    user_persona: str | None = None
+    user_persona: Optional[str] = None
 
 class UpdateAnnotationRequest(BaseModel):
     content: str
@@ -224,18 +107,28 @@ class UpdateAnnotationRequest(BaseModel):
 # === 测验 ===
 class GenerateQuizRequest(BaseModel):
     node_content: str
-    node_name: str | None = ""
-    difficulty: str = "intermediate"
-    style: str | None = "academic"
-    user_persona: str | None = ""
+    node_name: Optional[str] = ""
+    difficulty: DifficultyLevel = "intermediate"
+    style: Optional[TeachingStyle] = "academic"
+    user_persona: Optional[str] = ""
     question_count: int = 3
-    discipline_type: str | None = None
+    discipline_type: Optional[str] = None
+
+
+class SimilarQuizRequest(BaseModel):
+    """基于错题生成类似题目的请求"""
+    question: str
+    options: List[str]
+    correct_index: int
+    explanation: str = ""
+    node_name: str = ""
+    question_count: int = 3
 
 
 class SummarizeChatRequest(BaseModel):
-    history: list[dict]
-    course_context: str | None = ""
-    user_persona: str | None = ""
+    history: List[dict]
+    course_context: Optional[str] = ""
+    user_persona: Optional[str] = ""
 
 class LocateNodeRequest(BaseModel):
     keyword: str
@@ -247,8 +140,8 @@ class LearningProgressData(BaseModel):
     node_name: str
     is_read: bool
     read_time_minutes: int = 0
-    quiz_score: int | None = None
-    last_accessed: datetime | None = None
+    quiz_score: Optional[int] = None
+    last_accessed: Optional[datetime] = None
     notes_count: int = 0
 
 class WeakPointAnalysis(BaseModel):
@@ -271,18 +164,18 @@ class LearningRecommendation(BaseModel):
 class LearningPathRequest(BaseModel):
     """学习路径请求"""
     course_id: str
-    progress_data: list[LearningProgressData]
-    wrong_answer_nodes: list[str] = []  # node_ids where user got wrong answers
-    target_goal: str | None = ""  # e.g., "master_basics", "prepare_exam", "deep_dive"
-    available_time_minutes: int | None = 30  # daily study time
+    progress_data: List[LearningProgressData]
+    wrong_answer_nodes: List[str] = []  # node_ids where user got wrong answers
+    target_goal: Optional[str] = ""  # e.g., "master_basics", "prepare_exam", "deep_dive"
+    available_time_minutes: Optional[int] = 30  # daily study time
 
 class LearningPathResponse(BaseModel):
     """学习路径响应"""
-    recommendations: list[LearningRecommendation]
-    weak_points: list[WeakPointAnalysis]
+    recommendations: List[LearningRecommendation]
+    weak_points: List[WeakPointAnalysis]
     overall_progress_percent: float
     estimated_completion_time: str
-    daily_study_plan: list[dict]
+    daily_study_plan: List[dict]
 
 class KnowledgePointMastery(BaseModel):
     """知识点掌握度"""
@@ -290,7 +183,7 @@ class KnowledgePointMastery(BaseModel):
     node_name: str
     mastery_level: float  # 0.0 - 1.0
     mastery_label: str  # "未开始", "初学", "熟悉", "掌握", "精通"
-    last_tested: datetime | None = None
+    last_tested: Optional[datetime] = None
 
 
 # === 复习系统 ===
@@ -299,8 +192,8 @@ class ReviewItem(BaseModel):
     node_id: str
     node_name: str
     node_content: str = ""
-    quiz_score: int | None = None
-    last_reviewed: datetime | None = None
+    quiz_score: Optional[int] = None
+    last_reviewed: Optional[datetime] = None
     next_review: datetime
     review_count: int = 0
     interval_days: int = 1
@@ -322,8 +215,8 @@ class ReviewSession(BaseModel):
     session_id: str
     course_id: str
     start_time: datetime
-    end_time: datetime | None = None
-    items_reviewed: list[str] = []  # node_ids
+    end_time: Optional[datetime] = None
+    items_reviewed: List[str] = []  # node_ids
     correct_count: int = 0
     incorrect_count: int = 0
 
@@ -332,7 +225,7 @@ class ReviewResult(BaseModel):
     node_id: str
     quality: int  # 0-5, SM-2算法质量评分
     time_spent_seconds: int
-    notes: str | None = None
+    notes: Optional[str] = None
 
 class ReviewScheduleRequest(BaseModel):
     """生成复习计划请求"""
@@ -342,14 +235,14 @@ class ReviewScheduleRequest(BaseModel):
 
 class ReviewScheduleResponse(BaseModel):
     """复习计划响应"""
-    items: list[ReviewItem]
+    items: List[ReviewItem]
     stats: ReviewStats
     estimated_time_minutes: int
 
 class SubmitReviewRequest(BaseModel):
     """提交复习结果请求"""
     course_id: str
-    results: list[ReviewResult]
+    results: List[ReviewResult]
 
 class MemoryCurveData(BaseModel):
     """记忆曲线数据点"""
@@ -359,25 +252,25 @@ class MemoryCurveData(BaseModel):
 
 class ReviewProgressResponse(BaseModel):
     """复习进度响应"""
-    memory_curve: list[MemoryCurveData]
+    memory_curve: List[MemoryCurveData]
     total_reviews: int
     average_retention: float
-    weak_nodes: list[dict]
-    mastery_trend: list[dict]  # 掌握度趋势
+    weak_nodes: List[dict]
+    mastery_trend: List[dict]  # 掌握度趋势
 
 
 # === 代码执行 ===
 class ExecuteCodeRequest(BaseModel):
     """代码执行请求"""
-    code: str
-    language: str = "python"  # python, javascript, typescript, bash, etc.
-    timeout: int = 30  # seconds
+    code: str = Field(..., min_length=1, max_length=5000)
+    language: str = Field(default="python", max_length=20)
+    timeout: int = Field(default=10, ge=1, le=30)
 
 class ExecuteCodeResponse(BaseModel):
     """代码执行响应"""
     success: bool
     output: str
-    error: str | None = None
+    error: Optional[str] = None
     execution_time: float  # milliseconds
     language: str
 
@@ -391,18 +284,12 @@ class GenerateDiagramRequest(BaseModel):
 class GenerateDiagramResponse(BaseModel):
     """AI图表生成响应"""
     success: bool = Field(..., description="是否成功")
-    diagram_code: str | None = Field(default=None, description="生成的Mermaid代码")
+    diagram_code: Optional[str] = Field(default=None, description="生成的Mermaid代码")
     diagram_type: str = Field(default="flowchart", description="图表类型")
     description: str = Field(default="", description="原始描述")
-    error: str | None = Field(default=None, description="错误信息")
+    error: Optional[str] = Field(default=None, description="错误信息")
 
 # === 知识图谱 ===
-class KnowledgeGraphRequest(BaseModel):
-    course_id: str
-
-class GenerateKnowledgeGraphRequest(BaseModel):
-    course_id: str
-
 class KGNodeCreate(BaseModel):
     """创建知识图谱节点"""
     label: str = Field(..., min_length=1, max_length=100, description="节点标签")
@@ -448,8 +335,8 @@ class CreateGoalRequest(BaseModel):
     goal_type: str = "task_oriented"
     target_value: float
     unit: str = "个"
-    deadline: str | None = None
-    related_nodes: list[str] = []
+    deadline: Optional[str] = None
+    related_nodes: List[str] = []
     priority: int = 1
 
 class UpdateGoalProgressRequest(BaseModel):
@@ -458,23 +345,40 @@ class UpdateGoalProgressRequest(BaseModel):
 class RecordLearningRequest(BaseModel):
     node_id: str
     node_title: str
-    is_correct: bool | None = None
+    is_correct: Optional[bool] = None
     time_spent: float = 0.0
-    question_data: dict | None = None
+    question_data: Optional[Dict] = None
 
 class SessionSummaryRequest(BaseModel):
     duration: float
     questions_answered: int = 0
     correct_count: int = 0
-    nodes_studied: list[str] = []
+    nodes_studied: List[str] = []
 
 class TutorContextRequest(BaseModel):
     time_stuck: int = 0
     consecutive_wrong: int = 0
-    current_node_id: str | None = None
+    current_node_id: Optional[str] = None
 
 # === 其他 ===
 class ImportMarkdownResponse(BaseModel):
     """Markdown 导入响应"""
     course_id: str
     course_name: str
+
+# === 学习者画像 ===
+class GenerateProfileRequest(BaseModel):
+    """学习者画像生成请求"""
+    wrong_answers: List[dict] = []
+    notes: List[dict] = []
+    chat_summary: str = ""
+    self_evaluation: str = ""
+    current_profile: Optional[str] = None
+    mode: Literal["full", "incremental"] = "full"
+    new_content: Optional[str] = None
+
+class ProfileResponse(BaseModel):
+    """学习者画像生成响应"""
+    ai_profile: str
+    agent_commentary: str
+    persona_summary: str

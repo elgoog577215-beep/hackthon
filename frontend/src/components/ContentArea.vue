@@ -615,7 +615,7 @@
             <div class="mt-3">
               <div class="flex gap-2 font-bold text-slate-800 mb-3 text-lg">
                 <span class="shrink-0">{{ currentQuestionIndex + 1 }}.</span>
-                <MarkdownRenderer :content="currentQuestion.question" />
+                <div class="min-w-0"><MarkdownRenderer :content="currentQuestion.question" /></div>
               </div>
               <div class="space-y-2">
                 <div 
@@ -640,7 +640,7 @@
                     <span v-else-if="quizSubmitted && userAnswers[currentQuestionIndex] === oIdx && oIdx !== getCorrectIndex(currentQuestion)"><el-icon><Close /></el-icon></span>
                     <span v-else>{{ String.fromCharCode(65 + Number(oIdx)) }}</span>
                   </div>
-                  <div class="text-slate-700 font-medium">
+                  <div class="text-slate-700 font-medium min-w-0">
                     <MarkdownRenderer :content="opt" />
                   </div>
                 </div>
@@ -3217,6 +3217,20 @@ onUnmounted(() => {
 
 defineExpose({
     startQuiz: handleStartQuiz,
+    loadSimilarQuiz: (quizzes: any[], nodeId: string) => {
+        quizVisible.value = true
+        generatingQuiz.value = false
+        quizQuestions.value = quizzes
+        userAnswers.value = new Array(quizzes.length).fill(-1)
+        quizSubmitted.value = false
+        currentQuestionIndex.value = 0
+        textDraftVisible.value = false
+        drawingOverlayVisible.value = false
+        draftStore.clearAll()
+        // 设置 quizConfig 以便 submitQuiz 能正确记录错题
+        quizConfig.value.nodeId = nodeId
+        quizConfig.value.nodeName = courseStore.nodes.find(n => n.node_id === nodeId)?.node_name || ''
+    },
     showNoteDetail: (note: any, onClose?: () => void) => {
         handleNoteClick(note)
         // 设置回调必须在 handleNoteClick 之后，因为它会清除回调
