@@ -3,6 +3,17 @@
  * 从 course.ts 提取的所有接口和类型，供各拆分后的 Store 共用。
  */
 
+export type NodeGenerationStatus = 'pending' | 'generating' | 'completed' | 'error' | 'skipped'
+
+export interface NodeGenerationConfig {
+  difficulty: 'beginner' | 'intermediate' | 'advanced'
+  style: string
+  target_word_range: [number, number]
+  include_code_examples: boolean
+  include_exercises: boolean
+  custom_instruction?: string
+}
+
 export interface Node {
   node_id: string
   parent_node_id: string
@@ -13,6 +24,48 @@ export interface Node {
   children?: Node[]
   is_read?: boolean
   quiz_score?: number
+  // 节点生成状态与配置
+  generation_status: NodeGenerationStatus
+  generation_config?: NodeGenerationConfig
+  generated_chars: number
+  error_summary?: string
+}
+
+export interface TaskProgress {
+  task_id: string
+  course_id: string
+  status: string
+  progress: number
+  current_node_name: string
+  completed_nodes: number
+  total_nodes: number
+  estimated_time_remaining: number
+}
+
+export interface FailureReport {
+  task_id: string
+  course_id: string
+  failed_nodes: Array<{
+    node_id: string
+    node_name: string
+    error: string
+    retry_count: number
+  }>
+  total_failed: number
+}
+
+export interface WSMessage {
+  type: 'progress_update' | 'node_completed' | 'stream_chunk' | 'task_completed' | 'task_error' | 'failure_report'
+  task_id: string
+  course_id: string
+  payload: Record<string, unknown>
+}
+
+export interface WSCommand {
+  type: 'subscribe' | 'unsubscribe' | 'skip_node' | 'retry_node' | 'stop_node' | 'custom_instruction' | 'retry_all_failed' | 'pause_task' | 'resume_task' | 'cancel_task'
+  course_id: string
+  node_id?: string
+  payload?: Record<string, unknown>
 }
 
 export interface Annotation {
@@ -68,6 +121,17 @@ export interface Task {
     status: 'idle' | 'running' | 'paused' | 'completed' | 'error' | 'pending'
     progress: number
     currentStep: string
+    currentPhase?: string
+    phaseProgress?: string
+    currentNodes?: Array<{
+        node_id?: string
+        node_name?: string
+        name: string
+        action: string
+        type: string
+    }>
+    completedNodes?: number
+    totalNodes?: number
     logs: string[]
     nodes: Node[]
     shouldStop: boolean

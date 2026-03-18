@@ -127,6 +127,8 @@
                         lineHeight: lineHeight
                     }">
                     <MarkdownRenderer :content="node.node_content" :search-words="searchWords" />
+                    <!-- Streaming cursor indicator -->
+                    <span v-if="isStreaming" class="inline-block w-0.5 h-5 bg-primary-500 animate-blink ml-0.5 align-text-bottom"></span>
                 </div>
             </div>
         </div>
@@ -144,6 +146,7 @@ defineProps<{
   fontFamily: string;
   lineHeight: number;
   searchWords?: string[];
+  isStreaming?: boolean;
 }>();
 
 defineEmits<{
@@ -156,5 +159,13 @@ defineEmits<{
 .content-node-optimized {
   content-visibility: auto;
   contain-intrinsic-size: 1px 500px; /* Estimated height */
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.animate-blink {
+  animation: blink 1s step-end infinite;
 }
 </style>

@@ -13,7 +13,7 @@
       <div class="flex items-center gap-2">
         <div 
           class="w-2 h-2 rounded-full transition-colors"
-          :class="connectionStatus === 'connected' ? 'bg-green-500' : connectionStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'"
+          :class="ws.connectionState.value === 'connected' ? 'bg-green-500' : ws.connectionState.value === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'"
         ></div>
         <span class="text-xs text-slate-400">{{ connectionStatusText }}</span>
       </div>
@@ -104,6 +104,9 @@
             v-if="task.status !== 'completed'"
             :progress="task.progress"
             :current-node="task.currentStep"
+            :current-nodes="task.currentNodes"
+            :current-phase="task.currentPhase"
+            :phase-progress="task.phaseProgress"
             :status="task.status"
             :estimated-time="taskProgress[task.id]?.estimatedTimeRemaining"
           />
@@ -138,12 +141,7 @@ import TaskProgressBar from './TaskProgressBar.vue'
 
 const router = useRouter()
 const genStore = useGenerationStore()
-const { 
-  connectionStatus, 
-  pauseTask: wsPauseTask, 
-  resumeTask: wsResumeTask, 
-  cancelTask: wsCancelTask 
-} = useTaskWebSocket()
+const ws = useTaskWebSocket()
 
 const tasks = computed((): Task[] => {
   return Array.from(genStore.tasks.values())
@@ -171,7 +169,7 @@ const sortedTasks = computed(() => {
 })
 
 const connectionStatusText = computed(() => {
-  switch (connectionStatus.value) {
+  switch (ws.connectionState.value) {
     case 'connected': return '已连接'
     case 'connecting': return '连接中...'
     case 'error': return '连接错误'
@@ -222,11 +220,11 @@ const statusText = (status: string) => {
 }
 
 const handlePause = (courseId: string) => {
-  wsPauseTask(courseId)
+  ws.sendCommand({ type: 'pause_task', course_id: courseId })
 }
 
 const handleResume = (courseId: string) => {
-  wsResumeTask(courseId)
+  ws.sendCommand({ type: 'resume_task', course_id: courseId })
 }
 
 const handleCancel = async (courseId: string) => {
@@ -240,14 +238,14 @@ const handleCancel = async (courseId: string) => {
         type: 'warning'
       }
     )
-    wsCancelTask(courseId)
+    ws.sendCommand({ type: 'cancel_task', course_id: courseId })
   } catch {
     // User cancelled
   }
 }
 
 const handleRetry = (courseId: string) => {
-  wsResumeTask(courseId)
+  ws.sendCommand({ type: 'resume_task', course_id: courseId })
   ElMessage.info('正在重试任务...')
 }
 

@@ -130,7 +130,7 @@
                             v-if="genStore.getTask(course.course_id)?.status === 'running' || genStore.getTask(course.course_id)?.status === 'pending'"
                             class="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-50/50 hover:bg-amber-100 text-amber-500 hover:text-amber-600 transition-all duration-200 hover:scale-105"
                             title="暂停生成"
-                            @click.stop="wsPauseTask(course.course_id)"
+                            @click.stop="genStore.pauseTask(course.course_id)"
                         >
                             <el-icon :size="15"><VideoPause /></el-icon>
                         </button>
@@ -138,7 +138,7 @@
                             v-else-if="genStore.getTask(course.course_id)?.status === 'paused' || genStore.getTask(course.course_id)?.status === 'idle'"
                             class="w-8 h-8 flex items-center justify-center rounded-lg bg-primary-50/50 hover:bg-primary-100 text-primary-500 hover:text-primary-600 transition-all duration-200 hover:scale-105"
                             title="继续生成"
-                            @click.stop="wsResumeTask(course.course_id)"
+                            @click.stop="genStore.startTask(course.course_id)"
                         >
                             <el-icon :size="15"><VideoPlay /></el-icon>
                         </button>
@@ -230,7 +230,7 @@
                      v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running'"
                     class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-amber-50 text-slate-500 hover:text-amber-500 transition-colors"
                     title="暂停生成"
-                    @click="wsPauseTask(courseStore.currentCourseId)"
+                    @click="genStore.pauseTask(courseStore.currentCourseId)"
                 >
                     <el-icon :size="16"><VideoPause /></el-icon>
                 </button>
@@ -238,7 +238,7 @@
                     v-else-if="genStore.getTask(courseStore.currentCourseId)?.status === 'paused'"
                     class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary-50 text-slate-500 hover:text-primary-500 transition-colors"
                     title="继续生成"
-                    @click="wsResumeTask(courseStore.currentCourseId)"
+                    @click="genStore.startTask(courseStore.currentCourseId)"
                 >
                     <el-icon :size="16"><VideoPlay /></el-icon>
                 </button>
@@ -289,8 +289,8 @@
                         <div class="text-xs font-semibold text-slate-700">
                             {{ genStore.getTask(courseStore.currentCourseId)?.status === 'running' ? '正在生成...' : genStore.getTask(courseStore.currentCourseId)?.status === 'paused' ? '已暂停' : '等待中...' }}
                         </div>
-                        <div class="text-[10px] text-slate-400">
-                            {{ genStore.getTask(courseStore.currentCourseId)?.status !== 'running' ? (genStore.getTask(courseStore.currentCourseId)?.currentStep || '准备中') : '准备中' }}
+                        <div class="text-[10px] text-slate-400 truncate">
+                            {{ genStore.getTask(courseStore.currentCourseId)?.currentStep || '准备中' }}
                         </div>
                     </div>
                 </div>
@@ -298,7 +298,7 @@
                     <button 
                         v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running'"
                         class="w-7 h-7 rounded-lg flex items-center justify-center text-amber-500 hover:bg-amber-100 transition-colors"
-                        @click="wsPauseTask(courseStore.currentCourseId)"
+                        @click="genStore.pauseTask(courseStore.currentCourseId)"
                         title="暂停"
                     >
                         <el-icon :size="14"><VideoPause /></el-icon>
@@ -306,7 +306,7 @@
                     <button 
                         v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'paused'"
                         class="w-7 h-7 rounded-lg flex items-center justify-center text-primary-500 hover:bg-primary-100 transition-colors"
-                        @click="wsResumeTask(courseStore.currentCourseId)"
+                        @click="genStore.startTask(courseStore.currentCourseId)"
                         title="继续"
                     >
                         <el-icon :size="14"><VideoPlay /></el-icon>
@@ -342,6 +342,11 @@
                 <span class="text-[10px] text-slate-400">{{ genStore.getTask(courseStore.currentCourseId)?.progress || 0 }}%</span>
                 <span class="text-[10px] text-slate-400">{{ genStore.taskProgress[courseStore.currentCourseId]?.completedNodes || 0 }}/{{ genStore.taskProgress[courseStore.currentCourseId]?.totalNodes || 0 }} 节点</span>
             </div>
+            <div class="flex justify-between mt-0.5">
+                <span class="text-[10px] text-slate-400">
+                  预计剩余: {{ formatTime(genStore.taskProgress[courseStore.currentCourseId]?.estimatedTimeRemaining || 0) }}
+                </span>
+            </div>
             <div 
                 v-if="genStore.getTask(courseStore.currentCourseId)?.status === 'running' && genStore.getTask(courseStore.currentCourseId)?.currentStep"
                 class="mt-1.5 flex items-center gap-1.5 min-w-0"
@@ -372,8 +377,14 @@
               <div 
                 class="flex-1 min-w-0 flex items-center py-3 px-3 mb-1 rounded-xl transition-all duration-300 group relative border border-transparent overflow-hidden
                        hover:bg-gradient-to-r hover:from-white/80 hover:to-white/40 hover:shadow-[0_4px_12px_-2px_rgba(0,0,0,0.05)] hover:border-white/60
-                       data-[current=true]:bg-gradient-to-r data-[current=true]:from-white/95 data-[current=true]:to-primary-50/50 data-[current=true]:text-primary-800 data-[current=true]:shadow-[0_8px_20px_-4px_rgba(139,92,246,0.15)] data-[current=true]:border-white/80"
+                       data-[current=true]:bg-gradient-to-r data-[current=true]:from-white/95 data-[current=true]:to-primary-50/50 data-[current=true]:text-primary-800 data-[current=true]:shadow-[0_8px_20px_-4px_rgba(139,92,246,0.15)] data-[current=true]:border-white/80
+                       animate-in"
                 :data-current="node.isCurrent"
+                :class="{
+                    'animate-slide-in': data._isNew,
+                    'animate-pulse-glow': data._updated,
+                    'generating': isNodeGenerating(data.node_id)
+                }"
               >
                 <!-- Active Indicator (Left Bar) -->
                 <div class="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-0 bg-gradient-to-b from-primary-400 to-primary-600 rounded-r-full transition-all duration-300 group-data-[current=true]:h-8 opacity-0 group-data-[current=true]:opacity-100 shadow-sm"></div>
@@ -391,7 +402,17 @@
                     ]"
                     @click.stop="toggleNode(node, data)">
                     <template v-if="getIcon(data, node.expanded) === 'Dot'">
-                        <div class="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                        <span 
+                            class="w-2 h-2 rounded-full shadow-sm"
+                            :class="{
+                                'bg-emerald-400': data.generation_status === 'completed',
+                                'bg-blue-400 animate-pulse': data.generation_status === 'generating',
+                                'bg-red-400': data.generation_status === 'error',
+                                'bg-yellow-400': data.generation_status === 'skipped',
+                                'bg-slate-300': !data.generation_status || data.generation_status === 'pending'
+                            }"
+                            :title="data.generation_status === 'completed' ? '已完成' : data.generation_status === 'generating' ? '生成中' : data.generation_status === 'error' ? '错误' : data.generation_status === 'skipped' ? '已跳过' : '待生成'"
+                        ></span>
                     </template>
                     <component v-else :is="getIcon(data, node.expanded)" class="w-4 h-4" stroke-width="2.5" />
                 </div>
@@ -400,16 +421,39 @@
                 <span class="whitespace-nowrap text-sm tracking-tight mr-2 truncate flex-1 transition-colors duration-200 font-medium" 
                     :class="data.node_level <= 2 ? 'font-bold text-slate-800' : 'text-slate-600 group-data-[current=true]:text-primary-800'">
                     
-                    <!-- Status Dot (Simplified) -->
-                     <span v-if="(data.node_level <= 2 && data.children && data.children.length > 0) || (data.node_level > 2 && data.node_content && data.node_content.includes('<!-- BODY_START -->'))"
-                          class="inline-block w-1.5 h-1.5 rounded-full mr-2 mb-0.5 align-middle bg-emerald-400/60 group-hover:bg-emerald-400 shadow-sm">
-                    </span>
-                    
                     <span v-html="highlightSearch(node.label)"></span>
+                    <!-- Generated chars count for generating nodes -->
+                    <span v-if="data.generation_status === 'generating' && data.generated_chars > 0" 
+                      class="text-[10px] text-blue-400 ml-1">
+                      {{ data.generated_chars }}字
+                    </span>
+                    <!-- Error summary for failed nodes -->
+                    <el-tooltip v-if="data.generation_status === 'error' && data.error_summary" 
+                      :content="data.error_summary" placement="right">
+                      <span class="text-[10px] text-red-400 ml-1 cursor-help">查看错误</span>
+                    </el-tooltip>
                 </span>
                 
-                <!-- Hover Actions (Subtle) -->
+                <!-- Hover Actions -->
                 <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" @click.stop>
+                  <!-- Skip -->
+                  <button v-if="data.generation_status === 'pending'" 
+                    class="w-6 h-6 rounded flex items-center justify-center text-yellow-500 hover:bg-yellow-50"
+                    title="跳过此节点" @click.stop="handleSkipNode(data)">
+                    <el-icon :size="12"><Right /></el-icon>
+                  </button>
+                  <!-- Retry -->
+                  <button v-if="data.generation_status === 'error' || data.generation_status === 'completed'"
+                    class="w-6 h-6 rounded flex items-center justify-center text-blue-500 hover:bg-blue-50"
+                    title="重新生成" @click.stop="handleRetryNode(data)">
+                    <el-icon :size="12"><RefreshRight /></el-icon>
+                  </button>
+                  <!-- Custom Instruction -->
+                  <button v-if="data.generation_status === 'pending' || data.generation_status === 'error'"
+                    class="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:bg-slate-100"
+                    title="自定义指令" @click.stop="handleCustomInstruction(data)">
+                    <el-icon :size="12"><Edit /></el-icon>
+                  </button>
                 </div>
               </div>
             </template>
@@ -594,11 +638,10 @@ import { ref, watch, onUnmounted, computed, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useLearningStore } from '../stores/learning'
-import { useTaskWebSocket } from '../composables/useTaskWebSocket'
 import { useRouter } from 'vue-router'
 import { ElTree, ElMessage, ElPopconfirm, ElMessageBox } from 'element-plus'
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
-import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, DArrowLeft, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading, Sort, Timer, TrendCharts, Upload } from '@element-plus/icons-vue'
+import { Plus, Search, CircleClose, Delete, Notebook, ArrowLeft, VideoPlay, VideoPause, MagicStick, DArrowLeft, Clock, Check, Close, Trophy, ChatLineSquare, InfoFilled, Loading, Sort, Timer, TrendCharts, Upload, Right, RefreshRight, Edit } from '@element-plus/icons-vue'
 import { BookOpen, FileText, Circle, ChevronRight, ChevronDown } from 'lucide-vue-next'
 import SkeletonLoader from './SkeletonLoader.vue'
 import MarkdownImport from './MarkdownImport.vue'
@@ -607,7 +650,6 @@ const courseStore = useCourseStore()
 const genStore = useGenerationStore()
 const learningStore = useLearningStore()
 const router = useRouter()
-const { pauseTask: wsPauseTask, resumeTask: wsResumeTask } = useTaskWebSocket()
 const emit = defineEmits(['update:preferredWidth', 'node-selected', 'toggle-sidebar'])
 
 const filterText = ref('')
@@ -802,6 +844,24 @@ const getIcon = (data: any, expanded: boolean = false) => {
     }
 }
 
+// 判断节点是否正在生成中
+const isNodeGenerating = (nodeId: string): boolean => {
+    const task = genStore.getTask(courseStore.currentCourseId)
+    if (!task || task.status !== 'running') return false
+    
+    // 检查当前处理的节点列表
+    if (task.currentNodes && task.currentNodes.length > 0) {
+        return task.currentNodes.some((n: any) => n.name.includes(nodeId) || nodeId.includes(n.name))
+    }
+    
+    // 检查当前步骤
+    if (task.currentStep) {
+        return task.currentStep.includes(nodeId) || nodeId.includes(task.currentStep)
+    }
+    
+    return false
+}
+
 // Watch for external current node changes (e.g. from scroll spy)
 watch(() => courseStore.currentNode, (newNode) => {
     if (newNode && treeRef.value) {
@@ -926,6 +986,44 @@ const backToCourses = () => {
     router.push('/')
 }
 
+// --- Node-level operation handlers ---
+
+const formatTime = (seconds: number): string => {
+  if (seconds <= 0) return '--'
+  if (seconds < 60) return `${Math.round(seconds)}秒`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}分钟`
+  return `${Math.round(seconds / 3600)}小时`
+}
+
+const handleSkipNode = (data: any) => {
+  if (courseStore.currentCourseId) {
+    genStore.skipNode(courseStore.currentCourseId, data.node_id)
+  }
+}
+
+const handleRetryNode = (data: any) => {
+  if (courseStore.currentCourseId) {
+    genStore.retryNode(courseStore.currentCourseId, data.node_id)
+  }
+}
+
+const handleCustomInstruction = async (data: any) => {
+  try {
+    const result = await ElMessageBox.prompt('输入自定义生成指令', '自定义指令', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      inputPlaceholder: '例如：多加代码示例、侧重实际应用...'
+    })
+    const value = typeof result === 'object' && 'value' in result ? result.value : null
+    if (value && courseStore.currentCourseId) {
+      genStore.setCustomInstruction(courseStore.currentCourseId, data.node_id, value)
+      ElMessage.success('指令已设置')
+    }
+  } catch {
+    // User cancelled
+  }
+}
+
 // Image Lightbox
 const lightboxVisible = ref(false)
 const lightboxImage = ref('')
@@ -1047,5 +1145,75 @@ const lightboxImage = ref('')
     border-color: rgba(255, 255, 255, 0.8);
     transform: translateY(-2px);
     box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.08);
+}
+
+/* 新节点滑入动画 */
+@keyframes slideIn {
+    0% {
+        opacity: 0;
+        transform: translateX(-20px) scale(0.95);
+    }
+    70% {
+        transform: translateX(5px) scale(1.02);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+.animate-slide-in {
+    animation: slideIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 节点更新脉冲动画 */
+@keyframes pulseGlow {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 8px rgba(139, 92, 246, 0);
+    }
+}
+
+.animate-pulse-glow {
+    animation: pulseGlow 1s ease-out;
+}
+
+/* 正在生成中的节点样式 */
+.generating {
+    position: relative;
+}
+
+.generating::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #8b5cf6, transparent);
+    animation: generatingLine 1.5s ease-in-out infinite;
+}
+
+@keyframes generatingLine {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+/* 打字机效果 */
+.typing-cursor::after {
+    content: '|';
+    animation: blink 1s step-end infinite;
+    color: #8b5cf6;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
 }
 </style>

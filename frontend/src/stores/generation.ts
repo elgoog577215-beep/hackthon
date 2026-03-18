@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import http from '../utils/http'
 import { ElMessage } from 'element-plus'
 import { useCourseStore } from './course'
+import { useTaskWebSocket, type ConnectionState } from '../composables/useTaskWebSocket'
 import {
   DIFFICULTY_LEVELS,
   TEACHING_STYLES,
@@ -10,8 +11,7 @@ import {
   type DifficultyLevel,
   type TeachingStyle
 } from '@/shared/prompt-config'
-import type { Node, QueueItem, Task } from './types'
-import logger from '../utils/logger'
+import type { Node, QueueItem, Task, WSMessage, FailureReport } from './types'
 
 // vue-tsc + Pinia Options API: re-export to suppress TS6133
 export { ElMessage, TEACHING_STYLES }
@@ -65,12 +65,305 @@ export const useGenerationStore = defineStore('generation', {
     typingBuffer: new Map<string, string>(),
     typingInterval: null as number | null,
     stateRestored: false,
+    // --- WebSocket state ---
+    wsConnected: false,
+    wsConnectionState: 'disconnected' as ConnectionState,
+    // --- Outline edit mode ---
+    isOutlineEditMode: false,
+    // --- Failure report ---
+    failureReport: null as FailureReport | null,
+    // --- Streaming content accumulation ---
+    streamingContent: {} as Record<string, string>,
   }),
 
   actions: {
     _courseStore() {
       return useCourseStore()
     },
+
+    // ========== WebSocket Integration ==========
+
+    initWebSocket() {
+      const ws = useTaskWebSocket({
+        onMessage: (message: WSMessage) => {
+          this.handleWSMessage(message)
+        },
+        onStateChange: (state: ConnectionState) => {
+          this.wsConnectionState = state
+          const wasConnected = this.wsConnected
+          this.wsConnected = state === 'connected'
+
+          if (this.wsConnected) {
+            // WebSocket connected → stop HTTP polling (Req 1.3)
+            this.stopGlobalMonitor()
+            // Re-subscribe to current course if available
+            const cs = this._courseStore()
+            if (cs.currentCourseId) {
+              ws.subscribe(cs.currentCourseId)
+            }
+            // Deterministic refresh on reconnect (Req 12.3)
+            if (!wasConnected && cs.currentCourseId) {
+              cs.refreshCourseData(cs.currentCourseId)
+            }
+          } else if (state === 'disconnected' || state === 'error') {
+            // WebSocket disconnected → fall back to HTTP polling (Req 1.4)
+            this.startGlobalMonitor()
+          }
+        },
+      })
+      ws.connect()
+    },
+
+    handleWSMessage(message: WSMessage) {
+      switch (message.type) {
+        case 'progress_update':
+          this.handleWSProgressUpdate(message)
+          break
+        case 'node_completed':
+          this.handleWSNodeCompleted(message)
+          break
+        case 'stream_chunk':
+          this.handleWSStreamChunk(message)
+          break
+        case 'task_completed':
+          this.handleWSProgressUpdate(message)
+          // Deterministic refresh on task completed (Req 12.3)
+          {
+            const cs = this._courseStore()
+            if (message.course_id === cs.currentCourseId) {
+              cs.refreshCourseData(message.course_id)
+            }
+          }
+          break
+        case 'task_error':
+          this.handleWSTaskError(message)
+          break
+        case 'failure_report':
+          this.handleWSFailureReport(message)
+          break
+      }
+    },
+
+    handleWSProgressUpdate(message: WSMessage) {
+      const { course_id, task_id, payload } = message
+      const localTask = this.tasks.get(course_id)
+      if (localTask) {
+        const status = (payload.status as string) || localTask.status
+        if (status === 'running') localTask.status = 'running'
+        else if (status === 'paused') localTask.status = 'paused'
+        else if (status === 'completed') localTask.status = 'completed'
+        else if (status === 'error') localTask.status = 'error'
+        else if (status === 'pending') localTask.status = 'pending'
+
+        localTask.progress = (payload.progress as number) ?? localTask.progress
+        localTask.backendTaskId = task_id || localTask.backendTaskId
+        const currentNodeName = payload.current_node_name as string | undefined
+        if (currentNodeName) {
+          localTask.currentStep = `正在生成: ${currentNodeName}`
+        } else if (status === 'pending') {
+          localTask.currentStep = '等待中...'
+        }
+        if (payload.current_nodes) {
+          localTask.currentNodes = payload.current_nodes as Task['currentNodes']
+        }
+      }
+      this.taskProgress[course_id] = {
+        percentage: (payload.progress as number) ?? 0,
+        currentNodeName: (payload.current_node_name as string) ?? '',
+        completedNodes: (payload.completed_nodes as number) ?? 0,
+        totalNodes: (payload.total_nodes as number) ?? 0,
+        estimatedTimeRemaining: (payload.estimated_time_remaining as number) ?? 0,
+        bytesGenerated: (payload.bytes_generated as number) ?? this.taskProgress[course_id]?.bytesGenerated ?? 0,
+        updatedAt: new Date(),
+      }
+    },
+
+    handleWSNodeCompleted(message: WSMessage) {
+      const { course_id, payload } = message
+      const cs = this._courseStore()
+      if (course_id === cs.currentCourseId && payload.node_id) {
+        const nodeId = payload.node_id as string
+        const node = cs.nodes.find((n: Node) => n.node_id === nodeId)
+        if (node) {
+          if (payload.node_content !== undefined) {
+            node.node_content = payload.node_content as string
+          }
+          node.generation_status = 'completed'
+          if (payload.generated_chars !== undefined) {
+            node.generated_chars = payload.generated_chars as number
+          }
+        }
+        if (this.currentGeneratingNodeId === nodeId) {
+          this.currentGeneratingNodeId = null
+          this.currentGeneratingNode = null
+        }
+      }
+      if (course_id === cs.currentCourseId) {
+        cs.refreshCourseData(course_id)
+      }
+      const nodeId = payload.node_id as string
+      if (nodeId) {
+        delete this.streamingContent[nodeId]
+      }
+    },
+
+    handleWSStreamChunk(message: WSMessage) {
+      const { course_id, payload } = message
+      const nodeId = payload.node_id as string
+      const chunk = payload.chunk as string
+      if (!nodeId || !chunk) return
+
+      this.streamingContent[nodeId] = (this.streamingContent[nodeId] || '') + chunk
+
+      const cs = this._courseStore()
+      if (course_id === cs.currentCourseId) {
+        if (this.currentGeneratingNodeId !== nodeId) {
+          this.currentGeneratingNodeId = nodeId
+          const node = cs.nodes.find((n: Node) => n.node_id === nodeId)
+          if (node) {
+            this.currentGeneratingNode = `正在生成: ${node.node_name}`
+            node.generation_status = 'generating'
+          }
+        }
+        this.addToBuffer(nodeId, chunk)
+      }
+    },
+
+    handleWSTaskError(message: WSMessage) {
+      const { course_id, payload } = message
+      const localTask = this.tasks.get(course_id)
+      if (localTask) {
+        if (payload.node_id) {
+          const cs = this._courseStore()
+          if (course_id === cs.currentCourseId) {
+            const node = cs.nodes.find((n: Node) => n.node_id === (payload.node_id as string))
+            if (node) {
+              node.generation_status = 'error'
+              node.error_summary = (payload.error as string) || 'Unknown error'
+            }
+            if (this.currentGeneratingNodeId === payload.node_id) {
+              this.currentGeneratingNodeId = null
+              this.currentGeneratingNode = null
+            }
+          }
+          this.addLogToTask(course_id, `❌ 节点生成失败: ${payload.node_name || payload.node_id} - ${payload.error || 'Unknown error'}`)
+        } else {
+          localTask.status = 'error'
+          this.addLogToTask(course_id, `❌ 任务错误: ${payload.error || 'Unknown error'}`)
+        }
+      }
+    },
+
+    handleWSFailureReport(message: WSMessage) {
+      const { payload } = message
+      this.failureReport = {
+        task_id: message.task_id,
+        course_id: message.course_id,
+        failed_nodes: (payload.failed_nodes as FailureReport['failed_nodes']) || [],
+        total_failed: (payload.total_failed as number) || 0,
+      }
+    },
+
+    // ========== Node Control Actions (Req 7.1, 7.2, 7.5) ==========
+
+    async skipNode(courseId: string, nodeId: string) {
+      const ws = useTaskWebSocket()
+      const sent = ws.sendCommand({
+        type: 'skip_node',
+        course_id: courseId,
+        node_id: nodeId,
+      })
+      if (!sent) {
+        // HTTP fallback
+        try {
+          await http.post(`/api/courses/${courseId}/nodes/${nodeId}/skip`)
+        } catch (e) {
+          console.error('Failed to skip node', e)
+          ElMessage.error('跳过节点失败')
+        }
+      }
+    },
+
+    async retryNode(courseId: string, nodeId: string) {
+      const ws = useTaskWebSocket()
+      const sent = ws.sendCommand({
+        type: 'retry_node',
+        course_id: courseId,
+        node_id: nodeId,
+      })
+      if (!sent) {
+        // HTTP fallback
+        try {
+          await http.post(`/api/courses/${courseId}/nodes/${nodeId}/retry`)
+        } catch (e) {
+          console.error('Failed to retry node', e)
+          ElMessage.error('重试节点失败')
+        }
+      }
+    },
+
+    async stopNode(courseId: string, nodeId: string) {
+      const ws = useTaskWebSocket()
+      ws.sendCommand({
+        type: 'stop_node',
+        course_id: courseId,
+        node_id: nodeId,
+      })
+    },
+
+    async setCustomInstruction(courseId: string, nodeId: string, instruction: string) {
+      const ws = useTaskWebSocket()
+      ws.sendCommand({
+        type: 'custom_instruction',
+        course_id: courseId,
+        node_id: nodeId,
+        payload: { instruction },
+      })
+    },
+
+    async retryAllFailed(courseId: string) {
+      const ws = useTaskWebSocket()
+      const sent = ws.sendCommand({
+        type: 'retry_all_failed',
+        course_id: courseId,
+      })
+      if (!sent) {
+        // HTTP fallback
+        try {
+          await http.post(`/api/courses/${courseId}/retry_all_failed`)
+        } catch (e) {
+          console.error('Failed to retry all failed nodes', e)
+          ElMessage.error('批量重试失败')
+        }
+      }
+    },
+
+    // ========== Outline Edit Actions (Req 6.2, 6.3) ==========
+
+    enterOutlineEditMode() {
+      this.isOutlineEditMode = true
+    },
+
+    async confirmOutline(courseId: string) {
+      try {
+        await http.post(`/api/courses/${courseId}/confirm_outline`)
+        this.isOutlineEditMode = false
+      } catch (e) {
+        console.error('Failed to confirm outline', e)
+        ElMessage.error('确认大纲失败')
+      }
+    },
+
+    async updateOutline(courseId: string, nodes: Node[]) {
+      try {
+        await http.put(`/api/courses/${courseId}/outline`, { nodes })
+      } catch (e) {
+        console.error('Failed to update outline', e)
+        ElMessage.error('更新大纲失败')
+      }
+    },
+
+    // ========== Existing Actions (preserved) ==========
 
     addLog(msg: string, courseId?: string) {
       const cs = this._courseStore()
@@ -150,7 +443,7 @@ export const useGenerationStore = defineStore('generation', {
         const cs = this._courseStore()
         const data = { version: 1, currentCourseId: cs.currentCourseId, tasks, queue }
         localStorage.setItem(GENERATION_STATE_KEY, JSON.stringify(data))
-      } catch (e) { logger.error(e) }
+      } catch (e) { console.error(e) }
     },
 
     restoreGenerationState() {
@@ -180,7 +473,7 @@ export const useGenerationStore = defineStore('generation', {
         })
         this.stateRestored = true
         return null
-      } catch (e) { logger.error(e); return null }
+      } catch (e) { console.error(e); return null }
     },
 
     finalizeIdleTasks() {
@@ -220,6 +513,7 @@ export const useGenerationStore = defineStore('generation', {
           const courseId = backendTask.course_id
           const localTask = this.tasks.get(courseId)
           if (localTask) {
+            const prevStatus = localTask.status
             if (backendTask.status === 'running') localTask.status = 'running'
             else if (backendTask.status === 'paused') localTask.status = 'paused'
             else if (backendTask.status === 'completed') localTask.status = 'completed'
@@ -230,16 +524,19 @@ export const useGenerationStore = defineStore('generation', {
             if (backendTask.current_node_name) {
               localTask.currentStep = `正在生成: ${backendTask.current_node_name}`
             }
-            if (courseId === cs.currentCourseId && backendTask.status === 'running') {
-              if (Math.random() < 0.2) { cs.refreshCourseData(courseId) }
+            // Deterministic refresh: only when task transitions to completed (Req 12.1, 12.3)
+            if (courseId === cs.currentCourseId && prevStatus !== 'completed' && localTask.status === 'completed') {
+              cs.refreshCourseData(courseId)
             }
           }
         })
-      } catch (e) { logger.error('Failed to fetch global tasks', e) }
+      } catch (e) { console.error('Failed to fetch global tasks', e) }
     },
 
     startGlobalMonitor() {
       if (this.globalPollingTimer) return
+      // Don't start polling if WebSocket is connected (Req 1.3)
+      if (this.wsConnected) return
       this.fetchGlobalTasks()
       this.globalPollingTimer = window.setInterval(() => { this.fetchGlobalTasks() }, 2000)
     },
@@ -249,6 +546,11 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     async startBackendTask(courseId: string) {
+      // Block generation in outline edit mode (Req 6.2)
+      if (this.isOutlineEditMode) {
+        ElMessage.warning('请先确认大纲后再启动生成任务')
+        return
+      }
       try {
         const cs = this._courseStore()
         const res = await http.post(`/api/courses/${courseId}/auto_generate`)
@@ -263,9 +565,15 @@ export const useGenerationStore = defineStore('generation', {
         task.shouldStop = false
         this.addLogToTask(courseId, `🚀 后台任务已启动 (ID: ${task_id})`)
         this.persistGenerationState()
-        this.startGlobalMonitor()
+        // Subscribe to this course via WebSocket
+        if (this.wsConnected) {
+          const ws = useTaskWebSocket()
+          ws.subscribe(courseId)
+        } else {
+          this.startGlobalMonitor()
+        }
       } catch (error) {
-        logger.error('Failed to start backend task', error)
+        console.error('Failed to start backend task', error)
         ElMessage.error('启动后台生成失败')
       }
     },
@@ -313,6 +621,11 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     async startSmartGeneration(keyword: string, options: { difficulty?: string, style?: string, requirements?: string } = {}) {
+      // Block generation in outline edit mode (Req 6.2)
+      if (this.isOutlineEditMode) {
+        ElMessage.warning('请先确认大纲后再启动生成任务')
+        return
+      }
       const cs = this._courseStore()
       cs.loading = true
       this.isGenerating = true
@@ -563,7 +876,7 @@ export const useGenerationStore = defineStore('generation', {
             })
             task.nodes.push(res.data)
             this.addToQueue({ courseId: item.courseId, type: 'content', targetNodeId: res.data.node_id, title: `撰写正文: ${res.data.node_name}` })
-          } catch (e) { logger.error('Manual create failed, trying fallback', e) }
+          } catch (e) { console.error('Manual create failed, trying fallback', e) }
         }
       } else {
         this.addLogToTask(item.courseId, `🤖 智能生成子章节...`)
@@ -587,7 +900,7 @@ export const useGenerationStore = defineStore('generation', {
       try {
         await http.post(`/api/courses/${item.courseId}/knowledge_graph`)
         this.addLogToTask(item.courseId, `✅ 知识图谱生成完成`)
-      } catch (e) { logger.error('Failed to generate knowledge graph', e); throw e }
+      } catch (e) { console.error('Failed to generate knowledge graph', e); throw e }
     },
 
     async generateSubChapters(node: Node) {
@@ -683,4 +996,3 @@ export const useGenerationStore = defineStore('generation', {
     },
   },
 })
-

@@ -55,8 +55,11 @@ class PromptTemplateName(str, Enum):
 class DisciplineType(str, Enum):
     """学科类型"""
     NATURAL_SCIENCE = "natural_science"
+    ENGINEERING = "engineering"
     HUMANITIES = "humanities"
-    SKILL_BASED = "skill_based"
+    SOCIAL_SCIENCE = "social_science"
+    APPLIED_SKILL = "applied_skill"
+    COMMUNICATION = "communication"
 
 
 # =============================================================================
@@ -144,7 +147,10 @@ VALID_TEACHING_STYLES: List[str] = ["academic", "industrial", "socratic", "humor
 VALID_NODE_TYPES: List[str] = ["original", "expanded", "redefined"]
 
 # 有效的学科类型列表
-VALID_DISCIPLINE_TYPES: List[str] = ["natural_science", "humanities", "skill_based"]
+VALID_DISCIPLINE_TYPES: List[str] = [
+    "natural_science", "engineering", "humanities",
+    "social_science", "applied_skill", "communication"
+]
 
 # =============================================================================
 # 验证函数

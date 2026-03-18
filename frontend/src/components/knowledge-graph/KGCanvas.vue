@@ -272,14 +272,14 @@ const tickSimulation = () => {
   // 1) 斥力：所有节点对
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
-      const a = nodes[i], b = nodes[j]
+      const a = nodes[i]!, b = nodes[j]!
       let dx = b.x - a.x, dy = b.y - a.y
       let dist = Math.sqrt(dx * dx + dy * dy) || 1
       if (dist < SIM_MIN_DIST) dist = SIM_MIN_DIST
       const force = SIM_REPULSION * sim.alpha / (dist * dist)
       const ux = (dx / dist) * force, uy = (dy / dist) * force
-      fx[a.id] -= ux; fy[a.id] -= uy
-      fx[b.id] += ux; fy[b.id] += uy
+      fx[a.id] = (fx[a.id] ?? 0) - ux; fy[a.id] = (fy[a.id] ?? 0) - uy
+      fx[b.id] = (fx[b.id] ?? 0) + ux; fy[b.id] = (fy[b.id] ?? 0) + uy
     }
   }
 
@@ -298,22 +298,22 @@ const tickSimulation = () => {
     const dist = Math.sqrt(dx * dx + dy * dy) || 1
     const force = (dist - idealDist) * strength * sim.alpha
     const ux = (dx / dist) * force, uy = (dy / dist) * force
-    fx[s.id] += ux; fy[s.id] += uy
-    fx[t.id] -= ux; fy[t.id] -= uy
+    fx[s.id] = (fx[s.id] ?? 0) + ux; fy[s.id] = (fy[s.id] ?? 0) + uy
+    fx[t.id] = (fx[t.id] ?? 0) - ux; fy[t.id] = (fy[t.id] ?? 0) - uy
   }
 
   // 3) 轻微居中力
   const cx = nodes.reduce((s, n) => s + n.x, 0) / nodes.length
   const cy = nodes.reduce((s, n) => s + n.y, 0) / nodes.length
   nodes.forEach(n => {
-    fx[n.id] += (cx - n.x) * SIM_CENTER_STRENGTH * sim.alpha * 0.5
-    fy[n.id] += (cy - n.y) * SIM_CENTER_STRENGTH * sim.alpha * 0.5
+    fx[n.id] = (fx[n.id] ?? 0) + (cx - n.x) * SIM_CENTER_STRENGTH * sim.alpha * 0.5
+    fy[n.id] = (fy[n.id] ?? 0) + (cy - n.y) * SIM_CENTER_STRENGTH * sim.alpha * 0.5
   })
 
   // 4) 碰撞分离：不受 alpha 衰减影响，确保节点永远不会重叠
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
-      const a = nodes[i], b = nodes[j]
+      const a = nodes[i]!, b = nodes[j]!
       let dx = b.x - a.x, dy = b.y - a.y
       const dist = Math.sqrt(dx * dx + dy * dy) || 0.1
       if (dist < SIM_COLLISION_RADIUS) {
@@ -322,8 +322,8 @@ const tickSimulation = () => {
         const push = overlap * SIM_COLLISION_STRENGTH / dist
         // 完全重合时给随机方向避免死锁
         if (dist < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5 }
-        fx[a.id] -= dx * push; fy[a.id] -= dy * push
-        fx[b.id] += dx * push; fy[b.id] += dy * push
+        fx[a.id] = (fx[a.id] ?? 0) - dx * push; fy[a.id] = (fy[a.id] ?? 0) - dy * push
+        fx[b.id] = (fx[b.id] ?? 0) + dx * push; fy[b.id] = (fy[b.id] ?? 0) + dy * push
       }
     }
   }
@@ -336,18 +336,22 @@ const tickSimulation = () => {
       sim.vx[n.id] = 0; sim.vy[n.id] = 0
       return
     }
-    sim.vx[n.id] = (sim.vx[n.id] + fx[n.id]) * (1 - SIM_VELOCITY_DECAY)
-    sim.vy[n.id] = (sim.vy[n.id] + fy[n.id]) * (1 - SIM_VELOCITY_DECAY)
+    const vx = sim.vx[n.id] ?? 0
+    const vy = sim.vy[n.id] ?? 0
+    const fxVal = fx[n.id] ?? 0
+    const fyVal = fy[n.id] ?? 0
+    sim.vx[n.id] = (vx + fxVal) * (1 - SIM_VELOCITY_DECAY)
+    sim.vy[n.id] = (vy + fyVal) * (1 - SIM_VELOCITY_DECAY)
     // 限速
-    const speed = Math.sqrt(sim.vx[n.id] ** 2 + sim.vy[n.id] ** 2)
+    const speed = Math.sqrt((sim.vx[n.id] ?? 0) ** 2 + (sim.vy[n.id] ?? 0) ** 2)
     const maxSpeed = 8
     if (speed > maxSpeed) {
-      sim.vx[n.id] = (sim.vx[n.id] / speed) * maxSpeed
-      sim.vy[n.id] = (sim.vy[n.id] / speed) * maxSpeed
+      sim.vx[n.id] = ((sim.vx[n.id] ?? 0) / speed) * maxSpeed
+      sim.vy[n.id] = ((sim.vy[n.id] ?? 0) / speed) * maxSpeed
     }
-    n.x += sim.vx[n.id]
-    n.y += sim.vy[n.id]
-    totalMovement += Math.abs(sim.vx[n.id]) + Math.abs(sim.vy[n.id])
+    n.x += sim.vx[n.id] ?? 0
+    n.y += sim.vy[n.id] ?? 0
+    totalMovement += Math.abs(sim.vx[n.id] ?? 0) + Math.abs(sim.vy[n.id] ?? 0)
   })
 
   // 触发 Vue 响应式更新

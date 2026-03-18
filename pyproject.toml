@@ -1,0 +1,41 @@
+[tool.ruff]
+# Target Python 3.10+
+target-version = "py310"
+line-length = 120
+
+# Core modules to lint
+src = ["backend"]
+
+[tool.ruff.lint]
+# Enable rules:
+# F - Pyflakes (unused imports, undefined names, etc.)
+# E - pycodestyle errors
+# W - pycodestyle warnings
+# I - isort (import sorting)
+# UP - pyupgrade (modern Python syntax)
+# ANN - flake8-annotations (type hint coverage for public interfaces)
+select = ["F", "E", "W", "I", "UP", "ANN"]
+
+# Ignore specific rules that are too noisy or conflict with project style
+ignore = [
+    "ANN401",  # Dynamically typed expressions (typing.Any) are disallowed
+    "ANN002",  # Missing type annotation for *args
+    "ANN003",  # Missing type annotation for **kwargs
+    "E501",    # Line too long (handled by formatter)
+    "E741",    # Ambiguous variable name
+    "W291",    # Trailing whitespace
+    "W292",    # No newline at end of file
+    "W293",    # Whitespace before ':'
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests don't need type annotations
+"tests/**" = ["ANN"]
+"backend/tests/**" = ["ANN"]
+# __init__.py files can have unused imports
+"__init__.py" = ["F401"]
+# models.py needs sys.path manipulation before import
+"backend/models.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["models", "storage", "course_service", "task_manager", "websocket_service", "content_validator", "content_consistency_validator", "knowledge_graph", "quality_predictor"]

@@ -13,8 +13,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from storage import storage
 
 
-# 模块级引用，由 main.py 在初始化后通过 init_task_manager() 设置
+# 模块级引用，由 main.py 在初始化后通过 init_task_manager() / init_ws_service() 设置
 _task_manager = None
+_ws_service = None
 
 
 def init_task_manager(tm):
@@ -28,6 +29,19 @@ def require_task_manager():
     if not _task_manager:
         raise HTTPException(status_code=500, detail="Task Manager not initialized")
     return _task_manager
+
+
+def init_ws_service(ws):
+    """由 main.py 调用，注入 WebSocketService 实例"""
+    global _ws_service
+    _ws_service = ws
+
+
+def require_ws_service():
+    """依赖注入：确保 WebSocketService 已初始化"""
+    if not _ws_service:
+        raise HTTPException(status_code=500, detail="WebSocket Service not initialized")
+    return _ws_service
 
 
 async def get_course_or_404(course_id: str) -> dict:
