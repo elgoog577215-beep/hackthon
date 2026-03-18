@@ -16,6 +16,12 @@
       </div>
       <div v-if="activeTab !== 'wrong'" class="flex items-center gap-2">
         <input v-model="search" type="text" placeholder="搜索笔记..." class="h-8 px-3 text-sm border border-slate-200 rounded-lg outline-none focus:border-primary-300 focus:ring-2 focus:ring-primary-100 w-40" />
+        <button @click="toggleSortMode" class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-primary-600 hover:border-primary-300 transition-colors" :title="sortMode === 'time' ? '按时间排序' : '按章节排序'">
+          <el-icon :size="14"><Sort /></el-icon>
+        </button>
+        <button @click="handleExportNotes" class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-primary-600 hover:border-primary-300 transition-colors" title="导出笔记">
+          <el-icon :size="14"><Download /></el-icon>
+        </button>
       </div>
     </div>
 
@@ -65,7 +71,23 @@
 
         <!-- Expanded: Quiz Re-test -->
         <Transition name="expand">
-          <div v-if="expandedKey === wrongItemKey(item)" class="border-t border-slate-100">
+          <div v-if="expandedKey === wrongItemKey(item)" class="border-t border-slate-100 relative">
+            <!-- 做类似题生成动画 -->
+            <Transition name="fade">
+              <div v-if="similarLoading === wrongItemKey(item)" class="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 rounded-b-xl">
+                <div class="similar-pulse-ring">
+                  <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white">
+                    <el-icon :size="20"><Aim /></el-icon>
+                  </div>
+                </div>
+                <div class="text-sm font-medium text-slate-600">正在生成类似题目</div>
+                <div class="similar-dots flex gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                </div>
+              </div>
+            </Transition>
             <template v-if="item.options && item.options.length > 0">
               <div class="px-5 py-4 space-y-2 ml-10">
                 <button
@@ -80,7 +102,7 @@
                         :class="getRetestBadgeClass(wrongItemKey(item), oIdx, item)">
                     {{ String.fromCharCode(65 + oIdx) }}
                   </span>
-                  <span class="text-sm"><MarkdownRenderer :content="opt" /></span>
+                  <span class="text-sm min-w-0"><MarkdownRenderer :content="opt" /></span>
                   <el-icon v-if="retestStates[wrongItemKey(item)]?.answered && oIdx === item.correctIndex" class="ml-auto text-emerald-500" :size="18"><CircleCheckFilled /></el-icon>
                   <el-icon v-else-if="retestStates[wrongItemKey(item)]?.answered && retestStates[wrongItemKey(item)]?.selected === oIdx && oIdx !== item.correctIndex" class="ml-auto text-red-500" :size="18"><CircleCloseFilled /></el-icon>
                 </button>
@@ -163,6 +185,23 @@
               >
                 <el-icon :size="12"><RefreshRight /></el-icon> 重测
               </button>
+              <el-dropdown v-if="item.options?.length > 0" trigger="click" @command="(count: number) => generateSimilar(item, count)">
+                <button
+                  class="px-3 py-1.5 text-xs font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors flex items-center gap-1.5"
+                  :disabled="similarLoading === wrongItemKey(item)"
+                >
+                  <el-icon v-if="similarLoading === wrongItemKey(item)" :size="12" class="animate-spin"><Loading /></el-icon>
+                  <el-icon v-else :size="12"><Aim /></el-icon>
+                  {{ similarLoading === wrongItemKey(item) ? '生成中...' : '做类似题' }}
+                </button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item :command="2">2 题</el-dropdown-item>
+                    <el-dropdown-item :command="3">3 题</el-dropdown-item>
+                    <el-dropdown-item :command="5">5 题</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
               <button
                 class="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1.5"
                 @click="addWrongNote(item)"
@@ -251,7 +290,7 @@
                     :class="drillBadgeClass(oIdx)">
                 {{ String.fromCharCode(65 + oIdx) }}
               </span>
-              <span class="text-sm flex-1"><MarkdownRenderer :content="opt" /></span>
+              <span class="text-sm flex-1 min-w-0"><MarkdownRenderer :content="opt" /></span>
               <el-icon v-if="drillAnswered && oIdx === drillCurrent.correctIndex" class="text-emerald-500" :size="20"><CircleCheckFilled /></el-icon>
               <el-icon v-else-if="drillAnswered && drillSelected === oIdx && oIdx !== drillCurrent.correctIndex" class="text-red-500" :size="20"><CircleCloseFilled /></el-icon>
             </button>
@@ -305,33 +344,83 @@
         <p class="text-xs mt-1">选中课程内容文字即可添加笔记</p>
       </div>
 
-      <div v-for="note in filteredNotes" :key="note.id"
-        class="group bg-white rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all overflow-hidden cursor-pointer"
-        @click="$emit('viewDetail', note)">
-        <div v-if="note.quote" class="px-4 pt-3 pb-1">
-          <div class="text-xs text-slate-500 italic border-l-2 border-primary-300 pl-3 py-1 line-clamp-2"><MarkdownRenderer :content="note.quote" /></div>
-        </div>
-        <div class="px-4 py-3">
-          <div class="text-sm text-slate-700 leading-relaxed line-clamp-4"><MarkdownRenderer :content="note.content" /></div>
-        </div>
-        <div class="px-4 pb-3 flex items-center justify-between">
-          <div class="flex items-center gap-2 text-xs text-slate-400">
-            <span class="px-1.5 py-0.5 rounded bg-slate-100" :class="{ 'bg-blue-50 text-blue-600': note.sourceType === 'ai' }">
-              {{ note.sourceType === 'ai' ? 'AI' : '手动' }}
-            </span>
-            <span>{{ getNodeName(note.nodeId) }}</span>
-            <span>{{ formatTime(note.createdAt) }}</span>
+      <!-- 按章节分组显示 -->
+      <template v-if="sortMode === 'chapter' && !search">
+        <div v-for="group in groupedNotes" :key="group.nodeId" class="mb-2">
+          <div class="flex items-center gap-2 px-2 py-1.5 mb-2 sticky top-0 bg-slate-50/90 backdrop-blur-sm rounded-lg z-[1]">
+            <div class="w-1.5 h-1.5 rounded-full bg-primary-400"></div>
+            <span class="text-xs font-bold text-slate-500 truncate">{{ group.nodeName }}</span>
+            <span class="text-[10px] text-slate-400">({{ group.notes.length }})</span>
           </div>
-          <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button class="p-1 rounded text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors" title="定位" @click="$emit('locate', note)">
-              <el-icon :size="14"><Location /></el-icon>
-            </button>
-            <button class="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="删除" @click="handleDelete(note)">
-              <el-icon :size="14"><Delete /></el-icon>
-            </button>
+          <div class="space-y-2">
+            <div v-for="note in group.notes" :key="note.id"
+              class="group bg-white rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all overflow-hidden cursor-pointer"
+              @click="$emit('viewDetail', note)">
+              <div v-if="note.quote" class="px-4 pt-3 pb-1">
+                <div class="text-xs text-slate-500 italic border-l-2 border-primary-300 pl-3 py-1 line-clamp-2"><MarkdownRenderer :content="note.quote" /></div>
+              </div>
+              <div class="px-4 py-3">
+                <div class="text-sm text-slate-700 leading-relaxed line-clamp-4"><MarkdownRenderer :content="note.content" /></div>
+              </div>
+              <div class="px-4 pb-3 flex items-center justify-between">
+                <div class="flex items-center gap-2 text-xs text-slate-400">
+                  <span class="px-1.5 py-0.5 rounded bg-slate-100" :class="{ 'bg-blue-50 text-blue-600': note.sourceType === 'ai' }">
+                    {{ note.sourceType === 'ai' ? 'AI' : '手动' }}
+                  </span>
+                  <span v-if="note.priority" class="px-1.5 py-0.5 rounded" :class="priorityClass(note.priority)">{{ priorityLabel(note.priority) }}</span>
+                  <span>{{ formatTime(note.createdAt) }}</span>
+                </div>
+                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button class="p-1 rounded text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors" title="定位" @click.stop="$emit('locate', note)">
+                    <el-icon :size="14"><Location /></el-icon>
+                  </button>
+                  <button class="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="删除" @click.stop="handleDelete(note)">
+                    <el-icon :size="14"><Delete /></el-icon>
+                  </button>
+                </div>
+              </div>
+              <div v-if="note.tags && note.tags.length > 0" class="px-4 pb-3 flex flex-wrap gap-1">
+                <span v-for="tag in note.tags" :key="tag" class="px-1.5 py-0.5 text-[10px] rounded bg-primary-50 text-primary-500">{{ tag }}</span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </template>
+
+      <!-- 按时间排序（平铺） -->
+      <template v-else>
+        <div v-for="note in filteredNotes" :key="note.id"
+          class="group bg-white rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all overflow-hidden cursor-pointer"
+          @click="$emit('viewDetail', note)">
+          <div v-if="note.quote" class="px-4 pt-3 pb-1">
+            <div class="text-xs text-slate-500 italic border-l-2 border-primary-300 pl-3 py-1 line-clamp-2"><MarkdownRenderer :content="note.quote" /></div>
+          </div>
+          <div class="px-4 py-3">
+            <div class="text-sm text-slate-700 leading-relaxed line-clamp-4"><MarkdownRenderer :content="note.content" /></div>
+          </div>
+          <div class="px-4 pb-3 flex items-center justify-between">
+            <div class="flex items-center gap-2 text-xs text-slate-400">
+              <span class="px-1.5 py-0.5 rounded bg-slate-100" :class="{ 'bg-blue-50 text-blue-600': note.sourceType === 'ai' }">
+                {{ note.sourceType === 'ai' ? 'AI' : '手动' }}
+              </span>
+              <span v-if="note.priority" class="px-1.5 py-0.5 rounded" :class="priorityClass(note.priority)">{{ priorityLabel(note.priority) }}</span>
+              <span>{{ getNodeName(note.nodeId) }}</span>
+              <span>{{ formatTime(note.createdAt) }}</span>
+            </div>
+            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button class="p-1 rounded text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors" title="定位" @click.stop="$emit('locate', note)">
+                <el-icon :size="14"><Location /></el-icon>
+              </button>
+              <button class="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="删除" @click.stop="handleDelete(note)">
+                <el-icon :size="14"><Delete /></el-icon>
+              </button>
+            </div>
+          </div>
+          <div v-if="note.tags && note.tags.length > 0" class="px-4 pb-3 flex flex-wrap gap-1">
+            <span v-for="tag in note.tags" :key="tag" class="px-1.5 py-0.5 text-[10px] rounded bg-primary-50 text-primary-500">{{ tag }}</span>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 
@@ -352,11 +441,12 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive, watch } from 'vue'
-import { Notebook, Location, Delete, ArrowDown, CircleCheckFilled, CircleCloseFilled, InfoFilled, RefreshRight, EditPen, TrophyBase, ArrowRight, ArrowLeft } from '@element-plus/icons-vue'
+import { Notebook, Location, Delete, ArrowDown, CircleCheckFilled, CircleCloseFilled, InfoFilled, RefreshRight, EditPen, TrophyBase, ArrowRight, ArrowLeft, Aim, Loading, Sort, Download } from '@element-plus/icons-vue'
 import TextDraftPanel from './TextDraftPanel.vue'
 import DrawingOverlay from './DrawingOverlay.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useCourseStore } from '../stores/course'
+import http from '../utils/http'
 import { useNoteStore } from '../stores/notes'
 import { useReviewStore } from '../stores/review'
 import { useDraftStore } from '../stores/draft'
@@ -368,6 +458,7 @@ const noteStore = useNoteStore()
 const reviewStore = useReviewStore()
 const draftStore = useDraftStore()
 const search = ref('')
+const sortMode = ref<'time' | 'chapter'>('time')
 const activeTab = ref('all')
 const draftExpanded = reactive<Record<string, boolean>>({})
 const drillTextDraftVisible = ref(false)
@@ -377,9 +468,11 @@ defineProps<{
   initialTab?: string
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'locate', note: Note): void
   (e: 'viewDetail', note: Note): void
+  (e: 'close'): void
+  (e: 'startSimilarQuiz', quizzes: any[], nodeId: string): void
 }>()
 
 defineExpose({ setTab: (tab: string) => { activeTab.value = tab } })
@@ -411,8 +504,46 @@ function getNodeName(nodeId: string) {
   return courseStore.nodes.find(n => n.node_id === nodeId)?.node_name || ''
 }
 
-function getPlainText(content: string) {
-  return content?.replace(/[#*>`_~\[\]()!]/g, '').replace(/\n{2,}/g, '\n').trim().slice(0, 200) || ''
+function toggleSortMode() {
+  sortMode.value = sortMode.value === 'time' ? 'chapter' : 'time'
+}
+
+const groupedNotes = computed(() => {
+  const linearNodes = courseStore.getLinearNodes(courseStore.courseTree)
+  const nodeOrder = new Map<string, number>(linearNodes.map((n: any, i: number) => [n.node_id, i]))
+  const nodeNameMap = new Map<string, string>(linearNodes.map((n: any) => [n.node_id, n.node_name]))
+
+  const groups = new Map<string, Note[]>()
+  filteredNotes.value.forEach(note => {
+    if (!groups.has(note.nodeId)) groups.set(note.nodeId, [])
+    groups.get(note.nodeId)!.push(note)
+  })
+
+  return Array.from(groups.entries())
+    .map(([nodeId, notes]) => ({
+      nodeId,
+      nodeName: nodeNameMap.get(nodeId) || '未知章节',
+      notes,
+      order: nodeOrder.get(nodeId) ?? Infinity,
+    }))
+    .sort((a, b) => a.order - b.order)
+})
+
+function priorityClass(p: string) {
+  if (p === 'high') return 'bg-red-50 text-red-500'
+  if (p === 'medium') return 'bg-amber-50 text-amber-600'
+  return 'bg-slate-100 text-slate-500'
+}
+
+function priorityLabel(p: string) {
+  if (p === 'high') return '高'
+  if (p === 'medium') return '中'
+  return '低'
+}
+
+function handleExportNotes() {
+  const filterLabel = activeTab.value === 'all' ? '全部笔记' : activeTab.value === 'user' ? '手动笔记' : 'AI 笔记'
+  noteStore.exportNotesMarkdown(filteredNotes.value, { filterLabel, query: search.value || undefined })
 }
 
 function formatTime(ts: number) {
@@ -583,6 +714,40 @@ function markMastered(item: any) {
   ElMessage.success('已标记为掌握')
 }
 
+// ========== 做类似题 ==========
+const similarLoading = ref<string | null>(null)
+
+async function generateSimilar(item: any, count: number) {
+  const key = wrongItemKey(item)
+  if (similarLoading.value) return
+  similarLoading.value = key
+  try {
+    const res = await http.post('/api/similar_quiz', {
+      question: item.question,
+      options: item.options || [],
+      correct_index: item.correctIndex ?? 0,
+      explanation: item.explanation || '',
+      node_name: item.nodeName || '',
+      question_count: count,
+    })
+    const quizzes = Array.isArray(res.data) ? res.data.map((q: any) => ({
+      ...q,
+      answer: q.answer || (typeof q.correct_index === 'number' && q.options ? q.options[q.correct_index] : ''),
+      node_id: item.nodeId || '',
+    })) : []
+    if (quizzes.length === 0) {
+      ElMessage.warning('未能生成类似题目，请稍后再试')
+      return
+    }
+    emit('close')
+    emit('startSimilarQuiz', quizzes, item.nodeId || '')
+  } catch {
+    ElMessage.error('生成类似题失败，请稍后再试')
+  } finally {
+    similarLoading.value = null
+  }
+}
+
 // ========== 闯关练习 ==========
 const drillMode = ref(false)
 const drillQuestions = ref<any[]>([])
@@ -732,5 +897,42 @@ function formatScore(reviewCount: number): string {
   max-height: 0;
   opacity: 0;
   overflow: hidden;
+}
+
+/* fade transition for overlay */
+.fade-enter-active { transition: opacity 0.25s ease; }
+.fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* 脉冲光环 */
+.similar-pulse-ring {
+  position: relative;
+}
+.similar-pulse-ring::before,
+.similar-pulse-ring::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 16px;
+  border: 2px solid rgb(251 191 36 / 0.4);
+  animation: similar-pulse 1.8s ease-out infinite;
+}
+.similar-pulse-ring::after {
+  animation-delay: 0.6s;
+}
+@keyframes similar-pulse {
+  0% { transform: scale(0.9); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* 跳动的点 */
+.similar-dots span {
+  animation: similar-bounce 1.2s ease-in-out infinite;
+}
+.similar-dots span:nth-child(2) { animation-delay: 0.15s; }
+.similar-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes similar-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
 }
 </style>

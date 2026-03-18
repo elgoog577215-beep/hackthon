@@ -92,7 +92,55 @@ class AIQuizService(AIBase):
         # 智能回退：基于用户错题生成针对性题目
         logger.warning(f"Quiz generation failed for '{node_name}' after retries. Using smart fallback.")
         return self._generate_smart_fallback_quiz(node_name, question_count, previous_mistakes, discipline_type)
-    
+
+    async def generate_similar_quiz(
+        self,
+        question: str,
+        options: List[str],
+        correct_index: int,
+        explanation: str,
+        node_name: str,
+        question_count: int = 3,
+    ) -> List[Dict]:
+        """基于错题的知识点生成类似题目"""
+        system_prompt = f"""你是一位专业的出题老师。用户在以下题目上答错了，请根据该题考查的知识点，生成 {question_count} 道类似的选择题。
+要求：
+1. 题目考查相同或相近的知识点，但不要重复原题
+2. 每道题 4 个选项，只有 1 个正确答案
+3. 提供详细解析
+4. 直接输出 JSON 数组，不要输出任何其他文字
+
+JSON 格式：
+[
+  {{
+    "question": "题目内容",
+    "options": ["A选项", "B选项", "C选项", "D选项"],
+    "correct_index": 0,
+    "explanation": "解析内容",
+    "knowledge_point": "考查知识点",
+    "difficulty_score": 3
+  }}
+]"""
+
+        options_text = "\n".join(f"  {chr(65+i)}. {opt}" for i, opt in enumerate(options))
+        prompt = f"""原始错题信息：
+知识点：{node_name}
+题目：{question}
+选项：
+{options_text}
+正确答案：{chr(65 + correct_index)}. {options[correct_index] if correct_index < len(options) else ''}
+解析：{explanation}
+
+请基于该题考查的知识点，生成 {question_count} 道类似的选择题。
+直接输出 JSON 数组，不要输出任何其他文字。"""
+
+        result = await self._generate_quiz_with_retry(prompt, system_prompt, question_count)
+        if result:
+            return result
+
+        logger.warning(f"Similar quiz generation failed for '{node_name}'. Using fallback.")
+        return self._generate_smart_fallback_quiz(node_name, question_count)
+
     async def _generate_quiz_with_retry(self, prompt: str, system_prompt: str, question_count: int, max_attempts: int = 2) -> Optional[List[Dict]]:
         """尝试生成测验，JSON 解析失败时自动重试一次"""
         last_raw_response = None

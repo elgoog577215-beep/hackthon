@@ -75,8 +75,8 @@ export const useCourseStore = defineStore('course', {
     userPersona: localStorage.getItem('user_persona') || '',
 
     // --- 多对话管理 ---
-    conversations: JSON.parse(localStorage.getItem('chat_conversations') || '[]') as ChatConversation[],
-    currentConversationId: localStorage.getItem('chat_current_conversation') || '' as string,
+    conversations: [] as ChatConversation[],
+    currentConversationId: '' as string,
     uiSettings: (() => {
         try {
             const saved = JSON.parse(localStorage.getItem('ui_settings') || 'null')
@@ -127,6 +127,8 @@ export const useCourseStore = defineStore('course', {
     },
     addMessage(type: 'user' | 'ai', content: string | AIContent) {
         this.chatHistory.push({ type, content })
+        this.syncCurrentConversation()
+        this.saveConversations()
     },
     cancelChat() {
         if (this.chatAbortController) { this.chatAbortController.abort() }
@@ -193,12 +195,25 @@ export const useCourseStore = defineStore('course', {
         this.saveConversations()
     },
     saveConversations() {
+        const cid = this.currentCourseId
+        const suffix = cid ? `_${cid}` : ''
         try {
-            localStorage.setItem('chat_conversations', JSON.stringify(this.conversations))
-            localStorage.setItem('chat_current_conversation', this.currentConversationId)
+            localStorage.setItem(`chat_conversations${suffix}`, JSON.stringify(this.conversations))
+            localStorage.setItem(`chat_current_conversation${suffix}`, this.currentConversationId)
         } catch (e) {
             logger.error('Failed to save conversations:', e)
         }
+    },
+    loadConversations(courseId: string) {
+        const suffix = courseId ? `_${courseId}` : ''
+        try {
+            this.conversations = JSON.parse(localStorage.getItem(`chat_conversations${suffix}`) || '[]')
+            this.currentConversationId = localStorage.getItem(`chat_current_conversation${suffix}`) || ''
+        } catch {
+            this.conversations = []
+            this.currentConversationId = ''
+        }
+        this.initConversations()
     },
 
     // ========== Delegation helpers ==========
@@ -301,6 +316,9 @@ export const useCourseStore = defineStore('course', {
                 const learningStore = useLearningStore()
                 const pos = learningStore.getReadingPosition(courseId)
                 if (pos) { this.scrollToNodeId = pos.nodeId }
+
+                // 加载该课程的对话记录
+                this.loadConversations(courseId)
             } else {
                 throw new Error('课程数据为空')
             }
@@ -632,7 +650,7 @@ export const useCourseStore = defineStore('course', {
             ElMessage.error('生成测验失败')
             if (!silent) { this.chatHistory.push({ type: 'ai', content: '生成测验时遇到错误，请稍后再试。' }) }
             return []
-        } finally { this.chatLoading = false }
+        } finally { this.chatLoading = false; this.syncCurrentConversation(); this.saveConversations() }
     },
 
     async quickSummarize() {
@@ -647,7 +665,7 @@ export const useCourseStore = defineStore('course', {
         } catch (e) {
             logger.error(e)
             this.chatHistory.push({ type: 'ai', content: '总结生成失败，请稍后再试' })
-        } finally { this.chatLoading = false }
+        } finally { this.chatLoading = false; this.syncCurrentConversation(); this.saveConversations() }
     },
 
     async summarizeChat() {
@@ -809,6 +827,8 @@ export const useCourseStore = defineStore('course', {
       } finally {
         this.loading = false; this.chatLoading = false
         if (this.chatAbortController === controller) { this.chatAbortController = null }
+        this.syncCurrentConversation()
+        this.saveConversations()
       }
     },
 

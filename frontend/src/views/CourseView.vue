@@ -153,7 +153,7 @@
             <button @click="showNotesPanel = false" class="absolute top-4 right-4 z-10 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all">
               <el-icon :size="20"><Close /></el-icon>
             </button>
-            <NotesPanel ref="notesPanelRef" class="flex-1 min-h-0" @locate="handleLocateFromPanel" @view-detail="handleViewDetailFromPanel" />
+            <NotesPanel ref="notesPanelRef" class="flex-1 min-h-0" @locate="handleLocateFromPanel" @view-detail="handleViewDetailFromPanel" @close="showNotesPanel = false" @start-similar-quiz="handleStartSimilarQuiz" />
           </div>
         </div>
       </Transition>
@@ -626,6 +626,11 @@ const handleViewDetailFromPanel = (note: any) => {
   contentAreaRef.value?.showNoteDetail(note, () => {
     showNotesPanel.value = true
   })
+}
+
+const handleStartSimilarQuiz = (quizzes: any[], nodeId: string) => {
+  showNotesPanel.value = false
+  contentAreaRef.value?.loadSimilarQuiz(quizzes, nodeId)
 }
 
 // ========== Study Time Tracking ==========

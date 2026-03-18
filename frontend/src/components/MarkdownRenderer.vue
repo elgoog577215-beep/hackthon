@@ -145,7 +145,8 @@ watch(() => [props.content, props.searchWords], () => {
 
 <style scoped>
 .markdown-renderer {
-    /* display: inline; Removed to allow default block behavior */
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 /* 继承父级的排版样式 */
 :deep(p:last-child) {

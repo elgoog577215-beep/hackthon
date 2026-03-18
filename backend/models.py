@@ -115,6 +115,16 @@ class GenerateQuizRequest(BaseModel):
     discipline_type: Optional[str] = None
 
 
+class SimilarQuizRequest(BaseModel):
+    """基于错题生成类似题目的请求"""
+    question: str
+    options: List[str]
+    correct_index: int
+    explanation: str = ""
+    node_name: str = ""
+    question_count: int = 3
+
+
 class SummarizeChatRequest(BaseModel):
     history: List[dict]
     course_context: Optional[str] = ""

@@ -7,7 +7,7 @@ from fastapi import APIRouter
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from models import GenerateQuizRequest, SummarizeChatRequest, AskQuestionRequest
+from models import GenerateQuizRequest, SummarizeChatRequest, AskQuestionRequest, SimilarQuizRequest
 from ai_service import ai_service
 from fastapi.responses import StreamingResponse
 
@@ -24,6 +24,18 @@ async def generate_quiz(req: GenerateQuizRequest):
         user_persona=req.user_persona,
         question_count=req.question_count,
         discipline_type=req.discipline_type
+    )
+
+
+@router.post("/similar_quiz")
+async def similar_quiz(req: SimilarQuizRequest):
+    return await ai_service.generate_similar_quiz(
+        question=req.question,
+        options=req.options,
+        correct_index=req.correct_index,
+        explanation=req.explanation,
+        node_name=req.node_name,
+        question_count=req.question_count,
     )
 
 
