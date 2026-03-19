@@ -60,7 +60,7 @@
       <!-- Left Resizer -->
       <div 
         v-if="showLeftResizer"
-        class="w-2 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative transition-all duration-200 hover:w-3 hover:-ml-0.5"
+        class="w-1 z-30 flex-shrink-0 cursor-col-resize flex items-center justify-center group select-none relative transition-all duration-200 hover:w-2 hover:-ml-0.5"
         @mousedown="startResizeLeft"
         @touchstart="startResizeLeft"
         @dblclick="resetLeftSidebar"
@@ -80,38 +80,11 @@
       <!-- Content Area -->
       <ContentArea 
         ref="contentAreaRef"
-        v-model:notes-collapsed="notesCollapsed"
-        :side-ai-panel-visible="sideAIPanelVisible"
         :class="[
           'flex-1 overflow-hidden relative z-0',
           !leftVisible && !isMobile ? 'ml-2' : ''
         ]"
-        @quote-ask="openSideAIPanel"
       />
-
-      <!-- Floating AI Assistant Button -->
-      <Transition name="fade">
-        <button
-          v-if="!sideAIPanelVisible && courseStore.currentCourseId"
-          class="fixed bottom-20 z-50 w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg hover:shadow-xl hover:scale-105 flex items-center justify-center transition-all duration-200 cursor-pointer"
-          :class="notesCollapsed ? 'right-6' : 'right-[340px]'"
-          title="AI 助手"
-          @click="openSideAIPanelDirect"
-        >
-          <Bot :size="22" />
-        </button>
-      </Transition>
-
-      <!-- Side AI Panel -->
-      <Transition name="slide-in-right">
-        <SideAIPanel
-          v-if="sideAIPanelVisible"
-          :visible="sideAIPanelVisible"
-          :quote-text="sideAIQuoteText"
-          :quote-node-id="sideAIQuoteNodeId"
-          @close="closeSideAIPanel"
-        />
-      </Transition>
 
 
     </div>
@@ -168,7 +141,7 @@
             <button @click="showNotesPanel = false" class="absolute top-4 right-4 z-10 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all">
               <el-icon :size="20"><Close /></el-icon>
             </button>
-            <NotesPanel ref="notesPanelRef" class="flex-1 min-h-0" @locate="handleLocateFromPanel" @view-detail="handleViewDetailFromPanel" />
+            <NotesPanel ref="notesPanelRef" class="flex-1 min-h-0" @locate="handleLocateFromPanel" />
           </div>
         </div>
       </Transition>
@@ -221,7 +194,6 @@
 <script setup lang="ts">
 import CourseTree from '../components/CourseTree.vue'
 import ContentArea from '../components/ContentArea.vue'
-import SideAIPanel from '../components/SideAIPanel.vue'
 import LearningStats from '../components/LearningStats.vue'
 import SmartBar from '../components/SmartBar.vue'
 import NotesPanel from '../components/NotesPanel.vue'
@@ -233,14 +205,8 @@ import { useReviewStore } from '../stores/review'
 import { useGenerationStore } from '../stores/generation'
 import { onMounted, onUnmounted, ref, computed, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-<<<<<<< HEAD
 import { DArrowRight, TrendCharts, Close, WarningFilled, RefreshRight } from '@element-plus/icons-vue'
-=======
-import { DArrowRight, TrendCharts, Close } from '@element-plus/icons-vue'
-import { Bot } from 'lucide-vue-next'
->>>>>>> classmate/main
 import { ElMessage } from 'element-plus'
-import logger from '../utils/logger'
 
 const courseStore = useCourseStore()
 const noteStore = useNoteStore()
@@ -279,12 +245,12 @@ const loadSidebarState = (): SidebarState => {
       return JSON.parse(saved)
     }
   } catch (e) {
-    logger.warn('Failed to load sidebar state:', e)
+    console.warn('Failed to load sidebar state:', e)
   }
   return {
     leftVisible: true,
     rightVisible: true,
-    leftWidth: 250,
+    leftWidth: 300,
     rightWidth: 320
   }
 }
@@ -328,55 +294,6 @@ const showOverlay = computed(() => {
 // Learning stats modal
 const showLearningStats = ref(false)
 const showNotesPanel = ref(false)
-
-// Notes collapsed state (lifted from ContentArea for panel coordination)
-const notesCollapsed = ref(false)
-
-// Side AI Panel state
-const sideAIPanelVisible = ref(false)
-const sideAIQuoteText = ref('')
-const sideAIQuoteNodeId = ref('')
-const layoutBeforePanel = ref<{ leftVisible: boolean; notesCollapsed: boolean } | null>(null)
-
-const openSideAIPanel = (payload: { text: string; nodeId: string }) => {
-  // Save current layout
-  layoutBeforePanel.value = {
-    leftVisible: leftVisible.value,
-    notesCollapsed: notesCollapsed.value
-  }
-  // Collapse sidebars to make room
-  leftVisible.value = false
-  notesCollapsed.value = true
-  // Open panel with quote
-  sideAIQuoteText.value = payload.text
-  sideAIQuoteNodeId.value = payload.nodeId
-  sideAIPanelVisible.value = true
-}
-
-const openSideAIPanelDirect = () => {
-  // Save current layout (same as openSideAIPanel)
-  layoutBeforePanel.value = {
-    leftVisible: leftVisible.value,
-    notesCollapsed: notesCollapsed.value
-  }
-  // Collapse sidebars to make room
-  leftVisible.value = false
-  notesCollapsed.value = true
-  // Open panel without quote
-  sideAIQuoteText.value = ''
-  sideAIQuoteNodeId.value = ''
-  sideAIPanelVisible.value = true
-}
-
-const closeSideAIPanel = () => {
-  sideAIPanelVisible.value = false
-  // Restore layout
-  if (layoutBeforePanel.value) {
-    leftVisible.value = layoutBeforePanel.value.leftVisible
-    notesCollapsed.value = layoutBeforePanel.value.notesCollapsed
-    layoutBeforePanel.value = null
-  }
-}
 
 // Show resizers
 const showLeftResizer = computed(() => {
@@ -448,7 +365,7 @@ const startResizeLeft = (e: MouseEvent | TouchEvent) => {
 }
 
 const resetLeftSidebar = () => {
-    leftSidebarWidth.value = screenWidth.value < SCREEN_XL ? 240 : 250
+    leftSidebarWidth.value = screenWidth.value < SCREEN_XL ? 280 : 300
 }
 
 const handlePreferredWidth = (width: number) => {
@@ -527,15 +444,9 @@ const handleKeydown = (e: KeyboardEvent) => {
     shortcutsHelpRef.value?.open()
   }
 
-  // Escape to close mobile sidebars or Side AI Panel
-  if (e.key === 'Escape') {
-    if (sideAIPanelVisible.value) {
-      closeSideAIPanel()
-      return
-    }
-    if (showOverlay.value) {
-      closeAllSidebars()
-    }
+  // Escape to close mobile sidebars
+  if (e.key === 'Escape' && showOverlay.value) {
+    closeAllSidebars()
   }
 }
 
@@ -591,10 +502,6 @@ onUnmounted(() => {
 
 // Watch route changes to load course
 watch(() => route.params.courseId, (newCourseId, oldCourseId) => {
-  // Auto-close SideAIPanel on course switch to prevent stale context
-  if (sideAIPanelVisible.value && oldCourseId && newCourseId !== oldCourseId) {
-    closeSideAIPanel()
-  }
   if (newCourseId) {
     courseStore.loadCourse(newCourseId as string)
   } else if (oldCourseId && !newCourseId) {
@@ -608,15 +515,14 @@ watch(() => route.params.courseId, (newCourseId, oldCourseId) => {
 }, { immediate: true })
 
 // SmartBar computed properties
-const notesCount = computed(() => noteStore.notes?.filter(n => n.sourceType !== 'format' && n.sourceType !== 'wrong').length || 0)
+const notesCount = computed(() => noteStore.notes?.length || 0)
 const wrongAnswersCount = computed(() => {
-  const currentNodeIds = new Set(courseStore.nodes.map(n => n.node_id))
-  const structured = (reviewStore.wrongAnswers || []).filter(w => currentNodeIds.has(w.nodeId))
-  const structuredQuestions = new Set(structured.map(w => w.question))
+  const structuredCount = reviewStore.wrongAnswers?.length || 0
+  const structuredQuestions = new Set((reviewStore.wrongAnswers || []).map(w => w.question))
   const legacyCount = (noteStore.notes || [])
-    .filter(n => n.sourceType === 'wrong' && currentNodeIds.has(n.nodeId || '') && !structuredQuestions.has(n.quote || ''))
+    .filter(n => n.sourceType === 'wrong' && !structuredQuestions.has(n.quote || ''))
     .length
-  return structured.length + legacyCount
+  return structuredCount + legacyCount
 })
 
 // Reading location indicator
@@ -680,19 +586,11 @@ const handleLocateFromPanel = (note: any) => {
   handleLocateNote(note)
 }
 
-<<<<<<< HEAD
 const handleRetryAllFailed = () => {
   if (courseStore.currentCourseId) {
     genStore.retryAllFailed(courseStore.currentCourseId)
     genStore.failureReport = null
   }
-=======
-const handleViewDetailFromPanel = (note: any) => {
-  showNotesPanel.value = false
-  contentAreaRef.value?.showNoteDetail(note, () => {
-    showNotesPanel.value = true
-  })
->>>>>>> classmate/main
 }
 
 // ========== Study Time Tracking ==========

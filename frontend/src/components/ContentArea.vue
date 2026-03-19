@@ -200,7 +200,7 @@
     </Teleport>
 
     <!-- Content List (Continuous Scroll) -->
-    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative custom-scrollbar" style="scroll-behavior: auto;" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
+    <div class="flex-1 overflow-auto p-3 lg:p-5 xl:p-6 relative scroll-smooth custom-scrollbar" id="content-scroll-container" @mouseup="handleMouseUp" @click="handleContentClick">
       
         <!-- Note Hover Preview -->
         <Teleport to="body">
@@ -305,9 +305,6 @@
                     <el-tooltip content="波浪线 (Ctrl+I)" placement="bottom" :show-after="500">
                         <button class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 decoration-wavy underline text-sm transition-colors" @click="applyFormat('underline', 'wavy')">~</button>
                     </el-tooltip>
-                    <el-tooltip content="清除格式" placement="bottom" :show-after="500">
-                        <button class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 text-sm transition-colors" @click="clearFormats()">✕</button>
-                    </el-tooltip>
                 </div>
             </div>
             
@@ -327,7 +324,7 @@
                     v-for="(node, index) in visibleNodes" 
                     :key="node.node_id"
                     :node="node" 
-                    :index="getChapterIndex(node, index)"
+                    :index="index"
                     :font-size="fontSize"
                     :font-family="fontFamily"
                     :line-height="lineHeight"
@@ -478,7 +475,7 @@
                 <div v-for="note in displayedNotes" :key="'mobile-'+note.id" 
                      class="bg-white rounded-xl shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] border border-slate-200/60 p-4 active:scale-98 transition-all duration-200"
                      :class="{'!border-purple-200 !bg-purple-50/10 shadow-purple-100': note.sourceType === 'ai'}"
-                     @click="handleNoteClick(note); courseStore.isMobileNotesVisible = false">
+                     @click="scrollToHighlight(note.highlightId, note.id); courseStore.isMobileNotesVisible = false">
                     <div class="flex justify-between items-start mb-3">
                         <div v-if="note.sourceType === 'ai'" class="text-[11px] font-bold text-purple-600 bg-purple-100/50 px-2 py-1 rounded-md flex items-center gap-1"><el-icon><MagicStick /></el-icon> AI 助手</div>
                         <div v-else class="text-[11px] font-bold px-2 py-1 rounded-md bg-slate-100 text-slate-500" :class="noteBadgeClass(note)">笔记</div>
@@ -560,113 +557,57 @@
     <el-dialog
       v-model="quizVisible"
       title="智能测验"
-      width="85vw"
-      style="max-width: 900px;"
+      width="600px"
       class="glass-dialog-clean"
       align-center
       append-to-body
     >
-      <div v-if="generatingQuiz" class="flex flex-col items-center justify-center py-14">
-        <!-- Animated quiz cards -->
-        <div class="quiz-loading-cards mb-6">
-          <div class="quiz-card card-1">
-            <div class="card-line long"></div>
-            <div class="card-dots">
-              <div class="card-dot"></div>
-              <div class="card-dot"></div>
-              <div class="card-dot"></div>
-              <div class="card-dot"></div>
-            </div>
-          </div>
-          <div class="quiz-card card-2">
-            <div class="card-line long"></div>
-            <div class="card-dots">
-              <div class="card-dot"></div>
-              <div class="card-dot"></div>
-              <div class="card-dot"></div>
-              <div class="card-dot"></div>
-            </div>
-          </div>
-          <div class="quiz-card card-3">
-            <div class="card-line long"></div>
-            <div class="card-dots">
-              <div class="card-dot"></div>
-              <div class="card-dot"></div>
-              <div class="card-dot"></div>
-              <div class="card-dot"></div>
-            </div>
-          </div>
+      <div v-if="generatingQuiz" class="flex flex-col items-center justify-center py-12">
+        <div class="w-16 h-16 relative mb-4">
+             <div class="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
+             <div class="absolute inset-0 border-4 border-primary-500 rounded-full border-t-transparent animate-spin"></div>
         </div>
-        <div class="flex items-center gap-2 mb-2">
-          <div class="quiz-pencil">✏️</div>
-          <p class="text-slate-700 font-semibold text-base">AI 正在精心出题</p>
-        </div>
-        <p class="text-xs text-slate-400">根据章节内容生成个性化测验题目...</p>
+        <p class="text-slate-600 font-medium">AI 正在出题中...</p>
       </div>
-      <div v-else class="py-2 relative" style="min-height: 300px;">
+      <div v-else class="py-2">
         <div v-if="quizQuestions && quizQuestions.length > 0">
-            <!-- 题目导航 -->
-            <QuestionNavigator
-              :current-index="currentQuestionIndex"
-              :total-count="quizQuestions.length"
-              @prev="currentQuestionIndex = Math.max(0, currentQuestionIndex - 1)"
-              @next="currentQuestionIndex = Math.min(quizQuestions.length - 1, currentQuestionIndex + 1)"
-            />
-            <!-- 单题显示 -->
-            <div class="mt-3">
-              <div class="flex gap-2 font-bold text-slate-800 mb-3 text-lg">
-                <span class="shrink-0">{{ currentQuestionIndex + 1 }}.</span>
-                <MarkdownRenderer :content="currentQuestion.question" />
-              </div>
-              <div class="space-y-2">
+            <div v-for="(q, idx) in quizQuestions" :key="idx" class="mb-8 last:mb-0">
+            <div class="flex gap-2 font-bold text-slate-800 mb-3 text-lg">
+                <span class="shrink-0">{{ idx + 1 }}.</span>
+                <MarkdownRenderer :content="q.question" />
+            </div>
+            <div class="space-y-2">
                 <div 
-                  v-for="(opt, oIdx) in currentQuestion.options" 
-                  :key="oIdx"
-                  class="p-3 rounded-xl border border-slate-200 cursor-pointer transition-all duration-200 hover:border-primary-300 hover:bg-primary-50/30 flex items-center gap-3"
-                  :class="{ 
-                    '!bg-emerald-50 !border-emerald-500': quizSubmitted && oIdx === getCorrectIndex(currentQuestion),
-                    '!bg-red-50 !border-red-500': quizSubmitted && userAnswers[currentQuestionIndex] === oIdx && oIdx !== getCorrectIndex(currentQuestion),
-                    'bg-primary-50 border-primary-500': userAnswers[currentQuestionIndex] === oIdx && !quizSubmitted
-                  }"
-                  @click="!quizSubmitted && (userAnswers[currentQuestionIndex] = oIdx)"
+                v-for="(opt, oIdx) in q.options" 
+                :key="oIdx"
+                class="p-3 rounded-xl border border-slate-200 cursor-pointer transition-all duration-200 hover:border-primary-300 hover:bg-primary-50/30 flex items-center gap-3"
+                :class="{ 
+                    '!bg-emerald-50 !border-emerald-500': quizSubmitted && opt === q.answer,
+                    '!bg-red-50 !border-red-500': quizSubmitted && userAnswers[idx] === opt && opt !== q.answer,
+                    'bg-primary-50 border-primary-500': userAnswers[idx] === opt && !quizSubmitted
+                }"
+                @click="!quizSubmitted && (userAnswers[idx] = opt)"
                 >
-                  <div class="w-5 h-5 rounded-full border flex items-center justify-center text-xs transition-colors"
+                <div class="w-5 h-5 rounded-full border flex items-center justify-center text-xs transition-colors"
                     :class="{
-                      'border-emerald-500 bg-emerald-500 text-white': quizSubmitted && oIdx === getCorrectIndex(currentQuestion),
-                      'border-red-500 bg-red-500 text-white': quizSubmitted && userAnswers[currentQuestionIndex] === oIdx && oIdx !== getCorrectIndex(currentQuestion),
-                      'border-primary-500 bg-primary-500 text-white': userAnswers[currentQuestionIndex] === oIdx && !quizSubmitted,
-                      'border-slate-300 text-slate-400': userAnswers[currentQuestionIndex] !== oIdx && !(quizSubmitted && oIdx === getCorrectIndex(currentQuestion))
+                        'border-emerald-500 bg-emerald-500 text-white': quizSubmitted && opt === q.answer,
+                        'border-red-500 bg-red-500 text-white': quizSubmitted && userAnswers[idx] === opt && opt !== q.answer,
+                        'border-primary-500 bg-primary-500 text-white': userAnswers[idx] === opt && !quizSubmitted,
+                        'border-slate-300 text-slate-400': userAnswers[idx] !== opt && !(quizSubmitted && opt === q.answer)
                     }">
-                    <span v-if="quizSubmitted && oIdx === getCorrectIndex(currentQuestion)"><el-icon><Check /></el-icon></span>
-                    <span v-else-if="quizSubmitted && userAnswers[currentQuestionIndex] === oIdx && oIdx !== getCorrectIndex(currentQuestion)"><el-icon><Close /></el-icon></span>
+                    <span v-if="quizSubmitted && opt === q.answer"><el-icon><Check /></el-icon></span>
+                    <span v-else-if="quizSubmitted && userAnswers[idx] === opt && opt !== q.answer"><el-icon><Close /></el-icon></span>
                     <span v-else>{{ String.fromCharCode(65 + Number(oIdx)) }}</span>
-                  </div>
-                  <div class="text-slate-700 font-medium">
-                    <MarkdownRenderer :content="opt" />
-                  </div>
                 </div>
-              </div>
-              <div v-if="quizSubmitted" class="mt-3 text-sm bg-slate-50 p-3 rounded-lg text-slate-600">
+                <div class="text-slate-700 font-medium">
+                    <MarkdownRenderer :content="opt" />
+                </div>
+                </div>
+            </div>
+            <div v-if="quizSubmitted" class="mt-3 text-sm bg-slate-50 p-3 rounded-lg text-slate-600">
                 <span class="font-bold text-slate-800 block mb-1">解析：</span> 
-                <MarkdownRenderer :content="currentQuestion.explanation || '暂无解析'" />
-              </div>
-              <!-- 草稿按钮 -->
-              <div v-if="!quizSubmitted" class="mt-4 flex items-center gap-2">
-                <button
-                  class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5"
-                  :class="textDraftVisible ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'"
-                  @click="textDraftVisible = !textDraftVisible"
-                >
-                  <el-icon :size="12"><EditPen /></el-icon> 文字草稿
-                </button>
-                <button
-                  class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5"
-                  :class="drawingOverlayVisible ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'"
-                  @click="drawingOverlayVisible = !drawingOverlayVisible"
-                >
-                  🎨 图画草稿
-                </button>
-              </div>
+                <MarkdownRenderer :content="q.explanation || '暂无解析'" />
+            </div>
             </div>
         </div>
         <div v-else class="text-center text-slate-500 py-10">
@@ -687,118 +628,148 @@
       </template>
     </el-dialog>
 
-    <!-- 文字草稿面板 (Teleport 到 body，定位在 dialog 右侧) -->
-    <Teleport to="body">
-      <TextDraftPanel
-        v-model:visible="textDraftVisible"
-        :question-index="currentQuestionIndex"
-      />
-    </Teleport>
-
-    <!-- 图画草稿覆盖层 (Teleport 到 body，覆盖大部分屏幕) -->
-    <Teleport to="body">
-      <DrawingOverlay
-        v-model:visible="drawingOverlayVisible"
-        :question-index="currentQuestionIndex"
-      />
-    </Teleport>
-
     <!-- Note Detail Dialog -->
     <el-dialog
         v-model="noteDetailVisible"
         title="笔记详情"
-        width="720px"
+        width="700px"
         class="note-detail-dialog"
         align-center
         append-to-body
-        :before-close="handleNoteDetailClose"
     >
-        <div v-if="selectedNote" class="flex flex-col gap-5">
-            <!-- Note Type Header -->
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                     :class="selectedNote.sourceType === 'ai' ? 'bg-gradient-to-br from-violet-100 to-purple-100 text-purple-600' : 'bg-gradient-to-br from-primary-100 to-blue-100 text-primary-600'">
-                    <el-icon v-if="selectedNote.sourceType === 'ai'" :size="20"><MagicStick /></el-icon>
-                    <el-icon v-else :size="20"><EditPen /></el-icon>
-                </div>
-                <div class="min-w-0">
-                    <div class="text-sm font-bold text-slate-700">
-                        {{ selectedNote.sourceType === 'ai' ? 'AI 生成笔记' : '手动笔记' }}
-                    </div>
-                    <div class="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
-                        <span v-if="noteDetailNodeName">{{ noteDetailNodeName }}</span>
-                        <span v-if="noteDetailNodeName">·</span>
-                        <span>{{ dayjs(selectedNote.createdAt).format('YYYY-MM-DD HH:mm') }}</span>
-                    </div>
-                </div>
-            </div>
-
+        <div v-if="selectedNote" class="flex flex-col gap-4">
             <!-- Quote Context -->
-            <div v-if="selectedNote.quote" class="relative pl-4">
-                <div class="absolute left-0 top-0 bottom-0 w-1 rounded-full" :class="noteQuoteBarClass(selectedNote)"></div>
-                <div class="text-sm text-slate-500 italic leading-relaxed">"{{ selectedNote.quote }}"</div>
-            </div>
-
-            <!-- Summary Section -->
-            <div v-if="selectedNote.summary" class="p-4 bg-gradient-to-br from-violet-50/80 to-purple-50/60 rounded-xl border border-purple-100/60">
-                <div class="text-[11px] font-bold text-purple-500 mb-2 tracking-wide flex items-center gap-1.5">
-                    <el-icon :size="12"><CollectionTag /></el-icon> 核心概括
+                <div v-if="selectedNote.quote" class="p-4 bg-slate-50 rounded-xl border-l-4 italic text-slate-600 text-sm" :class="noteQuoteBorderClass(selectedNote)">
+                    "{{ selectedNote.quote }}"
                 </div>
-                <div class="text-sm text-slate-700 leading-relaxed note-content-markdown">
-                    <MarkdownRenderer :content="selectedNote.summary" :search-words="searchTokens" />
+
+                <!-- Summary Section -->
+                <div v-if="selectedNote.summary" class="p-4 bg-purple-50/50 rounded-xl border border-purple-100">
+                    <div class="text-[11px] font-bold text-purple-600 mb-2 uppercase tracking-wide flex items-center gap-1">
+                        <el-icon><CollectionTag /></el-icon> 核心概括
+                    </div>
+                    <div class="text-sm text-slate-700 leading-relaxed note-content-markdown">
+                        <MarkdownRenderer :content="selectedNote.summary" :search-words="searchTokens" />
+                    </div>
                 </div>
-            </div>
 
-            <!-- Tags & Category Chips -->
-            <div v-if="!isDialogEditing && (selectedNote.category || selectedNote.priority || (selectedNote.tags && selectedNote.tags.length))" class="flex flex-wrap items-center gap-2">
-                <span v-if="selectedNote.category"
-                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium"
-                    :class="categoryChipClass(selectedNote.category)">
-                    <el-icon :size="11"><Folder /></el-icon> {{ selectedNote.category }}
-                </span>
-                <span v-if="selectedNote.priority"
-                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium"
-                    :class="priorityChipClass(selectedNote.priority)">
-                    {{ priorityIcon(selectedNote.priority) }} {{ getPriorityLabel(selectedNote.priority) }}
-                </span>
-                <span v-for="tag in selectedNote.tags" :key="tag"
-                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 cursor-pointer hover:bg-primary-50 hover:text-primary-600 transition-colors"
-                    @click="filterByTag(tag)">
-                    # {{ tag }}
-                </span>
-            </div>
+                <!-- Tags & Category Section -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <!-- Category Badge -->
+                    <el-select
+                        v-if="isDialogEditing"
+                        v-model="editingCategory"
+                        placeholder="选择分类"
+                        size="small"
+                        class="w-32"
+                        @change="updateNoteCategory"
+                    >
+                        <el-option
+                            v-for="cat in availableCategories"
+                            :key="cat"
+                            :label="cat"
+                            :value="cat"
+                        />
+                    </el-select>
+                    <el-tag
+                        v-else-if="selectedNote.category"
+                        :type="getCategoryType(selectedNote.category)"
+                        size="small"
+                        effect="light"
+                    >
+                        <el-icon class="mr-1"><Folder /></el-icon>
+                        {{ selectedNote.category }}
+                    </el-tag>
+                    
+                    <!-- Priority Badge -->
+                    <el-select
+                        v-if="isDialogEditing"
+                        v-model="editingPriority"
+                        placeholder="优先级"
+                        size="small"
+                        class="w-28"
+                        @change="updateNotePriority"
+                    >
+                        <el-option label="🔴 高" value="high" />
+                        <el-option label="🟡 中" value="medium" />
+                        <el-option label="🟢 低" value="low" />
+                    </el-select>
+                    <el-tag
+                        v-else-if="selectedNote.priority"
+                        :type="selectedNote.priority === 'high' ? 'danger' : selectedNote.priority === 'medium' ? 'warning' : 'info'"
+                        size="small"
+                        effect="light"
+                    >
+                        {{ getPriorityLabel(selectedNote.priority) }}
+                    </el-tag>
 
-            <!-- Editing: metadata selectors -->
-            <div v-if="isDialogEditing" class="flex flex-wrap items-center gap-3 p-3 bg-slate-50/80 rounded-xl border border-slate-100">
-                <el-select v-model="editingCategory" placeholder="分类" size="small" class="w-28" @change="updateNoteCategory">
-                    <el-option v-for="cat in availableCategories" :key="cat" :label="cat" :value="cat" />
-                </el-select>
-                <el-select v-model="editingPriority" placeholder="优先级" size="small" class="w-28" @change="updateNotePriority">
-                    <el-option label="🔴 高" value="high" />
-                    <el-option label="🟡 中" value="medium" />
-                    <el-option label="🟢 低" value="low" />
-                </el-select>
-                <el-select v-model="editingTags" multiple filterable allow-create default-first-option placeholder="标签" size="small" class="flex-1 min-w-[160px]" @change="updateNoteTags">
-                    <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
-                </el-select>
-            </div>
+                    <!-- Tags -->
+                    <el-select
+                        v-if="isDialogEditing"
+                        v-model="editingTags"
+                        multiple
+                        filterable
+                        allow-create
+                        default-first-option
+                        placeholder="添加标签"
+                        size="small"
+                        class="flex-1 min-w-[200px]"
+                        @change="updateNoteTags"
+                    >
+                        <el-option
+                            v-for="tag in availableTags"
+                            :key="tag"
+                            :label="tag"
+                            :value="tag"
+                        />
+                    </el-select>
+                    <template v-else>
+                        <el-tag
+                            v-for="tag in selectedNote.tags"
+                            :key="tag"
+                            size="small"
+                            effect="plain"
+                            class="cursor-pointer hover:bg-primary-50"
+                            @click="filterByTag(tag)"
+                        >
+                            <el-icon class="mr-1"><PriceTag /></el-icon>
+                            {{ tag }}
+                        </el-tag>
+                    </template>
+                </div>
 
-            <!-- Main Content -->
+                <!-- Main Content / Edit Area -->
             <div v-if="isDialogEditing" class="flex flex-col gap-2">
-                <div class="text-[11px] text-slate-400 px-1">支持 Markdown 语法</div>
-                <el-input v-model="editingContent" type="textarea" :rows="12" placeholder="请输入笔记内容..." class="glass-input-clean text-base" />
+                <!-- Editor Toolbar -->
+                <div class="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                    <span class="text-xs text-slate-400">支持 Markdown 语法</span>
+                </div>
+                <el-input
+                    v-model="editingContent"
+                    type="textarea"
+                    :rows="10"
+                    placeholder="请输入笔记内容..."
+                    class="glass-input-clean text-base"
+                />
             </div>
-            <div v-else class="note-detail-content note-content-markdown">
+            <div v-else class="bg-white p-6 rounded-xl border border-slate-100 shadow-sm note-content-markdown min-h-[150px]">
                 <MarkdownRenderer :content="getCleanedNoteContent(selectedNote)" :search-words="searchTokens" />
             </div>
 
-            <!-- Metadata -->
+            <!-- Metadata (View Mode Only) -->
             <div v-if="!isDialogEditing" class="flex items-center justify-between pt-4 border-t border-slate-100 text-xs text-slate-400">
-                <button v-if="selectedNote.nodeId" @click="jumpToNoteSource(selectedNote); noteDetailVisible = false"
-                    class="inline-flex items-center gap-1.5 text-slate-500 hover:text-primary-600 transition-colors px-2 py-1.5 rounded-lg hover:bg-primary-50">
-                    <el-icon :size="14"><Position /></el-icon> 跳转原文
-                </button>
-                <span v-else></span>
+                <div class="flex items-center gap-2">
+                    <el-icon><Timer /></el-icon>
+                    创建于 {{ dayjs(selectedNote.createdAt).format('YYYY-MM-DD HH:mm') }}
+                </div>
+                <div class="flex items-center gap-2">
+                    <el-button v-if="selectedNote.nodeId" size="small" text @click="jumpToNoteSource(selectedNote); noteDetailVisible = false">
+                        <el-icon class="mr-1"><Position /></el-icon>跳转原文
+                    </el-button>
+                    <div v-if="selectedNote.sourceType === 'ai'" class="flex items-center gap-1 text-primary-600 font-bold bg-primary-50 px-2 py-1 rounded">
+                        <el-icon><MagicStick /></el-icon> AI 助手生成
+                    </div>
+                </div>
             </div>
         </div>
         <template #footer>
@@ -846,7 +817,6 @@
         <transition name="back-to-top">
             <button v-if="showBackToTop" 
                     class="back-to-top p-3 bg-white/90 backdrop-blur-md border border-slate-200 rounded-full shadow-lg text-slate-500 hover:text-primary-600 hover:border-primary-300 hover:shadow-xl hover:shadow-primary-100/50 transition-all active:scale-95"
-                    :style="backToTopStyle"
                     @click="scrollToTop">
                 <el-icon :size="20"><ArrowUp /></el-icon>
             </button>
@@ -873,30 +843,18 @@
 import { computed, ref, onMounted, onUnmounted, watch, nextTick, onUpdated, reactive } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
-<<<<<<< HEAD
 import { useGenerationStore } from '../stores/generation'
-=======
-import { useDraftStore } from '../stores/draft'
->>>>>>> classmate/main
 
 import CourseNode from './CourseNode.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
-import QuestionNavigator from './QuestionNavigator.vue'
-import TextDraftPanel from './TextDraftPanel.vue'
-import DrawingOverlay from './DrawingOverlay.vue'
 import { useMermaid } from '../composables/useMermaid'
-<<<<<<< HEAD
 import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, CollectionTag, Folder, PriceTag, Setting, DArrowLeft, DArrowRight, VideoPause } from '@element-plus/icons-vue'
-=======
-import { Download, MagicStick, Notebook, Check, Close, Edit, Delete, ChatLineSquare, Search, Timer, Connection, Trophy, ArrowUp, ChatDotRound, Position, ArrowRight, Loading, CollectionTag, Folder, Setting, DArrowLeft, DArrowRight, EditPen } from '@element-plus/icons-vue'
->>>>>>> classmate/main
 import { DIFFICULTY_LEVELS, TEACHING_STYLES, type DifficultyLevel, type TeachingStyle } from '@/shared/prompt-config'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
-import logger from '../utils/logger'
 
 dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
@@ -904,23 +862,7 @@ dayjs.locale('zh-cn')
 // Lazy rendering for Mermaid diagrams
 const { scanMermaidDiagrams } = useMermaid()
 
-// Props & Emits (lifted state for panel coordination)
-const props = defineProps<{
-  notesCollapsed: boolean
-  sideAiPanelVisible?: boolean
-}>()
-
-const emit = defineEmits<{
-  (e: 'update:notesCollapsed', value: boolean): void
-  (e: 'quoteAsk', payload: { text: string; nodeId: string }): void
-}>()
-
-// isNotesCollapsed is now a computed proxy for the v-model prop
-const isNotesCollapsed = computed({
-  get: () => props.notesCollapsed,
-  set: (val: boolean) => emit('update:notesCollapsed', val)
-})
-
+const isNotesCollapsed = ref(false)
 // 笔记列顶部偏移，动态跟随滚动容器的实际top位置，兼容魔搭等嵌入环境
 const noteColumnTop = ref(80)
 
@@ -1091,7 +1033,7 @@ const executeExport = async () => {
         
         closeExportDialog()
     } catch (error) {
-        logger.error('Export failed:', error)
+        console.error('Export failed:', error)
         ElMessage.error('导出失败，请重试')
     } finally {
         exportDialog.loading = false
@@ -1242,113 +1184,40 @@ const rafUpdatePositions = () => {
 }
 
 // Watch for scroll requests from sidebar
-/**
- * 智能滚动：近距离平滑滚动，远距离做精美瞬移动画
- * @param container 滚动容器
- * @param targetTop 目标 scrollTop 值（远距离时仅作粗定位，之后会精修）
- * @param threshold 距离阈值（px），超过则使用瞬移动画，默认 1500
- */
-const smartScrollTo = (container: HTMLElement, targetTop: number, threshold = 1500): Promise<void> => {
-    return new Promise((resolve) => {
-        const distance = Math.abs(container.scrollTop - targetTop)
-        if (distance < threshold) {
-            container.scrollTo({ top: targetTop, behavior: 'smooth' })
-            setTimeout(resolve, Math.min(distance * 0.5, 600))
-        } else {
-            // 远距离：缩小+模糊淡出 → 瞬移 → 放大+清晰淡入
-            container.style.transition = 'transform 180ms ease-in, opacity 180ms ease-in, filter 180ms ease-in'
-            container.style.opacity = '0.15'
-            container.style.transform = 'scale(0.97)'
-            container.style.filter = 'blur(6px)'
-            setTimeout(() => {
-                // 瞬移
-                container.scrollTop = targetTop
-                // 立即设置入场起始状态（无过渡）
-                container.style.transition = 'none'
-                container.style.transform = 'scale(1.01)'
-                container.style.filter = 'blur(4px)'
-                container.style.opacity = '0.2'
-                // 强制回流后启动入场动画
-                void container.offsetHeight
-                container.style.transition = 'transform 220ms cubic-bezier(0.22,1,0.36,1), opacity 220ms ease-out, filter 220ms ease-out'
-                container.style.opacity = '1'
-                container.style.transform = 'scale(1)'
-                container.style.filter = 'blur(0px)'
-                setTimeout(() => {
-                    container.style.transition = ''
-                    container.style.opacity = ''
-                    container.style.transform = ''
-                    container.style.filter = ''
-                    resolve()
-                }, 230)
-            }, 190)
-        }
-    })
-}
-
-/**
- * 计算元素在滚动容器内的绝对 offsetTop（遍历 offsetParent 链）
- */
-const getOffsetTopInContainer = (el: HTMLElement, container: HTMLElement): number => {
-    let offsetTop = 0
-    let current: HTMLElement | null = el
-    while (current && current !== container) {
-        offsetTop += current.offsetTop
-        current = current.offsetParent as HTMLElement | null
-    }
-    return offsetTop
-}
-
-/**
- * 智能滚动到指定元素，使用 offsetTop 计算绝对位置（不受当前滚动位置影响）
- * @param el 目标元素
- * @param container 滚动容器
- * @param topOffset 元素顶部距容器顶部的期望距离（px）
- */
-const scrollToElementInContainer = async (el: HTMLElement, container: HTMLElement, topOffset = 20): Promise<void> => {
-    const targetTop = Math.max(0, getOffsetTopInContainer(el, container) - topOffset)
-    await smartScrollTo(container, targetTop)
-}
-
 watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     if (!nodeId) return
-    
-    isManualScrolling.value = true
-    
-    const scrollContainer = document.getElementById('content-scroll-container')
-    if (!scrollContainer) { isManualScrolling.value = false; return }
     
     // Ensure node is rendered if it's outside the current view
     const index = flatNodes.value.findIndex(n => n.node_id === nodeId)
     if (index !== -1 && index >= renderedCount.value) {
         renderedCount.value = index + 5
         await nextTick()
-        await new Promise(r => setTimeout(r, 50))
     }
     
-    // 等待元素出现在 DOM 中
-    let element: HTMLElement | null = null
-    for (let attempt = 0; attempt < 6; attempt++) {
-        element = document.getElementById(`node-${nodeId}`)
-        if (element) break
-        await new Promise(r => setTimeout(r, 30))
-    }
-    
+    const element = document.getElementById(`node-${nodeId}`)
     if (element) {
-        // 直接计算元素在滚动容器内的绝对位置
-        let offsetTop = 0
-        let el: HTMLElement | null = element
-        while (el && el !== scrollContainer) {
-            offsetTop += el.offsetTop
-            el = el.offsetParent as HTMLElement | null
-        }
-        const targetTop = Math.max(0, offsetTop - 20)
+        isManualScrolling.value = true
         
-        await smartScrollTo(scrollContainer, targetTop)
+        // Add a small offset for the sticky header
+        const offset = 80
+        const scrollContainer = document.getElementById('content-scroll-container')
+        
+        if (scrollContainer) {
+            const containerRect = scrollContainer.getBoundingClientRect()
+            const elementRect = element.getBoundingClientRect()
+            const relativeTop = elementRect.top - containerRect.top + scrollContainer.scrollTop
+            
+            scrollContainer.scrollTo({
+                top: relativeTop - offset,
+                behavior: 'smooth'
+            })
+            
+            // Reset flag after animation
+            setTimeout(() => {
+                isManualScrolling.value = false
+            }, 1000)
+        }
     }
-    
-    // 延迟释放手动滚动锁
-    setTimeout(() => { isManualScrolling.value = false }, 200)
 })
 
 // Watch for focus note requests (AI Teacher Mode)
@@ -1365,32 +1234,18 @@ watch(() => courseStore.focusNoteId, (noteId) => {
 const quizVisible = ref(false)
 const generatingQuiz = ref(false)
 const quizQuestions = ref<any[]>([])
-const userAnswers = ref<number[]>([])  // stores option INDEX, -1 = unanswered
+const userAnswers = ref<string[]>([])
 const quizSubmitted = ref(false)
-const currentQuestionIndex = ref(0)
-const textDraftVisible = ref(false)
-const drawingOverlayVisible = ref(false)
-const draftStore = useDraftStore()
-const currentQuestion = computed(() => quizQuestions.value[currentQuestionIndex.value] || { question: '', options: [], explanation: '' })
-const getCorrectIndex = (q: any): number => {
-    if (typeof q.correct_index === 'number') return q.correct_index
-    // fallback: try matching answer text to options
-    if (q.answer && Array.isArray(q.options)) {
-        const idx = q.options.indexOf(q.answer)
-        if (idx !== -1) return idx
-    }
-    return 0
-}
 const quizScore = computed(() => {
-    if (!quizSubmitted.value || !quizQuestions.value || quizQuestions.value.length === 0) return 0
-    let correct = 0
-    quizQuestions.value.forEach((q, idx) => {
-        if (userAnswers.value[idx] >= 0 && userAnswers.value[idx] === getCorrectIndex(q)) {
-            correct += 1
-        }
-    })
-    return Math.round((correct / quizQuestions.value.length) * 100)
-})
+              if (!quizSubmitted.value || !quizQuestions.value || quizQuestions.value.length === 0) return 0
+              let correct = 0
+              quizQuestions.value.forEach((q, idx) => {
+                  if (userAnswers.value[idx] && userAnswers.value[idx] === q.answer) {
+                      correct += 1
+                  }
+              })
+              return Math.round((correct / quizQuestions.value.length) * 100)
+          })
 const isManualScrolling = ref(false)
 const activeNoteId = ref<string | null>(null)
 const hoveredNoteId = ref<string | null>(null)
@@ -1404,11 +1259,11 @@ const fontSize = computed(() => courseStore.uiSettings.fontSize)
 const fontFamily = computed(() => courseStore.uiSettings.fontFamily)
 const lineHeight = computed(() => courseStore.uiSettings.lineHeight)
 const editingContent = ref('')
+let observer: IntersectionObserver | null = null
 
 const noteDetailVisible = ref(false)
 const isDialogEditing = ref(false)
 const selectedNote = ref<any>(null)
-const noteDetailCloseCallback = ref<(() => void) | null>(null)
 
 // Note tags, category, and priority editing
 const editingTags = ref<string[]>([])
@@ -1465,26 +1320,6 @@ const visibleNodes = computed(() => {
     if (!flatNodes.value) return []
     return flatNodes.value.slice(0, renderedCount.value)
 })
-
-// 为 level 2 节点计算章节编号（跳过 root），其他 level 返回原始 index（仅用于动画延迟）
-const chapterIndexMap = computed(() => {
-    const map = new Map<string, number>()
-    let chapterCount = 0
-    for (const node of flatNodes.value) {
-        if (node.node_level === 2) {
-            map.set(node.node_id, chapterCount++)
-        }
-    }
-    return map
-})
-
-function getChapterIndex(node: any, flatIndex: number): number {
-    if (node.node_level === 2) {
-        return chapterIndexMap.value.get(node.node_id) ?? flatIndex
-    }
-    return flatIndex
-}
-
 
 const initSentinelObserver = () => {
     if (sentinelObserver) sentinelObserver.disconnect()
@@ -1626,10 +1461,6 @@ watch(quizVisible, (visible) => {
     userAnswers.value = []
     quizSubmitted.value = false
     generatingQuiz.value = false
-    currentQuestionIndex.value = 0
-    textDraftVisible.value = false
-    drawingOverlayVisible.value = false
-    draftStore.clearAll()
 })
 
 
@@ -1691,47 +1522,7 @@ const noteDotClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || def
 const noteHighlightClass = (color: string) => (noteColorMap[color] || defaultNoteStyle).highlight
 const noteCardBorderClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || defaultNoteStyle).border
 const noteBadgeClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || defaultNoteStyle).badge
-
-// 笔记详情弹窗用的引用条颜色
-const noteQuoteBarColorMap: Record<string, string> = {
-    amber: 'bg-amber-400', teal: 'bg-teal-400', indigo: 'bg-indigo-400', rose: 'bg-rose-400',
-    purple: 'bg-purple-400', red: 'bg-red-400', green: 'bg-green-400', blue: 'bg-blue-400',
-    orange: 'bg-orange-400', pink: 'bg-pink-400', yellow: 'bg-yellow-400'
-}
-const noteQuoteBarClass = (note: any) => noteQuoteBarColorMap[resolveNoteColor(note)] || 'bg-primary-400'
-
-// 笔记详情弹窗所属节点名
-const noteDetailNodeName = computed(() => {
-    if (!selectedNote.value?.nodeId) return ''
-    return courseStore.nodes.find(n => n.node_id === selectedNote.value.nodeId)?.node_name || ''
-})
-
-// 分类 chip 样式
-const categoryChipClass = (category: string): string => {
-    const map: Record<string, string> = {
-        '重点': 'bg-red-50 text-red-600',
-        '难点': 'bg-amber-50 text-amber-600',
-        '疑问': 'bg-blue-50 text-blue-600',
-        '总结': 'bg-emerald-50 text-emerald-600',
-        '错题': 'bg-rose-50 text-rose-600'
-    }
-    return map[category] || 'bg-slate-100 text-slate-600'
-}
-
-// 优先级 chip 样式
-const priorityChipClass = (priority: string): string => {
-    const map: Record<string, string> = {
-        high: 'bg-red-50 text-red-600',
-        medium: 'bg-amber-50 text-amber-600',
-        low: 'bg-emerald-50 text-emerald-600'
-    }
-    return map[priority] || 'bg-slate-100 text-slate-600'
-}
-
-const priorityIcon = (priority: string): string => {
-    const map: Record<string, string> = { high: '🔴', medium: '🟡', low: '🟢' }
-    return map[priority] || ''
-}
+const noteQuoteBorderClass = (note: any) => (noteColorMap[resolveNoteColor(note)] || defaultNoteStyle).quote
 
 const noteSearchText = (note: any) => {
     const nodeName = nodeNameMap.value.get(note.nodeId) || ''
@@ -1819,7 +1610,7 @@ const reapplyHighlights = () => {
     // Identify active highlight IDs from quotedNotes
     const activeIds = new Set(quotedNotes.value.map(n => n.highlightId))
     
-    document.querySelectorAll('.highlight-marker, .format-marker').forEach(el => {
+    document.querySelectorAll('.highlight-marker').forEach(el => {
         // ID format: highlightId or highlightId-part-*
         const id = el.id ? el.id.split('-part-')[0] : ''
         
@@ -1948,7 +1739,7 @@ const reapplyHighlights = () => {
                              if (firstWrapper) firstWrapper.id = note.highlightId
                          }
                      } catch (e) {
-                         logger.warn('Highlight range creation failed', e)
+                         console.warn('Highlight range creation failed', e)
                      }
                  }
             }
@@ -1961,7 +1752,13 @@ const reapplyHighlights = () => {
 const applyFormat = (style: string, value?: string) => {
     if (!selectionMenu.value.range || !selectionMenu.value.text) return
     
-    // Determine Note Style early (needed for toggle check)
+    const highlightId = 'highlight-' + Math.random().toString(36).substr(2, 9)
+    
+    // Determine color based on style
+    let color = 'transparent'
+    if (style === 'highlight') color = value || 'yellow'
+    
+    // Determine Note Style
     let noteStyle = style
     if (style === 'underline') noteStyle = value || 'solid'
     
@@ -1974,53 +1771,6 @@ const applyFormat = (style: string, value?: string) => {
         }
         curr = curr.parentNode
     }
-    
-    // Toggle logic: check if an identical format note already exists
-    if (nodeId) {
-        // For highlight: match any existing highlight (regardless of color)
-        // For bold/solid/wavy: match by exact style
-        const existingNote = noteStore.notes.find(
-            (n) =>
-                n.sourceType === 'format' &&
-                n.nodeId === nodeId &&
-                n.quote === selectionMenu.value.text &&
-                (style === 'highlight' ? n.style === 'highlight' : n.style === noteStyle)
-        )
-        if (existingNote) {
-            // For highlight with different color: delete old, then continue to create new (replace)
-            const isHighlightReplace = style === 'highlight' && existingNote.color !== (value || 'yellow')
-            
-            // Remove the existing format note
-            noteStore.deleteNote(existingNote.id)
-            // Remove DOM highlight span by unwrapping its inner text
-            if (existingNote.highlightId) {
-                const spans = document.querySelectorAll(`[id^="${existingNote.highlightId}"]`)
-                spans.forEach((span) => {
-                    const parent = span.parentNode
-                    if (parent) {
-                        while (span.firstChild) {
-                            parent.insertBefore(span.firstChild, span)
-                        }
-                        parent.removeChild(span)
-                    }
-                })
-            }
-            
-            // If highlight replace (different color), continue to create new note below
-            // Otherwise (same color toggle off, or non-highlight toggle), return early
-            if (!isHighlightReplace) {
-                selectionMenu.value.visible = false
-                window.getSelection()?.removeAllRanges()
-                return
-            }
-        }
-    }
-    
-    const highlightId = 'highlight-' + Math.random().toString(36).substr(2, 9)
-    
-    // Determine color based on style
-    let color = 'transparent'
-    if (style === 'highlight') color = value || 'yellow'
     
     if (nodeId) {
         noteStore.createNote({
@@ -2038,51 +1788,6 @@ const applyFormat = (style: string, value?: string) => {
         selectionMenu.value.visible = false
         window.getSelection()?.removeAllRanges()
     }
-}
-
-const clearFormats = () => {
-    if (!selectionMenu.value.text) return
-    
-    // Find nodeId from selection range
-    let nodeId = ''
-    if (selectionMenu.value.range) {
-        let curr: Node | null = selectionMenu.value.range.startContainer
-        while (curr && !nodeId) {
-            if (curr.nodeType === 1 && (curr as Element).id.startsWith('node-')) {
-                nodeId = (curr as Element).id.replace('node-', '')
-            }
-            curr = curr.parentNode
-        }
-    }
-    if (!nodeId) return
-    
-    // Find all format notes matching this selection
-    const formatNotes = noteStore.notes.filter(
-        (n) =>
-            n.sourceType === 'format' &&
-            n.nodeId === nodeId &&
-            n.quote === selectionMenu.value.text
-    )
-    
-    // Delete each note and unwrap its DOM span
-    formatNotes.forEach((note) => {
-        noteStore.deleteNote(note.id)
-        if (note.highlightId) {
-            const spans = document.querySelectorAll(`[id^="${note.highlightId}"]`)
-            spans.forEach((span) => {
-                const parent = span.parentNode
-                if (parent) {
-                    while (span.firstChild) {
-                        parent.insertBefore(span.firstChild, span)
-                    }
-                    parent.removeChild(span)
-                }
-            })
-        }
-    })
-    
-    selectionMenu.value.visible = false
-    window.getSelection()?.removeAllRanges()
 }
 
 const setHovered = (noteId: string | null, event?: MouseEvent) => {
@@ -2121,29 +1826,27 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
         span.id = id
         
         // Dynamic Class based on Note Type/Style
-        // Non-highlight formats (bold/solid/wavy) use format-marker to avoid
-        // .highlight-marker CSS pollution (yellow background/border)
-        let className = 'transition-colors cursor-pointer '
+        let className = 'highlight-marker transition-colors cursor-pointer '
         
         if (note?.sourceType === 'format') {
             if (note.style === 'bold') {
-                className += 'format-marker font-bold '
+                className += 'font-bold '
             } else if (note.style === 'solid') { // Underline solid
-                className += 'format-marker border-b-2 border-slate-800 '
+                className += 'border-b-2 border-slate-800 '
             } else if (note.style === 'wavy') {
-                className += 'format-marker underline decoration-wavy decoration-slate-800 '
+                className += 'underline decoration-wavy decoration-slate-800 '
             } else if (note.color && note.color !== 'transparent') {
-                // Highlight — keep highlight-marker for colored background
+                // Highlight
                 const colorClass = formatHighlightMap[note.color] || 'bg-yellow-200/50 hover:bg-yellow-300/50'
-                className += 'highlight-marker ' + colorClass + ' '
+                className += colorClass + ' '
             }
         } else if (note?.sourceType === 'ai') {
             // AI Teacher Style
-            className += 'highlight-marker ' + noteHighlightClass('purple') + ' '
+            className += noteHighlightClass('purple') + ' '
         } else {
             // Default Note Style
             const resolvedColor = resolveNoteColor(note)
-            className += 'highlight-marker ' + noteHighlightClass(resolvedColor) + ' '
+            className += noteHighlightClass(resolvedColor) + ' '
         }
         
         span.className = className
@@ -2168,51 +1871,58 @@ const wrapRange = (range: Range, id: string, noteId: string) => {
 const scrollToNote = (noteId: string) => {
     const note = noteStore.notes.find(n => n.id === noteId)
     if (!note) {
-        logger.warn('Note not found:', noteId)
+        console.warn('Note not found:', noteId)
         return
     }
 
     activeNoteId.value = note.id
-    const scrollContainer = document.getElementById('content-scroll-container')
-
-    const flashNoteCard = () => {
-        nextTick(() => {
-            const noteEl = document.getElementById(note.id)
-            if (noteEl) {
-                noteEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-                noteEl.classList.add('flash-card', 'ring-4', 'ring-primary-200')
-                setTimeout(() => noteEl.classList.remove('flash-card', 'ring-4', 'ring-primary-200'), 1000)
-            }
-        })
-    }
 
     // First, try to scroll to the highlight in content area (preferred)
     if (note.highlightId) {
         const highlightEl = document.getElementById(note.highlightId)
-        if (highlightEl && scrollContainer) {
-            scrollToElementInContainer(highlightEl, scrollContainer).then(() => {
-                highlightEl.classList.add('pulse-highlight')
-                setTimeout(() => highlightEl.classList.remove('pulse-highlight'), 1500)
-            })
-            flashNoteCard()
+        if (highlightEl) {
+            highlightEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            highlightEl.classList.add('pulse-highlight')
+            setTimeout(() => highlightEl.classList.remove('pulse-highlight'), 1500)
+
+            // Also scroll the note card in sidebar
+            const noteEl = document.getElementById(note.id)
+            if (noteEl) {
+                noteEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                noteEl.classList.add('flash-card', 'ring-4', 'ring-primary-200')
+                setTimeout(() => {
+                    noteEl.classList.remove('flash-card', 'ring-4', 'ring-primary-200')
+                }, 1000)
+            }
             return
         }
     }
 
     // If no highlight or highlight not found, scroll to the node
     if (note.nodeId) {
+        // First ensure the node is rendered
         const nodeEl = document.getElementById(`node-${note.nodeId}`)
-        if (nodeEl && scrollContainer) {
-            scrollToElementInContainer(nodeEl, scrollContainer).then(() => {
-                nodeEl.classList.add('pulse-highlight')
-                setTimeout(() => nodeEl.classList.remove('pulse-highlight'), 1500)
-            })
+        if (nodeEl) {
+            nodeEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            nodeEl.classList.add('pulse-highlight')
+            setTimeout(() => nodeEl.classList.remove('pulse-highlight'), 1500)
         } else {
+            // Node not rendered, use store method to scroll
             courseStore.scrollToNode(note.nodeId)
         }
     }
 
-    flashNoteCard()
+    // Scroll note card in sidebar
+    nextTick(() => {
+        const noteEl = document.getElementById(note.id)
+        if (noteEl) {
+            noteEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+            noteEl.classList.add('flash-card', 'ring-4', 'ring-primary-200')
+            setTimeout(() => {
+                noteEl.classList.remove('flash-card', 'ring-4', 'ring-primary-200')
+            }, 1000)
+        }
+    })
 }
 
 const updateNotePositions = () => {
@@ -2572,19 +2282,22 @@ const handleMouseUp = (_e: MouseEvent) => {
 const handleAsk = () => {
     if (!selectionMenu.value.text) return
     
-    const text = selectionMenu.value.text
-    let nodeId = ''
+    const selection = selectionMenu.value.text
+    // Format as a quote
+    const quote = `> ${selection}\n\n`
     
-    // Detect which node the selection belongs to
+    // Detect which node the selection belongs to and switch context
     if (selectionMenu.value.range) {
         const nodeEl = selectionMenu.value.range.startContainer.parentElement?.closest('[id^="node-"]')
         if (nodeEl) {
-            nodeId = nodeEl.id.replace('node-', '')
+            const nodeId = nodeEl.id.replace('node-', '')
+            const node = courseStore.nodes.find(n => n.node_id === nodeId)
+            if (node) courseStore.selectNode(node)
         }
     }
     
-    // Emit event for CourseView to open SideAIPanel
-    emit('quoteAsk', { text, nodeId })
+    // Set to store to trigger ChatPanel update
+    courseStore.setPendingChatInput(quote)
     
     // Hide menu
     selectionMenu.value.visible = false
@@ -2596,23 +2309,28 @@ const handleTranslate = async () => {
     const selection = selectionMenu.value.text
     const prompt = `请将以下内容翻译为中文（如果是中文则翻译为英文），并保持专业术语的准确性：\n> "${selection}"`
     
-    // Find context node
-    let nodeId = ''
+    // 1. Add User Message
+    courseStore.addMessage('user', prompt)
+    
+    // 2. Find Context Node
+    let nodeId: string | undefined = undefined
     if (selectionMenu.value.range) {
          const nodeEl = selectionMenu.value.range.startContainer.parentElement?.closest('[id^="node-"]')
          if (nodeEl) {
              nodeId = nodeEl.id.replace('node-', '')
+             const node = courseStore.nodes.find(n => n.node_id === nodeId)
+             if (node) courseStore.selectNode(node)
          }
     }
     
+    // 3. Trigger AI
     selectionMenu.value.visible = false
     
-    // Open SideAIPanel with the translation request
-    emit('quoteAsk', { text: selection, nodeId })
+    ElMessage.success('正在翻译，请查看 AI 助手')
     
-    // Send the translation prompt
-    courseStore.addMessage('user', prompt)
-    await courseStore.askQuestion(prompt, selection, nodeId || undefined)
+    courseStore.showFloatingAI = true
+    
+    await courseStore.askQuestion(prompt, selection, nodeId)
 }
 
 const handleAddNote = () => {
@@ -2726,21 +2444,10 @@ const handleAddNote = () => {
 
 const handleNoteClick = (note: any) => {
     // Open note detail dialog instead of jumping
-    noteDetailCloseCallback.value = null
     selectedNote.value = note
     noteDetailVisible.value = true
     activeNoteId.value = note.id
     isDialogEditing.value = false
-}
-
-const handleNoteDetailClose = (done: () => void) => {
-    const cb = noteDetailCloseCallback.value
-    noteDetailCloseCallback.value = null
-    done()
-    // 等对话框关闭动画结束后再执行回调（如重新打开笔记面板）
-    if (cb) {
-        setTimeout(cb, 300)
-    }
 }
 
 const handleEditNote = (note: any) => {
@@ -2767,6 +2474,17 @@ const startEditing = () => {
 }
 
 // Helper functions for tags and categories
+const getCategoryType = (category: string): string => {
+    const typeMap: Record<string, string> = {
+        '重点': 'danger',
+        '难点': 'warning',
+        '疑问': 'info',
+        '总结': 'success',
+        '错题': 'danger'
+    }
+    return typeMap[category] || 'info'
+}
+
 const getPriorityLabel = (priority: string): string => {
     const labelMap: Record<string, string> = {
         'high': '高优先级',
@@ -2871,10 +2589,13 @@ const scrollToHighlight = (highlightId: string, noteId?: string) => {
         }
         return
     }
-    const scrollContainer = document.getElementById('content-scroll-container')
-
-    const flashNoteCard = (hId: string) => {
-        const note = noteStore.notes.find(n => n.highlightId === hId)
+    const el = document.getElementById(highlightId)
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.classList.add('pulse-highlight')
+        setTimeout(() => el.classList.remove('pulse-highlight'), 1500)
+        
+        const note = noteStore.notes.find(n => n.highlightId === highlightId)
         if (note) {
             activeNoteId.value = note.id
             const noteCard = document.getElementById(note.id)
@@ -2884,26 +2605,15 @@ const scrollToHighlight = (highlightId: string, noteId?: string) => {
                 setTimeout(() => noteCard.classList.remove('flash-card', 'ring-4', 'ring-primary-200'), 1000)
             }
         }
-    }
-
-    const el = document.getElementById(highlightId)
-    if (el && scrollContainer) {
-        scrollToElementInContainer(el, scrollContainer).then(() => {
-            el.classList.add('pulse-highlight')
-            setTimeout(() => el.classList.remove('pulse-highlight'), 1500)
-        })
-        flashNoteCard(highlightId)
         return
     }
     reapplyHighlights()
     nextTick(() => {
         const retryEl = document.getElementById(highlightId)
-        if (retryEl && scrollContainer) {
-            scrollToElementInContainer(retryEl, scrollContainer).then(() => {
-                retryEl.classList.add('pulse-highlight')
-                setTimeout(() => retryEl.classList.remove('pulse-highlight'), 1500)
-            })
-            flashNoteCard(highlightId)
+        if (retryEl) {
+            retryEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            retryEl.classList.add('pulse-highlight')
+            setTimeout(() => retryEl.classList.remove('pulse-highlight'), 1500)
             return
         }
         if (noteId) {
@@ -2946,7 +2656,8 @@ const submitQuiz = () => {
         return
     }
     
-    if (userAnswers.value.some(a => a < 0)) {
+    const normalizedAnswers = quizQuestions.value.map((_, idx) => userAnswers.value[idx] || '')
+    if (normalizedAnswers.some(a => !a)) {
         ElMessage.warning('请完成所有题目后再提交')
         return
     }
@@ -2957,29 +2668,28 @@ const submitQuiz = () => {
     const nodeName = courseStore.nodes.find(n => n.node_id === nodeId)?.node_name || ''
 
     quizQuestions.value.forEach((q, idx) => {
-        const correctIdx = getCorrectIndex(q)
-        if (userAnswers.value[idx] === correctIdx) {
+        if (normalizedAnswers[idx] === q.answer) {
             correctCount++
         } else {
-            // 错题附加草稿数据
-            const textDraft = draftStore.getTextDraft(idx) || undefined
-            const drawingDraft = draftStore.getDrawingDraft(idx) || undefined
+            // Save structured wrong answer (with options for re-test)
+            const userOptionIdx = q.options?.findIndex((o: string) => o === normalizedAnswers[idx]) ?? -1
+            const correctIdx = typeof q.correct_index === 'number' ? q.correct_index : (q.options?.findIndex((o: string) => o === q.answer) ?? 0)
+
             courseStore.recordWrongAnswer({
                 question: q.question,
                 options: q.options || [],
                 correctIndex: correctIdx,
-                userIndex: userAnswers.value[idx],
+                userIndex: userOptionIdx,
                 explanation: q.explanation || '暂无解析',
                 nodeId: nodeId,
                 nodeName: nodeName,
-                textDraft,
-                drawingDraft,
             })
         }
     })
     
     const score = Math.round((correctCount / total) * 100)
     
+    // Persist Score
     courseStore.updateNodeScore(quizConfig.value.nodeId, score)
     
     quizSubmitted.value = true
@@ -3006,10 +2716,6 @@ const confirmQuiz = async () => {
     quizQuestions.value = []
     userAnswers.value = []
     quizSubmitted.value = false
-    currentQuestionIndex.value = 0
-    textDraftVisible.value = false
-    drawingOverlayVisible.value = false
-    draftStore.clearAll()
     
     try {
         // Use generateQuiz but we want QUESTIONS, not chat history.
@@ -3031,13 +2737,13 @@ const confirmQuiz = async () => {
         
         if (res && Array.isArray(res)) {
             quizQuestions.value = res
-            userAnswers.value = new Array(res.length).fill(-1)
+            userAnswers.value = new Array(res.length).fill('')
         } else {
             quizVisible.value = false
             ElMessage.warning('生成题目失败，请重试')
         }
     } catch (e) {
-        logger.error(e)
+        console.error(e)
         quizVisible.value = false
     } finally {
         generatingQuiz.value = false
@@ -3097,20 +2803,6 @@ watch(() => courseStore.isFocusMode, (newVal, oldVal) => {
 
 const showBackToTop = ref(false)
 
-// Compute dynamic right offset for back-to-top button — synced with AI button
-const backToTopStyle = computed(() => {
-  if (props.sideAiPanelVisible) {
-    // AI panel is ~33vw wide, min 320px. Shift button left of the panel.
-    return { right: 'calc(33vw + 1rem)' }
-  }
-  if (!isNotesCollapsed.value) {
-    // Notes column open — match AI button's right-[340px]
-    return { right: '340px' }
-  }
-  // Notes column collapsed — match AI button's right-6 (1.5rem)
-  return { right: '1.5rem' }
-})
-
 const handleScroll = (e: Event) => {
     const target = e.target as HTMLElement
     showBackToTop.value = target.scrollTop > 500
@@ -3123,61 +2815,10 @@ const handleScroll = (e: Event) => {
     // Update note positions to follow content
     rafUpdatePositions()
     
-    // 实时检测当前可见节点，同步左侧树
-    if (!isManualScrolling.value) {
-        detectCurrentVisibleNode(target)
-    }
-    
     // Save position (Debounce manually or just save)
     // We use a simple throttle or just save every scroll? Too frequent.
     // Let's debounce the save action.
     saveScrollPosition(target.scrollTop)
-}
-
-let _detectRafId = 0
-const detectCurrentVisibleNode = (container: HTMLElement) => {
-    if (_detectRafId) return // 节流：每帧最多检测一次
-    _detectRafId = requestAnimationFrame(() => {
-        _detectRafId = 0
-        const containerTop = container.getBoundingClientRect().top + 100 // 偏移量，对应 sticky header
-        const nodes = visibleNodes.value
-        // 如果侧边栏剥离了根节点，检测时也跳过 level 1
-        const skipRoot = courseStore.courseTree.length === 1 
-            && courseStore.courseTree[0]?.children 
-            && courseStore.courseTree[0].children.length > 0
-        let bestNode: any = null
-        let bestDist = Infinity
-        
-        for (let i = nodes.length - 1; i >= 0; i--) {
-            if (skipRoot && nodes[i].node_level === 1) continue
-            const el = document.getElementById(`node-${nodes[i].node_id}`)
-            if (!el) continue
-            const top = el.getBoundingClientRect().top
-            // 找到最接近且在视口顶部以上或刚好在顶部的节点
-            const dist = top - containerTop
-            if (dist <= 0 && Math.abs(dist) < bestDist) {
-                bestDist = Math.abs(dist)
-                bestNode = nodes[i]
-            }
-        }
-        // 如果没有在顶部以上的，取第一个可见的（跳过 root）
-        if (!bestNode) {
-            for (const n of nodes) {
-                if (skipRoot && n.node_level === 1) continue
-                const el = document.getElementById(`node-${n.node_id}`)
-                if (!el) continue
-                const top = el.getBoundingClientRect().top - containerTop
-                if (top >= 0) {
-                    bestNode = n
-                    break
-                }
-            }
-        }
-        
-        if (bestNode && courseStore.currentNode?.node_id !== bestNode.node_id) {
-            courseStore.setCurrentNodeSilent(bestNode)
-        }
-    })
 }
 
 const saveScrollPosition = debounce((scrollTop: unknown) => {
@@ -3189,7 +2830,7 @@ const saveScrollPosition = debounce((scrollTop: unknown) => {
 const scrollToTop = () => {
     const container = document.getElementById('content-scroll-container')
     if (container) {
-        smartScrollTo(container, 0)
+        container.scrollTo({ top: 0, behavior: 'smooth' })
     }
 }
 
@@ -3224,6 +2865,38 @@ onMounted(() => {
     const container = document.getElementById('content-scroll-container')
     if (container) {
         container.addEventListener('scroll', handleScroll)
+        
+        observer = new IntersectionObserver((entries: IntersectionObserverEntry[]) => {
+            if (isManualScrolling.value) return 
+
+            // Find the intersecting entry that is closest to the top of viewport
+            let bestCandidate: any = null
+            let maxRatio = -1
+
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    if (entry.intersectionRatio > maxRatio) {
+                        maxRatio = entry.intersectionRatio
+                        bestCandidate = entry
+                    }
+                }
+            })
+            
+            if (bestCandidate) {
+                const target = bestCandidate.target as HTMLElement | null
+                const nodeId = target ? target.id.replace('node-', '') : ''
+                if (nodeId && courseStore.currentNode?.node_id !== nodeId) {
+                    const node = flatNodes.value.find(n => n.node_id === nodeId)
+                    if (node) {
+                        courseStore.setCurrentNodeSilent(node)
+                    }
+                }
+            }
+        }, {
+            root: container,
+            threshold: [0.1, 0.3, 0.6], // More triggers
+            rootMargin: '-10% 0px -60% 0px' // Focus on top area
+        })
     }
     
     // Listen for resize to update note positions
@@ -3245,115 +2918,30 @@ onMounted(() => {
     }
 })
 
+// Helper to re-observe nodes when data changes
+watch(() => flatNodes.value, () => {
+    nextTick(() => {
+        if (!observer) return
+        observer.disconnect()
+        flatNodes.value.forEach(node => {
+            const el = document.getElementById(`node-${node.node_id}`)
+            if (el) observer?.observe(el)
+        })
+    })
+}, { immediate: true })
+
 onUnmounted(() => {
     window.removeEventListener('resize', debouncedUpdatePositions)
-    if (_detectRafId) cancelAnimationFrame(_detectRafId)
+    if (observer) observer.disconnect()
 })
 
 defineExpose({
-    startQuiz: handleStartQuiz,
-    showNoteDetail: (note: any, onClose?: () => void) => {
-        handleNoteClick(note)
-        // 设置回调必须在 handleNoteClick 之后，因为它会清除回调
-        noteDetailCloseCallback.value = onClose || null
-    }
+    startQuiz: handleStartQuiz
 })
 </script>
 
 <style scoped>
 /* ContentArea Styles */
-
-/* Quiz Loading Animation */
-.quiz-loading-cards {
-  position: relative;
-  width: 180px;
-  height: 100px;
-}
-
-.quiz-card {
-  position: absolute;
-  width: 160px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: white;
-  border-radius: 10px;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.quiz-card .card-line {
-  height: 8px;
-  border-radius: 4px;
-  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
-  margin-bottom: 10px;
-}
-
-.quiz-card .card-line.long { width: 85%; }
-
-.quiz-card .card-dots {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.quiz-card .card-dot {
-  height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #f1f5f9 25%, #f8fafc 50%, #f1f5f9 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
-  width: 70%;
-}
-
-.quiz-card .card-dot:nth-child(2) { width: 60%; animation-delay: 0.1s; }
-.quiz-card .card-dot:nth-child(3) { width: 75%; animation-delay: 0.2s; }
-.quiz-card .card-dot:nth-child(4) { width: 55%; animation-delay: 0.3s; }
-
-.quiz-card.card-1 {
-  bottom: 0;
-  z-index: 3;
-  animation: card-float 2s ease-in-out infinite;
-}
-
-.quiz-card.card-2 {
-  bottom: 8px;
-  z-index: 2;
-  opacity: 0.6;
-  transform: translateX(-50%) scale(0.94);
-}
-
-.quiz-card.card-3 {
-  bottom: 16px;
-  z-index: 1;
-  opacity: 0.3;
-  transform: translateX(-50%) scale(0.88);
-}
-
-.quiz-pencil {
-  display: inline-block;
-  animation: pencil-write 1s ease-in-out infinite;
-  font-size: 20px;
-}
-
-@keyframes card-float {
-  0%, 100% { transform: translateX(-50%) translateY(0); }
-  50% { transform: translateX(-50%) translateY(-4px); }
-}
-
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-@keyframes pencil-write {
-  0%, 100% { transform: rotate(0deg) translateX(0); }
-  25% { transform: rotate(-8deg) translateX(2px); }
-  75% { transform: rotate(8deg) translateX(-2px); }
-}
-
 .fade-slide-enter-active,
 .fade-slide-leave-active {
   transition: all 0.2s ease;
@@ -3443,11 +3031,6 @@ defineExpose({
     background-color: transparent !important;
 }
 
-.format-marker {
-    transition: all 0.2s ease;
-    cursor: pointer;
-}
-
 .highlight-marker {
     mix-blend-mode: multiply;
     border-radius: 2px;
@@ -3499,12 +3082,24 @@ defineExpose({
 
 .back-to-top {
     position: fixed;
-    bottom: 8.5rem;
+    bottom: 5.5rem;
+    right: 1rem;
     z-index: 50;
     transition: all 0.3s ease;
 }
 
-/* back-to-top transition animations */
+/* Adjust position when notes panel is open */
+@media (min-width: 768px) {
+    .back-to-top {
+        right: 300px;
+    }
+}
+
+@media (min-width: 1280px) {
+    .back-to-top {
+        right: 320px;
+    }
+}
 
 .back-to-top-enter-active,
 .back-to-top-leave-active {
@@ -3625,9 +3220,9 @@ defineExpose({
 
 .content-render :deep(p) {
     color: #475569;
-    line-height: inherit;
+    line-height: 1.8;
     margin-bottom: 1.25rem;
-    font-size: inherit !important;
+    font-size: 15px;
 }
 
 .content-render :deep(a) {
@@ -3677,8 +3272,8 @@ defineExpose({
 
 .content-render :deep(li) {
     color: #475569;
-    font-size: inherit !important;
-    line-height: inherit;
+    font-size: 15px;
+    line-height: 1.8;
     margin: 0.375rem 0;
 }
 
@@ -3694,14 +3289,14 @@ defineExpose({
     font-weight: 500;
 }
 
-/* Note Detail Dialog Styles */
+/* Note Detail Dialog Markdown Styles */
 :deep(.note-detail-dialog) {
-    background: rgba(255, 255, 255, 0.97) !important;
+    background: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(24px) saturate(180%);
     border-radius: 20px;
     box-shadow:
         0 0 0 1px rgba(255, 255, 255, 0.2),
-        0 24px 48px -12px rgba(0, 0, 0, 0.15),
+        0 20px 40px -12px rgba(0, 0, 0, 0.12),
         0 0 0 1px rgba(0,0,0,0.02);
     border: none;
     overflow: hidden;
@@ -3710,7 +3305,7 @@ defineExpose({
 :deep(.note-detail-dialog .el-dialog__header) {
     margin-right: 0;
     padding: 20px 24px 16px;
-    border-bottom: 1px solid rgba(0,0,0,0.04);
+    border-bottom: 1px solid rgba(0,0,0,0.05);
 }
 
 :deep(.note-detail-dialog .el-dialog__title) {
@@ -3720,22 +3315,14 @@ defineExpose({
 }
 
 :deep(.note-detail-dialog .el-dialog__body) {
-    padding: 24px;
+    padding: 20px 24px;
     max-height: 60vh;
     overflow-y: auto;
 }
 
 :deep(.note-detail-dialog .el-dialog__footer) {
     padding: 16px 24px 20px;
-    border-top: 1px solid rgba(0,0,0,0.04);
-}
-
-.note-detail-content {
-    background: linear-gradient(135deg, #fafbfc 0%, #f8f9fb 100%);
-    padding: 24px;
-    border-radius: 16px;
-    border: 1px solid rgba(0,0,0,0.04);
-    min-height: 120px;
+    border-top: 1px solid rgba(0,0,0,0.05);
 }
 
 .note-content-markdown {
