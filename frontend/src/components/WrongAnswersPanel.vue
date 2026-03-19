@@ -105,9 +105,12 @@ const courseStore = useCourseStore()
 const reviewStore = useReviewStore()
 const noteStore = useNoteStore()
 
-const wrongAnswers = computed(() =>
-  [...reviewStore.wrongAnswers].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-)
+const wrongAnswers = computed(() => {
+  const currentNodeIds = new Set(courseStore.nodes.map((n: any) => n.node_id))
+  return reviewStore.wrongAnswers
+    .filter(w => currentNodeIds.has(w.nodeId))
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+})
 
 // Get reflection text: first from wrongAnswers item, then fallback to notes with sourceType 'wrong'
 function getReflection(item: any): string {
@@ -133,13 +136,12 @@ function formatTime(ts: number) {
 function retry(item: any) {
   // Send the wrong question to AI assistant for re-practice
   const prompt = `请帮我重新出一道关于以下知识点的类似题目：\n题目：${item.question}\n正确答案：${item.options[item.correctIndex]}\n章节：${item.nodeName}`
-  courseStore.setPendingChatInput(prompt)
+  courseStore.sendMessage(prompt)
 }
 
 function retryAll() {
   reviewStore.generateSmartQuizFromMistakes()
-  courseStore.showFloatingAI = true
-  ElMessage.success('已生成错题复习，请查看 AI 助手')
+  ElMessage.success('已生成错题复习')
 }
 
 function markDone(item: any) {

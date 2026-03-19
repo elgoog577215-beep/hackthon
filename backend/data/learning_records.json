@@ -1,0 +1,31 @@
+{
+  "test": {
+    "course_id": "test",
+    "course_name": "test",
+    "created_at": "2026-03-19T15:50:04.813997",
+    "updated_at": "2026-03-19T15:50:04.814022",
+    "node_records": {
+      "n1": {
+        "node_name": "n1",
+        "total_questions": 1,
+        "correct_count": 0,
+        "weak_knowledge_points": [
+          "kp1"
+        ],
+        "quiz_records": [
+          {
+            "question_id": "q1",
+            "node_name": "n1",
+            "knowledge_point": "kp1",
+            "is_correct": false,
+            "user_answer": 0,
+            "correct_answer": 1,
+            "timestamp": "2026-03-19T15:50:04.814019",
+            "time_spent_seconds": 0,
+            "hint_used": false
+          }
+        ]
+      }
+    }
+  }
+}

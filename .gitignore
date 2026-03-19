@@ -46,3 +46,6 @@ backend/data/courses/
 backend/data/knowledge_graphs/
 !backend/data/courses/.gitkeep
 !backend/data/knowledge_graphs/.gitkeep
+
+# Atomic write temp files
+*.tmp

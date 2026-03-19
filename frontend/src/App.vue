@@ -215,15 +215,12 @@
     <!-- Modals & Overlays -->
     <KnowledgeGraph />
     
-    <!-- Global Floating AI Assistant -->
-    <FloatingAIAssistant />
-    
     <KeyboardShortcutsHelp ref="shortcutsHelpRef" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { 
@@ -233,7 +230,6 @@ import {
 
 import KnowledgeGraph from './components/KnowledgeGraph.vue'
 import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp.vue'
-import FloatingAIAssistant from './components/FloatingAIAssistant.vue'
 
 import { useCourseStore } from './stores/course'
 import { useTaskWebSocket } from './composables/useTaskWebSocket'
@@ -243,6 +239,64 @@ const courseStore = useCourseStore()
 const shortcutsHelpRef = ref<InstanceType<typeof KeyboardShortcutsHelp>>()
 
 useTaskWebSocket()
+
+// 持久化外观设置 & 应用到全局CSS变量
+const FONT_FAMILY_MAP: Record<string, string> = {
+  sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif',
+  serif: '"Noto Serif SC", "Source Han Serif SC", Georgia, "Times New Roman", serif',
+  mono: '"JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+}
+
+function applyUiSettings(fontSize: number, lineHeight: number, fontFamily: string) {
+  let el = document.getElementById('dynamic-font-size') as HTMLStyleElement | null
+  if (!el) {
+    el = document.createElement('style')
+    el.id = 'dynamic-font-size'
+    document.head.appendChild(el)
+  }
+  const ff = FONT_FAMILY_MAP[fontFamily] || FONT_FAMILY_MAP.sans
+  el.textContent = `
+    .prose p, .prose li, .prose blockquote, .prose td, .prose th,
+    .prose span:not(.katex *), .prose a, .prose strong, .prose em,
+    .content-render p, .content-render li, .content-render blockquote,
+    .content-render td, .content-render th,
+    .content-render a, .content-render strong, .content-render em,
+    .markdown-renderer p, .markdown-renderer li, .markdown-renderer blockquote,
+    .markdown-renderer td, .markdown-renderer th,
+    .markdown-renderer a, .markdown-renderer strong, .markdown-renderer em,
+    .content-node-optimized h3,
+    .content-node-optimized .prose {
+      font-size: ${fontSize}px !important;
+      line-height: ${lineHeight} !important;
+      font-family: ${ff} !important;
+    }
+    .content-node-optimized h1,
+    .content-node-optimized h2,
+    .content-node-optimized h2 span,
+    .prose h2, .content-render h2, .markdown-renderer h2 {
+      font-size: ${Math.round(fontSize * 1.6)}px !important;
+      line-height: ${lineHeight} !important;
+      font-family: ${ff} !important;
+    }
+    .content-node-optimized h3,
+    .prose h3, .content-render h3, .markdown-renderer h3 {
+      font-size: ${Math.round(fontSize * 1.3)}px !important;
+      line-height: ${lineHeight} !important;
+      font-family: ${ff} !important;
+    }
+    .prose code, .content-render code, .markdown-renderer code {
+      font-size: ${Math.round(fontSize * 0.85)}px !important;
+    }
+    .prose pre code, .content-render pre code, .markdown-renderer pre code {
+      font-size: ${Math.round(fontSize * 0.85)}px !important;
+    }
+  `
+}
+
+watch(() => courseStore.uiSettings, (val) => {
+  localStorage.setItem('ui_settings', JSON.stringify(val))
+  applyUiSettings(val.fontSize, val.lineHeight, val.fontFamily)
+}, { deep: true, immediate: true })
 
 // UI State
 const isSearchFocused = ref(false)

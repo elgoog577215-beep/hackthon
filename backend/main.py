@@ -3,12 +3,14 @@
 # 初始化 FastAPI 应用，配置中间件，注册路由模块，管理 WebSocket 连接。
 # =============================================================================
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from typing import List
 import sys
 import os
 import logging
@@ -45,9 +47,13 @@ from routers import (
     markdown_import
 )
 
-# ============================================================================
-# Service Initialization
-# ============================================================================
+# Check if profile router exists
+try:
+    from routers import profile as profile_router
+    HAS_PROFILE = True
+except ImportError:
+    HAS_PROFILE = False
+
 
 # Create WebSocket service
 ws_service = WebSocketService()
@@ -56,11 +62,10 @@ ws_service = WebSocketService()
 try:
     task_manager = TaskManager(
         storage=storage,
-        course_service=ai_service,  # AIService extends CourseService
+        course_service=ai_service,
         ws_service=ws_service,
         max_concurrency=5,
     )
-    # Wire up command handler so WebSocketService delegates commands to TaskManager
     ws_service.set_command_handler(task_manager.handle_command)
     init_task_manager(task_manager)
     init_ws_service(ws_service)
@@ -75,7 +80,6 @@ except NameError:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    await storage.validate_all_courses()
     if task_manager:
         await task_manager.start()
     yield
@@ -91,6 +95,9 @@ app = FastAPI(lifespan=lifespan)
 # Middleware Configuration
 # ============================================================================
 
+from rate_limiter import RateLimitMiddleware
+
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
@@ -100,14 +107,18 @@ app.add_middleware(
         "http://localhost:8000",
         "http://localhost:4000",
         "http://localhost:3000",
+        "http://localhost:8080",
+        "http://localhost:8081",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8000",
         "http://127.0.0.1:4000",
         "http://127.0.0.1:3000",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:8081",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 
@@ -142,6 +153,8 @@ app.include_router(code_execution.router)
 app.include_router(diagrams.router)
 app.include_router(tasks.router, prefix="/api")
 app.include_router(markdown_import.router)
+if HAS_PROFILE:
+    app.include_router(profile_router.router, prefix="/api")
 
 
 # ============================================================================
