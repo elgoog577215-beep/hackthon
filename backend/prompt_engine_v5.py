@@ -128,6 +128,79 @@ class PromptEngineV5:
     def __init__(self):
         pass
 
+    COGNITIVE_RHYTHM_TEMPLATE = """
+## 🎵 四拍认知节奏结构（严格执行）
+
+**核心理念**：好的教学不是信息罗列，而是有节奏的认知引导
+
+### 第一拍：直观感知（约 150-200 字）
+**目标**：让学习者感受到"为什么需要这个概念"
+- ✅ 必须：用一个**具体问题**或**真实场景**引入
+- ✅ 必须：展示该概念能解决什么实际困难
+- ❌ 禁止：直接抛出抽象定义
+- ❌ 禁止：使用"XX 是指..."的词典式开头
+
+### 第二拍：抽象提炼（约 200-300 字）
+**目标**：形式化定义和核心性质
+- ✅ 必须：给出精确的数学定义或形式化描述
+- ✅ 必须：解释定义中每个符号/术语的含义
+- ✅ 必须：说明核心性质/定理（至少 2-3 个）
+
+### 第三拍：操作演练（约 300-400 字）
+**目标**：详细计算/推导步骤，让学习者掌握"怎么做"
+- ✅ 必须：展示完整的计算/推导过程
+- ✅ 必须：每一步都说明**理由**（为什么可以这样做）
+- ✅ 必须：指出**常见错误**及原因分析
+- ✅ 必须：提供**决策口诀**（"看到 X 特征，就用 Y 方法"）
+
+### 第四拍：迁移应用（约 200-300 字）
+**目标**：解决实际问题，展示从"知道"到"学会"
+- ✅ 必须：案例**直接使用**本节方法论解决具体问题
+- ✅ 必须：完整展示全链路：识别问题→选择方法→计算/推导→结果解读
+"""
+
+    DIFFICULTY_STRATEGY_BEGINNER = """
+## 📚 入门级展开策略
+**目标受众**：初学者，第一次接触该概念
+**核心原则**：直观优先，减少抽象，建立信心
+**四拍时间分配**：第一拍30%、第二拍20%、第三拍40%、第四拍10%
+**公式密度**：0-10%
+"""
+
+    DIFFICULTY_STRATEGY_INTERMEDIATE = """
+## 📖 进阶级展开策略
+**目标受众**：有一定基础，想系统掌握该概念
+**核心原则**：四拍完整，平衡理论与应用
+**四拍时间分配**：第一拍20%、第二拍30%、第三拍30%、第四拍20%
+**公式密度**：10-30%
+"""
+
+    DIFFICULTY_STRATEGY_ADVANCED = """
+## 📕 高级展开策略
+**目标受众**：有扎实基础，追求深度理解
+**核心原则**：抽象主导，强调证明和复杂应用
+**四拍时间分配**：第一拍10%、第二拍30%、第三拍20%、第四拍40%
+**公式密度**：30-50%
+"""
+
+    VISUALIZATION_REQUIREMENTS = """
+## ⚠️ 可视化强制要求
+### 绝对禁止
+- ❌ "图注：..." 或 "（此处应有图）" 等占位符
+- ❌ 留空不写
+- ❌ 用纯文字替代图表
+
+### 必须包含
+1. **Mermaid 流程图**：展示判断逻辑/依赖关系/流程分支
+2. **Markdown 表格**：概念对比表、参数说明表、案例对照表
+
+### 决策口诀（必须提供）
+"看到 X 特征，就用 Y 方法"
+
+### 反面案例（必须提供）
+常见错误及原因分析
+"""
+
     def get_content_guidelines(
         self,
         discipline: DisciplineType,
@@ -262,20 +335,26 @@ class PromptEngineV5:
         audience: TargetAudience,
         knowledge_context: str,
         guidelines: ContentGuidelines,
-        config: DisciplineConfig
+        config: DisciplineConfig,
+        prerequisite_context: str = "无",
+        learner_weakness: str = "无"
     ) -> str:
-        """构建内容生成提示词"""
-        
+        """构建内容生成提示词（P0 升级版：四拍认知节奏）"""
+
         difficulty_guide = self.DIFFICULTY_GUIDELINES[difficulty]
         audience_guide = self.AUDIENCE_GUIDELINES[audience]
-        
+
+        difficulty_strategy = {
+            DifficultyLevel.BEGINNER: self.DIFFICULTY_STRATEGY_BEGINNER,
+            DifficultyLevel.INTERMEDIATE: self.DIFFICULTY_STRATEGY_INTERMEDIATE,
+            DifficultyLevel.ADVANCED: self.DIFFICULTY_STRATEGY_ADVANCED
+        }.get(difficulty, self.DIFFICULTY_STRATEGY_INTERMEDIATE)
+
         length_guide = f"""## 篇幅指导
 - 建议字数：{guidelines.recommended_words}字左右
 - 可接受范围：{guidelines.min_words}-{guidelines.max_words}字
 - 注意：内容质量优先于字数，如有必要可超出范围"""
 
-        structure_guide = self._get_structure_guide(discipline, difficulty)
-        
         return f"""## 角色
 你是一位专业的{config.name_cn}教育内容撰写专家。
 
@@ -299,20 +378,32 @@ class PromptEngineV5:
 ## 学科要求
 {config.prompt_hint}
 
-{knowledge_context}
+## 前置知识上下文
+{prerequisite_context}
+
+## 学习者薄弱点
+{learner_weakness}
 
 {length_guide}
 
-## 内容结构建议
-{structure_guide}
+## 🎵 核心要求：四拍认知节奏结构
+{difficulty_strategy}
+
+{COGNITIVE_RHYTHM_TEMPLATE}
+
+## ⚠️ 可视化强制要求
+{self.VISUALIZATION_REQUIREMENTS}
 
 ## 撰写要求
-1. 概念首次出现时用 **概念名**：定义 格式给出明确定义
-2. 提供 {guidelines.example_count} 个以上的案例或例子
-3. 数学公式用 $...$ 包裹，独立公式用 $$...$$
-4. 代码块指定语言类型
-5. 使用清晰的标题层级（##、###）
-6. 内容充实，逻辑清晰，循序渐进
+1. **必须使用四拍认知节奏结构**组织内容
+2. **必须包含决策口诀**（"看到 X 特征，就用 Y 方法"）
+3. **必须包含反面案例**（常见错误及原因分析）
+4. 概念首次出现时用 **概念名**：定义 格式给出明确定义
+5. 提供 {guidelines.example_count} 个以上的新案例（禁止重复已用案例）
+6. 数学公式用 $...$ 包裹，独立公式用 $$...$$
+7. 代码块指定语言类型
+8. 使用清晰的标题层级（##、###）
+9. **必须包含 Mermaid 图表**，禁止留空或使用占位符
 
 ## 质量优先原则
 - 如果内容需要更多篇幅才能讲清楚，请毫不犹豫地扩展

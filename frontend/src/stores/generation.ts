@@ -898,7 +898,7 @@ export const useGenerationStore = defineStore('generation', {
     async processKnowledgeGraphItem(item: QueueItem) {
       this.addLogToTask(item.courseId, `🕸️ 正在生成知识图谱...`)
       try {
-        await http.post(`/api/courses/${item.courseId}/knowledge_graph`)
+        await http.post(`/api/courses/${item.courseId}/knowledge_graph/generate`)
         this.addLogToTask(item.courseId, `✅ 知识图谱生成完成`)
       } catch (e) { console.error('Failed to generate knowledge graph', e); throw e }
     },
