@@ -382,3 +382,80 @@ class ProfileResponse(BaseModel):
     ai_profile: str
     agent_commentary: str
     persona_summary: str
+
+
+# === 存储验证 ===
+class ValidationReport(BaseModel):
+    """课程文件验证报告"""
+    course_id: str
+    filepath: str
+    is_valid: bool = True
+    error_message: Optional[str] = None
+    recovered_from_snapshot: bool = False
+    snapshot_version: Optional[int] = None
+
+
+# === 节点生成状态枚举 ===
+from enum import Enum
+
+class NodeStatus(str, Enum):
+    """节点内容生成状态"""
+    PENDING = "pending"
+    GENERATING = "generating"
+    COMPLETED = "completed"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
+# === 节点生成配置 ===
+class NodeGenerationConfig(BaseModel):
+    """节点内容生成的配置参数"""
+    difficulty: Optional[str] = None
+    style: Optional[str] = None
+    custom_instruction: Optional[str] = None
+    target_word_range: Optional[tuple] = None
+    include_code_examples: bool = True
+    include_exercises: bool = True
+
+
+# === 任务日志条目 ===
+class TaskLogEntry(BaseModel):
+    """任务执行日志条目"""
+    timestamp: datetime
+    node_id: str
+    node_name: str = ""
+    event: str = ""
+    message: str = ""
+    retry_count: int = 0
+    generated_chars: int = 0
+    duration_ms: Optional[float] = None
+
+
+# === 案例相似度 ===
+class SimilarExample(BaseModel):
+    """知识图谱中相似案例"""
+    existing_title: str
+    existing_node_id: str
+    similarity_score: float
+    summary: str = ""
+
+
+# === 内容质量评分 ===
+class QualityScore(BaseModel):
+    """多维度内容质量评分"""
+    overall: float
+    structure_completeness: float
+    content_depth: float
+    readability: float
+    format_correctness: float
+    details: Dict[str, str] = {}
+
+
+# === 一致性问题 ===
+class ConsistencyIssue(BaseModel):
+    """跨节点内容一致性问题"""
+    severity: str  # "warning", "critical"
+    issue_type: str  # "duplicate_example", "contradicting_definition", "broken_reference"
+    node_ids: List[str] = []
+    description: str = ""
+    auto_fixable: bool = False

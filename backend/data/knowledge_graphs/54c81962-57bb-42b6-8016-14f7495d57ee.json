@@ -1,326 +1,334 @@
 {
   "nodes": [
     {
-      "id": "root",
-      "label": "微积分：理论与应用",
+      "id": "root_ee98ed49",
+      "label": "课程核心",
       "type": "root",
-      "description": "系统介绍微积分的基本理论及其在各领域的应用。",
-      "chapter_id": "id_1"
+      "description": "课程根节点",
+      "chapter_id": "id_1",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "module_1",
-      "label": "函数与极限",
+      "id": "id_1",
+      "label": "第一章 函数与极限",
       "type": "module",
-      "description": "研究函数的基本性质和极限的严格定义。",
-      "chapter_id": "id_1"
+      "description": "介绍函数的基本概念、极限的定义及其几何意义。",
+      "chapter_id": "id_1",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "module_2",
-      "label": "导数与微分",
+      "id": "id_2",
+      "label": "第二章 导数与微分",
       "type": "module",
-      "description": "探讨导数的定义、计算方法及几何意义。",
-      "chapter_id": "id_2"
+      "description": "讲解导数的定义、计算方法及在变化率分析中的应用。",
+      "chapter_id": "id_2",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "module_3",
-      "label": "微分中值定理",
+      "id": "id_3",
+      "label": "第三章 微分中值定理",
       "type": "module",
-      "description": "分析罗尔定理和拉格朗日中值定理及其推论。",
-      "chapter_id": "id_3"
+      "description": "深入理解罗尔定理、拉格朗日中值定理及其推论。",
+      "chapter_id": "id_3",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "module_4",
-      "label": "积分与不定积分",
+      "id": "id_4",
+      "label": "第四章 积分与不定积分",
       "type": "module",
-      "description": "研究不定积分的概念、公式和换元法。",
-      "chapter_id": "id_4"
+      "description": "探讨不定积分的概念、基本积分公式和换元积分法。",
+      "chapter_id": "id_4",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_function",
-      "label": "函数",
+      "id": "id_5",
+      "label": "第五章 定积分与微积分基本定理",
+      "type": "module",
+      "description": "解析定积分的定义、性质及微积分基本定理的核心思想。",
+      "chapter_id": "id_5",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "id_6",
+      "label": "第六章 积分的应用",
+      "type": "module",
+      "description": "展示积分在面积、体积和物理问题中的实际应用。",
+      "chapter_id": "id_6",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "id_7",
+      "label": "第七章 多变量函数的微分",
+      "type": "module",
+      "description": "介绍多变量函数的偏导数、全微分及其几何解释。",
+      "chapter_id": "id_7",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "id_8",
+      "label": "第八章 多重积分",
+      "type": "module",
+      "description": "讨论二重积分和三重积分的计算方法及其应用。",
+      "chapter_id": "id_8",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "d36f5740-1f34-41b9-a7c3-3a1679daff0f",
+      "label": "1.1 函数的定义与基本性质",
       "type": "concept",
-      "description": "描述变量之间依赖关系的映射结构。",
-      "chapter_id": "d36f5740-1f34-41b9-a7c3-3a1679daff0f"
+      "description": "<!-- BODY_START -->\n\n# 第一章 函数与极限  \n## 1.1 函数的定义与基本",
+      "chapter_id": "d36f5740-1f34-41b9-a7c3-3a1679daff0f",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_elementary_functions",
-      "label": "初等函数",
+      "id": "84a992e6-0a18-467c-b0ef-66ec490fa5b1",
+      "label": "1.2 常见初等函数及其图像",
       "type": "concept",
-      "description": "通过有限次代数、指数、对数和三角运算构造的函数。",
-      "chapter_id": "84a992e6-0a18-467c-b0ef-66ec490fa5b1"
+      "description": "<!-- BODY_START -->\n\n# 1.2 常见初等函数及其图像\n\n## 💡 核心概念与背",
+      "chapter_id": "84a992e6-0a18-467c-b0ef-66ec490fa5b1",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_composite_inverse",
-      "label": "复合函数与反函数",
+      "id": "df877a32-c1b0-45b0-abd6-2267314aa181",
+      "label": "1.3 复合函数与反函数",
       "type": "concept",
-      "description": "由多个函数组合或逆向映射构成的函数形式。",
-      "chapter_id": "df877a32-c1b0-45b0-abd6-2267314aa181"
+      "description": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n**复合函数**（Compo",
+      "chapter_id": "df877a32-c1b0-45b0-abd6-2267314aa181",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_sequence_limit",
-      "label": "数列的极限",
+      "id": "0e69642c-2df0-434e-b541-ef57c1df7193",
+      "label": "1.4 数列的极限初步",
       "type": "concept",
-      "description": "研究数列随序号趋于无穷时的变化趋势。",
-      "chapter_id": "0e69642c-2df0-434e-b541-ef57c1df7193"
+      "description": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n数列的极限是分析学的基础，也",
+      "chapter_id": "0e69642c-2df0-434e-b541-ef57c1df7193",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "theorem_epsilon_delta",
-      "label": "ε-δ 极限定义",
-      "type": "theorem",
-      "description": "严格的极限定义，刻画函数趋近行为。",
-      "chapter_id": "2c88fa5b-a5c5-4100-b2bb-021a820e6ace"
-    },
-    {
-      "id": "concept_one_sided_limits",
-      "label": "单侧极限",
+      "id": "2c88fa5b-a5c5-4100-b2bb-021a820e6ace",
+      "label": "1.5 极限的严格定义（ε-δ语言）",
       "type": "concept",
-      "description": "从左侧或右侧趋近某点时的极限行为。",
-      "chapter_id": "7efb4652-fa8b-4d3d-8b29-4714f4fdb1f2"
+      "description": "<!-- BODY_START -->\n\n# 1.5 极限的严格定义（ε-δ语言）\n\n## 💡 核心",
+      "chapter_id": "2c88fa5b-a5c5-4100-b2bb-021a820e6ace",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_infinitesimal_infinite",
-      "label": "无穷小量与无穷大量",
+      "id": "7efb4652-fa8b-4d3d-8b29-4714f4fdb1f2",
+      "label": "1.6 单侧极限与极限的存在性准则",
       "type": "concept",
-      "description": "描述变量趋于零或趋于无穷快慢程度的工具。",
-      "chapter_id": "cc2f9631-a795-4bf9-8d1f-bcb652259791"
+      "description": "<!-- BODY_START -->\n\n# 1.6 单侧极限与极限的存在性准则\n\n## 💡 核心概",
+      "chapter_id": "7efb4652-fa8b-4d3d-8b29-4714f4fdb1f2",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_derivative",
-      "label": "导数",
+      "id": "cc2f9631-a795-4bf9-8d1f-bcb652259791",
+      "label": "1.7 无穷小量与无穷大量的比较",
       "type": "concept",
-      "description": "函数在某一点处的瞬时变化率。",
-      "chapter_id": "a104f7c4-7018-42c7-873f-0bd04bace8b5"
-    },
-    {
-      "id": "method_derivative_rules",
-      "label": "求导法则",
-      "type": "method",
-      "description": "包括和差积商规则的导数计算方法。",
-      "chapter_id": "5f059eb5-dd10-47d8-a789-6e52aacf2001"
-    },
-    {
-      "id": "theorem_rolle",
-      "label": "罗尔定理",
-      "type": "theorem",
-      "description": "连续可导函数若端点值相等，则存在极值点。",
-      "chapter_id": "480af6f0-900f-479d-a43a-61ed4ba21c45"
-    },
-    {
-      "id": "theorem_lagrange",
-      "label": "拉格朗日中值定理",
-      "type": "theorem",
-      "description": "描述区间内平均变化率等于某点导数的定理。",
-      "chapter_id": "50b89bcc-a304-4a02-b81c-b57129976183"
-    },
-    {
-      "id": "concept_antiderivative",
-      "label": "不定积分",
-      "type": "concept",
-      "description": "原函数集合，表示反向求导操作。",
-      "chapter_id": "a62ac231-cbb4-40b0-820c-c3a91d06706c"
-    },
-    {
-      "id": "method_substitution_integration",
-      "label": "换元积分法",
-      "type": "method",
-      "description": "通过变量替换简化积分形式的方法。",
-      "chapter_id": "a992d99d-44ba-47aa-a373-20ca70eb73c0"
-    },
-    {
-      "id": "method_integration_by_parts",
-      "label": "分部积分法",
-      "type": "method",
-      "description": "基于乘积求导法则的积分技巧。",
-      "chapter_id": "f5e80370-ec69-4155-b6be-c14c53c48a72"
-    },
-    {
-      "id": "theorem_fundamental_calculus",
-      "label": "微积分基本定理",
-      "type": "theorem",
-      "description": "连接不定积分与定积分的核心定理。",
-      "chapter_id": "29a3ccec-2f2c-4f25-8aae-927a96a514a8"
+      "description": "<!-- BODY_START -->\n\n# 1.7 无穷小量与无穷大量的比较\n\n## 💡 核心概念",
+      "chapter_id": "cc2f9631-a795-4bf9-8d1f-bcb652259791",
+      "created_by": "ai",
+      "created_at": 1773930260.6338305,
+      "updated_at": 1773930260.6338305,
+      "x": 0,
+      "y": 0
     }
   ],
   "edges": [
     {
-      "source": "root",
-      "target": "module_1",
+      "source": "root_ee98ed49",
+      "target": "id_1",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "68434bf5",
+      "created_by": "ai"
     },
     {
-      "source": "root",
-      "target": "module_2",
+      "source": "root_ee98ed49",
+      "target": "id_2",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "238b61e8",
+      "created_by": "ai"
     },
     {
-      "source": "root",
-      "target": "module_3",
+      "source": "root_ee98ed49",
+      "target": "id_3",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "3ab376fa",
+      "created_by": "ai"
     },
     {
-      "source": "root",
-      "target": "module_4",
+      "source": "root_ee98ed49",
+      "target": "id_4",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "1edadb31",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_function",
+      "source": "root_ee98ed49",
+      "target": "id_5",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "c1b41dce",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_elementary_functions",
+      "source": "root_ee98ed49",
+      "target": "id_6",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "2f100703",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_composite_inverse",
+      "source": "root_ee98ed49",
+      "target": "id_7",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "34262cd1",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_sequence_limit",
+      "source": "root_ee98ed49",
+      "target": "id_8",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "a24bd976",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "theorem_epsilon_delta",
+      "source": "id_1",
+      "target": "d36f5740-1f34-41b9-a7c3-3a1679daff0f",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "8d99237b",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_one_sided_limits",
+      "source": "id_1",
+      "target": "84a992e6-0a18-467c-b0ef-66ec490fa5b1",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "717ca5e4",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_infinitesimal_infinite",
+      "source": "id_1",
+      "target": "df877a32-c1b0-45b0-abd6-2267314aa181",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "52f86008",
+      "created_by": "ai"
     },
     {
-      "source": "module_2",
-      "target": "concept_derivative",
+      "source": "id_1",
+      "target": "0e69642c-2df0-434e-b541-ef57c1df7193",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "6a38facc",
+      "created_by": "ai"
     },
     {
-      "source": "module_2",
-      "target": "method_derivative_rules",
+      "source": "id_1",
+      "target": "2c88fa5b-a5c5-4100-b2bb-021a820e6ace",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "9da7ae86",
+      "created_by": "ai"
     },
     {
-      "source": "module_3",
-      "target": "theorem_rolle",
+      "source": "id_1",
+      "target": "7efb4652-fa8b-4d3d-8b29-4714f4fdb1f2",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "a005e764",
+      "created_by": "ai"
     },
     {
-      "source": "module_3",
-      "target": "theorem_lagrange",
+      "source": "id_1",
+      "target": "cc2f9631-a795-4bf9-8d1f-bcb652259791",
       "relation": "contains",
-      "label": "包含"
-    },
-    {
-      "source": "module_4",
-      "target": "concept_antiderivative",
-      "relation": "contains",
-      "label": "包含"
-    },
-    {
-      "source": "module_4",
-      "target": "method_substitution_integration",
-      "relation": "contains",
-      "label": "包含"
-    },
-    {
-      "source": "module_4",
-      "target": "method_integration_by_parts",
-      "relation": "contains",
-      "label": "包含"
-    },
-    {
-      "source": "module_4",
-      "target": "theorem_fundamental_calculus",
-      "relation": "contains",
-      "label": "包含"
-    },
-    {
-      "source": "concept_derivative",
-      "target": "concept_function",
-      "relation": "depends_on",
-      "label": "依赖于"
-    },
-    {
-      "source": "method_derivative_rules",
-      "target": "concept_derivative",
-      "relation": "applies_to",
-      "label": "应用于"
-    },
-    {
-      "source": "concept_derivative",
-      "target": "concept_sequence_limit",
-      "relation": "depends_on",
-      "label": "依赖于"
-    },
-    {
-      "source": "concept_derivative",
-      "target": "theorem_epsilon_delta",
-      "relation": "depends_on",
-      "label": "依赖于"
-    },
-    {
-      "source": "theorem_rolle",
-      "target": "concept_derivative",
-      "relation": "depends_on",
-      "label": "依赖于"
-    },
-    {
-      "source": "theorem_lagrange",
-      "target": "theorem_rolle",
-      "relation": "leads_to",
-      "label": "推导出"
-    },
-    {
-      "source": "concept_antiderivative",
-      "target": "concept_derivative",
-      "relation": "related",
-      "label": "相关"
-    },
-    {
-      "source": "method_integration_by_parts",
-      "target": "concept_derivative",
-      "relation": "depends_on",
-      "label": "依赖于"
-    },
-    {
-      "source": "method_integration_by_parts",
-      "target": "concept_antiderivative",
-      "relation": "applies_to",
-      "label": "应用于"
-    },
-    {
-      "source": "theorem_fundamental_calculus",
-      "target": "concept_derivative",
-      "relation": "depends_on",
-      "label": "依赖于"
-    },
-    {
-      "source": "theorem_fundamental_calculus",
-      "target": "concept_antiderivative",
-      "relation": "depends_on",
-      "label": "依赖于"
+      "label": "包含",
+      "weight": 7,
+      "id": "e8bbe5e5",
+      "created_by": "ai"
     }
-  ]
+  ],
+  "updated_at": 1773930260.6338305
 }

@@ -1,371 +1,334 @@
 {
   "nodes": [
     {
-      "id": "root",
-      "label": "线性代数：理论与应用",
+      "id": "root_b65c4196",
+      "label": "课程核心",
       "type": "root",
-      "description": "课程名称",
-      "chapter_id": "id_1"
+      "description": "课程根节点",
+      "chapter_id": "id_1",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "module_1",
-      "label": "向量空间与子空间",
+      "id": "id_1",
+      "label": "第一章 向量空间与子空间",
       "type": "module",
-      "description": "向量空间的基本理论",
-      "chapter_id": "id_1"
+      "description": "本章介绍向量空间的公理化定义及其基本性质，包括子空间、生成集和线性无关性。",
+      "chapter_id": "id_1",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "module_2",
-      "label": "线性映射与矩阵表示",
+      "id": "id_2",
+      "label": "第二章 线性映射与矩阵表示",
       "type": "module",
-      "description": "线性映射及其矩阵形式",
-      "chapter_id": "id_2"
+      "description": "探讨线性映射的概念、同构定理及矩阵作为线性变换的表示形式。",
+      "chapter_id": "id_2",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "module_3",
-      "label": "行列式与逆矩阵",
+      "id": "id_3",
+      "label": "第三章 行列式与逆矩阵",
       "type": "module",
-      "description": "行列式的性质与逆矩阵计算",
-      "chapter_id": "id_3"
+      "description": "讲解行列式的定义、性质及其在求解逆矩阵和判断可逆性中的作用。",
+      "chapter_id": "id_3",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "module_4",
-      "label": "特征值与特征向量",
+      "id": "id_4",
+      "label": "第四章 特征值与特征向量",
       "type": "module",
-      "description": "线性变换的特征分析",
-      "chapter_id": "id_4"
+      "description": "分析特征方程、特征多项式及其在线性变换分解中的核心地位。",
+      "chapter_id": "id_4",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "module_5",
-      "label": "正交性与内积空间",
+      "id": "id_5",
+      "label": "第五章 正交性与内积空间",
       "type": "module",
-      "description": "正交基与内积结构",
-      "chapter_id": "id_5"
+      "description": "研究正交基、Gram-Schmidt 正交化过程以及内积空间的基本结构。",
+      "chapter_id": "id_5",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_1",
-      "label": "向量空间",
+      "id": "id_6",
+      "label": "第六章 奇异值分解与矩阵近似",
+      "type": "module",
+      "description": "深入奇异值分解（SVD）的理论及其在降维和数据压缩中的应用。",
+      "chapter_id": "id_6",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "id_7",
+      "label": "第七章 线性系统与最小二乘法",
+      "type": "module",
+      "description": "讨论线性方程组的求解方法，特别是超定系统的最小二乘解。",
+      "chapter_id": "id_7",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "id_8",
+      "label": "第八章 应用专题：计算机图形学与机器学习",
+      "type": "module",
+      "description": "结合实际案例，展示线性代数在图像处理和神经网络中的关键作用。",
+      "chapter_id": "id_8",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
+      "label": "1.1 向量空间的公理化定义",
       "type": "concept",
-      "description": "满足8条公理的集合",
-      "chapter_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d"
+      "description": "介绍向量空间的8条基本公理，包括加法与数乘运算的封闭性、结合律和分配律等性质。",
+      "chapter_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_2",
-      "label": "子空间",
+      "id": "fb13000f-de45-45ad-8532-2155b36b8fb9",
+      "label": "1.2 向量空间的典型实例",
       "type": "concept",
-      "description": "向量空间中的部分集合",
-      "chapter_id": "86065096-c309-4f81-8a76-28d6d7056736"
+      "description": "列举并分析若干常见向量空间实例，如 $\\mathbb{R}^n$、矩阵空间和多项式空间。",
+      "chapter_id": "fb13000f-de45-45ad-8532-2155b36b8fb9",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_3",
-      "label": "线性组合",
+      "id": "86065096-c309-4f81-8a76-28d6d7056736",
+      "label": "1.3 子空间的定义与判定条件",
       "type": "concept",
-      "description": "向量的标量乘和加法",
-      "chapter_id": "9d4aef8f-d52d-4c69-9de6-3c10c83a62f6"
+      "description": "给出子空间的严格定义，并推导其必须满足的三个关键条件。",
+      "chapter_id": "86065096-c309-4f81-8a76-28d6d7056736",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_4",
-      "label": "线性无关性",
+      "id": "7855345b-2467-49f9-b86c-811c19243761",
+      "label": "1.4 子空间的交与和",
       "type": "concept",
-      "description": "一组向量无冗余",
-      "chapter_id": "0243ac00-3ed8-4337-aea9-c7e6859c572e"
+      "description": "探讨两个子空间的交集与和空间的结构及其性质，强调它们是否仍是子空间。",
+      "chapter_id": "7855345b-2467-49f9-b86c-811c19243761",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_5",
-      "label": "基底",
+      "id": "9d4aef8f-d52d-4c69-9de6-3c10c83a62f6",
+      "label": "1.5 线性组合与生成集",
       "type": "concept",
-      "description": "生成空间的最小集",
-      "chapter_id": "ff2bcddf-5c7b-401e-87b3-e5f76d11f6e4"
+      "description": "引入线性组合的概念，定义由集合生成的子空间，并讨论生成集的最小性问题。",
+      "chapter_id": "9d4aef8f-d52d-4c69-9de6-3c10c83a62f6",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_6",
-      "label": "维数",
+      "id": "0243ac00-3ed8-4337-aea9-c7e6859c572e",
+      "label": "1.6 线性无关性的定义与判别方法",
       "type": "concept",
-      "description": "向量空间中基底数量",
-      "chapter_id": "ff2bcddf-5c7b-401e-87b3-e5f76d11f6e4"
+      "description": "严格定义线性无关性，并通过齐次方程组分析如何判断一组向量是否线性无关。",
+      "chapter_id": "0243ac00-3ed8-4337-aea9-c7e6859c572e",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     },
     {
-      "id": "concept_7",
-      "label": "线性映射",
+      "id": "aa59f642-f234-4782-bf2f-925248f3701b",
+      "label": "1.7 极大线性无关组与秩",
       "type": "concept",
-      "description": "保持线性的函数",
-      "chapter_id": "a41fb927-e436-4147-8f0a-7a6e6831a74e"
-    },
-    {
-      "id": "concept_8",
-      "label": "矩阵表示",
-      "type": "concept",
-      "description": "线性映射的数值化表达",
-      "chapter_id": "e54a51f9-d1b3-4f7b-b1b8-0ac9391f9a89"
-    },
-    {
-      "id": "concept_9",
-      "label": "行列式",
-      "type": "concept",
-      "description": "衡量矩阵缩放因子",
-      "chapter_id": "a49ca7d7-511b-437f-a13e-39f7196081d3"
-    },
-    {
-      "id": "concept_10",
-      "label": "特征值",
-      "type": "concept",
-      "description": "线性变换的固有比例",
-      "chapter_id": "90633e0f-a994-48d8-a6a0-be7c2207c923"
-    },
-    {
-      "id": "concept_11",
-      "label": "特征向量",
-      "type": "concept",
-      "description": "方向不变的向量",
-      "chapter_id": "90633e0f-a994-48d8-a6a0-be7c2207c923"
-    },
-    {
-      "id": "method_1",
-      "label": "Gram-Schmidt 正交化",
-      "type": "method",
-      "description": "构造正交基的算法",
-      "chapter_id": "0731848c-c311-4c0e-8f06-3875349c9063"
-    },
-    {
-      "id": "method_2",
-      "label": "最小二乘法",
-      "type": "method",
-      "description": "求解超定系统的最优近似",
-      "chapter_id": "770752ee-a621-4756-ba8c-4600ad0487fb"
+      "description": "解释极大线性无关组的概念，并引出向量组的秩及其在空间维度中的作用。",
+      "chapter_id": "aa59f642-f234-4782-bf2f-925248f3701b",
+      "created_by": "ai",
+      "created_at": 1773930764.8455117,
+      "updated_at": 1773930764.8455117,
+      "x": 0,
+      "y": 0
     }
   ],
   "edges": [
     {
-      "source": "root",
-      "target": "module_1",
+      "source": "root_b65c4196",
+      "target": "id_1",
       "relation": "contains",
       "label": "包含",
-      "id": "3d5767e2",
-      "weight": 5
+      "weight": 8,
+      "id": "75e9c9b2",
+      "created_by": "ai"
     },
     {
-      "source": "root",
-      "target": "module_2",
+      "source": "root_b65c4196",
+      "target": "id_2",
       "relation": "contains",
       "label": "包含",
-      "id": "0044e74a",
-      "weight": 5
+      "weight": 8,
+      "id": "5f24af43",
+      "created_by": "ai"
     },
     {
-      "source": "root",
-      "target": "module_3",
+      "source": "root_b65c4196",
+      "target": "id_3",
       "relation": "contains",
       "label": "包含",
-      "id": "4c9a2424",
-      "weight": 5
+      "weight": 8,
+      "id": "2a0a5963",
+      "created_by": "ai"
     },
     {
-      "source": "root",
-      "target": "module_4",
+      "source": "root_b65c4196",
+      "target": "id_4",
       "relation": "contains",
       "label": "包含",
-      "id": "302e8df4",
-      "weight": 5
+      "weight": 8,
+      "id": "80979a0a",
+      "created_by": "ai"
     },
     {
-      "source": "root",
-      "target": "module_5",
+      "source": "root_b65c4196",
+      "target": "id_5",
       "relation": "contains",
       "label": "包含",
-      "id": "da55129f",
-      "weight": 5
+      "weight": 8,
+      "id": "413e0ccc",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_1",
+      "source": "root_b65c4196",
+      "target": "id_6",
       "relation": "contains",
       "label": "包含",
-      "id": "84fb3976",
-      "weight": 5
+      "weight": 8,
+      "id": "0f148e1e",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_2",
+      "source": "root_b65c4196",
+      "target": "id_7",
       "relation": "contains",
       "label": "包含",
-      "id": "79b8196b",
-      "weight": 5
+      "weight": 8,
+      "id": "5a2ea786",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_3",
+      "source": "root_b65c4196",
+      "target": "id_8",
       "relation": "contains",
       "label": "包含",
-      "id": "b6d9f605",
-      "weight": 5
+      "weight": 8,
+      "id": "3ea66e3f",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_4",
+      "source": "id_1",
+      "target": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
       "relation": "contains",
       "label": "包含",
-      "id": "71536da4",
-      "weight": 5
+      "weight": 7,
+      "id": "139aa727",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_5",
+      "source": "id_1",
+      "target": "fb13000f-de45-45ad-8532-2155b36b8fb9",
       "relation": "contains",
       "label": "包含",
-      "id": "8e93683d",
-      "weight": 5
+      "weight": 7,
+      "id": "8e742729",
+      "created_by": "ai"
     },
     {
-      "source": "module_1",
-      "target": "concept_6",
+      "source": "id_1",
+      "target": "86065096-c309-4f81-8a76-28d6d7056736",
       "relation": "contains",
       "label": "包含",
-      "id": "3bba2bdf",
-      "weight": 5
+      "weight": 7,
+      "id": "0572db0d",
+      "created_by": "ai"
     },
     {
-      "source": "module_2",
-      "target": "concept_7",
+      "source": "id_1",
+      "target": "7855345b-2467-49f9-b86c-811c19243761",
       "relation": "contains",
       "label": "包含",
-      "id": "b06b7896",
-      "weight": 5
+      "weight": 7,
+      "id": "918ba801",
+      "created_by": "ai"
     },
     {
-      "source": "module_2",
-      "target": "concept_8",
+      "source": "id_1",
+      "target": "9d4aef8f-d52d-4c69-9de6-3c10c83a62f6",
       "relation": "contains",
       "label": "包含",
-      "id": "b65beff5",
-      "weight": 5
+      "weight": 7,
+      "id": "a3dfe03e",
+      "created_by": "ai"
     },
     {
-      "source": "module_3",
-      "target": "concept_9",
+      "source": "id_1",
+      "target": "0243ac00-3ed8-4337-aea9-c7e6859c572e",
       "relation": "contains",
       "label": "包含",
-      "id": "6fe9da13",
-      "weight": 5
+      "weight": 7,
+      "id": "feacde9a",
+      "created_by": "ai"
     },
     {
-      "source": "module_4",
-      "target": "concept_10",
+      "source": "id_1",
+      "target": "aa59f642-f234-4782-bf2f-925248f3701b",
       "relation": "contains",
       "label": "包含",
-      "id": "4a24acbf",
-      "weight": 5
-    },
-    {
-      "source": "module_4",
-      "target": "concept_11",
-      "relation": "contains",
-      "label": "包含",
-      "id": "34957cad",
-      "weight": 5
-    },
-    {
-      "source": "module_5",
-      "target": "method_1",
-      "relation": "contains",
-      "label": "包含",
-      "id": "47e6a5b5",
-      "weight": 5
-    },
-    {
-      "source": "module_5",
-      "target": "method_2",
-      "relation": "contains",
-      "label": "包含",
-      "id": "66452482",
-      "weight": 5
-    },
-    {
-      "source": "concept_1",
-      "target": "concept_2",
-      "relation": "leads_to",
-      "label": "推导出",
-      "id": "00f23fcd",
-      "weight": 5
-    },
-    {
-      "source": "concept_2",
-      "target": "concept_3",
-      "relation": "depends_on",
-      "label": "依赖",
-      "id": "430c9744",
-      "weight": 5
-    },
-    {
-      "source": "concept_3",
-      "target": "concept_4",
-      "relation": "related",
-      "label": "相关",
-      "id": "d5b5bf89",
-      "weight": 5
-    },
-    {
-      "source": "concept_4",
-      "target": "concept_5",
-      "relation": "leads_to",
-      "label": "推导出",
-      "id": "73389117",
-      "weight": 5
-    },
-    {
-      "source": "concept_5",
-      "target": "concept_6",
-      "relation": "leads_to",
-      "label": "定义",
-      "id": "fb1f56c6",
-      "weight": 5
-    },
-    {
-      "source": "concept_7",
-      "target": "concept_8",
-      "relation": "leads_to",
-      "label": "表示为",
-      "id": "ba25c8ce",
-      "weight": 5
-    },
-    {
-      "source": "concept_8",
-      "target": "concept_9",
-      "relation": "related",
-      "label": "相关",
-      "id": "b31b546d",
-      "weight": 5
-    },
-    {
-      "source": "concept_9",
-      "target": "concept_10",
-      "relation": "leads_to",
-      "label": "关联",
-      "id": "913bb2ed",
-      "weight": 5
-    },
-    {
-      "source": "concept_10",
-      "target": "concept_11",
-      "relation": "related",
-      "label": "相关",
-      "id": "13c443bb",
-      "weight": 5
-    },
-    {
-      "source": "method_1",
-      "target": "concept_5",
-      "relation": "applies_to",
-      "label": "应用于",
-      "id": "325137e2",
-      "weight": 5
-    },
-    {
-      "source": "method_2",
-      "target": "concept_7",
-      "relation": "applies_to",
-      "label": "应用于",
-      "id": "c9e557d4",
-      "weight": 5
+      "weight": 7,
+      "id": "428299e5",
+      "created_by": "ai"
     }
-  ]
+  ],
+  "updated_at": 1773930764.8455117
 }

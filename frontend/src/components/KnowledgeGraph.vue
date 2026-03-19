@@ -263,6 +263,23 @@ const nodeWrongAnswers = computed(() => {
 
 const getEdgeDisplayLabel = (edge: KGEdge) => edge.label || getRelationLabel(edge.relation)
 
+/** 根据节点坐标直接设置 canvas viewBox，不依赖 DOM 尺寸 */
+const setViewBoxFromNodes = (nodes: KGNode[]) => {
+  if (!nodes.length || !canvasRef.value?.vb) return
+  const pad = 150
+  const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y)
+  const minX = Math.min(...xs), maxX = Math.max(...xs)
+  const minY = Math.min(...ys), maxY = Math.max(...ys)
+  const w = Math.max(maxX - minX + pad * 2, 1000)
+  const h = Math.max(maxY - minY + pad * 2, 600)
+  const cx = (minX + maxX) / 2
+  const cy = (minY + maxY) / 2
+  canvasRef.value.vb.x = cx - w / 2
+  canvasRef.value.vb.y = cy - h / 2
+  canvasRef.value.vb.width = w
+  canvasRef.value.vb.height = h
+}
+
 // --- Layout ---
 const layoutGraph = () => {
   const { nodes, edges } = graphData.value
@@ -274,12 +291,13 @@ const layoutGraph = () => {
     if (typeof n.y !== 'number' || isNaN(n.y)) n.y = 0
   })
 
-  // 如果节点已有非零坐标（持久化的），使用已有位置，轻微升温即可
+  // 如果节点已有非零坐标（持久化的），使用已有位置，直接 fitView
   const hasPositions = nodes.some(n => n.x !== 0 || n.y !== 0)
   if (hasPositions) {
+    // 立即根据节点坐标设置 viewBox（不依赖 DOM 尺寸）
+    setViewBoxFromNodes(nodes)
     nextTick(() => {
       canvasRef.value?.fitView()
-      canvasRef.value?.heatSimulation(0.15)
     })
     return
   }
@@ -322,10 +340,11 @@ const layoutGraph = () => {
     })
   })
 
-  // 初始位置设好后，交给 canvas 的持续力模拟来动态调整
+  // 初始位置设好后，立即 fitView 居中显示，然后启动力模拟微调
+  setViewBoxFromNodes(nodes)
   nextTick(() => {
     canvasRef.value?.fitView()
-    canvasRef.value?.heatSimulation(0.8) // 高温启动，让节点快速找到平衡
+    canvasRef.value?.heatSimulation(0.8)
   })
 }
 
@@ -566,9 +585,12 @@ const handleSearch = () => {
 const clearSearch = () => { searchQuery.value = '' }
 
 // --- Navigation ---
-const navigateToNode = (nodeId: string) => {
-  courseStore.scrollToNode(nodeId)
+const navigateToNode = async (nodeId: string) => {
+  // 先关闭弹窗，等 DOM 稳定后再触发滚动，避免布局重排导致偏移计算不准
   handleClose()
+  // 等待弹窗关闭动画和 DOM 重排完成
+  await new Promise(r => setTimeout(r, 150))
+  courseStore.scrollToNode(nodeId)
   ElMessage.success('已跳转到对应章节')
 }
 
@@ -674,5 +696,5 @@ watch(() => courseStore.currentCourseId, () => {
 .kg-ea-btn--danger:hover { background: rgba(239,68,68,.15); color: #f87171; border-color: rgba(239,68,68,.3); }
 .modal-enter-active, .modal-leave-active { transition: all .25s ease; }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
-.modal-enter-from .kg-container, .modal-leave-to .kg-container { transform: scale(.96); }
+.modal-enter-from .kg-container, .modal-leave-to .kg-container { opacity: 0; }
 </style>

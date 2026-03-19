@@ -59,8 +59,10 @@ class AIGraphService(AIBase):
 
 课程名称：{course_name}
 
-主要章节：
-{chr(10).join([f"- [ID: {n.get('id', '')}] {n.get('name', '')}: {n.get('content', '')[:50]}..." for n in nodes_summary[:15]])}
+主要章节（请严格使用下方提供的 ID 作为 chapter_id）：
+{chr(10).join([f"- chapter_id=\"{n.get('id', '')}\"  名称=\"{n.get('name', '')}\"  层级={n.get('level', 1)}" for n in nodes_summary[:30]])}
+
+⚠️ 重要：每个知识图谱节点的 chapter_id 必须是上方列表中的某个 chapter_id 值（即课程章节的真实 ID），不要自己编造 ID。
 
 请生成包含节点和关系的知识图谱JSON。"""
         
@@ -86,6 +88,8 @@ class AIGraphService(AIBase):
         
         valid_chapter_ids = {n.get("node_id") for n in course_nodes}
         node_name_to_id = {n.get("node_name"): n.get("node_id") for n in course_nodes}
+        # 也建立 node_id -> node_id 的映射，方便直接匹配
+        node_id_set = {n.get("node_id") for n in course_nodes}
         node_ids = {n.get("id") for n in nodes}
         
         # Step 1: Fix chapter_ids and validate node types
@@ -97,61 +101,83 @@ class AIGraphService(AIBase):
             
             # Fix chapter_id
             chapter_id = node.get("chapter_id")
-            if not chapter_id or chapter_id not in valid_chapter_ids:
-                best_match_id = None
-                
-                # Priority 0: Check if chapter_id is actually a node name
-                if chapter_id in node_name_to_id:
-                    best_match_id = node_name_to_id[chapter_id]
-                
-                # Priority 1: Match by Node Label (Exact)
-                if not best_match_id:
-                    node_label = node.get("label", "")
+            if chapter_id and chapter_id in valid_chapter_ids:
+                continue  # 已经是有效的 chapter_id，跳过
+
+            best_match_id = None
+            
+            # Priority 0: Check if chapter_id is actually a node name
+            if chapter_id and chapter_id in node_name_to_id:
+                best_match_id = node_name_to_id[chapter_id]
+            
+            # Priority 1: Match by Node Label (Exact)
+            if not best_match_id:
+                node_label = node.get("label", "")
+                for n in course_nodes:
+                    if n.get("node_name", "") == node_label:
+                        best_match_id = n.get("node_id")
+                        break
+            
+            # Priority 2: Match by label substring containment (bidirectional)
+            if not best_match_id:
+                node_label = node.get("label", "").strip()
+                if node_label:
+                    # 去掉常见的编号前缀，如 "第一章 ", "1.1 ", "第1节 "
+                    import re
+                    clean_label = re.sub(r'^(第[一二三四五六七八九十\d]+[章节]\s*|[\d.]+\s*)', '', node_label).strip()
+                    
+                    candidates = []
                     for n in course_nodes:
-                        if n.get("node_name", "") == node_label:
-                            best_match_id = n.get("node_id")
-                            break
-                
-                # Priority 2: Match by similarity score (replaces simple substring)
-                if not best_match_id:
-                    node_label = node.get("label", "")
-                    if node_label:
-                        best_score = -1.0
-                        for n in course_nodes:
-                            name = n.get("node_name", "")
-                            if not name:
-                                continue
-                            # Character overlap ratio: count common chars / max length
-                            common = sum(1 for c in node_label if c in name)
-                            score = common / max(len(node_label), len(name))
-                            if score > best_score:
-                                best_score = score
-                                best_match_id = n.get("node_id")
-                        # Require minimum threshold
-                        min_threshold = 0.3
-                        if best_score < min_threshold:
-                            logger.warning(
-                                f"Low similarity score ({best_score:.2f}) for node '{node_label}', "
-                                f"rejecting match"
-                            )
-                            best_match_id = None
-                
-                # Fallback: Prefer leaf nodes (higher node_level) over root chapters
-                if not best_match_id and course_nodes:
-                    # Sort by node_level descending to prefer more specific (leaf) nodes
-                    sorted_nodes = sorted(
-                        course_nodes,
-                        key=lambda n: n.get("node_level", 0),
-                        reverse=True,
-                    )
-                    best_match_id = sorted_nodes[0].get("node_id")
-                    logger.warning(
-                        f"No confident match for node '{node.get('label', '')}', "
-                        f"falling back to leaf node '{sorted_nodes[0].get('node_name', '')}'"
-                    )
-                
-                if best_match_id:
-                    node["chapter_id"] = best_match_id
+                        name = n.get("node_name", "").strip()
+                        if not name:
+                            continue
+                        clean_name = re.sub(r'^(第[一二三四五六七八九十\d]+[章节]\s*|[\d.]+\s*)', '', name).strip()
+                        
+                        # 精确包含匹配（去掉编号后）
+                        if clean_label and clean_name:
+                            if clean_label in clean_name or clean_name in clean_label:
+                                candidates.append((n, len(clean_name)))
+                    
+                    if candidates:
+                        # 选择名称长度最接近的（最具体的匹配）
+                        candidates.sort(key=lambda x: abs(len(clean_label) - x[1]))
+                        best_match_id = candidates[0][0].get("node_id")
+            
+            # Priority 3: Match by longest common substring
+            if not best_match_id:
+                node_label = node.get("label", "").strip()
+                if node_label and len(node_label) >= 2:
+                    best_lcs_len = 0
+                    best_lcs_node = None
+                    for n in course_nodes:
+                        name = n.get("node_name", "").strip()
+                        if not name:
+                            continue
+                        lcs_len = self._longest_common_substring_len(node_label, name)
+                        if lcs_len > best_lcs_len:
+                            best_lcs_len = lcs_len
+                            best_lcs_node = n
+                    # 要求最长公共子串至少占标签长度的 50%
+                    if best_lcs_node and best_lcs_len >= max(2, len(node_label) * 0.5):
+                        best_match_id = best_lcs_node.get("node_id")
+            
+            # Fallback: 对于 root 类型不需要精确 chapter_id，
+            # 对于其他类型，选择同层级的第一个节点（而非随机叶子节点）
+            if not best_match_id and course_nodes and node.get("type") != "root":
+                # 根据节点类型推断层级
+                target_level = 1 if node.get("type") == "module" else 2
+                level_nodes = [n for n in course_nodes if n.get("node_level", 0) == target_level]
+                if level_nodes:
+                    best_match_id = level_nodes[0].get("node_id")
+                else:
+                    best_match_id = course_nodes[0].get("node_id")
+                logger.warning(
+                    f"No confident match for node '{node.get('label', '')}', "
+                    f"falling back to level-{target_level} node"
+                )
+            
+            if best_match_id:
+                node["chapter_id"] = best_match_id
         
         # Step 2: Fix multiple root nodes (keep only one)
         if root_count > 1:
@@ -299,6 +325,24 @@ class AIGraphService(AIBase):
                         edges.pop()
                     break
     
+    @staticmethod
+    def _longest_common_substring_len(s1: str, s2: str) -> int:
+        """计算两个字符串的最长公共子串长度"""
+        if not s1 or not s2:
+            return 0
+        m, n = len(s1), len(s2)
+        prev = [0] * (n + 1)
+        best = 0
+        for i in range(1, m + 1):
+            curr = [0] * (n + 1)
+            for j in range(1, n + 1):
+                if s1[i - 1] == s2[j - 1]:
+                    curr[j] = prev[j - 1] + 1
+                    if curr[j] > best:
+                        best = curr[j]
+            prev = curr
+        return best
+
     def _generate_fallback_knowledge_graph(self, nodes: List[Dict]) -> Dict:
         """
         生成回退知识图谱

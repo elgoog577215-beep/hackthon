@@ -29,12 +29,16 @@ try:
     from ai_service import ai_service
     from task_manager import TaskManager
     from dependencies import init_task_manager
+    from websocket_service import WebSocketService
+    from course_service import get_course_service
 except ImportError:
     try:
         from backend.storage import storage
         from backend.ai_service import ai_service
         from backend.task_manager import TaskManager
         from backend.dependencies import init_task_manager
+        from backend.websocket_service import WebSocketService
+        from backend.course_service import get_course_service
     except ImportError as e:
         logger.error(f"Failed to import required modules: {e}")
         raise
@@ -51,18 +55,20 @@ from routers import (
 async def lifespan(app: FastAPI):
     # Startup
     if task_manager:
-        task_manager.start_worker()
+        await task_manager.start()
     asyncio.create_task(task_update_broadcaster())
     yield
     # Shutdown
     if task_manager:
-        task_manager.stop_worker()
+        await task_manager.shutdown()
 
 app = FastAPI(lifespan=lifespan)
 
 # 初始化 Task Manager
 try:
-    task_manager = TaskManager(storage, ai_service)
+    ws_service = WebSocketService()
+    course_service = get_course_service()
+    task_manager = TaskManager(storage, course_service, ws_service)
     init_task_manager(task_manager)
 except NameError:
     task_manager = None

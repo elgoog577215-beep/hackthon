@@ -155,10 +155,11 @@ defineEmits<{
 </script>
 
 <style scoped>
-/* Performance Optimization: skip rendering off-screen content */
+/* Performance Optimization: lazy rendering handles this via renderedCount */
 .content-node-optimized {
-  content-visibility: auto;
-  contain-intrinsic-size: 1px 500px; /* Estimated height */
+  /* content-visibility removed — it caused inaccurate scroll positions
+     because off-screen nodes used estimated 500px heights instead of real ones.
+     The renderedCount-based lazy rendering already limits DOM node count. */
 }
 
 @keyframes blink {

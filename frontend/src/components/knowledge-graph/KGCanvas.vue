@@ -6,26 +6,12 @@
       @mouseup="endInteraction" @mouseleave="endInteraction">
 
       <defs>
-        <!-- 节点发光滤镜 -->
-        <filter v-for="nt in nodeTypeColors" :key="'glow-'+nt.type" :id="'glow-'+nt.type"
-          x="-100%" y="-100%" width="300%" height="300%">
-          <feGaussianBlur :in="'SourceGraphic'" :stdDeviation="4" result="blur"/>
-          <feFlood :flood-color="nt.color" flood-opacity="0.6" result="color"/>
-          <feComposite in="color" in2="blur" operator="in" result="glow"/>
-          <feMerge>
-            <feMergeNode in="glow"/>
-            <feMergeNode in="glow"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
-        </filter>
         <!-- 选中节点强发光 -->
         <filter id="glow-selected" x="-150%" y="-150%" width="400%" height="400%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/>
-          <feFlood flood-color="#ffffff" flood-opacity="0.5" result="color"/>
+          <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+          <feFlood flood-color="#ffffff" flood-opacity="0.4" result="color"/>
           <feComposite in="color" in2="blur" operator="in" result="glow"/>
           <feMerge>
-            <feMergeNode in="glow"/>
-            <feMergeNode in="glow"/>
             <feMergeNode in="glow"/>
             <feMergeNode in="SourceGraphic"/>
           </feMerge>
@@ -88,7 +74,7 @@
         <circle
           :r="node.type === 'root' ? 6 : 4"
           :fill="getNodeColor(node)"
-          :filter="selectedNodeId === node.id ? 'url(#glow-selected)' : `url(#glow-${node.type})`"
+          :filter="selectedNodeId === node.id ? 'url(#glow-selected)' : undefined"
           class="kgc-dot"/>
 
         <!-- 标签 -->
@@ -177,24 +163,17 @@ const viewBoxStr = computed(() => {
   return `${vb.value.x} ${vb.value.y} ${vb.value.width} ${vb.value.height}`
 })
 
-/** 节点类型对应颜色（用于 SVG filter） */
-const nodeTypeColors = [
-  { type: 'root', color: '#6366f1' },
-  { type: 'concept', color: '#0ea5e9' },
-  { type: 'theorem', color: '#f43f5e' },
-  { type: 'method', color: '#10b981' },
-  { type: 'application', color: '#f59e0b' },
-  { type: 'custom', color: '#8b5cf6' },
-]
-
-/** 背景点阵（稀疏） */
+/** 背景点阵（稀疏）— 使用较大步长减少 DOM 元素数量 */
 const bgDots = computed(() => {
   const dots: { key: string; x: number; y: number }[] = []
-  const step = 60
-  const sx = Math.floor(vb.value.x / step) * step
-  const sy = Math.floor(vb.value.y / step) * step
-  for (let x = sx; x < vb.value.x + vb.value.width; x += step) {
-    for (let y = sy; y < vb.value.y + vb.value.height; y += step) {
+  const step = 120
+  // 使用粗粒度的 vb 快照避免每帧重建
+  const snapX = Math.round(vb.value.x / step) * step
+  const snapY = Math.round(vb.value.y / step) * step
+  const snapW = Math.ceil(vb.value.width / step) * step
+  const snapH = Math.ceil(vb.value.height / step) * step
+  for (let x = snapX; x < snapX + snapW; x += step) {
+    for (let y = snapY; y < snapY + snapH; y += step) {
       dots.push({ key: `${x}_${y}`, x, y })
     }
   }
@@ -226,7 +205,7 @@ interface SimState {
 const sim: SimState = {
   vx: {}, vy: {},
   alpha: 0,
-  alphaTarget: 0.02,  // 静息态微弱温度，保持轻微浮动
+  alphaTarget: 0,  // 目标温度为 0，模拟会自然停止
   rafId: null,
 }
 
@@ -357,7 +336,14 @@ const tickSimulation = () => {
   // 触发 Vue 响应式更新
   simTick.value++
 
-  // 继续循环（即使几乎静止也保持微弱运动）
+  // 当模拟接近静止时停止 RAF 循环并做最终 fitView
+  const isNearRest = sim.alpha < 0.02 && totalMovement < 0.5
+  if (isNearRest) {
+    sim.rafId = null
+    return
+  }
+
+  // 继续循环
   sim.rafId = requestAnimationFrame(tickSimulation)
 }
 
@@ -546,13 +532,20 @@ const fitView = () => {
   const xs = props.nodes.map(n => n.x), ys = props.nodes.map(n => n.y)
   const minX = Math.min(...xs), maxX = Math.max(...xs)
   const minY = Math.min(...ys), maxY = Math.max(...ys)
-  const w = maxX - minX + pad * 2
-  const h = maxY - minY + pad * 2
+  const contentW = maxX - minX
+  const contentH = maxY - minY
+  // 如果节点都挤在很小的范围内（还没散开），使用一个合理的最小视野
+  const minViewW = 1000
+  const minViewH = 600
+  const w = Math.max(contentW + pad * 2, minViewW)
+  const h = Math.max(contentH + pad * 2, minViewH)
+  const cx = (minX + maxX) / 2
+  const cy = (minY + maxY) / 2
   vb.value = {
-    x: minX - pad,
-    y: minY - pad,
-    width: Math.max(w, 600),
-    height: Math.max(h, 400),
+    x: cx - w / 2,
+    y: cy - h / 2,
+    width: w,
+    height: h,
   }
 }
 

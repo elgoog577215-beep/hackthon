@@ -1220,58 +1220,34 @@ const smartScrollTo = (container: HTMLElement, targetTop: number, threshold = 15
             container.scrollTo({ top: targetTop, behavior: 'smooth' })
             setTimeout(resolve, Math.min(distance * 0.5, 600))
         } else {
-            // 远距离：缩小+模糊淡出 → 瞬移 → 放大+清晰淡入
-            container.style.transition = 'transform 180ms ease-in, opacity 180ms ease-in, filter 180ms ease-in'
-            container.style.opacity = '0.15'
-            container.style.transform = 'scale(0.97)'
-            container.style.filter = 'blur(6px)'
+            // 远距离：淡出 → 瞬移 → 淡入（不使用 scale 避免布局抖动）
+            container.style.transition = 'opacity 150ms ease-in'
+            container.style.opacity = '0'
             setTimeout(() => {
-                // 瞬移
                 container.scrollTop = targetTop
-                // 立即设置入场起始状态（无过渡）
-                container.style.transition = 'none'
-                container.style.transform = 'scale(1.01)'
-                container.style.filter = 'blur(4px)'
-                container.style.opacity = '0.2'
-                // 强制回流后启动入场动画
+                container.style.transition = 'opacity 200ms ease-out'
                 void container.offsetHeight
-                container.style.transition = 'transform 220ms cubic-bezier(0.22,1,0.36,1), opacity 220ms ease-out, filter 220ms ease-out'
                 container.style.opacity = '1'
-                container.style.transform = 'scale(1)'
-                container.style.filter = 'blur(0px)'
                 setTimeout(() => {
                     container.style.transition = ''
                     container.style.opacity = ''
-                    container.style.transform = ''
-                    container.style.filter = ''
                     resolve()
-                }, 230)
-            }, 190)
+                }, 210)
+            }, 160)
         }
     })
 }
 
 /**
- * 计算元素在滚动容器内的绝对 offsetTop（遍历 offsetParent 链）
- */
-const getOffsetTopInContainer = (el: HTMLElement, container: HTMLElement): number => {
-    let offsetTop = 0
-    let current: HTMLElement | null = el
-    while (current && current !== container) {
-        offsetTop += current.offsetTop
-        current = current.offsetParent as HTMLElement | null
-    }
-    return offsetTop
-}
-
-/**
- * 智能滚动到指定元素，使用 offsetTop 计算绝对位置（不受当前滚动位置影响）
+ * 智能滚动到指定元素，使用 getBoundingClientRect 计算精确位置
  * @param el 目标元素
  * @param container 滚动容器
  * @param topOffset 元素顶部距容器顶部的期望距离（px）
  */
 const scrollToElementInContainer = async (el: HTMLElement, container: HTMLElement, topOffset = 20): Promise<void> => {
-    const targetTop = Math.max(0, getOffsetTopInContainer(el, container) - topOffset)
+    const elRect = el.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const targetTop = Math.max(0, container.scrollTop + (elRect.top - containerRect.top) - topOffset)
     await smartScrollTo(container, targetTop)
 }
 
@@ -1283,8 +1259,21 @@ watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     const scrollContainer = document.getElementById('content-scroll-container')
     if (!scrollContainer) { isManualScrolling.value = false; return }
     
-    // Ensure node is rendered if it's outside the current view
-    const index = flatNodes.value.findIndex(n => n.node_id === nodeId)
+    // 先精确匹配 node_id，找不到则按名称模糊匹配
+    let targetNodeId = nodeId
+    let index = flatNodes.value.findIndex(n => n.node_id === targetNodeId)
+    if (index === -1) {
+        // chapter_id 可能是节点名称而非 ID，尝试模糊匹配
+        const match = flatNodes.value.find(n => 
+            n.node_name === nodeId || 
+            n.node_name?.includes(nodeId) || 
+            nodeId.includes(n.node_name || '')
+        )
+        if (match) {
+            targetNodeId = match.node_id
+            index = flatNodes.value.findIndex(n => n.node_id === targetNodeId)
+        }
+    }
     if (index !== -1 && index >= renderedCount.value) {
         renderedCount.value = index + 5
         await nextTick()
@@ -1293,27 +1282,18 @@ watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     
     // 等待元素出现在 DOM 中
     let element: HTMLElement | null = null
-    for (let attempt = 0; attempt < 6; attempt++) {
-        element = document.getElementById(`node-${nodeId}`)
+    for (let attempt = 0; attempt < 15; attempt++) {
+        element = document.getElementById(`node-${targetNodeId}`)
         if (element) break
-        await new Promise(r => setTimeout(r, 30))
+        await new Promise(r => setTimeout(r, 50))
     }
     
     if (element) {
-        // 直接计算元素在滚动容器内的绝对位置
-        let offsetTop = 0
-        let el: HTMLElement | null = element
-        while (el && el !== scrollContainer) {
-            offsetTop += el.offsetTop
-            el = el.offsetParent as HTMLElement | null
-        }
-        const targetTop = Math.max(0, offsetTop - 20)
-        
-        await smartScrollTo(scrollContainer, targetTop)
+        await scrollToElementInContainer(element, scrollContainer, 20)
     }
     
     // 延迟释放手动滚动锁
-    setTimeout(() => { isManualScrolling.value = false }, 200)
+    setTimeout(() => { isManualScrolling.value = false }, 600)
 })
 
 // Watch for focus note requests (AI Teacher Mode)
