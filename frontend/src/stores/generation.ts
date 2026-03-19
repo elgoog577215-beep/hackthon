@@ -172,7 +172,18 @@ export const useGenerationStore = defineStore('generation', {
         currentNodeName: (payload.current_node_name as string) ?? '',
         completedNodes: (payload.completed_nodes as number) ?? 0,
         totalNodes: (payload.total_nodes as number) ?? 0,
-        estimatedTimeRemaining: (payload.estimated_time_remaining as number) ?? 0,
+        estimatedTimeRemaining: (() => {
+          const completed = (payload.completed_nodes as number) ?? 0
+          const total = (payload.total_nodes as number) ?? 0
+          const prev = this.taskProgress[course_id]
+          const prevCompleted = prev?.completedNodes ?? 0
+          if (completed > prevCompleted && completed < total && prev?.updatedAt) {
+            const elapsed = (Date.now() - prev.updatedAt.getTime()) / 1000
+            const nodesPerSec = (completed - prevCompleted) / Math.max(elapsed, 0.1)
+            return nodesPerSec > 0 ? Math.round((total - completed) / nodesPerSec) : 0
+          }
+          return completed >= total && total > 0 ? 0 : (prev?.estimatedTimeRemaining ?? 0)
+        })(),
         bytesGenerated: (payload.bytes_generated as number) ?? this.taskProgress[course_id]?.bytesGenerated ?? 0,
         updatedAt: new Date(),
       }
@@ -524,6 +535,32 @@ export const useGenerationStore = defineStore('generation', {
             if (backendTask.current_node_name) {
               localTask.currentStep = `正在生成: ${backendTask.current_node_name}`
             }
+
+            // Sync taskProgress for UI (progress bar, node count, ETA)
+            const completedNodes = backendTask.completed_nodes ?? 0
+            const totalNodes = backendTask.total_nodes ?? 0
+            const prev = this.taskProgress[courseId]
+            const prevCompleted = prev?.completedNodes ?? 0
+            let eta = prev?.estimatedTimeRemaining ?? 0
+            // Estimate remaining time based on polling interval
+            if (completedNodes > prevCompleted && completedNodes < totalNodes) {
+              const elapsed = prev?.updatedAt ? (Date.now() - prev.updatedAt.getTime()) : 2000
+              const nodesPerMs = (completedNodes - prevCompleted) / Math.max(elapsed, 1)
+              const remaining = totalNodes - completedNodes
+              eta = nodesPerMs > 0 ? Math.round(remaining / nodesPerMs / 1000) : 0
+            } else if (completedNodes >= totalNodes && totalNodes > 0) {
+              eta = 0
+            }
+            this.taskProgress[courseId] = {
+              percentage: backendTask.progress ?? 0,
+              currentNodeName: backendTask.current_node_name ?? '',
+              completedNodes,
+              totalNodes,
+              estimatedTimeRemaining: eta,
+              bytesGenerated: prev?.bytesGenerated ?? 0,
+              updatedAt: new Date(),
+            }
+
             // Deterministic refresh: only when task transitions to completed (Req 12.1, 12.3)
             if (courseId === cs.currentCourseId && prevStatus !== 'completed' && localTask.status === 'completed') {
               cs.refreshCourseData(courseId)

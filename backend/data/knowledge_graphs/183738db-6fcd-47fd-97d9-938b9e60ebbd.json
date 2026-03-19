@@ -1,286 +1,334 @@
 {
   "nodes": [
     {
-      "id": "root_9c0c950c",
+      "id": "root_a4c8fd7e",
       "label": "课程核心",
       "type": "root",
       "description": "课程根节点",
-      "chapter_id": "id_1"
+      "chapter_id": "id_1",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "id_1",
       "label": "第一章 辩论的理论基础",
       "type": "module",
       "description": "解析辩论的本质、功能与基本类型，探讨其在公共话语体系中的作用。",
-      "chapter_id": "id_1"
+      "chapter_id": "id_1",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "id_2",
       "label": "第二章 逻辑推理与论证结构",
       "type": "module",
       "description": "介绍演绎与归纳逻辑，掌握有效论证的构成与常见谬误识别。",
-      "chapter_id": "id_2"
+      "chapter_id": "id_2",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "id_3",
       "label": "第三章 论点设计与论据组织",
       "type": "module",
       "description": "学习如何从主题出发构建论点，并通过数据、事例和类比强化说服力。",
-      "chapter_id": "id_3"
+      "chapter_id": "id_3",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "id_4",
       "label": "第四章 辩论语言与表达技巧",
       "type": "module",
       "description": "训练清晰、有力的语言表达，包括修辞手法、语气控制及肢体语言运用。",
-      "chapter_id": "id_4"
+      "chapter_id": "id_4",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "id_5",
       "label": "第五章 辩手角色与团队协作",
       "type": "module",
       "description": "分析正反方角色分工，强调团队配合策略与战术协调。",
-      "chapter_id": "id_5"
+      "chapter_id": "id_5",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "id_6",
       "label": "第六章 辩论流程与规则体系",
       "type": "module",
       "description": "熟悉国际通用辩论赛制（如BP、Parliamentary），掌握比赛时间分配与规则执行。",
-      "chapter_id": "id_6"
+      "chapter_id": "id_6",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "id_7",
       "label": "第七章 辩论实战模拟与复盘",
       "type": "module",
       "description": "进行多轮模拟辩论并结合录像与文本进行深度赛后分析。",
-      "chapter_id": "id_7"
+      "chapter_id": "id_7",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "id_8",
       "label": "第八章 高级辩术与心理博弈",
       "type": "module",
       "description": "探讨攻防策略、控场能力与心理战技巧，提升临场应变水平。",
-      "chapter_id": "id_8"
+      "chapter_id": "id_8",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "d9f3ee67-b49c-45e9-aa3e-862f8343b002",
       "label": "1.1 辩论的定义与本质特征",
       "type": "concept",
       "description": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n**辩论**（Debate）",
-      "chapter_id": "d9f3ee67-b49c-45e9-aa3e-862f8343b002"
+      "chapter_id": "d9f3ee67-b49c-45e9-aa3e-862f8343b002",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "9442fec4-ca72-45b5-a7c9-81dcc5e10d83",
       "label": "1.2 辩论的功能与社会价值",
       "type": "concept",
       "description": "<!-- BODY_START -->\n\n### 1.2 辩论的功能与社会价值\n\n#### 💡 核心",
-      "chapter_id": "9442fec4-ca72-45b5-a7c9-81dcc5e10d83"
+      "chapter_id": "9442fec4-ca72-45b5-a7c9-81dcc5e10d83",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "5dd97db2-2757-4233-9f0b-cdc127560a6c",
       "label": "1.3 常见辩论类型及其适用场景",
       "type": "concept",
       "description": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n**辩论类型**是指根据辩论",
-      "chapter_id": "5dd97db2-2757-4233-9f0b-cdc127560a6c"
+      "chapter_id": "5dd97db2-2757-4233-9f0b-cdc127560a6c",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "b50e9135-c221-43b3-b0f6-42bf314ce7a3",
       "label": "1.4 辩论结构的基本框架",
       "type": "concept",
       "description": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n**辩论结构的基本框架**是",
-      "chapter_id": "b50e9135-c221-43b3-b0f6-42bf314ce7a3"
+      "chapter_id": "b50e9135-c221-43b3-b0f6-42bf314ce7a3",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "16655f3f-29cd-4951-8e51-f1196d0e7fe3",
       "label": "1.5 辩论参与者角色与责任分工",
       "type": "concept",
       "description": "<!-- BODY_START -->\n\n### 1.5 辩论参与者角色与责任分工\n\n#### 💡 ",
-      "chapter_id": "16655f3f-29cd-4951-8e51-f1196d0e7fe3"
+      "chapter_id": "16655f3f-29cd-4951-8e51-f1196d0e7fe3",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "e03c0d59-32ed-4418-83d2-d02403a49364",
       "label": "1.6 逻辑推理在辩论中的应用",
       "type": "concept",
       "description": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n在辩论中，**逻辑推理**是",
-      "chapter_id": "e03c0d59-32ed-4418-83d2-d02403a49364"
+      "chapter_id": "e03c0d59-32ed-4418-83d2-d02403a49364",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     },
     {
       "id": "863dc65f-302e-4afc-90d8-8cf330c207e0",
       "label": "1.7 修辞技巧与说服策略",
       "type": "concept",
       "description": "<!-- BODY_START -->\n\n### 💡 核心概念与背景\n\n修辞（Rhetoric）作为",
-      "chapter_id": "863dc65f-302e-4afc-90d8-8cf330c207e0"
+      "chapter_id": "863dc65f-302e-4afc-90d8-8cf330c207e0",
+      "created_by": "ai",
+      "created_at": 1773931174.1412835,
+      "updated_at": 1773931174.1412835,
+      "x": 0,
+      "y": 0
     }
   ],
   "edges": [
     {
-      "source": "root_9c0c950c",
+      "source": "root_a4c8fd7e",
       "target": "id_1",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "813cbad9",
+      "created_by": "ai"
     },
     {
-      "source": "root_9c0c950c",
+      "source": "root_a4c8fd7e",
       "target": "id_2",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "89d7a8c8",
+      "created_by": "ai"
     },
     {
-      "source": "root_9c0c950c",
+      "source": "root_a4c8fd7e",
       "target": "id_3",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "35207e7a",
+      "created_by": "ai"
     },
     {
-      "source": "root_9c0c950c",
+      "source": "root_a4c8fd7e",
       "target": "id_4",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "42d2b7aa",
+      "created_by": "ai"
     },
     {
-      "source": "root_9c0c950c",
+      "source": "root_a4c8fd7e",
       "target": "id_5",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "3e8d36a2",
+      "created_by": "ai"
     },
     {
-      "source": "root_9c0c950c",
+      "source": "root_a4c8fd7e",
       "target": "id_6",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "e9af08c3",
+      "created_by": "ai"
     },
     {
-      "source": "root_9c0c950c",
+      "source": "root_a4c8fd7e",
       "target": "id_7",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "e22643c6",
+      "created_by": "ai"
     },
     {
-      "source": "root_9c0c950c",
+      "source": "root_a4c8fd7e",
       "target": "id_8",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 8,
+      "id": "72de9b81",
+      "created_by": "ai"
     },
     {
       "source": "id_1",
       "target": "d9f3ee67-b49c-45e9-aa3e-862f8343b002",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "9ade07fc",
+      "created_by": "ai"
     },
     {
       "source": "id_1",
       "target": "9442fec4-ca72-45b5-a7c9-81dcc5e10d83",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "41bde1fc",
+      "created_by": "ai"
     },
     {
       "source": "id_1",
       "target": "5dd97db2-2757-4233-9f0b-cdc127560a6c",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "1942b9ff",
+      "created_by": "ai"
     },
     {
       "source": "id_1",
       "target": "b50e9135-c221-43b3-b0f6-42bf314ce7a3",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "53d9a7cf",
+      "created_by": "ai"
     },
     {
       "source": "id_1",
       "target": "16655f3f-29cd-4951-8e51-f1196d0e7fe3",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "d80320c1",
+      "created_by": "ai"
     },
     {
       "source": "id_1",
       "target": "e03c0d59-32ed-4418-83d2-d02403a49364",
       "relation": "contains",
-      "label": "包含"
+      "label": "包含",
+      "weight": 7,
+      "id": "198e6237",
+      "created_by": "ai"
     },
     {
       "source": "id_1",
       "target": "863dc65f-302e-4afc-90d8-8cf330c207e0",
       "relation": "contains",
-      "label": "包含"
-    },
-    {
-      "source": "id_1",
-      "target": "id_2",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "id_2",
-      "target": "id_3",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "id_3",
-      "target": "id_4",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "id_4",
-      "target": "id_5",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "id_5",
-      "target": "id_6",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "id_6",
-      "target": "id_7",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "id_7",
-      "target": "id_8",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "d9f3ee67-b49c-45e9-aa3e-862f8343b002",
-      "target": "9442fec4-ca72-45b5-a7c9-81dcc5e10d83",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "9442fec4-ca72-45b5-a7c9-81dcc5e10d83",
-      "target": "5dd97db2-2757-4233-9f0b-cdc127560a6c",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "5dd97db2-2757-4233-9f0b-cdc127560a6c",
-      "target": "b50e9135-c221-43b3-b0f6-42bf314ce7a3",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "b50e9135-c221-43b3-b0f6-42bf314ce7a3",
-      "target": "16655f3f-29cd-4951-8e51-f1196d0e7fe3",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "16655f3f-29cd-4951-8e51-f1196d0e7fe3",
-      "target": "e03c0d59-32ed-4418-83d2-d02403a49364",
-      "relation": "related",
-      "label": "关联"
-    },
-    {
-      "source": "e03c0d59-32ed-4418-83d2-d02403a49364",
-      "target": "863dc65f-302e-4afc-90d8-8cf330c207e0",
-      "relation": "related",
-      "label": "关联"
+      "label": "包含",
+      "weight": 7,
+      "id": "a7c2fb10",
+      "created_by": "ai"
     }
-  ]
+  ],
+  "updated_at": 1773931174.1412835
 }

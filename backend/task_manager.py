@@ -854,6 +854,7 @@ class TaskManager:
                                 },
                             )
 
+                        await self._update_progress(task_id, fresh_data)
                         await self._push_progress(task_id)
 
                         if self.on_node_update and fresh_data:
@@ -931,6 +932,7 @@ class TaskManager:
                     else:
                         task["current_node_name"] = ""
                     self.save_tasks()
+                await self._update_progress(task_id)
                 await self._push_progress(task_id)
 
         node_tasks = self._running_node_tasks.get(task_id, {})

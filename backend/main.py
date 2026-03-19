@@ -242,6 +242,38 @@ app.include_router(profile.router, prefix="/api")
 # WebSocket Endpoints
 # ============================================================================
 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """Primary WebSocket endpoint used by the frontend.
+
+    Uses WebSocketService so that TaskManager progress updates are delivered
+    to subscribed clients.
+    """
+    connection_id = await ws_service.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                msg_type = message.get("type", "")
+
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong"})
+                else:
+                    await ws_service.handle_client_command(connection_id, message)
+
+            except json.JSONDecodeError:
+                await websocket.send_json({
+                    "type": "error",
+                    "payload": {"message": "Invalid JSON"},
+                })
+    except WebSocketDisconnect:
+        await ws_service.disconnect(connection_id)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        await ws_service.disconnect(connection_id)
+
+
 @app.websocket("/ws/tasks")
 async def websocket_tasks(websocket: WebSocket):
     await ws_manager.connect(websocket)
