@@ -55,12 +55,16 @@ class AIGraphService(AIBase):
             course_context=context_text
         )
         
+        chapters_text = "\n".join([
+            f'- chapter_id="{n.get("id", "")}"  名称="{n.get("name", "")}"  层级={n.get("level", 1)}'
+            for n in nodes_summary[:30]
+        ])
         user_prompt = f"""请基于以下课程内容生成知识图谱：
 
 课程名称：{course_name}
 
 主要章节（请严格使用下方提供的 ID 作为 chapter_id）：
-{chr(10).join([f"- chapter_id=\"{n.get('id', '')}\"  名称=\"{n.get('name', '')}\"  层级={n.get('level', 1)}" for n in nodes_summary[:30]])}
+{chapters_text}
 
 ⚠️ 重要：每个知识图谱节点的 chapter_id 必须是上方列表中的某个 chapter_id 值（即课程章节的真实 ID），不要自己编造 ID。
 
