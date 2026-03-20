@@ -1263,7 +1263,6 @@ watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     let targetNodeId = nodeId
     let index = flatNodes.value.findIndex(n => n.node_id === targetNodeId)
     if (index === -1) {
-        // chapter_id 可能是节点名称而非 ID，尝试模糊匹配
         const match = flatNodes.value.find(n => 
             n.node_name === nodeId || 
             n.node_name?.includes(nodeId) || 
@@ -1274,15 +1273,17 @@ watch(() => courseStore.scrollToNodeId, async (nodeId) => {
             index = flatNodes.value.findIndex(n => n.node_id === targetNodeId)
         }
     }
+
+    // 禁用动画：新渲染的节点有 fade-in-up + translateY(10px) 和 animationDelay，
+    // 会导致 getBoundingClientRect 在动画完成前返回错误位置
+    scrollContainer.classList.add('skip-animations')
+
     if (index !== -1 && index >= renderedCount.value) {
-        // 一次性渲染到目标节点之后，给 Vue 足够时间完成 DOM 更新
         renderedCount.value = index + 5
         await nextTick()
-        // 等待浏览器完成布局（大量节点渲染需要更多时间）
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(undefined))))
     }
     
-    // 等待元素出现在 DOM 中
     let element: HTMLElement | null = null
     for (let attempt = 0; attempt < 20; attempt++) {
         element = document.getElementById(`node-${targetNodeId}`)
@@ -1291,24 +1292,25 @@ watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     }
     
     if (element) {
-        // 第一次滚动：粗定位（直接跳转，不用动画）
+        // 直接跳转到目标位置
         const rect = element.getBoundingClientRect()
         const containerRect = scrollContainer.getBoundingClientRect()
         const targetTop = Math.max(0, scrollContainer.scrollTop + (rect.top - containerRect.top) - 20)
         scrollContainer.scrollTop = targetTop
 
-        // 等待布局稳定后二次校准（上方节点可能因内容渲染导致高度变化）
-        await new Promise(r => setTimeout(r, 150))
+        // 二次校准
+        await new Promise(r => setTimeout(r, 100))
         const rect2 = element.getBoundingClientRect()
         const containerRect2 = scrollContainer.getBoundingClientRect()
         const offset = rect2.top - containerRect2.top - 20
-        if (Math.abs(offset) > 5) {
-            scrollContainer.scrollTo({ top: scrollContainer.scrollTop + offset, behavior: 'smooth' })
+        if (Math.abs(offset) > 3) {
+            scrollContainer.scrollTop += offset
         }
     }
     
-    // 延迟释放手动滚动锁
-    setTimeout(() => { isManualScrolling.value = false }, 800)
+    // 恢复动画
+    scrollContainer.classList.remove('skip-animations')
+    setTimeout(() => { isManualScrolling.value = false }, 600)
 })
 
 // Watch for focus note requests (AI Teacher Mode)

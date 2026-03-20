@@ -777,6 +777,16 @@ body {
   animation: fade-in-up 0.4s ease-out;
 }
 
+/* 侧边栏跳转时禁用所有动画和过渡，确保 getBoundingClientRect 返回准确位置 */
+.skip-animations *,
+.skip-animations *::before,
+.skip-animations *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}
+
 .animate-scale-in {
   animation: scale-in 0.3s ease-out;
 }
