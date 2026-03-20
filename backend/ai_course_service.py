@@ -13,7 +13,16 @@ from typing import List, Dict
 
 from ai_base import AIBase
 from shared.prompt_config import DIFFICULTY_LEVELS, TEACHING_STYLES, DifficultyLevel, TeachingStyle
-from prompts import get_prompt, get_difficulty_config, get_style_config, get_discipline_structure, get_subnode_discipline_hints
+from prompts import (
+    get_prompt, 
+    get_difficulty_config, 
+    get_style_config, 
+    get_discipline_structure, 
+    get_subnode_discipline_hints,
+    DIFFICULTY_STRATEGY_BEGINNER,
+    DIFFICULTY_STRATEGY_INTERMEDIATE,
+    DIFFICULTY_STRATEGY_ADVANCED
+)
 
 logger = logging.getLogger(__name__)
 
@@ -183,19 +192,41 @@ class AICourseService(AIBase):
         node_context: str = "",
         node_id: str = "",
         course_name: str = "",
-        difficulty: str = DIFFICULTY_LEVELS["ADVANCED"],
-        style: str = TEACHING_STYLES["ACADEMIC"],
+        difficulty: DifficultyLevel = DIFFICULTY_LEVELS["ADVANCED"],
+        style: TeachingStyle = TEACHING_STYLES["ACADEMIC"],
         discipline_type: str = None,
         previous_node_content: str = "",
-        used_cases: List[str] = None
+        used_cases: List[str] = None,
+        prerequisite_context: List[Dict] = None,  # P1 新增：前置知识上下文
+        learner_weakness: List[str] = None  # P1 新增：学习者薄弱点
     ) -> str:
         """
-        生成节点详细正文内容
+        生成节点详细正文内容（P1 升级版：注入前置知识上下文和薄弱点）
         """
         if discipline_type is None:
             discipline_type = self._detect_discipline_type(course_name, node_name)
         
+        if used_cases is None:
+            used_cases = []
+        if prerequisite_context is None:
+            prerequisite_context = []
+        if learner_weakness is None:
+            learner_weakness = []
+        
         used_cases_str = "、".join(used_cases) if used_cases else "暂无"
+        
+        # P1 新增：构建前置知识上下文字符串
+        prerequisite_context_str = "无"
+        if prerequisite_context:
+            prerequisite_context_str = "\n".join([
+                f"- {ctx['node_name']}: {ctx.get('key_concepts', '')[:200]}"
+                for ctx in prerequisite_context
+            ])
+        
+        # P1 新增：构建学习者薄弱点字符串
+        learner_weakness_str = "无"
+        if learner_weakness:
+            learner_weakness_str = "、".join(learner_weakness)
         
         course_context = f"课程名称：{course_name}"
         if node_context:
@@ -212,18 +243,26 @@ class AICourseService(AIBase):
             used_cases=used_cases_str,
             difficulty_config_text=get_difficulty_config(difficulty),
             style_config_text=get_style_config(style),
-            discipline_structure=get_discipline_structure(discipline_type)
+            discipline_structure=get_discipline_structure(discipline_type),
+            prerequisite_context=prerequisite_context_str,  # P1 新增：前置知识上下文
+            learner_weakness=learner_weakness_str  # P1 新增：学习者薄弱点
         )
         
         prompt = f"""请为'{node_name}'生成完整的详细正文内容。
 
 学科类型：{discipline_type}
 已使用案例：{used_cases_str}
+前置知识回顾：{prerequisite_context_str}
+学习者薄弱点：{learner_weakness_str}
 
 重要提醒：
-1. 可视化图解板块必须包含Mermaid图或表格，禁止留空
-2. 案例必须使用新案例，禁止重复已使用的案例
-3. 思考题只能涉及本节正文已介绍的概念"""
+1. **必须使用四拍认知节奏结构**（直观感知→抽象提炼→操作演练→迁移应用）
+2. **必须包含决策口诀**（"看到 X 特征，就用 Y 方法"）
+3. **必须包含反面案例**（常见错误及原因分析）
+4. 可视化图解板块必须包含 Mermaid 图或表格，禁止留空
+5. 案例必须使用新案例，禁止重复已使用的案例
+6. 思考题只能涉及本节正文已介绍的概念
+7. 如果存在前置知识或薄弱点，请在内容中重点讲解"""
 
         response = await self._call_llm(prompt, system_prompt)
         if response:
