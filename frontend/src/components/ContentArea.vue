@@ -1275,25 +1275,40 @@ watch(() => courseStore.scrollToNodeId, async (nodeId) => {
         }
     }
     if (index !== -1 && index >= renderedCount.value) {
+        // 一次性渲染到目标节点之后，给 Vue 足够时间完成 DOM 更新
         renderedCount.value = index + 5
         await nextTick()
-        await new Promise(r => setTimeout(r, 50))
+        // 等待浏览器完成布局（大量节点渲染需要更多时间）
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(undefined))))
     }
     
     // 等待元素出现在 DOM 中
     let element: HTMLElement | null = null
-    for (let attempt = 0; attempt < 15; attempt++) {
+    for (let attempt = 0; attempt < 20; attempt++) {
         element = document.getElementById(`node-${targetNodeId}`)
         if (element) break
-        await new Promise(r => setTimeout(r, 50))
+        await new Promise(r => setTimeout(r, 60))
     }
     
     if (element) {
-        await scrollToElementInContainer(element, scrollContainer, 20)
+        // 第一次滚动：粗定位（直接跳转，不用动画）
+        const rect = element.getBoundingClientRect()
+        const containerRect = scrollContainer.getBoundingClientRect()
+        const targetTop = Math.max(0, scrollContainer.scrollTop + (rect.top - containerRect.top) - 20)
+        scrollContainer.scrollTop = targetTop
+
+        // 等待布局稳定后二次校准（上方节点可能因内容渲染导致高度变化）
+        await new Promise(r => setTimeout(r, 150))
+        const rect2 = element.getBoundingClientRect()
+        const containerRect2 = scrollContainer.getBoundingClientRect()
+        const offset = rect2.top - containerRect2.top - 20
+        if (Math.abs(offset) > 5) {
+            scrollContainer.scrollTo({ top: scrollContainer.scrollTop + offset, behavior: 'smooth' })
+        }
     }
     
     // 延迟释放手动滚动锁
-    setTimeout(() => { isManualScrolling.value = false }, 600)
+    setTimeout(() => { isManualScrolling.value = false }, 800)
 })
 
 // Watch for focus note requests (AI Teacher Mode)
