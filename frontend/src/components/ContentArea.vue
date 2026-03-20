@@ -1330,7 +1330,7 @@ const quizScore = computed(() => {
     if (!quizSubmitted.value || !quizQuestions.value || quizQuestions.value.length === 0) return 0
     let correct = 0
     quizQuestions.value.forEach((q, idx) => {
-        if (userAnswers.value[idx] >= 0 && userAnswers.value[idx] === getCorrectIndex(q)) {
+        if (userAnswers.value[idx] !== undefined && userAnswers.value[idx]! >= 0 && userAnswers.value[idx] === getCorrectIndex(q)) {
             correct += 1
         }
     })
@@ -2913,7 +2913,7 @@ const submitQuiz = () => {
                 question: q.question,
                 options: q.options || [],
                 correctIndex: correctIdx,
-                userIndex: userAnswers.value[idx],
+                userIndex: userAnswers.value[idx] ?? -1,
                 explanation: q.explanation || '暂无解析',
                 nodeId: nodeId,
                 nodeName: nodeName,

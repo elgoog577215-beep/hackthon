@@ -144,7 +144,7 @@
               </div>
             </div>
             <!-- 文字草稿笔记 -->
-            <div v-if="item.textDraft" class="px-5 pb-3 ml-10">
+            <div v-if="(item as any).textDraft" class="px-5 pb-3 ml-10">
               <button v-if="!draftExpanded[wrongItemKey(item) + '_text']"
                 class="px-3 py-1.5 text-xs font-medium text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-lg transition-colors flex items-center gap-1.5"
                 @click="draftExpanded[wrongItemKey(item) + '_text'] = true">
@@ -157,11 +157,11 @@
                     <el-icon :size="12"><ArrowDown /></el-icon>
                   </button>
                 </div>
-                <div class="text-sm text-violet-800 leading-relaxed whitespace-pre-wrap">{{ item.textDraft }}</div>
+                <div class="text-sm text-violet-800 leading-relaxed whitespace-pre-wrap">{{ (item as any).textDraft }}</div>
               </div>
             </div>
             <!-- 图画草稿笔记 -->
-            <div v-if="item.drawingDraft" class="px-5 pb-3 ml-10">
+            <div v-if="(item as any).drawingDraft" class="px-5 pb-3 ml-10">
               <button v-if="!draftExpanded[wrongItemKey(item) + '_draw']"
                 class="px-3 py-1.5 text-xs font-medium text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors flex items-center gap-1.5"
                 @click="draftExpanded[wrongItemKey(item) + '_draw'] = true">
@@ -174,7 +174,7 @@
                     <el-icon :size="12"><ArrowDown /></el-icon>
                   </button>
                 </div>
-                <img :src="item.drawingDraft" class="max-w-full rounded-lg border border-orange-200" alt="图画草稿" @error="($event.target as HTMLImageElement).style.display='none'" />
+                <img :src="(item as any).drawingDraft" class="max-w-full rounded-lg border border-orange-200" alt="图画草稿" @error="($event.target as HTMLImageElement).style.display='none'" />
               </div>
             </div>
             <div class="px-5 pb-4 flex items-center gap-2 ml-10">
@@ -440,7 +440,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, watch } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { Notebook, Location, Delete, ArrowDown, CircleCheckFilled, CircleCloseFilled, InfoFilled, RefreshRight, EditPen, TrophyBase, ArrowRight, ArrowLeft, Aim, Loading, Sort, Download } from '@element-plus/icons-vue'
 import TextDraftPanel from './TextDraftPanel.vue'
 import DrawingOverlay from './DrawingOverlay.vue'
