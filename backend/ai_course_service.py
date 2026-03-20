@@ -19,9 +19,6 @@ from prompts import (
     get_style_config, 
     get_discipline_structure, 
     get_subnode_discipline_hints,
-    DIFFICULTY_STRATEGY_BEGINNER,
-    DIFFICULTY_STRATEGY_INTERMEDIATE,
-    DIFFICULTY_STRATEGY_ADVANCED
 )
 
 logger = logging.getLogger(__name__)
