@@ -97,11 +97,32 @@
                     </div>
 
                     <!-- Bottom Row: Content -->
-                    <div v-if="node.node_content" class="mt-8 pt-8 border-t border-slate-100">
-                        <div class="prose prose-slate max-w-none prose-lg">
-                            <MarkdownRenderer :content="node.node_content" :search-words="searchWords" />
-                        </div>
-                    </div>
+	                    <div v-if="node.node_content || displayBlocks.length" class="mt-8 pt-8 border-t border-slate-100">
+	                        <div v-if="displayBlocks.length" class="space-y-4">
+	                            <details
+	                                v-for="block in displayBlocks"
+	                                :key="block.block_id"
+	                                class="border-t border-slate-100 first:border-t-0 py-4"
+	                                :open="block.order < 2">
+	                                <summary class="cursor-pointer list-none flex items-center justify-between gap-3 text-slate-800">
+	                                    <div class="min-w-0">
+	                                        <div class="text-xs font-semibold text-primary-500">{{ blockTypeLabel(block.type) }}</div>
+	                                        <div class="font-bold truncate">{{ block.title }}</div>
+	                                    </div>
+	                                    <el-button text size="small" @click.stop.prevent="$emit('regenerate-block', node, block)">
+	                                        <el-icon><RefreshRight /></el-icon>
+	                                        <span>重写</span>
+	                                    </el-button>
+	                                </summary>
+	                                <div class="prose prose-slate max-w-none prose-lg mt-4">
+	                                    <MarkdownRenderer :content="block.content" :search-words="searchWords" />
+	                                </div>
+	                            </details>
+	                        </div>
+	                        <div v-else class="prose prose-slate max-w-none prose-lg">
+	                            <MarkdownRenderer :content="node.node_content" :search-words="searchWords" />
+	                        </div>
+	                    </div>
                 </div>
             </div>
         </div>
@@ -126,7 +147,28 @@
                         fontFamily: fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' : (fontFamily === 'serif' ? 'ui-serif, Georgia, Cambria, Times New Roman, Times, serif' : '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji'),
                         lineHeight: lineHeight
                     }">
-                    <MarkdownRenderer :content="node.node_content" :search-words="searchWords" />
+	                    <div v-if="displayBlocks.length" class="space-y-3">
+	                        <details
+	                            v-for="block in displayBlocks"
+	                            :key="block.block_id"
+	                            class="border-t border-slate-100 first:border-t-0 py-3"
+	                            :open="block.order < 2">
+	                            <summary class="cursor-pointer list-none flex items-center justify-between gap-3 text-slate-800">
+	                                <div class="min-w-0">
+	                                    <div class="text-xs font-semibold text-primary-500">{{ blockTypeLabel(block.type) }}</div>
+	                                    <div class="font-bold truncate">{{ block.title }}</div>
+	                                </div>
+	                                <el-button text size="small" @click.stop.prevent="$emit('regenerate-block', node, block)">
+	                                    <el-icon><RefreshRight /></el-icon>
+	                                    <span>重写</span>
+	                                </el-button>
+	                            </summary>
+	                            <div class="mt-3">
+	                                <MarkdownRenderer :content="block.content" :search-words="searchWords" />
+	                            </div>
+	                        </details>
+	                    </div>
+	                    <MarkdownRenderer v-else :content="node.node_content" :search-words="searchWords" />
                     <!-- Streaming cursor indicator -->
                     <span v-if="isStreaming" class="inline-block w-0.5 h-5 bg-primary-500 animate-blink ml-0.5 align-text-bottom"></span>
                 </div>
@@ -136,10 +178,12 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
-import { MagicStick, Reading, Check } from '@element-plus/icons-vue';
+import { MagicStick, Reading, Check, RefreshRight } from '@element-plus/icons-vue';
+import type { ContentBlock } from '../stores/types';
 
-defineProps<{
+const props = defineProps<{
   node: any;
   index: number;
   fontSize: number;
@@ -151,7 +195,89 @@ defineProps<{
 
 defineEmits<{
   (e: 'start-quiz', node: any): void;
+  (e: 'regenerate-block', node: any, block: ContentBlock): void;
 }>();
+
+const typeLabels: Record<string, string> = {
+  intro: '引入',
+  concept: '概念',
+  reasoning: '推理',
+  example: '例子',
+  application: '应用',
+  exercise: '练习',
+  summary: '小结',
+  custom: '正文',
+};
+
+const blockTypeFromTitle = (title: string, order: number) => {
+  const text = title.toLowerCase();
+  const pairs: Array<[ContentBlock['type'], string[]]> = [
+    ['intro', ['引入', '问题', '直观', '背景']],
+    ['concept', ['概念', '定义', '核心', '基础']],
+    ['reasoning', ['推理', '证明', '原理', '过程']],
+    ['example', ['例子', '案例', '示例']],
+    ['application', ['应用', '场景', '实践']],
+    ['exercise', ['练习', '自测', '题']],
+    ['summary', ['小结', '总结', '回顾']],
+  ];
+  for (const [type, keywords] of pairs) {
+    if (keywords.some(keyword => text.includes(keyword))) return type;
+  }
+  return (['intro', 'concept', 'reasoning', 'example', 'application', 'exercise', 'summary'][order] || 'custom') as ContentBlock['type'];
+};
+
+const makeBlockId = (nodeId: string, order: number, type: string) => {
+  const safeType = type.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'block';
+  return `${nodeId}-${order + 1}-${safeType}`;
+};
+
+const summarize = (content: string) => content.replace(/```[\s\S]*?```/g, ' ').replace(/[#>*_`$\\-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+
+const blocksFromMarkdown = (nodeId: string, markdown: string): ContentBlock[] => {
+  const text = (markdown || '').trim();
+  if (!text) return [];
+  const headingRe = /^(#{2,4})\s+(.+?)\s*$/gm;
+  const matches = Array.from(text.matchAll(headingRe));
+  const parts: Array<[string, string]> = [];
+  if (!matches.length) {
+    parts.push(['正文', text]);
+  } else {
+    const first = matches[0];
+    if (!first) return [];
+    const firstIndex = first.index ?? 0;
+    const preface = text.slice(0, firstIndex).trim();
+    if (preface) parts.push(['引入问题', preface]);
+    matches.forEach((match, idx) => {
+      const start = (match.index ?? 0) + match[0].length;
+      const next = matches[idx + 1];
+      const end = next ? (next.index ?? text.length) : text.length;
+      parts.push([(match[2] || '正文').trim(), text.slice(start, end).trim()]);
+    });
+  }
+  return parts.map(([title, content], order) => {
+    const type = blockTypeFromTitle(title, order);
+    return {
+      block_id: makeBlockId(nodeId, order, type),
+      parent_block_id: null,
+      type,
+      title,
+      content,
+      summary: summarize(content),
+      order,
+      status: 'final',
+    };
+  });
+};
+
+const displayBlocks = computed<ContentBlock[]>(() => {
+  const blocks = props.node?.content_blocks;
+  if (Array.isArray(blocks) && blocks.length > 0) {
+    return [...blocks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  }
+  return blocksFromMarkdown(props.node?.node_id || 'node', props.node?.node_content || '');
+});
+
+const blockTypeLabel = (type: string) => typeLabels[type] || '正文';
 </script>
 
 <style scoped>

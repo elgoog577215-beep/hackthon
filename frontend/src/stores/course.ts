@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import http from '../utils/http'
+import http, { withApiBase } from '../utils/http'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import {
@@ -29,7 +29,6 @@ import logger from '../utils/logger'
 //   - chat.ts        → 聊天基础状态（备用）
 // =============================================================================
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 const sanitizeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').trim()
 const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob)
@@ -43,8 +42,8 @@ const downloadBlob = (blob: Blob, filename: string) => {
 }
 
 // --- 类型重新导出（向后兼容） ---
-export type { Node, Annotation, Note, Course, QueueItem, AIContent, ChatMessage, ChatConversation } from './types'
-import type { Node, Annotation, Note, Course, QueueItem, Task, AIContent, ChatMessage, ChatConversation } from './types'
+export type { ContentBlock, Node, Annotation, Note, Course, QueueItem, AIContent, ChatMessage, ChatConversation } from './types'
+import type { ContentBlock, Node, Annotation, Note, Course, QueueItem, Task, AIContent, ChatMessage, ChatConversation } from './types'
 
 export const useCourseStore = defineStore('course', {
   state: () => ({
@@ -471,10 +470,11 @@ export const useCourseStore = defineStore('course', {
             if (prev?.node_content) { previousContext = `上节回顾 (${prev.node_name}): ` + prev.node_content.slice(-500) }
         }
         try {
+            const originalContent = node.node_content
             node.node_content = ''; node.node_type = 'custom'
-            const response = await fetch(`${API_BASE}/api/courses/${this.currentCourseId}/nodes/${node.node_id}/redefine_stream`, {
+            const response = await fetch(withApiBase(`/api/courses/${this.currentCourseId}/nodes/${node.node_id}/redefine_stream`), {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ node_id: node.node_id, node_name: node.node_name, original_content: node.node_content, user_requirement: requirement, course_context: courseContext, previous_context: previousContext })
+                body: JSON.stringify({ node_id: node.node_id, node_name: node.node_name, original_content: originalContent, user_requirement: requirement, course_context: courseContext, previous_context: previousContext })
             })
             const reader = response.body?.getReader()
             if (reader) {
@@ -484,6 +484,25 @@ export const useCourseStore = defineStore('course', {
             ElMessage.success('内容重写成功')
         } catch (error) { ElMessage.error('重写失败') }
         finally { this.loading = false }
+    },
+
+    async regenerateBlock(node: Node, block: ContentBlock, requirement: string) {
+        if (!this.currentCourseId) return
+        this.loading = true
+        try {
+            const res = await http.post(`/api/courses/${this.currentCourseId}/nodes/${node.node_id}/blocks/${block.block_id}/regenerate`, {
+                requirement,
+            })
+            node.content_blocks = res.data.content_blocks
+            node.node_content = res.data.node_content
+            node.node_type = 'custom'
+            ElMessage.success('内容块已重写')
+        } catch (error) {
+            ElMessage.error('重写失败')
+            logger.error(error)
+        } finally {
+            this.loading = false
+        }
     },
 
     async generateBody(node: Node) {
@@ -505,7 +524,7 @@ export const useCourseStore = defineStore('course', {
             if (!node.node_content?.includes('<!-- BODY_START -->')) {
                 node.node_content = (node.node_content || '') + '\n\n<!-- BODY_START -->\n\n'
             }
-            const response = await fetch(`${API_BASE}/api/courses/${this.currentCourseId}/nodes/${node.node_id}/redefine_stream`, {
+            const response = await fetch(withApiBase(`/api/courses/${this.currentCourseId}/nodes/${node.node_id}/redefine_stream`), {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ node_id: node.node_id, node_name: node.node_name, original_content: '', user_requirement: '基于简介撰写教科书级详细正文，不要重复简介内容', course_context: courseContext, previous_context: previousContext })
             })
@@ -734,7 +753,7 @@ export const useCourseStore = defineStore('course', {
         aiMessage = this.chatHistory[this.chatHistory.length - 1] as ChatMessage
         if (typeof aiMessage.content === 'string') return
 
-        const response = await fetch(`${API_BASE}/api/ask`, {
+        const response = await fetch(withApiBase('/api/ask'), {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 node_id: targetNode.node_id, node_name: targetNode.node_name,

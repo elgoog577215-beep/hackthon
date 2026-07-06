@@ -7,6 +7,7 @@ import sys
 import os
 import pytest
 import uuid
+from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 
@@ -127,6 +128,205 @@ async def test_add_node_to_nonexistent_course(client):
         "node_name": "测试",
     })
     assert resp.status_code == 404
+
+
+async def test_generate_subnodes_uses_unified_course_service(client, mock_storage, monkeypatch):
+    """手动生成子节点应走 CourseService，返回同一套蓝图契约字段。"""
+    import routers.nodes as nodes_mod
+
+    cid = "course-subnodes"
+    root_id = "L1-1"
+    mock_storage.save_course(cid, {
+        "course_id": cid,
+        "course_name": "测试课程",
+        "nodes": [{
+            "node_id": root_id,
+            "parent_node_id": "root",
+            "node_name": "第1章 基础",
+            "node_level": 1,
+            "node_content": "",
+            "node_type": "original",
+        }],
+    })
+    generated = [{
+        "node_id": "child-1",
+        "parent_node_id": root_id,
+        "node_name": "1.1 小节",
+        "node_level": 2,
+        "node_content": "",
+        "node_type": "custom",
+        "learning_objective": "能完成小节目标",
+        "prerequisite_node_ids": [],
+        "misconceptions": [],
+        "assessment": ["能自测"],
+        "scope_boundary": "只讲本节",
+    }]
+    fake_service = MagicMock()
+    fake_service.generate_sub_nodes = AsyncMock(return_value=generated)
+    monkeypatch.setattr(nodes_mod, "get_course_service", lambda: fake_service)
+
+    resp = await client.post(f"/api/courses/{cid}/nodes/{root_id}/subnodes", json={
+        "node_id": root_id,
+        "node_name": "第1章 基础",
+        "node_level": 1,
+        "difficulty": "intermediate",
+        "style": "academic",
+    })
+
+    assert resp.status_code == 200
+    data = resp.json()
+    fake_service.generate_sub_nodes.assert_awaited_once()
+    assert data[0]["learning_objective"] == "能完成小节目标"
+    assert mock_storage.load_course(cid)["nodes"][1]["scope_boundary"] == "只讲本节"
+
+
+async def test_regenerate_content_block_updates_only_target(client, mock_storage, monkeypatch):
+    """局部重写只替换目标 block，并重建兼容 Markdown。"""
+    import routers.nodes as nodes_mod
+
+    cid = "course-blocks"
+    nid = "L2-1-1"
+    blocks = [
+        {
+            "block_id": "L2-1-1-1-concept",
+            "type": "concept",
+            "title": "核心概念",
+            "content": "旧概念内容。",
+            "summary": "旧概念",
+            "order": 0,
+            "status": "final",
+        },
+        {
+            "block_id": "L2-1-1-2-application",
+            "type": "application",
+            "title": "应用场景",
+            "content": "旧应用内容。",
+            "summary": "旧应用",
+            "order": 1,
+            "status": "final",
+        },
+    ]
+    mock_storage.save_course(cid, {
+        "course_id": cid,
+        "course_name": "微积分",
+        "nodes": [{
+            "node_id": nid,
+            "parent_node_id": "L1-1",
+            "node_name": "1.1 极限",
+            "node_level": 2,
+            "node_content": "## 核心概念\n\n旧概念内容。\n\n## 应用场景\n\n旧应用内容。",
+            "content_blocks": blocks,
+            "node_type": "original",
+        }],
+    })
+
+    updated = dict(blocks[1])
+    updated["content"] = "新的应用内容，包含两个例子。"
+    fake_service = MagicMock()
+    fake_service.regenerate_content_block = AsyncMock(return_value=updated)
+    monkeypatch.setattr(nodes_mod, "get_course_service", lambda: fake_service)
+
+    resp = await client.post(
+        f"/api/courses/{cid}/nodes/{nid}/blocks/{blocks[1]['block_id']}/regenerate",
+        json={"requirement": "应用部分更详细"},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["block"]["content"] == "新的应用内容，包含两个例子。"
+    saved_node = mock_storage.load_course(cid)["nodes"][0]
+    assert saved_node["content_blocks"][0]["content"] == "旧概念内容。"
+    assert saved_node["content_blocks"][1]["content"] == "新的应用内容，包含两个例子。"
+    assert "## 应用场景" in saved_node["node_content"]
+
+
+async def test_redefine_node_uses_course_service(client, mock_storage, monkeypatch):
+    """整节重写应走 CourseService，并同步结构化 blocks。"""
+    import routers.nodes as nodes_mod
+
+    cid = "course-redefine"
+    nid = "node-1"
+    mock_storage.save_course(cid, {
+        "course_id": cid,
+        "course_name": "微积分",
+        "nodes": [{
+            "node_id": nid,
+            "parent_node_id": "root",
+            "node_name": "1.1 极限",
+            "node_level": 2,
+            "node_content": "旧内容",
+            "content_blocks": [],
+            "node_type": "original",
+        }],
+    })
+    fake_service = MagicMock()
+    fake_service.redefine_content = AsyncMock(return_value="## 核心概念\n\n新内容")
+    monkeypatch.setattr(nodes_mod, "get_course_service", lambda: fake_service)
+
+    resp = await client.post(f"/api/courses/{cid}/nodes/{nid}/redefine", json={
+        "node_id": nid,
+        "node_name": "1.1 极限",
+        "original_content": "旧内容",
+        "user_requirement": "讲清楚",
+        "difficulty": "advanced",
+        "style": "academic",
+    })
+
+    assert resp.status_code == 200
+    fake_service.redefine_content.assert_awaited_once()
+    saved_node = mock_storage.load_course(cid)["nodes"][0]
+    assert saved_node["node_content"] == "## 核心概念\n\n新内容"
+    assert saved_node["content_blocks"]
+    assert saved_node["node_type"] == "custom"
+
+
+async def test_extend_and_summarize_use_course_service(client, mock_storage, monkeypatch):
+    """扩展和摘要也应使用统一课程服务，而不是旧课程 AI service。"""
+    import routers.nodes as nodes_mod
+
+    cid = "course-node-actions"
+    nid = "node-1"
+    mock_storage.save_course(cid, {
+        "course_id": cid,
+        "course_name": "线性代数",
+        "nodes": [{
+            "node_id": nid,
+            "parent_node_id": "root",
+            "node_name": "1.1 向量",
+            "node_level": 2,
+            "node_content": "向量内容",
+            "node_type": "original",
+        }],
+    })
+    fake_service = MagicMock()
+    fake_service.extend_content = AsyncMock(return_value="延伸内容")
+    fake_service.summarize_content = AsyncMock(return_value="摘要内容")
+    monkeypatch.setattr(nodes_mod, "get_course_service", lambda: fake_service)
+
+    extend_resp = await client.post(f"/api/courses/{cid}/nodes/{nid}/extend", json={
+        "node_id": nid,
+        "node_name": "1.1 向量",
+        "current_content": "向量内容",
+        "user_requirement": "加应用例子",
+    })
+    summary_resp = await client.post(f"/api/courses/{cid}/nodes/{nid}/summarize", json={
+        "node_content": "向量内容",
+        "node_name": "1.1 向量",
+        "user_persona": "初学者",
+    })
+
+    assert extend_resp.status_code == 200
+    assert extend_resp.json()["content"] == "延伸内容"
+    fake_service.extend_content.assert_awaited_once()
+    assert summary_resp.status_code == 200
+    assert summary_resp.json()["summary"] == "摘要内容"
+    fake_service.summarize_content.assert_awaited_once_with(
+        "向量内容",
+        node_name="1.1 向量",
+        user_persona="初学者",
+        course_id=cid,
+        node_id=nid,
+    )
 
 
 # --- 更新节点 ---

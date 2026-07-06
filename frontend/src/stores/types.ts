@@ -14,12 +14,25 @@ export interface NodeGenerationConfig {
   custom_instruction?: string
 }
 
+export interface ContentBlock {
+  block_id: string
+  parent_block_id?: string | null
+  type: 'intro' | 'concept' | 'reasoning' | 'example' | 'application' | 'exercise' | 'summary' | 'custom'
+  title: string
+  content: string
+  summary?: string
+  order: number
+  status?: 'draft' | 'final'
+  metadata?: Record<string, unknown>
+}
+
 export interface Node {
   node_id: string
   parent_node_id: string
   node_name: string
   node_level: number
   node_content: string
+  content_blocks?: ContentBlock[]
   node_type: 'original' | 'custom' | 'extend'
   children?: Node[]
   is_read?: boolean
@@ -55,7 +68,7 @@ export interface FailureReport {
 }
 
 export interface WSMessage {
-  type: 'progress_update' | 'node_completed' | 'stream_chunk' | 'task_completed' | 'task_error' | 'failure_report'
+  type: 'progress_update' | 'node_completed' | 'node_finalized' | 'stream_chunk' | 'task_completed' | 'task_error' | 'failure_report'
   task_id: string
   course_id: string
   payload: Record<string, unknown>

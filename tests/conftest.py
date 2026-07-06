@@ -28,6 +28,7 @@ class MockStorage:
         self.courses: dict[str, dict] = {}
         self.annotations: list[dict] = []
         self.knowledge_graphs: dict[str, dict] = {}
+        self.data: dict[str, object] = {}
 
     def reset(self):
         self.courses.clear()
@@ -87,10 +88,10 @@ class MockStorage:
 
     # --- Generic ---
     def load_data(self, filename: str):
-        return None
+        return deepcopy(self.data.get(filename))
 
     def save_data(self, filename: str, data):
-        pass
+        self.data[filename] = deepcopy(data)
 
 
 # ---------------------------------------------------------------------------

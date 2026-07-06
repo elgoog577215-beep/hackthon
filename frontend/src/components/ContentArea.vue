@@ -330,10 +330,11 @@
                     :index="getChapterIndex(node, index)"
                     :font-size="fontSize"
                     :font-family="fontFamily"
-                    :line-height="lineHeight"
-                    :search-words="searchTokens"
-                    @start-quiz="handleStartQuiz"
-                />
+	                    :line-height="lineHeight"
+	                    :search-words="searchTokens"
+	                    @start-quiz="handleStartQuiz"
+	                    @regenerate-block="handleRegenerateBlock"
+	                />
             
             <!-- Sentinel for Lazy Loading -->
             <div ref="sentinelRef" class="h-10 w-full flex items-center justify-center">
@@ -2894,6 +2895,23 @@ const handleStartQuiz = (node: any) => {
     quizConfig.value.nodeId = node.node_id
     quizConfig.value.nodeName = node.node_name
     quizConfig.value.visible = true
+}
+
+const handleRegenerateBlock = async (node: any, block: any) => {
+    try {
+        const result = await ElMessageBox.prompt('告诉 AI 你想怎样改写这个部分', `重写：${block.title}`, {
+            confirmButtonText: '开始重写',
+            cancelButtonText: '取消',
+            inputPlaceholder: '例如：应用部分再详细一点，多给两个例子',
+            inputValidator: (value: string) => Boolean(value && value.trim()),
+            inputErrorMessage: '请填写重写要求',
+        }) as { value?: string }
+        const requirement = String(result.value || '').trim()
+        if (!requirement) return
+        await courseStore.regenerateBlock(node, block, requirement)
+    } catch {
+        // 用户取消时不提示
+    }
 }
 
 

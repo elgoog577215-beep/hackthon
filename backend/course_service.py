@@ -1,5 +1,5 @@
 """
-课程生成服务（重构自 ai_course_service_v5.py）
+课程生成服务。
 
 核心职责：
 - 协调 LLM 调用和内容生成
@@ -27,12 +27,15 @@ from typing import (
 from ai_base import AIBase
 from content_consistency_validator import ContentConsistencyValidator
 from content_validator import ContentValidator
+from content_blocks import normalize_blocks, strip_leading_heading, summarize_text
+from course_context import CourseContextManager, get_context_manager
 from discipline_config import (
     DisciplineType,
     detect_discipline_type,
     get_discipline_config,
 )
 from knowledge_graph import GlobalKnowledgeGraph
+from learner_context import build_learner_context
 from models import (
     ConsistencyIssue,
     NodeGenerationConfig,
@@ -90,6 +93,7 @@ class CourseService(AIBase):
         quality_predictor: QualityPredictor,
         content_validator: ContentValidator,
         consistency_validator: ContentConsistencyValidator,
+        context_manager: CourseContextManager | None = None,
     ) -> None:
         super().__init__()
         self._prompt_engine: PromptEngineV5 = prompt_engine
@@ -97,8 +101,9 @@ class CourseService(AIBase):
         self._quality_predictor: QualityPredictor = quality_predictor
         self._content_validator: ContentValidator = content_validator
         self._consistency_validator: ContentConsistencyValidator = consistency_validator
+        self._context_manager = context_manager or get_context_manager()
 
-        # 运行时状态（与原 AICourseServiceV5 兼容）
+        # 运行时状态
         self._knowledge_graphs: dict[str, GlobalKnowledgeGraph] = {}
         self._course_plans: dict[str, dict] = {}
         self._generation_stats: dict[str, dict] = {}
@@ -196,8 +201,22 @@ class CourseService(AIBase):
             "start_time": time.time(),
         }
 
-        plan = await self._generate_course_plan(topic, discipline, difficulty, audience)
+        plan = await self._generate_course_plan(
+            topic,
+            discipline,
+            difficulty,
+            audience,
+            requirements=kwargs.get("requirements", ""),
+            style=kwargs.get("style", ""),
+        )
         self._course_plans[course_id] = plan
+        self._context_manager.create_from_plan(
+            course_id=course_id,
+            plan=plan,
+            discipline=discipline,
+            target_audience=audience.value,
+            depth=difficulty.value,
+        )
 
         nodes = self._convert_plan_to_nodes(plan, course_id)
 
@@ -218,6 +237,8 @@ class CourseService(AIBase):
         discipline: DisciplineType,
         difficulty: DifficultyLevel,
         audience: TargetAudience,
+        requirements: str = "",
+        style: str = "",
     ) -> dict:
         """生成课程规划（使用专业提示词引擎）。
 
@@ -239,6 +260,13 @@ class CourseService(AIBase):
             audience=audience,
             config=config,
         )
+        extras = []
+        if style:
+            extras.append(f"- 教学风格偏好：{style}")
+        if requirements:
+            extras.append(f"- 用户额外要求：{requirements}")
+        if extras:
+            prompt += "\n\n## 用户补充约束\n" + "\n".join(extras)
 
         response = await self._call_llm(
             f"请为「{topic}」设计课程大纲。", prompt
@@ -306,6 +334,7 @@ class CourseService(AIBase):
                 "node_name": f"第{chapter_num}章 {chapter.get('title', '')}",
                 "node_level": 1,
                 "node_content": "",
+                "content_blocks": [],
                 "node_type": "original",
                 "learning_focus": chapter.get("learning_focus", ""),
                 "generation_status": "pending",
@@ -321,9 +350,15 @@ class CourseService(AIBase):
                     "node_name": f"{section_num} {section.get('title', '')}",
                     "node_level": 2,
                     "node_content": "",
+                    "content_blocks": [],
                     "node_type": "original",
                     "key_points": section.get("key_points", []),
                     "complexity": section.get("complexity", "medium"),
+                    "learning_objective": section.get("learning_objective", ""),
+                    "prerequisite_node_ids": section.get("prerequisite_node_ids", []),
+                    "misconceptions": section.get("misconceptions", []),
+                    "assessment": section.get("assessment", []),
+                    "scope_boundary": section.get("scope_boundary", ""),
                     "generation_status": "pending",
                     "generated_chars": 0,
                     "error_summary": None,
@@ -377,7 +412,9 @@ class CourseService(AIBase):
         if stats:
             stats["mode_usage"][mode.value] += 1
 
-        context = knowledge_graph.get_context_for_node(node_id)
+        ledger = self._context_manager.get_generation_context(course_id, node_id).get("ledger_context", "")
+        kg_context = knowledge_graph.get_context_for_node(node_id)
+        context = "\n\n".join(part for part in [ledger, kg_context] if part)
 
         content = await self._generate_with_mode(
             mode=mode,
@@ -389,11 +426,18 @@ class CourseService(AIBase):
             course_id=course_id,
         )
 
-        self._update_knowledge_graph(knowledge_graph, content, node_id)
-
         consistency_issues = knowledge_graph.check_consistency(node_id, content)
         if consistency_issues:
             content = await self._fix_consistency_issues(content, consistency_issues, discipline)
+
+        self._update_knowledge_graph(knowledge_graph, content, node_id)
+        self._context_manager.update_node(
+            course_id=course_id,
+            node_id=node_id,
+            title=node_name,
+            level=2,
+            content=content,
+        )
 
         return content
 
@@ -453,8 +497,10 @@ class CourseService(AIBase):
             section_complexity=section_info.get("complexity", "medium"),
         )
 
-        # 构建上下文：前序节点摘要 + 已使用案例 + 术语定义引用
-        context = knowledge_graph.get_context_for_node(node_id)
+        # 构建上下文：课程账本 + 前序节点摘要 + 已使用案例 + 术语定义引用
+        ledger = self._context_manager.get_generation_context(course_id, node_id).get("ledger_context", "")
+        kg_context = knowledge_graph.get_context_for_node(node_id)
+        context = "\n\n".join(part for part in [ledger, kg_context] if part)
 
         # 如果有自定义指令，追加到上下文
         if config.custom_instruction:
@@ -495,6 +541,13 @@ class CourseService(AIBase):
 
         # 更新知识图谱
         self._update_knowledge_graph(knowledge_graph, full_content, node_id)
+        self._context_manager.update_node(
+            course_id=course_id,
+            node_id=node_id,
+            title=node_name,
+            level=node.get("node_level", 2),
+            content=full_content,
+        )
 
         return full_content
 
@@ -554,6 +607,300 @@ class CourseService(AIBase):
 
         response = await self._call_llm("请修复内容质量问题。", prompt)
         return response if response else content
+
+    async def regenerate_content_block(
+        self,
+        course_id: str,
+        node: dict[str, Any],
+        block_id: str,
+        requirement: str,
+        difficulty: Any = None,
+        style: Any = None,
+    ) -> dict[str, Any]:
+        """重新生成节点内的一个内容块。"""
+        node_id = str(node.get("node_id", ""))
+        blocks = normalize_blocks(node_id, node.get("content_blocks"), node.get("node_content", ""))
+        target = next((block for block in blocks if block.get("block_id") == block_id), None)
+        if not target:
+            raise ValueError("Content block not found")
+
+        try:
+            ledger = self._context_manager.get_generation_context(course_id, node_id).get("ledger_context", "")
+        except Exception:
+            ledger = ""
+        learner_context = build_learner_context(course_id=course_id, node_id=node_id).to_prompt()
+
+        block_outline = "\n".join(
+            f"- {'[当前] ' if block.get('block_id') == block_id else ''}{block.get('title', '')}: {block.get('summary') or summarize_text(block.get('content', ''))}"
+            for block in blocks
+        )
+        node_contract = "\n".join(
+            part for part in [
+                f"- 小节：{node.get('node_name', '')}",
+                f"- 学习目标：{node.get('learning_objective', '')}",
+                f"- 范围边界：{node.get('scope_boundary', '')}",
+                "- 误区：" + "；".join(node.get("misconceptions", []) or []),
+                "- 验收标准：" + "；".join(node.get("assessment", []) or []),
+            ]
+            if part and not part.endswith("：")
+        )
+        difficulty_text = getattr(difficulty, "value", difficulty) or "advanced"
+        style_text = getattr(style, "value", style) or "academic"
+
+        prompt = f"""你正在修订一门自学课程的一个局部内容块。
+
+## 课程上下文
+{ledger or "无额外账本。"}
+
+## 学习者上下文
+{learner_context}
+
+## 当前小节契约
+{node_contract}
+
+## 本节内容块目录
+{block_outline}
+
+## 目标内容块
+- 标题：{target.get("title", "")}
+- 类型：{target.get("type", "")}
+- 原文：
+{target.get("content", "")}
+
+## 用户要求
+{requirement}
+
+## 难度与风格
+- 难度：{difficulty_text}
+- 风格：{style_text}
+
+## 输出要求
+1. 只输出目标内容块的新正文，不要输出整节内容。
+2. 不要输出标题，不要改写其他内容块。
+3. 必须承接本节前后文，避免重复已在其他 block 讲过的内容。
+4. 不要编造论文、年份、链接、机构报告或不存在的术语。
+5. 如果用户要求扩展，优先增加清晰推理、例子、应用步骤或自测题。"""
+
+        response = await self._call_llm("请重写目标内容块。", prompt)
+        new_content = strip_leading_heading(
+            self.clean_response_text(response) if response else str(target.get("content") or ""),
+            str(target.get("title") or ""),
+        )
+        updated = dict(target)
+        updated["content"] = new_content
+        updated["summary"] = summarize_text(new_content)
+        updated["status"] = "final"
+        return updated
+
+    async def redefine_content(
+        self,
+        *,
+        course_id: str,
+        node: dict[str, Any],
+        requirement: str,
+        original_content: str = "",
+        course_context: str = "",
+        previous_context: str = "",
+        difficulty: Any = None,
+        style: Any = None,
+    ) -> str:
+        """Rewrite a full node using the production course context chain."""
+        prompt = self._build_redefine_prompt(
+            course_id=course_id,
+            node=node,
+            requirement=requirement,
+            original_content=original_content,
+            course_context=course_context,
+            previous_context=previous_context,
+            difficulty=difficulty,
+            style=style,
+        )
+        response = await self._call_llm(f"请重写「{node.get('node_name', '当前小节')}」。", prompt)
+        text = self.clean_response_text(response) if response else original_content
+        return strip_leading_heading(text, str(node.get("node_name") or ""))
+
+    async def redefine_node_content_stream(
+        self,
+        *,
+        course_id: str,
+        node: dict[str, Any],
+        requirement: str,
+        original_content: str = "",
+        course_context: str = "",
+        previous_context: str = "",
+        difficulty: Any = None,
+        style: Any = None,
+    ):
+        """Stream a full-node rewrite while using the same prompt as non-stream."""
+        prompt = self._build_redefine_prompt(
+            course_id=course_id,
+            node=node,
+            requirement=requirement,
+            original_content=original_content,
+            course_context=course_context,
+            previous_context=previous_context,
+            difficulty=difficulty,
+            style=style,
+        )
+        async for chunk in self._stream_llm(
+            prompt=f"请重写「{node.get('node_name', '当前小节')}」。",
+            system_prompt=prompt,
+        ):
+            yield chunk
+
+    async def extend_content(
+        self,
+        *,
+        course_id: str,
+        node: dict[str, Any],
+        requirement: str,
+        current_content: str = "",
+    ) -> str:
+        """Generate an extension that stays aligned with the course ledger."""
+        node_id = str(node.get("node_id", ""))
+        ledger = self._ledger_context(course_id, node_id)
+        learner_context = build_learner_context(course_id=course_id, node_id=node_id).to_prompt()
+        prompt = f"""你正在为自学课程补充一段延伸内容。
+
+## 课程上下文
+{ledger or "无额外账本。"}
+
+## 学习者上下文
+{learner_context}
+
+## 当前节点
+{self._node_contract_text(node)}
+
+## 当前正文摘要
+{summarize_text(current_content or node.get("node_content", ""))}
+
+## 用户希望扩展的方向
+{requirement}
+
+## 输出要求
+1. 只输出一段可追加到当前节点的 Markdown 内容。
+2. 不重复当前正文已有内容。
+3. 优先补推理、例子、应用步骤或自测题。
+4. 不编造论文、链接、年份、机构报告或伪概念。"""
+        response = await self._call_llm(f"请扩展「{node.get('node_name', '当前小节')}」。", prompt)
+        return self.clean_response_text(response) if response else ""
+
+    async def summarize_content(
+        self,
+        node_content: str,
+        node_name: str = "",
+        user_persona: str | None = None,
+        *,
+        course_id: str = "",
+        node_id: str = "",
+    ) -> str:
+        """Summarize content with optional learner context."""
+        learner = build_learner_context(
+            course_id=course_id or None,
+            node_id=node_id or None,
+            request_persona=user_persona or "",
+        )
+        prompt = f"""请为学习者总结以下课程内容。
+
+## 节点
+{node_name or "当前内容"}
+
+## 学习者上下文
+{learner.to_prompt()}
+
+## 内容
+{node_content[:4000]}
+
+## 输出要求
+1. 使用 Markdown。
+2. 分成「核心概念」「推理链条」「易错点」「自测提醒」四部分。
+3. 简洁但具体，不要写空泛套话。"""
+        response = await self._call_llm("请总结课程内容。", prompt)
+        return self.clean_response_text(response) if response else f"### {node_name} 总结\n\n暂无可总结内容。"
+
+    def locate_node(self, keyword: str, all_nodes: list[dict[str, Any]]) -> dict[str, str]:
+        """Locate the best matching node with a deterministic local search."""
+        normalized = (keyword or "").strip().lower()
+        if not normalized:
+            return {}
+
+        for node in all_nodes:
+            name = str(node.get("node_name", ""))
+            if normalized in name.lower():
+                return {"match_node_id": node["node_id"], "match_node_name": name}
+
+        for node in all_nodes:
+            content = str(node.get("node_content", ""))
+            if normalized in content.lower():
+                return {"match_node_id": node["node_id"], "match_node_name": node.get("node_name", "")}
+
+        return {}
+
+    def _build_redefine_prompt(
+        self,
+        *,
+        course_id: str,
+        node: dict[str, Any],
+        requirement: str,
+        original_content: str = "",
+        course_context: str = "",
+        previous_context: str = "",
+        difficulty: Any = None,
+        style: Any = None,
+    ) -> str:
+        node_id = str(node.get("node_id", ""))
+        difficulty_text = getattr(difficulty, "value", difficulty) or "advanced"
+        style_text = getattr(style, "value", style) or "academic"
+        ledger = self._ledger_context(course_id, node_id)
+        learner_context = build_learner_context(course_id=course_id, node_id=node_id).to_prompt()
+        return f"""你正在重写一门自学课程的完整小节。
+
+## 课程上下文账本
+{ledger or course_context or "无额外账本。"}
+
+## 前文上下文
+{previous_context or "无"}
+
+## 学习者上下文
+{learner_context}
+
+## 当前小节契约
+{self._node_contract_text(node)}
+
+## 原始正文
+{original_content or node.get("node_content", "") or "无"}
+
+## 用户重写要求
+{requirement or "提升教学质量"}
+
+## 难度与风格
+- 难度：{difficulty_text}
+- 风格：{style_text}
+
+## 输出要求
+1. 输出完整小节正文，不输出解释说明。
+2. 保持课程蓝图约束，不能跑题或跳过本节边界。
+3. 必须包含清晰引入、核心概念、推理过程、例子、应用或练习、小结。
+4. 避免与前文重复，承接已学内容。
+5. 不编造论文、链接、年份、机构报告或不存在的术语。"""
+
+    def _ledger_context(self, course_id: str, node_id: str) -> str:
+        try:
+            return self._context_manager.get_generation_context(course_id, node_id).get("ledger_context", "")
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _node_contract_text(node: dict[str, Any]) -> str:
+        parts = [
+            f"- 小节：{node.get('node_name', '')}",
+            f"- 学习目标：{node.get('learning_objective', '')}",
+            f"- 范围边界：{node.get('scope_boundary', '')}",
+            "- 关键点：" + "；".join(node.get("key_points", []) or []),
+            "- 误区：" + "；".join(node.get("misconceptions", []) or []),
+            "- 验收标准：" + "；".join(node.get("assessment", []) or []),
+        ]
+        return "\n".join(part for part in parts if part and not part.endswith("："))
 
     def _build_quality_issues(self, quality: QualityScore) -> list[QualityIssue]:
         """从 QualityScore 构建 QualityIssue 列表。
@@ -741,7 +1088,7 @@ class CourseService(AIBase):
         return False
 
     # ------------------------------------------------------------------
-    # 内部生成方法（从 AICourseServiceV5 迁移）
+    # 内部生成方法
     # ------------------------------------------------------------------
 
     async def _generate_with_mode(
@@ -1107,7 +1454,17 @@ class CourseService(AIBase):
 ## 输出格式
 ```json
 [
-  {{"section_number": "{chapter_num}.1", "title": "小节名", "key_points": ["要点"], "complexity": "simple/medium/complex"}}
+  {{
+    "section_number": "{chapter_num}.1",
+    "title": "小节名",
+    "key_points": ["要点"],
+    "complexity": "simple/medium/complex",
+    "learning_objective": "学完本节后学习者能完成的具体任务",
+    "prerequisite_node_ids": [],
+    "misconceptions": ["本节需要澄清的常见误区"],
+    "assessment": ["可检验本节是否掌握的标准或题目方向"],
+    "scope_boundary": "本节讲到哪里为止"
+  }}
 ]
 ```"""
 
@@ -1126,9 +1483,15 @@ class CourseService(AIBase):
                         "node_name": f"{section} {item.get('title', '小节')}",
                         "node_level": node_level + 1,
                         "node_content": "",
+                        "content_blocks": [],
                         "node_type": "custom",
                         "key_points": item.get("key_points", []),
                         "complexity": item.get("complexity", "medium"),
+                        "learning_objective": item.get("learning_objective", ""),
+                        "prerequisite_node_ids": item.get("prerequisite_node_ids", []),
+                        "misconceptions": item.get("misconceptions", []),
+                        "assessment": item.get("assessment", []),
+                        "scope_boundary": item.get("scope_boundary", ""),
                         "generation_status": "pending",
                         "generated_chars": 0,
                         "error_summary": None,
@@ -1136,9 +1499,9 @@ class CourseService(AIBase):
                 return result
 
         return [
-            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{chapter_num}.1 基础概念", "node_level": node_level + 1, "node_content": "", "node_type": "custom", "complexity": "simple", "generation_status": "pending", "generated_chars": 0, "error_summary": None},
-            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{chapter_num}.2 核心原理", "node_level": node_level + 1, "node_content": "", "node_type": "custom", "complexity": "medium", "generation_status": "pending", "generated_chars": 0, "error_summary": None},
-            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{chapter_num}.3 实践应用", "node_level": node_level + 1, "node_content": "", "node_type": "custom", "complexity": "medium", "generation_status": "pending", "generated_chars": 0, "error_summary": None},
+            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{chapter_num}.1 基础概念", "node_level": node_level + 1, "node_content": "", "content_blocks": [], "node_type": "custom", "key_points": [], "complexity": "simple", "learning_objective": "", "prerequisite_node_ids": [], "misconceptions": [], "assessment": [], "scope_boundary": "", "generation_status": "pending", "generated_chars": 0, "error_summary": None},
+            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{chapter_num}.2 核心原理", "node_level": node_level + 1, "node_content": "", "content_blocks": [], "node_type": "custom", "key_points": [], "complexity": "medium", "learning_objective": "", "prerequisite_node_ids": [], "misconceptions": [], "assessment": [], "scope_boundary": "", "generation_status": "pending", "generated_chars": 0, "error_summary": None},
+            {"node_id": str(uuid.uuid4()), "parent_node_id": node_id, "node_name": f"{chapter_num}.3 实践应用", "node_level": node_level + 1, "node_content": "", "content_blocks": [], "node_type": "custom", "key_points": [], "complexity": "medium", "learning_objective": "", "prerequisite_node_ids": [], "misconceptions": [], "assessment": [], "scope_boundary": "", "generation_status": "pending", "generated_chars": 0, "error_summary": None},
         ]
 
     # ------------------------------------------------------------------

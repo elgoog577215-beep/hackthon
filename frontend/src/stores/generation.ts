@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { defineStore } from 'pinia'
-import http from '../utils/http'
+import http, { withApiBase } from '../utils/http'
 import { ElMessage } from 'element-plus'
 import { useCourseStore } from './course'
 import { useTaskWebSocket, type ConnectionState } from '../composables/useTaskWebSocket'
@@ -11,13 +11,12 @@ import {
   type DifficultyLevel,
   type TeachingStyle
 } from '@/shared/prompt-config'
-import type { Node, QueueItem, Task, WSMessage, FailureReport } from './types'
+import type { ContentBlock, Node, QueueItem, Task, WSMessage, FailureReport } from './types'
 
 // vue-tsc + Pinia Options API: re-export to suppress TS6133
 export { ElMessage, TEACHING_STYLES }
 export type { TeachingStyle }
 
-export const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 const GENERATION_STATE_KEY = 'course-generation-state-v1'
 export const MAX_RETRIES = 2
 export const QUEUE_PROCESS_DELAY = 50
@@ -122,6 +121,9 @@ export const useGenerationStore = defineStore('generation', {
         case 'node_completed':
           this.handleWSNodeCompleted(message)
           break
+        case 'node_finalized':
+          this.handleWSNodeFinalized(message)
+          break
         case 'stream_chunk':
           this.handleWSStreamChunk(message)
           break
@@ -199,6 +201,9 @@ export const useGenerationStore = defineStore('generation', {
           if (payload.node_content !== undefined) {
             node.node_content = payload.node_content as string
           }
+          if (Array.isArray(payload.content_blocks)) {
+            node.content_blocks = payload.content_blocks as ContentBlock[]
+          }
           node.generation_status = 'completed'
           if (payload.generated_chars !== undefined) {
             node.generated_chars = payload.generated_chars as number
@@ -216,6 +221,24 @@ export const useGenerationStore = defineStore('generation', {
       if (nodeId) {
         delete this.streamingContent[nodeId]
       }
+    },
+
+    handleWSNodeFinalized(message: WSMessage) {
+      const { course_id, payload } = message
+      const cs = this._courseStore()
+      if (course_id !== cs.currentCourseId || !payload.node_id) return
+
+      const nodeId = payload.node_id as string
+      const node = cs.nodes.find((n: Node) => n.node_id === nodeId)
+      if (node && payload.node_content !== undefined) {
+        node.node_content = payload.node_content as string
+        if (Array.isArray(payload.content_blocks)) {
+          node.content_blocks = payload.content_blocks as ContentBlock[]
+        }
+        node.generation_status = 'completed'
+        node.generated_chars = (payload.generated_chars as number) ?? node.generated_chars
+      }
+      delete this.streamingContent[nodeId]
     },
 
     handleWSStreamChunk(message: WSMessage) {
@@ -866,7 +889,7 @@ export const useGenerationStore = defineStore('generation', {
       }
       node.node_content = ''
       node.node_type = 'custom'
-      const response = await fetch(`${API_BASE}/api/courses/${item.courseId}/nodes/${node.node_id}/redefine_stream`, {
+      const response = await fetch(withApiBase(`/api/courses/${item.courseId}/nodes/${node.node_id}/redefine_stream`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1000,7 +1023,7 @@ export const useGenerationStore = defineStore('generation', {
         const difficulty = (task?.difficulty as DifficultyLevel) || DIFFICULTY_LEVELS.ADVANCED
         const style = (task?.style as TeachingStyle) || TEACHING_STYLES.ACADEMIC
         const requirement = DIFFICULTY_CONFIG[difficulty]?.requirement || '教科书级详细正文'
-        const response = await fetch(`${API_BASE}/api/courses/${cs.currentCourseId}/nodes/${nodeId}/redefine_stream`, {
+        const response = await fetch(withApiBase(`/api/courses/${cs.currentCourseId}/nodes/${nodeId}/redefine_stream`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -9,13 +9,12 @@ from pydantic import BaseModel
 from typing import Optional, List
 import sys
 import os
-import uuid
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from models import GenerateCourseRequest, LocateNodeRequest, NodeGenerationConfig
 from storage import storage
-from ai_service import ai_service
+from course_service import get_course_service
 from dependencies import get_course_or_404, require_task_manager, get_node_or_404
 from task_manager import TaskManager
 
@@ -69,21 +68,24 @@ async def delete_course(course_id: str):
 
 @router.post("/generate_course")
 async def generate_course(req: GenerateCourseRequest):
-    data = await ai_service.generate_course(
-        keyword=req.keyword,
-        difficulty=req.difficulty or "intermediate",
-        style=req.style or "academic",
-        requirements=req.requirements or "",
+    difficulty = getattr(req.difficulty, "value", req.difficulty) or "intermediate"
+    style = getattr(req.style, "value", req.style) or "academic"
+    requirements = req.requirements or ""
+
+    course_service = get_course_service()
+    data = await course_service.generate_course(
+        topic=req.keyword,
+        depth=difficulty,
+        style=style,
+        requirements=requirements,
     )
 
-    # Generate course_id (ai_course_service doesn't create one)
-    course_id = data.get("course_id") or str(uuid.uuid4())
-    data["course_id"] = course_id
+    course_id = data["course_id"]
 
     # Attach frontend-facing metadata
-    data["difficulty"] = req.difficulty or "intermediate"
-    data["style"] = req.style or "academic"
-    data["requirements"] = req.requirements or ""
+    data["difficulty"] = difficulty
+    data["style"] = style
+    data["requirements"] = requirements
 
     await storage.save_course(course_id, data)
     return data
@@ -94,7 +96,7 @@ async def locate_node(course_id: str, req: LocateNodeRequest):
     tree_data = await get_course_or_404(course_id)
     if "nodes" not in tree_data:
         return {}
-    return await ai_service.locate_node(req.keyword, tree_data["nodes"])
+    return get_course_service().locate_node(req.keyword, tree_data["nodes"])
 
 
 # =============================================================================

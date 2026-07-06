@@ -36,6 +36,7 @@ from models import (
     NodeStatus,
     TaskLogEntry,
 )
+from content_blocks import blocks_from_markdown, blocks_to_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -580,9 +581,9 @@ class TaskManager:
     async def _schedule_nodes(
         self, task_id: str, nodes: list[dict]
     ) -> None:
-        """按层级优先策略调度节点生成。
+        """按依赖波次调度节点生成。
 
-        level 1 > level 2 > level 3，同层级按原始顺序。
+        有前置依赖的节点等待依赖完成；无依赖或依赖已满足的节点保持并发。
 
         **Validates: Requirements 3.3, 3.4**
 
@@ -590,21 +591,47 @@ class TaskManager:
             task_id: 任务 ID
             nodes: 待调度的节点列表
         """
-        # Sort by level first, then by original order (index in list)
         sorted_nodes = sorted(
             nodes, key=lambda n: (n.get("node_level", 1), nodes.index(n))
         )
 
-        tasks: list[asyncio.Task[Any]] = []
-        for node in sorted_nodes:
-            node_id = node.get("node_id", "")
-            task = asyncio.create_task(self._process_node(task_id, node))
-            # Track running node tasks
-            self._running_node_tasks.setdefault(task_id, {})[node_id] = task
-            tasks.append(task)
+        pending = list(sorted_nodes)
+        completed = {
+            n.get("node_id", "")
+            for n in sorted_nodes
+            if self._is_content_complete(n)
+        }
+        known_ids = {n.get("node_id", "") for n in sorted_nodes}
 
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        while pending:
+            ready = [
+                node for node in pending
+                if self._node_dependencies(node, known_ids).issubset(completed)
+            ]
+            if not ready:
+                # ponytail: cycles or bad model-produced dependencies; preserve progress with original order.
+                ready = [pending[0]]
+
+            tasks: list[asyncio.Task[Any]] = []
+            for node in ready:
+                node_id = node.get("node_id", "")
+                task = asyncio.create_task(self._process_node(task_id, node))
+                self._running_node_tasks.setdefault(task_id, {})[node_id] = task
+                tasks.append(task)
+
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+            for node in ready:
+                completed.add(node.get("node_id", ""))
+                pending.remove(node)
+
+    def _node_dependencies(self, node: dict, known_ids: set[str]) -> set[str]:
+        """返回当前待生成集合里的有效前置依赖"""
+        raw = node.get("prerequisite_node_ids") or []
+        if not isinstance(raw, list):
+            return set()
+        return {dep for dep in raw if isinstance(dep, str) and dep in known_ids}
 
     async def _process_task(self, task_id: str) -> None:
         """处理单个任务：分析课程结构并调度节点。
@@ -630,6 +657,17 @@ class TaskManager:
             return
 
         nodes = course_data.get("nodes", [])
+        if hasattr(self.course_service, "_context_manager"):
+            try:
+                from discipline_config import detect_discipline_type
+                self.course_service._context_manager.ensure_context_from_nodes(
+                    course_id=course_id,
+                    course_name=course_data.get("course_name", ""),
+                    nodes=nodes,
+                    discipline=detect_discipline_type(course_data.get("course_name", "")),
+                )
+            except Exception:
+                logger.debug("Could not rebuild course context ledger", exc_info=True)
         l1_nodes = [n for n in nodes if n.get("node_level", 1) == 1]
         l2_nodes = [n for n in nodes if n.get("node_level", 1) == 2]
 
@@ -821,6 +859,9 @@ class TaskManager:
                         duration_ms = (end_time - start_time).total_seconds() * 1000
                         
                         fixed_content = fix_latex_content(content)
+                        content_blocks = blocks_from_markdown(node_id, fixed_content)
+                        if content_blocks:
+                            fixed_content = blocks_to_markdown(content_blocks)
                         generated_chars = len(fixed_content) if fixed_content else 0
 
                         fresh_data = self.storage.load_course(course_id)
@@ -828,6 +869,7 @@ class TaskManager:
                             for n in fresh_data.get("nodes", []):
                                 if n.get("node_id") == node_id:
                                     n["node_content"] = fixed_content
+                                    n["content_blocks"] = content_blocks
                                     n["generation_status"] = NodeStatus.COMPLETED.value
                                     n["generated_chars"] = generated_chars
                                     n["error_summary"] = None
@@ -844,12 +886,27 @@ class TaskManager:
                         )
 
                         if self.ws_service:
+                            if hasattr(self.ws_service, "push_node_finalized"):
+                                await self.ws_service.push_node_finalized(
+                                    course_id,
+                                    {
+                                        "task_id": task_id,
+                                        "node_id": node_id,
+                                        "node_name": node_name,
+                                        "node_content": fixed_content,
+                                        "content_blocks": content_blocks,
+                                        "generated_chars": generated_chars,
+                                        "phase": "final",
+                                    },
+                                )
                             await self.ws_service.push_node_completed(
                                 course_id,
                                 {
                                     "task_id": task_id,
                                     "node_id": node_id,
                                     "node_name": node_name,
+                                    "node_content": fixed_content,
+                                    "content_blocks": content_blocks,
                                     "generated_chars": generated_chars,
                                 },
                             )

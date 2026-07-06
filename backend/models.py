@@ -1,5 +1,5 @@
 
-from typing import List, Optional, Literal, Dict
+from typing import Any, List, Optional, Literal, Dict
 from pydantic import BaseModel, Field
 from datetime import datetime
 import uuid
@@ -12,12 +12,25 @@ sys.path.insert(0, str(project_root))
 from shared.prompt_config import DifficultyLevel, TeachingStyle
 
 # === 课程相关 ===
+class ContentBlock(BaseModel):
+    block_id: str
+    parent_block_id: Optional[str] = None
+    type: Literal["intro", "concept", "reasoning", "example", "application", "exercise", "summary", "custom"] = "custom"
+    title: str
+    content: str = ""
+    summary: str = ""
+    order: int = 0
+    status: Literal["draft", "final"] = "final"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class Node(BaseModel):
     node_id: str
     parent_node_id: str
     node_name: str
     node_level: int
     node_content: str = ""
+    content_blocks: List[ContentBlock] = Field(default_factory=list)
     node_type: Literal["original", "custom", "extend"] = "original"
     create_time: Optional[datetime] = None
     is_read: bool = False
@@ -53,6 +66,12 @@ class RedefineContentRequest(BaseModel):
     user_requirement: str
     course_context: Optional[str] = ""
     previous_context: Optional[str] = ""
+    difficulty: Optional[DifficultyLevel] = "advanced"
+    style: Optional[TeachingStyle] = "academic"
+
+
+class RegenerateBlockRequest(BaseModel):
+    requirement: str = Field(..., min_length=1, max_length=2000)
     difficulty: Optional[DifficultyLevel] = "advanced"
     style: Optional[TeachingStyle] = "academic"
 
@@ -93,6 +112,7 @@ class SaveAnnotationRequest(BaseModel):
 class UpdateNodeRequest(BaseModel):
     node_name: Optional[str] = None
     node_content: Optional[str] = None
+    content_blocks: Optional[List[ContentBlock]] = None
     is_read: Optional[bool] = None
     quiz_score: Optional[int] = None
 

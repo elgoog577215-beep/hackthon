@@ -77,7 +77,7 @@ class ConversationTopicTracker:
             entities.update(english_terms)
             
             # 提取中文术语（带引号的）
-            chinese_terms = re.findall(r'[「""']([^「""']+)[」""']', content)
+            chinese_terms = re.findall(r"[「\"']([^「\"']+)[」\"']", content)
             entities.update(chinese_terms)
         
         return list(entities)[:10]  # 限制数量
@@ -254,43 +254,14 @@ class UserMemoryManager:
         """
         Retrieves user-specific context split by category.
         """
-        annotations = storage.load_annotations()
-        
-        # 1. Specific Notes for this Node
-        node_notes = [a for a in annotations if a.get("node_id") == node_id and a.get("source_type") in ["user", "user_saved"]]
-        
-        # 2. Mistakes / Weaknesses (Global)
-        mistakes = [a for a in annotations if "错题" in a.get("anno_summary", "") or "mistake" in a.get("anno_summary", "").lower()]
-        
-        # 3. 最近的学习足迹（所有节点）
-        recent_annotations = sorted(
-            [a for a in annotations if a.get("timestamp")],
-            key=lambda x: x.get("timestamp", ""),
-            reverse=True
-        )[:5]
-        
-        notes_text = ""
-        if node_notes:
-            notes_text = "\n".join([f"- {n.get('anno_summary')}: {n.get('answer', '')[:100]}..." for n in node_notes])
-        
-        mistakes_text = ""
-        if mistakes:
-            recent_mistakes = mistakes[-3:]
-            mistakes_text = "\n".join([f"- {m.get('question')}" for m in recent_mistakes])
-        
-        # 构建学习足迹摘要
-        learning_footprint = ""
-        if recent_annotations:
-            learning_footprint = "\n".join([
-                f"- {a.get('anno_summary', '学习笔记')} ({a.get('node_id', '未知节点')})"
-                for a in recent_annotations
-            ])
+        from learner_context import build_learner_context
 
+        context = build_learner_context(node_id=node_id)
         return {
-            "notes": notes_text,
-            "mistakes": mistakes_text,
-            "learning_footprint": learning_footprint,
-            "preferences": "User prefers detailed explanations with examples. Often asks about practical applications." # Placeholder for learned profile
+            "notes": context.notes,
+            "mistakes": context.mistakes,
+            "learning_footprint": context.learning_footprint,
+            "preferences": context.preferences or context.persona_summary or "通用学习者",
         }
 
 

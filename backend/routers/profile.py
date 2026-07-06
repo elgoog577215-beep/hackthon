@@ -8,6 +8,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from models import GenerateProfileRequest, ProfileResponse
 from ai_service import ai_service
+from learner_context import save_profile_snapshot
 
 router = APIRouter(tags=["profile"])
 
@@ -45,6 +46,11 @@ async def generate_profile(req: GenerateProfileRequest):
 
     # 生成精简版画像摘要
     persona = await ai_service.generate_persona_summary(ai_profile, req.self_evaluation)
+    save_profile_snapshot(
+        ai_profile=ai_profile,
+        persona_summary=persona or "",
+        self_evaluation=req.self_evaluation,
+    )
 
     return ProfileResponse(
         ai_profile=ai_profile,

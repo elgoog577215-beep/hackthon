@@ -14,6 +14,7 @@ from models import (
     RecordLearningRequest, SessionSummaryRequest,
     TutorContextRequest, CreateGoalRequest, UpdateGoalProgressRequest
 )
+from learner_context import DEFAULT_USER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ async def get_tutor_greeting(course_id: Optional[str] = None, node_id: Optional[
             "actions": [],
             "stats": {}
         }
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     result = proactive_engine.generate_greeting(user_id, course_id, node_id)
     return result
 
@@ -49,7 +50,7 @@ async def get_tutor_greeting(course_id: Optional[str] = None, node_id: Optional[
 async def get_tutor_profile():
     if not TUTOR_AVAILABLE:
         raise HTTPException(status_code=503, detail="导师服务未加载")
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     profile = tutor_memory.get_or_create_profile(user_id)
     weaknesses = tutor_memory.get_weaknesses(user_id)
     strengths = tutor_memory.get_strengths(user_id)
@@ -65,7 +66,7 @@ async def get_tutor_profile():
 async def record_learning(req: RecordLearningRequest):
     if not TUTOR_AVAILABLE:
         return {"success": False}
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     state = tutor_memory.update_knowledge_state(
         user_id=user_id,
         node_id=req.node_id,
@@ -86,7 +87,7 @@ async def record_learning(req: RecordLearningRequest):
 async def create_session_summary(req: SessionSummaryRequest):
     if not TUTOR_AVAILABLE:
         return {"summary": "学习完成！", "stats": {}}
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     tutor_memory.record_study_session(user_id, req.duration, req.nodes_studied)
     result = proactive_engine.generate_session_summary(user_id, {
         'duration': req.duration,
@@ -100,7 +101,7 @@ async def create_session_summary(req: SessionSummaryRequest):
 async def get_review_items(limit: int = 5):
     if not TUTOR_AVAILABLE:
         return {"review_items": []}
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     items = tutor_memory.get_review_items(user_id, limit)
     return {"review_items": items}
 
@@ -109,7 +110,7 @@ async def get_review_items(limit: int = 5):
 async def get_wrong_answers(limit: int = 5):
     if not TUTOR_AVAILABLE:
         return {"wrong_answers": []}
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     items = tutor_memory.get_wrong_answers_for_review(user_id, limit)
     return {"wrong_answers": items}
 
@@ -118,7 +119,7 @@ async def get_wrong_answers(limit: int = 5):
 async def get_tutor_suggestion(req: TutorContextRequest):
     if not TUTOR_AVAILABLE:
         return {"suggestions": []}
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     result = proactive_engine.generate_study_suggestion(user_id, {
         'time_stuck': req.time_stuck,
         'consecutive_wrong': req.consecutive_wrong,
@@ -131,7 +132,7 @@ async def get_tutor_suggestion(req: TutorContextRequest):
 async def get_tutor_goals(status: Optional[str] = None):
     if not TUTOR_AVAILABLE:
         return {"goals": []}
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     goals = tutor_memory.goals.get(user_id, [])
     if status:
         goals = [g for g in goals if g.status.value == status]
@@ -142,7 +143,7 @@ async def get_tutor_goals(status: Optional[str] = None):
 async def create_tutor_goal(req: CreateGoalRequest):
     if not TUTOR_AVAILABLE:
         raise HTTPException(status_code=503, detail="导师服务未加载")
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     try:
         goal_type = GoalType(req.goal_type)
     except ValueError:
@@ -176,7 +177,7 @@ async def create_tutor_goal(req: CreateGoalRequest):
 async def update_tutor_goal_progress(goal_id: str, req: UpdateGoalProgressRequest):
     if not TUTOR_AVAILABLE:
         raise HTTPException(status_code=503, detail="导师服务未加载")
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     goal = tutor_memory.update_goal_progress(user_id, goal_id, req.progress_delta)
     if not goal:
         raise HTTPException(status_code=404, detail="目标不存在")
@@ -187,6 +188,6 @@ async def update_tutor_goal_progress(goal_id: str, req: UpdateGoalProgressReques
 async def get_goal_recommendations():
     if not TUTOR_AVAILABLE:
         return {"recommendations": []}
-    user_id = "default_user"
+    user_id = DEFAULT_USER_ID
     recommendations = tutor_memory.get_goal_recommendations(user_id)
     return {"recommendations": recommendations}
