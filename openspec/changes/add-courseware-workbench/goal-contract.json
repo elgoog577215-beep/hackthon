@@ -1,0 +1,40 @@
+{
+  "schema_version": 2,
+  "change_id": "add-courseware-workbench",
+  "ac_ids": [
+    "AC-01", "AC-02", "AC-03", "AC-04", "AC-05",
+    "AC-06", "AC-07", "AC-08", "AC-09", "AC-10"
+  ],
+  "hard_gate_ids": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+  "required_surfaces": ["backend", "api", "web"],
+  "mode": "direct",
+  "eval": {
+    "target_score": 100,
+    "workspace_paths": [
+      "backend/presentation_models.py",
+      "backend/presentation_repository.py",
+      "backend/presentation_source.py",
+      "backend/presentation_templates.py",
+      "backend/presentation_generation.py",
+      "backend/presentation_render.py",
+      "backend/presentation_quality.py",
+      "backend/routers/presentations.py",
+      "frontend/src/views/PresentationStudioView.vue",
+      "frontend/src/components/presentation",
+      "frontend/src/stores/presentation.ts",
+      "frontend/src/services/presentations.ts",
+      "frontend/src/types/presentation.ts",
+      "scripts/presentation-goal-eval.mjs"
+    ],
+    "evaluator": {
+      "executable": "C:/Users/xsh/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe",
+      "args": ["scripts/presentation-goal-eval.mjs"],
+      "cwd": "D:/xsh/cursor/灵知/hackthon",
+      "timeout_ms": 300000,
+      "environment_allowlist": []
+    }
+  },
+  "stop": {
+    "max_stagnant_iterations": 3
+  }
+}

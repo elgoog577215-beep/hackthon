@@ -73,6 +73,58 @@ def test_provider_client_disables_hidden_retries_and_bounds_timeouts(monkeypatch
     assert captured["timeout"].connect == 7
 
 
+def test_profile_without_fast_model_inherits_its_smart_model(monkeypatch):
+    monkeypatch.setattr(
+        "ai_base.llm_profile_store.active_config",
+        lambda: (
+            7,
+            {
+                "api_key": "test-key",
+                "api_base": "https://api.deepseek.example",
+                "smart_model": "deepseek-v4-pro",
+                "fast_model": "",
+            },
+        ),
+    )
+    monkeypatch.setattr("ai_base.AsyncOpenAI", lambda **_kwargs: SimpleNamespace())
+
+    service = AIBase()
+
+    assert service.smart_models == ["deepseek-v4-pro"]
+    assert service.fast_models == ["deepseek-v4-pro"]
+    assert service.model_fast == "deepseek-v4-pro"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_can_raise_a_safe_provider_error(monkeypatch):
+    api_key = "secret-test-key"
+
+    class FailingCompletions:
+        async def create(self, **_kwargs):
+            raise RuntimeError(f"provider rejected model; credential={api_key}")
+
+    monkeypatch.setattr(
+        "ai_base.llm_profile_store.active_config",
+        lambda: (
+            8,
+            {
+                "api_key": api_key,
+                "api_base": "https://api.deepseek.example",
+                "smart_model": "deepseek-v4-pro",
+                "fast_model": "deepseek-v4-flash",
+            },
+        ),
+    )
+    service = AIBase()
+    service.client = SimpleNamespace(chat=SimpleNamespace(completions=FailingCompletions()))
+
+    with pytest.raises(AIProviderRequestError) as caught:
+        await service._call_llm("test", use_fast_model=True, retry_count=1, raise_on_error=True)
+
+    assert "provider rejected model" in str(caught.value)
+    assert api_key not in str(caught.value)
+
+
 @pytest.mark.asyncio
 async def test_stream_failure_raises_typed_error_without_fake_content(monkeypatch):
     calls = []

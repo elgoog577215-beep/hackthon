@@ -38,7 +38,10 @@ describe('LearningView 正文任务覆盖层', () => {
     setActivePinia(pinia)
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: '/course/:courseId/learn/:nodeId?', name: 'learning', component: LearningView }],
+      routes: [
+        { path: '/course/:courseId/learn/:nodeId?', name: 'learning', component: LearningView },
+        { path: '/course/:courseId/deck', name: 'presentation-entry', component: { template: '<div />' } },
+      ],
     })
     await router.push('/course/c1/learn/n1')
     await router.isReady()
@@ -115,6 +118,44 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
     expect(content.scrollTop).toBe(315)
     expect(document.activeElement).toBe(trigger)
+    wrapper.unmount()
+  })
+
+  it('从学习页进入课件时保留课程与章节上下文', async () => {
+    const course = useCourseStore()
+    const chapter: Node = {
+      node_id: 'chapter-1', parent_node_id: '', node_name: '第 2 章', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }
+    course.nodes = [chapter, node]
+    course.courseTree = [chapter]
+
+    const wrapper = mount(LearningView, {
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningDock: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('.courseware-entry').trigger('click')
+    await flushPromises()
+
+    const route = (globalThis as any).__learningTestRouter.currentRoute.value
+    expect(route.name).toBe('presentation-entry')
+    expect(route.query).toMatchObject({
+      nodeId: 'n1',
+      courseTitle: '线性代数',
+      chapterTitle: '第 2 章',
+    })
     wrapper.unmount()
   })
 

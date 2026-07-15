@@ -22,6 +22,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from typing import List, Dict, Optional
+from llm_profiles import llm_profile_store
 
 # 添加项目根目录到系统路径以导入共享配置
 project_root = Path(__file__).parent.parent
@@ -98,24 +99,49 @@ class AIBase:
     _working_model_cache = {}
 
     def __init__(self):
-        # 通过环境变量配置 API 密钥
-        self.api_key = os.getenv("AI_API_KEY")
-        self.api_base = os.getenv("AI_API_BASE", "https://api-inference.modelscope.cn/v1")
+        self._profile_revision = -1
+        self.api_key = ""
+        self.api_base = ""
         
-        self.smart_models = (
+        self._default_smart_models = (
             _parse_model_list(os.getenv("AI_MODEL_CANDIDATES"))
             or _parse_model_list(os.getenv("AI_MODEL"))
             or DEFAULT_SMART_MODELS
         )
-        self.fast_models = (
+        self._default_fast_models = (
             _parse_model_list(os.getenv("AI_MODEL_FAST_CANDIDATES"))
             or _parse_model_list(os.getenv("AI_MODEL_FAST"))
             or DEFAULT_FAST_MODELS
         )
+        self.smart_models = list(self._default_smart_models)
+        self.fast_models = list(self._default_fast_models)
         self.model_smart = self.smart_models[0]
         self.model_fast = self.fast_models[0]
         self._provider_failure: str | None = None
-        
+        self.client = None
+        self._sync_profile()
+
+    def _sync_profile(self) -> None:
+        revision, profile = llm_profile_store.active_config()
+        if revision == self._profile_revision:
+            return
+        self._profile_revision = revision
+        self.api_key = profile["api_key"]
+        self.api_base = profile["api_base"] or "https://api-inference.modelscope.cn/v1"
+        smart_model = str(profile.get("smart_model") or "").strip()
+        fast_model = str(profile.get("fast_model") or "").strip()
+        self.smart_models = [smart_model] if smart_model else list(self._default_smart_models)
+        # A local profile is one provider contract.  When it only declares one
+        # model, fast requests must stay on that provider instead of leaking to
+        # the process-wide ModelScope defaults.
+        self.fast_models = (
+            [fast_model]
+            if fast_model
+            else ([smart_model] if smart_model else list(self._default_fast_models))
+        )
+        self.model_smart = self.smart_models[0]
+        self.model_fast = self.fast_models[0]
+        self._provider_failure = None
         if self.api_key:
             request_timeout = max(1.0, float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "180")))
             connect_timeout = max(1.0, float(os.getenv("AI_CONNECT_TIMEOUT_SECONDS", "10")))
@@ -170,6 +196,15 @@ class AIBase:
             "rate limit",
             "速率限制",
         ))
+
+    def _safe_provider_error(self, error: Exception) -> str:
+        """Return a bounded provider error suitable for a user-facing issue."""
+
+        message = re.sub(r"\s+", " ", str(error or "")).strip()
+        if self.api_key:
+            message = message.replace(self.api_key, "[redacted]")
+        message = re.sub(r"(?i)(bearer\s+)[^\s,'\"}]+", r"\1[redacted]", message)
+        return (message or type(error).__name__)[:500]
 
     # ============================================================================
     # 辅助工具方法
@@ -483,6 +518,7 @@ class AIBase:
         use_fast_model: bool = False,
         retry_count: int = 3,
         enable_thinking: bool = False,
+        raise_on_error: bool = False,
     ) -> str:
         """
         通用 LLM 调用函数。
@@ -503,12 +539,20 @@ class AIBase:
         Returns:
             LLM 完整响应文本，失败返回 None
         """
+        self._sync_profile()
         if not self.api_key:
+            if raise_on_error:
+                raise AIProviderUnavailable("not_configured")
             return None
         if self._provider_failure:
+            if raise_on_error:
+                raise AIProviderUnavailable(self._provider_failure)
             return None
-        
+
+        last_error: Exception | None = None
+        last_model = ""
         for model_id in self._models_for(use_fast_model):
+            last_model = model_id
             for attempt in range(retry_count):
                 try:
                     extra_body = {"enable_thinking": enable_thinking}
@@ -555,17 +599,35 @@ class AIBase:
                     return full_content
 
                 except Exception as e:
-                    logger.error(f"AI API Call Error (Model: {model_id}, Attempt {attempt+1}/{retry_count}): {e}")
+                    last_error = e
+                    safe_error = self._safe_provider_error(e)
+                    logger.error(
+                        "AI API Call Error (Model: %s, Attempt %d/%d): %s",
+                        model_id,
+                        attempt + 1,
+                        retry_count,
+                        safe_error,
+                    )
                     if self._is_authentication_error(e):
                         self._block_provider("authentication_failed")
+                        if raise_on_error:
+                            raise AIProviderUnavailable("authentication_failed") from e
                         return None
                     if self._should_try_next_model(e):
                         break
                     if attempt < retry_count - 1:
                         await asyncio.sleep(2 ** attempt)  # Exponential backoff
                     else:
+                        if raise_on_error:
+                            raise AIProviderRequestError(f"{model_id}: {safe_error}") from e
                         return None
-        
+
+        if raise_on_error:
+            if last_error is not None:
+                raise AIProviderRequestError(
+                    f"{last_model}: {self._safe_provider_error(last_error)}"
+                ) from last_error
+            raise AIProviderRequestError(f"{last_model or 'model'} returned no content")
         return None
 
     async def _stream_llm(
@@ -590,6 +652,7 @@ class AIBase:
         Yields:
             生成的文本块
         """
+        self._sync_profile()
         if not self.api_key:
             raise AIProviderUnavailable("not_configured")
         if self._provider_failure:

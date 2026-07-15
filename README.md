@@ -67,6 +67,8 @@ npm run dev
 - 后端: http://localhost:8000
 - API文档: http://localhost:8000/docs
 
+首次打开课程库后，也可以使用右上角的“模型配置”添加多个 OpenAI 兼容服务配置并切换。密钥只保存在本机后端的 `backend/data/llm_profiles.json`（已被 Git 忽略），接口不会把密钥返回给浏览器。
+
 详细开发指南请查看 [DEVELOPMENT.md](./.kiro/docs/DEVELOPMENT.md)
 
 ## 部署

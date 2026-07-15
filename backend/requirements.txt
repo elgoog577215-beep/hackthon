@@ -7,3 +7,4 @@ openai>=1.12,<2.0
 python-dotenv>=1.0,<2.0
 docling-slim[convert-core,format-pdf,format-office]==2.111.0
 markitdown[pdf,docx,pptx,xlsx]==0.1.6
+python-pptx==1.0.2

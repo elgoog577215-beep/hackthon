@@ -17,10 +17,12 @@ from routers import (
     learning_records,
     learning_runtime,
     learning_snapshots,
+    llm_profiles,
     markdown_import,
     materials,
     nodes,
     practice,
+    presentations,
     review,
     tasks,
 )

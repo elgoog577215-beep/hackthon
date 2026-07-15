@@ -104,6 +104,22 @@ async def resume_task(
         ) from exc
 
 
+@router.post("/tasks/{task_id}/repair-quality")
+async def repair_task_quality(
+    task_id: str,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    try:
+        return {"task": await tm.start_quality_repair(task_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except TaskStateConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "quality_repair_unavailable", "message": str(exc), "status": exc.status},
+        ) from exc
+
+
 @router.get("/tasks/{task_id}/recovery")
 def get_task_recovery(
     task_id: str,

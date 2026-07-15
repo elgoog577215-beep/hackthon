@@ -32,6 +32,10 @@
           <button v-if="!aiVisible && !isGenerationPreview" type="button" :title="t('learningShell.openAi', '打开 AI 老师')" :aria-label="t('learningShell.openAi', '打开 AI 老师')" @click="openAi()">
             <MessageSquareText :size="17" />
           </button>
+          <button v-if="!isGenerationPreview" type="button" class="courseware-entry" title="打开课件工作台" aria-label="打开课件工作台" @click="openCourseware">
+            <Presentation :size="17" />
+            <span>课件</span>
+          </button>
         </div>
       </div>
 
@@ -117,7 +121,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ClipboardCheck, History, Library, ListTree, LoaderCircle, LocateFixed, MessageSquareText, NotebookTabs, PanelLeftOpen, X } from 'lucide-vue-next'
+import { ClipboardCheck, History, Library, ListTree, LoaderCircle, LocateFixed, MessageSquareText, NotebookTabs, PanelLeftOpen, Presentation, X } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import LearningDock from '../components/LearningDock.vue'
@@ -335,6 +339,23 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   if (isNarrow.value) navigatorOpen.value = false
 }
 
+function openCourseware() {
+  const courseId = courseStore.currentCourseId || String(route.params.courseId || '')
+  if (!courseId) return
+  const nodeId = courseStore.currentNode?.node_id || String(route.params.nodeId || '')
+  const courseTitle = courseStore.currentCourse?.course_name || currentParentLabel.value
+  const chapterTitle = currentParentLabel.value
+  void router.push({
+    name: 'presentation-entry',
+    params: { courseId },
+    query: {
+      ...(nodeId ? { nodeId } : {}),
+      courseTitle,
+      chapterTitle,
+    },
+  })
+}
+
 function openBlockImprovement(target: CourseBlockEditTarget) {
   aiBlockTarget.value = target
   aiQuote.value = ''
@@ -476,10 +497,11 @@ function closeMobileSurfaces() {
 .learning-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; gap: 12px; overflow: hidden; background: transparent; }
 .navigator-surface { flex: 0 0 280px; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
-.learning-context-bar { min-height: 44px; flex: 0 0 auto; display:none; align-items:center; gap:9px; padding:5px 10px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.72); }
+.learning-context-bar { min-height: 44px; flex: 0 0 auto; display:flex; align-items:center; gap:9px; padding:5px 10px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.72); }
 .learning-context-bar.is-generation { display:flex; min-height:52px; background:rgba(255,255,255,.9); }
 .learning-context-bar button { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 6px; color: var(--lz-text-secondary); background: transparent; cursor: pointer; }
 .learning-context-bar button:hover { color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
+.learning-context-bar button.courseware-entry { width:auto; display:inline-flex; padding:0 10px; gap:6px; border:1px solid #e0e7ff; color:var(--lz-brand-strong); background:#f7f7ff; font-size:11px; font-weight:700; }
 .context-copy { min-width:0; flex:1; display:flex; flex-direction:column; }
 .context-copy span { color:var(--lz-text-muted); font-size:9px; }
 .context-copy strong { margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--lz-text-strong); font-size:12px; }

@@ -321,6 +321,25 @@ export interface TaskRecovery {
     checkpoint: TaskRecoveryCheckpoint
 }
 
+export interface GenerationQualityIssue {
+    gate?: string
+    severity?: string
+    asset_type?: string
+    message?: string
+}
+
+export interface GenerationQualityReport {
+    publication_allowed: boolean
+    blocking_issues: GenerationQualityIssue[]
+    warnings: GenerationQualityIssue[]
+}
+
+export interface QualityRepairState {
+    eligible: boolean
+    attempts: number
+    reason: string
+}
+
 export interface Task {
     id: string
     courseId: string
@@ -348,4 +367,6 @@ export interface Task {
     recovery?: TaskRecovery
     publicationAllowed?: boolean
     qualityStatus?: string
+    qualityReport?: GenerationQualityReport
+    qualityRepair?: QualityRepairState
 }

@@ -622,6 +622,28 @@ export const useGenerationStore = defineStore('generation', {
       }
     },
 
+    async repairQuality(courseId: string) {
+      const taskId = await this.ensureJobId(courseId)
+      if (!taskId) return
+      try {
+        const response = await http.post(`/api/tasks/${taskId}/repair-quality`)
+        const current = this.tasks.get(courseId)
+        const task = response.data?.task || {}
+        if (current) {
+          current.status = 'running'
+          current.currentPhase = task.phase || 'asset_repair'
+          current.currentStep = task.message || '正在补齐缺失学习资产'
+          current.shouldStop = false
+          this.persistGenerationState()
+        }
+        this.startGlobalMonitor()
+      } catch (error) {
+        console.error('Failed to repair quality', error)
+        ElMessage.error('自动补齐未能启动')
+        throw error
+      }
+    },
+
     async startTask(courseId: string) {
       const task = this.tasks.get(courseId)
       if (task?.status === 'paused') await this.resumeTask(courseId)
