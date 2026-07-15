@@ -8,6 +8,19 @@ import { useGenerationStore } from './generation'
 import logger from '../utils/logger'
 import { courseDocumentToNodes } from '../utils/course-document'
 import { t } from '@/shared/i18n'
+import type {
+    BlockRegenerationApplyResult,
+    BlockRegenerationCandidate,
+    CourseBlockEditTarget,
+    CourseDocumentEnvelope,
+    Node,
+    Annotation,
+    Note,
+    Course,
+    Task,
+    SelectionRewritePayload,
+    SelectionRewriteResult,
+} from './types'
 
 // =============================================================================
 // Course Store - 核心课程状态管理
@@ -35,21 +48,38 @@ const downloadBlob = (blob: Blob, filename: string) => {
     setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
+type CourseProjection = 'published' | 'generation_preview'
+
+type GenerationPreviewEnvelope = {
+    schema_version: 'generation_preview_v1'
+    projection: 'generation_workspace'
+    course_id: string
+    course_name: string
+    workspace_id: string
+    workspace_status: string
+    updated_at?: string
+    task: Record<string, any>
+    nodes: Array<Partial<Node> & Pick<Node, 'node_id' | 'node_name' | 'node_level'>>
+}
+
+const GENERATION_PREVIEW_STATUSES = new Set([
+    'pending', 'running', 'paused', 'waiting_for_review', 'conflict', 'failed', 'error', 'completed_with_warnings',
+])
+
+const normalizeTaskStatus = (status: string): Task['status'] => {
+    if (status === 'failed') return 'error'
+    if (['idle', 'running', 'paused', 'completed', 'error', 'pending', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(status)) {
+        return status as Task['status']
+    }
+    return 'pending'
+}
+
+const generationPhaseLabel = (phase: string): string => (
+    phase ? t(`courseGeneration.phases.${phase}`, phase) : ''
+)
+
 // --- 类型重新导出（向后兼容） ---
 export type { ContentBlock, Node, Annotation, Note, Course, SelectionRewritePayload, SelectionRewriteResult } from './types'
-import type {
-    BlockRegenerationApplyResult,
-    BlockRegenerationCandidate,
-    CourseBlockEditTarget,
-    CourseDocumentEnvelope,
-    Node,
-    Annotation,
-    Note,
-    Course,
-    Task,
-    SelectionRewritePayload,
-    SelectionRewriteResult,
-} from './types'
 
 export const useCourseStore = defineStore('course', {
   state: () => ({
@@ -59,6 +89,9 @@ export const useCourseStore = defineStore('course', {
     currentCourseVersionId: '' as string,
     currentDocumentRevision: '' as string,
     currentCourseSourceFormat: '' as '' | 'canonical' | 'legacy_projection',
+    currentCourseProjection: 'published' as CourseProjection,
+    currentGenerationPreviewUpdatedAt: '' as string,
+    generationPreviewLoading: false,
     courseTree: [] as Node[],
     nodes: [] as Node[],
     currentNode: null as Node | null,
@@ -177,46 +210,62 @@ export const useCourseStore = defineStore('course', {
     async loadCourse(courseId: string) {
         this.loading = true
         this.currentCourseId = courseId
+        this.currentCourseProjection = 'published'
+        this.currentGenerationPreviewUpdatedAt = ''
+        this.currentCourseVersionId = ''
+        this.currentDocumentRevision = ''
+        this.currentCourseSourceFormat = ''
+        this.currentNode = null
+        this.nodes = []
+        this.courseTree = []
         const noteStore = this._noteStore()
         noteStore.notes = []
-        this.fetchCourseAnnotations(courseId)
         const genStore = this._genStore()
 
         try {
+            let backendTask: Record<string, any> | null = null
             try {
                 const taskRes = await http.get(`/api/courses/${courseId}/task`)
-                if (taskRes.data && taskRes.data.status !== 'none' && taskRes.data.status !== 'error') {
-                    const backendTask = taskRes.data
+                const taskData = taskRes.data as Record<string, any> | null
+                if (taskData && taskData.status !== 'none' && taskData.status !== 'error') {
+                    backendTask = taskData
                     let localTask = genStore.tasks.get(courseId)
                     if (!localTask) {
-                        localTask = genStore.createTask(backendTask.id, courseId, 'Loading...')
+                        localTask = genStore.createTask(taskData.id, courseId, '后台生成任务')
                     }
-                    localTask.id = backendTask.id
-                    localTask.status = backendTask.status
-                    localTask.progress = backendTask.progress
-                    const phase = backendTask.current_phase || backendTask.phase
-                    if (phase) localTask.currentPhase = phase
-                    localTask.phaseProgress = backendTask.phase_progress ?? backendTask.progress
-                    localTask.phaseDetail = backendTask.phase_detail || {}
-                    if (backendTask.status === 'running' || backendTask.status === 'pending') {
+                    localTask.id = taskData.id
+                    localTask.status = taskData.status
+                    localTask.progress = taskData.progress
+                    const phase = taskData.current_phase || taskData.phase
+                    if (phase) localTask.currentPhase = generationPhaseLabel(String(phase))
+                    localTask.phaseProgress = taskData.phase_progress ?? taskData.progress
+                    localTask.phaseDetail = taskData.phase_detail || {}
+                    if (taskData.status === 'running' || taskData.status === 'pending') {
                         genStore.startGlobalMonitor()
                     }
                 }
             } catch (_ignore) { /* no task is fine */ }
 
+            if (
+                backendTask
+                && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || ''))
+                && await this.refreshGenerationPreview(courseId)
+            ) {
+                genStore.syncCurrentCourseGenerationState(
+                    courseId,
+                    normalizeTaskStatus(String(backendTask.status || 'pending')),
+                    Number(backendTask.progress || 0),
+                    String(backendTask.current_node_name || backendTask.message || ''),
+                )
+                return
+            }
+
             const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`)
             if (res.data?.document) {
-                const currentNodeId = this.currentNode?.node_id
-                this.nodes = courseDocumentToNodes(res.data.document)
-                this.courseTree = this.buildTree(this.nodes)
-                this.currentCourseVersionId = res.data.current_course_version_id || ''
-                this.currentDocumentRevision = res.data.document.document_revision || ''
-                this.currentCourseSourceFormat = res.data.source_format || ''
-                if (currentNodeId) this.currentNode = this.nodes.find(node => node.node_id === currentNodeId) || null
-                this.currentPedagogyProfile = res.data.subject_pedagogy_profile || null
-                this.currentGenerationQualityReport = res.data.generation_quality_report || null
+                this.applyCourseDocumentEnvelope(res.data)
+                void this.fetchCourseAnnotations(courseId)
                 const localTask = genStore.tasks.get(courseId)
-                if (localTask && localTask.courseName === 'Loading...') {
+                if (localTask && localTask.courseName === '后台生成任务') {
                     localTask.courseName = res.data.course_name
                 }
                 if (localTask && localTask.status === 'running') {
@@ -241,6 +290,8 @@ export const useCourseStore = defineStore('course', {
             this.currentCourseVersionId = ''
             this.currentDocumentRevision = ''
             this.currentCourseSourceFormat = ''
+            this.currentCourseProjection = 'published'
+            this.currentGenerationPreviewUpdatedAt = ''
             this.currentPedagogyProfile = null
             this.currentGenerationQualityReport = null
             this.nodes = []
@@ -261,6 +312,7 @@ export const useCourseStore = defineStore('course', {
             if (this.currentCourseId === courseId) {
                 this.nodes = []; this.courseTree = []; this.currentCourseId = ''; this.currentNode = null
                 this.currentCourseVersionId = ''; this.currentDocumentRevision = ''; this.currentCourseSourceFormat = ''
+                this.currentCourseProjection = 'published'; this.currentGenerationPreviewUpdatedAt = ''
                 this.currentPedagogyProfile = null
                 this.currentGenerationQualityReport = null
             }
@@ -280,19 +332,104 @@ export const useCourseStore = defineStore('course', {
     async refreshCourseData(courseId: string) {
         if (this.currentCourseId !== courseId) return
         try {
+            if (this.currentCourseProjection === 'generation_preview') {
+                const previewAvailable = await this.refreshGenerationPreview(courseId)
+                if (previewAvailable) return
+            }
             const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`)
             if (res.data?.document) {
-                const currentNodeId = this.currentNode?.node_id
-                this.nodes = courseDocumentToNodes(res.data.document)
-                this.courseTree = this.buildTree(this.nodes)
-                if (currentNodeId) this.currentNode = this.nodes.find(node => node.node_id === currentNodeId) || null
-                this.currentPedagogyProfile = res.data.subject_pedagogy_profile || null
-                this.currentGenerationQualityReport = res.data.generation_quality_report || null
-                this.currentCourseVersionId = res.data.current_course_version_id || ''
-                this.currentDocumentRevision = res.data.document.document_revision || ''
-                this.currentCourseSourceFormat = res.data.source_format || ''
+                this.applyCourseDocumentEnvelope(res.data)
             }
         } catch (e) { logger.error('Failed to refresh course data', e) }
+    },
+
+    applyCourseDocumentEnvelope(envelope: CourseDocumentEnvelope) {
+        const currentNodeId = this.currentNode?.node_id
+        this.nodes = courseDocumentToNodes(envelope.document)
+        this.courseTree = this.buildTree(this.nodes)
+        this.currentNode = currentNodeId ? this.nodes.find(node => node.node_id === currentNodeId) || null : null
+        this.currentPedagogyProfile = envelope.subject_pedagogy_profile || null
+        this.currentGenerationQualityReport = envelope.generation_quality_report || null
+        this.currentCourseVersionId = envelope.current_course_version_id || ''
+        this.currentDocumentRevision = envelope.document.document_revision || ''
+        this.currentCourseSourceFormat = envelope.source_format || ''
+        this.currentCourseProjection = 'published'
+        this.currentGenerationPreviewUpdatedAt = ''
+    },
+
+    async refreshGenerationPreview(courseId: string): Promise<boolean> {
+        if (this.currentCourseId !== courseId || this.generationPreviewLoading) {
+            return this.currentCourseProjection === 'generation_preview'
+        }
+        this.generationPreviewLoading = true
+        try {
+            const response = await http.get<GenerationPreviewEnvelope>(
+                `/api/courses/${courseId}/generation-preview`,
+                { silentError: true },
+            )
+            const preview = response.data
+            const previousById = new Map(this.nodes.map(node => [node.node_id, node]))
+            const currentNodeId = this.currentNode?.node_id
+            const nodes = (preview.nodes || []).map((raw): Node => {
+                const previous = previousById.get(raw.node_id)
+                const incomingContent = String(raw.node_content || '')
+                const previousContent = previous?.node_content || ''
+                const preserveLiveStream = raw.generation_status !== 'completed'
+                    && previousContent.length > incomingContent.length
+                    && (incomingContent.length === 0 || previousContent.startsWith(incomingContent))
+                return {
+                    node_id: raw.node_id,
+                    parent_node_id: String(raw.parent_node_id || 'root'),
+                    node_name: raw.node_name,
+                    node_level: Number(raw.node_level || 1),
+                    node_content: preserveLiveStream ? previousContent : incomingContent,
+                    learning_objective: String(raw.learning_objective || ''),
+                    node_type: raw.node_type || 'original',
+                    generation_status: raw.generation_status || 'pending',
+                    content_state: raw.content_state,
+                    generated_chars: Number(raw.generated_chars || incomingContent.length),
+                    error_summary: raw.error_summary,
+                    difficulty_contract: raw.difficulty_contract,
+                    content_blocks: raw.content_blocks || [],
+                    children: [],
+                }
+            })
+            this.nodes = nodes
+            this.courseTree = this.buildTree(nodes)
+            const activeNodeId = String(preview.task?.current_nodes?.[0]?.node_id || '')
+            this.currentNode = (
+                (currentNodeId && nodes.find(node => node.node_id === currentNodeId))
+                || (activeNodeId && nodes.find(node => node.node_id === activeNodeId))
+                || nodes.find(node => node.node_level >= 2 && Boolean(node.node_content))
+                || nodes[0]
+                || null
+            )
+            this.currentCourseProjection = 'generation_preview'
+            this.currentCourseSourceFormat = 'canonical'
+            this.currentGenerationPreviewUpdatedAt = String(preview.updated_at || '')
+
+            const genStore = this._genStore()
+            const task = preview.task || {}
+            let localTask = genStore.tasks.get(courseId)
+            if (!localTask) localTask = genStore.createTask(String(task.id || ''), courseId, preview.course_name || '后台生成任务')
+            localTask.id = String(task.id || localTask.id)
+            localTask.courseName = preview.course_name || localTask.courseName
+            localTask.status = normalizeTaskStatus(String(task.status || 'pending'))
+            localTask.progress = Number(task.progress || 0)
+            localTask.currentStep = String(task.current_node_name || task.message || '')
+            localTask.currentPhase = generationPhaseLabel(String(task.phase || ''))
+            localTask.phaseProgress = Number(task.phase_progress || 0)
+            localTask.currentNodes = (task.current_nodes || []) as Task['currentNodes']
+            localTask.completedNodes = Number(task.completed_nodes || 0)
+            localTask.totalNodes = Number(task.total_nodes || 0)
+            localTask.recovery = task.recovery || undefined
+            return true
+        } catch (error: any) {
+            if (error?.response?.status !== 404) logger.warn('Failed to refresh generation preview', error)
+            return false
+        } finally {
+            this.generationPreviewLoading = false
+        }
     },
 
     // ========== Node Operations ==========
@@ -474,6 +611,8 @@ export const useCourseStore = defineStore('course', {
         this.currentCourseVersionId = envelope.current_course_version_id || ''
         this.currentDocumentRevision = envelope.document.document_revision || ''
         this.currentCourseSourceFormat = envelope.source_format
+        this.currentCourseProjection = 'published'
+        this.currentGenerationPreviewUpdatedAt = ''
         const currentNodeId = this.currentNode?.node_id
         this.currentNode = currentNodeId ? this.nodes.find(node => node.node_id === currentNodeId) || null : null
         return result

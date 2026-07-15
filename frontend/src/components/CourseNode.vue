@@ -9,7 +9,11 @@
       <div v-if="node.node_content" class="opening-content" :style="contentStyle">
         <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" />
       </div>
-      <AdaptiveLearningBlock v-if="adaptiveBlock" :block="adaptiveBlock" />
+      <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
+        <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
+        <span>{{ generationLabel }}</span>
+      </div>
+      <AdaptiveLearningBlock v-if="adaptiveBlock && !generationPreview" :block="adaptiveBlock" />
     </template>
 
     <template v-else-if="node.node_level === 2">
@@ -21,9 +25,15 @@
           </span>
           <span class="chapter-index">{{ String(index + 1).padStart(2, '0') }}</span>
         </div>
-        <div v-if="nodeProgress" class="chapter-status">
-          <span :data-state="nodeProgress.reading_status">{{ readingStatusLabel }}</span>
-          <span :data-state="nodeProgress.mastery_status">{{ masteryStatusLabel }}</span>
+        <div v-if="generationPreview || nodeProgress" class="chapter-status">
+          <span v-if="generationPreview" class="generation-status" :data-state="generationState">
+            <component :is="generationIcon" :size="13" :class="{ spinning: generationState === 'generating' }" />
+            {{ generationLabel }}
+          </span>
+          <template v-else>
+            <span :data-state="nodeProgress?.reading_status">{{ readingStatusLabel }}</span>
+            <span :data-state="nodeProgress?.mastery_status">{{ masteryStatusLabel }}</span>
+          </template>
         </div>
         <div class="chapter-copy">
           <h2>{{ node.node_name }}</h2>
@@ -38,10 +48,15 @@
         <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" />
       </div>
 
-      <AdaptiveLearningBlock v-if="adaptiveBlock" :block="adaptiveBlock" />
+      <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
+        <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
+        <span>{{ generationLabel }}</span>
+      </div>
+
+      <AdaptiveLearningBlock v-if="adaptiveBlock && !generationPreview" :block="adaptiveBlock" />
 
       <button
-        v-if="hasFormalPractice"
+        v-if="hasFormalPractice && !generationPreview"
         :id="`practice-block-${node.node_id}`"
         type="button"
         class="task-launcher"
@@ -67,18 +82,26 @@
       <header class="section-heading">
         <span></span>
         <h3>{{ node.node_name }}</h3>
+        <small v-if="generationPreview" class="section-generation-status" :data-state="generationState">
+          <component :is="generationIcon" :size="12" :class="{ spinning: generationState === 'generating' }" />
+          {{ generationLabel }}
+        </small>
       </header>
       <div v-if="node.node_content" class="section-content" :style="contentStyle">
         <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" />
       </div>
-      <AdaptiveLearningBlock v-if="adaptiveBlock" :block="adaptiveBlock" />
+      <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
+        <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
+        <span>{{ generationLabel }}</span>
+      </div>
+      <AdaptiveLearningBlock v-if="adaptiveBlock && !generationPreview" :block="adaptiveBlock" />
     </template>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowRight, BookOpenText, ClipboardCheck } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, CheckCircle2, ClipboardCheck, Clock3, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
 import AdaptiveLearningBlock from './AdaptiveLearningBlock.vue'
 import CourseBlockStream from './CourseBlockStream.vue'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
@@ -96,6 +119,7 @@ const props = defineProps<{
   isStreaming?: boolean
   records?: Note[]
   canImproveBlocks?: boolean
+  generationPreview?: boolean
 }>()
 const emit = defineEmits<{
   (event: 'startPractice', node: Node): void
@@ -105,6 +129,27 @@ const emit = defineEmits<{
 const progressStore = useLearningProgressStore()
 const workspaceStore = useCourseWorkspaceStore()
 const cleanName = computed(() => props.node.node_name.replace(/《|》/g, ''))
+const generationState = computed(() => {
+  const status = String(props.node.generation_status || '')
+  if (status === 'generating') return 'generating'
+  if (status === 'completed' || props.node.content_state === 'finalized') return 'finalized'
+  if (status === 'error' || props.node.content_state === 'failed') return 'failed'
+  if (props.node.content_state === 'draft' || Boolean(props.node.node_content)) return 'draft'
+  return 'waiting'
+})
+const generationLabel = computed(() => {
+  if (generationState.value === 'generating') return t('courseGeneration.workspace.generating', '正在生成')
+  if (generationState.value === 'finalized') return t('courseGeneration.workspace.finalized', '已定稿')
+  if (generationState.value === 'failed') return t('courseGeneration.workspace.failed', '生成失败')
+  if (generationState.value === 'draft') return t('courseGeneration.workspace.draft', 'AI 草稿')
+  return t('courseGeneration.workspace.waiting', '等待生成')
+})
+const generationIcon = computed(() => {
+  if (generationState.value === 'generating') return LoaderCircle
+  if (generationState.value === 'finalized') return CheckCircle2
+  if (generationState.value === 'failed') return TriangleAlert
+  return Clock3
+})
 const practiceQuestions = computed(() => (
   workspaceStore.assets?.assets?.questions || []
 ).filter(item => item.node_id === props.node.node_id))
@@ -166,7 +211,16 @@ const contentStyle = computed(() => ({
 .chapter-status { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px; }
 .chapter-status span { padding:4px 8px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.72); font-size:9px; }
 .chapter-status span[data-state="completed"],.chapter-status span[data-state="mastered"] { border-color:#a7f3d0; color:var(--lz-success); background:var(--lz-success-soft); }
+.chapter-status .generation-status { display:inline-flex; align-items:center; gap:5px; }
+.generation-status[data-state="generating"],.section-generation-status[data-state="generating"] { border-color:#c7d2fe; color:#4f46e5; background:#eef2ff; }
+.generation-status[data-state="finalized"],.section-generation-status[data-state="finalized"] { border-color:#a7f3d0; color:#047857; background:#ecfdf5; }
+.generation-status[data-state="failed"],.section-generation-status[data-state="failed"] { border-color:#fecaca; color:#b91c1c; background:#fef2f2; }
+.generation-status[data-state="draft"],.section-generation-status[data-state="draft"] { border-color:#ddd6fe; color:#6d28d9; background:#f5f3ff; }
+.spinning { animation:generation-status-spin .9s linear infinite; }
 .chapter-content { padding:20px 0 8px; }
+.generation-placeholder { min-height:52px; display:flex; align-items:center; gap:9px; margin:8px 0 0; padding:12px 14px; border:1px dashed #dbe2ee; border-radius:10px; color:#64748b; background:#f8fafc; font-size:11px; font-weight:650; }
+.generation-placeholder[data-state="generating"] { border-color:#c7d2fe; color:#4f46e5; background:#f5f7ff; }
+.generation-placeholder[data-state="failed"] { border-color:#fecaca; color:#b91c1c; background:#fef2f2; }
 .task-launcher { position:relative; width:100%; min-height:112px; margin:30px 0 0; display:grid; grid-template-columns:44px minmax(0,1fr) auto; align-items:center; gap:16px; overflow:hidden; padding:18px 18px 18px 20px; border:1px solid #dbe2ee; border-radius:16px; color:var(--lz-text); background:#f8fafc; text-align:left; box-shadow:0 1px 2px rgba(15,23,42,.03),inset 0 1px 0 rgba(255,255,255,.9); cursor:pointer; transition:border-color .22s ease,box-shadow .22s ease,transform .22s ease,background .22s ease; }
 .task-launcher::before { content:""; position:absolute; inset:14px auto 14px 0; width:3px; border-radius:0 999px 999px 0; background:#6366f1; }
 .task-launcher:hover { border-color:#a5b4fc; background:#fff; box-shadow:0 10px 28px rgba(15,23,42,.08); transform:translateY(-2px); }
@@ -182,6 +236,7 @@ const contentStyle = computed(() => ({
 .section-heading { display:grid; grid-template-columns:minmax(0,1fr); align-items:center; gap:10px; }
 .section-heading span { display:none; }
 .section-heading h3 { margin:0; color:#312e81; font-size:19px; line-height:1.35; }
+.section-generation-status { width:max-content; display:inline-flex; align-items:center; gap:4px; margin-top:2px; padding:3px 7px; border:1px solid #dbe2ee; border-radius:999px; color:#64748b; background:#f8fafc; font-size:9px; font-weight:700; }
 .section-content { margin:12px 0 0; padding:18px clamp(16px,3vw,24px); border:1px solid rgba(226,232,240,.7); border-radius:12px; background:rgba(255,255,255,.66); font-size:var(--content-font-size); line-height:var(--content-line-height); transition:background .2s ease,border-color .2s ease,box-shadow .2s ease; }
 .course-node[data-level="3"]:hover .section-content,.course-node[data-level="4"]:hover .section-content,.course-node[data-level="5"]:hover .section-content { border-color:rgba(203,213,225,.82); background:rgba(255,255,255,.84); box-shadow:0 4px 12px rgba(15,23,42,.04); }
 @media (max-width: 700px) {
@@ -203,4 +258,5 @@ const contentStyle = computed(() => ({
   .chapter-content { padding-left:0; }
   .task-launcher { width:100%; margin-left:0; }
 }
+@keyframes generation-status-spin { to { transform:rotate(360deg); } }
 </style>

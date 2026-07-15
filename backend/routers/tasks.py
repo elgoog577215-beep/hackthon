@@ -27,6 +27,23 @@ def get_course_task(
     return tasks[0]
 
 
+@router.get("/courses/{course_id}/generation-preview")
+def get_course_generation_preview(
+    course_id: str,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    preview = tm.get_generation_preview(course_id)
+    if preview is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "generation_preview_unavailable",
+                "message": "当前课程没有可读取的生成工作区",
+            },
+        )
+    return preview
+
+
 @router.get("/tasks")
 def list_tasks(
     limit: int = 100,

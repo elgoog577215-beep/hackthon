@@ -172,6 +172,7 @@ export interface Node {
   quiz_score?: number
   // 节点生成状态与配置
   generation_status: NodeGenerationStatus
+  content_state?: 'pending' | 'generating' | 'draft' | 'finalized' | 'failed' | 'error' | 'skipped'
   generation_config?: NodeGenerationConfig
   generated_chars: number
   error_summary?: string
@@ -333,7 +334,7 @@ export interface Task {
     currentNodes?: Array<{
         node_id?: string
         node_name?: string
-        name: string
+        name?: string
         action: string
         type: string
     }>

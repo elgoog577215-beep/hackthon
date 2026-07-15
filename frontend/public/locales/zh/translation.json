@@ -334,6 +334,18 @@
       "eyebrow": "创建学习课程",
       "topicHelp": "写清楚学习对象；难度、结构和资料边界在下方单独控制。"
     },
+    "workspace": {
+      "live": "课程正在生成",
+      "progress": "生成进度",
+      "preparing": "正在准备课程结构",
+      "contentWillAppear": "目录与正文会随着真实生成结果逐步出现",
+      "follow": "跟随当前生成章节",
+      "generating": "正在生成",
+      "finalized": "已定稿",
+      "failed": "生成失败",
+      "draft": "AI 草稿",
+      "waiting": "等待生成"
+    },
     "form": {
       "topic": "课程主题",
       "topicPlaceholder": "例如：量子力学基础、Python编程、西方哲学史...",

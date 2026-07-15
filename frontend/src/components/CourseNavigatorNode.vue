@@ -9,9 +9,10 @@
       <ChevronRight v-if="hasChildren" :size="13" :class="{ open: expanded }" @click.stop="expanded = !expanded" />
       <span v-else class="node-spacer"></span>
       <span v-if="isChapter" class="node-kind chapter-kind"><BookOpenText :size="14" /></span>
-      <span v-else class="node-kind leaf-kind" :class="{ active: activeId === node.node_id, learned: isLearned }"></span>
+      <span v-else class="node-kind leaf-kind" :class="[{ active: activeId === node.node_id, learned: isLearned }, generationState]"></span>
       <span class="node-label">{{ node.node_name }}</span>
-      <CheckCircle2 v-if="progress?.mastery_status === 'mastered'" :size="13" class="status mastered" />
+      <component v-if="isGenerationPreview && generationIcon" :is="generationIcon" :size="13" class="status generation" :class="[generationState, { spinning: generationState === 'generating' }]" />
+      <CheckCircle2 v-else-if="progress?.mastery_status === 'mastered'" :size="13" class="status mastered" />
       <CircleDot v-else-if="activeId === node.node_id" :size="13" class="status current" />
       <span v-else-if="progress?.reading_status === 'learned'" class="read-dot"></span>
     </button>
@@ -31,19 +32,37 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { BookOpenText, CheckCircle2, ChevronRight, CircleDot } from 'lucide-vue-next'
+import { BookOpenText, CheckCircle2, ChevronRight, CircleDot, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
 import type { Node } from '../stores/types'
 import { useLearningProgressStore } from '../stores/learningProgress'
+import { useCourseStore } from '../stores/course'
 
 defineOptions({ name: 'CourseNavigatorNode' })
 const props = withDefaults(defineProps<{ node: Node; activeId?: string; query?: string; depth?: number }>(), { activeId: '', query: '', depth: 0 })
 const emit = defineEmits<{ (event: 'select', node: Node): void }>()
 const progressStore = useLearningProgressStore()
+const courseStore = useCourseStore()
 const expanded = ref(props.depth < 2)
 const hasChildren = computed(() => Boolean(props.node.children?.length))
 const progress = computed(() => progressStore.nodeProgress(props.node.node_id))
 const isChapter = computed(() => props.depth === 0 || props.node.node_level === 1)
 const isLearned = computed(() => progress.value?.reading_status === 'learned' || progress.value?.mastery_status === 'mastered')
+const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
+const generationState = computed(() => {
+  if (!isGenerationPreview.value) return ''
+  const status = String(props.node.generation_status || '')
+  if (status === 'generating') return 'generating'
+  if (status === 'completed' || props.node.content_state === 'finalized') return 'finalized'
+  if (status === 'error' || props.node.content_state === 'failed') return 'failed'
+  if (props.node.content_state === 'draft' || Boolean(props.node.node_content)) return 'draft'
+  return 'waiting'
+})
+const generationIcon = computed(() => {
+  if (generationState.value === 'generating') return LoaderCircle
+  if (generationState.value === 'finalized') return CheckCircle2
+  if (generationState.value === 'failed') return TriangleAlert
+  return null
+})
 const normalizedQuery = computed(() => props.query.trim().toLocaleLowerCase())
 const visible = computed(() => {
   if (!normalizedQuery.value) return true
@@ -73,9 +92,18 @@ watch(normalizedQuery, value => { if (value) expanded.value = true })
 .leaf-kind { width:8px; height:8px; margin-left:8px; border:1.5px solid #cbd5e1; border-radius:50%; background:#fff; }
 .leaf-kind.learned { border-color:#34d399; background:#d1fae5; }
 .leaf-kind.active { border-color:#6366f1; background:#818cf8; box-shadow:0 0 0 3px rgba(129,140,248,.13); }
+.leaf-kind.generating { border-color:#6366f1; background:#c7d2fe; }
+.leaf-kind.finalized { border-color:#10b981; background:#a7f3d0; }
+.leaf-kind.draft { border-color:#8b5cf6; background:#ddd6fe; }
+.leaf-kind.failed { border-color:#ef4444; background:#fecaca; }
 .node-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; letter-spacing:0; }
 .status { flex: 0 0 auto; }
 .status.mastered { color: var(--lz-success); }
 .status.current { color: var(--lz-brand); }
+.status.generation.generating { color:#4f46e5; }
+.status.generation.finalized { color:#059669; }
+.status.generation.failed { color:#dc2626; }
+.status.spinning { animation:navigator-generation-spin .9s linear infinite; }
 .read-dot { width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; }
+@keyframes navigator-generation-spin { to { transform:rotate(360deg); } }
 </style>
