@@ -4,6 +4,11 @@ import { ElMessage } from 'element-plus';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
+/**
+ * 将相对路径拼接为完整请求地址（用于 axios 实例之外的原生 fetch 调用）。
+ */
+export const withApiBase = (path: string): string => `${API_BASE}${path}`;
+
 // ============================================================================
 // HTTP Client Configuration
 // ============================================================================

@@ -56,6 +56,7 @@
           'kgc-node--sel': selectedNodeId === node.id,
           'kgc-node--dim': dimmedNodes.has(node.id),
           'kgc-node--link-target': linkMode && linkSource && linkSource.id !== node.id,
+          'kgc-node--pending-change': pendingNodeIds?.has(node.id),
         }]"
         :transform="`translate(${node.x},${node.y})`"
         @mousedown.stop="startNodeDrag(node, $event)"
@@ -130,6 +131,8 @@ const props = defineProps<{
   loading: boolean
   linkMode: boolean
   linkSource: KGNode | null
+  /** 存在待确认变更（内容联动至知识库）的节点 id 集合，用于高亮 */
+  pendingNodeIds?: Set<string>
 }>()
 
 const emit = defineEmits<{
@@ -579,6 +582,10 @@ defineExpose({ zoomIn, zoomOut, fitView, focusNode, getZoomLevel, getCanvasEleme
 .kgc-node { cursor: pointer; transition: opacity .4s ease; }
 .kgc-node--dim { opacity: .08; }
 .kgc-node--link-target { cursor: crosshair; }
+
+/* 受 AI 待确认变更影响的知识图谱节点高亮：与 CourseNode 的 has-pending-ai-change 呼应 */
+.kgc-node--pending-change .kgc-halo { fill: #f5c451 !important; opacity: 0.35; }
+.kgc-node--pending-change .kgc-nlabel { fill: #f5c451; font-weight: 700; }
 
 /* 光晕 */
 .kgc-halo { transition: r .3s ease, opacity .3s ease; }

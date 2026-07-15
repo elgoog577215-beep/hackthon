@@ -60,6 +60,7 @@
               :loading="loading"
               :link-mode="linkMode"
               :link-source="linkSource"
+              :pending-node-ids="pendingKgNodeIds"
               @select-node="selectNode"
               @select-edge="selectEdge"
               @deselect-all="deselectAll"
@@ -125,7 +126,14 @@
               @edit-node="handleEditNode"
               @delete-node="handleDeleteNode"
               @navigate-to-node="navigateToNode"
-            />
+            >
+              <!-- AI 待确认变更叠加层（知识图谱节点联动） -->
+              <PendingChangeOverlay
+                v-if="selectedNode"
+                :node-id="selectedNode.id"
+                node-kind="kg_node"
+              />
+            </KGDetailPanel>
           </div>
         </div>
       </div>
@@ -154,6 +162,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
 import { useReviewStore } from '../stores/review'
+import { usePendingChangesStore } from '../stores/pendingChanges'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Share, Search, Close, MagicStick, Refresh, Download,
@@ -169,10 +178,12 @@ import KGCanvas from './knowledge-graph/KGCanvas.vue'
 import KGDetailPanel from './knowledge-graph/KGDetailPanel.vue'
 import KGNodeEditor from './knowledge-graph/KGNodeEditor.vue'
 import KGEdgeEditor from './knowledge-graph/KGEdgeEditor.vue'
+import PendingChangeOverlay from './PendingChangeOverlay.vue'
 
 const courseStore = useCourseStore()
 const noteStore = useNoteStore()
 const reviewStore = useReviewStore()
+const pendingChangesStore = usePendingChangesStore()
 
 // --- Core state ---
 const loading = ref(false)
@@ -204,6 +215,15 @@ const hasGraph = computed(() => graphData.value.nodes.length > 0)
 const zoomLevel = computed(() => canvasRef.value?.getZoomLevel() ?? 100)
 const userNodeCount = computed(() => graphData.value.nodes.filter(n => n.created_by === 'user').length)
 const nodeTypesForLegend = NODE_TYPES
+
+/** 存在待确认知识图谱联动变更的节点 id 集合，供画布高亮 */
+const pendingKgNodeIds = computed<Set<string>>(() => {
+  const ids = new Set<string>()
+  graphData.value.nodes.forEach(n => {
+    if (pendingChangesStore.pendingForKgNode(n.id).length > 0) ids.add(n.id)
+  })
+  return ids
+})
 
 const apiBase = computed(() => `/api/courses/${courseStore.currentCourseId}/knowledge_graph`)
 
@@ -631,6 +651,9 @@ const handleKeydown = (e: KeyboardEvent) => {
 watch(() => courseStore.showKnowledgeGraph, show => {
   if (show) {
     loadGraph()
+    if (courseStore.currentCourseId) {
+      pendingChangesStore.fetchPendingChanges(courseStore.currentCourseId)
+    }
     document.addEventListener('keydown', handleKeydown)
   } else {
     document.removeEventListener('keydown', handleKeydown)

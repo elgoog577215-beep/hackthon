@@ -13,6 +13,7 @@ from models import SaveAnnotationRequest, UpdateAnnotationRequest
 from storage import storage
 from ai_service import ai_service
 from dependencies import get_course_or_404
+from adaptive_models import EvidenceItem
 
 router = APIRouter(tags=["annotations"])
 
@@ -40,6 +41,24 @@ async def save_annotation(req: SaveAnnotationRequest):
                 print(f"Failed to generate AI summary for note: {e}")
 
     await run_in_threadpool(storage.save_annotation, data)
+
+    # 学习证据采集钩子：课程内笔记回流为 EvidenceItem（规格文档 §4 "学习证据 MUST
+    # 驱动个体化课程演化" Requirement）。仅在 course_id 存在时落盘，不阻塞主流程。
+    if data.get("course_id") and data.get("node_id"):
+        try:
+            evidence = EvidenceItem(
+                node_id=data["node_id"],
+                evidence_type="note",
+                strength=0.4,
+                strength_label="medium",
+                content=(data.get("answer") or data.get("anno_summary") or "")[:500],
+                course_id=data["course_id"],
+                metadata={"anno_id": data.get("anno_id"), "source_type": data.get("source_type")},
+            )
+            await storage.save_evidence_item(data["course_id"], evidence.model_dump(mode="json"))
+        except Exception as e:
+            print(f"Failed to record note evidence: {e}")
+
     return data
 
 

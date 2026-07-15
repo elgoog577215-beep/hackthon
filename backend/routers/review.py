@@ -13,8 +13,41 @@ from models import SubmitReviewRequest
 from storage import storage
 from ai_service import ai_service
 from dependencies import get_course_or_404
+from adaptive_models import EvidenceItem
 
 router = APIRouter(prefix="/courses/{course_id}/review", tags=["review"])
+
+# SM-2 quality < 3 视为"没记住/答错"（SM-2 标准约定），据此回流为 wrong_answer 证据；
+# 所有提交的复习结果同时作为 comprehension_check 类证据入档（理解检查结果）。
+_SM2_FAIL_QUALITY_THRESHOLD = 3
+
+
+async def _record_review_evidence(course_id: str, results: list) -> None:
+    """学习证据采集钩子：复习提交（理解检查）结果回流为 EvidenceItem。
+
+    对应规格文档 §4 "学习证据 MUST 驱动个体化课程演化" Requirement：
+    综合理解检查结果判断学生当前理解状态。不阻塞主复习提交流程，失败只记录日志。
+    """
+    for r in results:
+        try:
+            quality = r.get("quality", 3) if isinstance(r, dict) else getattr(r, "quality", 3)
+            node_id = r.get("node_id") if isinstance(r, dict) else getattr(r, "node_id", None)
+            if not node_id:
+                continue
+            is_wrong = quality < _SM2_FAIL_QUALITY_THRESHOLD
+            evidence = EvidenceItem(
+                node_id=node_id,
+                evidence_type="wrong_answer" if is_wrong else "comprehension_check",
+                strength=0.7 if is_wrong else 0.3,
+                strength_label="high" if is_wrong else "low",
+                content=f"复习理解检查提交：quality={quality}（SM-2 0-5 评分）",
+                course_id=course_id,
+                metadata={"quality": quality},
+            )
+            await storage.save_evidence_item(course_id, evidence.model_dump(mode="json"))
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to record review evidence: {e}")
 
 
 def _get_today_date() -> datetime:
@@ -40,12 +73,14 @@ async def get_review_schedule(course_id: str, max_items: int = 20, focus_on_weak
 @router.post("/submit")
 async def submit_review_results(course_id: str, req: SubmitReviewRequest):
     course_data = await get_course_or_404(course_id)
+    results_dicts = [r.dict() for r in req.results]
     result = await ai_service.submit_review_results(
         course_id=course_id,
         course_data=course_data,
-        results=[r.dict() for r in req.results]
+        results=results_dicts
     )
     await run_in_threadpool(storage.save_course, course_id, course_data)
+    await _record_review_evidence(course_id, results_dicts)
     return result
 
 

@@ -17,6 +17,8 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 COURSES_DIR = os.path.join(DATA_DIR, "courses")
 ANNOTATIONS_FILE = os.path.join(DATA_DIR, "annotations.json")
 KNOWLEDGE_GRAPH_DIR = os.path.join(DATA_DIR, "knowledge_graphs")
+EVIDENCE_DIR = os.path.join(DATA_DIR, "evidence")
+CHANGE_SETS_DIR = os.path.join(DATA_DIR, "change_sets")
 # Legacy file for migration
 LEGACY_COURSE_FILE = os.path.join(DATA_DIR, "course_tree.json")
 
@@ -36,6 +38,8 @@ class Storage:
         self._courses_dir = os.path.join(self._data_dir, "courses")
         self._annotations_file = os.path.join(self._data_dir, "annotations.json")
         self._knowledge_graph_dir = os.path.join(self._data_dir, "knowledge_graphs")
+        self._evidence_dir = os.path.join(self._data_dir, "evidence")
+        self._change_sets_dir = os.path.join(self._data_dir, "change_sets")
         self._max_versions = max_versions
 
         if not os.path.exists(self._data_dir):
@@ -44,6 +48,10 @@ class Storage:
             os.makedirs(self._courses_dir)
         if not os.path.exists(self._knowledge_graph_dir):
             os.makedirs(self._knowledge_graph_dir)
+        if not os.path.exists(self._evidence_dir):
+            os.makedirs(self._evidence_dir)
+        if not os.path.exists(self._change_sets_dir):
+            os.makedirs(self._change_sets_dir)
 
         # Initialize Cache
         self.courses_cache: dict[str, dict] = {}
@@ -700,6 +708,142 @@ class Storage:
         except Exception as e:
             logger.error(f"Failed to save data to {filename}: {e}")
             raise
+
+
+    # =========================================================================
+    # 学习证据（EvidenceItem）持久化，按 course_id 分文件存储
+    # 参照 save_course/load_course 的实现风格：同步 + 异步版本都提供。
+    # =========================================================================
+
+    def _evidence_filepath(self, course_id: str) -> str:
+        return os.path.join(self._evidence_dir, f"{course_id}.json")
+
+    def load_evidence_items(self, course_id: str) -> list[dict]:
+        """加载指定课程的所有 EvidenceItem（字典形式），文件不存在时返回空列表。
+
+        Args:
+            course_id: 课程 ID。
+
+        Returns:
+            EvidenceItem 字典列表。
+        """
+        filepath = self._evidence_filepath(course_id)
+        if not os.path.exists(filepath):
+            return []
+        try:
+            with open(filepath, encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Failed to load evidence items for {course_id}: {e}")
+            return []
+
+    def save_evidence_item_sync(self, course_id: str, item: dict) -> None:
+        """同步追加保存一条 EvidenceItem。
+
+        Args:
+            course_id: 课程 ID。
+            item: EvidenceItem 字典（含 id 字段，用于去重覆盖）。
+        """
+        items = self.load_evidence_items(course_id)
+        item_id = item.get("id")
+        existing_index = next((i for i, it in enumerate(items) if it.get("id") == item_id), -1)
+        if existing_index >= 0:
+            items[existing_index] = item
+        else:
+            items.append(item)
+
+        filepath = self._evidence_filepath(course_id)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(items, f, ensure_ascii=False, indent=2)
+        self._mark_dirty()
+
+    async def save_evidence_item(self, course_id: str, item: dict) -> None:
+        """异步追加保存一条 EvidenceItem（原子写入，按 course_id 加锁）。
+
+        Args:
+            course_id: 课程 ID。
+            item: EvidenceItem 字典（含 id 字段，用于去重覆盖）。
+        """
+        lock = await self._get_lock(f"evidence:{course_id}")
+        async with lock:
+            items = self.load_evidence_items(course_id)
+            item_id = item.get("id")
+            existing_index = next((i for i, it in enumerate(items) if it.get("id") == item_id), -1)
+            if existing_index >= 0:
+                items[existing_index] = item
+            else:
+                items.append(item)
+
+            filepath = Path(self._evidence_filepath(course_id))
+            await self._atomic_write(filepath, items)
+            self._mark_dirty()
+
+    # =========================================================================
+    # 课程变更集（CourseChangeSet）持久化，按 course_id 分文件存储
+    # =========================================================================
+
+    def _change_sets_filepath(self, course_id: str) -> str:
+        return os.path.join(self._change_sets_dir, f"{course_id}.json")
+
+    def load_change_sets(self, course_id: str) -> list[dict]:
+        """加载指定课程的所有 CourseChangeSet（字典形式），文件不存在时返回空列表。
+
+        Args:
+            course_id: 课程 ID。
+
+        Returns:
+            CourseChangeSet 字典列表。
+        """
+        filepath = self._change_sets_filepath(course_id)
+        if not os.path.exists(filepath):
+            return []
+        try:
+            with open(filepath, encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Failed to load change sets for {course_id}: {e}")
+            return []
+
+    def save_change_set_sync(self, course_id: str, change_set: dict) -> None:
+        """同步保存/更新一条 CourseChangeSet（按 id upsert）。
+
+        Args:
+            course_id: 课程 ID。
+            change_set: CourseChangeSet 字典（含 id 字段）。
+        """
+        change_sets = self.load_change_sets(course_id)
+        cs_id = change_set.get("id")
+        existing_index = next((i for i, cs in enumerate(change_sets) if cs.get("id") == cs_id), -1)
+        if existing_index >= 0:
+            change_sets[existing_index] = change_set
+        else:
+            change_sets.append(change_set)
+
+        filepath = self._change_sets_filepath(course_id)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(change_sets, f, ensure_ascii=False, indent=2)
+        self._mark_dirty()
+
+    async def save_change_set(self, course_id: str, change_set: dict) -> None:
+        """异步保存/更新一条 CourseChangeSet（按 id upsert，原子写入，按 course_id 加锁）。
+
+        Args:
+            course_id: 课程 ID。
+            change_set: CourseChangeSet 字典（含 id 字段）。
+        """
+        lock = await self._get_lock(f"change_sets:{course_id}")
+        async with lock:
+            change_sets = self.load_change_sets(course_id)
+            cs_id = change_set.get("id")
+            existing_index = next((i for i, cs in enumerate(change_sets) if cs.get("id") == cs_id), -1)
+            if existing_index >= 0:
+                change_sets[existing_index] = change_set
+            else:
+                change_sets.append(change_set)
+
+            filepath = Path(self._change_sets_filepath(course_id))
+            await self._atomic_write(filepath, change_sets)
+            self._mark_dirty()
 
 
 storage = Storage()

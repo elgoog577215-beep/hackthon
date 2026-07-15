@@ -177,6 +177,7 @@ import { useNoteStore } from '../stores/notes'
 import { useLearningStore } from '../stores/learning'
 import { useReviewStore } from '../stores/review'
 import { useGenerationStore } from '../stores/generation'
+import { usePendingChangesStore } from '../stores/pendingChanges'
 import { onMounted, onUnmounted, ref, computed, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { DArrowRight, TrendCharts, Close } from '@element-plus/icons-vue'
@@ -187,6 +188,7 @@ import logger from '../utils/logger'
 const courseStore = useCourseStore()
 const noteStore = useNoteStore()
 const learningStore = useLearningStore()
+const pendingChangesStore = usePendingChangesStore()
 const reviewStore = useReviewStore()
 const genStore = useGenerationStore()
 const route = useRoute()
@@ -538,6 +540,7 @@ watch(() => route.params.courseId, (newCourseId, oldCourseId) => {
   }
   if (newCourseId) {
     courseStore.loadCourse(newCourseId as string)
+    pendingChangesStore.fetchPendingChanges(newCourseId as string)
   } else if (oldCourseId && !newCourseId) {
     // Navigating back to home - clear current course
     courseStore.currentCourseId = ''

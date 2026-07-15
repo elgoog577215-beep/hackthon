@@ -77,6 +77,9 @@
         </div>
       </div>
 
+      <!-- AI 待确认变更叠加层插槽（知识图谱节点联动） -->
+      <slot />
+
       <!-- 前往学习 -->
       <div v-if="node.chapter_id" class="kgd-foot">
         <button class="kgd-btn-primary" @click.stop="$emit('navigateToNode', node.chapter_id)">

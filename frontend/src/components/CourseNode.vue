@@ -1,6 +1,7 @@
 <template>
-    <div :id="'node-' + node.node_id" 
+    <div :id="'node-' + node.node_id"
          class="content-node-optimized scroll-mt-20 sm:scroll-mt-22 lg:scroll-mt-24 transition-all duration-500 animate-fade-in-up"
+         :class="{ 'has-pending-ai-change': hasPendingChange }"
          :style="{ animationDelay: (index * 50) + 'ms' }">
 
         <!-- Level 1: Course Title / Part -->
@@ -174,12 +175,17 @@
                 </div>
             </div>
         </div>
+
+        <!-- AI 待确认变更叠加层 -->
+        <PendingChangeOverlay :node-id="node.node_id" />
     </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
+import PendingChangeOverlay from './PendingChangeOverlay.vue';
+import { usePendingChangesStore } from '../stores/pendingChanges';
 import { MagicStick, Reading, Check, RefreshRight } from '@element-plus/icons-vue';
 import type { ContentBlock } from '../stores/types';
 
@@ -192,6 +198,9 @@ const props = defineProps<{
   searchWords?: string[];
   isStreaming?: boolean;
 }>();
+
+const pendingChangesStore = usePendingChangesStore();
+const hasPendingChange = computed(() => pendingChangesStore.pendingForNode(props.node?.node_id || '').length > 0);
 
 defineEmits<{
   (e: 'start-quiz', node: any): void;
@@ -296,11 +305,12 @@ const blockTypeLabel = (type: string) => typeLabels[type] || '正文';
   animation: blink 1s step-end infinite;
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-.animate-blink {
-  animation: blink 1s step-end infinite;
+/* 受 AI 待确认变更影响的节点高亮：淡黄色左边框 + 淡背景，不扎眼但明显 */
+.has-pending-ai-change {
+  border-left: 3px solid #f5c451;
+  background-color: #fffdf5;
+  border-radius: 0.5rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
 }
 </style>
