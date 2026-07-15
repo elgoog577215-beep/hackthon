@@ -156,7 +156,44 @@ def record_learning_event(
                 return dict(existing)
         events.append(event)
         storage.save_data(LEARNING_EVENTS_FILE, events)
+    _maybe_trigger_evidence_evaluation(event)
     return event
+
+
+def _maybe_trigger_evidence_evaluation(event: dict[str, Any]) -> None:
+    """Best-effort hook: a freshly written `learner_self_reported` event may
+    be enough (alone or combined with prior evidence) to cross the dynamic
+    adaptation threshold and warrant a pending, AI-generated ChangeProposal
+    for the block it concerns.
+
+    This is the "write a LearningEvent -> evaluate downstream" hook called
+    for in the task brief, chosen because this module has no existing
+    task-queue/event-bus mechanism and `record_learning_event` is already
+    the single choke point every learning-evidence write passes through.
+
+    The import of `learner_model_service` is deferred to function scope
+    (rather than a module-level import) because that module imports this
+    one (`load_learning_events`) — a top-level import here would create an
+    import cycle. Any failure downstream (missing course/block, storage
+    error, etc.) MUST NOT break the primary event write, which is why this
+    is wrapped in a broad `except` and treated as a non-critical side effect.
+    """
+    if event.get("event_type") != "learner_self_reported":
+        return
+    course_id = event.get("course_id")
+    node_id = event.get("node_id")
+    if not course_id or not node_id:
+        return
+    try:
+        from learner_model_service import evaluate_and_propose_change
+
+        evaluate_and_propose_change(
+            str(course_id),
+            str(node_id),
+            user_id=str(event.get("user_id") or DEFAULT_USER_ID),
+        )
+    except Exception:
+        pass
 
 
 def load_learning_events(

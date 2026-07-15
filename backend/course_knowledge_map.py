@@ -295,6 +295,111 @@ def _project_asset_library_refs(
         asset["knowledge_identity_status"] = "compatibility_projection"
 
 
+def propose_kb_linkage_from_block_change(
+    course_data: dict[str, Any],
+    block_id: str,
+    *,
+    repository: Any,
+    request_id: str,
+    library: dict[str, Any] | None = None,
+    course_map: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Content -> knowledge-base linkage.
+
+    Call this right after a course block's content change has been durably
+    applied - i.e. from the two call sites that represent "a block's content
+    just became the new canonical text": `BlockRegenerationService.apply_candidate`
+    (backend/block_regeneration.py) and `change_proposals.apply_item`
+    (backend/change_proposals.py). Both are wired in from the routers
+    (backend/routers/block_regeneration.py, backend/routers/change_proposals.py)
+    rather than from those two service modules themselves, so this feature does
+    not require touching either of them.
+
+    Uses the same keyword/term matching `compile_course_knowledge_map` already
+    performs (`_bind_section_blocks` / `_term_matches`) to find which formal
+    knowledge nodes are already bound to `block_id`. For each match, emits one
+    pending `source="kb_link"`, `target_kind="kg_node"` change-proposal item
+    suggesting the linked knowledge node definition be reviewed. This function
+    NEVER edits the knowledge library - it only produces a pending proposal via
+    `change_proposals.create_proposal`; an operator (or a future knowledge-edit
+    command) must still apply it.
+    """
+    from change_proposals import create_proposal
+
+    subject_library = library if library is not None else resolve_subject_library(course_data)
+    resolved_map = course_map if course_map is not None else compile_course_knowledge_map(
+        deepcopy(course_data), subject_library
+    )
+    formal_nodes = knowledge_index(subject_library)
+
+    target_block = _find_course_block(course_data, block_id)
+    if target_block is None:
+        return None
+
+    candidate_mappings = [
+        mapping for mapping in resolved_map.get("mappings") or []
+        if block_id in (mapping.get("block_ids") or [])
+        and mapping.get("match_status") not in (None, "unmapped")
+        and mapping.get("anchor_knowledge_id")
+    ]
+    if not candidate_mappings:
+        return None
+
+    block_text = f"{target_block.get('title') or ''} {target_block.get('content') or ''}".strip()
+    items: list[dict[str, Any]] = []
+    kg_target_ids: list[str] = []
+    for mapping in candidate_mappings:
+        node_id = str(mapping["anchor_knowledge_id"])
+        node = formal_nodes.get(node_id)
+        if not node or node_id in kg_target_ids:
+            continue
+        kg_target_ids.append(node_id)
+        items.append({
+            "block_id": node_id,
+            "target_kind": "kg_node",
+            "before": {
+                "knowledge_id": node_id,
+                "name": node.get("name"),
+                "description": node.get("description"),
+                "aliases": node.get("aliases"),
+            },
+            "after": {
+                "note": "课程正文已变更，建议核对该知识节点定义是否需要同步更新。",
+                "source_block_id": block_id,
+                "source_block_text_excerpt": block_text[:200],
+            },
+            "reason": (
+                f"课程正文块 {block_id} 的内容变更已被接受，其关联的知识节点"
+                f"「{node.get('name')}」（{node_id}）可能需要同步复核。"
+                "注意：本条目的目标是知识库节点，不是课程正文块。"
+            ),
+        })
+    if not items:
+        return None
+
+    return create_proposal(
+        repository,
+        str(course_data.get("course_id") or ""),
+        request_id=request_id,
+        scope="block",
+        target_block_ids=kg_target_ids,
+        items=items,
+        source="kb_link",
+        generation_meta={
+            "linkage_direction": "content_to_kb",
+            "trigger_block_id": block_id,
+        },
+    )
+
+
+def _find_course_block(course_data: dict[str, Any], block_id: str) -> dict[str, Any] | None:
+    for node in course_data.get("nodes") or []:
+        for block in node.get("content_blocks") or []:
+            if str(block.get("block_id") or "") == block_id:
+                return block
+    return None
+
+
 def knowledge_ids_for_section(course_map: dict[str, Any], section_id: str) -> list[str]:
     return _unique(list((course_map.get("section_knowledge_ids") or {}).get(section_id) or []))
 
@@ -539,6 +644,7 @@ __all__ = [
     "knowledge_names_for_section",
     "normalize_knowledge_structure",
     "project_course_knowledge_map",
+    "propose_kb_linkage_from_block_change",
     "project_learning_assets_to_knowledge",
     "validate_course_knowledge_map",
 ]

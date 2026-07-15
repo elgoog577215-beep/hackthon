@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import math
 from typing import Any
 
 from course_knowledge_map import (
@@ -594,6 +595,36 @@ def _evidence_catalog(
     return sorted(catalog, key=lambda item: str(item.get("observed_at") or ""), reverse=True)[:100]
 
 
+def _log_damped_score(labeled_weights: list[tuple[str, float]]) -> float:
+    """Aggregate (label, weight) pairs with diminishing returns per label.
+
+    Each repetition of the same evidence label contributes
+    ``weight * log2(1 + count_of_label)`` instead of ``weight * count``, so
+    piling up many same-type occurrences gives sub-linear, diminishing
+    credit (spec: "不得仅以固定次数作为唯一触发条件"). Distinct labels are
+    summed independently, which additionally rewards evidence that is
+    diverse in kind over evidence that merely repeats.
+    """
+    counts: dict[str, int] = {}
+    weight_by_label: dict[str, float] = {}
+    for label, weight in labeled_weights:
+        counts[label] = counts.get(label, 0) + 1
+        weight_by_label[label] = weight
+    return sum(weight_by_label[label] * math.log2(1 + count) for label, count in counts.items())
+
+
+# Formal-evidence weights used only by `_data_sufficiency` (model-wide
+# confidence gating). `diagnostic_case` (a confirmed multi-probe diagnostic
+# hypothesis) is weighted well above a single `practice_attempt` because it
+# is inherently a stronger, independently-corroborated signal.
+_FORMAL_EVIDENCE_WEIGHTS: dict[str, float] = {
+    "diagnostic_case": 4.0,
+    "practice_attempt": 2.0,
+}
+_FORMAL_STRONG_SCORE = 4.0  # one diagnostic_case alone reaches this
+_FORMAL_MODERATE_SCORE = 2.0  # one graded practice_attempt alone reaches this
+
+
 def _data_sufficiency(objectives: list[dict[str, Any]], catalog: list[dict[str, Any]]) -> dict[str, Any]:
     formal = [
         item for item in catalog
@@ -601,9 +632,20 @@ def _data_sufficiency(objectives: list[dict[str, Any]], catalog: list[dict[str, 
         or (item.get("type") == "practice_attempt" and item.get("status") == "graded")
     ]
     covered_objectives = sum(bool(item.get("evidence_refs")) for item in objectives)
-    if len(formal) >= 5 and covered_objectives >= 2:
+    labeled_weights = [
+        (
+            "diagnostic_case" if item.get("type") == "diagnostic_case" else "practice_attempt",
+            _FORMAL_EVIDENCE_WEIGHTS["diagnostic_case" if item.get("type") == "diagnostic_case" else "practice_attempt"],
+        )
+        for item in formal
+    ]
+    score = _log_damped_score(labeled_weights)
+    # "strong" still requires breadth across objectives (covered_objectives),
+    # not just one deep vein of evidence on a single objective; "moderate" is
+    # reached either by a moderately-scored evidence pool or by breadth alone.
+    if score >= _FORMAL_STRONG_SCORE and covered_objectives >= 2:
         level = "strong"
-    elif len(formal) >= 2 or covered_objectives >= 2:
+    elif score >= _FORMAL_MODERATE_SCORE or covered_objectives >= 2:
         level = "moderate"
     elif catalog:
         level = "limited"
@@ -615,6 +657,149 @@ def _data_sufficiency(objectives: list[dict[str, Any]], catalog: list[dict[str, 
         "total_evidence_count": len(catalog),
         "covered_objective_count": covered_objectives,
         "reason_code": "sufficient_for_bounded_inference" if level in {"moderate", "strong"} else "insufficient_for_stable_inference",
+    }
+
+
+# --- Evidence-driven change-proposal trigger (learning-evidence adaptation) ---
+#
+# This scores a *single block's* raw evidence events (typically
+# `LearningEvent.event_type == "learner_self_reported"`) to decide whether an
+# `evaluate_and_propose_change`-style caller (see `learner_model_service.py`)
+# should generate a pending `ChangeProposal`. It intentionally reuses the same
+# "log-damped, multi-label" scoring philosophy as `_data_sufficiency` above,
+# but with a distinct, evidence-specific weight table, because the two
+# decisions answer different questions (model-wide confidence vs. a single
+# block's need for a supplementary explanation).
+#
+# `LearningEvent` has no dedicated "intensity"/"strength" field today, so the
+# mapping below is a deliberate best-effort classification of the closest
+# available signals:
+#   - explicit_incomprehension: `learner_self_reported` whose free-text
+#     `evidence.statement` contains an unambiguous "I cannot follow this at
+#     all" marker (e.g. "完全看不懂"). This is the closest analogue in the
+#     current schema to "a single very strong, explicit piece of evidence
+#     with a stated reason" from spec Scenario "证据门槛判定" — a single
+#     occurrence MUST be able to trigger on its own.
+#   - reexplain_request: `learner_self_reported` asking for more detail /
+#     re-explanation (e.g. "讲得更详细", "没懂") without declaring total
+#     incomprehension. Individually weak; needs to recur or combine with
+#     other evidence to be trustworthy.
+#   - issue_record: an open `learning_record` of `record_type == "issue"` —
+#     the closest existing analogue to an explicit negative rating.
+#   - generic_event: any other evidence-bearing event touching the block
+#     (e.g. passive re-reads); very weak signal, contributes mostly through
+#     volume and is capped by log-damping so it can never dominate.
+_INCOMPREHENSION_MARKERS = ("完全看不懂", "完全不懂", "听不懂", "看不懂", "无法理解", "看不明白")
+_REEXPLAIN_MARKERS = ("更详细", "再详细", "讲清楚", "没懂", "不太懂", "再解释", "举例", "再讲")
+
+_EVIDENCE_TRIGGER_WEIGHTS: dict[str, float] = {
+    "explicit_incomprehension": 5.0,
+    "issue_record": 2.5,
+    "reexplain_request": 2.0,
+    "generic_event": 0.5,
+}
+
+# A single event whose recency-adjusted weight clears this bar triggers
+# immediately, regardless of how many other events exist (spec: single
+# strong evidence MAY trigger without a "multiple occurrences" requirement).
+SINGLE_STRONG_EVIDENCE_THRESHOLD = 4.0
+# The log-damped, diversity-adjusted aggregate of weaker evidence must clear
+# this bar to trigger (spec: weak evidence MUST be judged in combination,
+# never by a fixed count alone).
+AGGREGATE_TRIGGER_THRESHOLD = 4.0
+_RECENT_WINDOW_DAYS = 14
+_STALE_RECENCY_MULTIPLIER = 0.6  # time-decayed evidence still counts, but less
+
+
+def classify_evidence_event(event: dict[str, Any]) -> tuple[str, float]:
+    """Map one evidence-bearing event dict to (label, base_weight).
+
+    See the module-level comment above `_INCOMPREHENSION_MARKERS` for the
+    mapping rationale.
+    """
+    event_type = str(event.get("event_type") or "")
+    if event_type == "learner_self_reported":
+        statement = str((event.get("evidence") or {}).get("statement") or "")
+        if any(marker in statement for marker in _INCOMPREHENSION_MARKERS):
+            return "explicit_incomprehension", _EVIDENCE_TRIGGER_WEIGHTS["explicit_incomprehension"]
+        if any(marker in statement for marker in _REEXPLAIN_MARKERS):
+            return "reexplain_request", _EVIDENCE_TRIGGER_WEIGHTS["reexplain_request"]
+        return "reexplain_request", _EVIDENCE_TRIGGER_WEIGHTS["reexplain_request"] * 0.5
+    if str(event.get("record_type") or "") == "issue":
+        return "issue_record", _EVIDENCE_TRIGGER_WEIGHTS["issue_record"]
+    return "generic_event", _EVIDENCE_TRIGGER_WEIGHTS["generic_event"]
+
+
+def _recency_multiplier(created_at: Any, reference: datetime) -> float:
+    if not created_at:
+        return _STALE_RECENCY_MULTIPLIER
+    try:
+        observed = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return _STALE_RECENCY_MULTIPLIER
+    age_days = (reference - observed).total_seconds() / 86400
+    return 1.0 if 0 <= age_days <= _RECENT_WINDOW_DAYS else _STALE_RECENCY_MULTIPLIER
+
+
+def evaluate_evidence_trigger(
+    events: list[dict[str, Any]],
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Decide whether one block's evidence events cross the adaptation
+    trigger threshold. Pure function — does not read or write any state.
+
+    Returns a dict with `triggered`, `reason_code`, `score`, and
+    `matched_labels` so callers/tests can inspect *why* a decision was made,
+    not just the boolean outcome.
+    """
+    if not events:
+        return {"triggered": False, "reason_code": "no_evidence", "score": 0.0, "matched_labels": []}
+
+    reference = now or datetime.now(timezone.utc)
+    classified = [
+        (*classify_evidence_event(event), _recency_multiplier(event.get("created_at"), reference))
+        for event in events
+    ]
+
+    # Single strong evidence path: one sufficiently strong, recent-enough
+    # event is enough on its own (spec Scenario "证据门槛判定").
+    strongest_label, strongest_weight, strongest_recency = max(
+        classified, key=lambda item: item[1] * item[2]
+    )
+    strongest_score = strongest_weight * strongest_recency
+    if strongest_score >= SINGLE_STRONG_EVIDENCE_THRESHOLD:
+        return {
+            "triggered": True,
+            "reason_code": "single_strong_evidence",
+            "score": round(strongest_score, 3),
+            "matched_labels": [strongest_label],
+        }
+
+    # Weak/aggregate path: combine count + strength + type diversity +
+    # recency instead of a fixed occurrence count.
+    per_label_weight_sum: dict[str, float] = {}
+    per_label_count: dict[str, int] = {}
+    for label, weight, recency in classified:
+        adjusted = weight * recency
+        per_label_weight_sum[label] = per_label_weight_sum.get(label, 0.0) + adjusted
+        per_label_count[label] = per_label_count.get(label, 0) + 1
+    labels = sorted(per_label_count)
+    aggregate_score = sum(
+        (per_label_weight_sum[label] / per_label_count[label]) * math.log2(1 + per_label_count[label])
+        for label in labels
+    )
+    diversity_bonus = 1.0 + 0.15 * (len(labels) - 1)
+    aggregate_score *= diversity_bonus
+
+    triggered = aggregate_score >= AGGREGATE_TRIGGER_THRESHOLD
+    return {
+        "triggered": triggered,
+        "reason_code": "aggregate_weak_evidence" if triggered else "insufficient_evidence",
+        "score": round(aggregate_score, 3),
+        "matched_labels": labels,
     }
 
 
@@ -651,7 +836,11 @@ def _valid_until(value: str | None, *, days: int) -> str | None:
 
 __all__ = [
     "SCHEMA_VERSION",
+    "AGGREGATE_TRIGGER_THRESHOLD",
+    "SINGLE_STRONG_EVIDENCE_THRESHOLD",
     "build_learner_model",
+    "classify_evidence_event",
+    "evaluate_evidence_trigger",
     "is_model_item_current",
     "learner_model_summary",
 ]

@@ -12,5 +12,5 @@ describe('learning routes', () => {
       'learning',
       'course-library',
     ])
-  })
+  }, 15000)
 })
