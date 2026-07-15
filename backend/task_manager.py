@@ -903,7 +903,131 @@ class TaskManager:
     def _task_view(self, task: dict[str, Any]) -> dict[str, Any]:
         view = deepcopy(task)
         view["recovery"] = self.describe_task_recovery(str(task["id"]))
+        view["quality_report"] = self._task_quality_report(task)
+        view["quality_repair"] = self._quality_repair_state(task, view["quality_report"])
         return view
+
+    def _quality_repair_state(self, task: dict[str, Any], report: dict[str, Any] | None) -> dict[str, Any]:
+        blockers = [item for item in (report or {}).get("blocking_issues") or [] if isinstance(item, dict)]
+        only_missing_misconceptions = bool(blockers) and all(
+            item.get("asset_type") == "misconceptions" and item.get("message") == "必选资产为空"
+            for item in blockers
+        )
+        completed_nodes = int(task.get("completed_nodes") or 0) == int(task.get("total_nodes") or 0) > 0
+        attempted = int(task.get("quality_repair_attempts") or 0)
+        eligible = (
+            str(task.get("status") or "") == "completed_with_warnings"
+            and str(task.get("phase") or "") == "quality_failed"
+            and completed_nodes and only_missing_misconceptions and attempted < 1
+        )
+        reason = (
+            "可自动补齐缺失的常见误区并重新检查；不会重写课程正文。" if eligible else
+            "自动补齐已执行过一次，请查看最新质量结果。" if attempted >= 1 else
+            "当前问题不属于可自动补齐的常见误区缺失。"
+        )
+        return {"eligible": eligible, "attempts": attempted, "reason": reason}
+
+    async def start_quality_repair(self, task_id: str) -> dict[str, Any]:
+        task = self.tasks.get(task_id)
+        if not task:
+            raise KeyError(task_id)
+        if task_id in self._running_job_tasks:
+            raise TaskStateConflict("该任务正在执行修复", status=str(task.get("status") or "running"))
+        state = self._quality_repair_state(task, self._task_quality_report(task))
+        if not state["eligible"]:
+            raise TaskStateConflict(str(state["reason"]), status=str(task.get("status") or ""))
+        async with self._lock:
+            task["status"] = "running"
+            task["phase"] = task["current_phase"] = "asset_repair"
+            task["phase_progress"] = 0
+            task["message"] = "正在补齐缺失的常见误区"
+            task["quality_repair_attempts"] = int(task.get("quality_repair_attempts") or 0) + 1
+            task["updated_at"] = datetime.now().isoformat()
+            self.save_tasks()
+        job = asyncio.create_task(self._run_quality_repair(task_id))
+        self._running_job_tasks[task_id] = job
+        return self._task_view(task)
+
+    async def _run_quality_repair(self, task_id: str) -> None:
+        try:
+            task = self.tasks.get(task_id)
+            course = self._load_task_course(task_id)
+            if not task or not isinstance(course, dict):
+                raise RuntimeError("未找到待修复的课程工作区")
+            nodes = [node for node in course.get("nodes") or [] if int(node.get("node_level") or 1) == 2]
+            for index, node in enumerate(nodes, start=1):
+                if node.get("misconceptions"):
+                    continue
+                await self._update_phase(
+                    task_id, "asset_repair", 91 + index / max(len(nodes), 1) * 3,
+                    f"正在补齐「{node.get('node_name') or '小节'}」的常见误区",
+                    phase_progress=round(index / max(len(nodes), 1) * 80),
+                )
+                misconceptions = await self.course_service.generate_node_misconceptions(course, node)
+                if not misconceptions:
+                    raise RuntimeError(f"未能生成「{node.get('node_name') or '小节'}」的有效常见误区")
+                node["misconceptions"] = misconceptions
+            await self._save_task_course(task_id, course)
+            await self._complete_task(task_id, course)
+        except Exception as exc:
+            logger.warning("Quality asset repair failed task_id=%s error=%s", task_id, exc)
+            await self._update_task_status(task_id, "completed_with_warnings", message=f"自动补齐未完成：{exc}")
+            async with self._lock:
+                current = self.tasks.get(task_id)
+                if current:
+                    current["phase"] = current["current_phase"] = "quality_failed"
+                    # A provider or malformed-output failure must not consume the one
+                    # semantic-repair budget; the user can fix the provider and retry.
+                    current["quality_repair_attempts"] = max(
+                        0, int(current.get("quality_repair_attempts") or 0) - 1,
+                    )
+                    current["updated_at"] = datetime.now().isoformat()
+                    self.save_tasks()
+        finally:
+            self._running_job_tasks.pop(task_id, None)
+
+    def _task_quality_report(self, task: dict[str, Any]) -> dict[str, Any] | None:
+        """Expose a compact, user-safe explanation of a generation quality result."""
+        if str(task.get("status") or "") not in {"completed_with_warnings", "completed"}:
+            return None
+        course_data = self._load_task_course(str(task.get("id") or ""))
+        if not isinstance(course_data, dict):
+            return None
+
+        generation = course_data.get("generation_quality_report") or {}
+        assets = course_data.get("asset_quality_report") or generation.get("asset_quality") or {}
+        blocking = [
+            *list(generation.get("blocking_issues") or []),
+            *list(assets.get("blocking_issues") or []),
+        ]
+        warnings = [
+            *list(generation.get("warnings") or []),
+            *list(assets.get("warnings") or []),
+        ]
+        seen: set[str] = set()
+
+        def unique(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            result: list[dict[str, Any]] = []
+            for issue in issues:
+                if not isinstance(issue, dict):
+                    continue
+                key = str(issue.get("issue_id") or (issue.get("gate"), issue.get("asset_type"), issue.get("message")))
+                if key in seen:
+                    continue
+                seen.add(key)
+                result.append({
+                    "gate": issue.get("gate"),
+                    "severity": issue.get("severity"),
+                    "asset_type": issue.get("asset_type"),
+                    "message": issue.get("message"),
+                })
+            return result
+
+        return {
+            "publication_allowed": self._quality_allows_publication(course_data, generation),
+            "blocking_issues": unique(blocking),
+            "warnings": unique(warnings),
+        }
 
     def _publication_receipt(self, task: dict[str, Any]) -> dict[str, Any] | None:
         if not task.get("workspace_id"):

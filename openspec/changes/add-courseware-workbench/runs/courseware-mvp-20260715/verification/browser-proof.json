@@ -1,0 +1,44 @@
+{
+  "schema_version": "courseware-browser-proof/v1",
+  "status": "PASS",
+  "desktop": "PASS",
+  "narrow": "PASS",
+  "course_id": "browser-course",
+  "deck_id": "deck_bb18d74cdb96483cae0155458673e934",
+  "viewport": {
+    "desktop": "1440x900",
+    "narrow": "390x844"
+  },
+  "screenshots": [
+    "output/playwright/courseware-desktop-proposal-fresh.png",
+    "output/playwright/courseware-desktop-export-ready-fresh.png",
+    "output/playwright/courseware-narrow-ai-fresh.png"
+  ],
+  "artifacts": {
+    "pptx": "output/playwright/courseware-browser-download-fresh.pptx",
+    "suggested_filename": "lingzhi-courseware.pptx",
+    "download_failure": null,
+    "pptx_reload": {
+      "slide_count": 8,
+      "notes_slide_count": 8,
+      "titles_match_preview": true
+    }
+  },
+  "flow": {
+    "create": "POST 201",
+    "generate": "POST 200; 8 slides visible",
+    "secondary_entry": "CourseLibrary-style entry without nodeId defaulted to course scope; create POST 201 and generate POST 200",
+    "proposal": "POST 201; readable before/after diff targets slide 4",
+    "apply": "POST 200; slide 4 acquired a supplemental example and no other slide changed",
+    "undo": "POST 200; slide 4 returned to the pre-patch content",
+    "finalize": "POST 200; quality passed and download enabled",
+    "download": "PPTX download completed and reloaded with python-pptx"
+  },
+  "runtime": {
+    "console_errors": 0,
+    "console_warnings": 0,
+    "network_failures": 0,
+    "source_outdated": false
+  },
+  "reason": "真实浏览器完成创建、8 页页序与逐页生成、当前第 4 页提议/应用/撤销、确定性质检、正式完成和 PPTX 下载；桌面清晰截图符合已批准首版，窄屏 Preview/AI 切换正常，控制台 0 error/0 warning，所有 presentation API 均为成功响应。"
+}

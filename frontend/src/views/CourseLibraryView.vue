@@ -77,9 +77,14 @@
 
         <footer>
           <span>{{ t('courseLibrary.openHint', '打开课程') }}</span>
-          <button type="button" :title="t('courseLibrary.delete', '删除课程')" @click="deleteCourse(course.course_id, course.course_name)">
-            <Trash2 :size="15" />
-          </button>
+          <div class="course-footer-actions">
+            <button type="button" class="course-deck-button" title="打开课件工作台" @click="openCourseware(course.course_id)">
+              <Presentation :size="15" />
+            </button>
+            <button type="button" :title="t('courseLibrary.delete', '删除课程')" @click="deleteCourse(course.course_id, course.course_name)">
+              <Trash2 :size="15" />
+            </button>
+          </div>
         </footer>
       </article>
     </div>
@@ -98,7 +103,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookMarked, BookOpenText, History, ListChecks, LoaderCircle, Plus, Search, Trash2, Upload } from 'lucide-vue-next'
+import { ArrowRight, BookMarked, BookOpenText, History, ListChecks, LoaderCircle, Plus, Presentation, Search, Trash2, Upload } from 'lucide-vue-next'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseTaskCenter from '../components/CourseTaskCenter.vue'
 import { useCourseStore } from '../stores/course'
@@ -171,6 +176,10 @@ function taskNeedsAttention(task: { status: string; publicationAllowed?: boolean
 
 function openCourse(courseId: string, nodeId?: string) {
   void router.push({ name: 'learning', params: { courseId, ...(nodeId ? { nodeId } : {}) } })
+}
+
+function openCourseware(courseId: string) {
+  void router.push({ name: 'presentation-entry', params: { courseId } })
 }
 
 function openTaskCenter(courseId = '') {
@@ -268,6 +277,8 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-item footer { min-height:40px; display:flex; align-items:center; justify-content:space-between; padding:0 12px 0 18px; border-top:1px solid rgba(226,232,240,.72); color:var(--lz-text-muted); font-size:10px; }
 .course-item footer button { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--lz-text-muted); background: transparent; cursor: pointer; }
 .course-item footer button:hover { color: var(--lz-danger); background: var(--lz-danger-soft); }
+.course-footer-actions { display:flex; align-items:center; gap:2px; }
+.course-item footer button.course-deck-button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .library-state { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--lz-text-muted); }
 .library-state strong { color: var(--lz-text); font-size: 15px; }
 .library-state span { font-size: 12px; }

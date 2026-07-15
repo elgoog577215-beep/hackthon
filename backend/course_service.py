@@ -831,6 +831,25 @@ class CourseService(AIBase):
 
         return full_content
 
+    async def generate_node_misconceptions(
+        self, course_data: dict[str, Any], node: dict[str, Any],
+    ) -> list[str]:
+        """Generate node-local common misconceptions for a quality repair only."""
+        prompt = f"""为课程「{course_data.get('course_name') or '未命名课程'}」的小节生成 1 到 3 条常见误区。
+小节：{node.get('node_name') or ''}
+学习目标：{node.get('learning_objective') or ''}
+关键要点：{', '.join(str(item) for item in node.get('key_points') or [])}
+正文摘要：{str(node.get('node_content') or '')[:1800]}
+
+只返回 JSON 字符串数组。每条必须是学习者可能产生的具体错误理解，不能输出正确知识、空话或题目。"""
+        response = await self._call_llm(prompt, "你是严谨的课程设计助手，只输出合法 JSON。")
+        payload = self._extract_json(response) if response else None
+        values = payload if isinstance(payload, list) else []
+        return list(dict.fromkeys(
+            str(item).strip() for item in values
+            if isinstance(item, str) and str(item).strip()
+        ))[:3]
+
     @staticmethod
     def _find_persisted_blueprint_node(
         course_data: dict[str, Any], node: dict[str, Any]

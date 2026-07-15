@@ -100,12 +100,40 @@
               </div>
             </section>
 
+            <section v-if="hasQualityDetails(selectedTask)" class="quality-details">
+              <header>
+                <div>
+                  <p>发布检查结果</p>
+                  <h4>{{ selectedTask.publicationAllowed ? '课程可发布，以下为优化建议' : '尚未达到发布标准' }}</h4>
+                </div>
+                <span :data-passed="selectedTask.publicationAllowed">{{ selectedTask.publicationAllowed ? '可发布' : '需修复' }}</span>
+              </header>
+              <div v-if="selectedTask.qualityReport?.blocking_issues.length" class="quality-details__group">
+                <h5>必须修复</h5>
+                <article v-for="(issue, index) in selectedTask.qualityReport?.blocking_issues" :key="`block-${index}`" class="quality-issue quality-issue--blocking">
+                  <strong>{{ qualityIssueTitle(issue) }}</strong>
+                  <p>{{ issue.message || '该项检查未通过。' }}</p>
+                  <small>怎样达到标准：{{ qualityFixHint(issue) }}</small>
+                </article>
+              </div>
+              <div v-if="selectedTask.qualityReport?.warnings.length" class="quality-details__group">
+                <h5>优化建议（不阻止发布）</h5>
+                <article v-for="(issue, index) in selectedTask.qualityReport?.warnings" :key="`warning-${index}`" class="quality-issue">
+                  <strong>{{ qualityIssueTitle(issue) }}</strong>
+                  <p>{{ issue.message || '建议后续优化。' }}</p>
+                </article>
+              </div>
+            </section>
+
             <footer class="task-actions">
               <button v-if="selectedTask.status === 'running'" type="button" class="secondary-button" :disabled="acting" @click="pauseSelected">
                 <Pause :size="16" />{{ t('courseGeneration.actions.pause', '暂停') }}
               </button>
               <button v-if="canResume(selectedTask)" type="button" class="primary-button" :disabled="acting" @click="resumeSelected">
                 <RotateCw :size="16" />{{ t('courseTasks.resumeCheckpoint', '从保存点继续') }}
+              </button>
+              <button v-if="selectedTask.qualityRepair?.eligible" type="button" class="primary-button" :disabled="acting" @click="repairQualitySelected">
+                <WandSparkles :size="16" />自动补齐并重新检查
               </button>
               <button v-if="selectedTask.status === 'waiting_for_review'" type="button" class="primary-button" :disabled="acting || workspace.loading || !blueprintDraft" @click="confirmBlueprint">
                 <CircleCheck :size="16" />{{ t('courseTasks.blueprint.confirm', '确认并继续生成') }}
@@ -136,7 +164,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   BookOpenText, ChevronRight, CircleCheck, CircleDashed, CirclePause, CircleX,
   Clock3, Inbox, ListChecks, LoaderCircle, Pause, RefreshCw, RotateCw,
-  Trash2, TriangleAlert, X,
+  Trash2, TriangleAlert, WandSparkles, X,
 } from 'lucide-vue-next'
 import { useCourseStore } from '@/stores/course'
 import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
@@ -177,6 +205,8 @@ const tasks = computed<TaskView[]>(() => {
       recovery: raw.recovery || local?.recovery,
       publicationAllowed: typeof raw.publication_allowed === 'boolean' ? raw.publication_allowed : local?.publicationAllowed,
       qualityStatus: raw.quality_status || local?.qualityStatus,
+      qualityReport: raw.quality_report || local?.qualityReport,
+      qualityRepair: raw.quality_repair || local?.qualityRepair,
       logs: local?.logs || [],
       shouldStop: false,
       updatedAt: raw.updated_at || raw.created_at,
@@ -347,6 +377,36 @@ function problemHelp(task: TaskView) {
   if (task.status === 'conflict') return t('courseTasks.problem.conflictHelp', '保留当前内容，刷新任务状态后再决定继续或取消。')
   return t('courseTasks.problem.warningHelp', '可以继续补齐失败节点，也可以先进入课程查看已生成内容。')
 }
+async function repairQualitySelected() {
+  if (!selectedTask.value) return
+  await runAction(() => generationStore.repairQuality(selectedTask.value!.courseId))
+}
+function hasQualityDetails(task: TaskView) {
+  const report = task.qualityReport
+  return Boolean(report && (report.blocking_issues?.length || report.warnings?.length))
+}
+function qualityIssueTitle(issue: { gate?: string; asset_type?: string }) {
+  const assets: Record<string, string> = {
+    misconceptions: '常见误区', questions: '练习题', mastery_criteria: '掌握标准',
+    content_blocks: '学习内容块', course_knowledge_map: '课程知识图谱',
+    chapter_progression_contracts: '章节推进规则', diagnostic_remediation: '诊断与补救任务',
+    remediation_units: '补救学习单元',
+  }
+  return assets[issue.asset_type || ''] || (issue.gate ? `“${issue.gate}”检查` : '质量检查项')
+}
+function qualityFixHint(issue: { asset_type?: string; gate?: string }) {
+  const hints: Record<string, string> = {
+    misconceptions: '为每个核心知识点补充学生容易混淆的错误理解、产生原因与纠正说明；补齐后重新执行质量检查。',
+    questions: '为未覆盖的学习节点补充对应练习题，并确保题目与学习目标一致。',
+    mastery_criteria: '为每个学习节点补充可验证的掌握标准。',
+    content_blocks: '补全缺失或不合格的内容块，再重新检查。',
+    course_knowledge_map: '补齐知识点的统一映射与引用关系，再重新检查。',
+    chapter_progression_contracts: '补全章节目标、前置条件和完成规则。',
+    diagnostic_remediation: '补齐诊断题、验证题及其稳定契约。',
+    remediation_units: '补齐对应的补救目标、引导任务和修订信息。',
+  }
+  return hints[issue.asset_type || ''] || '根据该检查项补齐缺失内容后，重新执行质量检查。'
+}
 function isPublishedWarning(task: TaskView) {
   return task.status === 'completed_with_warnings'
     && (task.publicationAllowed === true || task.recovery?.state === 'completed')
@@ -383,6 +443,10 @@ function formatDuration(seconds: number) {
 .icon-button:hover { color:var(--lz-text-strong); background:var(--lz-surface-muted); }
 .task-center__body { min-height:0; display:grid; grid-template-columns:280px minmax(0,1fr); }
 .task-list { min-height:0; overflow:auto; padding:9px; border-right:1px solid var(--lz-border); background:rgba(248,250,252,.76); }
+.quality-details { margin-top:12px; overflow:hidden; border:1px solid var(--lz-border); border-radius:10px; background:var(--lz-surface); }
+.quality-details > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px 15px; border-bottom:1px solid var(--lz-border); }
+.quality-details header p { margin:0 0 2px; color:var(--lz-text-muted); font-size:10px; font-weight:700; }.quality-details header h4 { margin:0; color:var(--lz-text-strong); font-size:13px; }.quality-details header span { padding:4px 7px; border-radius:5px; color:#92400e; background:var(--lz-warning-soft); font-size:10px; font-weight:700; }.quality-details header span[data-passed="true"] { color:var(--lz-success); background:var(--lz-success-soft); }
+.quality-details__group { padding:12px 15px; }.quality-details__group + .quality-details__group { border-top:1px solid var(--lz-border); }.quality-details__group h5 { margin:0 0 8px; color:var(--lz-text-secondary); font-size:11px; }.quality-issue { padding:10px 11px; border-left:3px solid var(--lz-border); color:var(--lz-text-secondary); background:var(--lz-surface-muted); font-size:11px; line-height:1.55; }.quality-issue + .quality-issue { margin-top:7px; }.quality-issue--blocking { border-left-color:var(--lz-warning); color:#92400e; background:var(--lz-warning-soft); }.quality-issue strong { display:block; color:var(--lz-text-strong); }.quality-issue p,.quality-issue small { display:block; margin:4px 0 0; }.quality-issue small { font-weight:600; }
 .task-list__empty,.task-detail--empty { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--lz-text-muted); text-align:center; }
 .task-list__empty strong { color:var(--lz-text); font-size:12px; }.task-list__empty span { max-width:190px; font-size:10px; line-height:1.5; }
 .task-row { width:100%; min-height:62px; display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:8px; padding:8px 9px; border:1px solid transparent; border-radius:8px; color:var(--lz-text); background:transparent; text-align:left; cursor:pointer; }

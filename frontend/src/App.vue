@@ -1,6 +1,6 @@
 <template>
-  <div class="app-shell">
-    <header class="app-header glass-panel-elevated">
+  <div class="app-shell" :class="{ 'app-shell--workbench': isWorkbenchRoute }">
+    <header v-if="!isWorkbenchRoute" class="app-header glass-panel-elevated">
       <button class="brand-button" type="button" :aria-label="t('app.backToLibrary', '返回课程库')" @click="router.push('/courses')">
         <span class="brand-mark"><GraduationCap :size="21" /></span>
         <span class="brand-copy">
@@ -9,8 +9,8 @@
         </span>
       </button>
 
-      <div v-if="isLearningRoute" class="header-actions">
-        <label class="header-search">
+      <div class="header-actions">
+        <label v-if="isLearningRoute" class="header-search">
           <Search :size="15" />
           <input
             v-model="searchQuery"
@@ -23,7 +23,7 @@
           </button>
         </label>
 
-        <el-popover placement="bottom-end" :width="224" trigger="click">
+        <el-popover v-if="isLearningRoute" placement="bottom-end" :width="224" trigger="click">
           <template #reference>
             <button type="button" class="header-icon-button" :title="t('app.readingSettings', '阅读设置')" :aria-label="t('app.readingSettings', '阅读设置')">
               <Settings2 :size="17" />
@@ -53,11 +53,15 @@
           </div>
         </el-popover>
 
-        <button type="button" class="header-icon-button" :class="{ active: courseStore.isFocusMode }" :title="t('app.focusMode', '专注模式')" :aria-label="t('app.focusMode', '专注模式')" @click="courseStore.toggleFocusMode()">
+        <button v-if="isLearningRoute" type="button" class="header-icon-button" :class="{ active: courseStore.isFocusMode }" :title="t('app.focusMode', '专注模式')" :aria-label="t('app.focusMode', '专注模式')" @click="courseStore.toggleFocusMode()">
           <Scan :size="17" />
         </button>
 
-        <el-dropdown trigger="click" @command="handleExport">
+        <button type="button" class="header-icon-button" title="模型配置" aria-label="模型配置" @click="llmProfilesOpen = true">
+          <KeyRound :size="17" />
+        </button>
+
+        <el-dropdown v-if="isLearningRoute" trigger="click" @command="handleExport">
           <button type="button" class="header-icon-button" :title="t('app.export', '导出课程')" :aria-label="t('app.export', '导出课程')">
             <Download :size="17" />
           </button>
@@ -75,23 +79,27 @@
       <router-view />
     </main>
 
-    <KnowledgeLibrary />
+    <KnowledgeLibrary v-if="!isWorkbenchRoute" />
+    <LLMProfileDialog v-if="llmProfilesOpen && !isWorkbenchRoute" @close="llmProfilesOpen = false" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Download, GraduationCap, Scan, Search, Settings2, X } from 'lucide-vue-next'
+import { Download, GraduationCap, KeyRound, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
+import LLMProfileDialog from './components/LLMProfileDialog.vue'
 import { useCourseStore } from './stores/course'
 import { t } from './shared/i18n'
 
 const router = useRouter()
 const route = useRoute()
 const courseStore = useCourseStore()
+const llmProfilesOpen = ref(false)
 
 const isLearningRoute = computed(() => route.name === 'learning')
+const isWorkbenchRoute = computed(() => route.meta.shell === 'workbench')
 const searchQuery = computed({
   get: () => courseStore.globalSearchQuery,
   set: value => { courseStore.globalSearchQuery = value },
@@ -125,6 +133,14 @@ function updateFontSize(event: Event) {
   color: var(--lz-text);
   background: transparent;
 }
+
+.app-shell--workbench {
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+}
+
+.app-shell--workbench .app-main { border-radius: 0; }
 
 .app-header {
   position: relative;

@@ -105,6 +105,30 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.find('.task-actions__open').exists()).toBe(true)
   })
 
+  it('展示阻断质量项及达到发布标准的修复说明', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-quality', course_id: 'course-1', course_name: 'C语言', status: 'completed_with_warnings',
+      progress: 100, current_phase: 'quality_failed', publication_allowed: false,
+      quality_report: {
+        publication_allowed: false,
+        blocking_issues: [{ gate: 'structure', severity: 'critical', asset_type: 'misconceptions', message: '必选资产为空' }],
+        warnings: [{ gate: 'coverage', severity: 'major', asset_type: 'course_knowledge_map', message: '仍有 12 个课程局部知识待归一' }],
+      },
+      quality_repair: { eligible: true, attempts: 0, reason: '可自动补齐缺失的常见误区并重新检查；不会重写课程正文。' },
+      recovery: { state: 'quality_blocked', can_resume: false, reason_code: 'quality_gate_failed', reason: 'quality failed', checkpoint: { phase: 'quality_failed', completed_nodes: 4, total_nodes: 4, draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [] } },
+    }]
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('尚未达到发布标准')
+    expect(wrapper.text()).toContain('常见误区')
+    expect(wrapper.text()).toContain('必选资产为空')
+    expect(wrapper.text()).toContain('怎样达到标准')
+    expect(wrapper.text()).toContain('优化建议（不阻止发布）')
+    expect(wrapper.text()).toContain('自动补齐并重新检查')
+  })
+
   it('只在后端确认有检查点时提供继续，并显示已保留内容', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [{

@@ -48,6 +48,8 @@ backend/data/materials/
 backend/data/course_versions/
 backend/data/learning_assets/
 backend/data/generation_workspaces/
+backend/data/presentation_decks/
+backend/data/llm_profiles.json
 !backend/data/courses/.gitkeep
 !backend/data/knowledge_graphs/.gitkeep
 
