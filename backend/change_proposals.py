@@ -341,8 +341,43 @@ def reject_item(
     *,
     reason: str | None = None,
 ) -> dict[str, Any]:
-    """Reject a single pending item. `reason` is recorded on the item for later
-    evidence-item back-flow (implemented by the evidence-driven agent, not here).
+    """Reject a single pending item and record `reason` on the item.
+
+    Evidence back-flow: spec §4 "AI 变更 MUST 以待确认形式呈现" hard-requires
+    that a rejection reason flows back into the learner's evidence trail as a
+    new `LearningEvent`, not just onto the change-proposal item itself. That
+    write happens *here* (inside the state-machine module), not only in the
+    HTTP router layer (`routers/change_proposals.py`). Reasoning: this module
+    is otherwise a pure state machine with no dependency on
+    `learning_events.py`, which is the cleaner default layering — but a
+    router-only implementation would silently skip the MUST for any caller
+    that invokes `reject_item` directly (background jobs, batch/regrade
+    tooling, tests), which is a real and likely path here (this module already
+    has non-HTTP callers). A missed hard requirement is worse than the extra
+    coupling, so the single choke point every rejection passes through
+    (`reject_item` itself) is what performs the write. The import of
+    `learning_events` is deferred to function scope to avoid a module-level
+    dependency/import-cycle risk given `learning_events.py` may in turn touch
+    course/learner services.
+
+    `event_type="learner_self_reported"` is reused deliberately (not a new
+    enum value) so the rejection reason is picked up by the *existing*
+    evidence classification/trigger logic in `learner_model.py`
+    (`classify_evidence_event` / `evaluate_evidence_trigger`) without any
+    change to that logic, and so it also goes through the existing
+    `_maybe_trigger_evidence_evaluation` hook in `learning_events.py` that can
+    generate a follow-up change proposal from strong-enough evidence.
+
+    Decision on empty `reason`: if the student rejects without typing a
+    reason, we still emit one low-strength generic evidence event (rather
+    than silently doing nothing). Silence would make the change-proposal
+    history inconsistent with the evidence trail (a rejection happened, the
+    student had *some* implicit judgment, but nothing about it is ever
+    recoverable from `learning_events.json`). The event's `evidence.statement`
+    is left empty/marked so it classifies as the weakest signal
+    (`reexplain_request` at half-weight in `classify_evidence_event`, since it
+    won't match any incomprehension/reexplain marker) and can only ever
+    contribute in aggregate with other evidence, never trigger alone.
     """
     proposal = repository.load(proposal_id)
     item = _find_item(proposal, item_id)
@@ -375,7 +410,51 @@ def reject_item(
             f"Item cannot be rejected from status {latest_item.get('status')}",
             proposal=updated,
         )
+
+    rejected_item = _find_item(updated, item_id)
+    _record_rejection_evidence(updated, rejected_item, reason=reason)
     return updated
+
+
+def _record_rejection_evidence(
+    proposal: dict[str, Any],
+    item: dict[str, Any],
+    *,
+    reason: str | None,
+) -> None:
+    """Best-effort write of a `LearningEvent` capturing why a change-proposal
+    item was rejected. Never raises: a failure here must not roll back or mask
+    the already-committed rejection, mirroring the "best-effort side effect"
+    pattern already used elsewhere in this codebase (see
+    `_maybe_trigger_evidence_evaluation` in `learning_events.py`).
+    """
+    try:
+        from learning_events import record_learning_event
+
+        normalized_reason = str(reason or "").strip()
+        statement = (
+            normalized_reason
+            if normalized_reason
+            else "学生拒绝了该变更建议，但未填写拒绝理由。"
+        )
+        record_learning_event(
+            event_type="learner_self_reported",
+            actor="learner",
+            source="change_proposal_rejection",
+            course_id=proposal.get("course_id"),
+            node_id=item.get("block_id"),
+            evidence={
+                "statement": statement,
+                "reason_provided": bool(normalized_reason),
+                "change_proposal_id": proposal.get("proposal_id"),
+                "change_proposal_item_id": item.get("item_id"),
+            },
+            metadata={
+                "change_proposal_scope": proposal.get("scope"),
+            },
+        )
+    except Exception:
+        pass
 
 
 def regenerate_item(

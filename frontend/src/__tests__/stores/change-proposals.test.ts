@@ -113,6 +113,6 @@ describe('change proposals store', () => {
     httpMock.get.mockResolvedValue({ data: [proposalWithTargetKind] })
     const store = useChangeProposalsStore()
     await expect(store.fetchChangeProposals('course-1')).resolves.not.toThrow()
-    expect(store.proposals[0].items[0].target_kind).toBe('kg_node')
+    expect(store.proposals[0]?.items[0]?.target_kind).toBe('kg_node')
   })
 })

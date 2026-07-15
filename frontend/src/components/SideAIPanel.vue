@@ -159,8 +159,13 @@
               </div>
               <p v-if="item.reason" class="change-item-reason">{{ item.reason }}</p>
 
+              <p v-if="isKgNodeItem(item)" class="change-item-unsupported-note">
+                {{ t('courseWorkspace.changeProposals.kgNodeUnsupported', '该建议涉及知识库节点，暂不支持在线接受，请人工核对知识库后处理。') }}
+              </p>
+
               <div class="change-item-actions">
                 <button
+                  v-if="!isKgNodeItem(item)"
                   type="button"
                   class="primary-command"
                   :disabled="changeProposalsStore.isItemActing(item.item_id)"
@@ -465,7 +470,7 @@ import { useNoteStore } from '../stores/notes'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { t } from '../shared/i18n'
 import type { BlockRegenerationCandidate, CourseBlockEditTarget } from '../stores/types'
-import type { ChangeProposal, ChangeProposalScope, ChangeProposalSource } from '../types/changeProposal'
+import type { ChangeProposal, ChangeProposalItem, ChangeProposalScope, ChangeProposalSource } from '../types/changeProposal'
 import logger from '../utils/logger'
 
 const props = defineProps<{
@@ -792,6 +797,12 @@ function scopeLabel(scope: ChangeProposalScope) {
   } as Record<ChangeProposalScope, string>)[scope] || scope
 }
 
+// kg_node 条目的目标是知识库节点而非课程正文块；知识库目前是静态只读目录，
+// 没有任何写入路径，因此这类条目不能走"接受"自动应用流程，只能人工核对处理。
+function isKgNodeItem(item: ChangeProposalItem) {
+  return (item.target_kind || 'course_block') !== 'course_block'
+}
+
 function sourceLabel(source: ChangeProposalSource) {
   return ({
     manual: '',
@@ -1031,6 +1042,7 @@ onUnmounted(() => {
 .diff-before p { margin:0; color:#94a3b8; text-decoration:line-through; }
 .diff-after-wrap p,.diff-after { margin:0; color:var(--lz-text); }
 .change-item-reason { margin:0 0 8px; color:var(--lz-text-muted); font-size:10px; line-height:1.5; }
+.change-item-unsupported-note { margin:0 0 8px; padding:6px 8px; border-radius:6px; background:var(--lz-surface-muted, rgba(148,163,184,.12)); color:var(--lz-text-muted); font-size:10px; line-height:1.5; }
 .change-item-actions { display:flex; flex-wrap:wrap; gap:6px; }
 .change-item-actions button:disabled { opacity:.55; cursor:not-allowed; }
 .change-item-prompt { margin-top:8px; }

@@ -58,17 +58,30 @@ async def apply_change_proposal_item(
     course_repository = get_course_document_repository()
     command_service = CourseCommandService(course_repository)
     try:
-        document, canonical = course_repository.load_document(course_id)
-        if not canonical:
-            raise HTTPException(status_code=409, detail="Course must be migrated before applying changes")
         proposal = repository.load(proposal_id)
         block_id = None
+        target_kind = "course_block"
         for item in proposal.get("items") or []:
             if item.get("item_id") == item_id:
                 block_id = item.get("block_id")
+                target_kind = item.get("target_kind") or "course_block"
                 break
         if block_id is None:
             raise ChangeProposalNotFound(item_id)
+        if target_kind != "course_block":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "kg_node_apply_not_supported",
+                    "message": (
+                        "该条目目标是知识库节点，当前知识库为静态只读目录，暂不支持自动接受；"
+                        "请人工核对后在知识库目录中更新，或选择拒绝/暂不处理该条目。"
+                    ),
+                },
+            )
+        document, canonical = course_repository.load_document(course_id)
+        if not canonical:
+            raise HTTPException(status_code=409, detail="Course must be migrated before applying changes")
         target = next((b for b in document.blocks if b.block_id == block_id), None)
         if target is None:
             raise HTTPException(status_code=404, detail="Course block not found")

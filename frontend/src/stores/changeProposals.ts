@@ -33,8 +33,8 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
       for (const proposal of this.pendingProposals as ChangeProposal[]) {
         for (const item of proposal.items) {
           if (item.status !== 'pending') continue
-          if (!grouped[item.block_id]) grouped[item.block_id] = []
-          grouped[item.block_id].push({ proposal, item })
+          const bucket = grouped[item.block_id] ?? (grouped[item.block_id] = [])
+          bucket.push({ proposal, item })
         }
       }
       return grouped

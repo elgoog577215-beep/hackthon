@@ -15,6 +15,22 @@ from change_proposals import (
 )
 from course_commands import CourseCommandService
 from course_repository import CourseDocumentRepository
+import learning_events
+
+
+class MemoryDataStorage:
+    """Minimal stand-in for `storage.storage`, mirroring the pattern used in
+    test_learning_events_v2.py, so `record_learning_event` writes are
+    observable without touching the real DATA_DIR."""
+
+    def __init__(self) -> None:
+        self.data: dict[str, list] = {}
+
+    def load_data(self, filename):
+        return deepcopy(self.data.get(filename, []))
+
+    def save_data(self, filename, value):
+        self.data[filename] = deepcopy(value)
 
 
 class MemoryStorage:
@@ -227,7 +243,9 @@ async def test_apply_item_writes_via_course_command_service_and_is_isolated(tmp_
 
 
 @pytest.mark.asyncio
-async def test_reject_item_records_reason_and_is_idempotent_protected(tmp_path):
+async def test_reject_item_records_reason_and_is_idempotent_protected(tmp_path, monkeypatch):
+    memory_events = MemoryDataStorage()
+    monkeypatch.setattr(learning_events, "storage", memory_events)
     _storage, _repo, proposals, _cmd, document = await canonical_setup(tmp_path)
     target1 = block(document, "block-1")
     proposal = create_proposal(
@@ -252,6 +270,21 @@ async def test_reject_item_records_reason_and_is_idempotent_protected(tmp_path):
     assert item["status"] == "rejected"
     assert item["resolution_reason"] == "内容不准确"
     assert rejected["status"] == "resolved"
+
+    # Evidence back-flow: the rejection reason MUST be written back as a new
+    # LearningEvent (spec §4), not just parked on the change-proposal item.
+    recorded_events = memory_events.data.get(learning_events.LEARNING_EVENTS_FILE, [])
+    reason_events = [
+        e for e in recorded_events
+        if e.get("event_type") == "learner_self_reported"
+        and e.get("source") == "change_proposal_rejection"
+    ]
+    assert len(reason_events) == 1
+    reason_event = reason_events[0]
+    assert reason_event["evidence"]["statement"] == "内容不准确"
+    assert reason_event["course_id"] == "course-1"
+    assert reason_event["node_id"] == "block-1"
+    assert reason_event["evidence"]["change_proposal_item_id"] == item_id
 
     with pytest.raises(ChangeProposalConflict):
         reject_item(proposals, proposal["proposal_id"], item_id, reason="again")
@@ -302,6 +335,72 @@ async def test_regenerate_item_creates_new_pending_item_without_reusing_content(
 
     with pytest.raises(ChangeProposalConflict):
         regenerate_item(proposals, proposal["proposal_id"], item_id, extra_instruction="again")
+
+
+def test_router_rejects_kg_node_item_apply_without_404(tmp_path, monkeypatch):
+    """Route-level guard: an item whose target_kind is "kg_node" must never
+    reach the course-block lookup (which would previously 404 with a
+    misleading "Course block not found"). It must be rejected up front with a
+    clear, honest error, and the item must remain pending (reject still
+    works normally)."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import routers.change_proposals as change_proposals_router
+
+    proposals = ChangeProposalRepository(tmp_path / "change_proposals")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="req-kg-node",
+        scope="block",
+        target_block_ids=["math.la.system.gaussian_elimination"],
+        items=[
+            {
+                "block_id": "math.la.system.gaussian_elimination",
+                "target_kind": "kg_node",
+                "before": {"name": "高斯消元法"},
+                "after": {"payload": {"name": "高斯消元法（更新）"}},
+                "reason": "内容变更同步到知识库节点",
+            }
+        ],
+    )
+    item_id = proposal["items"][0]["item_id"]
+
+    monkeypatch.setattr(change_proposals_router, "change_proposal_repository", proposals)
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_change_proposal_repository",
+        lambda: proposals,
+    )
+
+    app = FastAPI()
+    app.include_router(change_proposals_router.router, prefix="")
+    client = TestClient(app)
+
+    response = client.post(
+        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{item_id}/apply",
+        headers={"X-User-Id": "user-1"},
+    )
+
+    assert response.status_code != 404
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "kg_node_apply_not_supported"
+
+    reloaded = proposals.load(proposal["proposal_id"])
+    item = next(i for i in reloaded["items"] if i["item_id"] == item_id)
+    assert item["status"] == "pending"
+
+    # reject path must still work normally for a kg_node item.
+    reject_response = client.post(
+        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{item_id}/reject",
+        json={"reason": "人工核对后拒绝"},
+    )
+    assert reject_response.status_code == 200
+    rejected = proposals.load(proposal["proposal_id"])
+    rejected_item = next(i for i in rejected["items"] if i["item_id"] == item_id)
+    assert rejected_item["status"] == "rejected"
 
 
 @pytest.mark.asyncio
