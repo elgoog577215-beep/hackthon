@@ -39,4 +39,5 @@ jobs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
-            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" deploy
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "bash /opt/lingzhi/github-action-deploy.sh"
