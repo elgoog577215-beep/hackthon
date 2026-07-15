@@ -17,6 +17,12 @@ from material_models import MaterialAsset, ParsedDocument
 
 MATERIALS_DIR = Path(__file__).resolve().parent / "data" / "materials"
 DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024
+# 与 models.py 中 CourseGenerationRequest.material_bindings 的 max_length=30 语义对齐：
+# 一次课程生成最多引用 30 份材料，因此同一个上传批次（upload_batch_id）最多也只应持有 30 份资产，
+# 否则用户会先传完文件才在提交生成请求时被 max_length 拒绝，体验不清晰。
+DEFAULT_MAX_BATCH_FILES = 30
+# 单批次总字节数上限：默认单文件上限的 6 倍（300MB），避免解析耗时不可控，同时给多文件小课程留出空间。
+DEFAULT_MAX_BATCH_BYTES = 300 * 1024 * 1024
 ALLOWED_EXTENSIONS = {
     ".pdf",
     ".docx",
@@ -110,6 +116,8 @@ class MaterialRepository:
         *,
         upload_batch_id: str = "",
         max_bytes: int | None = None,
+        max_batch_files: int | None = None,
+        max_batch_bytes: int | None = None,
     ) -> MaterialAsset:
         filename = str(getattr(upload, "filename", "") or "").strip()
         if not filename or filename != Path(filename).name or "/" in filename or "\\" in filename or "\x00" in filename:
@@ -121,6 +129,12 @@ class MaterialRepository:
             raise MaterialStorageError(f"不支持的文件类型：{extension or '无扩展名'}")
 
         limit = max_bytes or int(os.getenv("MATERIAL_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES))
+        batch_file_limit = max_batch_files or int(
+            os.getenv("MATERIAL_MAX_BATCH_FILES", DEFAULT_MAX_BATCH_FILES)
+        )
+        batch_bytes_limit = max_batch_bytes or int(
+            os.getenv("MATERIAL_MAX_BATCH_BYTES", DEFAULT_MAX_BATCH_BYTES)
+        )
         temp_dir = self.root / ".tmp"
         temp_dir.mkdir(parents=True, exist_ok=True)
         temp_path = temp_dir / f"{uuid.uuid4().hex}.upload"
@@ -152,6 +166,22 @@ class MaterialRepository:
                 if existing:
                     temp_path.unlink(missing_ok=True)
                     return existing
+
+                batch_count, batch_bytes = self._batch_stats(upload_batch_id)
+                if batch_count + 1 > batch_file_limit:
+                    raise MaterialStorageError(
+                        "本批次材料数量已超出上限："
+                        f"当前已有 {batch_count} 份，加上本次上传共 {batch_count + 1} 份，"
+                        f"上限为 {batch_file_limit} 份，请先移除部分材料或分批上传。"
+                    )
+                if batch_bytes + size > batch_bytes_limit:
+                    raise MaterialStorageError(
+                        "本批次材料总大小已超出上限："
+                        f"当前已有 {batch_bytes} 字节，加上本次上传共 {batch_bytes + size} 字节，"
+                        f"上限为 {batch_bytes_limit} 字节"
+                        f"（约 {batch_bytes_limit // (1024 * 1024)} MB），"
+                        "请先移除部分材料或分批上传。"
+                    )
 
                 asset_id = f"mat-{uuid.uuid4().hex}"
                 asset_dir = self._asset_dir(asset_id)
@@ -276,6 +306,20 @@ class MaterialRepository:
         shutil.rmtree(self._asset_dir(asset_id))
         return True
 
+    def _batch_stats(self, upload_batch_id: str) -> tuple[int, int]:
+        """统计同一个上传批次（upload_batch_id）下已有的资产数量与总字节数。"""
+        count = 0
+        total_bytes = 0
+        for path in self.root.glob("mat-*/manifest.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if data.get("upload_batch_id") == upload_batch_id:
+                count += 1
+                total_bytes += int(data.get("size_bytes") or 0)
+        return count, total_bytes
+
     def _find_by_hash(self, sha256: str) -> MaterialAsset | None:
         for path in self.root.glob("mat-*/manifest.json"):
             try:
@@ -316,6 +360,8 @@ material_repository = MaterialRepository()
 
 __all__ = [
     "ALLOWED_EXTENSIONS",
+    "DEFAULT_MAX_BATCH_BYTES",
+    "DEFAULT_MAX_BATCH_FILES",
     "DEFAULT_MAX_FILE_BYTES",
     "MATERIALS_DIR",
     "MaterialRepository",
