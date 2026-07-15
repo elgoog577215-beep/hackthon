@@ -1,0 +1,1595 @@
+{
+  "schema_version": "knowledge_library_v2",
+  "library_id": "math.linear_algebra.v1",
+  "subject_id": "math.linear_algebra",
+  "version": "2.0.0",
+  "title": "数学·线性代数统一知识库",
+  "match_terms": [
+    "线性代数",
+    "向量空间",
+    "矩阵",
+    "高斯消元",
+    "linear algebra"
+  ],
+  "source_refs": [
+    "curated:linear-algebra-teaching-standards-v1",
+    "curated:linear-algebra-v1"
+  ],
+  "tree": {
+    "knowledge_id": "math",
+    "node_type": "subject",
+    "name": "数学",
+    "description": "研究数量、结构、空间和变化的形式科学。",
+    "children": [
+      {
+        "knowledge_id": "math.linear_algebra",
+        "node_type": "domain",
+        "name": "线性代数",
+        "aliases": [
+          "Linear Algebra"
+        ],
+        "description": "研究向量、线性映射、线性方程组和线性空间结构。",
+        "learning_actions": [
+          "在几何、方程和映射三种表示之间转换",
+          "用定义、运算和结构定理解释结论"
+        ],
+        "children": [
+          {
+            "knowledge_id": "math.la.vectors",
+            "node_type": "topic",
+            "name": "向量、线性组合与张成",
+            "description": "从向量表示进入线性组合、相关性和张成结构。",
+            "children": [
+              {
+                "knowledge_id": "math.la.vector.representation",
+                "node_type": "concept",
+                "name": "向量的表示",
+                "aliases": [
+                  "向量的几何与分量表示",
+                  "几何向量与坐标向量"
+                ],
+                "description": "同一个向量可以作为有向线段、坐标列或抽象空间元素表示。",
+                "learning_actions": [
+                  "区分向量本身与某组基下的坐标",
+                  "在几何表示和分量表示之间转换"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.vector.representation.geometric",
+                    "node_type": "knowledge_point",
+                    "name": "几何向量的方向与长度",
+                    "description": "几何向量由方向和长度刻画，与起点位置无关。",
+                    "learning_actions": [
+                      "用图形解释向量加法和数乘"
+                    ],
+                    "typical_problems": [
+                      "平面向量的几何解释"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.vector.representation.coordinate",
+                    "node_type": "knowledge_point",
+                    "name": "坐标向量与基的依赖",
+                    "description": "坐标列依赖所选基，向量本身不随基改变。",
+                    "learning_actions": [
+                      "说明同一向量在不同基下坐标为何不同"
+                    ],
+                    "typical_problems": [
+                      "给定基求向量坐标"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.vector.representation.operations",
+                    "node_type": "knowledge_point",
+                    "name": "向量加法与数乘的分量规则",
+                    "description": "在固定基下，向量加法和数乘可逐分量计算。",
+                    "learning_actions": [
+                      "正确完成向量加法和数乘并解释几何意义"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.vector.linear_combination",
+                "node_type": "concept",
+                "name": "线性组合",
+                "aliases": [
+                  "线性组合的定义与系数条件",
+                  "向量线性组合"
+                ],
+                "description": "用标量系数对有限个向量加权求和形成新向量。",
+                "learning_actions": [
+                  "写出线性组合并识别系数所属数域",
+                  "把成员关系转化为系数方程"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.vector.linear_combination.definition",
+                    "node_type": "knowledge_point",
+                    "name": "线性组合的形式定义",
+                    "description": "表达式 a1v1+…+akvk 是向量组的线性组合。",
+                    "learning_actions": [
+                      "从表达式识别向量和标量系数"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.vector.linear_combination.coefficients",
+                    "node_type": "knowledge_point",
+                    "name": "线性组合系数的数域与自由性",
+                    "description": "系数来自指定数域，除题设外通常不要求为正或和为一。",
+                    "learning_actions": [
+                      "辨别线性组合与凸组合、仿射组合的系数条件"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.vector.linear_combination.membership",
+                    "node_type": "knowledge_point",
+                    "name": "线性组合成员关系的方程化",
+                    "description": "判断向量是否可表示为线性组合等价于求解系数方程。",
+                    "learning_actions": [
+                      "建立并求解线性组合系数方程"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.vector.dependence",
+                "node_type": "concept",
+                "name": "线性相关与线性无关",
+                "aliases": [
+                  "线性相关与线性无关的正式定义",
+                  "向量组相关性"
+                ],
+                "description": "用齐次线性组合是否存在非零系数解刻画向量组冗余。",
+                "learning_actions": [
+                  "严格使用非平凡系数判定相关性",
+                  "构造相关关系或证明只有零解"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.vector.dependence.trivial_solution",
+                    "node_type": "knowledge_point",
+                    "name": "平凡系数解与非平凡系数解",
+                    "description": "所有系数为零总能成立；相关性取决于是否存在非平凡解。",
+                    "learning_actions": [
+                      "解释为什么零系数解不能证明相关"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.vector.dependence.definition",
+                    "node_type": "knowledge_point",
+                    "name": "线性相关与无关的量词定义",
+                    "description": "相关表示存在非平凡系数组合为零，无关表示只有平凡解。",
+                    "learning_actions": [
+                      "准确写出存在量词与全称量词"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.vector.dependence.zero_vector",
+                    "node_type": "knowledge_point",
+                    "name": "含零向量的向量组必相关",
+                    "description": "零向量对应位置取非零系数即可形成非平凡零组合。",
+                    "learning_actions": [
+                      "用定义给出一步证明"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.vector.rank_test",
+                "node_type": "concept",
+                "name": "用矩阵秩判断向量组相关性",
+                "aliases": [
+                  "用矩阵秩判断相关性的方法",
+                  "秩判别相关性"
+                ],
+                "description": "把向量作为矩阵列，比较秩与向量个数判断线性无关性。",
+                "learning_actions": [
+                  "把向量组正确排列成列矩阵",
+                  "用主元个数判断相关性"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.vector.rank_test.column_matrix",
+                    "node_type": "knowledge_point",
+                    "name": "向量组的列矩阵表示",
+                    "description": "把待判断向量依次作为矩阵列，列关系就是向量组关系。",
+                    "learning_actions": [
+                      "从向量组构造正确列矩阵"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.vector.rank_test.full_column_rank",
+                    "node_type": "knowledge_point",
+                    "name": "满列秩与线性无关",
+                    "description": "列秩等于列数时列向量线性无关，否则线性相关。",
+                    "learning_actions": [
+                      "用秩与列数比较完成判定"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.vector.span_dimension",
+                "node_type": "concept",
+                "name": "张成空间与维数",
+                "aliases": [
+                  "张成空间与维数初步",
+                  "生成空间"
+                ],
+                "description": "向量组全部线性组合构成张成空间，去除冗余后基向量个数给出维数。",
+                "learning_actions": [
+                  "判断向量是否属于张成空间",
+                  "从生成组提取基并计算维数"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.vector.span_dimension.span",
+                    "node_type": "knowledge_point",
+                    "name": "向量组的张成集合",
+                    "description": "张成集合包含给定向量组所有可能的线性组合。",
+                    "learning_actions": [
+                      "用集合形式写出 span"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.vector.span_dimension.redundancy",
+                    "node_type": "knowledge_point",
+                    "name": "生成组中的冗余向量",
+                    "description": "能由其余向量线性表示的向量不会扩大张成空间。",
+                    "learning_actions": [
+                      "删除冗余向量并证明张成不变"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.vector.span_dimension.rank",
+                    "node_type": "knowledge_point",
+                    "name": "张成空间维数等于向量组秩",
+                    "description": "生成向量组的最大无关组大小等于其张成空间维数。",
+                    "learning_actions": [
+                      "由行化简结果读取张成空间维数"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "knowledge_id": "math.la.matrices",
+            "node_type": "topic",
+            "name": "矩阵与线性映射",
+            "description": "理解矩阵运算、行变换、逆和基本子空间的结构含义。",
+            "children": [
+              {
+                "knowledge_id": "math.la.matrix.linear_map",
+                "node_type": "concept",
+                "name": "矩阵表示线性映射",
+                "aliases": [
+                  "矩阵作为线性映射的表示"
+                ],
+                "description": "固定定义域和值域的基后，线性映射由矩阵唯一表示。",
+                "learning_actions": [
+                  "由映射在基向量上的像构造矩阵",
+                  "说明换基会改变表示矩阵"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.matrix.linear_map.columns",
+                    "node_type": "knowledge_point",
+                    "name": "表示矩阵的列来自基向量的像",
+                    "description": "第 j 列是第 j 个定义域基向量的像在值域基下的坐标。",
+                    "learning_actions": [
+                      "逐列构造线性映射矩阵"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.linear_map.basis_dependence",
+                    "node_type": "knowledge_point",
+                    "name": "表示矩阵依赖基的选择",
+                    "description": "同一线性映射在不同基下拥有不同矩阵。",
+                    "learning_actions": [
+                      "区分线性映射本身与其矩阵表示"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.matrix.composition",
+                "node_type": "concept",
+                "name": "矩阵乘法与映射复合",
+                "aliases": [
+                  "矩阵乘法与复合映射"
+                ],
+                "description": "矩阵乘法的维度条件和顺序来自线性映射复合。",
+                "learning_actions": [
+                  "检查矩阵乘法维度",
+                  "用列组合或映射复合解释乘积"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.matrix.composition.dimension",
+                    "node_type": "knowledge_point",
+                    "name": "矩阵乘法的维度合同",
+                    "description": "A 的列数必须等于 B 的行数，AB 的形状由 A 的行数和 B 的列数决定。",
+                    "learning_actions": [
+                      "乘法前先写出矩阵形状"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.composition.order",
+                    "node_type": "knowledge_point",
+                    "name": "映射复合与乘法顺序",
+                    "description": "ABx 表示先应用 B 再应用 A，矩阵乘法一般不可交换。",
+                    "learning_actions": [
+                      "从映射顺序判断矩阵乘法顺序"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.composition.column_view",
+                    "node_type": "knowledge_point",
+                    "name": "乘积矩阵的列组合解释",
+                    "description": "AB 的每一列是 A 的列向量按 B 相应列系数形成的线性组合。",
+                    "learning_actions": [
+                      "不用逐项公式解释矩阵乘法"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.matrix.row_reduction",
+                "node_type": "concept",
+                "name": "初等行变换与阶梯形",
+                "aliases": [
+                  "初等变换与行简化阶梯形",
+                  "行化简",
+                  "行最简阶梯形"
+                ],
+                "description": "通过三类可逆行变换得到阶梯形或行最简阶梯形。",
+                "learning_actions": [
+                  "合法执行行变换并记录主元",
+                  "区分阶梯形与行最简阶梯形"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.matrix.row_reduction.operations",
+                    "node_type": "knowledge_point",
+                    "name": "三类合法初等行变换",
+                    "description": "交换两行、非零倍乘一行、用一行倍数加到另一行都是可逆变换。",
+                    "learning_actions": [
+                      "识别并正确书写每一步行变换"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.row_reduction.solution_preservation",
+                    "node_type": "knowledge_point",
+                    "name": "行变换保持方程组解集",
+                    "description": "对增广矩阵做合法行变换得到等价方程组。",
+                    "learning_actions": [
+                      "解释每类行变换为何可逆"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.row_reduction.echelon",
+                    "node_type": "knowledge_point",
+                    "name": "主元位置与行阶梯形条件",
+                    "description": "非零行在零行之上，下一行主元位于上一行主元右侧。",
+                    "learning_actions": [
+                      "从矩阵中标出主元列和自由列"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.row_reduction.rref",
+                    "node_type": "knowledge_point",
+                    "name": "行最简阶梯形条件与唯一性",
+                    "description": "每个主元为一且是所在列唯一非零元；同一矩阵的行最简形唯一。",
+                    "learning_actions": [
+                      "把阶梯形继续化为行最简形"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.matrix.inverse",
+                "node_type": "concept",
+                "name": "逆矩阵及其存在条件",
+                "aliases": [
+                  "矩阵的逆及其存在条件",
+                  "可逆矩阵"
+                ],
+                "description": "方阵 A 可逆当且仅当存在 B 使 AB=BA=I，并与多种满秩条件等价。",
+                "learning_actions": [
+                  "判断方阵是否可逆",
+                  "用增广矩阵或结构性质求逆"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.matrix.inverse.definition",
+                    "node_type": "knowledge_point",
+                    "name": "双侧逆与单位矩阵",
+                    "description": "逆矩阵必须满足左右乘都得到相应阶数的单位矩阵。",
+                    "learning_actions": [
+                      "验证候选矩阵是否为逆矩阵"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.inverse.criteria",
+                    "node_type": "knowledge_point",
+                    "name": "可逆性的满秩等价条件",
+                    "description": "n 阶方阵可逆等价于秩为 n、零空间仅含零向量、每列都有主元。",
+                    "learning_actions": [
+                      "选择合适等价条件判断可逆性"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.inverse.augmentation",
+                    "node_type": "knowledge_point",
+                    "name": "用增广矩阵求逆",
+                    "description": "把 [A|I] 行化简为 [I|A⁻¹]，若左侧不能化为 I 则不可逆。",
+                    "learning_actions": [
+                      "完整同步变换增广矩阵两侧"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.matrix.rank_spaces",
+                "node_type": "concept",
+                "name": "矩阵秩、列空间与零空间",
+                "aliases": [
+                  "矩阵秩与列空间、零空间",
+                  "四个基本子空间初步"
+                ],
+                "description": "秩连接主元、列空间维数和零空间维数。",
+                "learning_actions": [
+                  "由行化简读取秩",
+                  "区分原矩阵列空间与行最简形的主元位置"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.matrix.rank_spaces.rank",
+                    "node_type": "knowledge_point",
+                    "name": "秩与主元个数",
+                    "description": "矩阵秩等于行阶梯形中的主元个数。",
+                    "learning_actions": [
+                      "从任意阶梯形读取矩阵秩"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.rank_spaces.column_space",
+                    "node_type": "knowledge_point",
+                    "name": "列空间与原矩阵主元列",
+                    "description": "原矩阵中对应主元位置的列构成列空间的一组基。",
+                    "learning_actions": [
+                      "避免直接把行最简形的列当作原列空间基"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.rank_spaces.null_space",
+                    "node_type": "knowledge_point",
+                    "name": "零空间与自由变量",
+                    "description": "Ax=0 的解集是零空间，自由变量给出零空间参数和基。",
+                    "learning_actions": [
+                      "由行最简形写出零空间参数表示"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.matrix.rank_spaces.rank_nullity",
+                    "node_type": "knowledge_point",
+                    "name": "秩-零度关系",
+                    "description": "对 m×n 矩阵，秩加零空间维数等于 n。",
+                    "learning_actions": [
+                      "用主元变量和自由变量个数验证秩-零度关系"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "knowledge_id": "math.la.systems",
+            "node_type": "topic",
+            "name": "线性方程组与解结构",
+            "description": "用增广矩阵和行化简分析一致性、自由变量与解空间。",
+            "children": [
+              {
+                "knowledge_id": "math.la.system.augmented_matrix",
+                "node_type": "concept",
+                "name": "增广矩阵与等价方程组",
+                "aliases": [
+                  "增广矩阵与线性方程组的等价变换"
+                ],
+                "description": "增广矩阵把系数与常数项统一编码，行变换必须作用于整行。",
+                "learning_actions": [
+                  "从方程组构造增广矩阵",
+                  "从行化简结果还原方程含义"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.system.augmented_matrix.construction",
+                    "node_type": "knowledge_point",
+                    "name": "系数矩阵与增广列的构造",
+                    "description": "变量顺序决定系数列，等号右侧常数构成增广列。",
+                    "learning_actions": [
+                      "保持变量顺序一致地构造增广矩阵"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.system.augmented_matrix.whole_row",
+                    "node_type": "knowledge_point",
+                    "name": "行变换必须同步作用于增广列",
+                    "description": "只改变系数部分会破坏原方程组的等价性。",
+                    "learning_actions": [
+                      "逐步检查整行是否同步更新"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.system.gaussian_elimination",
+                "node_type": "concept",
+                "name": "高斯消元法",
+                "aliases": [
+                  "高斯消元法步骤与行简化阶梯形",
+                  "Gaussian elimination"
+                ],
+                "description": "按主元推进把增广矩阵化为阶梯形，再回代或继续化简。",
+                "learning_actions": [
+                  "选择主元并消去其下方元素",
+                  "从阶梯形回代或写出参数解"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.system.gaussian_elimination.pivot",
+                    "node_type": "knowledge_point",
+                    "name": "主元选择与零主元换行",
+                    "description": "当前列候选主元为零时需要换到非零行；整列为零则转向下一列。",
+                    "learning_actions": [
+                      "正确处理零主元和跳列"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.system.gaussian_elimination.forward",
+                    "node_type": "knowledge_point",
+                    "name": "前向消元与阶梯形",
+                    "description": "按列推进主元并消去主元下方元素。",
+                    "learning_actions": [
+                      "保持主元列递增地完成前向消元"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.system.gaussian_elimination.back_substitution",
+                    "node_type": "knowledge_point",
+                    "name": "回代与继续化为行最简形",
+                    "description": "阶梯形可从最后一个主元方程回代，也可继续消去主元上方元素。",
+                    "learning_actions": [
+                      "根据任务选择回代或行最简形"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.system.solution_classification",
+                "node_type": "concept",
+                "name": "方程组解的存在性与唯一性",
+                "aliases": [
+                  "用秩判断解的存在性与唯一性"
+                ],
+                "description": "比较系数矩阵秩、增广矩阵秩与未知数个数分类解。",
+                "learning_actions": [
+                  "识别矛盾行",
+                  "用秩和自由变量数判断无解、唯一解或无穷多解"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.system.solution_classification.inconsistent",
+                    "node_type": "knowledge_point",
+                    "name": "矛盾行与无解",
+                    "description": "形如 [0 … 0 | c] 且 c≠0 的行表示矛盾。",
+                    "learning_actions": [
+                      "从阶梯形识别无解证据"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.system.solution_classification.rank_criterion",
+                    "node_type": "knowledge_point",
+                    "name": "系数秩与增广秩的一致性判据",
+                    "description": "两秩相等时有解，不等时无解。",
+                    "learning_actions": [
+                      "正确比较两个矩阵的秩"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.system.solution_classification.unique_infinite",
+                    "node_type": "knowledge_point",
+                    "name": "主元个数决定唯一解或无穷多解",
+                    "description": "有解时，秩等于未知数个数则唯一，否则存在自由变量并有无穷多解。",
+                    "learning_actions": [
+                      "由主元列和自由列完成解分类"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.system.parametric_solution",
+                "node_type": "concept",
+                "name": "参数化解与自由变量",
+                "aliases": [
+                  "参数化解与自由变量的选择"
+                ],
+                "description": "把非主元变量设为参数，用它们表示主元变量和全部解。",
+                "learning_actions": [
+                  "识别主元变量与自由变量",
+                  "把解写成向量参数形式"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.system.parametric_solution.free_variables",
+                    "node_type": "knowledge_point",
+                    "name": "自由变量来自非主元列",
+                    "description": "每个非主元变量可独立取值并成为一个参数。",
+                    "learning_actions": [
+                      "根据主元位置选择自由变量"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.system.parametric_solution.vector_form",
+                    "node_type": "knowledge_point",
+                    "name": "参数解的向量形式",
+                    "description": "全部解可写成一个特解加若干参数乘方向向量。",
+                    "learning_actions": [
+                      "从方程形式整理出向量参数式"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.system.homogeneous_space",
+                "node_type": "concept",
+                "name": "齐次方程组的解空间",
+                "aliases": [
+                  "齐次方程组解空间与基础解系"
+                ],
+                "description": "Ax=0 的解集是零空间，基础解系给出其一组基。",
+                "learning_actions": [
+                  "求齐次系统的基础解系",
+                  "用特解加齐次解描述非齐次系统全部解"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.system.homogeneous_space.subspace",
+                    "node_type": "knowledge_point",
+                    "name": "齐次解集构成子空间",
+                    "description": "零向量属于解集，且解对加法和数乘封闭。",
+                    "learning_actions": [
+                      "用封闭性证明齐次解集是子空间"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.system.homogeneous_space.fundamental_set",
+                    "node_type": "knowledge_point",
+                    "name": "基础解系是零空间的一组基",
+                    "description": "由每个自由变量分别取一得到的方向向量可构成基础解系。",
+                    "learning_actions": [
+                      "从参数解提取基础解系"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.system.homogeneous_space.affine_solution",
+                    "node_type": "knowledge_point",
+                    "name": "非齐次通解等于特解加齐次通解",
+                    "description": "若 Ax=b 有特解 xp，则所有解为 xp+N(A)。",
+                    "learning_actions": [
+                      "验证两个非齐次解之差属于零空间"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "knowledge_id": "math.la.vector_spaces",
+            "node_type": "topic",
+            "name": "线性空间、子空间、基与坐标",
+            "description": "从具体向量推广到抽象线性空间及其基和坐标。",
+            "children": [
+              {
+                "knowledge_id": "math.la.space.axioms",
+                "node_type": "concept",
+                "name": "线性空间公理",
+                "aliases": [
+                  "线性空间八条公理",
+                  "向量空间公理"
+                ],
+                "description": "加法和数乘满足封闭、结合、交换、单位元、逆元与分配等公理。",
+                "learning_actions": [
+                  "逐项验证给定对象与运算是否构成线性空间",
+                  "用反例指出失败公理"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.space.axioms.operations",
+                    "node_type": "knowledge_point",
+                    "name": "加法与数乘必须先定义且封闭",
+                    "description": "公理验证以指定集合和指定运算为前提，不能默认使用通常运算。",
+                    "learning_actions": [
+                      "明确写出对象、数域和两种运算"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.space.axioms.identity_inverse",
+                    "node_type": "knowledge_point",
+                    "name": "零向量与加法逆元公理",
+                    "description": "零向量由所给加法定义，未必是表面上的全零对象。",
+                    "learning_actions": [
+                      "从运算定义求出零元和逆元"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.space.axioms.distributive",
+                    "node_type": "knowledge_point",
+                    "name": "数乘的结合与两类分配律",
+                    "description": "需要验证 a(bv)=(ab)v、a(u+v)=au+av 和 (a+b)v=av+bv。",
+                    "learning_actions": [
+                      "区分两类分配律并逐项检验"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.space.subspace_test",
+                "node_type": "concept",
+                "name": "子空间判据",
+                "aliases": [
+                  "子空间的判据",
+                  "子空间检验"
+                ],
+                "description": "非空子集在原空间运算下对加法和数乘封闭即可成为子空间。",
+                "learning_actions": [
+                  "用零向量、加法和数乘封闭性判断子空间",
+                  "构造一个反例否定封闭性"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.space.subspace_test.zero",
+                    "node_type": "knowledge_point",
+                    "name": "子空间必须包含零向量",
+                    "description": "任何子空间都含原空间零向量；不含零向量可立即否定。",
+                    "learning_actions": [
+                      "把零向量检查作为首个快速门禁"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.space.subspace_test.closure",
+                    "node_type": "knowledge_point",
+                    "name": "加法与数乘封闭判据",
+                    "description": "任取子集中的 u、v 和标量 a，必须有 u+v 与 av 仍在子集。",
+                    "learning_actions": [
+                      "用任意元素完成封闭性证明"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.space.subspace_test.linear_combination",
+                    "node_type": "knowledge_point",
+                    "name": "线性组合封闭的一步判据",
+                    "description": "非空子集若对任意 au+bv 封闭，则同时满足加法和数乘封闭。",
+                    "learning_actions": [
+                      "选择最简洁的子空间判据"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.space.abstract_span_independence",
+                "node_type": "concept",
+                "name": "抽象空间中的线性组合、张成与无关",
+                "aliases": [
+                  "线性组合、张成与线性无关的抽象定义"
+                ],
+                "description": "线性组合、张成和无关的定义只依赖空间运算，不依赖坐标形式。",
+                "learning_actions": [
+                  "在多项式、矩阵或函数空间中使用相同定义",
+                  "选择基后再转成坐标计算"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.space.abstract_span_independence.coordinate_free",
+                    "node_type": "knowledge_point",
+                    "name": "线性概念的无坐标定义",
+                    "description": "相关性和张成属于向量本身，坐标只是计算工具。",
+                    "learning_actions": [
+                      "不用分量先写出抽象定义"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.space.abstract_span_independence.examples",
+                    "node_type": "knowledge_point",
+                    "name": "多项式、矩阵与函数空间实例",
+                    "description": "多项式、矩阵和函数在通常加法数乘下都可作为向量。",
+                    "learning_actions": [
+                      "识别抽象向量空间中的向量与标量"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.space.basis_dimension",
+                "node_type": "concept",
+                "name": "基与维数",
+                "aliases": [
+                  "基与维数的严格定义"
+                ],
+                "description": "基是既线性无关又张成全空间的向量组，有限维空间任意基大小相同。",
+                "learning_actions": [
+                  "同时检查张成性和无关性",
+                  "从生成组提取基或扩充无关组"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.space.basis_dimension.definition",
+                    "node_type": "knowledge_point",
+                    "name": "基同时满足张成与线性无关",
+                    "description": "只满足其中一个条件不足以成为基。",
+                    "learning_actions": [
+                      "用两个条件完整验证一组基"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.space.basis_dimension.uniqueness_coordinates",
+                    "node_type": "knowledge_point",
+                    "name": "基保证坐标表示唯一",
+                    "description": "张成保证存在表示，无关保证表示唯一。",
+                    "learning_actions": [
+                      "从基的两个条件解释坐标唯一性"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.space.basis_dimension.dimension",
+                    "node_type": "knowledge_point",
+                    "name": "有限维空间的维数",
+                    "description": "有限维空间任意基所含向量个数相同，该数称为空间维数。",
+                    "learning_actions": [
+                      "区分空间维数、向量分量个数和向量组个数"
+                    ]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "math.la.space.coordinates_change",
+                "node_type": "concept",
+                "name": "坐标表示与过渡矩阵",
+                "aliases": [
+                  "坐标表示与过渡矩阵初步",
+                  "换基"
+                ],
+                "description": "向量在一组基下的坐标由唯一线性组合系数给出，过渡矩阵连接不同基坐标。",
+                "learning_actions": [
+                  "求向量在指定基下坐标",
+                  "明确过渡矩阵方向并完成坐标转换"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "math.la.space.coordinates_change.coordinate_vector",
+                    "node_type": "knowledge_point",
+                    "name": "基下坐标向量",
+                    "description": "向量相对有序基的坐标是唯一系数列，基顺序会影响坐标。",
+                    "learning_actions": [
+                      "按基顺序求解坐标系数"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.space.coordinates_change.transition_columns",
+                    "node_type": "knowledge_point",
+                    "name": "过渡矩阵的列由新旧基表示决定",
+                    "description": "矩阵每一列应明确表示哪组基向量在另一组基下的坐标。",
+                    "learning_actions": [
+                      "在计算前写清过渡方向"
+                    ]
+                  },
+                  {
+                    "knowledge_id": "math.la.space.coordinates_change.direction",
+                    "node_type": "knowledge_point",
+                    "name": "坐标转换方向与矩阵乘法",
+                    "description": "同一个过渡矩阵的正向和逆向用途不同，方向错误会得到另一组坐标。",
+                    "learning_actions": [
+                      "用单位基向量或回代检查转换方向"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "relations": [
+    {
+      "relation_id": "rel-la-combination-dependence",
+      "source_knowledge_id": "math.la.vector.linear_combination",
+      "target_knowledge_id": "math.la.vector.dependence",
+      "relation_type": "prerequisite",
+      "reason": "相关性的定义建立在线性组合之上"
+    },
+    {
+      "relation_id": "rel-la-dependence-basis",
+      "source_knowledge_id": "math.la.vector.dependence",
+      "target_knowledge_id": "math.la.space.basis_dimension",
+      "relation_type": "prerequisite",
+      "reason": "基要求线性无关"
+    },
+    {
+      "relation_id": "rel-la-span-basis",
+      "source_knowledge_id": "math.la.vector.span_dimension",
+      "target_knowledge_id": "math.la.space.basis_dimension",
+      "relation_type": "prerequisite",
+      "reason": "基要求张成整个空间"
+    },
+    {
+      "relation_id": "rel-la-row-reduction-rank",
+      "source_knowledge_id": "math.la.matrix.row_reduction",
+      "target_knowledge_id": "math.la.matrix.rank_spaces",
+      "relation_type": "application",
+      "reason": "行化简用于读取主元和秩"
+    },
+    {
+      "relation_id": "rel-la-row-reduction-gaussian",
+      "source_knowledge_id": "math.la.matrix.row_reduction",
+      "target_knowledge_id": "math.la.system.gaussian_elimination",
+      "relation_type": "prerequisite",
+      "reason": "高斯消元由初等行变换组成"
+    },
+    {
+      "relation_id": "rel-la-augmented-gaussian",
+      "source_knowledge_id": "math.la.system.augmented_matrix",
+      "target_knowledge_id": "math.la.system.gaussian_elimination",
+      "relation_type": "prerequisite",
+      "reason": "消元必须作用于正确构造的增广矩阵"
+    },
+    {
+      "relation_id": "rel-la-rank-solution",
+      "source_knowledge_id": "math.la.matrix.rank_spaces",
+      "target_knowledge_id": "math.la.system.solution_classification",
+      "relation_type": "application",
+      "reason": "方程组解分类依赖秩与主元"
+    },
+    {
+      "relation_id": "rel-la-gaussian-parametric",
+      "source_knowledge_id": "math.la.system.gaussian_elimination",
+      "target_knowledge_id": "math.la.system.parametric_solution",
+      "relation_type": "prerequisite",
+      "reason": "参数解从消元后的主元和自由变量读出"
+    },
+    {
+      "relation_id": "rel-la-parametric-homogeneous",
+      "source_knowledge_id": "math.la.system.parametric_solution",
+      "target_knowledge_id": "math.la.system.homogeneous_space",
+      "relation_type": "related",
+      "reason": "齐次解空间和非齐次参数解共享自由变量结构"
+    },
+    {
+      "relation_id": "rel-la-axioms-subspace",
+      "source_knowledge_id": "math.la.space.axioms",
+      "target_knowledge_id": "math.la.space.subspace_test",
+      "relation_type": "prerequisite",
+      "reason": "子空间继承原空间运算并满足向量空间公理"
+    },
+    {
+      "relation_id": "rel-la-abstract-basis",
+      "source_knowledge_id": "math.la.space.abstract_span_independence",
+      "target_knowledge_id": "math.la.space.basis_dimension",
+      "relation_type": "prerequisite",
+      "reason": "基由抽象张成和无关性定义"
+    },
+    {
+      "relation_id": "rel-la-basis-coordinates",
+      "source_knowledge_id": "math.la.space.basis_dimension",
+      "target_knowledge_id": "math.la.space.coordinates_change",
+      "relation_type": "prerequisite",
+      "reason": "坐标和换基建立在有序基之上"
+    },
+    {
+      "relation_id": "rel-la-linear-map-coordinates",
+      "source_knowledge_id": "math.la.matrix.linear_map",
+      "target_knowledge_id": "math.la.space.coordinates_change",
+      "relation_type": "related",
+      "reason": "线性映射表示矩阵随定义域和值域基变化"
+    },
+    {
+      "relation_id": "rel-la-rank-test-rank",
+      "source_knowledge_id": "math.la.vector.rank_test",
+      "target_knowledge_id": "math.la.matrix.rank_spaces",
+      "relation_type": "related",
+      "reason": "向量组秩判定是矩阵列秩的直接应用"
+    },
+    {
+      "relation_id": "rel-la-dimension-vector-length",
+      "source_knowledge_id": "math.la.space.basis_dimension.dimension",
+      "target_knowledge_id": "math.la.vector.representation.coordinate",
+      "relation_type": "confusable",
+      "reason": "空间维数与某个向量的坐标长度相关但不是同一概念"
+    }
+  ],
+  "skill_units": [
+    {
+      "skill_unit_id": "skill.la.vector.dependence.definition",
+      "name": "用非平凡零组合判断线性相关",
+      "description": "能够把线性相关转化为齐次系数方程，并区分平凡解与非平凡解。",
+      "learning_goal": "面对具体或抽象向量组，先写出零组合，再依据系数解判断相关性。",
+      "primary_knowledge_id": "math.la.vector.dependence",
+      "knowledge_ids": [
+        "math.la.vector.dependence.trivial_solution",
+        "math.la.vector.dependence.definition",
+        "math.la.vector.dependence.zero_vector"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.la.vector.span.rank",
+      "name": "从生成组识别张成空间与维数",
+      "description": "能够判断成员关系、删除冗余向量并由秩得到张成空间维数。",
+      "learning_goal": "把张成、相关性、最大无关组和秩组织成同一条判断链。",
+      "primary_knowledge_id": "math.la.vector.span_dimension",
+      "knowledge_ids": [
+        "math.la.vector.span_dimension.span",
+        "math.la.vector.span_dimension.redundancy",
+        "math.la.vector.span_dimension.rank"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.la.matrix.composition.contract",
+      "name": "按映射复合合同执行矩阵乘法",
+      "description": "能够先检查维度，再按映射先后决定乘法顺序，并解释乘积的列组合意义。",
+      "learning_goal": "每次矩阵乘法前明确形状、作用对象和复合顺序。",
+      "primary_knowledge_id": "math.la.matrix.composition",
+      "knowledge_ids": [
+        "math.la.matrix.composition.dimension",
+        "math.la.matrix.composition.order",
+        "math.la.matrix.composition.column_view"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.la.matrix.row.reduction",
+      "name": "用合法行变换得到目标阶梯形",
+      "description": "能够选择合法行变换、保持整行同步，并正确识别主元、阶梯形和行最简形。",
+      "learning_goal": "每一步都说明行操作、主元目标及其对方程组等价性的影响。",
+      "primary_knowledge_id": "math.la.matrix.row_reduction",
+      "knowledge_ids": [
+        "math.la.matrix.row_reduction.operations",
+        "math.la.matrix.row_reduction.solution_preservation",
+        "math.la.matrix.row_reduction.echelon",
+        "math.la.matrix.row_reduction.rref"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.la.matrix.inverse.criteria",
+      "name": "选择可逆性的等价条件并验证逆矩阵",
+      "description": "能够根据任务选择满秩、主元、零空间或增广矩阵条件判断可逆性。",
+      "learning_goal": "先确认对象是方阵，再选择成本最低的可逆性判据。",
+      "primary_knowledge_id": "math.la.matrix.inverse",
+      "knowledge_ids": [
+        "math.la.matrix.inverse.definition",
+        "math.la.matrix.inverse.criteria",
+        "math.la.matrix.inverse.augmentation"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.la.system.augmented.elimination",
+      "name": "在增广矩阵上完整执行高斯消元",
+      "description": "能够正确构造增广矩阵、处理零主元、完成前向消元并选择回代或行最简化。",
+      "learning_goal": "把变量顺序、整行同步、主元推进和结果解释保持一致。",
+      "primary_knowledge_id": "math.la.system.gaussian_elimination",
+      "knowledge_ids": [
+        "math.la.system.augmented_matrix.construction",
+        "math.la.system.augmented_matrix.whole_row",
+        "math.la.system.gaussian_elimination.pivot",
+        "math.la.system.gaussian_elimination.forward",
+        "math.la.system.gaussian_elimination.back_substitution"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.la.system.solution.structure",
+      "name": "从行化简结果判断解的存在性与结构",
+      "description": "能够识别矛盾行，比较系数秩与增广秩，并用主元和自由变量区分唯一解与无穷多解。",
+      "learning_goal": "先判断有无解，再判断自由度，最后写参数化解。",
+      "primary_knowledge_id": "math.la.system.solution_classification",
+      "knowledge_ids": [
+        "math.la.system.solution_classification.inconsistent",
+        "math.la.system.solution_classification.rank_criterion",
+        "math.la.system.solution_classification.unique_infinite",
+        "math.la.system.parametric_solution.free_variables",
+        "math.la.system.parametric_solution.vector_form"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.la.space.subspace.proof",
+      "name": "用封闭性严格判断子空间",
+      "description": "能够先检查零向量，再用加法、数乘或一步线性组合判据证明或否定子空间。",
+      "learning_goal": "证明时使用任意元素，否定时给出一个违反封闭性的反例。",
+      "primary_knowledge_id": "math.la.space.subspace_test",
+      "knowledge_ids": [
+        "math.la.space.subspace_test.zero",
+        "math.la.space.subspace_test.closure",
+        "math.la.space.subspace_test.linear_combination"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.la.space.basis.dimension",
+      "name": "同时用张成性和无关性验证基",
+      "description": "能够完整验证一组基，并用基向量个数解释有限维空间维数。",
+      "learning_goal": "把存在表示、表示唯一和维数三个结论分别对应到基的两个条件。",
+      "primary_knowledge_id": "math.la.space.basis_dimension",
+      "knowledge_ids": [
+        "math.la.space.basis_dimension.definition",
+        "math.la.space.basis_dimension.uniqueness_coordinates",
+        "math.la.space.basis_dimension.dimension"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.la.space.coordinate.change",
+      "name": "明确方向地完成坐标与换基",
+      "description": "能够按有序基求坐标，构造过渡矩阵并检查坐标转换方向。",
+      "learning_goal": "每次换基前写清楚输入坐标属于哪组基、输出需要哪组基。",
+      "primary_knowledge_id": "math.la.space.coordinates_change",
+      "knowledge_ids": [
+        "math.la.space.coordinates_change.coordinate_vector",
+        "math.la.space.coordinates_change.transition_columns",
+        "math.la.space.coordinates_change.direction"
+      ]
+    }
+  ],
+  "mistake_points": [
+    {
+      "mistake_point_id": "mistake.la.dependence.trivial-as-proof",
+      "skill_unit_id": "skill.la.vector.dependence.definition",
+      "name": "把全零系数解当成线性相关证据",
+      "aliases": [
+        "用平凡解证明相关"
+      ],
+      "description": "只写出所有系数为零使线性组合等于零，便宣布向量组相关。",
+      "misconception": "没有意识到平凡解对任何向量组都成立，相关性要求至少一个非零系数。",
+      "symptom": "论证中没有出现非平凡系数或只有零解。",
+      "repair_strategy": "把判定问题改写为：是否存在不全为零的系数解。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.vector.dependence.trivial_solution",
+      "knowledge_ids": [
+        "math.la.vector.dependence.definition"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.dependence.any-system-solution",
+      "skill_unit_id": "skill.la.vector.dependence.definition",
+      "name": "把任意方程组有解等同于向量组线性相关",
+      "aliases": [
+        "将线性相关与“方程组有解”混淆，忽略线性组合的结构"
+      ],
+      "description": "没有限定为齐次零组合，也没有检查解是否非平凡。",
+      "misconception": "只记住了相关性可以转化为解方程，却遗漏了右端为零和非平凡解两个条件。",
+      "symptom": "使用非齐次方程的可解性直接判断相关。",
+      "repair_strategy": "先固定零向量右端，再区分只有平凡解还是存在非平凡解。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.vector.dependence.definition",
+      "knowledge_ids": [
+        "math.la.vector.linear_combination.membership"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.span.redundant-vector-counted",
+      "skill_unit_id": "skill.la.vector.span.rank",
+      "name": "把生成向量个数直接当作张成空间维数",
+      "aliases": [
+        "生成组大小等于维数"
+      ],
+      "description": "没有删除线性相关的冗余向量，直接用向量总数作为维数。",
+      "misconception": "混淆生成组与基，忽略基还必须线性无关。",
+      "symptom": "相关向量组仍被报告为同样大小的维数。",
+      "repair_strategy": "先通过行化简提取最大无关组，再数主元或基向量。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.vector.span_dimension.redundancy",
+      "knowledge_ids": [
+        "math.la.vector.span_dimension.rank"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.matrix.multiply-commutative",
+      "skill_unit_id": "skill.la.matrix.composition.contract",
+      "name": "把矩阵乘法误当成可交换运算",
+      "aliases": [
+        "误以为矩阵乘法满足交换律，忽略映射复合顺序"
+      ],
+      "description": "在需要 BA 的位置写成 AB，或因为两者形状相同就认定结果相同。",
+      "misconception": "把矩阵乘法类比为数的乘法，没有结合映射复合顺序。",
+      "symptom": "乘法顺序与题目描述的先后作用相反。",
+      "repair_strategy": "从最右侧矩阵先作用的规则还原复合顺序，并检查一个具体向量。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.matrix.composition.order",
+      "knowledge_ids": [
+        "math.la.matrix.composition.dimension"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.matrix.multiply-shape-guess",
+      "skill_unit_id": "skill.la.matrix.composition.contract",
+      "name": "未检查形状便逐项相乘",
+      "aliases": [
+        "矩阵逐元素相乘代替矩阵乘法"
+      ],
+      "description": "没有确认内维相等，或把矩阵乘法写成对应元素相乘。",
+      "misconception": "只记住运算符号，没有理解每个输出列是列向量的线性组合。",
+      "symptom": "结果矩阵形状错误或计算规则类似 Hadamard 乘积。",
+      "repair_strategy": "先写 A(m×n)、B(n×p) 与结果 m×p，再解释一行一列的来源。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.matrix.composition.dimension",
+      "knowledge_ids": [
+        "math.la.matrix.composition.column_view"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.row-reduction.partial-row",
+      "skill_unit_id": "skill.la.matrix.row.reduction",
+      "name": "行变换只修改部分列",
+      "aliases": [
+        "行操作没有作用到整行"
+      ],
+      "description": "更新主元附近元素却遗漏同一行的其他系数或增广列。",
+      "misconception": "把消元理解为局部擦除，而不是对整个方程执行等价变换。",
+      "symptom": "中间矩阵不再对应任何等价方程组。",
+      "repair_strategy": "每一步先写行操作符号，再对该行所有列统一执行。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.matrix.row_reduction.operations",
+      "knowledge_ids": [
+        "math.la.matrix.row_reduction.solution_preservation"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.row-reduction.ref-rref-confused",
+      "skill_unit_id": "skill.la.matrix.row.reduction",
+      "name": "混淆阶梯形与行最简阶梯形",
+      "aliases": [
+        "把阶梯形当成行最简形"
+      ],
+      "description": "矩阵已有阶梯结构便声称主元列其他元素都为零，或重复做不必要操作。",
+      "misconception": "没有分别记住主元位置条件和主元列唯一非零条件。",
+      "symptom": "结果满足 REF 但不满足 RREF，或对任务要求判断错误。",
+      "repair_strategy": "逐项检查零行位置、主元右移、主元为一、主元列其余元素为零。",
+      "severity": "medium",
+      "primary_knowledge_id": "math.la.matrix.row_reduction.rref",
+      "knowledge_ids": [
+        "math.la.matrix.row_reduction.echelon"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.inverse-nonsquare",
+      "skill_unit_id": "skill.la.matrix.inverse.criteria",
+      "name": "没有先确认方阵就讨论逆矩阵",
+      "aliases": [
+        "非方阵求逆"
+      ],
+      "description": "直接对长方矩阵套用行列式、满秩或增广求逆流程。",
+      "misconception": "把左逆、右逆和通常的双侧逆混为一谈。",
+      "symptom": "单位矩阵阶数无法同时满足 AB=I 与 BA=I。",
+      "repair_strategy": "把“对象是 n 阶方阵”设为可逆性判断的第一门禁。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.matrix.inverse.definition",
+      "knowledge_ids": [
+        "math.la.matrix.inverse.criteria"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.inverse-augment-one-side",
+      "skill_unit_id": "skill.la.matrix.inverse.criteria",
+      "name": "增广求逆时没有同步变换单位矩阵",
+      "aliases": [
+        "只化简 A 不化简 I"
+      ],
+      "description": "对 [A|I] 的左侧做行变换，却遗漏右侧对应行操作。",
+      "misconception": "把增广矩阵两侧当成两个独立矩阵。",
+      "symptom": "左侧化成 I 后右侧结果无法通过乘法验证。",
+      "repair_strategy": "把 [A|I] 看成一个整体矩阵，每次行操作同步覆盖所有列。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.matrix.inverse.augmentation",
+      "knowledge_ids": [
+        "math.la.matrix.row_reduction.operations"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.gaussian-constant-column",
+      "skill_unit_id": "skill.la.system.augmented.elimination",
+      "name": "消元时遗漏增广列",
+      "aliases": [
+        "只修改系数矩阵不修改常数项"
+      ],
+      "description": "行操作只作用于系数矩阵，常数项仍保留旧值。",
+      "misconception": "没有把增广列视为原方程的一部分。",
+      "symptom": "最终行化简形式与代回原方程结果矛盾。",
+      "repair_strategy": "构造增广矩阵后，所有行操作必须作用到最右常数列。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.system.augmented_matrix.whole_row",
+      "knowledge_ids": [
+        "math.la.system.gaussian_elimination.forward"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.gaussian-zero-pivot",
+      "skill_unit_id": "skill.la.system.augmented.elimination",
+      "name": "遇到零主元仍直接相除",
+      "aliases": [
+        "高斯消元零主元未换行"
+      ],
+      "description": "当前主元位置为零时直接归一化，或误判整列没有主元。",
+      "misconception": "把主元位置固定在对角线，没有搜索下方非零候选。",
+      "symptom": "出现除零或错误跳过可用主元。",
+      "repair_strategy": "先搜索当前列下方非零元素；找到则换行，找不到才跳到下一列。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.system.gaussian_elimination.pivot",
+      "knowledge_ids": [
+        "math.la.matrix.row_reduction.operations"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.solution-rref-unique",
+      "skill_unit_id": "skill.la.system.solution.structure",
+      "name": "看到行最简形就断言解唯一",
+      "aliases": [
+        "以为“行简化阶梯形”唯一时解必然唯一，忘记自由变量导致无穷多解"
+      ],
+      "description": "因为每个矩阵的 RREF 唯一，错误推出方程组解唯一。",
+      "misconception": "混淆表示形式的唯一性与解集合中元素的唯一性。",
+      "symptom": "未检查非主元列和自由变量。",
+      "repair_strategy": "先数未知数列中的主元；存在自由变量且系统一致时就是无穷多解。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.system.solution_classification.unique_infinite",
+      "knowledge_ids": [
+        "math.la.matrix.row_reduction.rref"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.solution-rank-constant-ignored",
+      "skill_unit_id": "skill.la.system.solution.structure",
+      "name": "比较秩时忽略增广列造成的新主元",
+      "aliases": [
+        "误将增广矩阵的秩与系数矩阵的秩比较时，忽略常数项列的影响"
+      ],
+      "description": "只计算系数矩阵秩，未检查增广列是否产生矛盾主元。",
+      "misconception": "认为常数项不影响系统一致性。",
+      "symptom": "把含矛盾行的系统误判为有解。",
+      "repair_strategy": "分别读取系数部分和完整增广矩阵的主元个数，并检查矛盾行。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.system.solution_classification.rank_criterion",
+      "knowledge_ids": [
+        "math.la.system.solution_classification.inconsistent"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.subspace-zero-missing",
+      "skill_unit_id": "skill.la.space.subspace.proof",
+      "name": "忘记检查子集是否包含零向量",
+      "aliases": [
+        "忘记验证子空间必须包含零向量"
+      ],
+      "description": "直接检查部分封闭性，忽略不含零向量即可否定子空间。",
+      "misconception": "把非空集合或含某个向量误当成包含原空间零向量。",
+      "symptom": "仿射平移集合被误判为子空间。",
+      "repair_strategy": "先代入原空间零向量；不满足定义条件时立即给出反例。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.space.subspace_test.zero",
+      "knowledge_ids": [
+        "math.la.space.subspace_test.closure"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.subspace-test-examples-only",
+      "skill_unit_id": "skill.la.space.subspace.proof",
+      "name": "只用几个样例代替任意元素封闭性证明",
+      "aliases": [
+        "枚举样例证明子空间"
+      ],
+      "description": "验证少数向量的和与数乘仍在集合中，便宣布对所有元素封闭。",
+      "misconception": "没有区分支持性例子和全称命题证明。",
+      "symptom": "论证没有任取 u、v 和标量 a。",
+      "repair_strategy": "证明时从满足集合条件的任意 u、v 出发；否定时一个反例即可。",
+      "severity": "medium",
+      "primary_knowledge_id": "math.la.space.subspace_test.closure",
+      "knowledge_ids": [
+        "math.la.space.subspace_test.linear_combination"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.basis-one-condition",
+      "skill_unit_id": "skill.la.space.basis.dimension",
+      "name": "只验证张成或只验证无关便认定为基",
+      "aliases": [
+        "基只检查一个条件"
+      ],
+      "description": "忽略基必须同时满足张成全空间和线性无关。",
+      "misconception": "把生成组或无关组直接等同于基。",
+      "symptom": "论证缺少存在性或唯一性的一半。",
+      "repair_strategy": "固定使用双检查清单：先覆盖全空间，再排除冗余。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.space.basis_dimension.definition",
+      "knowledge_ids": [
+        "math.la.space.basis_dimension.uniqueness_coordinates"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.dimension-coordinate-length",
+      "skill_unit_id": "skill.la.space.basis.dimension",
+      "name": "把空间维数与某个向量的分量个数混为一谈",
+      "aliases": [
+        "认为维数等于向量中分量个数，混淆向量空间维数与向量长度"
+      ],
+      "description": "看到一个坐标列有 n 个分量，就在没有确定空间和基的情况下宣称维数为 n。",
+      "misconception": "没有意识到维数是空间的属性，坐标长度来自所选基。",
+      "symptom": "同一抽象空间换一种表示后得到不同维数。",
+      "repair_strategy": "先指出研究的是哪个空间，再找一组基并数基向量。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.space.basis_dimension.dimension",
+      "knowledge_ids": [
+        "math.la.vector.representation.coordinate"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.coordinate-basis-order",
+      "skill_unit_id": "skill.la.space.coordinate.change",
+      "name": "求坐标时忽略有序基的顺序",
+      "aliases": [
+        "基顺序变化但坐标不变"
+      ],
+      "description": "得到正确系数集合，却按错误基顺序排列为坐标列。",
+      "misconception": "把基看成无序集合，没有把坐标位置与基向量位置一一对应。",
+      "symptom": "重构向量时系数乘到了错误基向量。",
+      "repair_strategy": "在方程和坐标列旁同时写出有序基列表，并通过重构向量检查。",
+      "severity": "medium",
+      "primary_knowledge_id": "math.la.space.coordinates_change.coordinate_vector",
+      "knowledge_ids": [
+        "math.la.space.basis_dimension.uniqueness_coordinates"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.la.transition-direction-reversed",
+      "skill_unit_id": "skill.la.space.coordinate.change",
+      "name": "过渡矩阵方向写反",
+      "aliases": [
+        "换基矩阵方向混淆"
+      ],
+      "description": "把新基在旧基下的坐标矩阵用于相反方向，或遗漏求逆。",
+      "misconception": "只记住过渡矩阵公式，没有理解每一列表示什么。",
+      "symptom": "转换后坐标无法重构原向量。",
+      "repair_strategy": "逐列说清矩阵把哪组坐标变成哪组坐标，并用一个基向量测试方向。",
+      "severity": "high",
+      "primary_knowledge_id": "math.la.space.coordinates_change.direction",
+      "knowledge_ids": [
+        "math.la.space.coordinates_change.transition_columns"
+      ]
+    }
+  ],
+  "improvement_points": [
+    {
+      "improvement_point_id": "improve.la.multiple-representations",
+      "skill_unit_id": "skill.la.vector.span.rank",
+      "name": "在几何、方程和秩三种表示间迁移",
+      "description": "同一个相关性或张成问题分别用图形、系数方程和矩阵秩解释。",
+      "improvement_goal": "形成跨表示的稳定概念，而不是只会一种计算模板。",
+      "practice_strategy": "选一个二维或三维向量组，分别画图、列齐次方程并行化简，比较三种结论如何对应。",
+      "student_benefit": "遇到陌生题型时可以切换到最容易验证的表示。",
+      "primary_knowledge_id": "math.la.vector.span_dimension",
+      "knowledge_ids": [
+        "math.la.vector.dependence",
+        "math.la.vector.rank_test"
+      ],
+      "related_mistake_ids": [
+        "mistake.la.dependence.any-system-solution",
+        "mistake.la.span.redundant-vector-counted"
+      ]
+    },
+    {
+      "improvement_point_id": "improve.la.row-operation-audit",
+      "skill_unit_id": "skill.la.matrix.row.reduction",
+      "name": "建立可审计的行变换记录",
+      "description": "把每一步操作、目标主元和矩阵结果排成可复查链条。",
+      "improvement_goal": "减少长消元过程中的局部算错和同步遗漏。",
+      "practice_strategy": "对同一矩阵分别做阶梯形和行最简形，并逐步反向验证每个行操作可逆。",
+      "student_benefit": "能够定位错误发生在哪一步，而不是整题重算。",
+      "primary_knowledge_id": "math.la.matrix.row_reduction",
+      "knowledge_ids": [
+        "math.la.matrix.row_reduction.operations",
+        "math.la.matrix.row_reduction.rref"
+      ],
+      "related_mistake_ids": [
+        "mistake.la.row-reduction.partial-row",
+        "mistake.la.row-reduction.ref-rref-confused"
+      ]
+    },
+    {
+      "improvement_point_id": "improve.la.invertibility-theorem-map",
+      "skill_unit_id": "skill.la.matrix.inverse.criteria",
+      "name": "构建可逆矩阵等价条件图",
+      "description": "把满秩、主元、零空间、列空间、唯一解和逆矩阵连接成可选择的判断网络。",
+      "improvement_goal": "根据题目给出的信息选择最短证明路径。",
+      "practice_strategy": "为五类不同已知条件各写一条不超过三步的可逆性证明。",
+      "student_benefit": "从机械求逆升级为结构判断。",
+      "primary_knowledge_id": "math.la.matrix.inverse.criteria",
+      "knowledge_ids": [
+        "math.la.matrix.rank_spaces.rank",
+        "math.la.matrix.rank_spaces.null_space"
+      ],
+      "related_mistake_ids": [
+        "mistake.la.inverse-nonsquare"
+      ]
+    },
+    {
+      "improvement_point_id": "improve.la.solution-structure-checklist",
+      "skill_unit_id": "skill.la.system.solution.structure",
+      "name": "用一致性、自由度和参数式三步检查解结构",
+      "description": "固定先排除矛盾，再数自由变量，最后验证参数式。",
+      "improvement_goal": "稳定区分无解、唯一解和无穷多解，并写出完整通解。",
+      "practice_strategy": "各选一个无解、唯一解和无穷多解系统，使用同一张检查表完成分类。",
+      "student_benefit": "避免因为行最简形外观或单一秩数字仓促下结论。",
+      "primary_knowledge_id": "math.la.system.solution_classification",
+      "knowledge_ids": [
+        "math.la.system.parametric_solution",
+        "math.la.system.homogeneous_space"
+      ],
+      "related_mistake_ids": [
+        "mistake.la.solution-rref-unique",
+        "mistake.la.solution-rank-constant-ignored"
+      ]
+    },
+    {
+      "improvement_point_id": "improve.la.subspace-counterexample",
+      "skill_unit_id": "skill.la.space.subspace.proof",
+      "name": "用最小反例快速否定子空间",
+      "description": "针对零向量、加法封闭或数乘封闭构造最短反例。",
+      "improvement_goal": "先判断证明还是反例更经济，再组织严谨论证。",
+      "practice_strategy": "对三个非子空间集合分别只用一个反例指出失败门禁。",
+      "student_benefit": "减少无效的八公理逐项检查。",
+      "primary_knowledge_id": "math.la.space.subspace_test",
+      "knowledge_ids": [
+        "math.la.space.subspace_test.zero",
+        "math.la.space.subspace_test.closure"
+      ],
+      "related_mistake_ids": [
+        "mistake.la.subspace-zero-missing",
+        "mistake.la.subspace-test-examples-only"
+      ]
+    },
+    {
+      "improvement_point_id": "improve.la.basis-coordinate-chain",
+      "skill_unit_id": "skill.la.space.coordinate.change",
+      "name": "把基、唯一坐标与换基组织成一条推理链",
+      "description": "先验证基，再求唯一坐标，最后通过过渡矩阵转换表示。",
+      "improvement_goal": "理解坐标转换来自同一向量在不同有序基下的唯一表示。",
+      "practice_strategy": "在二维多项式空间中选两组基，求同一多项式的两组坐标并双向验证。",
+      "student_benefit": "换基公式不再依赖死记方向。",
+      "primary_knowledge_id": "math.la.space.coordinates_change",
+      "knowledge_ids": [
+        "math.la.space.basis_dimension.uniqueness_coordinates"
+      ],
+      "related_mistake_ids": [
+        "mistake.la.basis-one-condition",
+        "mistake.la.transition-direction-reversed"
+      ]
+    }
+  ],
+  "skill_relations": [
+    {
+      "relation_id": "standard-rel-row-gaussian",
+      "source_id": "skill.la.matrix.row.reduction",
+      "target_id": "skill.la.system.augmented.elimination",
+      "relation_type": "prerequisite",
+      "description": "高斯消元依赖合法行变换能力"
+    },
+    {
+      "relation_id": "standard-rel-gaussian-solution",
+      "source_id": "skill.la.system.augmented.elimination",
+      "target_id": "skill.la.system.solution.structure",
+      "relation_type": "prerequisite",
+      "description": "解结构判断依赖可靠的行化简结果"
+    },
+    {
+      "relation_id": "standard-rel-basis-coordinate",
+      "source_id": "skill.la.space.basis.dimension",
+      "target_id": "skill.la.space.coordinate.change",
+      "relation_type": "prerequisite",
+      "description": "换基建立在有序基和唯一坐标之上"
+    }
+  ]
+}

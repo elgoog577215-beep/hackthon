@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "conversations": [
+    {
+      "conversation_id": "aic_cb4f51791b59489891cf3527422e0218",
+      "user_id": "default_user",
+      "course_id": "eb1b58a9-ef99-46d6-8538-daf161e7036b",
+      "course_version_id": "",
+      "title": "新对话",
+      "revision": 1,
+      "messages": [],
+      "created_at": "2026-07-12T17:08:27.572224+00:00",
+      "updated_at": "2026-07-12T17:08:27.572224+00:00"
+    }
+  ],
+  "proposals": [],
+  "receipts": [],
+  "suppressions": []
+}

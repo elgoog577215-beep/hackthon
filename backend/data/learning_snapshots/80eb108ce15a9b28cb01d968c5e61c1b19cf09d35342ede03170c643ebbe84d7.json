@@ -1,0 +1,42 @@
+{
+  "course_version_id": "cv2",
+  "node_id": "L1-1",
+  "node_name": "第1章 向量与矩阵",
+  "content_anchor": null,
+  "session": {
+    "session_id": "session_bf18eee2-736e-4592-a42f-4b4bd846e9c7",
+    "device_id": "device_edd3e07b-e909-4c03-b340-6235962e1a44",
+    "started_at": "2026-07-12T06:38:33.684Z"
+  },
+  "task_state": {
+    "kind": "practice",
+    "object_id": "pa_3c74a2adea4d4d38ab180e28f16d8a21",
+    "task_revision_id": "qr_6b34cbfc7c84d01a",
+    "status": "in_progress",
+    "context": {
+      "course_id": "4dcfe257-0955-49bb-ade4-dc6ed915bbfb",
+      "course_version_id": "cv2",
+      "node_id": "L2-1-1",
+      "objective_id": "lo_e5c2cc7bb5865136",
+      "objective_revision_id": "lor_8a284b85bad6a137"
+    },
+    "return_node_id": "L2-1-1",
+    "draft_revision": 0,
+    "metadata": {}
+  },
+  "interaction_state": {
+    "conversation_id": "",
+    "issue_id": "",
+    "remediation_session_id": ""
+  },
+  "fallback_scroll_top": 7054,
+  "activity_at": "2026-07-14T03:26:37.225Z",
+  "source": "live",
+  "snapshot_id": "ls_80eb108ce15a9b28cb01d968",
+  "user_id": "learner_d6ea2a59-d8cc-4442-8612-abd77b256407",
+  "course_id": "4dcfe257-0955-49bb-ade4-dc6ed915bbfb",
+  "revision": 3,
+  "schema_version": 2,
+  "created_at": "2026-07-14T03:26:36.448298+00:00",
+  "updated_at": "2026-07-14T03:26:45.853009+00:00"
+}

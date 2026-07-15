@@ -1,0 +1,55 @@
+[
+  {
+    "practice_run_id": "unified-library-smoke",
+    "practice_level": "concept_check",
+    "task_revision_id": "qr_6b34cbfc7c84d01a",
+    "task_purpose": "course_practice",
+    "task_source": "course_asset",
+    "course_version_id": "cv2",
+    "node_id": "L2-1-1",
+    "node_name": "1.1 向量：线性组合、线性相关与几何意义",
+    "objective_id": "lo_e5c2cc7bb5865136",
+    "objective_revision_id": "lor_8a284b85bad6a137",
+    "question_revision_id": "qr_6b34cbfc7c84d01a",
+    "question_type": "short_answer",
+    "input_contract": {
+      "mode": "rich_text",
+      "required": true,
+      "supports_attachments": false
+    },
+    "concept_ids": [
+      "math.la.vector.representation",
+      "math.la.vector.linear_combination",
+      "math.la.vector.dependence",
+      "math.la.vector.rank_test",
+      "math.la.vector.span_dimension"
+    ],
+    "skill_unit_ids": [
+      "skill.la.vector.dependence.definition",
+      "skill.la.vector.span.rank"
+    ],
+    "mistake_point_ids": [
+      "mistake.la.dependence.trivial-as-proof",
+      "mistake.la.dependence.any-system-solution",
+      "mistake.la.span.redundant-vector-counted"
+    ],
+    "improvement_point_ids": [
+      "improve.la.multiple-representations"
+    ],
+    "attempt_id": "pa_fb93da0ce1654545aa14e485e26c1683",
+    "user_id": "acceptance-unified-library-20260714",
+    "course_id": "4dcfe257-0955-49bb-ade4-dc6ed915bbfb",
+    "status": "in_progress",
+    "attempt_number": 1,
+    "answer_payload": {},
+    "revealed_hint_levels": [],
+    "solution_revealed": false,
+    "ai_support_level": 0,
+    "active_seconds": 0,
+    "revision": 1,
+    "schema_version": 2,
+    "started_at": "2026-07-14T10:09:49.961349+00:00",
+    "created_at": "2026-07-14T10:09:49.961349+00:00",
+    "updated_at": "2026-07-14T10:09:49.961349+00:00"
+  }
+]

@@ -1,0 +1,128 @@
+export type KnowledgeNodeType = 'subject' | 'domain' | 'topic' | 'concept' | 'knowledge_point'
+
+export interface KnowledgeNode {
+  knowledge_id: string
+  code: string
+  parent_id: string | null
+  node_type: KnowledgeNodeType
+  name: string
+  description: string
+  depth: number
+  sort_order: number
+  path_ids: string[]
+  path_names: string[]
+  aliases: string[]
+  learning_actions: string[]
+  typical_problems: string[]
+  section_ids: string[]
+  block_ids: string[]
+  objective_ids: string[]
+  criterion_ids: string[]
+  question_ids: string[]
+  misconception_ids: string[]
+  skill_unit_ids: string[]
+  mistake_point_ids: string[]
+  improvement_ids: string[]
+  covered_by_course: boolean
+  source_status: string
+  status: string
+  revision_id: string
+}
+
+export interface KnowledgeRelation {
+  relation_id: string
+  source_knowledge_id: string
+  target_knowledge_id: string
+  relation_type: 'prerequisite' | 'derives' | 'contrasts_with' | 'applies_to' | 'related' | string
+  source_status: string
+  status: 'accepted' | 'candidate' | 'rejected' | string
+  reason: string
+  revision_id: string
+}
+
+export interface KnowledgeLibraryView {
+  schema_version: 'knowledge_library_view_v2'
+  asset_id: string
+  library_id: string
+  subject_id: string
+  library_version: string
+  root_node_id: string
+  nodes: KnowledgeNode[]
+  relations: KnowledgeRelation[]
+  skill_units: SkillUnit[]
+  mistake_points: MistakePoint[]
+  improvement_points: ImprovementPoint[]
+  usage_policy: {
+    ai_must_judge_independently: boolean
+    allowed_fit: Array<'hit' | 'partial' | 'miss'>
+    may_invent_formal_ids: boolean
+  }
+  course_map_revision_id: string
+  coverage: {
+    formal_knowledge_count: number
+    mapped_count: number
+    unmapped_count: number
+    mapped_ratio: number
+    status: string
+  }
+  unresolved_mappings: unknown[]
+  status: string
+  revision_id: string
+}
+
+export interface KnowledgeLibraryRow {
+  node: KnowledgeNode
+  depth: number
+  hasChildren: boolean
+  expanded: boolean
+}
+
+export interface BoundQuestion {
+  asset_id: string
+  question_id?: string
+  prompt?: string
+  practice_level?: string
+}
+
+export interface BoundCriterion {
+  asset_id: string
+  criterion_id?: string
+  observable_performance?: string
+  verification_status?: string
+}
+
+export interface BoundMisconception {
+  asset_id: string
+  misconception_id?: string
+  error_pattern?: string
+  discrimination?: string
+}
+
+export interface SkillUnit {
+  skill_unit_id: string
+  name: string
+  learning_goal?: string
+  observable_behaviors?: string[]
+  primary_knowledge_id: string
+  knowledge_ids: string[]
+}
+
+export interface MistakePoint {
+  mistake_point_id: string
+  skill_unit_id: string
+  name: string
+  error_pattern?: string
+  cognitive_cause?: string
+  discrimination?: string
+  repair_strategy?: string
+  knowledge_ids: string[]
+}
+
+export interface ImprovementPoint {
+  improvement_point_id: string
+  skill_unit_id: string
+  name: string
+  learning_goal?: string
+  practice_strategy?: string
+  knowledge_ids: string[]
+}

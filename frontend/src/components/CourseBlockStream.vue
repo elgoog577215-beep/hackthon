@@ -1,0 +1,175 @@
+<template>
+  <div v-if="blocks.length" class="course-block-stream">
+    <template v-for="item in streamItems" :key="item.block.block_revision_id || item.block.block_id">
+      <article
+        :id="`course-block-${item.block.block_id}`"
+        class="course-content-block"
+        :data-content-block-id="item.block.block_id"
+        :data-content-block-revision-id="item.block.block_revision_id"
+        :data-content-block-type="item.block.type"
+        :class="{ 'can-improve-formal': canImproveBlock(item.block.block_id) }"
+      >
+        <header v-if="item.block.title" class="block-heading">
+          <span>{{ blockLabel(item.block.type) }}</span>
+          <h4>{{ item.block.title }}</h4>
+        </header>
+        <button
+          v-if="canImproveBlock(item.block.block_id)"
+          type="button"
+          class="block-formal-improvement"
+          :title="t('courseWorkspace.blockRegeneration.open', '改进正式正文')"
+          :aria-label="t('courseWorkspace.blockRegeneration.open', '改进正式正文')"
+          @click="requestBlockImprovement(item.block.block_id)"
+        >
+          <PencilLine :size="13" />
+          <span>{{ t('courseWorkspace.blockRegeneration.open', '改进正式正文') }}</span>
+        </button>
+        <MarkdownRenderer :content="item.block.content || ''" :search-words="searchWords" />
+        <InlineCourseBlockAI
+          :node="node"
+          :block="item.block"
+          :active="activeBlockId === item.block.block_id"
+          @activate="activeBlockId = $event"
+        />
+      </article>
+      <InlineLearningRecordBlock
+        v-for="record in item.records"
+        :key="record.id"
+        :note="record"
+        @open="emit('openRecord', $event)"
+      />
+    </template>
+    <span v-if="isStreaming" class="stream-cursor"></span>
+  </div>
+  <template v-else>
+    <MarkdownDocumentEditor
+      :node="node"
+      :content="content"
+      :search-words="searchWords"
+      :is-streaming="isStreaming"
+    />
+    <div v-if="projectableRecords.length" class="legacy-inline-records">
+      <InlineLearningRecordBlock
+        v-for="record in projectableRecords"
+        :key="record.id"
+        :note="record"
+        @open="emit('openRecord', $event)"
+      />
+    </div>
+  </template>
+</template>
+
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { PencilLine } from 'lucide-vue-next'
+import InlineCourseBlockAI from './InlineCourseBlockAI.vue'
+import InlineLearningRecordBlock from './InlineLearningRecordBlock.vue'
+import MarkdownDocumentEditor from './MarkdownDocumentEditor.vue'
+import MarkdownRenderer from './MarkdownRenderer.vue'
+import type { ContentBlock, CourseBlockEditTarget, Node, Note } from '../stores/types'
+import { t } from '../shared/i18n'
+
+const props = withDefaults(defineProps<{
+  node: Node
+  content: string
+  records?: Note[]
+  searchWords?: string[]
+  isStreaming?: boolean
+  canImproveBlocks?: boolean
+}>(), { records: () => [], canImproveBlocks: false })
+const emit = defineEmits<{
+  openRecord: [payload: { note: Note; x: number; y: number }]
+  improveBlock: [payload: CourseBlockEditTarget]
+}>()
+const activeBlockId = ref('')
+const blocks = computed(() => (props.node.course_blocks?.length
+  ? props.node.course_blocks.map(block => ({
+      block_id: block.block_id,
+      parent_block_id: block.parent_group_id,
+      type: block.role === 'orientation' ? 'intro'
+        : block.role === 'checkpoint' ? 'exercise'
+          : block.role === 'misconception' ? 'summary'
+            : block.role,
+      title: String(block.payload.title || ''),
+      content: String(block.payload.markdown || block.payload.text || ''),
+      summary: String(block.payload.summary || ''),
+      order: block.position,
+      status: block.status === 'draft' ? 'draft' : 'final',
+      metadata: { kind: block.kind, role: block.role },
+      block_revision_id: block.internal_revision,
+    } as ContentBlock))
+  : [...(props.node.content_blocks || [])])
+  .filter(block => block && (block.content || block.title))
+  .sort((left, right) => (left.order || 0) - (right.order || 0)))
+const projectableRecords = computed(() => props.records.filter(record => (
+  record.sourceType !== 'format'
+  && record.sourceType !== 'wrong'
+  && record.migrationStatus !== 'needs_confirmation'
+  && record.migrationStatus !== 'orphaned'
+)))
+const streamItems = computed(() => {
+  const items = blocks.value.map(block => ({ block, records: [] as Note[] }))
+  for (const record of projectableRecords.value) {
+    const anchorBlockId = String(record.anchor?.block_id || '')
+    let target = anchorBlockId ? items.find(item => item.block.block_id === anchorBlockId) : undefined
+    if (!target && record.quote) {
+      const normalizedQuote = record.quote.replace(/\s+/g, ' ').trim()
+      const candidates = items.filter(item => item.block.content.replace(/\s+/g, ' ').includes(normalizedQuote))
+      if (candidates.length === 1) target = candidates[0]
+    }
+    if (target) target.records.push(record)
+  }
+  return items
+})
+
+function blockLabel(type: ContentBlock['type'] | string) {
+  return t(`courseBlocks.${type}`, ({
+    intro: '引入', concept: '概念', reasoning: '推理', example: '例子', application: '应用', exercise: '练习', summary: '小结',
+  } as Record<string, string>)[type] || t('courseBlocks.content', '内容'))
+}
+
+function canImproveBlock(blockId: string) {
+  return props.canImproveBlocks && Boolean(props.node.course_blocks?.some(block => block.block_id === blockId))
+}
+
+function requestBlockImprovement(blockId: string) {
+  const block = props.node.course_blocks?.find(item => item.block_id === blockId)
+  if (!block) return
+  emit('improveBlock', {
+    nodeId: props.node.node_id,
+    nodeName: props.node.node_name,
+    block,
+  })
+}
+</script>
+
+<style scoped>
+.course-block-stream { display:grid; gap:30px; }
+.legacy-inline-records { display:grid; gap:12px; margin-top:24px; }
+.course-content-block { --block-accent:#6366f1; --block-soft:#eef2ff; position:relative; min-width:0; scroll-margin-top:92px; }
+.course-content-block + .course-content-block { padding-top:2px; border-top:0; }
+.block-heading { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-right:34px; }
+.course-content-block.can-improve-formal .block-heading { padding-right:120px; }
+.block-heading span { flex:0 0 auto; display:inline-flex; align-items:center; min-height:25px; padding:3px 8px; border:1px solid color-mix(in srgb,var(--block-accent) 18%,white); border-radius:8px; color:var(--block-accent); background:var(--block-soft); font-size:11px; font-weight:800; line-height:1; }
+.block-heading h4 { margin:0; color:var(--lz-text-strong); font-size:18px; font-weight:750; line-height:1.35; }
+.block-formal-improvement { position:absolute; top:-2px; right:0; z-index:3; min-height:29px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border:1px solid rgba(203,213,225,.7); border-radius:8px; color:var(--lz-text-muted); background:rgba(255,255,255,.9); font-size:10px; opacity:0; pointer-events:none; cursor:pointer; transition:opacity .16s ease,color .16s ease,border-color .16s ease,background .16s ease,transform .16s ease; }
+.block-formal-improvement:hover,.block-formal-improvement:focus-visible,.course-content-block:hover > .block-formal-improvement { opacity:1; pointer-events:auto; color:var(--lz-text-secondary); border-color:#cbd5e1; background:#fff; outline:none; transform:translateY(-1px); }
+.course-content-block[data-content-block-type="intro"] { --block-accent:#7c3aed; --block-soft:#f5f3ff; }
+.course-content-block[data-content-block-type="concept"] { --block-accent:#2563eb; --block-soft:#eff6ff; }
+.course-content-block[data-content-block-type="reasoning"] { --block-accent:#0f766e; --block-soft:#f0fdfa; }
+.course-content-block[data-content-block-type="example"] { --block-accent:#b45309; --block-soft:#fffbeb; }
+.course-content-block[data-content-block-type="application"] { --block-accent:#0e7490; --block-soft:#ecfeff; }
+.course-content-block[data-content-block-type="exercise"] { --block-accent:#be185d; --block-soft:#fdf2f8; }
+.course-content-block[data-content-block-type="summary"] { --block-accent:#4338ca; --block-soft:#eef2ff; margin-top:4px; }
+.course-content-block[data-content-block-type="summary"] .block-heading { margin-bottom:16px; }
+.course-content-block[data-content-block-type="summary"] .block-heading span { min-height:29px; padding:4px 10px; border-radius:9px; font-size:13px; }
+.course-content-block[data-content-block-type="summary"] .block-heading h4 { font-size:21px; font-weight:800; }
+.course-content-block :deep(hr) { display:none; }
+.stream-cursor { display: inline-block; width: 2px; height: 18px; background: var(--lz-brand); animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (max-width:880px) {
+  .course-content-block.can-improve-formal .block-heading { padding-right:38px; }
+  .block-formal-improvement { width:30px; padding:0; justify-content:center; opacity:.68; pointer-events:auto; }
+  .block-formal-improvement span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+}
+</style>

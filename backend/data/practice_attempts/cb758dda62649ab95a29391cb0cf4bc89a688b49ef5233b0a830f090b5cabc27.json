@@ -1,0 +1,36 @@
+[
+  {
+    "practice_run_id": "a9cdc9bd-e890-470e-ae26-439e12e908a0",
+    "practice_level": "concept_check",
+    "task_revision_id": "qr_6b34cbfc7c84d01a",
+    "task_purpose": "course_practice",
+    "task_source": "course_asset",
+    "course_version_id": "cv2",
+    "node_id": "L2-1-1",
+    "node_name": "1.1 向量：线性组合、线性相关与几何意义",
+    "objective_id": "lo_e5c2cc7bb5865136",
+    "objective_revision_id": "lor_8a284b85bad6a137",
+    "question_revision_id": "qr_6b34cbfc7c84d01a",
+    "question_type": "short_answer",
+    "input_contract": {
+      "mode": "rich_text",
+      "required": true,
+      "supports_attachments": false
+    },
+    "attempt_id": "pa_05ff0b1a529e4ef3858fc630bdf1cfdd",
+    "user_id": "learner_visual_audit",
+    "course_id": "4dcfe257-0955-49bb-ade4-dc6ed915bbfb",
+    "status": "in_progress",
+    "attempt_number": 1,
+    "answer_payload": {},
+    "revealed_hint_levels": [],
+    "solution_revealed": false,
+    "ai_support_level": 0,
+    "active_seconds": 37,
+    "revision": 3,
+    "schema_version": 2,
+    "started_at": "2026-07-14T03:10:15.393483+00:00",
+    "created_at": "2026-07-14T03:10:15.393483+00:00",
+    "updated_at": "2026-07-14T03:10:52.156651+00:00"
+  }
+]

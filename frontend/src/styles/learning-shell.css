@@ -1,0 +1,49 @@
+:root {
+  --lz-canvas: #f7f8ff;
+  --lz-surface: rgba(255, 255, 255, 0.88);
+  --lz-surface-subtle: rgba(248, 250, 252, 0.82);
+  --lz-surface-muted: rgba(238, 242, 255, 0.82);
+  --lz-border: rgba(203, 213, 225, 0.68);
+  --lz-border-strong: rgba(148, 163, 184, 0.72);
+  --lz-text-strong: #1e293b;
+  --lz-text: #334155;
+  --lz-text-secondary: #64748b;
+  --lz-text-muted: #94a3b8;
+  --lz-brand: #6366f1;
+  --lz-brand-strong: #4f46e5;
+  --lz-brand-soft: rgba(238, 242, 255, 0.9);
+  --lz-success: #047857;
+  --lz-success-soft: #ecfdf5;
+  --lz-warning: #b45309;
+  --lz-warning-soft: #fffbeb;
+  --lz-danger: #b91c1c;
+  --lz-danger-soft: #fef2f2;
+  --lz-radius-surface: 16px;
+  --lz-radius-control: 10px;
+  --lz-shadow-panel: 0 8px 28px rgba(79, 70, 229, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  --lz-shadow-overlay: 0 22px 56px rgba(49, 46, 129, 0.2);
+}
+
+html,
+body,
+#app {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f4f6ff 0%, #ffffff 52%, #f7f3ff 100%);
+}
+
+body {
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  letter-spacing: 0;
+  zoom: 1 !important;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  letter-spacing: 0;
+}

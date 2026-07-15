@@ -1,0 +1,49 @@
+{
+  "course_version_id": "",
+  "node_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
+  "node_name": "1.1 向量空间的公理化定义",
+  "content_anchor": {
+    "block_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d-1-intro",
+    "block_revision_id": "cbr_b85448479b8b60167220908e",
+    "content_fingerprint": "",
+    "block_type": "intro",
+    "title": "引入正文介绍向量空间的8条基本公理，包括加法与数乘运算的封闭性、结合律和分配律等性质。 解释举例简化提问",
+    "progress": 0.0,
+    "text_quote": "引入正文介绍向量空间的8条基本公理，包括加法与数乘运算的封闭性、结合律和分配律等性质。 解释举例简化提问"
+  },
+  "session": {
+    "session_id": "session_21e929e6-72bf-44ef-bef6-dcf9aff41fff",
+    "device_id": "device_8c4aa62d-84f1-48bd-96b5-d21d86271b92",
+    "started_at": "2026-07-14T08:43:17.032Z"
+  },
+  "task_state": {
+    "kind": "reading",
+    "object_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
+    "task_revision_id": "",
+    "status": "active",
+    "context": {
+      "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
+      "course_version_id": "",
+      "node_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
+      "content_anchor": null
+    },
+    "return_node_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
+    "draft_revision": 0,
+    "metadata": {}
+  },
+  "interaction_state": {
+    "conversation_id": "",
+    "issue_id": "",
+    "remediation_session_id": ""
+  },
+  "fallback_scroll_top": 2152,
+  "activity_at": "2026-07-14T08:44:59.462Z",
+  "source": "live",
+  "snapshot_id": "ls_206048ddde3546305ec9d98f",
+  "user_id": "learner_888ba14e-acf4-4032-b5d0-6a515401a0bb",
+  "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
+  "revision": 7,
+  "schema_version": 2,
+  "created_at": "2026-07-14T08:43:18.282489+00:00",
+  "updated_at": "2026-07-14T08:46:10.980449+00:00"
+}

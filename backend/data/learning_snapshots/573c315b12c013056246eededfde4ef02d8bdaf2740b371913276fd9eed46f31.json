@@ -1,0 +1,48 @@
+{
+  "course_version_id": "cv2",
+  "node_id": "L2-1-1",
+  "node_name": "1.1 向量：线性组合、线性相关与几何意义",
+  "content_anchor": {
+    "block_id": "L2-1-1-1-intro",
+    "block_revision_id": "cbr_7f3c912b0f93f4fd522c8143",
+    "content_fingerprint": "",
+    "block_type": "intro",
+    "title": "Introduction1.1 向量：线性组合、线性相关与几何意义Improve canonical content",
+    "progress": 0.0,
+    "text_quote": "Introduction1.1 向量：线性组合、线性相关与几何意义Improve canonical content"
+  },
+  "session": {
+    "session_id": "session_7c3be2e4-ef59-4af8-ae00-a9452f7ee0ee",
+    "device_id": "device_bb402522-73f5-458e-8586-d91968f6dd91",
+    "started_at": "2026-07-14T03:11:51.077Z"
+  },
+  "task_state": {
+    "kind": "reading",
+    "object_id": "L2-1-1",
+    "task_revision_id": "",
+    "status": "active",
+    "context": {
+      "course_id": "4dcfe257-0955-49bb-ade4-dc6ed915bbfb",
+      "course_version_id": "cv2",
+      "node_id": "L2-1-1"
+    },
+    "return_node_id": "L2-1-1",
+    "draft_revision": 0,
+    "metadata": {}
+  },
+  "interaction_state": {
+    "conversation_id": "",
+    "issue_id": "",
+    "remediation_session_id": ""
+  },
+  "fallback_scroll_top": 388,
+  "activity_at": "2026-07-14T03:13:19.175Z",
+  "source": "live",
+  "snapshot_id": "ls_573c315b12c013056246eede",
+  "user_id": "learner_visual_audit_en",
+  "course_id": "4dcfe257-0955-49bb-ade4-dc6ed915bbfb",
+  "revision": 2,
+  "schema_version": 2,
+  "created_at": "2026-07-14T03:13:20.388745+00:00",
+  "updated_at": "2026-07-14T03:18:56.071423+00:00"
+}

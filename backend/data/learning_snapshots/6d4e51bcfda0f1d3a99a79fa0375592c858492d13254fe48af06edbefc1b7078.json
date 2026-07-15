@@ -1,0 +1,48 @@
+{
+  "course_version_id": "",
+  "node_id": "id_1",
+  "node_name": "第一章 概率论与统计基础",
+  "content_anchor": {
+    "block_id": "id_1-1-intro",
+    "block_revision_id": "cbr_8c21c82189d02ae463149a83",
+    "content_fingerprint": "",
+    "block_type": "intro",
+    "title": "引入正文介绍概率分布、期望与方差等核心概念，为建模提供数学基础。",
+    "progress": 0.0,
+    "text_quote": "引入正文介绍概率分布、期望与方差等核心概念，为建模提供数学基础。"
+  },
+  "session": {
+    "session_id": "session_099c664b-8fbe-460e-91fd-7acb2db5d82c",
+    "device_id": "device_ea14e434-6869-4dba-92b5-71ef05c7b3ec",
+    "started_at": "2026-07-13T04:13:42.202Z"
+  },
+  "task_state": {
+    "kind": "reading",
+    "object_id": "180802bf-2afc-4e7c-828a-9d1d94938db7",
+    "task_revision_id": "",
+    "status": "active",
+    "context": {
+      "course_id": "b451176e-87d0-495f-8964-293f3701c693",
+      "course_version_id": "",
+      "node_id": "180802bf-2afc-4e7c-828a-9d1d94938db7"
+    },
+    "return_node_id": "180802bf-2afc-4e7c-828a-9d1d94938db7",
+    "draft_revision": 0,
+    "metadata": {}
+  },
+  "interaction_state": {
+    "conversation_id": "",
+    "issue_id": "",
+    "remediation_session_id": ""
+  },
+  "fallback_scroll_top": 0,
+  "activity_at": "2026-07-13T05:15:12.224Z",
+  "source": "live",
+  "snapshot_id": "ls_6d4e51bcfda0f1d3a99a79fa",
+  "user_id": "default_user",
+  "course_id": "b451176e-87d0-495f-8964-293f3701c693",
+  "revision": 19,
+  "schema_version": 2,
+  "created_at": "2026-07-13T04:13:43.413611+00:00",
+  "updated_at": "2026-07-13T05:17:16.074773+00:00"
+}

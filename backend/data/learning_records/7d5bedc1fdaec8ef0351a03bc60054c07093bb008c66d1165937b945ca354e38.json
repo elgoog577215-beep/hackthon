@@ -1,0 +1,39 @@
+[
+  {
+    "record_type": "note",
+    "status": "active",
+    "node_id": "L2-2-2",
+    "quote": "我们可以通过",
+    "title": "1",
+    "content": "1",
+    "origin": "legacy_annotation",
+    "priority": "medium",
+    "metadata": {
+      "legacy_annotation_id": "note-ekqkmefcc",
+      "legacy_source_type": "user",
+      "confidence": "medium",
+      "user_confirmation_unknown": false
+    },
+    "objective_id": "lo_e7ec39d34d2ee6aa",
+    "objective_revision_id": "lor_cf8faa428730e09d",
+    "course_version_id": "cv2",
+    "anchor": {
+      "node_id": "L2-2-2",
+      "node_name": "2.2 线性空间：公理、子空间与基",
+      "block_id": "L2-2-2-1-intro",
+      "block_revision_id": "cbr_29c1ae346e3973acb1b9f3db",
+      "content_fingerprint": "cbf_e3b0c44298fc1c149afbf4c8",
+      "block_type": "intro",
+      "title": "2.2 线性空间：公理、子空间与基",
+      "progress": 0.0,
+      "text_quote": "我们可以通过"
+    },
+    "record_id": "lr_670c5f1aae0b490f860ceb66fea4c698",
+    "user_id": "learner_ae93d324-8b92-4d9e-80ef-60b4b6dd195b",
+    "course_id": "4dcfe257-0955-49bb-ade4-dc6ed915bbfb",
+    "revision": 1,
+    "schema_version": 1,
+    "created_at": "2026-07-14T03:48:06.668507+00:00",
+    "updated_at": "2026-07-14T03:48:06.668507+00:00"
+  }
+]

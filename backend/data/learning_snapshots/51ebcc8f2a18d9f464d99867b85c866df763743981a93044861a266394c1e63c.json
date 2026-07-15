@@ -1,0 +1,48 @@
+{
+  "course_version_id": "",
+  "node_id": "a97f1505-11ad-4c48-abc8-8eee37f53fb8",
+  "node_name": "1.4 子空间的交与和 - 子节点 1",
+  "content_anchor": {
+    "block_id": "a97f1505-11ad-4c48-abc8-8eee37f53fb8-1-intro",
+    "block_revision_id": "cbr_365537fceaf453ce3d21a5fa",
+    "content_fingerprint": "",
+    "block_type": "intro",
+    "title": "引入引入问题",
+    "progress": 0.3094429347826087,
+    "text_quote": "引入引入问题"
+  },
+  "session": {
+    "session_id": "session_bdcc80d4-40d2-46f6-a69c-b32a0cce6f38",
+    "device_id": "device_d598d303-cb24-4a58-a824-97abb66074c2",
+    "started_at": "2026-07-14T02:44:49.331Z"
+  },
+  "task_state": {
+    "kind": "reading",
+    "object_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
+    "task_revision_id": "",
+    "status": "active",
+    "context": {
+      "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
+      "course_version_id": "",
+      "node_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d"
+    },
+    "return_node_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
+    "draft_revision": 0,
+    "metadata": {}
+  },
+  "interaction_state": {
+    "conversation_id": "",
+    "issue_id": "",
+    "remediation_session_id": ""
+  },
+  "fallback_scroll_top": 36474,
+  "activity_at": "2026-07-14T04:30:39.001Z",
+  "source": "live",
+  "snapshot_id": "ls_51ebcc8f2a18d9f464d99867",
+  "user_id": "learner_7bd89735-ca69-4b18-ab4e-f3def7bdf6f4",
+  "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
+  "revision": 30,
+  "schema_version": 2,
+  "created_at": "2026-07-14T02:44:50.542684+00:00",
+  "updated_at": "2026-07-14T05:03:34.314471+00:00"
+}
