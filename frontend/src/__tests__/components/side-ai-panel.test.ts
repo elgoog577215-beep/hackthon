@@ -5,6 +5,8 @@ import SideAIPanel from '@/components/SideAIPanel.vue'
 import { useAITeacherStore, type AIConversation } from '@/stores/aiTeacher'
 import { useCourseStore } from '@/stores/course'
 import { useLearningProgressStore } from '@/stores/learningProgress'
+import { useChangeProposalsStore } from '@/stores/changeProposals'
+import type { ChangeProposal } from '@/types/changeProposal'
 import type { BlockRegenerationCandidate, CourseBlockEditTarget } from '@/stores/types'
 
 const conversation = (): AIConversation => ({
@@ -235,5 +237,40 @@ describe('SideAIPanel', () => {
 
     expect(retry!).toHaveBeenCalledWith(interrupted)
     expect(wrapper.find('.block-candidate-preview').text()).toContain('恢复后生成的新正文')
+  })
+
+  it('kg_node 变更提案条目不展示接受按钮，改为提示人工核对知识库', () => {
+    const wrapper = mountPanel()
+    const changeProposalsStore = useChangeProposalsStore()
+    changeProposalsStore.courseId = 'course-1'
+    const kgNodeProposal: ChangeProposal = {
+      proposal_id: 'proposal-kg-1',
+      course_id: 'course-1',
+      scope: 'block',
+      target_block_ids: ['math.la.system.gaussian_elimination'],
+      source: 'kb_link',
+      status: 'pending',
+      created_at: '2026-07-15T00:00:00Z',
+      items: [
+        {
+          item_id: 'item-kg-1',
+          block_id: 'math.la.system.gaussian_elimination',
+          target_kind: 'kg_node',
+          before: '高斯消元法',
+          after: '高斯消元法（更新定义）',
+          reason: '内容变更同步到知识库节点',
+          status: 'pending',
+        },
+      ],
+    }
+    changeProposalsStore.proposals = [kgNodeProposal]
+
+    return flushPromises().then(() => {
+      const card = wrapper.get('.change-proposal-card')
+      expect(card.find('.change-item-unsupported-note').exists()).toBe(true)
+      expect(card.text()).toContain('该建议涉及知识库节点，暂不支持在线接受，请人工核对知识库后处理。')
+      expect(card.findAll('.change-item-actions .primary-command')).toHaveLength(0)
+      expect(card.text()).toContain('拒绝')
+    })
   })
 })

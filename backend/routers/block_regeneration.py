@@ -14,6 +14,8 @@ from block_regeneration import (
     BlockRegenerationService,
     block_regeneration_candidate_repository,
 )
+from change_proposals import change_proposal_repository
+from course_knowledge_map import propose_kb_linkage_from_block_change
 from dependencies import get_course_document_repository
 from learner_context import require_user_id
 from course_repository import CourseDocumentNotFound
@@ -127,12 +129,26 @@ async def apply_block_regeneration_candidate(
     request: Request,
 ):
     try:
-        return await get_block_regeneration_service().apply_candidate(
+        result = await get_block_regeneration_service().apply_candidate(
             course_id,
             block_id,
             candidate_id,
             actor=require_user_id(request.headers.get("X-User-Id")),
         )
+        # Content -> knowledge-base linkage trigger point: a block's content just
+        # became canonical. Best-effort and non-fatal - never let a linkage
+        # proposal failure block the (already-durable) content change response.
+        try:
+            course_view = get_course_document_repository().load_course_view(course_id)
+            propose_kb_linkage_from_block_change(
+                course_view,
+                block_id,
+                repository=change_proposal_repository,
+                request_id=f"kb-link-block-regen-{candidate_id}",
+            )
+        except Exception:
+            pass
+        return result
     except (BlockRegenerationNotFound, CourseDocumentNotFound) as exc:
         raise HTTPException(status_code=404, detail="Block regeneration candidate not found") from exc
     except BlockRegenerationConflict as exc:

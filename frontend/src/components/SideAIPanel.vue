@@ -110,6 +110,115 @@
         </div>
       </div>
 
+      <section
+        v-if="!props.blockTarget && changeProposalsStore.pendingProposals.length"
+        class="change-proposals-panel"
+        aria-live="polite"
+      >
+        <header class="change-proposals-heading">
+          <span><FileDiff :size="14" /></span>
+          <strong>{{ t('courseWorkspace.changeProposals.title', '待确认的变更提案') }}</strong>
+        </header>
+
+        <article
+          v-for="proposal in changeProposalsStore.pendingProposals"
+          :key="proposal.proposal_id"
+          :class="['change-proposal-card', { 'is-in-view': proposalTargetsCurrentNode(proposal) }]"
+        >
+          <div class="change-proposal-meta">
+            <span :class="['scope-badge', `scope-${proposal.scope}`]">{{ scopeLabel(proposal.scope) }}</span>
+            <span v-if="sourceLabel(proposal.source)" :class="['source-badge', `source-${proposal.source}`]">
+              {{ sourceLabel(proposal.source) }}
+            </span>
+            <span v-if="proposalTargetsCurrentNode(proposal)" class="in-view-badge">
+              {{ t('courseWorkspace.changeProposals.currentNode', '涉及当前节点') }}
+            </span>
+          </div>
+
+          <ul class="change-proposal-items">
+            <li
+              v-for="item in proposal.items.filter(candidate => candidate.status === 'pending')"
+              :key="item.item_id"
+              class="change-proposal-item"
+            >
+              <div class="change-item-diff">
+                <template v-if="!item.before">
+                  <span class="diff-label diff-added">{{ t('courseWorkspace.changeProposals.added', '新增') }}</span>
+                  <p class="diff-after">{{ item.after }}</p>
+                </template>
+                <template v-else>
+                  <div class="diff-before">
+                    <span class="diff-label diff-removed">{{ t('courseWorkspace.changeProposals.before', '原文') }}</span>
+                    <p>{{ item.before }}</p>
+                  </div>
+                  <div class="diff-after-wrap">
+                    <span class="diff-label diff-added">{{ t('courseWorkspace.changeProposals.after', '修改为') }}</span>
+                    <p class="diff-after">{{ item.after }}</p>
+                  </div>
+                </template>
+              </div>
+              <p v-if="item.reason" class="change-item-reason">{{ item.reason }}</p>
+
+              <p v-if="isKgNodeItem(item)" class="change-item-unsupported-note">
+                {{ t('courseWorkspace.changeProposals.kgNodeUnsupported', '该建议涉及知识库节点，暂不支持在线接受，请人工核对知识库后处理。') }}
+              </p>
+
+              <div class="change-item-actions">
+                <button
+                  v-if="!isKgNodeItem(item)"
+                  type="button"
+                  class="primary-command"
+                  :disabled="changeProposalsStore.isItemActing(item.item_id)"
+                  @click="handleApplyItem(proposal.proposal_id, item.item_id)"
+                >
+                  <LoaderCircle v-if="changeProposalsStore.isItemActing(item.item_id)" class="spin" :size="13" />
+                  <Check v-else :size="13" />
+                  {{ t('courseWorkspace.changeProposals.accept', '接受') }}
+                </button>
+                <button
+                  type="button"
+                  class="secondary-command"
+                  :disabled="changeProposalsStore.isItemActing(item.item_id)"
+                  @click="promptRejectItem(proposal.proposal_id, item.item_id)"
+                >
+                  <X :size="13" />
+                  {{ t('courseWorkspace.changeProposals.reject', '拒绝') }}
+                </button>
+                <button
+                  type="button"
+                  class="secondary-command"
+                  :disabled="changeProposalsStore.isItemActing(item.item_id)"
+                  @click="promptRegenerateItem(proposal.proposal_id, item.item_id)"
+                >
+                  <RotateCcw :size="13" />
+                  {{ t('courseWorkspace.changeProposals.regenerate', '重新生成') }}
+                </button>
+              </div>
+
+              <Transition name="conversation-reveal">
+                <div v-if="itemPromptOpen === item.item_id" class="change-item-prompt">
+                  <textarea
+                    v-model="itemPromptText"
+                    rows="2"
+                    :placeholder="itemPromptMode === 'reject'
+                      ? t('courseWorkspace.changeProposals.rejectReasonPlaceholder', '（可选）说明拒绝理由')
+                      : t('courseWorkspace.changeProposals.regenerateInstructionPlaceholder', '（可选）补充生成说明')"
+                  />
+                  <div class="change-item-prompt-actions">
+                    <button type="button" class="primary-command" @click="confirmItemPrompt(proposal.proposal_id, item.item_id)">
+                      {{ t('courseWorkspace.changeProposals.confirm', '确认') }}
+                    </button>
+                    <button type="button" class="secondary-command" @click="cancelItemPrompt">
+                      {{ t('courseWorkspace.changeProposals.cancel', '取消') }}
+                    </button>
+                  </div>
+                </div>
+              </Transition>
+            </li>
+          </ul>
+        </article>
+      </section>
+
       <section v-if="props.blockTarget" class="block-edit-workspace" aria-live="polite">
         <header class="block-edit-heading">
           <div>
@@ -337,6 +446,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  FileDiff,
   History,
   Lightbulb,
   LoaderCircle,
@@ -357,8 +467,10 @@ import { useAITeacherStore, type AIMessage } from '../stores/aiTeacher'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { useNoteStore } from '../stores/notes'
+import { useChangeProposalsStore } from '../stores/changeProposals'
 import { t } from '../shared/i18n'
 import type { BlockRegenerationCandidate, CourseBlockEditTarget } from '../stores/types'
+import type { ChangeProposal, ChangeProposalItem, ChangeProposalScope, ChangeProposalSource } from '../types/changeProposal'
 import logger from '../utils/logger'
 
 const props = defineProps<{
@@ -380,6 +492,7 @@ const aiStore = useAITeacherStore()
 const courseStore = useCourseStore()
 const progressStore = useLearningProgressStore()
 const noteStore = useNoteStore()
+const changeProposalsStore = useChangeProposalsStore()
 const input = ref('')
 const quoteVisible = ref(Boolean(props.quoteText))
 const conversationOpen = ref(false)
@@ -669,6 +782,85 @@ async function rejectBlockCandidate() {
   clearBlockTarget()
 }
 
+// --- 多节点变更提案（change_proposals） ---
+const itemPromptOpen = ref<string>('')
+const itemPromptMode = ref<'reject' | 'regenerate'>('reject')
+const itemPromptText = ref('')
+
+function scopeLabel(scope: ChangeProposalScope) {
+  return ({
+    block: t('courseWorkspace.changeProposals.scope.block', '当前块'),
+    section: t('courseWorkspace.changeProposals.scope.section', '当前小节'),
+    sections: t('courseWorkspace.changeProposals.scope.sections', '多个小节'),
+    chapters: t('courseWorkspace.changeProposals.scope.chapters', '多个章节'),
+    book: t('courseWorkspace.changeProposals.scope.book', '全书'),
+  } as Record<ChangeProposalScope, string>)[scope] || scope
+}
+
+// kg_node 条目的目标是知识库节点而非课程正文块；知识库目前是静态只读目录，
+// 没有任何写入路径，因此这类条目不能走"接受"自动应用流程，只能人工核对处理。
+function isKgNodeItem(item: ChangeProposalItem) {
+  return (item.target_kind || 'course_block') !== 'course_block'
+}
+
+function sourceLabel(source: ChangeProposalSource) {
+  return ({
+    manual: '',
+    evidence: t('courseWorkspace.changeProposals.source.evidence', 'AI 生成'),
+    kb_link: t('courseWorkspace.changeProposals.source.kbLink', '联动至知识库'),
+  } as Record<ChangeProposalSource, string>)[source] || ''
+}
+
+function proposalTargetsCurrentNode(proposal: ChangeProposal) {
+  const target = props.blockTarget
+  const currentBlockId = target?.block.block_id
+  const currentNodeId = currentNode.value?.node_id
+  return proposal.target_block_ids.some(blockId => (
+    blockId === currentBlockId
+    || (currentNodeId && proposal.items.some(item => item.block_id === blockId && item.block_id === currentNodeId))
+  )) || proposal.items.some(item => item.block_id === currentBlockId)
+}
+
+function promptRejectItem(proposalId: string, itemId: string) {
+  itemPromptMode.value = 'reject'
+  itemPromptText.value = ''
+  itemPromptOpen.value = `${proposalId}:${itemId}`
+}
+
+function promptRegenerateItem(proposalId: string, itemId: string) {
+  itemPromptMode.value = 'regenerate'
+  itemPromptText.value = ''
+  itemPromptOpen.value = `${proposalId}:${itemId}`
+}
+
+function cancelItemPrompt() {
+  itemPromptOpen.value = ''
+  itemPromptText.value = ''
+}
+
+async function confirmItemPrompt(proposalId: string, itemId: string) {
+  const text = itemPromptText.value.trim()
+  try {
+    if (itemPromptMode.value === 'reject') {
+      await changeProposalsStore.rejectItem(proposalId, itemId, text || undefined)
+    } else {
+      await changeProposalsStore.regenerateItem(proposalId, itemId, text || undefined)
+    }
+  } catch (error) {
+    logger.warn('Failed to resolve change proposal item', error)
+  } finally {
+    cancelItemPrompt()
+  }
+}
+
+async function handleApplyItem(proposalId: string, itemId: string) {
+  try {
+    await changeProposalsStore.applyItem(proposalId, itemId)
+  } catch (error) {
+    logger.warn('Failed to apply change proposal item', error)
+  }
+}
+
 function clearBlockTarget() {
   stopBlockCandidatePoll()
   blockCandidate.value = null
@@ -827,6 +1019,35 @@ onUnmounted(() => {
 .block-target-line { min-width:0; display:grid; grid-template-columns:15px auto minmax(0,1fr); align-items:center; gap:6px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(199,210,254,.72); color:var(--lz-brand); }
 .block-target-line span { color:var(--lz-text-muted); font-size:9px; }
 .block-target-line strong { min-width:0; overflow:hidden; color:var(--lz-text-secondary); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+
+.change-proposals-panel { min-height:0; max-height:44%; overflow-y:auto; margin:0 12px 10px; padding:10px 11px; border:1px solid rgba(199,210,254,.7); border-radius:10px; background:linear-gradient(100deg,rgba(238,242,255,.5),rgba(250,250,255,.4)); }
+.change-proposals-heading { display:flex; align-items:center; gap:7px; margin-bottom:9px; color:var(--lz-brand-strong); }
+.change-proposals-heading span { display:grid; place-items:center; color:var(--lz-brand); }
+.change-proposals-heading strong { font-size:11px; }
+.change-proposal-card { margin-bottom:10px; padding:9px 10px; border:1px solid var(--lz-border); border-radius:9px; background:#fff; }
+.change-proposal-card:last-child { margin-bottom:0; }
+.change-proposal-card.is-in-view { border-color:#818cf8; box-shadow:0 0 0 2px rgba(99,102,241,.12); }
+.change-proposal-meta { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-bottom:8px; }
+.scope-badge,.source-badge,.in-view-badge { padding:2px 7px; border-radius:999px; font-size:9px; font-weight:700; white-space:nowrap; }
+.scope-badge { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.source-badge { color:#166534; background:var(--lz-success-soft); }
+.source-badge.source-kb_link { color:#92400e; background:var(--lz-warning-soft); }
+.in-view-badge { color:#3730a3; background:#e0e7ff; }
+.change-proposal-items { display:grid; gap:9px; margin:0; padding:0; list-style:none; }
+.change-proposal-item { padding:8px 9px; border:1px solid var(--lz-border); border-radius:8px; background:var(--lz-surface-muted); }
+.change-item-diff { display:grid; gap:6px; margin-bottom:6px; font-size:11px; line-height:1.6; }
+.diff-label { display:inline-block; margin-bottom:2px; padding:1px 5px; border-radius:5px; font-size:8px; font-weight:700; }
+.diff-added { color:#166534; background:var(--lz-success-soft); }
+.diff-removed { color:#991b1b; background:var(--lz-danger-soft); }
+.diff-before p { margin:0; color:#94a3b8; text-decoration:line-through; }
+.diff-after-wrap p,.diff-after { margin:0; color:var(--lz-text); }
+.change-item-reason { margin:0 0 8px; color:var(--lz-text-muted); font-size:10px; line-height:1.5; }
+.change-item-unsupported-note { margin:0 0 8px; padding:6px 8px; border-radius:6px; background:var(--lz-surface-muted, rgba(148,163,184,.12)); color:var(--lz-text-muted); font-size:10px; line-height:1.5; }
+.change-item-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.change-item-actions button:disabled { opacity:.55; cursor:not-allowed; }
+.change-item-prompt { margin-top:8px; }
+.change-item-prompt textarea { width:100%; border:1px solid rgba(203,213,225,.9); border-radius:8px; padding:7px 8px; color:var(--lz-text); background:#fff; font:inherit; font-size:11px; resize:vertical; }
+.change-item-prompt-actions { display:flex; gap:6px; margin-top:6px; }
 
 .block-edit-workspace { min-height:0; flex:1; overflow-y:auto; padding:8px 14px 20px; background:#fff; }
 .block-edit-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }

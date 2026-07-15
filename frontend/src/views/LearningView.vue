@@ -116,6 +116,7 @@ import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
 import NotesPanel from '../components/NotesPanel.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
 import { useAITeacherStore } from '../stores/aiTeacher'
+import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
@@ -135,6 +136,7 @@ const generationStore = useGenerationStore()
 const workspaceStore = useCourseWorkspaceStore()
 const learningProgressStore = useLearningProgressStore()
 const aiTeacherStore = useAITeacherStore()
+const changeProposalsStore = useChangeProposalsStore()
 const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 
 const windowWidth = ref(window.innerWidth)
@@ -198,6 +200,8 @@ watch(() => route.params.courseId, async value => {
   await workspaceStore.migrateLegacyPracticeData(courseId, courseStore.nodes.map(node => node.node_id)).catch(() => undefined)
   await learningProgressStore.load(courseId, String(route.params.nodeId || '') || undefined)
   await aiTeacherStore.load(courseId, String(route.params.nodeId || '') || undefined)
+  // 不阻塞主流程：变更提案是旁路信息，加载失败/慢不应拖慢课程进入
+  void changeProposalsStore.fetchChangeProposals(courseId)
   selectInitialNode()
 }, { immediate: true })
 
