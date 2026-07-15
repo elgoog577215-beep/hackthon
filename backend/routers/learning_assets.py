@@ -12,6 +12,7 @@ from course_learning_availability import project_course_learning_availability
 from course_knowledge_map import project_learning_assets_to_knowledge
 from dependencies import get_course_or_404
 from learner_context import require_user_id
+from learning_assets import compile_learning_asset_plan, evaluate_learning_asset_quality
 from learning_events import (
     migrate_legacy_learning_state,
     record_learning_event,
@@ -34,6 +35,11 @@ async def get_learning_assets(course_id: str, request: Request, node_id: str | N
         course,
         deepcopy(course.get("learning_assets") or {}),
     )
+    quality_report = evaluate_learning_asset_quality(
+        course,
+        compile_learning_asset_plan(course),
+        assets,
+    )
     filtered = {
         asset_type: [
             item for item in values
@@ -53,7 +59,7 @@ async def get_learning_assets(course_id: str, request: Request, node_id: str | N
         "course_version_id": course.get("current_course_version_id"),
         "bundle_revision_id": course.get("learning_asset_bundle_revision_id"),
         "plan": course.get("learning_asset_plan") or {},
-        "quality_report": course.get("asset_quality_report") or {},
+        "quality_report": quality_report,
         "course_availability": project_course_learning_availability(course),
         "assets": filtered,
     }

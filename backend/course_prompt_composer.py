@@ -9,6 +9,10 @@ from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
 )
+from course_knowledge_base import (
+    compile_course_knowledge_base,
+    course_knowledge_base_prompt_context,
+)
 from course_knowledge_map import knowledge_ids_for_section, project_course_knowledge_map
 from course_pedagogy import MODULES, TEMPLATES, SubjectPedagogyProfile
 from subject_knowledge import (
@@ -20,7 +24,7 @@ from subject_knowledge import (
 )
 
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v4"
+PROMPT_CONTRACT_VERSION = "course_prompt_v5"
 
 
 class CoursePromptComposer:
@@ -128,9 +132,11 @@ class CoursePromptComposer:
 5. 每个小节必须给出 `node_id`，统一使用 `L2-章号-节号`，例如第 1 章第 1 节是 `L2-1-1`。
 6. 前置依赖只能引用已经出现的 `node_id`，不得使用 `1.1`、`L1-1` 或尚未出现的节点。
 7. `knowledge_structure` 表达本课程对学科知识的覆盖，不是另一套正式知识库。优先使用学科参照中的规范名称或正式别名，并按实际教学需要组织 1-4 个局部主题；不得为了凑数重复知识。
-8. 每个局部主题包含 1-5 个可单独解释、练习和诊断的细知识要求；说明对象、成立条件或适用边界，并给出可观察学习动作。
-9. 不得输出或编造正式知识 ID。参照中没有的课程必要内容可以保留真实名称，后端会将其标记为待归一，不要强行套入相近概念。
-10. 不编造论文、链接、书目、年份或未上传资料。
+8. 每个局部主题包含 1-5 个可单独解释、练习和诊断的细知识要求；说明对象、成立条件或适用边界。
+9. 每个细知识点必须继续拆出能力点、易错点和提升点，层级固定为“知识点 → 能力点 → 易错点/提升点”。能力必须是可观察动作；易错必须描述会怎样错；提升必须描述在何种新情境或更高约束下独立完成什么。
+10. 同一个能力、误区或提升要求不要在多个知识点下机械复制。它们必须与父知识点直接相关，并能指导正文、练习和反馈。
+11. 不得输出或编造正式知识 ID。参照中没有的课程必要内容可以保留真实名称，后端会将其标记为课程局部知识，不要强行套入相近概念。
+12. 不编造论文、链接、书目、年份或未上传资料。
 
 ## JSON Schema
 {{
@@ -158,6 +164,26 @@ class CoursePromptComposer:
                   "name": "可单独解释和检测的细知识点",
                   "description": "对象、条件、机制或适用边界",
                   "capability": "学习者能够完成的可观察动作",
+                  "capability_points": [
+                    {{
+                      "name": "细颗粒能力名称",
+                      "observable_behavior": "学习者在不依赖答案时可观察到的动作"
+                    }}
+                  ],
+                  "mistake_points": [
+                    {{
+                      "name": "常见错误模式",
+                      "description": "错误表现与触发条件",
+                      "repair_strategy": "如何辨别并修复"
+                    }}
+                  ],
+                  "improvement_points": [
+                    {{
+                      "name": "提升方向",
+                      "learning_goal": "更高水平的独立表现",
+                      "practice_strategy": "新情境、变式、边界或综合任务"
+                    }}
+                  ],
                   "aliases": [],
                   "prerequisite_names": []
                 }}
@@ -198,7 +224,9 @@ class CoursePromptComposer:
             list(grounding_contract.get("required_evidence_ids") or [])
             + list(grounding_contract.get("optional_evidence_ids") or [])
         ))
-        knowledge_context, teaching_context = self._node_knowledge_context(course_data, node)
+        knowledge_context, teaching_context, course_knowledge_context = self._node_knowledge_context(
+            course_data, node
+        )
         continuation_contract = ""
         if continuation:
             continuation_contract = f"""
@@ -215,6 +243,8 @@ class CoursePromptComposer:
 5. 基础课程正文只服从持久化课程蓝图，不根据临时学习状态改变主线。
 6. 如果使用资料事实，必须在对应陈述后追加 `[[evidence:证据ID]]`；证据 ID 只能来自当前节点允许列表。
 7. 证据标记不是参考文献装饰，不能把讲法参考或弱背景伪装成事实来源。
+8. 输出前完成内部一致性检查；正文不得保留“我的计算有误”“等待，更正”“请重新检查任务”等模型自我纠错痕迹，也不得让题干、答案和量规互相矛盾。
+9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和提升坐标，不得各写各的。
 
 ## 课程
 - 名称：{course_data.get('course_name', '')}
@@ -239,6 +269,9 @@ class CoursePromptComposer:
 
 ## 当前知识下的能力、易错与提升
 {teaching_context}
+
+## 当前课程知识库契约
+{course_knowledge_context}
 
 ## 当前节点难度契约
 {format_node_difficulty_contract(difficulty_contract)}
@@ -269,15 +302,20 @@ class CoursePromptComposer:
         self,
         course_data: dict[str, Any],
         node: dict[str, Any],
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, str]:
+        node_id = str(node.get("node_id") or "")
+        course_knowledge_base = course_data.get("course_knowledge_base") or compile_course_knowledge_base(
+            course_data
+        )
+        local_context = course_knowledge_base_prompt_context(course_knowledge_base, node_id)
         library = resolve_subject_library(course_data)
         if not library.get("nodes"):
             return (
                 "当前课程尚无正式学科包；保留课程局部知识表述，不得编造正式 ID。",
-                "当前节点尚无正式能力、易错或提升条目；依据正文、任务和证据独立组织教学。",
+                "正式学科库尚未覆盖本主题；能力、易错和提升以当前课程知识库为准。",
+                local_context,
             )
         course_map = project_course_knowledge_map(course_data)
-        node_id = str(node.get("node_id") or "")
         selected_ids = knowledge_ids_for_section(course_map, node_id)
         by_id = knowledge_index(library)
         rows = [
@@ -291,7 +329,7 @@ class CoursePromptComposer:
         teaching_context = knowledge_library_slice_prompt_context(
             knowledge_library_slice(library, selected_ids),
         )
-        return knowledge_context, teaching_context
+        return knowledge_context, teaching_context, local_context
 
     def build_repair_prompt(
         self,
@@ -326,6 +364,13 @@ class CoursePromptComposer:
             f"- [{evidence_id}] {item.get('source_text', '')}"
             for evidence_id, item in evidence_by_id.items()
         ) or "- 当前节点无资料证据。"
+        course_knowledge_base = course_data.get("course_knowledge_base") or compile_course_knowledge_base(
+            course_data
+        )
+        course_knowledge_text = course_knowledge_base_prompt_context(
+            course_knowledge_base,
+            str(node.get("node_id") or ""),
+        )
         system_prompt = f"""你负责定向修复课程小节。只输出修复后的完整 Markdown，不输出说明。
 
 ## 课程与节点
@@ -345,13 +390,16 @@ class CoursePromptComposer:
 - 可用证据原文：
 {evidence_text}
 
+## 当前课程知识库契约
+{course_knowledge_text}
+
 ## 必须修复的问题
 {issue_text}
 
 ## 原正文
 {content}
 
-只修改问题涉及的内容，保留正确部分；不得引入范围外知识或虚构来源。资料事实必须使用允许的 `[[evidence:证据ID]]` 标记。"""
+只修改问题涉及的内容，保留正确部分；不得引入范围外知识或虚构来源。资料事实必须使用允许的 `[[evidence:证据ID]]` 标记。修复后必须再次核对题干、过程、答案与量规，不得保留模型自我纠错痕迹。"""
         return "修复这些明确问题并输出完整正文。", system_prompt
 
 

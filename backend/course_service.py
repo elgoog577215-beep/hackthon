@@ -64,7 +64,11 @@ from course_quality import evaluate_node_content, validate_blueprint
 from course_context import CourseContextManager, get_context_manager
 from ai_learning_context import build_ai_learning_context
 from learner_context import DEFAULT_USER_ID
-from course_knowledge_map import normalize_knowledge_structure
+from course_knowledge_base import (
+    bind_course_knowledge_base_to_map,
+    compile_course_knowledge_base,
+)
+from course_knowledge_map import compile_course_knowledge_map, normalize_knowledge_structure
 from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialRepository, material_repository
@@ -463,6 +467,25 @@ class CourseService(AIBase):
             "blueprint_validation_report": blueprint_report,
             "generation_quality_report": None,
         }
+        course_knowledge_map = compile_course_knowledge_map(course_data)
+        course_knowledge_base = compile_course_knowledge_base(
+            course_data,
+            course_map=course_knowledge_map,
+        )
+        course_knowledge_map = bind_course_knowledge_base_to_map(
+            course_knowledge_map,
+            course_knowledge_base,
+        )
+        course_knowledge_base = compile_course_knowledge_base(
+            course_data,
+            course_map=course_knowledge_map,
+        )
+        course_data["course_knowledge_map"] = course_knowledge_map
+        course_data["course_knowledge_base"] = course_knowledge_base
+        course_data["course_knowledge_quality_report"] = course_knowledge_base["quality_report"]
+        course_data["course_blueprint"]["course_knowledge_base_revision_id"] = (
+            course_knowledge_base["revision_id"]
+        )
         self.register_course_generation_metadata(course_id, course_data)
         return course_data
 
@@ -775,13 +798,25 @@ class CourseService(AIBase):
             )
             repaired = await self._call_llm(repair_user, repair_system, enable_thinking=True)
             if repaired:
-                raw_content = self.clean_response_text(repaired)
-                full_content, annotations, invalid_refs = extract_grounding_annotations(
-                    raw_content,
+                repaired_raw = self.clean_response_text(repaired)
+                repaired_content, repaired_annotations, repaired_invalid_refs = extract_grounding_annotations(
+                    repaired_raw,
                     allowed_ids,
                 )
-                node["grounding_annotations"] = annotations
-                node["grounding_invalid_refs"] = invalid_refs
+                node["grounding_annotations"] = repaired_annotations
+                node["grounding_invalid_refs"] = repaired_invalid_refs
+                repaired_quality = evaluate_node_content(repaired_content, node)
+                if (
+                    repaired_quality.get("passed")
+                    or float(repaired_quality.get("score") or 0) > float(quality.get("score") or 0)
+                ):
+                    raw_content = repaired_raw
+                    full_content = repaired_content
+                    annotations = repaired_annotations
+                    invalid_refs = repaired_invalid_refs
+                else:
+                    node["grounding_annotations"] = annotations
+                    node["grounding_invalid_refs"] = invalid_refs
 
         self._record_generation_quality(
             output_type="node_content_stream",

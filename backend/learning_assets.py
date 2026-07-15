@@ -8,6 +8,13 @@ from typing import Any
 
 from course_pedagogy import coerce_persisted_profile
 from course_versioning import stable_hash
+from course_knowledge_base import (
+    bind_course_knowledge_base_to_map,
+    build_course_knowledge_library_view,
+    compile_course_knowledge_base,
+    knowledge_binding_for_section,
+    validate_course_knowledge_base,
+)
 from course_knowledge_map import (
     compile_course_knowledge_map,
     knowledge_ids_for_section,
@@ -30,21 +37,21 @@ QUALITY_SCHEMA = "asset_quality_v1"
 
 PURPOSE_ASSETS: dict[str, tuple[str, ...]] = {
     "systematic": (
-        "overview", "knowledge_library", "course_knowledge_map",
+        "overview", "knowledge_library", "course_knowledge_base", "course_knowledge_map",
         "mastery_criteria", "questions",
         "misconceptions", "checklist", "final_assessment", "chapter_progression_contracts",
     ),
     "exam_sprint": (
-        "overview", "knowledge_library", "course_knowledge_map",
+        "overview", "knowledge_library", "course_knowledge_base", "course_knowledge_map",
         "mastery_criteria", "questions", "misconceptions",
         "checklist", "final_assessment", "chapter_progression_contracts",
     ),
     "material_organization": (
-        "overview", "knowledge_library", "course_knowledge_map",
+        "overview", "knowledge_library", "course_knowledge_base", "course_knowledge_map",
         "mastery_criteria", "checklist", "chapter_progression_contracts",
     ),
     "personalized_remedial": (
-        "overview", "knowledge_library", "course_knowledge_map",
+        "overview", "knowledge_library", "course_knowledge_base", "course_knowledge_map",
         "mastery_criteria", "questions",
         "misconceptions", "checklist", "chapter_progression_contracts",
     ),
@@ -52,6 +59,7 @@ PURPOSE_ASSETS: dict[str, tuple[str, ...]] = {
 
 KNOWLEDGE_INFRASTRUCTURE_ASSETS = {
     "knowledge_library",
+    "course_knowledge_base",
     "course_knowledge_map",
 }
 
@@ -122,6 +130,17 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
         node["objective_revision_id"] = objective["objective_revision_id"]
     subject_library = resolve_subject_library(course_data)
     course_map = compile_course_knowledge_map(course_data, subject_library)
+    course_knowledge_base = compile_course_knowledge_base(
+        course_data,
+        library=subject_library,
+        course_map=course_map,
+    )
+    course_map = bind_course_knowledge_base_to_map(course_map, course_knowledge_base)
+    course_knowledge_base = compile_course_knowledge_base(
+        course_data,
+        library=subject_library,
+        course_map=course_map,
+    )
     knowledge_library_issues = validate_subject_library(subject_library) if subject_library.get("nodes") else []
     all_knowledge_ids = set((course_map.get("coverage") or {}).get("formal_knowledge_ids") or [])
     course_library_slice = knowledge_library_slice(subject_library, all_knowledge_ids)
@@ -299,6 +318,7 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
     assets = {
         "overview": [overview] if "overview" in enabled else [],
         "questions": questions,
+        "course_knowledge_base": [],
         "course_knowledge_map": [course_map] if "course_knowledge_map" in enabled else [],
         "knowledge_library": [],
         "mastery_criteria": criteria,
@@ -323,7 +343,22 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
             chapter_progression_contracts if "chapter_progression_contracts" in enabled else []
         ),
     }
+    course_knowledge_base = compile_course_knowledge_base(
+        course_data,
+        library=subject_library,
+        course_map=course_map,
+        assets=assets,
+    )
+    _attach_course_knowledge_refs(assets, course_knowledge_base)
+    if "course_knowledge_base" in enabled:
+        assets["course_knowledge_base"] = [course_knowledge_base]
     knowledge_view = build_knowledge_library_view(subject_library, course_map, assets)
+    if knowledge_view.get("status") == "unavailable":
+        knowledge_view = build_course_knowledge_library_view(
+            course_knowledge_base,
+            course_map,
+            assets,
+        )
     if "knowledge_library" in enabled:
         assets["knowledge_library"] = [knowledge_view]
     quality = evaluate_learning_asset_quality(course_data, plan, assets)
@@ -359,12 +394,34 @@ def evaluate_learning_asset_quality(
     course_map = next(iter(assets.get("course_knowledge_map") or []), None)
     if course_map:
         for map_issue in validate_course_knowledge_map(course_map, course_data, assets):
+            if (
+                assets.get("course_knowledge_base")
+                and map_issue.get("severity") != "critical"
+                and "课程局部知识待归一" in str(map_issue.get("message") or "")
+            ):
+                continue
             issues.append(_asset_issue(
                 map_issue["gate"],
                 map_issue["severity"],
                 "course_knowledge_map",
                 map_issue["message"],
                 course_map,
+            ))
+
+    course_knowledge_base = next(iter(assets.get("course_knowledge_base") or []), None)
+    if course_knowledge_base:
+        knowledge_report = validate_course_knowledge_base(
+            course_knowledge_base,
+            course_data=course_data,
+            library=resolve_subject_library(course_data),
+        )
+        for issue in knowledge_report.get("issues") or []:
+            issues.append(_asset_issue(
+                str(issue.get("gate") or "structure"),
+                str(issue.get("severity") or "major"),
+                "course_knowledge_base",
+                str(issue.get("message") or "课程知识库质量问题"),
+                course_knowledge_base,
             ))
 
     knowledge_view = next(iter(assets.get("knowledge_library") or []), None)
@@ -376,7 +433,7 @@ def evaluate_learning_asset_quality(
             "improvement_point_ids": {str(item.get("improvement_point_id")) for item in knowledge_view.get("improvement_points") or []},
         }
         for asset_type, items in assets.items():
-            if asset_type in {"knowledge_library", "course_knowledge_map"}:
+            if asset_type in {"knowledge_library", "course_knowledge_base", "course_knowledge_map"}:
                 continue
             for item in items or []:
                 if not isinstance(item, dict):
@@ -389,6 +446,41 @@ def evaluate_learning_asset_quality(
                             "critical",
                             asset_type,
                             f"资产引用了不存在的统一知识库条目：{field}={sorted(unknown)}",
+                            item,
+                        ))
+
+    if course_knowledge_base:
+        local_refs = {
+            "course_knowledge_refs": {
+                str(item.get("node_id") or "") for item in course_knowledge_base.get("nodes") or []
+            },
+            "course_capability_refs": {
+                str(item.get("capability_point_id") or "")
+                for item in course_knowledge_base.get("capability_points") or []
+            },
+            "course_mistake_refs": {
+                str(item.get("mistake_point_id") or "")
+                for item in course_knowledge_base.get("mistake_points") or []
+            },
+            "course_improvement_refs": {
+                str(item.get("improvement_point_id") or "")
+                for item in course_knowledge_base.get("improvement_points") or []
+            },
+        }
+        for asset_type, items in assets.items():
+            if asset_type in {"knowledge_library", "course_knowledge_base", "course_knowledge_map"}:
+                continue
+            for item in items or []:
+                if not isinstance(item, dict):
+                    continue
+                for field, allowed in local_refs.items():
+                    unknown = {str(value) for value in item.get(field) or []} - allowed
+                    if unknown:
+                        issues.append(_asset_issue(
+                            "structure",
+                            "critical",
+                            asset_type,
+                            f"资产引用了不存在的课程知识条目：{field}={sorted(unknown)}",
                             item,
                         ))
 
@@ -879,7 +971,7 @@ def _refresh_quality_status(report: dict[str, Any]) -> None:
     issues = list(report.get("issues") or [])
     warnings = [
         item for item in issues
-        if item.get("asset_type") == "course_knowledge_map"
+        if item.get("asset_type") in KNOWLEDGE_INFRASTRUCTURE_ASSETS
         and item.get("severity") != "critical"
     ]
     warning_ids = {str(item.get("issue_id") or "") for item in warnings}
@@ -896,6 +988,36 @@ def _refresh_quality_status(report: dict[str, Any]) -> None:
         "passed": not any(item.get("gate") == gate for item in blocking),
         "issues": [item for item in issues if item.get("gate") == gate],
     } for gate in gate_order]
+
+
+def _attach_course_knowledge_refs(
+    assets: dict[str, list[dict[str, Any]]],
+    course_knowledge_base: dict[str, Any],
+) -> None:
+    for asset_type, items in assets.items():
+        if asset_type in KNOWLEDGE_INFRASTRUCTURE_ASSETS:
+            continue
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            section_ids = _unique([
+                item.get("node_id"),
+                *(item.get("node_ids") or []),
+            ])
+            bindings = [
+                knowledge_binding_for_section(course_knowledge_base, section_id)
+                for section_id in section_ids
+            ]
+            for field in (
+                "course_knowledge_refs",
+                "course_capability_refs",
+                "course_mistake_refs",
+                "course_improvement_refs",
+            ):
+                item[field] = _unique([
+                    ref for binding in bindings for ref in binding.get(field) or []
+                ])
+            item["course_knowledge_base_revision_id"] = course_knowledge_base.get("revision_id")
 
 
 def _unique(values: list[Any]) -> list[str]:

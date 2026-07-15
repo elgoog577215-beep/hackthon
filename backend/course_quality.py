@@ -5,10 +5,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from course_knowledge_base import (
+    compile_course_knowledge_base,
+    validate_course_knowledge_base,
+)
 from course_pedagogy import MODULES, coerce_persisted_profile
 
 
-QUALITY_CONTRACT_VERSION = "course_quality_v3"
+QUALITY_CONTRACT_VERSION = "course_quality_v5"
 
 
 MODULE_SIGNAL_RULES: dict[str, tuple[tuple[str, ...], str]] = {
@@ -109,6 +113,31 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
         issues.append(_issue("unclosed_code_fence", "critical", "代码块没有闭合", "闭合 Markdown 代码块", node_id))
     if "生成中..." in text or "[待补充" in text:
         issues.append(_issue("placeholder_content", "critical", "正文包含兜底或待补充占位符", "生成完整正文", node_id))
+    if re.search(
+        r"我的(?:计算|答案|判断|推导)(?:有误|错了)"
+        r"|等待[，,:：]?\s*(?:更正|重新)"
+        r"|请重新检查任务"
+        r"|(?:前面|前文|上述|刚才|这里)(?:的)?(?:计算|答案|判断|推导|结论)"
+        r".{0,40}(?:需要)?(?:更正|修正)[：:]"
+        r"|[（(，,。；;！？!?]\s*(?:更正|修正)[：:]"
+        r"|(?m:^[ \t]*(?:更正|修正)[：:])",
+        text,
+    ):
+        issues.append(_issue(
+            "model_self_correction",
+            "major",
+            "正文保留了模型自我纠错痕迹，题干、过程或答案可能互相矛盾",
+            "重新核对题干、计算、答案和量规，只保留一致的最终版本",
+            node_id,
+        ))
+    if re.search(r"\$(?:#{1,6}\s|\d+\.\s{2,}|[*+-]\s{2,})", text):
+        issues.append(_issue(
+            "markdown_block_join",
+            "major",
+            "公式与后续标题或列表粘连，正文排版可能无法正确分块",
+            "在公式、标题和列表之间补齐空行，并重新检查 Markdown 渲染",
+            node_id,
+        ))
 
     if not _contains_any(text, ("练习", "任务", "请", "尝试", "思考", "完成", "写出", "计算", "实现", "分析", "表达")):
         issues.append(_issue("missing_learner_action", "major", "缺少学习者主动任务", "加入与学习目标一致的计算、实现、分析、表达或操作", node_id))
@@ -124,9 +153,17 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
             issues.append(_issue(f"module:{module_id}", "major", rule[1], str(module.get("output_contract") or "补齐模块产出"), node_id))
 
     key_points = [str(item) for item in node.get("key_points") or [] if str(item).strip()]
-    missing_key_points = [point for point in key_points if point.lower() not in text.lower()]
+    missing_key_points = [point for point in key_points if not _key_point_covered(point, text)]
     if key_points and len(missing_key_points) == len(key_points):
         issues.append(_issue("missing_key_points", "major", "正文没有覆盖节点核心知识点", "围绕节点知识点重写核心解释", node_id))
+    elif key_points and len(missing_key_points) / len(key_points) > 0.5:
+        issues.append(_issue(
+            "partial_key_points",
+            "warning",
+            f"正文只覆盖了部分核心知识点，待补：{'、'.join(missing_key_points[:4])}",
+            "补齐缺失知识点，或收窄蓝图范围以保持目标与正文一致",
+            node_id,
+        ))
 
     difficulty_alignment = evaluate_difficulty_alignment(text, node)
     issues.extend(difficulty_alignment["issues"])
@@ -134,11 +171,21 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
     issues.extend(grounding_check["issues"])
 
     score = _score_from_issues(issues)
+    has_content_integrity_failure = any(
+        item.get("code") in {"model_self_correction", "markdown_block_join"}
+        for item in issues
+    )
     return {
         "contract_version": QUALITY_CONTRACT_VERSION,
         "stage": "node",
         "node_id": node_id,
-        "passed": score >= 0.7 and not _has_critical(issues),
+        "passed": (
+            score >= 0.7
+            and not _has_critical(issues)
+            and not has_content_integrity_failure
+            and difficulty_alignment.get("passed", False)
+            and grounding_check.get("passed", False)
+        ),
         "score": score,
         "issues": issues,
         "content_chars": len(text),
@@ -397,7 +444,12 @@ def evaluate_difficulty_alignment(
 
     has_action = _contains_any(text, ("请", "尝试", "完成", "计算", "实现", "分析", "证明", "设计", "表达", "交付"))
     has_reasoning = _contains_any(text, ("因为", "因此", "依据", "推导", "论证", "机制", "假设", "权衡", "原因"))
-    has_transfer = _contains_any(text, ("迁移", "新情境", "不同场景", "边界", "反例", "扩展", "改变条件", "变式"))
+    has_transfer = _contains_any(text, (
+        "迁移", "新情境", "不同场景", "适用场景", "边界", "反例", "扩展",
+        "改变条件", "变式", "退化条件", "局限性", "现实约束", "取舍判断",
+        "更换数据", "不同输入", "跨领域", "综合情境", "稠密或稀疏",
+        "算法选择", "什么场景", "数据规模", "硬件限制", "稳定性要求",
+    ))
     has_independence = _contains_any(text, ("独立", "自行", "请完成", "尝试", "设计", "选择", "写出", "实现", "证明"))
     has_support = _contains_any(text, ("步骤", "示例", "例题", "提示", "检查", "反馈", "参考答案"))
     evidence_terms = [
@@ -475,7 +527,7 @@ def evaluate_difficulty_alignment(
 def build_difficulty_alignment_report(course_data: dict[str, Any]) -> dict[str, Any]:
     nodes = [node for node in course_data.get("nodes") or [] if node.get("node_level", 1) == 2]
     reports = [
-        (node.get("generation_quality") or {}).get("difficulty_alignment")
+        (_current_node_quality(node).get("difficulty_alignment") or {})
         or evaluate_difficulty_alignment(str(node.get("node_content") or ""), node)
         for node in nodes
     ]
@@ -510,12 +562,19 @@ def build_final_course_quality_report(
     course_data: dict[str, Any], *, job_id: str
 ) -> dict[str, Any]:
     nodes = [node for node in course_data.get("nodes", []) if node.get("node_level", 1) == 2]
-    node_reports = [node.get("generation_quality") or evaluate_node_content(node.get("node_content", ""), node) for node in nodes]
+    node_reports = [_current_node_quality(node) for node in nodes]
     weak_nodes = [report for report in node_reports if not report.get("passed")]
     profile = coerce_persisted_profile(course_data)
     blueprint_report = course_data.get("blueprint_validation_report") or validate_blueprint(course_data.get("course_blueprint") or {})
     difficulty_alignment = build_difficulty_alignment_report(course_data)
     grounding_quality = build_grounding_quality_report(course_data)
+    course_knowledge_base = course_data.get("course_knowledge_base") or compile_course_knowledge_base(
+        course_data
+    )
+    knowledge_quality = course_knowledge_base.get("quality_report") or validate_course_knowledge_base(
+        course_knowledge_base,
+        course_data=course_data,
+    )
     blocking_issues: list[dict[str, Any]] = []
     if not nodes:
         blocking_issues.append(_issue(
@@ -555,10 +614,19 @@ def build_final_course_quality_report(
             "用户指定的必用资料没有进入课程正文",
             "补齐必用资料覆盖后再发布",
         ))
+    for issue in knowledge_quality.get("issues") or []:
+        if issue.get("severity") == "critical":
+            blocking_issues.append(_issue(
+                f"knowledge:{issue.get('gate') or 'quality'}",
+                "critical",
+                str(issue.get("message") or "课程知识库存在阻断问题"),
+                "修复课程知识、能力、易错、提升和课程位置之间的引用后再发布",
+            ))
     final_status = (
         "passed"
         if blueprint_report.get("passed") and difficulty_alignment.get("passed")
-        and grounding_quality.get("passed") and not weak_nodes
+        and grounding_quality.get("passed") and knowledge_quality.get("strict_passed")
+        and not weak_nodes
         else "completed_with_warnings"
     )
     return {
@@ -575,6 +643,8 @@ def build_final_course_quality_report(
         "blueprint_check": blueprint_report,
         "difficulty_alignment": difficulty_alignment,
         "grounding_quality": grounding_quality,
+        "knowledge_quality": knowledge_quality,
+        "course_knowledge_base_revision_id": course_knowledge_base.get("revision_id"),
         "node_quality_summary": {
             "total": len(node_reports),
             "passed": len(node_reports) - len(weak_nodes),
@@ -597,6 +667,31 @@ def build_final_course_quality_report(
 def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
     lowered = text.lower()
     return any(marker.lower() in lowered for marker in markers)
+
+
+def _current_node_quality(node: dict[str, Any]) -> dict[str, Any]:
+    report = node.get("generation_quality") or {}
+    if report.get("contract_version") == QUALITY_CONTRACT_VERSION:
+        return report
+    return evaluate_node_content(str(node.get("node_content") or ""), node)
+
+
+def _key_point_covered(point: str, text: str) -> bool:
+    lowered = text.lower()
+    normalized = re.sub(r"\s+", "", point.lower())
+    if normalized and normalized in re.sub(r"\s+", "", lowered):
+        return True
+    fragments = [
+        fragment.strip().lower()
+        for fragment in re.split(r"[与和及、，,:：;；/（）()\[\]\s]+", point)
+        if len(fragment.strip()) >= 2
+    ]
+    generic = {"概念", "原理", "方法", "步骤", "应用", "分析", "实现", "特点", "问题", "基础"}
+    meaningful = [fragment for fragment in fragments if fragment not in generic]
+    if not meaningful:
+        return False
+    hits = sum(fragment in lowered for fragment in meaningful)
+    return hits >= max(1, (len(meaningful) + 1) // 2)
 
 
 def _dimension_average(values: dict[str, Any]) -> float:

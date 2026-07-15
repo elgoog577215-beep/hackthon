@@ -124,8 +124,11 @@ def fix_latex_content(content: str) -> str:
     content = re.sub(r'\\\[(.+?)\\\]', r'\n$$\n\1\n$$\n', content, flags=re.DOTALL)
     content = re.sub(r'\\\((.+?)\\\)', r'$\1$', content, flags=re.DOTALL)
     
-    content = re.sub(r'\$\s+', '$', content)
-    content = re.sub(r'\s+\$', '$', content)
+    content = re.sub(
+        r'(?<!\$)\$([^\n$]+?)\$(?!\$)',
+        lambda match: f'${match.group(1).strip()}$',
+        content,
+    )
     
     return content
 
@@ -2440,6 +2443,19 @@ class TaskManager:
         fresh_course["learning_assets"] = asset_bundle["assets"]
         fresh_course["learning_asset_bundle_revision_id"] = asset_bundle["bundle_revision_id"]
         fresh_course["asset_quality_report"] = asset_bundle["quality_report"]
+        compiled_knowledge_base = next(iter(
+            fresh_course["learning_assets"].get("course_knowledge_base") or []
+        ), None)
+        if compiled_knowledge_base:
+            fresh_course["course_knowledge_base"] = compiled_knowledge_base
+            fresh_course["course_knowledge_quality_report"] = compiled_knowledge_base.get(
+                "quality_report"
+            )
+        compiled_knowledge_map = next(iter(
+            fresh_course["learning_assets"].get("course_knowledge_map") or []
+        ), None)
+        if compiled_knowledge_map:
+            fresh_course["course_knowledge_map"] = compiled_knowledge_map
         await self._save_task_course(task_id, fresh_course)
 
         await self._update_phase(
