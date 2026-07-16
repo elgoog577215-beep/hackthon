@@ -77,8 +77,11 @@ def test_assets_have_stable_revisions_and_five_passing_gates():
     assert misconception["concept_ids"] == question["concept_ids"]
     assert course["nodes"][0]["content_blocks"][0]["metadata"]["concept_refs"] == question["concept_ids"]
     knowledge_view = bundle["assets"]["knowledge_library"][0]
-    assert knowledge_view["library_id"] == "unresolved"
-    assert knowledge_view["nodes"] == []
+    assert knowledge_view["library_id"].startswith("ckb_")
+    assert knowledge_view["course_knowledge_base_revision_id"].startswith("ckbr_")
+    assert knowledge_view["nodes"]
+    assert all(node["source_status"] == "course_local" for node in knowledge_view["nodes"])
+    assert all(node["formal_knowledge_refs"] == [] for node in knowledge_view["nodes"])
     progression = bundle["assets"]["chapter_progression_contracts"][0]
     assert progression["chapter_id"] == "L2-1-1"
     assert progression["required_objective_ids"] == [criterion["objective_id"]]

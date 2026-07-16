@@ -122,6 +122,12 @@ class AIBase:
         )
         self.model_smart = self.smart_models[0]
         self.model_fast = self.fast_models[0]
+        self.thinking_enabled = os.getenv("AI_ENABLE_THINKING", "true").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         self._provider_failure: str | None = None
         
         if self.api_key:
@@ -579,7 +585,9 @@ class AIBase:
         for model_id in self._models_for(use_fast_model):
             for attempt in range(retry_count):
                 try:
-                    extra_body = {"enable_thinking": enable_thinking}
+                    extra_body = {
+                        "enable_thinking": enable_thinking and self.thinking_enabled,
+                    }
 
                     response = await self.client.chat.completions.create(
                         model=model_id,
@@ -667,7 +675,9 @@ class AIBase:
         for model_id in self._models_for(use_fast_model):
             yielded = False
             try:
-                extra_body = {"enable_thinking": enable_thinking}
+                extra_body = {
+                    "enable_thinking": enable_thinking and self.thinking_enabled,
+                }
 
                 response = await self.client.chat.completions.create(
                     model=model_id,

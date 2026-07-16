@@ -41,7 +41,7 @@ export interface KnowledgeRelation {
 }
 
 export interface KnowledgeLibraryView {
-  schema_version: 'knowledge_library_view_v2'
+  schema_version: 'knowledge_library_view_v3'
   asset_id: string
   library_id: string
   subject_id: string
@@ -68,6 +68,37 @@ export interface KnowledgeLibraryView {
   unresolved_mappings: unknown[]
   status: string
   revision_id: string
+  binding_revision_id: string
+  lifecycle_status: 'candidate' | 'accepted' | 'rejected' | 'degraded'
+  origin: 'curated' | 'model_generated' | 'course_and_domain_generated' | 'course_index' | string
+  quality_report: SubjectOntologyQualityReport
+  generation_audit?: {
+    generation_calls: number
+    review_calls: number
+    repair_calls: number
+    sources: string[]
+    semantic_review?: { passed?: boolean; issues?: string[] } | null
+    provider_failure?: { code: string; message: string; retryable: boolean } | null
+  }
+  source_summary?: Record<string, number>
+}
+
+export interface SubjectOntologyQualityReport {
+  passed: boolean
+  score: number
+  metrics: {
+    mapped_ratio?: number
+    relation_coverage?: number
+    cross_skill_ratio?: number
+    [key: string]: number | boolean | undefined
+  }
+  issues: Array<{ code: string; severity: string; message: string }>
+  blocking_issues: Array<{ code: string; severity: string; message: string }>
+}
+
+export interface KnowledgeLibraryReview {
+  previous_revision_id?: string | null
+  diff: { added: number; modified: number; removed: number }
 }
 
 export interface KnowledgeLibraryRow {

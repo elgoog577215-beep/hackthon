@@ -16,7 +16,7 @@ from subject_knowledge import (
 )
 
 
-COURSE_MAP_SCHEMA = "course_knowledge_map_v1"
+COURSE_MAP_SCHEMA = "course_knowledge_map_v2"
 
 
 def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any]]:
@@ -99,6 +99,7 @@ def compile_course_knowledge_map(
         section_mappings: list[dict[str, Any]] = []
         local_entries = _local_entries(structures)
         for local_order, entry in enumerate(local_entries):
+            mapping_scope = _mapping_scope(section, entry)
             match = match_subject_knowledge(subject_library, entry["local_name"])
             mapping_id = stable_hash({
                 "course": course_id,
@@ -118,6 +119,7 @@ def compile_course_knowledge_map(
                 "anchor_knowledge_id": (match or {}).get("anchor_knowledge_id"),
                 "knowledge_ids": list((match or {}).get("knowledge_ids") or []),
                 "match_status": (match or {}).get("match_status", "unmapped"),
+                "mapping_scope": mapping_scope,
                 "confidence": float((match or {}).get("confidence") or 0.0),
                 "suggestions": [] if match else suggest_subject_knowledge(subject_library, entry["local_name"]),
                 "block_ids": [],
@@ -146,11 +148,19 @@ def compile_course_knowledge_map(
         section["knowledge_mapping_refs"] = mapping_ids
 
     sequence_relations = _course_sequence_relations(course_id, sections)
+    knowledge_mappings = [
+        mapping for mapping in mappings if mapping.get("mapping_scope") == "knowledge"
+    ]
     unresolved = [
         deepcopy(mapping) for mapping in mappings
-        if mapping.get("match_status") == "unmapped"
+        if mapping.get("mapping_scope") == "knowledge"
+        and mapping.get("match_status") == "unmapped"
     ]
-    mapped = [mapping for mapping in mappings if mapping.get("match_status") != "unmapped"]
+    mapped = [
+        mapping
+        for mapping in knowledge_mappings
+        if mapping.get("match_status") != "unmapped"
+    ]
     formal_ids = _unique([
         knowledge_id
         for mapping in mapped
@@ -163,18 +173,36 @@ def compile_course_knowledge_map(
         "knowledge_library_id": subject_library.get("library_id"),
         "knowledge_library_version": subject_library.get("version"),
         "knowledge_library_revision_id": subject_library.get("revision_id"),
+        "binding_revision_id": (
+            (course_data.get("knowledge_library_binding") or {}).get("revision_id")
+        ),
+        "library_lifecycle_status": subject_library.get(
+            "lifecycle_status",
+            "accepted" if subject_library.get("status") == "active" else "degraded",
+        ),
         "mappings": mappings,
         "section_knowledge_ids": section_knowledge_ids,
         "section_mapping_ids": section_mapping_ids,
         "sequence_relations": sequence_relations,
         "coverage": {
-            "mapping_count": len(mappings),
+            "mapping_count": len(knowledge_mappings),
+            "excluded_pedagogical_count": len(mappings) - len(knowledge_mappings),
             "mapped_count": len(mapped),
             "unmapped_count": len(unresolved),
             "formal_knowledge_count": len(formal_ids),
             "formal_knowledge_ids": formal_ids,
-            "mapped_ratio": round(len(mapped) / len(mappings), 4) if mappings else 0.0,
-            "status": "mapped" if mappings and not unresolved else "partial" if mapped else "unmapped",
+            "mapped_ratio": (
+                round(len(mapped) / len(knowledge_mappings), 4)
+                if knowledge_mappings
+                else 0.0
+            ),
+            "status": (
+                "mapped"
+                if knowledge_mappings and not unresolved
+                else "partial"
+                if mapped
+                else "unmapped"
+            ),
         },
         "unresolved_candidates": unresolved,
         "status": "active" if formal_nodes else "library_unavailable",
@@ -585,6 +613,41 @@ def _local_entries(structures: list[dict[str, Any]]) -> list[dict[str, str]]:
                 "detail_status": detail_status,
             })
     return entries
+
+
+def _mapping_scope(section: dict[str, Any], entry: dict[str, str]) -> str:
+    """Exclude instructional scaffolding from formal knowledge coverage metrics."""
+    section_name = _normalize_text(section.get("node_name") or section.get("title"))
+    local_name = _normalize_text(entry.get("local_name"))
+    pedagogical_section = any(
+        marker in section_name
+        for marker in (
+            "前置知识诊断",
+            "诊断测试",
+            "项目设计",
+            "项目实现",
+            "章节总结",
+            "课程总结",
+        )
+    )
+    if entry.get("local_kind") == "topic" and (
+        pedagogical_section
+        or any(
+            marker in local_name
+            for marker in ("诊断评估", "系统设计", "项目实现", "章节总结")
+        )
+    ):
+        return "pedagogical"
+    if local_name in {
+        "需求定义",
+        "架构选择",
+        "核心实现",
+        "测试验证",
+        "项目复盘",
+        "学习总结",
+    }:
+        return "pedagogical"
+    return "knowledge"
 
 
 def _bind_section_blocks(

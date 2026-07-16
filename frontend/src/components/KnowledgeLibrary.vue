@@ -61,6 +61,73 @@
             </button>
           </header>
 
+          <section v-if="libraryView" class="knowledge-tree-governance" :class="`is-${libraryView.lifecycle_status}`">
+            <div class="knowledge-tree-governance-summary">
+              <span data-testid="knowledge-lifecycle" class="knowledge-tree-lifecycle">
+                {{ lifecycleLabel }}
+              </span>
+              <div data-testid="knowledge-quality" class="knowledge-tree-quality">
+                <strong>{{ t('knowledgeLibrary.qualityScore', '质量') }} {{ libraryView.quality_report?.score ?? '—' }}</strong>
+                <span>{{ t('knowledgeLibrary.mappingRate', '映射率') }} {{ percent(libraryView.quality_report?.metrics?.mapped_ratio ?? libraryView.coverage.mapped_ratio) }}</span>
+                <span>{{ t('knowledgeLibrary.relationCoverage', '关系覆盖') }} {{ percent(libraryView.quality_report?.metrics?.relation_coverage ?? 0) }}</span>
+              </div>
+              <div data-testid="knowledge-source-summary" class="knowledge-tree-quality">
+                <strong>{{ t('knowledgeLibrary.sources', '来源') }}</strong>
+                <span v-for="item in sourceSummaryRows" :key="item.key">{{ item.label }} {{ item.count }}</span>
+              </div>
+              <span
+                v-if="candidateRelationCount && libraryView.lifecycle_status !== 'candidate'"
+                data-testid="knowledge-candidate-relations"
+                class="knowledge-tree-lifecycle"
+              >{{ t('knowledgeLibrary.candidateRelations', '候选关系') }} {{ candidateRelationCount }} {{ t('knowledgeLibrary.notEnabled', '条未启用') }}</span>
+              <div v-if="reviewSummary" data-testid="knowledge-diff" class="knowledge-tree-diff">
+                <span>{{ t('knowledgeLibrary.diffAdded', '新增') }} {{ reviewSummary.diff.added }}</span>
+                <span>{{ t('knowledgeLibrary.diffModified', '修改') }} {{ reviewSummary.diff.modified }}</span>
+                <span>{{ t('knowledgeLibrary.diffRemoved', '删除') }} {{ reviewSummary.diff.removed }}</span>
+              </div>
+            </div>
+            <ul
+              v-if="libraryView.quality_report?.issues?.length"
+              data-testid="knowledge-quality-issues"
+              class="knowledge-tree-quality-issues"
+            >
+              <li v-for="issue in libraryView.quality_report.issues" :key="`${issue.code}:${issue.message}`">
+                {{ issue.message }}
+              </li>
+            </ul>
+            <div class="knowledge-tree-governance-actions">
+              <input
+                v-if="libraryView.lifecycle_status === 'candidate'"
+                v-model="reviewNote"
+                data-testid="knowledge-review-note"
+                type="text"
+                :placeholder="t('knowledgeLibrary.reviewNote', '审核备注或退回原因')"
+                :disabled="governanceActing"
+              >
+              <button
+                v-if="libraryView.lifecycle_status === 'candidate'"
+                data-testid="knowledge-accept"
+                type="button"
+                :disabled="governanceActing"
+                @click="reviewLibrary('accept')"
+              >{{ t('knowledgeLibrary.acceptVersion', '接受整个版本') }}</button>
+              <button
+                v-if="libraryView.lifecycle_status === 'candidate'"
+                data-testid="knowledge-reject"
+                type="button"
+                :disabled="governanceActing"
+                @click="reviewLibrary('reject')"
+              >{{ t('knowledgeLibrary.rejectVersion', '退回整个版本') }}</button>
+              <button
+                data-testid="knowledge-rebuild"
+                type="button"
+                :disabled="governanceActing"
+                @click="rebuildLibrary"
+              ><RefreshCw :size="14" />{{ t('knowledgeLibrary.rebuild', '重新生成') }}</button>
+              <span v-if="governanceError" class="knowledge-tree-governance-error" role="alert">{{ governanceError }}</span>
+            </div>
+          </section>
+
           <main class="knowledge-tree-main" :class="{ 'is-detail-open': mobileDetailOpen }">
             <div v-if="loading" class="knowledge-tree-state" role="status">
               <LoaderCircle :size="24" class="knowledge-tree-spinner" />
@@ -352,6 +419,7 @@ import type {
   KnowledgeLibraryView,
   KnowledgeNode,
   KnowledgeRelation,
+  KnowledgeLibraryReview,
   ImprovementPoint,
   MistakePoint,
   SkillUnit,
@@ -370,6 +438,10 @@ const mobileDetailOpen = ref(false)
 const questions = ref<BoundQuestion[]>([])
 const criteria = ref<BoundCriterion[]>([])
 const misconceptions = ref<BoundMisconception[]>([])
+const reviewSummary = ref<KnowledgeLibraryReview | null>(null)
+const reviewNote = ref('')
+const governanceActing = ref(false)
+const governanceError = ref('')
 
 const nodeById = computed(() => new Map(
   (libraryView.value?.nodes || []).map(node => [node.knowledge_id, node]),
@@ -398,8 +470,34 @@ const coveredPointCount = computed(() => (
 ))
 
 const formalRelations = computed(() => (
-  libraryView.value?.relations.filter(relation => relation.status === 'accepted') || []
+  libraryView.value?.relations.filter(relation => (
+    relation.status === 'accepted'
+    || (libraryView.value?.lifecycle_status === 'candidate' && relation.status === 'candidate')
+  )) || []
 ))
+
+const candidateRelationCount = computed(() => (
+  libraryView.value?.relations.filter(relation => relation.status === 'candidate').length || 0
+))
+
+const sourceSummaryRows = computed(() => {
+  const labels: Record<string, string> = {
+    course_source: t('knowledgeLibrary.sourceCourse', '课程来源'),
+    material_source: t('knowledgeLibrary.sourceMaterial', '资料来源'),
+    model_inferred: t('knowledgeLibrary.sourceModel', '模型推断'),
+    curated: t('knowledgeLibrary.sourceCurated', '人工预制'),
+  }
+  return Object.entries(libraryView.value?.source_summary || {})
+    .filter(([, count]) => Number(count) > 0)
+    .map(([key, count]) => ({ key, count, label: labels[key] || key }))
+})
+
+const lifecycleLabel = computed(() => ({
+  accepted: t('knowledgeLibrary.lifecycleAccepted', '正式知识库'),
+  candidate: t('knowledgeLibrary.lifecycleCandidate', '候选知识库'),
+  degraded: t('knowledgeLibrary.lifecycleDegraded', '课程索引 · 待重建'),
+  rejected: t('knowledgeLibrary.lifecycleRejected', '已退回知识库'),
+}[libraryView.value?.lifecycle_status || 'degraded']))
 
 const normalizedQuery = computed(() => searchQuery.value.trim().toLocaleLowerCase())
 
@@ -575,10 +673,19 @@ async function loadLibrary(): Promise<void> {
     const response = await http.get(`/api/courses/${courseId}/learning-assets`)
     const assets = response.data?.assets || {}
     const view = assets.knowledge_library?.[0]
-    if (!view || view.schema_version !== 'knowledge_library_view_v2') {
+    if (!view || view.schema_version !== 'knowledge_library_view_v3') {
       throw new Error(t('knowledgeLibrary.unsupported', '当前课程尚未接入正式知识库'))
     }
     libraryView.value = view as KnowledgeLibraryView
+    reviewSummary.value = null
+    if (view.lifecycle_status === 'candidate') {
+      try {
+        const review = await http.get(`/api/courses/${courseId}/knowledge-library/review`)
+        reviewSummary.value = review.data as KnowledgeLibraryReview
+      } catch (error) {
+        logger.error(error)
+      }
+    }
     questions.value = assets.questions || []
     criteria.value = assets.mastery_criteria || []
     misconceptions.value = assets.misconceptions || []
@@ -591,11 +698,68 @@ async function loadLibrary(): Promise<void> {
     mobileDetailOpen.value = false
   } catch (error: any) {
     logger.error(error)
-    loadError.value = error?.response?.data?.detail || error?.message || t('knowledgeLibrary.loadFailed', '知识库暂时无法读取')
+    loadError.value = errorMessage(error, t('knowledgeLibrary.loadFailed', '知识库暂时无法读取'))
     libraryView.value = null
   } finally {
     loading.value = false
   }
+}
+
+function percent(value: number): string {
+  return `${Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100)}%`
+}
+
+async function reviewLibrary(decision: 'accept' | 'reject'): Promise<void> {
+  const courseId = courseStore.currentCourseId
+  const revisionId = libraryView.value?.binding_revision_id || libraryView.value?.revision_id
+  if (!courseId || !revisionId) return
+  governanceActing.value = true
+  governanceError.value = ''
+  try {
+    await http.post(`/api/courses/${courseId}/knowledge-library/review`, {
+      revision_id: revisionId,
+      decision,
+      note: reviewNote.value.trim(),
+    })
+    await loadLibrary()
+  } catch (error: any) {
+    logger.error(error)
+    governanceError.value = errorMessage(error, t('knowledgeLibrary.reviewFailed', '审核操作失败'))
+  } finally {
+    governanceActing.value = false
+  }
+}
+
+async function rebuildLibrary(): Promise<void> {
+  const courseId = courseStore.currentCourseId
+  if (!courseId) return
+  governanceActing.value = true
+  governanceError.value = ''
+  try {
+    const response = await http.post(`/api/courses/${courseId}/knowledge-library/rebuild`, { force: true })
+    await loadLibrary()
+    if (response.data?.library?.lifecycle_status === 'degraded') {
+      const messages = (response.data?.quality_report?.blocking_issues || [])
+        .map((item: { message?: string }) => item.message)
+        .filter(Boolean)
+      governanceError.value = messages.length
+        ? `${t('knowledgeLibrary.qualityBlocked', '重新生成完成，但未通过质量门禁')}：${messages.join('；')}`
+        : t('knowledgeLibrary.qualityBlocked', '重新生成完成，但未通过质量门禁')
+    }
+  } catch (error: any) {
+    logger.error(error)
+    governanceError.value = errorMessage(error, t('knowledgeLibrary.rebuildFailed', '重新生成失败'))
+  } finally {
+    governanceActing.value = false
+  }
+}
+
+function errorMessage(error: any, fallback: string): string {
+  const detail = error?.response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (detail && typeof detail.message === 'string' && detail.message.trim()) return detail.message
+  if (typeof error?.message === 'string' && error.message.trim()) return error.message
+  return fallback
 }
 
 async function navigateToCourse(): Promise<void> {
@@ -695,6 +859,25 @@ watch(() => courseStore.currentCourseId, () => {
 .knowledge-tree-search button:hover { color:#5f46e8; background:#efedff; }
 .knowledge-tree-close { width:36px; height:36px; border:1px solid #e2e5ef; border-radius:10px; }
 .knowledge-tree-close:hover { color:#d14343; border-color:#f0caca; background:#fff6f6; }
+.knowledge-tree-governance { flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:14px; padding:9px 16px 9px 20px; border-bottom:1px solid #e7e9f2; background:#fafaff; }
+.knowledge-tree-governance.is-candidate { background:#fffaf0; }
+.knowledge-tree-governance.is-degraded, .knowledge-tree-governance.is-rejected { background:#fff5f4; }
+.knowledge-tree-governance-summary, .knowledge-tree-quality, .knowledge-tree-diff, .knowledge-tree-governance-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.knowledge-tree-lifecycle { padding:4px 9px; border:1px solid #d8d2ff; border-radius:999px; color:#5f46d7; background:#f2efff; font-size:10px; font-weight:750; }
+.is-candidate .knowledge-tree-lifecycle { color:#95670b; border-color:#efd695; background:#fff7dd; }
+.is-degraded .knowledge-tree-lifecycle, .is-rejected .knowledge-tree-lifecycle { color:#a74444; border-color:#efc4c4; background:#fff; }
+.knowledge-tree-quality, .knowledge-tree-diff { color:#747b91; font-size:10px; }
+.knowledge-tree-quality strong { color:#3d435a; }
+.knowledge-tree-quality-issues { max-width:360px; margin:0; padding-left:16px; color:#a64242; font-size:10px; line-height:1.45; }
+.knowledge-tree-quality-issues li + li { margin-top:2px; }
+.knowledge-tree-diff { padding-left:8px; border-left:1px solid #dcdeea; }
+.knowledge-tree-governance-actions { justify-content:flex-end; }
+.knowledge-tree-governance-actions input { width:190px; height:30px; padding:0 9px; border:1px solid #dddfea; border-radius:8px; outline:0; color:#42485d; background:#fff; font-size:10px; }
+.knowledge-tree-governance-actions input:focus { border-color:#9486ec; box-shadow:0 0 0 2px rgba(109,74,255,.08); }
+.knowledge-tree-governance-actions button { min-height:30px; display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:0 10px; border:1px solid #dedfea; border-radius:8px; color:#535a70; background:#fff; font-size:10px; font-weight:700; cursor:pointer; }
+.knowledge-tree-governance-actions button:hover:not(:disabled) { color:#593fda; border-color:#bfb7f6; background:#f7f5ff; }
+.knowledge-tree-governance-actions button:disabled { opacity:.55; cursor:not-allowed; }
+.knowledge-tree-governance-error { color:#b14242; font-size:10px; }
 .knowledge-tree-main { min-height:0; flex:1; position:relative; display:grid; grid-template-columns:370px minmax(0,1fr); overflow:hidden; background:#fff; }
 .knowledge-tree-pane { min-width:0; display:flex; flex-direction:column; overflow:hidden; border-right:1px solid #e7e9f2; background:#fafbfe; }
 .knowledge-tree-pane-head { min-height:45px; flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 14px 0 18px; border-bottom:1px solid #eceef5; color:#70778f; }
@@ -803,6 +986,9 @@ watch(() => courseStore.currentCourseId, () => {
   .knowledge-tree-overlay { padding:0; background:#fff; }
   .knowledge-tree-dialog { width:100vw; height:100dvh; min-height:0; border:0; border-radius:0; box-shadow:none; }
   .knowledge-tree-header { min-height:112px; grid-template-columns:minmax(0,1fr) 38px; grid-template-rows:48px 44px; gap:4px 10px; padding:8px 12px 10px; }
+  .knowledge-tree-governance { align-items:flex-start; flex-direction:column; padding:9px 12px; }
+  .knowledge-tree-governance-actions { width:100%; justify-content:flex-start; }
+  .knowledge-tree-governance-actions input { width:100%; }
   .knowledge-tree-heading { grid-column:1; grid-row:1; }
   .knowledge-tree-brand { width:34px; height:34px; flex-basis:34px; border-radius:10px; }
   .knowledge-tree-heading h1 { font-size:14px; }

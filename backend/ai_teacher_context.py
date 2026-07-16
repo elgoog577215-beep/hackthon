@@ -253,6 +253,25 @@ def _scene(
 def _knowledge_context(course: dict[str, Any], node_id: str) -> dict[str, Any]:
     library = resolve_subject_library(course)
     course_map = project_course_knowledge_map(course)
+    lifecycle_status = str(library.get("lifecycle_status") or "accepted")
+    if lifecycle_status in {"degraded", "rejected"}:
+        return {
+            "schema_version": "ai_knowledge_context_v2",
+            "knowledge_library_id": library.get("library_id"),
+            "knowledge_library_version": library.get("version"),
+            "knowledge_library_revision_id": library.get("revision_id"),
+            "course_map_revision_id": course_map.get("revision_id"),
+            "node_id": node_id,
+            "knowledge_nodes": [],
+            "skill_units": [],
+            "mistake_points": [],
+            "improvement_points": [],
+            "mapping_status": lifecycle_status,
+            "usage_policy": {
+                "role": "course_index_only",
+                "may_invent_formal_ids": False,
+            },
+        }
     selected_ids = knowledge_ids_for_section(course_map, node_id)
     by_id = knowledge_index(library)
     nodes = [
@@ -281,7 +300,7 @@ def _knowledge_context(course: dict[str, Any], node_id: str) -> dict[str, Any]:
         "mapping_status": "mapped" if nodes else "unmapped",
         "usage_policy": {
             **deepcopy(library_slice.get("usage_policy") or {}),
-            "role": "reference_only",
+            "role": "provisional_reference" if lifecycle_status == "candidate" else "reference_only",
         },
     }
 

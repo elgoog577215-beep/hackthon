@@ -137,6 +137,26 @@ class CourseDocumentRepository:
         await self._save_raw(course_id, raw)
         return raw
 
+    async def update_metadata(
+        self,
+        course_id: str,
+        updates: dict[str, Any],
+        *,
+        expected_binding_revision_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Update non-document course metadata without mutating canonical content."""
+        raw = self.load_raw(course_id)
+        if expected_binding_revision_id is not None:
+            current = str((raw.get("knowledge_library_binding") or {}).get("revision_id") or "")
+            if current != expected_binding_revision_id:
+                raise CourseDocumentConflict("Knowledge-library binding changed")
+        for key, value in updates.items():
+            if key in _GENERATED_METADATA_EXCLUDES:
+                raise CourseDocumentConflict(f"Metadata update cannot replace {key}")
+            raw[key] = deepcopy(value)
+        await self._save_raw(course_id, raw)
+        return raw
+
     async def publish_generated_course(
         self,
         course_id: str,
