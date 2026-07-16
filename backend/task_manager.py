@@ -38,6 +38,11 @@ from course_coherence import (
     compile_course_coherence_contract,
     evaluate_course_coherence,
 )
+from course_knowledge_base import (
+    bind_course_knowledge_base_to_map,
+    compile_course_knowledge_base,
+)
+from course_knowledge_map import compile_course_knowledge_map
 from course_quality import build_final_course_quality_report, evaluate_node_content
 from course_versioning import (
     analyze_blueprint_impact,
@@ -65,6 +70,7 @@ from generation_workspace import (
     GenerationWorkspaceRepository,
     generation_workspace_repository,
 )
+from subject_library_service import SubjectLibraryService
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +167,7 @@ class TaskManager:
         asset_repository: LearningAssetRepository | None = None,
         workspace_repository: GenerationWorkspaceRepository | None = None,
         document_repository: CourseDocumentRepository | None = None,
+        subject_library_service: SubjectLibraryService | None = None,
     ) -> None:
         self.storage = storage
         self.course_service = course_service
@@ -170,6 +177,7 @@ class TaskManager:
         self._learning_asset_repository = asset_repository or learning_asset_repository
         self._generation_workspace_repository = workspace_repository or generation_workspace_repository
         self._course_document_repository = document_repository or CourseDocumentRepository(storage)
+        self._subject_library_service = subject_library_service
         self.max_concurrency = max_concurrency
         self.max_course_concurrency = max_course_concurrency
 
@@ -470,6 +478,7 @@ class TaskManager:
         confirmed = merge_blueprint_draft(course_data, draft)
         confirmed["generation_status"] = "content_generation"
         confirmed["blueprint_revision_id"] = impact.get("draft_blueprint_revision_id")
+        confirmed = await self._prepare_subject_knowledge(task_id, confirmed)
         frozen = self._version_repository.freeze_blueprint(course_id, confirmed)
         await self._save_task_course(task_id, confirmed)
         self._version_repository.delete_draft(course_id)
@@ -1669,6 +1678,96 @@ class TaskManager:
             return set()
         return {dep for dep in raw if isinstance(dep, str) and dep in known_ids}
 
+    async def _prepare_subject_knowledge(
+        self,
+        task_id: str,
+        course_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Pin one subject revision and compile all course-local knowledge from it."""
+        if self._subject_library_service is None:
+            return course_data
+
+        working = deepcopy(course_data)
+        binding = working.get("knowledge_library_binding") or {}
+        library = None
+        quality_report: dict[str, Any] = {}
+        if binding.get("library_id") and binding.get("revision_id"):
+            library = self._subject_library_service.resolve_course_library(working)
+            if library is None:
+                raise RuntimeError("Pinned knowledge-library revision is unavailable")
+            quality_report = deepcopy(library.get("quality_report") or {})
+        else:
+            await self._update_phase(
+                task_id,
+                "subject_resolution",
+                44,
+                "正在识别学科与可复用知识库",
+                phase_progress=100,
+            )
+            await self._update_phase(
+                task_id,
+                "ontology_generation",
+                46,
+                "正在生成学科骨架与课程覆盖详图",
+                phase_progress=20,
+            )
+            result = await self._subject_library_service.prepare_course(working)
+            library = deepcopy(result["library"])
+            binding = deepcopy(result["binding"])
+            quality_report = deepcopy(result.get("quality_report") or {})
+            working["knowledge_library_binding"] = binding
+            await self._update_phase(
+                task_id,
+                "ontology_validation",
+                48,
+                "正在检查知识层级、关系、能力与易错点",
+                phase_progress=100,
+                phase_detail={"quality_report": quality_report},
+            )
+
+        course_map = compile_course_knowledge_map(working, library)
+        course_knowledge_base = compile_course_knowledge_base(
+            working,
+            library=library,
+            course_map=course_map,
+            assets=working.get("learning_assets") or {},
+        )
+        course_map = bind_course_knowledge_base_to_map(
+            course_map,
+            course_knowledge_base,
+        )
+        course_knowledge_base = compile_course_knowledge_base(
+            working,
+            library=library,
+            course_map=course_map,
+            assets=working.get("learning_assets") or {},
+        )
+        working["course_knowledge_map"] = course_map
+        working["course_knowledge_base"] = course_knowledge_base
+        working["course_knowledge_quality_report"] = course_knowledge_base.get(
+            "quality_report"
+        )
+        blueprint = working.get("course_blueprint")
+        if isinstance(blueprint, dict):
+            blueprint["knowledge_library_revision_id"] = binding.get("revision_id")
+            blueprint["course_knowledge_base_revision_id"] = course_knowledge_base.get(
+                "revision_id"
+            )
+        await self._update_phase(
+            task_id,
+            "knowledge_mapping",
+            49,
+            "正在固定课程与知识库版本映射",
+            phase_progress=100,
+            phase_detail={
+                "binding": binding,
+                "course_knowledge_base_revision_id": course_knowledge_base.get(
+                    "revision_id"
+                ),
+            },
+        )
+        return working
+
     async def _process_task(self, task_id: str) -> None:
         """处理单个任务：分析课程结构并调度节点。
 
@@ -1738,6 +1837,7 @@ class TaskManager:
                 on_phase=on_phase,
                 on_checkpoint=on_checkpoint,
             )
+            course_data = await self._prepare_subject_knowledge(task_id, course_data)
             course_data["learning_asset_plan"] = compile_learning_asset_plan(course_data)
             if isinstance(course_data.get("course_blueprint"), dict):
                 course_data["course_blueprint"]["learning_asset_plan"] = course_data["learning_asset_plan"]

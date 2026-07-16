@@ -25,6 +25,8 @@ try:
     from storage import storage
     from ai_service import ai_service
     from task_manager import TaskManager
+    from course_repository import CourseDocumentRepository
+    from subject_library_service import SubjectLibraryService
     from dependencies import init_task_manager
     from websocket_service import WebSocketService
     from course_service import get_course_service
@@ -33,6 +35,8 @@ except ImportError:
         from backend.storage import storage
         from backend.ai_service import ai_service
         from backend.task_manager import TaskManager
+        from backend.course_repository import CourseDocumentRepository
+        from backend.subject_library_service import SubjectLibraryService
         from backend.dependencies import init_task_manager
         from backend.websocket_service import WebSocketService
         from backend.course_service import get_course_service
@@ -66,7 +70,18 @@ app = FastAPI(lifespan=lifespan)
 try:
     ws_service = WebSocketService()
     course_service = get_course_service()
-    task_manager = TaskManager(storage, course_service, ws_service)
+    course_repository = CourseDocumentRepository(storage)
+    subject_library_service = SubjectLibraryService(
+        course_repository,
+        use_model=bool(getattr(course_service, "api_key", None)),
+    )
+    task_manager = TaskManager(
+        storage,
+        course_service,
+        ws_service,
+        document_repository=course_repository,
+        subject_library_service=subject_library_service,
+    )
     ws_service.set_command_handler(task_manager.handle_command)
     init_task_manager(task_manager)
 except NameError:

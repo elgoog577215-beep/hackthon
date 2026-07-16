@@ -55,10 +55,12 @@ class BlueprintService:
 class PinnedSubjectLibraryService:
     def __init__(self):
         self.prepare_calls = 0
+        self.library = None
 
     async def prepare_course(self, course, **_kwargs):
         self.prepare_calls += 1
         library = build_subject_ontology(course)
+        self.library = library
         return {
             "library": library,
             "binding": {
@@ -74,6 +76,9 @@ class PinnedSubjectLibraryService:
                 "blocking_issues": [],
             },
         }
+
+    def resolve_course_library(self, _course):
+        return self.library
 
 
 @pytest.mark.asyncio
@@ -153,7 +158,7 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert manager.tasks[job["job_id"]]["status"] == "pending"
     confirmed_course = manager.get_generation_workspace_course(job["course_id"])
     assert confirmed_course["course_knowledge_base"]["formal_library_revision_id"] == binding["revision_id"]
-    assert subject_libraries.prepare_calls == 2
+    assert subject_libraries.prepare_calls == 1
     assert await manager._task_queue.get() == job["job_id"]
     workspaces.set_status(job["job_id"], "published")
     assert manager.get_generation_preview(job["course_id"]) is None

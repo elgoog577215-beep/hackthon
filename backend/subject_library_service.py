@@ -123,6 +123,10 @@ class SubjectLibraryService:
         self.model = model or SubjectOntologyModel()
         self.use_model = use_model
 
+    def resolve_course_library(self, course: dict[str, Any]) -> dict[str, Any] | None:
+        """Resolve the immutable revision pinned by one course workspace."""
+        return self.library_repository.resolve_for_course(course)
+
     async def rebuild_course(
         self,
         course_id: str,
