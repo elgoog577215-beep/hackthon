@@ -345,4 +345,47 @@ describe('SideAIPanel', () => {
       expect(card.find('.change-item-prompt').exists()).toBe(true)
     })
   })
+
+  it('renders structured proposal payloads as readable markdown', async () => {
+    const wrapper = mountPanel()
+    const changeProposalsStore = useChangeProposalsStore()
+    changeProposalsStore.courseId = 'course-1'
+    changeProposalsStore.proposals = [{
+      proposal_id: 'proposal-structured-1',
+      course_id: 'course-1',
+      scope: 'section',
+      target_block_ids: ['block-1'],
+      source: 'evidence',
+      status: 'pending',
+      created_at: '2026-07-16T00:00:00Z',
+      items: [{
+        item_id: 'item-structured-1',
+        block_id: 'block-1',
+        target_kind: 'course_block',
+        before: {
+          title: 'internal old title',
+          markdown: 'visible original markdown',
+          summary: 'internal old summary',
+        },
+        after: {
+          payload: {
+            title: 'internal new title',
+            markdown: 'visible regenerated markdown',
+            summary: 'internal new summary',
+          },
+        },
+        reason: 'improve the explanation',
+        status: 'pending',
+      }],
+    } as unknown as ChangeProposal]
+
+    await flushPromises()
+
+    const cardText = wrapper.get('.change-proposal-card').text()
+    expect(cardText).toContain('visible original markdown')
+    expect(cardText).toContain('visible regenerated markdown')
+    expect(cardText).not.toContain('payload')
+    expect(cardText).not.toContain('internal old title')
+    expect(cardText).not.toContain('internal new summary')
+  })
 })

@@ -115,4 +115,34 @@ describe('change proposals store', () => {
     await expect(store.fetchChangeProposals('course-1')).resolves.not.toThrow()
     expect(store.proposals[0]?.items[0]?.target_kind).toBe('kg_node')
   })
+
+  it('replaces the full proposal after verified regeneration', async () => {
+    httpMock.get.mockResolvedValue({ data: [buildProposal()] })
+    const original = buildProposal()
+    const regeneratedProposal: ChangeProposal = {
+      ...original,
+      items: [
+        { ...original.items[0]!, status: 'rejected' },
+        original.items[1]!,
+        {
+          item_id: 'item-3',
+          block_id: 'block-1',
+          before: 'old content A',
+          after: 'verified regenerated content A',
+          reason: 'more precise',
+          status: 'pending',
+        },
+      ],
+    }
+    httpMock.post.mockResolvedValue({ data: regeneratedProposal })
+    const store = useChangeProposalsStore()
+    await store.fetchChangeProposals('course-1')
+
+    await store.regenerateItem('cp-1', 'item-1', 'make it concise')
+
+    const proposal = store.findProposal('cp-1')!
+    expect(proposal.items.find(item => item.item_id === 'item-1')?.status).toBe('rejected')
+    expect(proposal.items.find(item => item.item_id === 'item-3')?.after).toBe('verified regenerated content A')
+    expect(proposal.items.find(item => item.item_id === 'item-2')?.after).toBe(original.items[1]?.after)
+  })
 })

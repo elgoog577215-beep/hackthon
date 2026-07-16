@@ -441,6 +441,75 @@ async def test_apply_item_reports_awaiting_generation_for_null_after(tmp_path):
     assert message != "Item 'after' payload is invalid"
 
 
+@pytest.mark.asyncio
+async def test_regenerate_route_generates_candidate_before_replacing_item(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import routers.change_proposals as change_proposals_router
+
+    _storage, course_repository, proposals, _cmd, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="req-route-regen",
+        scope="block",
+        target_block_ids=["block-1"],
+        items=[{
+            "block_id": "block-1",
+            "before": target.payload,
+            "after": {"payload": {**target.payload, "markdown": "first candidate"}},
+            "reason": "improve explanation",
+        }],
+    )
+    item_id = proposal["items"][0]["item_id"]
+
+    class ReadyRegenerationService:
+        def __init__(self):
+            self.calls = []
+
+        async def create_candidate(self, course_id, block_id, **kwargs):
+            self.calls.append({"course_id": course_id, "block_id": block_id, **kwargs})
+            return {
+                "candidate_id": "candidate-ready-1",
+                "status": "ready",
+                "proposed_block": {
+                    "payload": {**target.payload, "markdown": "AI regenerated content"},
+                },
+                "quality_report": {"passed": True, "issues": []},
+            }
+
+    regeneration_service = ReadyRegenerationService()
+    monkeypatch.setattr(change_proposals_router, "get_change_proposal_repository", lambda: proposals)
+    monkeypatch.setattr(change_proposals_router, "get_course_document_repository", lambda: course_repository)
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_change_proposal_regeneration_service",
+        lambda: regeneration_service,
+        raising=False,
+    )
+
+    app = FastAPI()
+    app.include_router(change_proposals_router.router, prefix="")
+    client = TestClient(app)
+    response = client.post(
+        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{item_id}/regenerate",
+        json={"extra_instruction": "make it more concrete"},
+        headers={"X-User-Id": "user-1"},
+    )
+
+    assert response.status_code == 200
+    assert len(regeneration_service.calls) == 1
+    updated = response.json()
+    old_item = next(item for item in updated["items"] if item["item_id"] == item_id)
+    new_item = next(item for item in updated["items"] if item.get("regenerated_from") == item_id)
+    assert old_item["status"] == "rejected"
+    assert new_item["status"] == "pending"
+    assert new_item["after"]["payload"]["markdown"] == "AI regenerated content"
+    assert new_item["generation_meta"]["candidate_id"] == "candidate-ready-1"
+
+
 def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeypatch):
     """Route-level: an item whose target_kind is "kg_node" must never reach
     the course-block lookup (which would previously 404 with a misleading
