@@ -71,6 +71,8 @@ from generation_workspace import (
     generation_workspace_repository,
 )
 from subject_library_service import SubjectLibraryService
+from representation_compiler import compile_core_representations
+from teaching_representations import teaching_representation_repository
 
 logger = logging.getLogger(__name__)
 
@@ -2855,6 +2857,24 @@ class TaskManager:
                 str(fresh_course.get("learning_asset_bundle_revision_id") or ""),
             )
             await self._save_course(str(task["course_id"]), fresh_course)
+
+        if publication_allowed:
+            try:
+                published_document, canonical = self._course_document_repository.load_document(
+                    str(task["course_id"])
+                )
+                if canonical:
+                    await asyncio.to_thread(
+                        compile_core_representations,
+                        published_document,
+                        self._course_document_repository.load_course_view(str(task["course_id"])),
+                        teaching_representation_repository,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "课程已发布，但基础教学表达编译将在后续对账中重试：%s",
+                    exc,
+                )
 
         if promotion_conflict:
             await self._update_task_status(

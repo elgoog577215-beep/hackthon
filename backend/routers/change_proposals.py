@@ -65,9 +65,14 @@ def get_subject_library_repository() -> SubjectLibraryRepository:
 
 
 @router.get("")
-async def list_change_proposals(course_id: str):
+async def list_change_proposals(course_id: str, request: Request):
+    require_user_id(request.headers.get("X-User-Id"))
     repository = get_change_proposal_repository()
-    return repository.list_for_course(course_id, status="pending")
+    return [
+        proposal
+        for proposal in repository.list_for_course(course_id, status="pending")
+        if proposal.get("source") != "evidence"
+    ]
 
 
 @router.post("/{proposal_id}/items/{item_id}/apply")
@@ -82,6 +87,8 @@ async def apply_change_proposal_item(
     command_service = CourseCommandService(course_repository)
     try:
         proposal = repository.load(proposal_id)
+        if proposal.get("course_id") != course_id:
+            raise ChangeProposalNotFound(proposal_id)
         block_id = None
         target_kind = "course_block"
         for item in proposal.get("items") or []:
@@ -143,11 +150,16 @@ async def reject_change_proposal_item(
     course_id: str,
     proposal_id: str,
     item_id: str,
+    request: Request,
     body: RejectChangeProposalItemRequest | None = None,
 ):
+    require_user_id(request.headers.get("X-User-Id"))
     repository = get_change_proposal_repository()
     reason = body.reason if body else None
     try:
+        proposal = repository.load(proposal_id)
+        if proposal.get("course_id") != course_id:
+            raise ChangeProposalNotFound(proposal_id)
         return reject_item(repository, proposal_id, item_id, reason=reason)
     except ChangeProposalNotFound as exc:
         raise HTTPException(status_code=404, detail="Change proposal or item not found") from exc
@@ -166,6 +178,7 @@ async def regenerate_change_proposal_item(
     request: Request,
     body: RegenerateChangeProposalItemRequest | None = None,
 ):
+    require_user_id(request.headers.get("X-User-Id"))
     repository = get_change_proposal_repository()
     extra_instruction = body.extra_instruction if body else None
     proposal: dict[str, Any] | None = None

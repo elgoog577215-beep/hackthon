@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 from copy import deepcopy
 from datetime import datetime, timezone
-import inspect
 from typing import Any
 
 from course_document import (
@@ -15,7 +15,7 @@ from course_document import (
     legacy_source_checksum,
     refresh_document_revision,
 )
-
+from course_revisions import revision_event_for_documents, revision_vector_for_document
 
 _GENERATED_METADATA_EXCLUDES = {
     "nodes",
@@ -95,6 +95,7 @@ class CourseDocumentRepository:
             "course_schema_version": COURSE_DOCUMENT_SCHEMA,
             "course_document": document.model_dump(mode="json"),
             "course_document_revision": document.document_revision,
+            "course_revision_vector": revision_vector_for_document(document).model_dump(mode="json"),
             "course_document_authoritative": True,
             "current_course_version_id": "",
             "generation_job_id": job_id,
@@ -210,6 +211,15 @@ class CourseDocumentRepository:
             "affected_block_ids": [block.block_id for block in updated.blocks],
             "committed_at": datetime.now(timezone.utc).isoformat(),
         }
+        revision_change = revision_event_for_documents(
+            current,
+            updated,
+            command_id=command_id,
+            operation="publish_generation",
+            affected_block_ids=[block.block_id for block in updated.blocks],
+            created_at=receipt["committed_at"],
+        )
+        receipt["revision_change"] = revision_change.model_dump(mode="json")
         operation_log = list(raw.get("course_operation_log") or [])
         operation_log.append({
             "command_id": command_id,
@@ -219,6 +229,7 @@ class CourseDocumentRepository:
             "receipt": receipt,
         })
         published["course_operation_log"] = operation_log[-200:]
+        published["course_revision_vector"] = revision_change.current.model_dump(mode="json")
         published["course_document_publication"] = {
             "source_format": "generation_workspace_v1",
             "job_id": job_id,
@@ -265,6 +276,7 @@ class CourseDocumentRepository:
                 "migrated_at": (raw.get("course_document_migration") or {}).get("migrated_at"),
             },
             "document": document.model_dump(mode="json"),
+            "revision_vector": revision_vector_for_document(document).model_dump(mode="json"),
         }
 
     async def migrate_legacy_course(
@@ -291,6 +303,9 @@ class CourseDocumentRepository:
         }
         canonical["course_schema_version"] = COURSE_DOCUMENT_SCHEMA
         canonical["course_document"] = document.model_dump(mode="json")
+        canonical["course_document_revision"] = document.document_revision
+        canonical["current_course_version_id"] = document.document_revision
+        canonical["course_revision_vector"] = revision_vector_for_document(document).model_dump(mode="json")
         canonical["course_document_migration"] = {
             "source_format": "legacy_nodes_markdown",
             "source_checksum": actual_checksum,
@@ -334,6 +349,15 @@ class CourseDocumentRepository:
             "affected_block_ids": sorted({str(item) for item in operation.get("affected_block_ids") or [] if item}),
             "committed_at": datetime.now(timezone.utc).isoformat(),
         }
+        revision_change = revision_event_for_documents(
+            current,
+            updated,
+            command_id=command_id,
+            operation=receipt["operation"],
+            affected_block_ids=receipt["affected_block_ids"],
+            created_at=receipt["committed_at"],
+        )
+        receipt["revision_change"] = revision_change.model_dump(mode="json")
         entry = {
             "command_id": command_id,
             "operation": receipt["operation"],
@@ -346,6 +370,7 @@ class CourseDocumentRepository:
         raw["course_operation_log"] = operation_log[-200:]
         raw["course_document"] = updated.model_dump(mode="json")
         raw["course_document_revision"] = updated.document_revision
+        raw["course_revision_vector"] = revision_change.current.model_dump(mode="json")
         raw["current_course_version_id"] = updated.document_revision
         raw.pop("nodes", None)
         await self._save_raw(course_id, raw)

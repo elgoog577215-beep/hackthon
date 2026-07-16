@@ -43,6 +43,10 @@
         <Library :size="15" />
         <span>{{ t('learningDock.knowledgeLibrary', '知识库') }}</span>
       </button>
+      <button type="button" :title="t('learningDock.resourcesHint', '查看由当前课程同步生成的大纲、教案、讲义、练习册和演示文稿')" @click="emit('resources')">
+        <Layers3 :size="15" />
+        <span>{{ t('learningDock.resources', '教学资源') }}</span>
+      </button>
       <button type="button" :title="t('learningDock.aiHint', '打开 AI 老师')" @click="emit('ai')">
         <MessageSquareText :size="15" />
         <span>{{ t('learningDock.ai', 'AI 老师') }}</span>
@@ -52,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowRight, ChartNoAxesCombined, ClipboardCheck, Library, LoaderCircle, MapPin, MessageSquareText, NotebookTabs } from 'lucide-vue-next'
+import { ArrowRight, ChartNoAxesCombined, ClipboardCheck, Layers3, Library, LoaderCircle, MapPin, MessageSquareText, NotebookTabs } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 
 withDefaults(defineProps<{
@@ -71,7 +75,7 @@ withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  (event: 'records' | 'practice' | 'stats' | 'knowledge-library' | 'ai' | 'resume'): void
+  (event: 'records' | 'practice' | 'stats' | 'knowledge-library' | 'resources' | 'ai' | 'resume'): void
 }>()
 </script>
 

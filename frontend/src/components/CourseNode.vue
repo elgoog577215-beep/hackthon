@@ -13,7 +13,7 @@
         <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
         <span>{{ generationLabel }}</span>
       </div>
-      <AdaptiveLearningBlock v-if="adaptiveBlock && !generationPreview" :block="adaptiveBlock" />
+      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" />
     </template>
 
     <template v-else-if="node.node_level === 2">
@@ -53,7 +53,7 @@
         <span>{{ generationLabel }}</span>
       </div>
 
-      <AdaptiveLearningBlock v-if="adaptiveBlock && !generationPreview" :block="adaptiveBlock" />
+      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" />
 
       <button
         v-if="hasFormalPractice && !generationPreview"
@@ -94,7 +94,7 @@
         <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
         <span>{{ generationLabel }}</span>
       </div>
-      <AdaptiveLearningBlock v-if="adaptiveBlock && !generationPreview" :block="adaptiveBlock" />
+      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" />
     </template>
   </section>
 </template>
@@ -164,9 +164,9 @@ const practiceCountLabel = computed(() => (
   t('courseBlocks.practiceCount', '{count} 道正式题').replace('{count}', String(practiceQuestions.value.length))
 ))
 const nodeProgress = computed(() => progressStore.nodeProgress(props.node.node_id))
-const adaptiveBlock = computed(() => (progressStore.runtime?.adaptive_blocks || []).find(block => (
+const adaptiveBlocks = computed(() => (progressStore.runtime?.adaptive_blocks || []).filter(block => (
   block.status === 'active' && block.anchor.node_id === props.node.node_id
-)) || null)
+)))
 const readingStatusLabel = computed(() => t(`courseWorkspace.progress.reading.${nodeProgress.value?.reading_status || 'not_started'}`, '尚未开始'))
 const masteryStatusLabel = computed(() => t(`courseWorkspace.progress.mastery.${nodeProgress.value?.mastery_status || 'not_checked'}`, '尚未检查'))
 const contentStyle = computed(() => ({

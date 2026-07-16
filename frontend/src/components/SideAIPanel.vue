@@ -110,6 +110,11 @@
         </div>
       </div>
 
+      <CourseEvolutionPanel
+        v-if="!props.blockTarget && courseStore.currentCourseId"
+        :course-id="courseStore.currentCourseId"
+      />
+
       <section
         v-if="!props.blockTarget && changeProposalsStore.pendingProposals.length"
         class="change-proposals-panel"
@@ -471,6 +476,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import CourseEvolutionPanel from './CourseEvolutionPanel.vue'
 import { useAITeacherStore, type AIMessage } from '../stores/aiTeacher'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'

@@ -56,6 +56,7 @@
         @practice="openCurrentPractice"
         @stats="statsOpen = true"
         @knowledge-library="openKnowledgeLibrary"
+        @resources="openTeachingResources"
         @ai="openAi()"
         @resume="runResumeAction"
       />
@@ -80,6 +81,12 @@
         <button type="button" :title="t('learningDock.closeStats', '关闭学习概况')" :aria-label="t('learningDock.closeStats', '关闭学习概况')" @click="statsOpen = false"><X :size="18" /></button>
         <LearningStats class="stats-tool" />
       </section>
+
+      <TeachingRepresentationsOverlay
+        :visible="resourcesOpen"
+        :course-id="courseStore.currentCourseId"
+        @close="resourcesOpen = false"
+      />
     </main>
 
     <Transition name="slide-right">
@@ -109,6 +116,7 @@
       <button type="button" :disabled="!currentPracticeNode" @click="openCurrentPractice"><ClipboardCheck :size="17" /><span>{{ t('learningShell.practice', '练习') }}</span></button>
       <button type="button" :class="{ active: recordsOpen }" @click="toggleMobileSurface('records')"><NotebookTabs :size="17" /><span>{{ t('learningShell.records', '记录') }}</span></button>
       <button type="button" @click="openKnowledgeLibrary"><Library :size="17" /><span>{{ t('learningShell.knowledgeLibrary', '知识库') }}</span></button>
+      <button type="button" :class="{ active: resourcesOpen }" @click="openTeachingResources"><Layers3 :size="17" /><span>{{ t('learningShell.resources', '资源') }}</span></button>
       <button type="button" :class="{ active: aiVisible }" @click="toggleMobileSurface('ai')"><MessageSquareText :size="17" /><span>{{ t('learningShell.ai', 'AI') }}</span></button>
     </nav>
   </section>
@@ -117,7 +125,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ClipboardCheck, History, Library, ListTree, LoaderCircle, LocateFixed, MessageSquareText, NotebookTabs, PanelLeftOpen, X } from 'lucide-vue-next'
+import { ClipboardCheck, History, Layers3, Library, ListTree, LoaderCircle, LocateFixed, MessageSquareText, NotebookTabs, PanelLeftOpen, X } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import LearningDock from '../components/LearningDock.vue'
@@ -125,6 +133,7 @@ import LearningStats from '../components/LearningStats.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
 import NotesPanel from '../components/NotesPanel.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
+import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
 import { useAITeacherStore } from '../stores/aiTeacher'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useCourseStore } from '../stores/course'
@@ -154,6 +163,7 @@ const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
 const recordsOpen = ref(false)
 const statsOpen = ref(false)
+const resourcesOpen = ref(false)
 const taskOpen = ref(false)
 const taskNode = ref<Node | null>(null)
 const taskReturnScroll = ref(0)
@@ -207,6 +217,7 @@ const showMobileResumePrompt = computed(() => Boolean(
   && !navigatorOpen.value
   && !recordsOpen.value
   && !statsOpen.value
+  && !resourcesOpen.value
   && !taskOpen.value
   && !aiVisible.value
   && !courseStore.isFocusMode
@@ -221,6 +232,7 @@ watch(() => route.params.courseId, async value => {
   aiVisible.value = false
   recordsOpen.value = false
   statsOpen.value = false
+  resourcesOpen.value = false
   taskOpen.value = false
   await courseStore.fetchCourseList()
   await courseStore.loadCourse(courseId)
@@ -325,6 +337,7 @@ function resumeGenerationFollow() {
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
   if (isGenerationPreview.value) return
+  resourcesOpen.value = false
   aiBlockTarget.value = undefined
   aiQuote.value = payload?.text || ''
   aiNodeId.value = payload?.nodeId || courseStore.currentNode?.node_id || ''
@@ -372,11 +385,21 @@ function openAiForPractice(payload: { text: string; nodeId: string }) {
 function openRecords() {
   recordsOpen.value = true
   statsOpen.value = false
+  resourcesOpen.value = false
   if (isNarrow.value) navigatorOpen.value = false
 }
 
 function openKnowledgeLibrary() {
+  resourcesOpen.value = false
   courseStore.showKnowledgeLibrary = true
+  if (isNarrow.value) navigatorOpen.value = false
+}
+
+function openTeachingResources() {
+  resourcesOpen.value = true
+  recordsOpen.value = false
+  statsOpen.value = false
+  aiVisible.value = false
   if (isNarrow.value) navigatorOpen.value = false
 }
 
@@ -460,6 +483,7 @@ function runResumeAction() {
 }
 
 function toggleMobileSurface(surface: 'navigator' | 'records' | 'ai') {
+  resourcesOpen.value = false
   if (surface === 'navigator') { navigatorOpen.value = !navigatorOpen.value; aiVisible.value = false; recordsOpen.value = false; statsOpen.value = false }
   if (surface === 'records') { recordsOpen.value = !recordsOpen.value; navigatorOpen.value = false; aiVisible.value = false; statsOpen.value = false }
   if (surface === 'ai') { aiVisible.value = !aiVisible.value; navigatorOpen.value = false; recordsOpen.value = false; statsOpen.value = false }
@@ -469,6 +493,7 @@ function closeMobileSurfaces() {
   if (isNarrow.value) { navigatorOpen.value = false; aiVisible.value = false }
   recordsOpen.value = false
   statsOpen.value = false
+  resourcesOpen.value = false
 }
 </script>
 
@@ -516,7 +541,7 @@ function closeMobileSurfaces() {
   .mobile-resume-prompt { position:fixed; left:10px; right:10px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); z-index:119; min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #15803d; border-radius:11px; color:#fff; background:#15803d; box-shadow:0 8px 22px rgba(21,128,61,.2); font-size:12px; font-weight:750; }
   .mobile-resume-prompt:disabled { opacity:.6; }
   .mobile-resume-prompt__spin { animation:mobile-resume-spin .8s linear infinite; }
-  .mobile-learning-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 120; height: calc(52px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(5, 1fr); padding-bottom: env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--lz-border); background: #fff; }
+  .mobile-learning-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 120; height: calc(52px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(6, 1fr); padding-bottom: env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--lz-border); background: #fff; }
   .mobile-learning-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; color: var(--lz-text-muted); background: transparent; font-size: 9px; }
   .mobile-learning-nav button.active { color: var(--lz-brand-strong); }
   .mobile-learning-nav button:disabled { color:#cbd5e1; }

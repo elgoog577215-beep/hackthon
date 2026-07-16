@@ -682,6 +682,7 @@ def test_router_rejects_kg_node_item_apply_with_409_when_library_unresolvable(tm
     reject_response = client.post(
         f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{item_id}/reject",
         json={"reason": "人工核对后拒绝"},
+        headers={"X-User-Id": "user-1"},
     )
     assert reject_response.status_code == 200
     rejected = proposals.load(proposal["proposal_id"])

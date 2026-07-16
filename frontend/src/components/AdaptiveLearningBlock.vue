@@ -3,7 +3,7 @@
     <header>
       <span class="adaptive-block__icon"><component :is="kindIcon" :size="17" /></span>
       <div>
-        <small>{{ t('adaptiveBlocks.eyebrow', 'AI 临时支持') }}</small>
+        <small>{{ acceptedGrowth ? t('adaptiveBlocks.acceptedEyebrow', '个人课程已生长') : t('adaptiveBlocks.eyebrow', 'AI 临时支持') }}</small>
         <strong>{{ kindLabel }}</strong>
       </div>
       <div class="adaptive-block__actions">
@@ -20,6 +20,9 @@
     <div v-if="!collapsed" class="adaptive-block__body">
       <p>{{ block.payload.body }}</p>
       <p v-if="block.payload.contrast" class="adaptive-block__contrast">{{ block.payload.contrast }}</p>
+      <ol v-if="block.payload.steps?.length" class="adaptive-block__steps">
+        <li v-for="step in block.payload.steps" :key="step.index"><span>{{ step.index }}</span>{{ step.label }}</li>
+      </ol>
       <div v-if="block.kind === 'understanding_check' && block.payload.prompt" class="adaptive-block__check">
         <CircleHelp :size="16" />
         <span>{{ block.payload.prompt }}</span>
@@ -53,6 +56,7 @@ const progressStore = useLearningProgressStore()
 const collapsed = ref(false)
 const dismissed = ref(false)
 const feedback = ref<AdaptiveBlockFeedback>(props.block.feedback.value)
+const acceptedGrowth = computed(() => props.block.role === 'accepted_personal_course_growth')
 const kindIcon = computed(() => ({
   explanation: Lightbulb,
   counterexample: ScanSearch,
@@ -83,6 +87,7 @@ const sendFeedback = (value: Exclude<AdaptiveBlockFeedback, 'unrated'>) => {
 .adaptive-block__body { padding:12px 40px 0 44px; }
 .adaptive-block__body > p { margin:0; color:var(--lz-text-secondary); font-size:13px; line-height:1.75; }
 .adaptive-block__contrast { margin-top:7px!important; color:var(--lz-text)!important; }
+.adaptive-block__steps { display:grid; gap:7px; margin:12px 0 0; padding:0; list-style:none; }.adaptive-block__steps li { display:grid; grid-template-columns:22px minmax(0,1fr); align-items:center; gap:8px; color:var(--lz-text-secondary); font-size:12px; }.adaptive-block__steps span { width:22px; height:22px; display:grid; place-items:center; border-radius:50%; color:#fff; background:#6366f1; font-size:9px; font-weight:800; }
 .adaptive-block__check { margin-top:11px; display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:8px; padding:9px 10px; border:1px solid rgba(165,180,252,.56); border-radius:8px; background:rgba(255,255,255,.7); color:var(--lz-text); font-size:12px; }
 .adaptive-block__check small { color:var(--lz-text-muted); font-size:9px; white-space:nowrap; }
 .adaptive-block footer { margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
