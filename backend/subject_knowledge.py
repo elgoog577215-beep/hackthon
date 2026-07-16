@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -80,6 +81,70 @@ def resolve_subject_library(source: str | dict[str, Any]) -> dict[str, Any]:
         "status": "unavailable",
         "revision_id": stable_hash({"subject_hint": hint, "status": "unavailable"}, prefix="skl_"),
     }
+
+
+def _catalog_path_for_library_id(library_id: str) -> Path | None:
+    for path in sorted(CATALOG_DIR.glob("*.json")):
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if str(raw.get("library_id") or "") == library_id:
+            return path
+    return None
+
+
+def acknowledge_knowledge_node_review(
+    library_id: str,
+    knowledge_id: str,
+    *,
+    note: str,
+    source_block_id: str,
+    reviewed_by: str,
+) -> dict[str, Any]:
+    """Record that an operator accepted a pending `kb_link`/`kg_node` change
+    proposal item pointing at this knowledge node, by appending a
+    `review_notes` entry directly onto the curated catalog file on disk.
+
+    This intentionally does NOT rewrite the curated `name`/`description`
+    text: the pending item's `after` payload only ever carries a review note
+    pointing at what changed in the course, never a proposed replacement
+    definition (see `course_knowledge_map.propose_kb_linkage_from_block_change`).
+    Appending a note gives kb_link proposals a real, persisted "accept"
+    outcome instead of being permanently stuck behind a 409, while curated
+    definitions themselves remain edited only by a human maintaining the
+    catalog file.
+    """
+    path = _catalog_path_for_library_id(library_id)
+    if path is None:
+        raise KeyError(f"Unknown subject library: {library_id}")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+
+    target: dict[str, Any] | None = None
+
+    def walk(node: dict[str, Any]) -> None:
+        nonlocal target
+        if target is not None:
+            return
+        if str(node.get("knowledge_id") or "") == knowledge_id:
+            target = node
+            return
+        for child in node.get("children") or []:
+            walk(child)
+
+    walk(raw.get("tree") or {})
+    if target is None:
+        raise KeyError(f"Unknown knowledge node: {knowledge_id}")
+
+    entry = {
+        "note": note,
+        "source_block_id": source_block_id,
+        "reviewed_by": reviewed_by,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    target.setdefault("review_notes", []).append(entry)
+
+    path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+    load_subject_library.cache_clear()
+    available_subject_libraries.cache_clear()
+    return entry
 
 
 def validate_subject_library(library: dict[str, Any]) -> list[str]:

@@ -142,7 +142,13 @@
               class="change-proposal-item"
             >
               <div class="change-item-diff">
-                <template v-if="!item.before">
+                <template v-if="isAwaitingGeneration(item)">
+                  <p class="diff-awaiting-generation">
+                    <LoaderCircle :size="13" />
+                    {{ t('courseWorkspace.changeProposals.awaitingGeneration', '该条目正在等待重新生成，请稍后刷新或联系管理员。') }}
+                  </p>
+                </template>
+                <template v-else-if="!item.before">
                   <span class="diff-label diff-added">{{ t('courseWorkspace.changeProposals.added', '新增') }}</span>
                   <p class="diff-after">{{ item.after }}</p>
                 </template>
@@ -160,15 +166,17 @@
               <p v-if="item.reason" class="change-item-reason">{{ item.reason }}</p>
 
               <p v-if="isKgNodeItem(item)" class="change-item-unsupported-note">
-                {{ t('courseWorkspace.changeProposals.kgNodeUnsupported', '该建议涉及知识库节点，暂不支持在线接受，请人工核对知识库后处理。') }}
+                {{ t('courseWorkspace.changeProposals.kgNodeReviewOnly', '该建议涉及知识库节点：接受后仅会在知识库目录上记录一条待人工复核的备注，不会自动改写知识节点的正式定义。') }}
               </p>
 
               <div class="change-item-actions">
                 <button
-                  v-if="!isKgNodeItem(item)"
                   type="button"
                   class="primary-command"
-                  :disabled="changeProposalsStore.isItemActing(item.item_id)"
+                  :disabled="changeProposalsStore.isItemActing(item.item_id) || isAwaitingGeneration(item)"
+                  :title="isAwaitingGeneration(item)
+                    ? t('courseWorkspace.changeProposals.awaitingGeneration', '该条目正在等待重新生成，请稍后刷新或联系管理员。')
+                    : undefined"
                   @click="handleApplyItem(proposal.proposal_id, item.item_id)"
                 >
                   <LoaderCircle v-if="changeProposalsStore.isItemActing(item.item_id)" class="spin" :size="13" />
@@ -196,7 +204,7 @@
               </div>
 
               <Transition name="conversation-reveal">
-                <div v-if="itemPromptOpen === item.item_id" class="change-item-prompt">
+                <div v-if="itemPromptOpen === `${proposal.proposal_id}:${item.item_id}`" class="change-item-prompt">
                   <textarea
                     v-model="itemPromptText"
                     rows="2"
@@ -803,6 +811,14 @@ function isKgNodeItem(item: ChangeProposalItem) {
   return (item.target_kind || 'course_block') !== 'course_block'
 }
 
+// 后端契约：`after === null` 表示该条目的新内容尚未生成完成（例如刚点击过
+// "重新生成"，但服务端这次没能立即产出新内容）。不能把它当空字符串渲染成
+// 一片空白的"修改为"区块，也不能允许用户点"接受"——那会在服务端 apply_item
+// 里必然报错。
+function isAwaitingGeneration(item: ChangeProposalItem) {
+  return item.after === null || item.after === undefined
+}
+
 function sourceLabel(source: ChangeProposalSource) {
   return ({
     manual: '',
@@ -1041,6 +1057,7 @@ onUnmounted(() => {
 .diff-removed { color:#991b1b; background:var(--lz-danger-soft); }
 .diff-before p { margin:0; color:#94a3b8; text-decoration:line-through; }
 .diff-after-wrap p,.diff-after { margin:0; color:var(--lz-text); }
+.diff-awaiting-generation { display:flex; align-items:center; gap:5px; margin:0; padding:6px 8px; border-radius:6px; background:var(--lz-warning-soft, rgba(217,119,6,.12)); color:var(--lz-text-muted); }
 .change-item-reason { margin:0 0 8px; color:var(--lz-text-muted); font-size:10px; line-height:1.5; }
 .change-item-unsupported-note { margin:0 0 8px; padding:6px 8px; border-radius:6px; background:var(--lz-surface-muted, rgba(148,163,184,.12)); color:var(--lz-text-muted); font-size:10px; line-height:1.5; }
 .change-item-actions { display:flex; flex-wrap:wrap; gap:6px; }

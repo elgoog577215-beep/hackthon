@@ -16,6 +16,7 @@ from change_proposals import (
 from course_commands import CourseCommandService
 from course_repository import CourseDocumentRepository
 import learning_events
+import storage as storage_module
 
 
 class MemoryDataStorage:
@@ -337,16 +338,137 @@ async def test_regenerate_item_creates_new_pending_item_without_reusing_content(
         regenerate_item(proposals, proposal["proposal_id"], item_id, extra_instruction="again")
 
 
-def test_router_rejects_kg_node_item_apply_without_404(tmp_path, monkeypatch):
-    """Route-level guard: an item whose target_kind is "kg_node" must never
-    reach the course-block lookup (which would previously 404 with a
-    misleading "Course block not found"). It must be rejected up front with a
-    clear, honest error, and the item must remain pending (reject still
-    works normally)."""
+@pytest.mark.asyncio
+async def test_regenerate_item_reruns_template_generator_for_evidence_source(tmp_path, monkeypatch):
+    """`source == "evidence"` items targeting a real course block should get a
+    freshly-regenerated `after.payload` (via the same MVP template generator
+    `evaluate_and_propose_change` uses), rather than being left permanently
+    `after=None`, whenever the triggering course/block/evidence can still be
+    resolved."""
+    memory_events = MemoryDataStorage()
+    monkeypatch.setattr(learning_events, "storage", memory_events)
+    storage, _repo, proposals, _cmd, document = await canonical_setup(tmp_path)
+    # The lazily-imported `storage.storage` singleton inside change_proposals
+    # must resolve to the same course storage this test set up.
+    monkeypatch.setattr(storage_module, "storage", storage)
+
+    learning_events.record_learning_event(
+        event_type="learner_self_reported",
+        actor="learner",
+        source="test",
+        user_id="learner-1",
+        course_id="course-1",
+        node_id="block-1",
+        evidence={"statement": "这里讲得太快，没听懂方向的定义。"},
+    )
+
+    target1 = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="req-regen-evidence",
+        scope="block",
+        target_block_ids=["block-1"],
+        items=[
+            {
+                "block_id": "block-1",
+                "before": target1.payload,
+                "after": {"payload": {**target1.payload, "markdown": "第一版候选内容"}},
+                "reason": "学习证据触发变更",
+            }
+        ],
+        source="evidence",
+        generation_meta={"user_id": "learner-1"},
+    )
+    item_id = proposal["items"][0]["item_id"]
+
+    updated = regenerate_item(proposals, proposal["proposal_id"], item_id)
+    new_item = next(i for i in updated["items"] if i["item_id"] != item_id)
+
+    assert new_item["status"] == "pending"
+    assert new_item["after"] is not None
+    assert new_item["after"]["payload"]["title"] == target1.payload["title"]
+    assert "这里讲得太快，没听懂方向的定义。" in new_item["after"]["payload"]["markdown"]
+    assert "AI 补充说明" in new_item["after"]["payload"]["markdown"]
+
+
+@pytest.mark.asyncio
+async def test_apply_item_reports_awaiting_generation_for_null_after(tmp_path):
+    """`apply_item` on an item whose `after is None` (the "awaiting
+    regeneration" contract) must fail with a message that tells the caller
+    what to do next, not the generic "'after' payload is invalid" text used
+    for genuinely malformed payloads."""
+    _storage, _repo, proposals, command_service, document = await canonical_setup(tmp_path)
+    target1 = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="req-awaiting",
+        scope="block",
+        target_block_ids=["block-1"],
+        items=[
+            {
+                "block_id": "block-1",
+                "before": target1.payload,
+                "after": {"payload": {**target1.payload, "markdown": "第一版候选内容"}},
+                "reason": "补充解释",
+            }
+        ],
+    )
+    item_id = proposal["items"][0]["item_id"]
+    updated = regenerate_item(proposals, proposal["proposal_id"], item_id)
+    new_item = next(i for i in updated["items"] if i["item_id"] != item_id)
+    assert new_item["after"] is None
+
+    with pytest.raises(ChangeProposalConflict) as excinfo:
+        await apply_item(
+            proposals,
+            command_service,
+            proposal["proposal_id"],
+            new_item["item_id"],
+            expected_document_revision=document.document_revision,
+            expected_block_revision=target1.internal_revision,
+            actor="user-1",
+        )
+    message = str(excinfo.value)
+    assert "重新生成" in message
+    assert message != "Item 'after' payload is invalid"
+
+
+def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeypatch):
+    """Route-level: an item whose target_kind is "kg_node" must never reach
+    the course-block lookup (which would previously 404 with a misleading
+    "Course block not found"). When the course's subject resolves to a real
+    curated knowledge library, applying it now succeeds by recording an
+    operator review-acknowledgement on the catalog node (see
+    `change_proposals.apply_kg_node_item`), instead of the old unconditional
+    409."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
+    import shutil
+
     import routers.change_proposals as change_proposals_router
+    import storage as storage_module
+    import subject_knowledge
+
+    # Isolate the curated catalog directory so this test's write doesn't
+    # mutate the real production catalog file on disk.
+    catalog_copy = tmp_path / "catalogs"
+    catalog_copy.mkdir()
+    shutil.copy(
+        subject_knowledge.CATALOG_DIR / "debate-logic-v1.json",
+        catalog_copy / "debate-logic-v1.json",
+    )
+    monkeypatch.setattr(subject_knowledge, "CATALOG_DIR", catalog_copy)
+    subject_knowledge.load_subject_library.cache_clear()
+    subject_knowledge.available_subject_libraries.cache_clear()
+
+    class _Storage:
+        def load_course(self, _course_id: str) -> dict:
+            return {"course_id": "course-1", "course_name": "辩论：逻辑构建与实战技巧"}
+
+    monkeypatch.setattr(storage_module, "storage", _Storage())
 
     proposals = ChangeProposalRepository(tmp_path / "change_proposals")
     proposal = create_proposal(
@@ -354,13 +476,103 @@ def test_router_rejects_kg_node_item_apply_without_404(tmp_path, monkeypatch):
         "course-1",
         request_id="req-kg-node",
         scope="block",
-        target_block_ids=["math.la.system.gaussian_elimination"],
+        target_block_ids=["debate.logic.argument.claim"],
         items=[
             {
-                "block_id": "math.la.system.gaussian_elimination",
+                "block_id": "debate.logic.argument.claim",
                 "target_kind": "kg_node",
-                "before": {"name": "高斯消元法"},
-                "after": {"payload": {"name": "高斯消元法（更新）"}},
+                "before": {"name": "论点（Claim）"},
+                "after": {
+                    "note": "课程正文已变更，建议核对该知识节点定义是否需要同步更新。",
+                    "source_block_id": "block-1",
+                },
+                "reason": "内容变更同步到知识库节点",
+            }
+        ],
+    )
+    item_id = proposal["items"][0]["item_id"]
+
+    monkeypatch.setattr(change_proposals_router, "change_proposal_repository", proposals)
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_change_proposal_repository",
+        lambda: proposals,
+    )
+
+    app = FastAPI()
+    app.include_router(change_proposals_router.router, prefix="")
+    client = TestClient(app)
+
+    response = client.post(
+        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{item_id}/apply",
+        headers={"X-User-Id": "user-1"},
+    )
+
+    assert response.status_code != 404
+    assert response.status_code == 200
+
+    reloaded = proposals.load(proposal["proposal_id"])
+    item = next(i for i in reloaded["items"] if i["item_id"] == item_id)
+    assert item["status"] == "applied"
+    assert item["receipt"]["kind"] == "kg_node_review_acknowledged"
+    assert item["receipt"]["reviewed_by"] == "user-1"
+
+    # The review note is preserved on the raw curated catalog file (an audit
+    # trail for the human maintainer), not surfaced through the normalized
+    # runtime view `load_subject_library` returns.
+    import json
+
+    raw = json.loads((catalog_copy / "debate-logic-v1.json").read_text(encoding="utf-8"))
+
+    def find_node(node: dict, knowledge_id: str) -> dict | None:
+        if node.get("knowledge_id") == knowledge_id:
+            return node
+        for child in node.get("children") or []:
+            found = find_node(child, knowledge_id)
+            if found:
+                return found
+        return None
+
+    raw_node = find_node(raw["tree"], "debate.logic.argument.claim")
+    assert raw_node["review_notes"][0]["source_block_id"] == "block-1"
+
+    # Clear caches while still pointed at the tmp catalog dir, so the next
+    # real lookup (once monkeypatch reverts CATALOG_DIR) re-reads the real,
+    # untouched production catalog instead of this test's cached copy.
+    subject_knowledge.load_subject_library.cache_clear()
+    subject_knowledge.available_subject_libraries.cache_clear()
+
+
+def test_router_rejects_kg_node_item_apply_with_409_when_library_unresolvable(tmp_path, monkeypatch):
+    """When the course's subject doesn't resolve to any curated knowledge
+    library, applying a kg_node item must fail with an honest 409 rather
+    than silently succeeding or 404ing on a course-block lookup that never
+    applies to kg_node items. Reject must still work normally."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import routers.change_proposals as change_proposals_router
+    import storage as storage_module
+
+    class _Storage:
+        def load_course(self, _course_id: str) -> dict:
+            return {"course_id": "course-1", "course_name": "一门无法匹配任何知识库的课程"}
+
+    monkeypatch.setattr(storage_module, "storage", _Storage())
+
+    proposals = ChangeProposalRepository(tmp_path / "change_proposals")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="req-kg-node-unresolved",
+        scope="block",
+        target_block_ids=["unknown.node"],
+        items=[
+            {
+                "block_id": "unknown.node",
+                "target_kind": "kg_node",
+                "before": {"name": "未知节点"},
+                "after": {"note": "课程正文已变更"},
                 "reason": "内容变更同步到知识库节点",
             }
         ],
@@ -385,8 +597,6 @@ def test_router_rejects_kg_node_item_apply_without_404(tmp_path, monkeypatch):
 
     assert response.status_code != 404
     assert response.status_code == 409
-    detail = response.json()["detail"]
-    assert detail["code"] == "kg_node_apply_not_supported"
 
     reloaded = proposals.load(proposal["proposal_id"])
     item = next(i for i in reloaded["items"] if i["item_id"] == item_id)

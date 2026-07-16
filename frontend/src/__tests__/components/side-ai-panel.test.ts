@@ -239,7 +239,7 @@ describe('SideAIPanel', () => {
     expect(wrapper.find('.block-candidate-preview').text()).toContain('恢复后生成的新正文')
   })
 
-  it('kg_node 变更提案条目不展示接受按钮，改为提示人工核对知识库', () => {
+  it('kg_node 变更提案条目展示接受按钮，并提示接受后仅记录复核备注', () => {
     const wrapper = mountPanel()
     const changeProposalsStore = useChangeProposalsStore()
     changeProposalsStore.courseId = 'course-1'
@@ -268,9 +268,81 @@ describe('SideAIPanel', () => {
     return flushPromises().then(() => {
       const card = wrapper.get('.change-proposal-card')
       expect(card.find('.change-item-unsupported-note').exists()).toBe(true)
-      expect(card.text()).toContain('该建议涉及知识库节点，暂不支持在线接受，请人工核对知识库后处理。')
-      expect(card.findAll('.change-item-actions .primary-command')).toHaveLength(0)
+      expect(card.text()).toContain('该建议涉及知识库节点：接受后仅会在知识库目录上记录一条待人工复核的备注，不会自动改写知识节点的正式定义。')
+      expect(card.findAll('.change-item-actions .primary-command')).toHaveLength(1)
       expect(card.text()).toContain('拒绝')
+    })
+  })
+
+  it('after 为空（待重新生成）的条目不渲染空白 diff，且禁用接受按钮', () => {
+    const wrapper = mountPanel()
+    const changeProposalsStore = useChangeProposalsStore()
+    changeProposalsStore.courseId = 'course-1'
+    const awaitingProposal: ChangeProposal = {
+      proposal_id: 'proposal-evidence-1',
+      course_id: 'course-1',
+      scope: 'block',
+      target_block_ids: ['block-1'],
+      source: 'evidence',
+      status: 'pending',
+      created_at: '2026-07-15T00:00:00Z',
+      items: [
+        {
+          item_id: 'item-awaiting-1',
+          block_id: 'block-1',
+          target_kind: 'course_block',
+          before: '旧正文',
+          after: null,
+          reason: '学习证据触发变更',
+          status: 'pending',
+        },
+      ],
+    }
+    changeProposalsStore.proposals = [awaitingProposal]
+
+    return flushPromises().then(() => {
+      const card = wrapper.get('.change-proposal-card')
+      expect(card.find('.diff-awaiting-generation').exists()).toBe(true)
+      expect(card.text()).toContain('该条目正在等待重新生成，请稍后刷新或联系管理员。')
+      expect(card.find('.diff-after').exists()).toBe(false)
+      const acceptButton = card.get('.change-item-actions .primary-command')
+      expect((acceptButton.element as HTMLButtonElement).disabled).toBe(true)
+    })
+  })
+
+  it('点击拒绝/重新生成按钮后展开对应条目的输入面板', () => {
+    const wrapper = mountPanel()
+    const changeProposalsStore = useChangeProposalsStore()
+    changeProposalsStore.courseId = 'course-1'
+    const proposal: ChangeProposal = {
+      proposal_id: 'proposal-1',
+      course_id: 'course-1',
+      scope: 'block',
+      target_block_ids: ['block-1'],
+      source: 'evidence',
+      status: 'pending',
+      created_at: '2026-07-15T00:00:00Z',
+      items: [
+        {
+          item_id: 'item-1',
+          block_id: 'block-1',
+          target_kind: 'course_block',
+          before: '旧正文',
+          after: '新正文',
+          reason: '学习证据触发变更',
+          status: 'pending',
+        },
+      ],
+    }
+    changeProposalsStore.proposals = [proposal]
+
+    return flushPromises().then(async () => {
+      const card = wrapper.get('.change-proposal-card')
+      expect(card.find('.change-item-prompt').exists()).toBe(false)
+      const rejectButtons = card.findAll('.change-item-actions .secondary-command')
+      expect(rejectButtons.length).toBeGreaterThan(0)
+      await rejectButtons[0]!.trigger('click')
+      expect(card.find('.change-item-prompt').exists()).toBe(true)
     })
   })
 })

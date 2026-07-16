@@ -288,6 +288,12 @@ async def apply_item(
             proposal=proposal,
         )
     after = item.get("after")
+    if after is None:
+        raise ChangeProposalConflict(
+            "该条目内容尚未生成（等待重新生成完成），暂时无法接受；"
+            "请先点击“重新生成”，或联系管理员处理。",
+            proposal=proposal,
+        )
     if not isinstance(after, dict) or "payload" not in after:
         raise ChangeProposalConflict("Item 'after' payload is invalid", proposal=proposal)
     payload = after["payload"]
@@ -318,6 +324,89 @@ async def apply_item(
         target["status"] = "applied"
         target["resolved_at"] = _now()
         target["receipt"] = receipt
+        return _recompute_status(current)
+
+    def _predicate(current: dict[str, Any]) -> bool:
+        target = _find_item(current, item_id)
+        return target.get("status") == "pending"
+
+    updated, changed = repository.update_if(proposal_id, _predicate, _apply_updater)
+    if not changed:
+        latest_item = _find_item(updated, item_id)
+        raise ChangeProposalConflict(
+            f"Item cannot be applied from status {latest_item.get('status')}",
+            proposal=updated,
+        )
+    return updated
+
+
+def apply_kg_node_item(
+    repository: ChangeProposalRepository,
+    proposal_id: str,
+    item_id: str,
+    *,
+    actor: str,
+) -> dict[str, Any]:
+    """Accept a pending `target_kind == "kg_node"` item.
+
+    Unlike `apply_item` (which replaces a course block's canonical content),
+    a kg_node item's `after` payload only ever carries a review note (see
+    `course_knowledge_map.propose_kb_linkage_from_block_change`) - there is
+    no proposed replacement text to write. "Accepting" it means recording an
+    operator review-acknowledgement directly on the curated knowledge
+    catalog node (`subject_knowledge.acknowledge_knowledge_node_review`) and
+    marking the item resolved, instead of the item being permanently stuck
+    behind a 409. Curated node definitions themselves are still only ever
+    edited by a human maintaining the catalog file.
+    """
+    proposal = repository.load(proposal_id)
+    item = _find_item(proposal, item_id)
+    if item.get("status") != "pending":
+        raise ChangeProposalConflict(
+            f"Item cannot be applied from status {item.get('status')}",
+            proposal=proposal,
+        )
+    after = item.get("after")
+    if after is None:
+        raise ChangeProposalConflict(
+            "该条目内容尚未生成（等待重新生成完成），暂时无法接受；"
+            "请先点击“重新生成”，或联系管理员处理。",
+            proposal=proposal,
+        )
+    if not isinstance(after, dict):
+        raise ChangeProposalConflict("Item 'after' payload is invalid", proposal=proposal)
+
+    from storage import storage as storage_singleton
+    from subject_knowledge import acknowledge_knowledge_node_review, resolve_subject_library
+
+    course_data = storage_singleton.load_course(proposal["course_id"]) or {}
+    library = resolve_subject_library(course_data)
+    library_id = str(library.get("library_id") or "")
+    knowledge_id = str(item.get("block_id") or "")
+    if not library_id or library.get("status") == "unavailable":
+        raise ChangeProposalConflict("未能定位该知识节点所属的知识库", proposal=proposal)
+
+    try:
+        entry = acknowledge_knowledge_node_review(
+            library_id,
+            knowledge_id,
+            note=str(after.get("note") or ""),
+            source_block_id=str(after.get("source_block_id") or ""),
+            reviewed_by=actor,
+        )
+    except KeyError as exc:
+        raise ChangeProposalConflict(str(exc), proposal=proposal) from exc
+
+    def _apply_updater(current: dict[str, Any]) -> dict[str, Any]:
+        target = _find_item(current, item_id)
+        if target.get("status") != "pending":
+            raise ChangeProposalConflict(
+                f"Item cannot be applied from status {target.get('status')}",
+                proposal=current,
+            )
+        target["status"] = "applied"
+        target["resolved_at"] = _now()
+        target["receipt"] = {"kind": "kg_node_review_acknowledged", **entry}
         return _recompute_status(current)
 
     def _predicate(current: dict[str, Any]) -> bool:
@@ -457,6 +546,75 @@ def _record_rejection_evidence(
         pass
 
 
+def _try_regenerate_evidence_after(
+    proposal: dict[str, Any],
+    target: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Best-effort re-run of the MVP template generator for an evidence-sourced,
+    course-block-targeted item, so "regenerate" produces a genuinely new (even
+    if still template-based) `after.payload` instead of always leaving the new
+    item stuck in the "awaiting generation" state.
+
+    Only attempted when the proposal's `source == "evidence"` (i.e. it was
+    created by `learner_model_service.evaluate_and_propose_change`) and the
+    item targets a real course block (`target_kind == "course_block"`, the
+    default). `kb_link`/manual items, or evidence items missing the
+    `user_id` needed to re-load the triggering evidence, fall back to
+    leaving `after=None` — the caller treats that as the honest "awaiting
+    generation" signal.
+
+    Never raises: any failure (missing course/block/events, import errors)
+    is swallowed and treated as "could not regenerate right now", which is
+    always a safe/legal outcome for this item.
+    """
+    if proposal.get("source") != "evidence":
+        return None
+    if (target.get("target_kind") or "course_block") != "course_block":
+        return None
+    block_id = target.get("block_id")
+    course_id = proposal.get("course_id")
+    user_id = str((proposal.get("generation_meta") or {}).get("user_id") or "")
+    if not block_id or not course_id or not user_id:
+        return None
+    try:
+        # Deferred import: learner_model_service imports this module at
+        # module scope (`create_proposal`, `change_proposal_repository`), so
+        # importing it back at module scope here would create a cycle.
+        from learner_model_service import _generate_supplement_payload
+        from learning_events import load_learning_events
+
+        course_repository = _load_course_document_repository()
+        document, _is_canonical = course_repository.load_document(course_id)
+        block = next((b for b in document.blocks if b.block_id == block_id), None)
+        if block is None:
+            return None
+        events = load_learning_events(
+            user_id=user_id,
+            course_id=course_id,
+            node_id=block_id,
+            event_type="learner_self_reported",
+        )
+        content_key = (
+            "markdown" if "markdown" in block.payload
+            else ("text" if "text" in block.payload else "content")
+        )
+        new_content, _generation_method = _generate_supplement_payload(block.payload, events)
+        new_payload = dict(block.payload)
+        new_payload[content_key] = new_content
+        return {"payload": new_payload}
+    except Exception:
+        return None
+
+
+def _load_course_document_repository() -> CourseDocumentRepository:
+    """`CourseDocumentRepository` needs a storage backend; reuse the same
+    module-level `storage` singleton the rest of this codebase uses, imported
+    lazily to avoid widening this module's module-scope import surface."""
+    from storage import storage
+
+    return CourseDocumentRepository(storage)
+
+
 def regenerate_item(
     repository: ChangeProposalRepository,
     proposal_id: str,
@@ -465,9 +623,20 @@ def regenerate_item(
     extra_instruction: str | None = None,
 ) -> dict[str, Any]:
     """Mark the original item rejected (recording the regeneration request as the
-    reason) and append a fresh pending item skeleton for the same block. The new
-    item does not reuse the old `after` content — callers (e.g. a generation
-    service) are expected to fill it in before it is applied.
+    reason) and append a fresh item for the same block.
+
+    When the proposal is evidence-sourced and targets a real course block, this
+    makes a best-effort attempt to immediately re-run the same MVP template
+    generator `evaluate_and_propose_change` uses (`_template_supplement_text`)
+    against the current block content and evidence, so the new item's `after`
+    is populated with a genuinely fresh (still template-based, not LLM-based)
+    payload. When that isn't possible (manual/kb_link proposals, missing
+    user_id, missing block/course, or any other failure), the new item's
+    `after` is left `None` — this is a deliberate, contractual "content not
+    yet generated / awaiting regeneration" signal, not a silent placeholder:
+    `apply_item` refuses to apply such an item with an explicit error, and the
+    frontend must render it as a pending-generation state rather than a blank
+    diff.
     """
     proposal = repository.load(proposal_id)
     item = _find_item(proposal, item_id)
@@ -489,12 +658,13 @@ def regenerate_item(
         target["status"] = "rejected"
         target["resolved_at"] = _now()
         target["resolution_reason"] = extra_instruction or "regenerate_requested"
+        regenerated_after = _try_regenerate_evidence_after(current, target)
         new_item = {
             "item_id": new_item_id,
             "block_id": target["block_id"],
             "target_kind": target.get("target_kind") or "course_block",
             "before": target.get("before"),
-            "after": None,
+            "after": regenerated_after,
             "reason": target.get("reason") or "",
             "status": "pending",
             "resolved_at": None,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -18,7 +19,7 @@ from course_learning_availability import (
 )
 from dependencies import get_course_or_404
 from diagnostic_service import advance_workflow_after_grade, workflow_view
-from diagnostic_workflows import diagnostic_workflow_repository
+from diagnostic_workflows import WorkflowConflict, diagnostic_workflow_repository
 from learner_context import require_user_id
 from learning_events import load_learning_events, record_learning_event, summarize_text
 from learning_progress import project_learning_objective_bindings
@@ -31,6 +32,8 @@ from practice_grading import practice_grader
 from storage import storage
 
 router = APIRouter(prefix="/courses/{course_id}/practice", tags=["practice"])
+
+logger = logging.getLogger(__name__)
 
 
 class AttemptCreate(BaseModel):
@@ -436,13 +439,46 @@ async def submit_attempt(
     )
     event_type = "practice_grading_requested" if graded.get("status") == "grading" else "practice_attempt_graded"
     _record_attempt_event(event_type, graded, user_id=user_id, result=result)
-    workflow = await run_in_threadpool(
-        advance_workflow_after_grade,
-        course,
-        user_id=user_id,
-        attempt=graded,
-        task=question,
-    )
+    try:
+        workflow = await run_in_threadpool(
+            advance_workflow_after_grade,
+            course,
+            user_id=user_id,
+            attempt=graded,
+            task=question,
+        )
+    except WorkflowConflict:
+        # Optimistic-lock conflict: the grade is already persisted (`graded` above), but the
+        # workflow's version moved under us (e.g. a concurrent submission/abandon touched the
+        # same case/session). advance_workflow_after_grade re-reads the workflow state from
+        # scratch each call, so retrying once with the now-current revision resolves the vast
+        # majority of conflicts. We must not let this become an unhandled 500: that would leave
+        # the answer graded but the diagnostic workflow permanently stuck in "answered but never
+        # judged", recoverable only via manual disagree/abandon.
+        logger.warning(
+            "workflow_conflict_on_grade_advance: retrying once user_id=%s course_id=%s attempt_id=%s",
+            user_id, course_id, attempt_id,
+        )
+        try:
+            workflow = await run_in_threadpool(
+                advance_workflow_after_grade,
+                course,
+                user_id=user_id,
+                attempt=graded,
+                task=question,
+            )
+        except WorkflowConflict:
+            # Still conflicting after one retry: give up advancing for this request rather than
+            # retrying indefinitely. The grade itself is safely persisted; fall back to the
+            # current workflow snapshot so the response is well-formed instead of a bare 500.
+            # A subsequent request against the same attempt (already_submitted branch below)
+            # will still see an unadvanced workflow, so log at error level for follow-up.
+            logger.error(
+                "workflow_conflict_on_grade_advance: retry also failed, workflow left unadvanced "
+                "user_id=%s course_id=%s attempt_id=%s",
+                user_id, course_id, attempt_id,
+            )
+            workflow = workflow_view(user_id, course_id, node_id=attempt.get("node_id"))
     return {
         "status": "pending_review" if graded.get("status") == "grading" else "graded",
         "attempt": graded,

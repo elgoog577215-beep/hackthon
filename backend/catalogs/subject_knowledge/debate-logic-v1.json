@@ -1,0 +1,361 @@
+{
+  "schema_version": "knowledge_library_v2",
+  "library_id": "humanities.debate.v1",
+  "subject_id": "humanities.debate",
+  "version": "1.0.0",
+  "title": "人文·辩论与论证统一知识库",
+  "match_terms": [
+    "辩论",
+    "论证",
+    "逻辑构建",
+    "实战技巧",
+    "debate",
+    "argumentation"
+  ],
+  "source_refs": [
+    "curated:debate-logic-v1"
+  ],
+  "tree": {
+    "knowledge_id": "debate",
+    "node_type": "subject",
+    "name": "辩论与论证",
+    "description": "研究如何构建、评估和反驳论证，并在正式辩论赛制中实战运用。",
+    "children": [
+      {
+        "knowledge_id": "debate.logic",
+        "node_type": "domain",
+        "name": "论证与逻辑基础",
+        "aliases": ["逻辑构建"],
+        "description": "从论证结构、举证责任到常见逻辑谬误的辨识。",
+        "learning_actions": [
+          "拆解一段论证的主张、理由与证据",
+          "识别并命名常见逻辑谬误"
+        ],
+        "children": [
+          {
+            "knowledge_id": "debate.logic.argument_structure",
+            "node_type": "topic",
+            "name": "论证结构",
+            "description": "论证由主张、理由（论证连接）和证据三部分构成，缺一不可。",
+            "children": [
+              {
+                "knowledge_id": "debate.logic.argument.claim_warrant_evidence",
+                "node_type": "concept",
+                "name": "主张-理由-证据模型（Claim-Warrant-Evidence）",
+                "aliases": ["CWE模型", "图尔敏论证模型简化版"],
+                "description": "一个有效论证需要明确的主张（Claim）、把证据和主张连接起来的理由（Warrant）、以及支撑理由的证据（Evidence）。",
+                "learning_actions": [
+                  "给定一段发言，标出其中的主张、理由和证据",
+                  "指出论证中缺失的环节"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "debate.logic.argument.claim",
+                    "node_type": "knowledge_point",
+                    "name": "论点（Claim）",
+                    "description": "论证最终希望听众接受的结论性主张。",
+                    "learning_actions": ["用一句话准确复述对方的论点"]
+                  },
+                  {
+                    "knowledge_id": "debate.logic.argument.warrant",
+                    "node_type": "knowledge_point",
+                    "name": "论证连接（Warrant）",
+                    "description": "解释证据为什么能够支持论点的推理环节，往往是论证中最容易被忽略、也最值得攻击的部分。",
+                    "learning_actions": ["追问'为什么这个证据能证明这个论点'"]
+                  },
+                  {
+                    "knowledge_id": "debate.logic.argument.evidence",
+                    "node_type": "knowledge_point",
+                    "name": "证据支持（Evidence）",
+                    "description": "用来支撑论证连接的事实、数据、案例或权威引用。",
+                    "learning_actions": ["评估证据的来源可靠性和时效性"]
+                  }
+                ]
+              },
+              {
+                "knowledge_id": "debate.logic.fallacy.common",
+                "node_type": "concept",
+                "name": "常见逻辑谬误",
+                "description": "论证中常见的、看似成立但实际上推理无效的模式。",
+                "learning_actions": [
+                  "在对手发言中识别谬误类型并指出问题所在"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "debate.logic.fallacy.strawman",
+                    "node_type": "knowledge_point",
+                    "name": "稻草人谬误",
+                    "description": "把对方论点歪曲或简化成一个更容易反驳的版本，再攻击这个歪曲后的版本。",
+                    "learning_actions": ["复述对方论点后先请对方确认，再反驳"]
+                  },
+                  {
+                    "knowledge_id": "debate.logic.fallacy.adhominem",
+                    "node_type": "knowledge_point",
+                    "name": "人身攻击谬误",
+                    "description": "针对提出论点的人（身份、动机、品格）发起攻击，而不回应论点本身。",
+                    "learning_actions": ["检查反驳是否针对论点内容而非发言人"]
+                  },
+                  {
+                    "knowledge_id": "debate.logic.fallacy.false_dilemma",
+                    "node_type": "knowledge_point",
+                    "name": "假两难谬误",
+                    "description": "把实际上存在多种可能的情形，错误地限定为只有两个对立选项。",
+                    "learning_actions": ["主动列举被排除掉的第三种、第四种可能"]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "knowledge_id": "debate.logic.burden_of_proof",
+            "node_type": "topic",
+            "name": "举证责任与反驳",
+            "description": "谁应该证明什么、以及如何组织一次有效的反驳。",
+            "children": [
+              {
+                "knowledge_id": "debate.logic.burden.proof_standard",
+                "node_type": "concept",
+                "name": "举证责任标准",
+                "description": "提出主张的一方需要承担证明该主张的责任，标准依赛制和命题类型而定。",
+                "learning_actions": [
+                  "判断一场辩论中正反双方各自的举证责任"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "debate.logic.burden.who_bears",
+                    "node_type": "knowledge_point",
+                    "name": "谁承担举证责任",
+                    "description": "提出改变现状/肯定性主张的一方通常承担主要举证责任，另一方无需证明否定命题。",
+                    "learning_actions": ["识别己方是否被要求证明一个不该由己方证明的否定命题"]
+                  },
+                  {
+                    "knowledge_id": "debate.logic.burden.rebuttal",
+                    "node_type": "knowledge_point",
+                    "name": "有效反驳的结构",
+                    "description": "有效反驳需要指出对方论证中具体环节（主张/理由/证据）的问题，而不是泛泛否定结论。",
+                    "learning_actions": ["反驳时先指出攻击的是论证的哪一环节"]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "knowledge_id": "debate.practice",
+        "node_type": "domain",
+        "name": "辩论实战技巧",
+        "aliases": ["实战技巧"],
+        "description": "从赛制流程到临场表达与节奏控制的实操能力。",
+        "learning_actions": [
+          "按赛制完成一次完整的立论-驳论-总结流程",
+          "现场追踪并记录论辩双方的逻辑链条"
+        ],
+        "children": [
+          {
+            "knowledge_id": "debate.practice.format",
+            "node_type": "topic",
+            "name": "赛制与流程",
+            "description": "正式辩论赛的环节划分及各环节的任务目标。",
+            "children": [
+              {
+                "knowledge_id": "debate.practice.format.roles",
+                "node_type": "concept",
+                "name": "各环节角色与任务",
+                "description": "立论、驳论、总结陈词三个核心环节各自承担不同的论证任务。",
+                "learning_actions": [
+                  "为每个环节写出该环节唯一的核心任务"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "debate.practice.format.constructive",
+                    "node_type": "knowledge_point",
+                    "name": "立论环节",
+                    "description": "提出己方核心主张、理由与证据，搭建完整论证框架。",
+                    "learning_actions": ["用CWE模型检查己方立论是否完整"]
+                  },
+                  {
+                    "knowledge_id": "debate.practice.format.rebuttal_speech",
+                    "node_type": "knowledge_point",
+                    "name": "驳论环节",
+                    "description": "针对对方论证的具体环节发起反驳，同时防守己方论证不被击穿。",
+                    "learning_actions": ["逐条列出对方论证的薄弱环节再反驳"]
+                  },
+                  {
+                    "knowledge_id": "debate.practice.format.summary",
+                    "node_type": "knowledge_point",
+                    "name": "总结陈词环节",
+                    "description": "梳理全场交锋的关键分歧点，说明己方论证为何更成立。",
+                    "learning_actions": ["总结时优先回应全场最核心的分歧，而非罗列己方论点"]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "knowledge_id": "debate.practice.delivery",
+            "node_type": "topic",
+            "name": "表达与临场应变",
+            "description": "辩论现场的节奏控制、逻辑链条追踪与时间分配。",
+            "children": [
+              {
+                "knowledge_id": "debate.practice.delivery.flow",
+                "node_type": "concept",
+                "name": "论辩节奏与逻辑链条追踪（Flow）",
+                "aliases": ["flow记录"],
+                "description": "实时记录双方交锋的论点走向，避免遗漏对方尚未回应的关键攻防点。",
+                "learning_actions": [
+                  "用简写符号实时记录双方交锋点"
+                ],
+                "children": [
+                  {
+                    "knowledge_id": "debate.practice.delivery.flow_tracking",
+                    "node_type": "knowledge_point",
+                    "name": "flow记录技巧",
+                    "description": "按环节分栏记录双方论点，标注哪些攻防点尚未被回应。",
+                    "learning_actions": ["总结陈词前检查flow表里是否有遗漏未回应的攻防点"]
+                  },
+                  {
+                    "knowledge_id": "debate.practice.delivery.time_allocation",
+                    "node_type": "knowledge_point",
+                    "name": "时间分配策略",
+                    "description": "在有限发言时间内，优先分配时间给全场最关键的分歧点，而非平均用力。",
+                    "learning_actions": ["发言前先判断哪个攻防点值得花费最多时间"]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "relations": [
+    {
+      "relation_id": "rel-debate-cwe-fallacy",
+      "source_knowledge_id": "debate.logic.argument.claim_warrant_evidence",
+      "target_knowledge_id": "debate.logic.fallacy.common",
+      "relation_type": "prerequisite",
+      "reason": "识别谬误需要先能拆解出论证的主张、理由、证据三部分"
+    },
+    {
+      "relation_id": "rel-debate-burden-rebuttal",
+      "source_knowledge_id": "debate.logic.burden.who_bears",
+      "target_knowledge_id": "debate.logic.burden.rebuttal",
+      "relation_type": "prerequisite",
+      "reason": "组织有效反驳前要先明确己方与对方各自的举证责任"
+    }
+  ],
+  "skill_units": [
+    {
+      "skill_unit_id": "skill.debate.cwe.identify",
+      "name": "拆解论证的主张-理由-证据结构",
+      "description": "能够把一段真实发言拆解为主张、理由、证据三部分，并指出缺失环节。",
+      "learning_goal": "面对陌生发言，先标注CWE三部分，再评估是否完整。",
+      "primary_knowledge_id": "debate.logic.argument.claim_warrant_evidence",
+      "knowledge_ids": [
+        "debate.logic.argument.claim",
+        "debate.logic.argument.warrant",
+        "debate.logic.argument.evidence"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.debate.fallacy.detect",
+      "name": "识别常见逻辑谬误",
+      "description": "能够在对手发言中识别稻草人、人身攻击、假两难等常见谬误并准确命名。",
+      "learning_goal": "听到一段反驳时先判断它是否针对论点本身，还是落入了某种谬误。",
+      "primary_knowledge_id": "debate.logic.fallacy.common",
+      "knowledge_ids": [
+        "debate.logic.fallacy.strawman",
+        "debate.logic.fallacy.adhominem",
+        "debate.logic.fallacy.false_dilemma"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.debate.burden.allocate",
+      "name": "判断举证责任归属并组织反驳",
+      "description": "能够判断一场辩论中双方各自的举证责任，并据此组织针对论证具体环节的反驳。",
+      "learning_goal": "反驳前先确认自己是否被要求证明了不该由己方证明的命题。",
+      "primary_knowledge_id": "debate.logic.burden.proof_standard",
+      "knowledge_ids": [
+        "debate.logic.burden.who_bears",
+        "debate.logic.burden.rebuttal"
+      ]
+    },
+    {
+      "skill_unit_id": "skill.debate.flow.track",
+      "name": "现场追踪论辩逻辑链条并合理分配时间",
+      "description": "能够实时记录双方交锋的flow，并在总结陈词前据此分配时间与回应重点。",
+      "learning_goal": "总结陈词前先检查flow表，确保回应了全场最关键、尚未被处理的攻防点。",
+      "primary_knowledge_id": "debate.practice.delivery.flow",
+      "knowledge_ids": [
+        "debate.practice.delivery.flow_tracking",
+        "debate.practice.delivery.time_allocation"
+      ]
+    }
+  ],
+  "mistake_points": [
+    {
+      "mistake_point_id": "mistake.debate.strawman-as-rebuttal",
+      "skill_unit_id": "skill.debate.fallacy.detect",
+      "name": "把对手论点简化或歪曲后再反驳",
+      "aliases": ["攻击稻草人"],
+      "description": "没有先准确复述对方论点，就基于自己简化甚至歪曲后的版本发起反驳。",
+      "misconception": "误以为反驳时越极端、越容易攻破的版本越有说服力，却忽略了这不是对方真正的论点。",
+      "symptom": "反驳内容和对方原始发言的核心主张明显不对应，容易被对方指出'我没这么说'。",
+      "repair_strategy": "反驳前先用一句话复述对方论点并确认，再针对确认后的版本反驳。",
+      "severity": "high",
+      "primary_knowledge_id": "debate.logic.fallacy.strawman",
+      "knowledge_ids": [
+        "debate.logic.fallacy.strawman"
+      ]
+    },
+    {
+      "mistake_point_id": "mistake.debate.burden-shifting",
+      "skill_unit_id": "skill.debate.burden.allocate",
+      "name": "要求对方证明一个不该由对方证明的否定命题",
+      "description": "把本该由己方承担的举证责任，转嫁给对方去'证明反面不成立'。",
+      "misconception": "误以为对方不能反驳等同于己方论点成立，而没有意识到举证责任本就在己方。",
+      "symptom": "论证中大量出现'对方没能证明不是这样'一类表述，而不是正面举证。",
+      "repair_strategy": "先明确己方在本场命题下承担的举证责任范围，再组织正面论证。",
+      "severity": "medium",
+      "primary_knowledge_id": "debate.logic.burden.who_bears",
+      "knowledge_ids": [
+        "debate.logic.burden.who_bears"
+      ]
+    }
+  ],
+  "improvement_points": [
+    {
+      "improvement_point_id": "improve.debate.flow-discipline",
+      "skill_unit_id": "skill.debate.flow.track",
+      "name": "养成逐环节记录flow的习惯",
+      "description": "从只凭记忆临场反应，升级为按环节分栏、实时记录双方交锋点的flow记录方法。",
+      "improvement_goal": "总结陈词时不再遗漏全场最关键但尚未回应的攻防点。",
+      "practice_strategy": "找一场往届比赛录像，边看边用简写符号记录flow，赛后对照录像检查有没有遗漏。",
+      "student_benefit": "总结陈词更有针对性，也更容易在评委心中建立'全场掌控感'。",
+      "primary_knowledge_id": "debate.practice.delivery.flow",
+      "knowledge_ids": [
+        "debate.practice.delivery.flow_tracking"
+      ],
+      "related_mistake_ids": []
+    },
+    {
+      "improvement_point_id": "improve.debate.evidence-quality",
+      "skill_unit_id": "skill.debate.cwe.identify",
+      "name": "提升证据来源的评估能力",
+      "description": "从只关注'有没有引用数据/案例'，升级为主动评估证据来源的可靠性、时效性和适用范围。",
+      "improvement_goal": "在准备阶段就筛掉低质量证据，减少被对手指出'证据不可靠'的情况。",
+      "practice_strategy": "对每条准备使用的证据，先写下来源、发布时间和适用范围，再决定是否采用。",
+      "student_benefit": "论证更经得起对方反驳，也更容易在评委心中建立可信度。",
+      "primary_knowledge_id": "debate.logic.argument.evidence",
+      "knowledge_ids": [
+        "debate.logic.argument.evidence"
+      ],
+      "related_mistake_ids": [
+        "mistake.debate.strawman-as-rebuttal"
+      ]
+    }
+  ],
+  "skill_relations": []
+}

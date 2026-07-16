@@ -68,10 +68,19 @@ def test_completed_assistant_feedback_records_one_learning_event(monkeypatch, tm
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json() == {"status": "recorded", "event_id": "evt-1", "feedback": "unclear"}
-    assert len(recorded) == 1
-    assert recorded[0]["event_type"] == "assistant_answer_feedback_submitted"
-    assert recorded[0]["result"] == {"feedback": "unclear"}
-    assert recorded[0]["metadata"]["content_anchor"]["block_id"] == "block-1"
+    feedback_events = [e for e in recorded if e["event_type"] == "assistant_answer_feedback_submitted"]
+    assert len(feedback_events) == 1
+    assert feedback_events[0]["result"] == {"feedback": "unclear"}
+    assert feedback_events[0]["metadata"]["content_anchor"]["block_id"] == "block-1"
+
+    # "unclear" feedback is a comprehension-gap signal in its own right, so it
+    # should also feed the same evidence-trigger pipeline `learner_self_reported`
+    # events drive (see `learner_model_service.evaluate_and_propose_change`) —
+    # but only once, even across the duplicate/idempotent second POST.
+    self_reported_events = [e for e in recorded if e["event_type"] == "learner_self_reported"]
+    assert len(self_reported_events) == 1
+    assert self_reported_events[0]["node_id"] == "node-1"
+    assert self_reported_events[0]["evidence"]["statement"]
 
 
 def test_feedback_rejects_message_that_is_not_owned_by_current_user(monkeypatch, tmp_path):

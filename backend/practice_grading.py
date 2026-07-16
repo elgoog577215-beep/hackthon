@@ -166,10 +166,33 @@ def _support_level(attempt: dict[str, Any]) -> int:
     ])
 
 
+_NONE_SENTINEL = "\0__none__\0"
+
+
 def _normalized(value: Any) -> str:
+    # `value is None` must be treated distinctly from falsy-but-answered values
+    # like 0, 0.0, False, or "" — otherwise an unanswered question (actual=None)
+    # can be misjudged as matching a legitimate expected answer of 0/False/"".
+    if value is None:
+        return _NONE_SENTINEL
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
-    return " ".join(str(value or "").strip().lower().split())
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        return str(value)
+    text = " ".join(str(value).strip().lower().split())
+    if text in ("true", "false"):
+        return text
+    try:
+        num = float(text)
+    except ValueError:
+        return text
+    if num.is_integer():
+        return str(int(num))
+    return str(num)
 
 
 def _sanitize_rubric_results(value: Any) -> list[dict[str, Any]]:

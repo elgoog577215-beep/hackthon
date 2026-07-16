@@ -12,6 +12,7 @@ from change_proposals import (
     ChangeProposalNotFound,
     ChangeProposalRepository,
     apply_item,
+    apply_kg_node_item,
     change_proposal_repository,
     reject_item,
     regenerate_item,
@@ -69,15 +70,11 @@ async def apply_change_proposal_item(
         if block_id is None:
             raise ChangeProposalNotFound(item_id)
         if target_kind != "course_block":
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "kg_node_apply_not_supported",
-                    "message": (
-                        "该条目目标是知识库节点，当前知识库为静态只读目录，暂不支持自动接受；"
-                        "请人工核对后在知识库目录中更新，或选择拒绝/暂不处理该条目。"
-                    ),
-                },
+            return apply_kg_node_item(
+                repository,
+                proposal_id,
+                item_id,
+                actor=require_user_id(request.headers.get("X-User-Id")),
             )
         document, canonical = course_repository.load_document(course_id)
         if not canonical:

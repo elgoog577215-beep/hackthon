@@ -20,7 +20,15 @@ import asyncio
 import httpx
 from pathlib import Path
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from openai import (
+    AsyncOpenAI,
+    APIConnectionError,
+    APITimeoutError,
+    RateLimitError,
+    InternalServerError,
+    AuthenticationError,
+    PermissionDeniedError,
+)
 from typing import List, Dict, Optional
 
 # 添加项目根目录到系统路径以导入共享配置
@@ -144,15 +152,39 @@ class AIBase:
         self._working_model_cache[self._model_cache_key(use_fast_model)] = model_id
 
     @staticmethod
+    def _error_status_code(error: Exception) -> Optional[int]:
+        """尽量从异常对象中提取 HTTP 状态码（httpx/openai SDK 常见属性）。"""
+        status_code = getattr(error, "status_code", None)
+        if isinstance(status_code, int):
+            return status_code
+        response = getattr(error, "response", None)
+        if response is not None:
+            resp_status = getattr(response, "status_code", None)
+            if isinstance(resp_status, int):
+                return resp_status
+        return None
+
+    @staticmethod
     def _is_authentication_error(error: Exception) -> bool:
+        if isinstance(error, (AuthenticationError, PermissionDeniedError)):
+            return True
+
+        status_code = AIBase._error_status_code(error)
+        if status_code in (401, 403):
+            return True
+
         message = str(error).lower()
         return any(marker in message for marker in (
             "401",
+            "403",
             "authentication failed",
             "authentication_failed",
             "invalid api key",
             "invalid_api_key",
             "unauthorized",
+            "forbidden",
+            "permission denied",
+            "permission_denied",
         ))
 
     def _block_provider(self, reason: str) -> None:
@@ -161,6 +193,42 @@ class AIBase:
 
     @staticmethod
     def _should_try_next_model(error: Exception) -> bool:
+        # 1. 优先根据真实异常类型判断（不依赖供应商特定的文案）。
+        if isinstance(error, (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError)):
+            return True
+
+        # httpx 原生超时/连接类异常（可能未被 openai SDK 包装）。
+        if isinstance(error, (
+            httpx.TimeoutException,
+            httpx.ConnectError,
+            httpx.ConnectTimeout,
+            httpx.ReadTimeout,
+            httpx.WriteTimeout,
+            httpx.PoolTimeout,
+            httpx.RemoteProtocolError,
+            httpx.NetworkError,
+        )):
+            return True
+
+        # 2. 根据 HTTP 状态码判断：429 与 5xx 均应触发换模型。
+        status_code = AIBase._error_status_code(error)
+        if status_code == 429 or (status_code is not None and 500 <= status_code < 600):
+            return True
+
+        # 3. 根据异常类型名兜底（覆盖未直接 import 的 SDK/版本特定异常类型）。
+        type_name = type(error).__name__
+        if any(marker in type_name for marker in (
+            "Timeout",
+            "Connection",
+            "APIConnectionError",
+            "APITimeoutError",
+            "RateLimitError",
+            "InternalServerError",
+            "ServiceUnavailable",
+        )):
+            return True
+
+        # 4. 兜底：对供应商特定的错误文案做子串匹配（保留原有行为，避免破坏既有场景）。
         message = str(error).lower()
         return any(marker in message for marker in (
             "has no provider supported",

@@ -58,7 +58,7 @@ def build_evidence_catalog_summary(evidence: list[dict[str, Any]], max_items: in
     if not evidence:
         return "- 没有可用资料证据。"
     lines: list[str] = []
-    for item in evidence[:max_items]:
+    for item in _sample_evidence_for_summary(evidence, max_items):
         locator = item.get("locator") or {}
         location = ""
         if locator.get("page"):
@@ -71,6 +71,64 @@ def build_evidence_catalog_summary(evidence: list[dict[str, Any]], max_items: in
             f"- [{item.get('evidence_id')}] {item.get('kind')} {location}：{_clip(str(item.get('summary') or ''), 180)}"
         )
     return "\n".join(lines)
+
+
+def _sample_evidence_for_summary(
+    evidence: list[dict[str, Any]], max_items: int
+) -> list[dict[str, Any]]:
+    """Select up to ``max_items`` evidence entries with even coverage across assets.
+
+    A plain ``evidence[:max_items]`` truncation was systematically biased
+    towards whichever asset happened to be uploaded/parsed first, since
+    evidence blocks are appended in upload order. When many assets are
+    bound (e.g. 20 years of exam papers), the earliest ones alone could
+    fill the entire summary and later materials would never be visible to
+    the outline-planning stage. Instead, group by asset (``asset_id``) and
+    round-robin across groups, so every bound asset contributes at least
+    one representative entry before any asset contributes a second. Within
+    each asset's group, prefer higher priority/authority evidence first.
+    """
+    if max_items <= 0:
+        return []
+    if len(evidence) <= max_items:
+        return list(evidence)
+
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    asset_order: list[str] = []
+    for item in evidence:
+        asset_id = str(item.get("asset_id") or item.get("source_id") or "")
+        if asset_id not in groups:
+            asset_order.append(asset_id)
+        groups[asset_id].append(item)
+
+    priority_rank = {"core": 2, "supporting": 1}
+    authority_rank = {"primary": 2, "secondary": 1, "context_only": 0}
+
+    def sort_key(entry: dict[str, Any]) -> tuple[int, int]:
+        return (
+            -priority_rank.get(str(entry.get("priority")), 0),
+            -authority_rank.get(str(entry.get("authority")), 0),
+        )
+
+    for asset_id in asset_order:
+        groups[asset_id].sort(key=sort_key)
+
+    selected: list[dict[str, Any]] = []
+    cursors = {asset_id: 0 for asset_id in asset_order}
+    while len(selected) < max_items:
+        progressed = False
+        for asset_id in asset_order:
+            if len(selected) >= max_items:
+                break
+            cursor = cursors[asset_id]
+            bucket = groups[asset_id]
+            if cursor < len(bucket):
+                selected.append(bucket[cursor])
+                cursors[asset_id] = cursor + 1
+                progressed = True
+        if not progressed:
+            break
+    return selected
 
 
 def attach_evidence_to_plan(

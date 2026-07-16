@@ -510,8 +510,16 @@ def build_final_course_quality_report(
     course_data: dict[str, Any], *, job_id: str
 ) -> dict[str, Any]:
     nodes = [node for node in course_data.get("nodes", []) if node.get("node_level", 1) == 2]
-    node_reports = [node.get("generation_quality") or evaluate_node_content(node.get("node_content", ""), node) for node in nodes]
-    weak_nodes = [report for report in node_reports if not report.get("passed")]
+    node_reports = []
+    for node in nodes:
+        report = dict(node.get("generation_quality") or evaluate_node_content(node.get("node_content", ""), node))
+        if node.get("needs_manual_review"):
+            report["needs_manual_review"] = True
+        node_reports.append(report)
+    weak_nodes = [report for report in node_reports if not report.get("passed") or report.get("needs_manual_review")]
+    manual_review_nodes = [
+        report.get("node_id") for report in node_reports if report.get("needs_manual_review")
+    ]
     profile = coerce_persisted_profile(course_data)
     blueprint_report = course_data.get("blueprint_validation_report") or validate_blueprint(course_data.get("course_blueprint") or {})
     difficulty_alignment = build_difficulty_alignment_report(course_data)
@@ -582,6 +590,7 @@ def build_final_course_quality_report(
             "average_score": round(sum(float(report.get("score") or 0) for report in node_reports) / max(1, len(node_reports)), 3),
         },
         "weak_nodes": weak_nodes,
+        "manual_review_required_nodes": manual_review_nodes,
         "publication_allowed": not blocking_issues,
         "blocking_issues": blocking_issues,
         "material_coverage": grounding_quality["material_coverage"],

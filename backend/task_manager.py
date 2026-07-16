@@ -1244,6 +1244,14 @@ class TaskManager:
 
         **Validates: Requirements 7.2**
 
+        若任务当前处于终态（completed/completed_with_warnings/failed），会将
+        任务状态转回 running，并在重试节点处理完毕后重新执行质检/发布流程
+        （复用 ``_complete_task``），确保 generation_quality_report、
+        publication_allowed 以及已发布文档与重试后的实际内容保持一致。
+
+        若任务当前正处于 running 状态（已有其它生成/重试在进行），拒绝本次
+        重试请求，避免并发重试同一任务。
+
         Args:
             task_id: 任务 ID
             node_id: 节点 ID
@@ -1252,6 +1260,12 @@ class TaskManager:
         if not task:
             logger.warning("retry_node: task %s not found", task_id)
             return
+
+        if task.get("status") == "running":
+            raise TaskStateConflict(
+                "Task is already being processed; cannot start a new retry",
+                status=str(task.get("status") or "running"),
+            )
 
         course_id = task["course_id"]
         course_data = self._load_task_course(task_id)
@@ -1282,8 +1296,27 @@ class TaskManager:
             event="retry", message=f"Node {node_id} retry requested by user",
         )
 
-        # Schedule the node for processing
-        asyncio.create_task(self._process_node(task_id, target_node))
+        # The task may already be in a terminal state (completed / completed_with_warnings
+        # / failed). Transition it back to running so the task status reflects that content
+        # is being silently rewritten in the background, instead of staying on a stale value.
+        await self._update_task_status(
+            task_id, "running", message=f"正在重试节点 {node_id}..."
+        )
+
+        async def _run_and_finalize() -> None:
+            try:
+                await self._process_node(task_id, target_node)
+            finally:
+                self._running_node_tasks.get(task_id, {}).pop(node_id, None)
+            # Recompute quality/publication and settle the task's final status
+            # against the actually-retried content, reusing the same logic used
+            # for the initial generation run.
+            fresh_course = self._load_task_course(task_id)
+            if fresh_course is not None:
+                await self._complete_task(task_id, fresh_course)
+
+        node_task = asyncio.create_task(_run_and_finalize())
+        self._running_node_tasks.setdefault(task_id, {})[node_id] = node_task
         logger.info("Retry scheduled for node %s in task %s", node_id, task_id)
 
     async def stop_node(self, task_id: str, node_id: str) -> None:
@@ -1327,6 +1360,11 @@ class TaskManager:
 
         **Validates: Requirements 13.3**
 
+        与 ``retry_node`` 一致：若任务处于终态会先转回 running；若任务正在
+        running（已有其它生成/重试在进行）则拒绝本次请求；重试完成后复用
+        ``_complete_task`` 重新执行质检/发布，确保质量报告与已发布文档与
+        重试后的实际内容保持一致。
+
         Args:
             task_id: 任务 ID
         """
@@ -1334,6 +1372,12 @@ class TaskManager:
         if not task:
             logger.warning("retry_all_failed: task %s not found", task_id)
             return
+
+        if task.get("status") == "running":
+            raise TaskStateConflict(
+                "Task is already being processed; cannot start a new retry",
+                status=str(task.get("status") or "running"),
+            )
 
         course_id = task["course_id"]
         course_data = self._load_task_course(task_id)
@@ -1362,8 +1406,22 @@ class TaskManager:
             "Retrying %d failed nodes in task %s", len(failed_nodes), task_id
         )
 
-        # Schedule all failed nodes
+        # The task may already be in a terminal state (completed / completed_with_warnings
+        # / failed). Transition it back to running so the task status reflects that content
+        # is being silently rewritten in the background, instead of staying on a stale value.
+        await self._update_task_status(
+            task_id, "running", message="正在重试失败节点..."
+        )
+
+        # Schedule all failed nodes and wait for them to finish.
         await self._schedule_nodes(task_id, failed_nodes)
+
+        # Recompute quality/publication and settle the task's final status against
+        # the actually-retried content, reusing the same logic used for the initial
+        # generation run.
+        fresh_course = self._load_task_course(task_id)
+        if fresh_course is not None:
+            await self._complete_task(task_id, fresh_course)
     # Consumer loop & scheduling
     # -------------------------------------------------------------------------
 
@@ -1433,29 +1491,72 @@ class TaskManager:
             for n in sorted_nodes
             if self._is_content_complete(n)
         }
+        # Nodes that failed (or were skipped because a prerequisite failed) —
+        # tracked separately from `completed` so downstream nodes can tell the
+        # difference between "dependency satisfied" and "dependency gave up".
+        unusable: set[str] = set()
         known_ids = {n.get("node_id", "") for n in sorted_nodes}
+
+        task = self.tasks.get(task_id)
+        course_id = task.get("course_id", "") if task else ""
 
         while pending:
             ready = [
                 node for node in pending
-                if self._node_dependencies(node, known_ids).issubset(completed)
+                if self._node_dependencies(node, known_ids).issubset(completed | unusable)
             ]
             if not ready:
                 # Invalid model-produced dependency graph: preserve progress in original order.
                 ready = [pending[0]]
 
-            tasks: list[asyncio.Task[Any]] = []
-            for node in ready:
+            # A node whose prerequisites include a failed/skipped node is blocked:
+            # generating it would silently proceed with missing prerequisite content.
+            # Mark it as errored instead of generating.
+            blocked = [
+                node for node in ready
+                if self._node_dependencies(node, known_ids) & unusable
+            ]
+            runnable = [node for node in ready if node not in blocked]
+
+            for node in blocked:
                 node_id = node.get("node_id", "")
-                task = asyncio.create_task(self._process_node(task_id, node))
-                self._running_node_tasks.setdefault(task_id, {})[node_id] = task
-                tasks.append(task)
+                await self._set_node_status(
+                    task_id, course_id, node_id, NodeStatus.ERROR,
+                    error_summary="前置节点生成失败或被跳过，已阻断本节点生成",
+                )
+                self._add_log_entry(
+                    task_id, node_id,
+                    node_name=node.get("node_name", ""),
+                    event="error",
+                    message=f"Node {node_id} blocked: prerequisite node(s) failed",
+                )
+
+            tasks: list[asyncio.Task[Any]] = []
+            for node in runnable:
+                node_id = node.get("node_id", "")
+                task_obj = asyncio.create_task(self._process_node(task_id, node))
+                self._running_node_tasks.setdefault(task_id, {})[node_id] = task_obj
+                tasks.append(task_obj)
 
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
 
+            fresh_course = self._load_task_course(task_id)
+            fresh_by_id = {
+                n.get("node_id", ""): n
+                for n in (fresh_course.get("nodes", []) if fresh_course else [])
+            }
             for node in ready:
-                completed.add(node.get("node_id", ""))
+                node_id = node.get("node_id", "")
+                if node in blocked:
+                    unusable.add(node_id)
+                else:
+                    fresh_node = fresh_by_id.get(node_id, node)
+                    status = fresh_node.get("generation_status")
+                    if status in (NodeStatus.COMPLETED.value, NodeStatus.SKIPPED.value):
+                        completed.add(node_id)
+                    else:
+                        unusable.add(node_id)
                 pending.remove(node)
 
     def _node_dependencies(self, node: dict, known_ids: set[str]) -> set[str]:
@@ -1618,6 +1719,8 @@ class TaskManager:
         generated_chars: int,
         grounding_annotations: list[dict[str, Any]] | None = None,
         grounding_invalid_refs: list[str] | None = None,
+        generation_quality: dict[str, Any] | None = None,
+        needs_manual_review: bool = False,
     ) -> dict[str, Any] | None:
         def update(fresh_data: dict[str, Any]) -> dict[str, Any]:
             for node in fresh_data.get("nodes", []):
@@ -1629,7 +1732,26 @@ class TaskManager:
                     node["grounding_invalid_refs"] = grounding_invalid_refs or []
                     node["error_summary"] = None
                     node.pop("node_content_draft", None)
-                    node["generation_quality"] = evaluate_node_content(fixed_content, node)
+                    # Prefer the quality/grounding re-check already performed by
+                    # course_service right after the (bounded, single) repair
+                    # attempt — it was computed with the fully-populated node
+                    # contract. Only fall back to recomputing here if the
+                    # caller didn't supply it (e.g. older code paths/tests).
+                    node["generation_quality"] = (
+                        generation_quality
+                        if generation_quality is not None
+                        else evaluate_node_content(fixed_content, node)
+                    )
+                    # Reuse the existing weak-node mechanism: if the content
+                    # still fails quality/grounding after the single repair
+                    # retry, keep the node COMPLETED (avoid infinite retries)
+                    # but explicitly flag it as needing manual review. This
+                    # flag rides along with generation_quality["passed"] in
+                    # build_final_course_quality_report's weak_nodes list, so
+                    # it is visible in the API response, not just logs.
+                    node["needs_manual_review"] = bool(
+                        needs_manual_review or not node["generation_quality"].get("passed", True)
+                    )
                     break
             return fresh_data
 
@@ -1792,6 +1914,8 @@ class TaskManager:
                             generated_chars,
                             grounding_annotations=node.get("grounding_annotations") or [],
                             grounding_invalid_refs=node.get("grounding_invalid_refs") or [],
+                            generation_quality=node.get("generation_quality"),
+                            needs_manual_review=bool(node.get("needs_manual_review")),
                         )
 
                         self._add_log_entry(

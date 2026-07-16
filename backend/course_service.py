@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import uuid
@@ -378,10 +379,13 @@ class CourseService(AIBase):
             adaptation_decision=adaptation_decision.to_dict(),
             material_context=build_outline_generation_context(artifacts),
         )
-        response = await self._call_llm(
+        response = await self._call_llm_with_heartbeat(
             f"为「{topic}」生成课程蓝图，只输出 JSON。",
             prompt,
             enable_thinking=True,
+            on_phase=on_phase,
+            phase="pedagogy_resolution",
+            base_progress=32,
         )
         plan = self._extract_json(response) if response else None
         if not isinstance(plan, dict) or not isinstance(plan.get("chapters"), list):
@@ -529,6 +533,52 @@ class CourseService(AIBase):
             enabled_module_ids=normalized.enabled_module_ids,
             user_locked=False,
         )
+
+    async def _call_llm_with_heartbeat(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        *,
+        enable_thinking: bool,
+        on_phase: Callable[..., Awaitable[None] | None] | None,
+        phase: str,
+        base_progress: int,
+        heartbeat_seconds: float = 15.0,
+    ) -> str | None:
+        """Run `_call_llm` while periodically re-announcing the same phase with
+        an elapsed-time message, so a slow/degraded AI provider response
+        (this call alone can legally take tens of minutes across all model
+        candidates' retries — see `ai_base._call_llm`) shows up to the user as
+        "still working, Ns elapsed" instead of a progress bar frozen at a flat
+        percentage that looks identical to a hang.
+        """
+        if not on_phase:
+            return await self._call_llm(user_prompt, system_prompt, enable_thinking=enable_thinking)
+
+        done = asyncio.Event()
+
+        async def _heartbeat() -> None:
+            elapsed = 0
+            while True:
+                try:
+                    await asyncio.wait_for(done.wait(), timeout=heartbeat_seconds)
+                    return
+                except asyncio.TimeoutError:
+                    elapsed += int(heartbeat_seconds)
+                    await self._notify_phase(
+                        on_phase,
+                        phase,
+                        base_progress,
+                        f"仍在等待 AI 生成课程大纲（已等待约 {elapsed} 秒），AI 服务响应较慢时可能需要几分钟...",
+                        phase_progress=100,
+                    )
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        try:
+            return await self._call_llm(user_prompt, system_prompt, enable_thinking=enable_thinking)
+        finally:
+            done.set()
+            await heartbeat_task
 
     @staticmethod
     async def _notify_phase(
@@ -782,6 +832,26 @@ class CourseService(AIBase):
                 )
                 node["grounding_annotations"] = annotations
                 node["grounding_invalid_refs"] = invalid_refs
+
+            # Bug fix: a single repair retry is attempted above, but the fixed
+            # content was never re-validated — the node was unconditionally
+            # treated as passing afterwards. Re-run the same quality/grounding
+            # check on the (possibly) repaired content. If it still fails,
+            # do NOT retry again (bounded to one repair attempt) and do NOT
+            # silently mark it clean — flag it using the existing weak-node
+            # mechanism (`generation_quality.passed == False`) so it surfaces
+            # in `build_final_course_quality_report`'s `weak_nodes` list,
+            # which is part of the API-visible final quality report.
+            quality = evaluate_node_content(full_content, node)
+            if not quality["passed"]:
+                logger.warning(
+                    "Node %s (%s) still fails quality/grounding check after repair; "
+                    "flagging for manual review instead of silently completing it.",
+                    node_id,
+                    node_name,
+                )
+        node["generation_quality"] = quality
+        node["needs_manual_review"] = not quality["passed"]
 
         self._record_generation_quality(
             output_type="node_content_stream",

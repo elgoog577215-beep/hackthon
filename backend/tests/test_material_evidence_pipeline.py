@@ -11,7 +11,11 @@ from course_generation_workflow import (
     normalize_course_plan_contract,
 )
 from course_quality import build_grounding_quality_report
-from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
+from material_evidence import (
+    attach_evidence_to_plan,
+    build_evidence_catalog_summary,
+    extract_grounding_annotations,
+)
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialRepository, MaterialStorageError
 
@@ -206,3 +210,72 @@ def test_material_upload_api_uses_persisted_asset(monkeypatch, tmp_path):
 
     delete = client.delete(f"/api/materials/{asset_id}")
     assert delete.status_code == 200
+
+
+def test_build_evidence_catalog_summary_covers_every_asset_not_just_earliest():
+    """Regression test for the outline-planning truncation bias bug.
+
+    20 assets uploaded in order, each producing a different number of
+    evidence items (early ones intentionally produce many more than later
+    ones, mimicking "20 years of exam papers uploaded oldest-first"). With
+    a naive `evidence[:max_items]` truncation, the first couple of assets
+    alone would fill the entire max_items=80 budget and later assets would
+    be completely invisible to outline planning. The fix must guarantee
+    every asset gets at least one representative entry in the summary.
+    """
+    evidence: list[dict] = []
+    asset_ids = [f"asset-{index:02d}" for index in range(20)]
+    for position, asset_id in enumerate(asset_ids):
+        # Earlier assets (smaller position) produce far more evidence blocks.
+        count = 30 if position < 3 else 2
+        for item_index in range(count):
+            evidence.append({
+                "evidence_id": f"ev-{asset_id}-{item_index}",
+                "asset_id": asset_id,
+                "kind": "claim",
+                "summary": f"{asset_id} 证据 {item_index}",
+                "locator": {},
+            })
+
+    summary = build_evidence_catalog_summary(evidence, max_items=80)
+
+    for asset_id in asset_ids:
+        assert asset_id in summary, f"{asset_id} should have at least one representative evidence entry"
+
+    # Sanity: still respects the max_items cap on number of lines.
+    assert len(summary.splitlines()) <= 80
+
+
+def test_build_evidence_catalog_summary_prefers_higher_priority_within_asset():
+    evidence = [
+        {
+            "evidence_id": "ev-low",
+            "asset_id": "asset-x",
+            "kind": "claim",
+            "summary": "low priority",
+            "priority": "supporting",
+            "authority": "context_only",
+            "locator": {},
+        },
+        {
+            "evidence_id": "ev-high",
+            "asset_id": "asset-x",
+            "kind": "claim",
+            "summary": "high priority",
+            "priority": "core",
+            "authority": "primary",
+            "locator": {},
+        },
+    ]
+    summary = build_evidence_catalog_summary(evidence, max_items=1)
+    assert "ev-high" in summary
+    assert "ev-low" not in summary
+
+
+def test_build_evidence_catalog_summary_no_truncation_needed():
+    evidence = [
+        {"evidence_id": f"ev-{i}", "asset_id": "asset-a", "kind": "claim", "summary": "x", "locator": {}}
+        for i in range(5)
+    ]
+    summary = build_evidence_catalog_summary(evidence, max_items=80)
+    assert len(summary.splitlines()) == 5

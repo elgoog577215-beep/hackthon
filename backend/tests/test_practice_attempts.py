@@ -336,3 +336,101 @@ def test_legacy_server_records_are_not_implicitly_imported_for_current_user(monk
     events = learning_events.load_learning_events(course_id="c1")
     imported = [item for item in events if item["event_type"] == "legacy_practice_imported"]
     assert imported == []
+
+
+def _submit_setup(monkeypatch, tmp_path):
+    repository = PracticeAttemptRepository(tmp_path)
+    storage = MemoryStorage()
+    monkeypatch.setattr(practice_router, "practice_attempt_repository", repository)
+    monkeypatch.setattr(learning_events, "storage", storage)
+
+    async def fake_course(_course_id):
+        return _course()
+
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    first = client.post("/api/courses/c1/practice/attempts", json={"question_revision_id": "qr1"})
+    attempt = first.json()["attempt"]
+    client.patch(
+        f"/api/courses/c1/practice/attempts/{attempt['attempt_id']}/draft",
+        json={"expected_revision": 1, "answer_payload": {"text": "大小和方向"}, "active_seconds": 12},
+    )
+    return repository, client, attempt
+
+
+def test_submit_survives_single_workflow_conflict_by_retrying(monkeypatch, tmp_path):
+    from diagnostic_workflows import WorkflowConflict
+
+    repository, client, attempt = _submit_setup(monkeypatch, tmp_path)
+
+    calls = {"n": 0}
+    real_advance = practice_router.advance_workflow_after_grade
+
+    def flaky_advance(course, *, user_id, attempt, task):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise WorkflowConflict(current={"revision": 99})
+        return real_advance(course, user_id=user_id, attempt=attempt, task=task)
+
+    monkeypatch.setattr(practice_router, "advance_workflow_after_grade", flaky_advance)
+
+    submission = {
+        "expected_revision": 2,
+        "answer_payload": {"text": "大小和方向"},
+        "active_seconds": 12,
+        "request_id": "submit-conflict-0001",
+    }
+    response = client.post(
+        f"/api/courses/c1/practice/attempts/{attempt['attempt_id']}/submit", json=submission
+    )
+
+    # No unhandled 500: the retry absorbed the single conflict.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "graded"
+    # The graded result itself is never lost, regardless of the workflow retry.
+    assert body["result"]["passed"] is True
+    assert calls["n"] == 2
+
+    stored = next(item for item in repository.list("u1", "c1") if item["attempt_id"] == attempt["attempt_id"])
+    assert stored["status"] == "graded"
+    assert (stored.get("result") or {}).get("passed") is True
+
+
+def test_submit_does_not_500_and_does_not_retry_forever_on_persistent_conflict(monkeypatch, tmp_path):
+    from diagnostic_workflows import WorkflowConflict
+
+    repository, client, attempt = _submit_setup(monkeypatch, tmp_path)
+
+    calls = {"n": 0}
+
+    def always_conflicting_advance(course, *, user_id, attempt, task):
+        calls["n"] += 1
+        raise WorkflowConflict(current={"revision": 99})
+
+    monkeypatch.setattr(practice_router, "advance_workflow_after_grade", always_conflicting_advance)
+
+    submission = {
+        "expected_revision": 2,
+        "answer_payload": {"text": "大小和方向"},
+        "active_seconds": 12,
+        "request_id": "submit-conflict-0002",
+    }
+    response = client.post(
+        f"/api/courses/c1/practice/attempts/{attempt['attempt_id']}/submit", json=submission
+    )
+
+    # Even when the conflict persists past the retry, the endpoint must return a well-formed
+    # response (not a bare 500) and must not retry indefinitely.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "graded"
+    assert body["result"]["passed"] is True
+    assert calls["n"] == 2  # exactly one retry, never more
+
+    stored = next(item for item in repository.list("u1", "c1") if item["attempt_id"] == attempt["attempt_id"])
+    assert stored["status"] == "graded"
+    assert (stored.get("result") or {}).get("passed") is True

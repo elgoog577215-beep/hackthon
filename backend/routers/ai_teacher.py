@@ -192,6 +192,38 @@ async def record_answer_feedback(
             "content_anchor": payload.content_anchor,
         },
     )
+
+    node_id = payload.node_id or str(context_ref.get("node_id") or "")
+    if payload.feedback == "unclear" and node_id:
+        # A student marking an AI answer "unclear" is functionally the same
+        # comprehension-gap signal `learner_self_reported` already models
+        # (see `learner_model.classify_evidence_event`); mirror it into that
+        # shape so AI Q&A actually feeds the existing evidence-trigger
+        # pipeline (`learner_model_service.evaluate_and_propose_change`)
+        # instead of only ever producing a feedback record nothing reads.
+        await run_in_threadpool(
+            record_learning_event,
+            event_type="learner_self_reported",
+            actor="user",
+            source="ai_teacher.answer_feedback",
+            user_id=user_id,
+            course_id=payload.course_id,
+            course_version_id=course.get("current_course_version_id"),
+            node_id=node_id,
+            node_name=payload.node_name or str(context_ref.get("node_name") or ""),
+            evidence={
+                "statement": "这段看不懂，AI 老师的解答没有解决理解困难",
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+            },
+            result={"feedback": payload.feedback},
+            metadata={
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "derived_from": "assistant_answer_feedback_submitted",
+            },
+        )
+
     return {"status": "recorded", "event_id": event["event_id"], "feedback": payload.feedback}
 
 
