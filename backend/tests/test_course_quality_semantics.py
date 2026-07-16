@@ -90,3 +90,27 @@ def test_latex_cleanup_preserves_markdown_boundaries_after_closing_delimiter():
 
     assert "$y=ax^2+bx+c$\n\n1. 识别系数" in cleaned
     assert "$x=1$\n\n* 检查结果" in cleaned
+
+
+def test_duplicate_node_heading_is_rejected_before_it_becomes_an_empty_intro_block():
+    report = evaluate_node_content(
+        "## 二叉搜索树\n\n## 本节任务\n\n请分析树高。\n\n## 检查与反馈\n\n检查退化条件。",
+        _node(),
+    )
+
+    assert any(item["code"] == "duplicate_section_heading" for item in report["issues"])
+    assert report["passed"] is False
+
+
+def test_required_module_labels_must_be_stable_level_two_headings():
+    node = _node()
+    node["module_plan"] = [{
+        "module_id": "lesson_goal",
+        "label": "本节任务",
+        "required": True,
+        "output_contract": "给出可验证目标",
+    }]
+    report = evaluate_node_content(_content(), node)
+
+    assert any(item["code"] == "missing_module_headings" for item in report["issues"])
+    assert report["passed"] is False

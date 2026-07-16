@@ -55,6 +55,36 @@ describe('CourseBlockStream', () => {
     expect(wrapper.text()).not.toContain('不应显示')
   })
 
+  it('显示正式教学角色，并隐藏没有正文的最终空块', () => {
+    const node: CourseNode = {
+      ...baseNode,
+      course_blocks: [
+        {
+          block_id: 'empty', section_id: 'node-1', position: 0, kind: 'rich_text', role: 'orientation',
+          payload: { title: '向量空间', markdown: '' }, asset_refs: [], objective_refs: [], concept_refs: [],
+          evidence_refs: [], visibility_rule: {}, internal_revision: 'cbr-empty', status: 'final',
+        },
+        {
+          block_id: 'objective', section_id: 'node-1', position: 1, kind: 'rich_text', role: 'objective',
+          payload: { title: '本节任务', markdown: '建立可验证的学习目标。' }, asset_refs: [], objective_refs: [],
+          concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'cbr-objective', status: 'final',
+        },
+        {
+          block_id: 'activity', section_id: 'node-1', position: 2, kind: 'rich_text', role: 'activity',
+          payload: { title: '学习者行动', markdown: '请独立完成任务。' }, asset_refs: [], objective_refs: [],
+          concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'cbr-activity', status: 'final',
+        },
+      ],
+    }
+
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+
+    expect(wrapper.findAll('.course-content-block')).toHaveLength(2)
+    expect(wrapper.text()).toContain('任务')
+    expect(wrapper.text()).toContain('行动')
+    expect(wrapper.text()).not.toContain('向量空间')
+  })
+
   it('为课程块提供原位 AI 协作入口并带出稳定块引用', async () => {
     const block = {
       block_id: 'canonical', section_id: 'node-1', position: 0, kind: 'rich_text' as const, role: 'concept' as const,

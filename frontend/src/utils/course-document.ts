@@ -9,8 +9,7 @@ import type {
 const legacyType = (role: string): ContentBlock['type'] => {
   if (role === 'orientation') return 'intro'
   if (role === 'checkpoint') return 'exercise'
-  if (role === 'misconception') return 'summary'
-  if (['concept', 'reasoning', 'example', 'application', 'summary'].includes(role)) {
+  if (['prerequisite', 'objective', 'concept', 'reasoning', 'example', 'counterexample', 'application', 'activity', 'feedback', 'misconception', 'remediation', 'summary', 'transfer'].includes(role)) {
     return role as ContentBlock['type']
   }
   return 'custom'

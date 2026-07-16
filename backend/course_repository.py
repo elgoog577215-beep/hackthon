@@ -13,6 +13,7 @@ from course_document import (
     course_view_from_document,
     document_from_legacy_course,
     legacy_source_checksum,
+    repair_document_block_semantics,
     refresh_document_revision,
 )
 from course_revisions import revision_event_for_documents, revision_vector_for_document
@@ -355,6 +356,41 @@ class CourseDocumentRepository:
         raw.pop("nodes", None)
         await self._save_raw(course_id, raw)
         return receipt
+
+    async def repair_block_semantics(
+        self,
+        course_id: str,
+        *,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        document, canonical = self.load_document(course_id)
+        if not canonical:
+            raise CourseDocumentConflict("Course must be migrated before semantic repair")
+        repaired, report = repair_document_block_semantics(document)
+        result = {
+            "course_id": course_id,
+            "document_revision": document.document_revision,
+            **report,
+        }
+        if dry_run or not report["changed"]:
+            return result
+
+        command_id = f"repair-block-semantics-v1:{course_id}:{document.document_revision}"
+        receipt = await self.commit_document(
+            course_id,
+            repaired,
+            expected_revision=document.document_revision,
+            operation={
+                "command_id": command_id,
+                "operation": "repair_block_semantics",
+                "reason": "移除空课程块，并依据教学模块契约修复课程块角色",
+                "actor": "course_semantic_repair",
+                "affected_block_ids": report["affected_block_ids"],
+            },
+        )
+        result["receipt"] = receipt
+        result["document_revision"] = receipt["document_revision"]
+        return result
 
     async def _save_raw(self, course_id: str, data: dict[str, Any]) -> None:
         result = self.storage.save_course(course_id, data)

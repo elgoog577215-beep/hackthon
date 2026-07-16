@@ -9,8 +9,13 @@ from content_blocks import project_course_content_blocks
 from course_commands import CourseCommandService
 from course_document import (
     COURSE_DOCUMENT_SCHEMA,
+    CourseBlock,
+    CourseDocument,
+    CourseSection,
     document_from_generation_draft,
     document_from_legacy_course,
+    refresh_document_revision,
+    repair_document_block_semantics,
 )
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 from storage_utils import save_course_compat
@@ -95,6 +100,61 @@ def test_generation_compiler_preserves_teaching_semantics_and_references():
     assert block.concept_refs == ["concept-1"]
 
 
+def semantic_drift_document() -> CourseDocument:
+    return refresh_document_revision(CourseDocument(
+        course_id="course-1",
+        title="算法",
+        sections=[CourseSection(
+            section_id="L2-1-1",
+            title="1.1 渐进记号与复杂度分析",
+            position=0,
+            level=2,
+        )],
+        blocks=[
+            CourseBlock(
+                block_id="empty-heading",
+                section_id="L2-1-1",
+                position=0,
+                role="orientation",
+                payload={"title": "1.1 渐进记号与复杂度分析", "markdown": ""},
+            ),
+            CourseBlock(
+                block_id="objective",
+                section_id="L2-1-1",
+                position=1,
+                role="concept",
+                payload={"title": "本节任务", "markdown": "给出代码的时间复杂度。"},
+            ),
+            CourseBlock(
+                block_id="action",
+                section_id="L2-1-1",
+                position=2,
+                role="concept",
+                payload={"title": "学习者行动", "markdown": "请独立分析两层循环。"},
+            ),
+            CourseBlock(
+                block_id="feedback",
+                section_id="L2-1-1",
+                position=3,
+                role="checkpoint",
+                payload={"title": "检查与反馈", "markdown": "对照答案检查推导过程。"},
+            ),
+        ],
+    ))
+
+
+def test_semantic_repair_removes_empty_heading_and_preserves_substantive_blocks():
+    document = semantic_drift_document()
+    repaired, report = repair_document_block_semantics(document)
+
+    assert report["changed"] is True
+    assert report["removed_empty_block_ids"] == ["empty-heading"]
+    assert [block.block_id for block in repaired.blocks] == ["objective", "action", "feedback"]
+    assert [block.role for block in repaired.blocks] == ["objective", "activity", "feedback"]
+    assert [block.position for block in repaired.blocks] == [0, 1, 2]
+    assert repaired.blocks[0].payload["markdown"] == "给出代码的时间复杂度。"
+
+
 @pytest.mark.asyncio
 async def test_generation_shell_publishes_canonical_document_once():
     storage = MemoryStorage(None)
@@ -148,6 +208,32 @@ async def test_generation_shell_publishes_canonical_document_once():
             expected_revision=shell["document"]["document_revision"],
             metadata={},
         )
+
+
+@pytest.mark.asyncio
+async def test_repository_commits_semantic_repair_as_a_canonical_operation():
+    document = semantic_drift_document()
+    storage = MemoryStorage({
+        "course_id": "course-1",
+        "course_name": "算法",
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_revision": document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+    })
+    repository = CourseDocumentRepository(storage)
+
+    preview = await repository.repair_block_semantics("course-1")
+    applied = await repository.repair_block_semantics("course-1", dry_run=False)
+
+    assert preview["changed"] is True
+    assert storage.save_count == 1
+    assert applied["receipt"]["operation"] == "repair_block_semantics"
+    assert storage.course["course_operation_log"][-1]["actor"] == "course_semantic_repair"
+    assert [block["role"] for block in storage.course["course_document"]["blocks"]] == [
+        "objective", "activity", "feedback",
+    ]
 
 
 def test_legacy_projection_is_read_only_until_explicit_migration():

@@ -59,7 +59,7 @@ flowchart TB
         CONTENT["内容块 kind<br/>rich_text · formula · code · image · audio · video · diagram · table · callout"]
         INTERACT["交互块 kind<br/>practice_ref · code_lab · reflection · project · mastery_check"]
         DYNAMIC["动态检查点 kind<br/>review_checkpoint · remediation_slot · graph_embed"]
-        ROLE["教学角色 role<br/>引入 · 前置 · 概念 · 推理 · 例子 · 反例 · 应用 · 误区 · 检查 · 补救 · 总结 · 迁移"]
+        ROLE["教学角色 role<br/>引入 · 前置 · 任务 · 概念 · 推理 · 例子 · 反例 · 应用 · 行动 · 反馈 · 误区 · 检查 · 补救 · 总结 · 迁移"]
         FORMAL["正式引用<br/>TeachingRepresentation · MediaAsset · PracticeTask · KnowledgeConcept · MasteryCriterion · EvidenceBinding"]
         OPS["内部课程命令<br/>插入 · 排序 · 分组 · 转换 · 替换 · 撤销"]
         DOC --> STRUCT --> BLOCK
@@ -707,9 +707,9 @@ review_checkpoint / remediation_slot / graph_embed
 `role` 回答“承担什么教学作用”：
 
 ```text
-orientation / prerequisite / concept / reasoning / example
-counterexample / application / misconception / checkpoint
-remediation / summary / transfer
+orientation / prerequisite / objective / concept / reasoning / example
+counterexample / application / activity / feedback / misconception
+checkpoint / remediation / summary / transfer
 ```
 
 例如：
@@ -720,6 +720,8 @@ kind=diagram, role=reasoning
 kind=practice_ref, role=checkpoint
 kind=video, role=concept
 ```
+
+课程块角色由教学模块注册表明确给出，不由块在正文中的先后位置推断。生成 Markdown 时，`##` 是同级教学块边界，`###` 及更深标题属于块内部；页面已经显示的节点标题不得再次成为正文块。无法确认角色的标题保留为 `custom`，不得默认冒充引入、概念或例子。空的最终块不进入正式课程展示。
 
 ### 5.3 正式引用规则
 

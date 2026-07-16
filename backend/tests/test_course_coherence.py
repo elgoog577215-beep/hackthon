@@ -168,6 +168,29 @@ def test_prompt_context_exposes_current_responsibility_without_copying_course():
     assert context in system_prompt
 
 
+def test_content_prompt_exposes_stable_module_heading_and_role_contract():
+    course = _course()
+    node = course["nodes"][2]
+    node["module_plan"] = [{
+        "module_id": "lesson_goal",
+        "label": "本节任务",
+        "block_role": "objective",
+        "required": True,
+        "output_contract": "给出可验证学习目标",
+        "prompt_instruction": "说明学习者完成后能做什么",
+    }]
+
+    _, system_prompt = CoursePromptComposer().build_content_prompt(
+        course_data=course,
+        node=node,
+        context="无资料",
+    )
+
+    assert "必需模块 `## 本节任务` [角色=objective]" in system_prompt
+    assert "当前节点名称已经由页面显示" in system_prompt
+    assert "`###` 及更深标题只用于模块内部" in system_prompt
+
+
 def test_forward_prerequisite_is_a_blocking_contract_error():
     course = _course()
     course["nodes"][1]["prerequisite_node_ids"] = ["L2-1-2"]

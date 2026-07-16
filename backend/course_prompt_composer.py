@@ -15,7 +15,7 @@ from course_knowledge_base import (
     course_knowledge_base_prompt_context,
 )
 from course_knowledge_map import knowledge_ids_for_section, project_course_knowledge_map
-from course_pedagogy import MODULES, TEMPLATES, SubjectPedagogyProfile
+from course_pedagogy import MODULES, TEMPLATES, SubjectPedagogyProfile, module_block_role
 from subject_knowledge import (
     knowledge_index,
     knowledge_library_prompt_context,
@@ -25,7 +25,7 @@ from subject_knowledge import (
 )
 
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v8"
+PROMPT_CONTRACT_VERSION = "course_prompt_v9"
 
 
 class CoursePromptComposer:
@@ -246,7 +246,11 @@ class CoursePromptComposer:
         difficulty_contract = node.get("difficulty_contract") or {}
         modules = node.get("module_plan") or []
         module_contract = "\n".join(
-            f"- {item.get('output_contract')}；{item.get('prompt_instruction')}"
+            (
+                f"- {'必需' if item.get('required', True) else '可选'}模块 "
+                f"`## {item.get('label')}` [角色={item.get('block_role') or module_block_role(item.get('module_id'))}]："
+                f"{item.get('output_contract')}；{item.get('prompt_instruction')}"
+            )
             for item in modules
         )
         continuation = bool(existing_draft.strip())
@@ -273,13 +277,14 @@ class CoursePromptComposer:
         system_prompt = f"""## 输出契约
 1. 只输出可直接保存的 Markdown 正文或续写，不输出寒暄、身份、计划、边界确认或任务复述。
 2. 只讲当前小节，不重写整章，不提前展开后续节点。
-3. 教学模块是语义要求，不要机械地把模块名称全部写成标题。
+3. `##` 二级标题是同级教学块的语义边界。每个必需模块都必须以契约中的原始标签输出一次（可在标签后用冒号补充说明）；`###` 及更深标题只用于模块内部。
 4. 不编造论文、来源、链接、年份、机构或未上传资料。
 5. 基础课程正文只服从持久化课程蓝图，不根据临时学习状态改变主线。
 6. 如果使用资料事实，必须在对应陈述后追加 `[[evidence:证据ID]]`；证据 ID 只能来自当前节点允许列表。
 7. 证据标记不是参考文献装饰，不能把讲法参考或弱背景伪装成事实来源。
 8. 输出前完成内部一致性检查；正文不得保留“我的计算有误”“等待，更正”“请重新检查任务”等模型自我纠错痕迹，也不得让题干、答案和量规互相矛盾。
 9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和提升坐标，不得各写各的。
+10. 当前节点名称已经由页面显示，正文不得再次把“{node.get('node_name', '')}”写成二级标题，也不得输出只有标题没有正文的空模块。
 
 ## 课程
 - 名称：{course_data.get('course_name', '')}
