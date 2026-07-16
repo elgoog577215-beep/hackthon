@@ -416,6 +416,12 @@ class CourseService(AIBase):
             on_phase=on_phase,
             phase="pedagogy_resolution",
             base_progress=32,
+            # The blueprint schema nests capability_points/mistake_points per
+            # chapter/section (heaviest under natural_science-style modes),
+            # and reliably exceeds the default max_tokens - see
+            # `ai_base.AIBase.max_tokens` docstring. Give this call the
+            # biggest budget in the pipeline.
+            max_tokens=16000,
         )
         plan, plan_constraint_report = self._validated_course_plan(
             response,
@@ -637,6 +643,7 @@ class CourseService(AIBase):
         phase: str,
         base_progress: int,
         heartbeat_seconds: float = 15.0,
+        max_tokens: int | None = None,
     ) -> str | None:
         """Run `_call_llm` while periodically re-announcing the same phase with
         an elapsed-time message, so a slow/degraded AI provider response
@@ -646,7 +653,9 @@ class CourseService(AIBase):
         percentage that looks identical to a hang.
         """
         if not on_phase:
-            return await self._call_llm(user_prompt, system_prompt, enable_thinking=enable_thinking)
+            return await self._call_llm(
+                user_prompt, system_prompt, enable_thinking=enable_thinking, max_tokens=max_tokens
+            )
 
         done = asyncio.Event()
 
@@ -668,7 +677,9 @@ class CourseService(AIBase):
 
         heartbeat_task = asyncio.create_task(_heartbeat())
         try:
-            return await self._call_llm(user_prompt, system_prompt, enable_thinking=enable_thinking)
+            return await self._call_llm(
+                user_prompt, system_prompt, enable_thinking=enable_thinking, max_tokens=max_tokens
+            )
         finally:
             done.set()
             await heartbeat_task

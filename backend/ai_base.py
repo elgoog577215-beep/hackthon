@@ -122,6 +122,14 @@ class AIBase:
         )
         self.model_smart = self.smart_models[0]
         self.model_fast = self.fast_models[0]
+        # No max_tokens was ever passed to the provider before this, so every
+        # call silently fell back to the provider's own default completion
+        # length (commonly ~4096 tokens). Long structured-JSON outputs (e.g.
+        # the natural_science pedagogy mode's blueprint, which nests
+        # capability_points/mistake_points per chapter) routinely exceed that,
+        # get cut off mid-string, and fail JSON parsing in a way that looks
+        # like a content-quality bug rather than a truncation bug.
+        self.max_tokens = int(os.getenv("AI_MAX_TOKENS", "8192"))
         self._provider_failure: str | None = None
         
         if self.api_key:
@@ -545,12 +553,13 @@ class AIBase:
     # ============================================================================
     
     async def _call_llm(
-        self, 
-        prompt: str, 
-        system_prompt: str = "You are a helpful assistant.", 
+        self,
+        prompt: str,
+        system_prompt: str = "You are a helpful assistant.",
         use_fast_model: bool = False,
         retry_count: int = 3,
         enable_thinking: bool = False,
+        max_tokens: int | None = None,
     ) -> str:
         """
         通用 LLM 调用函数。
@@ -567,7 +576,10 @@ class AIBase:
             use_fast_model: 是否使用轻量/快速模型
             retry_count: 最大重试次数
             enable_thinking: 是否为高价值环节启用模型思考能力
-            
+            max_tokens: 单次调用允许的最大输出 token 数，默认取
+                `self.max_tokens`（环境变量 AI_MAX_TOKENS，默认 8192）。
+                输出型任务（如课程蓝图 JSON）应显式传入更大的值。
+
         Returns:
             LLM 完整响应文本，失败返回 None
         """
@@ -575,7 +587,7 @@ class AIBase:
             return None
         if self._provider_failure:
             return None
-        
+
         for model_id in self._models_for(use_fast_model):
             for attempt in range(retry_count):
                 try:
@@ -588,12 +600,14 @@ class AIBase:
                             {"role": "user", "content": prompt}
                         ],
                         stream=True,
+                        max_tokens=max_tokens or self.max_tokens,
                         extra_body=extra_body
                     )
 
                     # 聚合流式响应
                     full_content = ""
                     reasoning_chars = 0
+                    truncated = False
                     async for chunk in response:
                         if chunk.choices:
                             # 思考内容不属于课程产物，只记录长度用于调试。
@@ -605,6 +619,16 @@ class AIBase:
                             delta = chunk.choices[0].delta
                             if delta.content:
                                 full_content += delta.content
+                            if getattr(chunk.choices[0], "finish_reason", None) == "length":
+                                truncated = True
+
+                    if truncated:
+                        logger.warning(
+                            f"AI response truncated by max_tokens={max_tokens or self.max_tokens} "
+                            f"(Model: {model_id}, Attempt {attempt+1}/{retry_count}, "
+                            f"chars={len(full_content)}) - downstream JSON/structure parsing "
+                            "will likely fail on this output."
+                        )
 
                     if not full_content:
                         logger.warning(f"Empty response from AI (Model: {model_id}, Attempt {attempt+1}/{retry_count})")

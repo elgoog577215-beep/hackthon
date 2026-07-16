@@ -100,6 +100,15 @@ class _FakeCourseRepository:
 def _install_fakes(monkeypatch, *, captured: list):
     monkeypatch.setattr(learner_model_service, "CourseDocumentRepository", _FakeCourseRepository)
 
+    # Force the offline template-fallback path deterministically, regardless
+    # of whether the host environment happens to have a real AI_API_KEY
+    # configured - these tests exercise the evidence-trigger/proposal-shape
+    # logic, not real LLM output, and must not make live network calls.
+    async def _no_llm(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(learner_model_service, "_llm_supplement_text", _no_llm)
+
     def _fake_create_proposal(_repo, course_id, **kwargs):
         record = {"course_id": course_id, **kwargs}
         captured.append(record)

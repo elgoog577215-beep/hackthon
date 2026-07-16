@@ -344,7 +344,20 @@ async def test_regenerate_item_reruns_template_generator_for_evidence_source(tmp
     freshly-regenerated `after.payload` (via the same MVP template generator
     `evaluate_and_propose_change` uses), rather than being left permanently
     `after=None`, whenever the triggering course/block/evidence can still be
-    resolved."""
+    resolved.
+
+    Forces the template-fallback path deterministically (rather than
+    depending on whether the host environment happens to have a real
+    AI_API_KEY configured) by making `_llm_supplement_text` behave like the
+    provider is unavailable - `learner_model_service._generate_supplement_payload`
+    tries the real LLM first and only falls back to the template otherwise."""
+    import learner_model_service
+
+    async def _no_llm(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(learner_model_service, "_llm_supplement_text", _no_llm)
+
     memory_events = MemoryDataStorage()
     monkeypatch.setattr(learning_events, "storage", memory_events)
     storage, _repo, proposals, _cmd, document = await canonical_setup(tmp_path)
