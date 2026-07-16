@@ -124,9 +124,20 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
           `/api/courses/${this.courseId}/change_proposals/${proposalId}/items/${itemId}/regenerate`,
           extraInstruction ? { extra_instruction: extraInstruction } : {},
         )
-        const updated = response.data as Partial<ChangeProposalItem> | undefined
-        // 重新生成后 item 仍处于 pending，但内容（after/reason）可能更新；只影响该 item 自身。
-        this.patchItem(proposalId, itemId, { status: 'pending', ...(updated || {}) })
+        const updated = response.data as ChangeProposal | Partial<ChangeProposalItem> | undefined
+        if (updated && 'proposal_id' in updated && Array.isArray(updated.items)) {
+          const proposalIndex = this.proposals.findIndex(
+            proposal => proposal.proposal_id === proposalId,
+          )
+          if (proposalIndex >= 0) this.proposals.splice(proposalIndex, 1, updated)
+        } else {
+          // Backward compatibility for older servers that returned only an item patch.
+          const itemPatch = updated as Partial<ChangeProposalItem> | undefined
+          this.patchItem(proposalId, itemId, {
+            status: 'pending',
+            ...(itemPatch || {}),
+          })
+        }
       } finally {
         this.actingItemIds.delete(itemId)
       }

@@ -346,6 +346,8 @@ def apply_kg_node_item(
     item_id: str,
     *,
     actor: str,
+    course_data: dict[str, Any],
+    library_repository: Any,
 ) -> dict[str, Any]:
     """Accept a pending `target_kind == "kg_node"` item.
 
@@ -353,11 +355,9 @@ def apply_kg_node_item(
     a kg_node item's `after` payload only ever carries a review note (see
     `course_knowledge_map.propose_kb_linkage_from_block_change`) - there is
     no proposed replacement text to write. "Accepting" it means recording an
-    operator review-acknowledgement directly on the curated knowledge
-    catalog node (`subject_knowledge.acknowledge_knowledge_node_review`) and
-    marking the item resolved, instead of the item being permanently stuck
-    behind a 409. Curated node definitions themselves are still only ever
-    edited by a human maintaining the catalog file.
+    operator review acknowledgement in a mutable sidecar owned by the pinned
+    library revision and marks the proposal item resolved. The formal revision
+    remains immutable.
     """
     proposal = repository.load(proposal_id)
     item = _find_item(proposal, item_id)
@@ -376,22 +376,22 @@ def apply_kg_node_item(
     if not isinstance(after, dict):
         raise ChangeProposalConflict("Item 'after' payload is invalid", proposal=proposal)
 
-    from storage import storage as storage_singleton
-    from subject_knowledge import acknowledge_knowledge_node_review, resolve_subject_library
-
-    course_data = storage_singleton.load_course(proposal["course_id"]) or {}
-    library = resolve_subject_library(course_data)
-    library_id = str(library.get("library_id") or "")
+    binding = course_data.get("knowledge_library_binding") or {}
+    library_id = str(binding.get("library_id") or "")
+    revision_id = str(binding.get("revision_id") or "")
     knowledge_id = str(item.get("block_id") or "")
-    if not library_id or library.get("status") == "unavailable":
+    if not library_id or not revision_id:
         raise ChangeProposalConflict("未能定位该知识节点所属的知识库", proposal=proposal)
 
     try:
-        entry = acknowledge_knowledge_node_review(
+        entry = library_repository.record_node_review(
             library_id,
+            revision_id,
             knowledge_id,
             note=str(after.get("note") or ""),
             source_block_id=str(after.get("source_block_id") or ""),
+            proposal_id=proposal_id,
+            item_id=item_id,
             reviewed_by=actor,
         )
     except KeyError as exc:
@@ -621,6 +621,8 @@ def regenerate_item(
     item_id: str,
     *,
     extra_instruction: str | None = None,
+    generated_after: dict[str, Any] | None = None,
+    generation_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Mark the original item rejected (recording the regeneration request as the
     reason) and append a fresh item for the same block.
@@ -638,6 +640,12 @@ def regenerate_item(
     frontend must render it as a pending-generation state rather than a blank
     diff.
     """
+    if generated_after is not None and (
+        not isinstance(generated_after, dict)
+        or not isinstance(generated_after.get("payload"), dict)
+    ):
+        raise ValueError("Regenerated content requires an object payload")
+
     proposal = repository.load(proposal_id)
     item = _find_item(proposal, item_id)
     if item.get("status") != "pending":
@@ -658,7 +666,11 @@ def regenerate_item(
         target["status"] = "rejected"
         target["resolved_at"] = _now()
         target["resolution_reason"] = extra_instruction or "regenerate_requested"
-        regenerated_after = _try_regenerate_evidence_after(current, target)
+        regenerated_after = (
+            deepcopy(generated_after)
+            if generated_after is not None
+            else _try_regenerate_evidence_after(current, target)
+        )
         new_item = {
             "item_id": new_item_id,
             "block_id": target["block_id"],
@@ -672,6 +684,7 @@ def regenerate_item(
             "receipt": None,
             "regenerated_from": item_id,
             "extra_instruction": extra_instruction,
+            "generation_meta": deepcopy(generation_meta or {}),
         }
         items = list(current.get("items") or [])
         items.append(new_item)

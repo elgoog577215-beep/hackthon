@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -145,6 +146,72 @@ class SubjectLibraryRepository:
             },
         }
 
+    def record_node_review(
+        self,
+        library_id: str,
+        revision_id: str,
+        knowledge_id: str,
+        *,
+        note: str,
+        source_block_id: str,
+        proposal_id: str,
+        item_id: str,
+        reviewed_by: str,
+    ) -> dict[str, Any]:
+        """Record an audit receipt without mutating the immutable revision."""
+        library = self.load_revision(library_id, revision_id)
+        known_ids = {
+            str(node.get("knowledge_id") or "")
+            for node in library.get("nodes") or []
+        }
+        if knowledge_id not in known_ids:
+            raise SubjectLibraryNotFound(
+                f"Unknown knowledge node: {knowledge_id}"
+            )
+        review_id = "knr_" + hashlib.sha256(
+            f"{library_id}:{revision_id}:{knowledge_id}:{proposal_id}:{item_id}".encode(
+                "utf-8"
+            )
+        ).hexdigest()[:24]
+        path = self._node_review_path(
+            library_id,
+            revision_id,
+            knowledge_id,
+            review_id,
+        )
+        if path.exists():
+            return self._read(path)
+        entry = {
+            "review_id": review_id,
+            "library_id": library_id,
+            "revision_id": revision_id,
+            "knowledge_id": knowledge_id,
+            "note": note.strip(),
+            "source_block_id": source_block_id,
+            "proposal_id": proposal_id,
+            "item_id": item_id,
+            "reviewed_by": reviewed_by,
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._atomic_write(path, entry)
+        return deepcopy(entry)
+
+    def list_node_reviews(
+        self,
+        library_id: str,
+        revision_id: str,
+        knowledge_id: str,
+    ) -> list[dict[str, Any]]:
+        directory = (
+            self.root_dir
+            / self._safe(library_id)
+            / "node_reviews"
+            / self._safe(revision_id)
+            / self._safe(knowledge_id)
+        )
+        values = [self._read(path) for path in directory.glob("*.json")]
+        return sorted(values, key=lambda item: str(item.get("reviewed_at") or ""))
+
     def _with_review(self, library: dict[str, Any]) -> dict[str, Any]:
         value = deepcopy(library)
         path = self._review_path(str(value["library_id"]), str(value["revision_id"]))
@@ -170,6 +237,22 @@ class SubjectLibraryRepository:
 
     def _review_path(self, library_id: str, revision_id: str) -> Path:
         return self.root_dir / self._safe(library_id) / "reviews" / f"{self._safe(revision_id)}.json"
+
+    def _node_review_path(
+        self,
+        library_id: str,
+        revision_id: str,
+        knowledge_id: str,
+        review_id: str,
+    ) -> Path:
+        return (
+            self.root_dir
+            / self._safe(library_id)
+            / "node_reviews"
+            / self._safe(revision_id)
+            / self._safe(knowledge_id)
+            / f"{self._safe(review_id)}.json"
+        )
 
     @staticmethod
     def _safe(value: str) -> str:

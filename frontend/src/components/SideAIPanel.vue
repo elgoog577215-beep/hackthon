@@ -150,16 +150,16 @@
                 </template>
                 <template v-else-if="!item.before">
                   <span class="diff-label diff-added">{{ t('courseWorkspace.changeProposals.added', '新增') }}</span>
-                  <p class="diff-after">{{ item.after }}</p>
+                  <MarkdownRenderer class="diff-after" :content="proposalItemContent(item.after)" />
                 </template>
                 <template v-else>
                   <div class="diff-before">
                     <span class="diff-label diff-removed">{{ t('courseWorkspace.changeProposals.before', '原文') }}</span>
-                    <p>{{ item.before }}</p>
+                    <MarkdownRenderer :content="proposalItemContent(item.before)" />
                   </div>
                   <div class="diff-after-wrap">
                     <span class="diff-label diff-added">{{ t('courseWorkspace.changeProposals.after', '修改为') }}</span>
-                    <p class="diff-after">{{ item.after }}</p>
+                    <MarkdownRenderer class="diff-after" :content="proposalItemContent(item.after)" />
                   </div>
                 </template>
               </div>
@@ -478,7 +478,15 @@ import { useNoteStore } from '../stores/notes'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { t } from '../shared/i18n'
 import type { BlockRegenerationCandidate, CourseBlockEditTarget } from '../stores/types'
-import type { ChangeProposal, ChangeProposalItem, ChangeProposalScope, ChangeProposalSource } from '../types/changeProposal'
+import type {
+  ChangeProposal,
+  ChangeProposalAfterPayload,
+  ChangeProposalBlockPayload,
+  ChangeProposalContent,
+  ChangeProposalItem,
+  ChangeProposalScope,
+  ChangeProposalSource,
+} from '../types/changeProposal'
 import logger from '../utils/logger'
 
 const props = defineProps<{
@@ -817,6 +825,31 @@ function isKgNodeItem(item: ChangeProposalItem) {
 // 里必然报错。
 function isAwaitingGeneration(item: ChangeProposalItem) {
   return item.after === null || item.after === undefined
+}
+
+function isChangeProposalAfterPayload(
+  content: ChangeProposalContent,
+): content is ChangeProposalAfterPayload {
+  return Boolean(
+    content
+    && typeof content === 'object'
+    && 'payload' in content
+    && content.payload
+    && typeof content.payload === 'object',
+  )
+}
+
+function proposalItemContent(content: ChangeProposalContent): string {
+  if (typeof content === 'string') return content
+  if (!content) return ''
+
+  const blockPayload = isChangeProposalAfterPayload(content)
+    ? content.payload
+    : content as ChangeProposalBlockPayload
+
+  return [blockPayload.markdown, blockPayload.summary, blockPayload.title]
+    .find(value => typeof value === 'string' && value.trim())
+    ?.trim() || ''
 }
 
 function sourceLabel(source: ChangeProposalSource) {
