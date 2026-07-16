@@ -1,5 +1,6 @@
 # Logs
 logs
+.logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -48,6 +49,10 @@ backend/data/materials/
 backend/data/course_versions/
 backend/data/learning_assets/
 backend/data/generation_workspaces/
+backend/data/subject_libraries/
+backend/data/knowledge_library_migrations/
+backend/data/change_proposals/
+backend/data/block_regeneration_candidates/
 !backend/data/courses/.gitkeep
 !backend/data/knowledge_graphs/.gitkeep
 
