@@ -559,6 +559,12 @@ def test_router_rejects_kg_node_item_apply_with_409_when_library_unresolvable(tm
             return {"course_id": "course-1", "course_name": "一门无法匹配任何知识库的课程"}
 
     monkeypatch.setattr(storage_module, "storage", _Storage())
+    # The reject path records rejection evidence via `learning_events`, which
+    # binds its own `storage` reference at import time (`from storage import
+    # storage`) - patching `storage_module.storage` above does not affect it,
+    # so it must be isolated separately to avoid writing to the real
+    # DATA_DIR/learning_events.json on every test run.
+    monkeypatch.setattr(learning_events, "storage", MemoryDataStorage())
 
     proposals = ChangeProposalRepository(tmp_path / "change_proposals")
     proposal = create_proposal(
