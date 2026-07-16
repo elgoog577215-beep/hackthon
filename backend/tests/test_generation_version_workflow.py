@@ -6,6 +6,7 @@ from course_repository import CourseDocumentRepository
 from course_versions import CourseVersionRepository
 from course_versioning import build_blueprint_draft
 from generation_workspace import GenerationWorkspaceRepository
+from subject_ontology import build_subject_ontology
 from task_manager import TaskManager
 
 
@@ -51,12 +52,37 @@ class BlueprintService:
         return course
 
 
+class PinnedSubjectLibraryService:
+    def __init__(self):
+        self.prepare_calls = 0
+
+    async def prepare_course(self, course, **_kwargs):
+        self.prepare_calls += 1
+        library = build_subject_ontology(course)
+        return {
+            "library": library,
+            "binding": {
+                "subject_id": library["subject_id"],
+                "library_id": library["library_id"],
+                "revision_id": library["revision_id"],
+                "lifecycle_status": library["lifecycle_status"],
+                "binding_status": "pinned",
+            },
+            "quality_report": {
+                "passed": True,
+                "issues": [],
+                "blocking_issues": [],
+            },
+        }
+
+
 @pytest.mark.asyncio
 async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     import task_manager as task_manager_module
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()
     workspaces = GenerationWorkspaceRepository(tmp_path / "workspaces")
+    subject_libraries = PinnedSubjectLibraryService()
     manager = TaskManager(
         storage,
         BlueprintService(),
@@ -64,6 +90,7 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
         version_repository=CourseVersionRepository(tmp_path / "versions"),
         workspace_repository=workspaces,
         document_repository=CourseDocumentRepository(storage),
+        subject_library_service=subject_libraries,
     )
     job = await manager.create_generation_job({
         "subject": "概念课",
@@ -80,6 +107,11 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     workspace_course = manager.get_generation_workspace_course(job["course_id"])
     assert workspace_course is not None
     assert workspace_course["nodes"][0]["node_name"] == "概念"
+    binding = workspace_course["knowledge_library_binding"]
+    assert binding["binding_status"] == "pinned"
+    assert workspace_course["course_knowledge_map"]["binding_revision_id"] == binding["revision_id"]
+    assert workspace_course["course_knowledge_base"]["formal_library_revision_id"] == binding["revision_id"]
+    assert subject_libraries.prepare_calls == 1
     preview = manager.get_generation_preview(job["course_id"])
     assert preview is not None
     assert preview["projection"] == "generation_workspace"
@@ -119,6 +151,9 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     resumed = await manager.confirm_blueprint(job["course_id"])
     assert resumed["job_id"] == job["job_id"]
     assert manager.tasks[job["job_id"]]["status"] == "pending"
+    confirmed_course = manager.get_generation_workspace_course(job["course_id"])
+    assert confirmed_course["course_knowledge_base"]["formal_library_revision_id"] == binding["revision_id"]
+    assert subject_libraries.prepare_calls == 2
     assert await manager._task_queue.get() == job["job_id"]
     workspaces.set_status(job["job_id"], "published")
     assert manager.get_generation_preview(job["course_id"]) is None
