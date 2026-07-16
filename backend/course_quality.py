@@ -9,10 +9,11 @@ from course_knowledge_base import (
     compile_course_knowledge_base,
     validate_course_knowledge_base,
 )
+from course_coherence import evaluate_course_coherence
 from course_pedagogy import MODULES, coerce_persisted_profile
 
 
-QUALITY_CONTRACT_VERSION = "course_quality_v5"
+QUALITY_CONTRACT_VERSION = "course_quality_v8"
 
 
 MODULE_SIGNAL_RULES: dict[str, tuple[tuple[str, ...], str]] = {
@@ -52,6 +53,15 @@ def validate_blueprint(blueprint: dict[str, Any]) -> dict[str, Any]:
         issues.append(_issue("missing_pedagogy_profile", "critical", "蓝图缺少教学画像", "重新解析教学画像"))
     if not nodes:
         issues.append(_issue("missing_nodes", "critical", "蓝图没有正文节点", "重新生成课程蓝图"))
+    plan_constraints = blueprint.get("course_plan_constraint_report") or {}
+    if plan_constraints and not plan_constraints.get("passed"):
+        for constraint_issue in plan_constraints.get("issues") or []:
+            issues.append(_issue(
+                str(constraint_issue.get("code") or "plan:constraint"),
+                "critical",
+                str(constraint_issue.get("message") or "课程蓝图违背用户硬约束"),
+                "根据用户原始备注重新规划课程结构",
+            ))
 
     difficulty_report = validate_difficulty_blueprint(blueprint)
     issues.extend(difficulty_report["issues"])
@@ -575,6 +585,7 @@ def build_final_course_quality_report(
         course_knowledge_base,
         course_data=course_data,
     )
+    coherence_quality = evaluate_course_coherence(course_data)
     blocking_issues: list[dict[str, Any]] = []
     if not nodes:
         blocking_issues.append(_issue(
@@ -622,11 +633,19 @@ def build_final_course_quality_report(
                 str(issue.get("message") or "课程知识库存在阻断问题"),
                 "修复课程知识、能力、易错、提升和课程位置之间的引用后再发布",
             ))
+    for issue in coherence_quality.get("blocking_issues") or []:
+        blocking_issues.append(_issue(
+            str(issue.get("code") or "coherence:quality"),
+            "critical" if issue.get("severity") == "critical" else "major",
+            str(issue.get("message") or "课程跨章节一致性存在阻断问题"),
+            "按全课总编契约定点修复目标小节，保持其他章节不变",
+            str(issue.get("node_id") or ""),
+        ))
     final_status = (
         "passed"
         if blueprint_report.get("passed") and difficulty_alignment.get("passed")
         and grounding_quality.get("passed") and knowledge_quality.get("strict_passed")
-        and not weak_nodes
+        and coherence_quality.get("strict_passed") and not weak_nodes
         else "completed_with_warnings"
     )
     return {
@@ -645,6 +664,8 @@ def build_final_course_quality_report(
         "grounding_quality": grounding_quality,
         "knowledge_quality": knowledge_quality,
         "course_knowledge_base_revision_id": course_knowledge_base.get("revision_id"),
+        "coherence_quality": coherence_quality,
+        "course_coherence_revision_id": coherence_quality.get("contract_revision_id"),
         "node_quality_summary": {
             "total": len(node_reports),
             "passed": len(node_reports) - len(weak_nodes),
@@ -658,6 +679,7 @@ def build_final_course_quality_report(
         "brief_satisfaction": {
             "subject": (course_data.get("course_generation_brief") or {}).get("subject"),
             "hard_constraints": (course_data.get("course_generation_brief") or {}).get("hard_constraints", []),
+            "course_shape": course_data.get("course_plan_constraint_report") or {},
             "status": "checked_after_content",
         },
         "final_status": final_status,

@@ -4,12 +4,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from ai_base import AIProviderRequestError
 from course_generation_workflow import (
     attach_generation_artifacts_to_plan,
     build_course_blueprint_from_plan,
     build_course_generation_artifacts,
     build_node_generation_context,
     normalize_course_plan_contract,
+    validate_course_plan_constraints,
 )
 from course_pedagogy import (
     PedagogyMode,
@@ -36,7 +38,8 @@ def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
         }],
     )
 
-    assert artifacts["pipeline_version"] == "course_generation_v3"
+    assert artifacts["pipeline_version"] == "course_generation_v4"
+    assert artifacts["course_generation_brief"]["course_shape_constraints"] == {}
     assert artifacts["material_cards"][0]["usage"] == "content_source"
     assert artifacts["material_cards"][0]["parse_status"] == "metadata_only"
     assert "content" not in artifacts["material_cards"][0]
@@ -178,7 +181,7 @@ def test_generation_route_creates_one_persisted_job():
 
 
 @pytest.mark.asyncio
-async def test_course_service_builds_v3_blueprint_without_legacy_quality_report(monkeypatch, tmp_path):
+async def test_course_service_builds_v4_blueprint_without_legacy_quality_report(monkeypatch, tmp_path):
     from material_storage import MaterialRepository
 
     service = CourseService(materials=MaterialRepository(tmp_path / "materials"))
@@ -230,8 +233,8 @@ async def test_course_service_builds_v3_blueprint_without_legacy_quality_report(
         }],
     )
 
-    assert data["generation_pipeline_version"] == "course_generation_v3"
-    assert data["generation_schema_version"] == "course_generation_v3"
+    assert data["generation_pipeline_version"] == "course_generation_v4"
+    assert data["generation_schema_version"] == "course_generation_v4"
     assert data["generation_quality_report"] is None
     assert data["subject_pedagogy_profile"]["primary_mode"] == "math_formal"
     assert data["difficulty_profile"]["target_level"] == "intermediate"
@@ -312,22 +315,127 @@ async def test_course_service_resumes_from_persisted_pedagogy_checkpoint(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_no_material_and_invalid_model_json_fall_back_to_valid_general_course(monkeypatch, tmp_path):
+async def test_invalid_model_json_never_falls_back_to_placeholder_course(monkeypatch, tmp_path):
     service = CourseService()
     monkeypatch.chdir(tmp_path)
+    calls = []
 
     async def invalid_json(*_args, **_kwargs):
+        calls.append(_args)
         return "这不是 JSON"
 
     monkeypatch.setattr(service, "_call_llm", invalid_json)
+    with pytest.raises(AIProviderRequestError, match="两次未通过结构验收"):
+        await service.build_course_draft(
+            course_id="course-invalid-outline",
+            topic="全新主题代号",
+            materials=[],
+            pedagogy_mode="general",
+        )
+
+    assert len(calls) == 2
+    assert not (tmp_path / "debug_failed_json.txt").exists()
+
+
+def test_explicit_course_shape_is_compiled_as_a_hard_constraint():
+    artifacts = build_course_generation_artifacts(
+        course_id="course-shape",
+        topic="一元二次方程",
+        difficulty="intermediate",
+        style="academic",
+        requirements="严格生成1章2个递进小节，第一节判别式，第二节建模。",
+    )
+    brief = artifacts["course_generation_brief"]
+
+    assert brief["course_shape_constraints"] == {
+        "chapter_count": 1,
+        "section_count": 2,
+    }
+    invalid = validate_course_plan_constraints({
+        "chapters": [
+            {"sections": [{}, {}]},
+            {"sections": [{}, {}]},
+        ],
+    }, brief)
+    assert invalid["passed"] is False
+    assert {item["code"] for item in invalid["issues"]} == {
+        "plan:chapter_count_mismatch",
+        "plan:section_count_mismatch",
+    }
+
+    malformed = validate_course_plan_constraints({"chapters": ["不是章节对象"]}, brief)
+    assert malformed["passed"] is False
+    assert "plan:malformed_chapters" in {
+        item["code"] for item in malformed["issues"]
+    }
+
+    alternate_wording = build_course_generation_artifacts(
+        course_id="course-shape-wording",
+        topic="概率论",
+        difficulty="advanced",
+        style="academic",
+        requirements="生成两个章节，共六节；不要把第1节的定义重复到第2节。",
+    )
+    assert alternate_wording["course_generation_brief"]["course_shape_constraints"] == {
+        "chapter_count": 2,
+        "section_count": 6,
+    }
+
+
+@pytest.mark.asyncio
+async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkeypatch):
+    service = CourseService()
+    responses = [
+        "这不是 JSON",
+        json.dumps({
+            "course_title": "一元二次方程",
+            "learning_objectives": ["能判断根的情况并完成基础建模"],
+            "prerequisites": ["整式运算"],
+            "chapters": [{
+                "chapter_number": 1,
+                "title": "从判别到建模",
+                "learning_focus": "先判断解的结构，再把情境转化为方程",
+                "sections": [
+                    {
+                        "node_id": "L2-1-1",
+                        "section_number": "1.1",
+                        "title": "判别式与根的情况",
+                        "learning_objective": "能使用判别式判断实数根的个数",
+                        "prerequisite_node_ids": [],
+                        "assessment": ["判断三个方程的根的情况"],
+                    },
+                    {
+                        "node_id": "L2-1-2",
+                        "section_number": "1.2",
+                        "title": "实际问题建模",
+                        "learning_objective": "能把面积问题转化为一元二次方程并验根",
+                        "prerequisite_node_ids": ["L2-1-1"],
+                        "assessment": ["完成一个面积建模任务"],
+                    },
+                ],
+            }],
+        }, ensure_ascii=False),
+    ]
+    prompts = []
+
+    async def fake_call_llm(prompt, _system_prompt, **_kwargs):
+        prompts.append(prompt)
+        return responses.pop(0)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
     data = await service.build_course_draft(
-        course_id="course-fallback",
-        topic="全新主题代号",
-        materials=[],
+        course_id="course-corrected-outline",
+        topic="一元二次方程",
+        requirements="严格生成1章2个递进小节，第一节判别式，第二节建模。",
+        pedagogy_mode="math_formal",
     )
 
-    assert data["subject_pedagogy_profile"]["primary_mode"] == "general"
-    assert data["material_cards"] == []
-    assert data["nodes"]
-    assert data["blueprint_validation_report"]["passed"] is True
-    assert not (tmp_path / "debug_failed_json.txt").exists()
+    assert len(prompts) == 2
+    assert prompts[1].startswith("重新生成")
+    assert data["course_plan_constraint_report"]["passed"] is True
+    assert data["course_plan_constraint_report"]["actual"] == {
+        "chapter_count": 1,
+        "section_count": 2,
+    }
+    assert len([node for node in data["nodes"] if node["node_level"] == 1]) == 1
+    assert len([node for node in data["nodes"] if node["node_level"] == 2]) == 2

@@ -14,13 +14,23 @@ import inspect
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from typing import (
     Any,
 )
 
 from ai_base import AIBase, AIProviderRequestError
 from ai_output_quality import assess_ai_output
-from content_blocks import normalize_blocks, strip_leading_heading, summarize_text
+from content_blocks import (
+    normalize_blocks,
+    set_node_content_blocks,
+    strip_leading_heading,
+    summarize_text,
+)
+from course_coherence import (
+    compile_course_coherence_contract,
+    evaluate_course_coherence,
+)
 from course_difficulty import (
     assess_readiness,
     attach_difficulty_contracts_to_plan,
@@ -47,6 +57,7 @@ from course_generation_workflow import (
     build_node_generation_context,
     build_outline_generation_context,
     normalize_course_plan_contract,
+    validate_course_plan_constraints,
 )
 from course_pedagogy import (
     SubjectPedagogyProfile,
@@ -97,6 +108,18 @@ def _compact_evidence_index(catalog: list[dict[str, Any]]) -> list[dict[str, Any
         {key: item[key] for key in EVIDENCE_INDEX_FIELDS if key in item}
         for item in catalog
     ]
+
+
+def _coherence_repair_suggestion(issue: dict[str, Any]) -> str:
+    if issue.get("code") == "coherence:incorrect_next_section_handoff":
+        return (
+            "删除或改正错误的下一节预告，使它与全课总编契约中的实际后续小节一致；"
+            "本节已经完成的知识不得再声称属于下一节"
+        )
+    return (
+        "保留与前置章节的一两句承接，删除或重写重复讲解，"
+        "把篇幅用于当前小节独有的知识、例子、任务与验收"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -248,10 +271,13 @@ class CourseService(AIBase):
                 "evidence_index",
                 "subject_pedagogy_profile",
             )
-        ) and str(existing.get("generation_pipeline_version") or "").endswith("v3")
+        ) and str(existing.get("generation_pipeline_version") or "") in {
+            "course_generation_v3",
+            "course_generation_v4",
+        }
         if checkpoint_ready:
             artifacts = {
-                "pipeline_version": existing.get("generation_pipeline_version") or "course_generation_v3",
+                "pipeline_version": existing.get("generation_pipeline_version") or "course_generation_v4",
                 "material_cards": existing.get("material_cards") or [],
                 "course_generation_brief": existing.get("course_generation_brief") or {},
                 "material_assets": existing.get("material_assets") or [],
@@ -387,10 +413,46 @@ class CourseService(AIBase):
             prompt,
             enable_thinking=True,
         )
-        plan = self._extract_json(response) if response else None
-        if not isinstance(plan, dict) or not isinstance(plan.get("chapters"), list):
-            plan = self._create_fallback_plan(topic)
-        plan = normalize_course_plan_contract(plan)
+        plan, plan_constraint_report = self._validated_course_plan(
+            response,
+            artifacts["course_generation_brief"],
+        )
+        if not plan_constraint_report.get("passed"):
+            await self._notify_phase(
+                on_phase,
+                "blueprint_generation",
+                38,
+                "蓝图未通过格式或硬约束检查，正在重新规划",
+                phase_progress=40,
+                phase_detail={
+                    "issue_codes": [
+                        item.get("code")
+                        for item in plan_constraint_report.get("issues") or []
+                    ],
+                },
+            )
+            correction_prompt = self._prompt_composer.build_outline_correction_prompt(
+                original_prompt=prompt,
+                brief=artifacts["course_generation_brief"],
+                issues=plan_constraint_report.get("issues") or [],
+            )
+            corrected_response = await self._call_llm(
+                f"重新生成「{topic}」课程蓝图，修复上一次的验收问题。",
+                correction_prompt,
+                enable_thinking=False,
+            )
+            plan, plan_constraint_report = self._validated_course_plan(
+                corrected_response,
+                artifacts["course_generation_brief"],
+            )
+        if not plan_constraint_report.get("passed") or plan is None:
+            messages = "；".join(
+                str(item.get("message") or "未知蓝图错误")
+                for item in plan_constraint_report.get("issues") or []
+            )
+            raise AIProviderRequestError(
+                f"课程蓝图两次未通过结构验收：{messages or '无法解析完整 JSON'}"
+            )
 
         await self._notify_phase(
             on_phase,
@@ -414,6 +476,7 @@ class CourseService(AIBase):
             adaptation=adaptation_decision,
         )
         blueprint = build_course_blueprint_from_plan(plan, artifacts)
+        blueprint["course_plan_constraint_report"] = plan_constraint_report
         blueprint_report = validate_blueprint(blueprint)
         nodes = self._convert_plan_to_nodes(plan, course_id)
 
@@ -427,7 +490,7 @@ class CourseService(AIBase):
         course_data = {
             "course_id": course_id,
             "course_name": plan.get("course_title", topic),
-            "generation_schema_version": "course_generation_v3",
+            "generation_schema_version": artifacts["pipeline_version"],
             "prompt_contract_version": PROMPT_CONTRACT_VERSION,
             "generation_pipeline_version": artifacts["pipeline_version"],
             "generation_request": {
@@ -464,6 +527,7 @@ class CourseService(AIBase):
             "evidence_index": _compact_evidence_index(artifacts.get("evidence_catalog", [])),
             "evidence_coverage_plan": evidence_coverage_plan,
             "course_blueprint": blueprint,
+            "course_plan_constraint_report": plan_constraint_report,
             "blueprint_validation_report": blueprint_report,
             "generation_quality_report": None,
         }
@@ -485,6 +549,12 @@ class CourseService(AIBase):
         course_data["course_knowledge_quality_report"] = course_knowledge_base["quality_report"]
         course_data["course_blueprint"]["course_knowledge_base_revision_id"] = (
             course_knowledge_base["revision_id"]
+        )
+        coherence_contract = compile_course_coherence_contract(course_data)
+        course_data["course_coherence_contract"] = coherence_contract
+        course_data["course_coherence_quality_report"] = coherence_contract["quality_report"]
+        course_data["course_blueprint"]["course_coherence_revision_id"] = (
+            coherence_contract["revision_id"]
         )
         self.register_course_generation_metadata(course_id, course_data)
         return course_data
@@ -619,41 +689,28 @@ class CourseService(AIBase):
     # 课程规划
     # ------------------------------------------------------------------
 
-    def _create_fallback_plan(self, topic: str) -> dict:
-        """创建兜底计划。
-
-        Args:
-            topic: 课程主题
-
-        Returns:
-            最小可用的课程规划字典
-        """
-        return {
-            "course_title": topic,
-            "positioning": f"建立{topic}的可用基础并完成综合任务",
-            "learning_objectives": [f"解释{topic}核心概念", f"使用{topic}完成一个基础任务"],
-            "prerequisites": [],
-            "chapters": [
-                {
-                    "chapter_number": 1,
-                    "title": "概述",
-                    "learning_focus": "基本概念",
-                    "sections": [
-                        {"section_number": "1.1", "title": "核心问题与基本概念", "key_points": ["核心问题", "基本概念"], "learning_objective": "能解释课程核心问题和基本概念", "prerequisite_node_ids": [], "misconceptions": [], "assessment": ["用自己的话解释核心概念"], "scope_boundary": "只建立后续学习所需基础"},
-                        {"section_number": "1.2", "title": "概念之间的关系", "key_points": ["概念关系", "适用场景"], "learning_objective": "能区分核心概念并判断适用场景", "prerequisite_node_ids": ["L2-1-1"], "misconceptions": [], "assessment": ["完成概念比较任务"], "scope_boundary": "不提前展开复杂应用"},
-                    ],
-                },
-                {
-                    "chapter_number": 2,
-                    "title": "核心内容",
-                    "learning_focus": "核心原理",
-                    "sections": [
-                        {"section_number": "2.1", "title": "核心方法", "key_points": ["方法", "步骤"], "learning_objective": "能按步骤使用核心方法", "prerequisite_node_ids": ["L2-1-2"], "misconceptions": [], "assessment": ["完成一个方法应用任务"], "scope_boundary": "覆盖最常用方法"},
-                        {"section_number": "2.2", "title": "综合应用与检查", "key_points": ["综合应用", "质量检查"], "learning_objective": "能完成综合任务并检查结果", "prerequisite_node_ids": ["L2-2-1"], "misconceptions": [], "assessment": ["提交综合成果并按标准自评"], "scope_boundary": "作为本课程综合收束"},
-                    ],
-                },
-            ],
+    def _validated_course_plan(
+        self,
+        response: str | None,
+        brief: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        parsed = self._extract_json(response) if response else None
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("chapters"), list):
+            report = validate_course_plan_constraints({}, brief)
+            return None, report
+        raw_report = validate_course_plan_constraints(parsed, brief)
+        malformed_codes = {
+            "plan:malformed_chapters",
+            "plan:malformed_section_lists",
+            "plan:malformed_sections",
         }
+        if any(
+            item.get("code") in malformed_codes
+            for item in raw_report.get("issues") or []
+        ):
+            return None, raw_report
+        plan = normalize_course_plan_contract(parsed)
+        return plan, validate_course_plan_constraints(plan, brief)
 
     def _convert_plan_to_nodes(self, plan: dict, course_id: str) -> list[dict]:
         """将课程规划转换为节点列表。
@@ -830,6 +887,85 @@ class CourseService(AIBase):
         )
 
         return full_content
+
+    async def repair_course_coherence(
+        self,
+        course_data: dict[str, Any],
+        report: dict[str, Any] | None = None,
+        *,
+        max_repairs: int = 2,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Repair blocking cross-section issues without broad course rewrites."""
+        working = deepcopy(course_data)
+        current_report = report or evaluate_course_coherence(working)
+        repairable = [
+            item for item in current_report.get("blocking_issues") or []
+            if item.get("repairable") and item.get("node_id")
+        ][:max_repairs]
+        for issue in repairable:
+            node_id = str(issue.get("node_id") or "")
+            node = next(
+                (item for item in working.get("nodes") or [] if item.get("node_id") == node_id),
+                None,
+            )
+            if not node:
+                continue
+            repair_issue = {
+                **issue,
+                "suggestion": _coherence_repair_suggestion(issue),
+            }
+            repair_user, repair_system = self._prompt_composer.build_repair_prompt(
+                course_data=working,
+                node=node,
+                content=str(node.get("node_content") or ""),
+                issues=[repair_issue],
+            )
+            repaired = await self._call_llm(
+                repair_user,
+                repair_system,
+                enable_thinking=True,
+            )
+            if not repaired:
+                continue
+            repaired_raw = self.clean_response_text(repaired)
+            grounding_contract = node.get("grounding_contract") or {}
+            allowed_ids = set(grounding_contract.get("required_evidence_ids") or []) | set(
+                grounding_contract.get("optional_evidence_ids") or []
+            )
+            repaired_content, annotations, invalid_refs = extract_grounding_annotations(
+                repaired_raw,
+                allowed_ids,
+            )
+            candidate = deepcopy(working)
+            candidate_node = next(
+                item for item in candidate.get("nodes") or [] if item.get("node_id") == node_id
+            )
+            candidate_node["content_blocks"] = []
+            set_node_content_blocks(candidate_node, repaired_content)
+            candidate_node["grounding_annotations"] = annotations
+            candidate_node["grounding_invalid_refs"] = invalid_refs
+            candidate_node["generation_quality"] = evaluate_node_content(
+                str(candidate_node.get("node_content") or ""),
+                candidate_node,
+            )
+            if not candidate_node["generation_quality"].get("passed"):
+                continue
+            candidate_report = evaluate_course_coherence(candidate)
+            target_remains = any(
+                item.get("code") == issue.get("code")
+                and item.get("node_id") == node_id
+                for item in candidate_report.get("blocking_issues") or []
+            )
+            if target_remains or int(candidate_report.get("blocking_count") or 0) >= int(
+                current_report.get("blocking_count") or 0
+            ):
+                continue
+            working = candidate
+            current_report = candidate_report
+
+        working["course_coherence_contract"] = compile_course_coherence_contract(working)
+        working["course_coherence_quality_report"] = current_report
+        return working, current_report
 
     @staticmethod
     def _find_persisted_blueprint_node(

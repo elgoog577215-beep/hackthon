@@ -34,6 +34,10 @@ from models import (
     NodeStatus,
     TaskLogEntry,
 )
+from course_coherence import (
+    compile_course_coherence_contract,
+    evaluate_course_coherence,
+)
 from course_quality import build_final_course_quality_report, evaluate_node_content
 from course_versioning import (
     analyze_blueprint_impact,
@@ -393,7 +397,7 @@ class TaskManager:
         course_data = {
             "course_id": course_id,
             "course_name": subject,
-            "generation_schema_version": "course_generation_v3",
+            "generation_schema_version": "course_generation_v4",
             "generation_status": "queued",
             "nodes": [],
             "generation_request": request_snapshot,
@@ -2426,6 +2430,31 @@ class TaskManager:
             ):
                 set_node_content_blocks(node, str(node.get("node_content") or ""))
 
+        coherence_report = evaluate_course_coherence(fresh_course)
+        if (
+            not coherence_report.get("passed")
+            and hasattr(self.course_service, "repair_course_coherence")
+        ):
+            await self._update_phase(
+                task_id,
+                "coherence_repair",
+                90,
+                "正在定点修复跨章节重复或断裂",
+                phase_progress=40,
+            )
+            try:
+                fresh_course, coherence_report = await self.course_service.repair_course_coherence(
+                    fresh_course,
+                    coherence_report,
+                )
+            except Exception as exc:
+                logger.warning("Course coherence repair failed for %s: %s", task_id, exc)
+        fresh_course["course_coherence_contract"] = compile_course_coherence_contract(
+            fresh_course
+        )
+        fresh_course["course_coherence_quality_report"] = coherence_report
+        await self._save_task_course(task_id, fresh_course)
+
         await self._update_phase(
             task_id,
             "learning_assets",
@@ -2456,6 +2485,12 @@ class TaskManager:
         ), None)
         if compiled_knowledge_map:
             fresh_course["course_knowledge_map"] = compiled_knowledge_map
+        fresh_course["course_coherence_contract"] = compile_course_coherence_contract(
+            fresh_course
+        )
+        fresh_course["course_coherence_quality_report"] = evaluate_course_coherence(
+            fresh_course
+        )
         await self._save_task_course(task_id, fresh_course)
 
         await self._update_phase(

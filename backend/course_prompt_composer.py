@@ -9,6 +9,7 @@ from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
 )
+from course_coherence import course_coherence_prompt_context
 from course_knowledge_base import (
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
@@ -24,7 +25,7 @@ from subject_knowledge import (
 )
 
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v5"
+PROMPT_CONTRACT_VERSION = "course_prompt_v8"
 
 
 class CoursePromptComposer:
@@ -125,7 +126,7 @@ class CoursePromptComposer:
 {subject_knowledge_context}
 
 ## 蓝图要求
-1. 章节数量由知识和能力依赖决定；不要为了凑数重复主题，也不要用节数表示难度。
+1. 用户明确指定章数或小节总数时必须精确满足；未指定时才由知识和能力依赖决定。不要为了凑数重复主题，也不要用节数表示难度。
 2. 每个小节必须承担明确的能力推进，后端会根据整体顺序编译锯齿型难度曲线。
 3. 每个小节给出可观察学习目标、前置节点、范围边界、误区和验收标准。
 4. `suggested_module_ids` 只能从可用模块中选择；后端会补齐必备模块并校验辅模式注入。
@@ -137,6 +138,9 @@ class CoursePromptComposer:
 10. 同一个能力、误区或提升要求不要在多个知识点下机械复制。它们必须与父知识点直接相关，并能指导正文、练习和反馈。
 11. 不得输出或编造正式知识 ID。参照中没有的课程必要内容可以保留真实名称，后端会将其标记为课程局部知识，不要强行套入相近概念。
 12. 不编造论文、链接、书目、年份或未上传资料。
+13. 从整门课程角度分配小节责任：相邻小节的学习目标不得只是换句话重复；需要承接的前置必须写入 `prerequisite_node_ids`，只需上下文衔接但可并行生成的内容不要伪造成硬依赖。
+14. 每节只完整展开自己的知识与能力产出。允许简短回顾前置，但不得复制前节实质讲解；后续小节的核心知识只能提示方向，不能在当前小节提前讲完。
+15. 全课程使用统一术语和符号。相同概念优先复用规范名称，把其他叫法写入知识点 `aliases`，不得在不同章节把同一概念写成互不关联的新知识点。
 
 ## JSON Schema
 {{
@@ -202,6 +206,33 @@ class CoursePromptComposer:
   ]
 }}"""
 
+    def build_outline_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        brief: dict[str, Any],
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 上一次输出不是完整有效的 JSON"
+        shape = brief.get("course_shape_constraints") or {}
+        return f"""
+## 蓝图纠正任务
+
+上一次课程蓝图未通过确定性验收：
+{issue_text}
+
+用户明确课程形状：
+- 章数：{shape.get('chapter_count') or '由教学设计决定'}
+- 小节总数：{shape.get('section_count') or '由教学设计决定'}
+
+请从头重新输出一份完整 JSON。不得输出截断 JSON、Markdown 围栏、简化占位大纲或解释。
+所有原始要求、学科模式、知识结构和难度契约仍以下面的完整原始契约为准。
+
+{original_prompt}
+""".strip()
+
     def build_content_prompt(
         self,
         *,
@@ -226,6 +257,10 @@ class CoursePromptComposer:
         ))
         knowledge_context, teaching_context, course_knowledge_context = self._node_knowledge_context(
             course_data, node
+        )
+        coherence_context = course_coherence_prompt_context(
+            course_data,
+            str(node.get("node_id") or ""),
         )
         continuation_contract = ""
         if continuation:
@@ -272,6 +307,9 @@ class CoursePromptComposer:
 
 ## 当前课程知识库契约
 {course_knowledge_context}
+
+## 全课总编契约
+{coherence_context}
 
 ## 当前节点难度契约
 {format_node_difficulty_contract(difficulty_contract)}
@@ -371,6 +409,10 @@ class CoursePromptComposer:
             course_knowledge_base,
             str(node.get("node_id") or ""),
         )
+        coherence_text = course_coherence_prompt_context(
+            course_data,
+            str(node.get("node_id") or ""),
+        )
         system_prompt = f"""你负责定向修复课程小节。只输出修复后的完整 Markdown，不输出说明。
 
 ## 课程与节点
@@ -393,13 +435,16 @@ class CoursePromptComposer:
 ## 当前课程知识库契约
 {course_knowledge_text}
 
+## 全课总编契约
+{coherence_text}
+
 ## 必须修复的问题
 {issue_text}
 
 ## 原正文
 {content}
 
-只修改问题涉及的内容，保留正确部分；不得引入范围外知识或虚构来源。资料事实必须使用允许的 `[[evidence:证据ID]]` 标记。修复后必须再次核对题干、过程、答案与量规，不得保留模型自我纠错痕迹。"""
+只修改问题涉及的内容，保留正确部分；不得引入范围外知识或虚构来源。资料事实必须使用允许的 `[[evidence:证据ID]]` 标记。修复后必须再次核对题干、过程、答案与量规，不得保留模型自我纠错痕迹。若问题来自跨章节重复，保留必要的一两句承接并重写本节独有推进，不得删除当前学习目标所需内容。"""
         return "修复这些明确问题并输出完整正文。", system_prompt
 
 
