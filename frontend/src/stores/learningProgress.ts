@@ -151,18 +151,20 @@ export type AdaptiveBlockFeedback = 'unrated' | 'helpful' | 'not_helpful' | 'dis
 
 export interface AdaptiveLearningBlock {
   adaptive_block_id: string
+  change_set_id?: string
   anchor: {
     node_id: string
     content_block_id: string
     placement: 'after_block' | 'after_node'
   }
   kind: AdaptiveBlockKind
-  role: 'low_risk_support'
+  role: 'low_risk_support' | 'accepted_personal_course_growth'
   payload: {
     body: string
     contrast: string
     prompt: string
     objective: string
+    steps?: Array<{ index: number; label: string }>
   }
   reason_code: string
   evidence_refs: string[]
@@ -203,6 +205,7 @@ export interface LearningRuntimeProjection {
   }
   diagnostic: Record<string, any>
   learner_model: LearnerModelSummary
+  course_evolution?: Record<string, any>
   adaptive_blocks: AdaptiveLearningBlock[]
   active_task: LearningTaskRef | null
   continuation: LearningContinuationProjection

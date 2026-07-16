@@ -152,6 +152,7 @@
   },
   "adaptiveBlocks": {
     "eyebrow": "AI 临时支持",
+    "acceptedEyebrow": "个人课程已生长",
     "expand": "展开",
     "collapse": "收起",
     "dismiss": "跳过这条支持",
@@ -174,6 +175,23 @@
       "repeated_independent_practice_failure": "同一目标连续独立失误"
     }
   },
+  "courseEvolution": {
+    "eyebrow": "证据驱动",
+    "title": "个人课程生长建议",
+    "refresh": "重新分析学习证据",
+    "showDetails": "查看依据与范围",
+    "hideDetails": "收起依据与范围",
+    "protected": "不会修改基础课程、其他学习者、历史作答和笔记原文",
+    "currentOnly": "只应用本小节",
+    "currentAndNext": "本小节及后续",
+    "accept": "应用到个人课程",
+    "reject": "暂不调整",
+    "applied": "个人课程已应用调整",
+    "undo": "撤销",
+    "sources": { "dialogue": "对话与反馈", "record": "学习记录", "practice": "正式练习" },
+    "operations": { "explanation": "补充解释", "transition": "后续承接", "checkpoint": "理解检查", "animation": "分步演示" },
+    "effects": { "effective": "后续证据显示有效", "ineffective": "后续证据显示需要调整", "insufficient": "等待后续正式证据" }
+  },
   "learningNavigator": {
     "title": "课程目录",
     "back": "返回课程库",
@@ -193,6 +211,7 @@
     "practice": "练习",
     "records": "记录",
     "knowledgeLibrary": "知识库",
+    "resources": "资源",
     "ai": "AI"
   },
   "learningDock": {
@@ -208,8 +227,36 @@
     "closeStats": "关闭学习概况",
     "knowledgeLibrary": "知识库",
     "knowledgeLibraryHint": "查看学科知识与本课覆盖",
+    "resources": "教学资源",
+    "resourcesHint": "查看由当前课程同步生成的大纲、教案、讲义、练习册和演示文稿",
     "ai": "AI 老师",
     "aiHint": "打开 AI 老师"
+  },
+  "teachingRepresentations": {
+    "eyebrow": "结构化同源",
+    "title": "课程教学资源",
+    "resourceList": "教学资源列表",
+    "rebuild": "同步课程最新内容",
+    "close": "关闭课程教学资源",
+    "loading": "正在整理课程教学资源",
+    "empty": "还没有可用的教学资源",
+    "build": "从当前课程生成",
+    "exportPptx": "导出 PPTX",
+    "formalQuestion": "正式题目引用",
+    "sourceSummary": "与当前课程同源 · {count} 个精确绑定",
+    "staleNotice": "课程已更新，以下单元等待同步",
+    "editSlide": "编辑此页标题",
+    "editValue": "修改后的标题",
+    "editImpact": "将检查 {count} 类教学资源",
+    "previewEdit": "分析影响",
+    "onlyThisPpt": "只改当前 PPT",
+    "changeCourseMeaning": "改变课程含义并联动",
+    "cancelEdit": "取消编辑",
+    "courseCandidateReady": "已生成课程语义候选，请在 AI 老师中确认",
+    "representationSaved": "当前 PPT 已更新，课程正文保持不变",
+    "classification": { "presentation": "表现修改", "equivalent": "等义修改", "semantic": "语义修改", "ambiguous": "需要确认" },
+    "types": { "outline": "大纲", "lesson_plan": "教案", "handout": "讲义", "practice_sheet": "练习册", "slide_deck": "演示文稿" },
+    "status": { "ready": "已同步", "stale": "待同步", "building": "正在生成", "failed": "生成失败" }
   },
   "knowledgeLibrary": {
     "title": "知识库",

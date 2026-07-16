@@ -12,13 +12,14 @@ describe('LearningDock', () => {
     expect(wrapper.find('.learning-dock__count').text()).toBe('3')
 
     const buttons = wrapper.findAll('button')
-    expect(buttons).toHaveLength(5)
+    expect(buttons).toHaveLength(6)
     for (const button of buttons) await button.trigger('click')
 
     expect(wrapper.emitted('records')).toHaveLength(1)
     expect(wrapper.emitted('practice')).toHaveLength(1)
     expect(wrapper.emitted('stats')).toHaveLength(1)
     expect(wrapper.emitted('knowledge-library')).toHaveLength(1)
+    expect(wrapper.emitted('resources')).toHaveLength(1)
     expect(wrapper.emitted('ai')).toHaveLength(1)
   })
 

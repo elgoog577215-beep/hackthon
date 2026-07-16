@@ -38,7 +38,10 @@ def revision_vector_for_document(
     document: CourseDocument | dict[str, Any],
 ) -> CourseRevisionVector:
     item = document if isinstance(document, CourseDocument) else CourseDocument.model_validate(document)
-    revisions: dict[str, str] = {"course_document": item.document_revision}
+    revisions: dict[str, str] = {
+        "course_document": item.document_revision,
+        "course_title": stable_hash({"title": item.title}, prefix="cmt_"),
+    }
     blocks_by_section: dict[str, list[dict[str, Any]]] = {}
 
     for block in sorted(item.blocks, key=lambda value: (value.section_id, value.position, value.block_id)):

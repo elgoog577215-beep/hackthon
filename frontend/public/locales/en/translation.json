@@ -152,6 +152,7 @@
   },
   "adaptiveBlocks": {
     "eyebrow": "Temporary AI support",
+    "acceptedEyebrow": "Personal course growth",
     "expand": "Expand",
     "collapse": "Collapse",
     "dismiss": "Skip this support",
@@ -174,6 +175,23 @@
       "repeated_independent_practice_failure": "Repeated independent errors on the same objective"
     }
   },
+  "courseEvolution": {
+    "eyebrow": "Evidence driven",
+    "title": "Personal course growth suggestion",
+    "refresh": "Re-evaluate learning evidence",
+    "showDetails": "View evidence and scope",
+    "hideDetails": "Hide evidence and scope",
+    "protected": "The base course, other learners, past answers, and original notes stay unchanged",
+    "currentOnly": "Current section only",
+    "currentAndNext": "Current and following sections",
+    "accept": "Apply to my course",
+    "reject": "Not now",
+    "applied": "Applied to the personal course",
+    "undo": "Undo",
+    "sources": { "dialogue": "Dialogue and feedback", "record": "Learning record", "practice": "Formal practice" },
+    "operations": { "explanation": "Additional explanation", "transition": "Follow-up transition", "checkpoint": "Understanding check", "animation": "Step animation" },
+    "effects": { "effective": "Later evidence shows improvement", "ineffective": "Later evidence suggests another adjustment", "insufficient": "Waiting for later formal evidence" }
+  },
   "learningNavigator": {
     "title": "Course outline",
     "back": "Back to course library",
@@ -193,6 +211,7 @@
     "practice": "Practice",
     "records": "Records",
     "knowledgeLibrary": "Library",
+    "resources": "Resources",
     "ai": "AI"
   },
   "learningDock": {
@@ -208,8 +227,36 @@
     "closeStats": "Close learning overview",
     "knowledgeLibrary": "Knowledge library",
     "knowledgeLibraryHint": "View subject knowledge and course coverage",
+    "resources": "Teaching resources",
+    "resourcesHint": "View the outline, lesson plan, handout, practice sheet, and slides compiled from this course",
     "ai": "AI teacher",
     "aiHint": "Open the AI teacher"
+  },
+  "teachingRepresentations": {
+    "eyebrow": "Same-source course",
+    "title": "Course teaching resources",
+    "resourceList": "Teaching resource list",
+    "rebuild": "Sync the latest course content",
+    "close": "Close course teaching resources",
+    "loading": "Preparing course teaching resources",
+    "empty": "No teaching resources are available yet",
+    "build": "Generate from the current course",
+    "exportPptx": "Export PPTX",
+    "formalQuestion": "Formal question reference",
+    "sourceSummary": "Compiled from this course · {count} precise bindings",
+    "staleNotice": "The course changed and these units need to be synced",
+    "editSlide": "Edit this slide title",
+    "editValue": "Updated title",
+    "editImpact": "Will inspect {count} teaching resource types",
+    "previewEdit": "Analyze impact",
+    "onlyThisPpt": "Change this PPT only",
+    "changeCourseMeaning": "Change course meaning and sync",
+    "cancelEdit": "Cancel editing",
+    "courseCandidateReady": "A course semantic candidate is ready for confirmation in the AI teacher",
+    "representationSaved": "The current PPT was updated and the course text stayed unchanged",
+    "classification": { "presentation": "Presentation edit", "equivalent": "Equivalent wording", "semantic": "Semantic edit", "ambiguous": "Decision required" },
+    "types": { "outline": "Outline", "lesson_plan": "Lesson plan", "handout": "Handout", "practice_sheet": "Practice sheet", "slide_deck": "Slides" },
+    "status": { "ready": "Synced", "stale": "Needs sync", "building": "Building", "failed": "Failed" }
   },
   "knowledgeLibrary": {
     "title": "Knowledge library",

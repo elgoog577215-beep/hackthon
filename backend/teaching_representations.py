@@ -109,6 +109,7 @@ class TeachingRepresentation(BaseModel):
     revision: str
     status: RepresentationStatus = "planned"
     stale_reasons: list[str] = Field(default_factory=list)
+    stale_unit_ids: list[str] = Field(default_factory=list)
     fallback_representation_id: str | None = None
     created_at: str
     updated_at: str
@@ -145,6 +146,31 @@ class RepresentationSet(BaseModel):
     revision: str
 
 
+class TeachingRepresentationSpec(BaseModel):
+    spec_id: str
+    course_id: str
+    representation_type: RepresentationType
+    source_bindings: list[SourceBinding]
+    unit_bindings: dict[str, list[SourceBinding]] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    revision: str
+    created_at: str
+    updated_at: str
+
+    @model_validator(mode="after")
+    def validate_bindings(self) -> TeachingRepresentationSpec:
+        if not self.source_bindings:
+            raise ValueError("Teaching representation spec must have source bindings")
+        if any(binding.course_id != self.course_id for binding in self.source_bindings):
+            raise ValueError("Teaching representation spec bindings must belong to the same course")
+        for bindings in self.unit_bindings.values():
+            if not bindings:
+                raise ValueError("Teaching representation units must include source bindings")
+            if any(binding.course_id != self.course_id for binding in bindings):
+                raise ValueError("Teaching representation unit bindings must belong to the same course")
+        return self
+
+
 class DerivationNode(BaseModel):
     node_id: str
     node_type: DerivationNodeType
@@ -177,6 +203,7 @@ class TeachingRepresentationRegistry(BaseModel):
     course_id: str
     registry_revision: str = ""
     plans: list[RepresentationPlan] = Field(default_factory=list)
+    specs: list[TeachingRepresentationSpec] = Field(default_factory=list)
     representations: list[TeachingRepresentation] = Field(default_factory=list)
     representation_sets: list[RepresentationSet] = Field(default_factory=list)
     derivation_graph: AssetDerivationGraph
@@ -266,6 +293,86 @@ class TeachingRepresentationRepository:
             registry.plans.append(plan)
             return self.save(registry)
 
+    def register_spec(self, spec: TeachingRepresentationSpec) -> TeachingRepresentationRegistry:
+        with self._lock(spec.course_id):
+            registry = self.load(spec.course_id)
+            registry.specs = [item for item in registry.specs if item.spec_id != spec.spec_id]
+            registry.specs.append(spec)
+            spec_node_id = f"spec::{spec.spec_id}"
+            unit_prefix = f"spec-unit::{spec.spec_id}::"
+            graph = registry.derivation_graph
+            graph.nodes = [
+                node for node in graph.nodes
+                if node.node_id != spec_node_id and not node.node_id.startswith(unit_prefix)
+            ]
+            graph.nodes.append(DerivationNode(
+                node_id=spec_node_id,
+                node_type="spec",
+                object_id=spec.spec_id,
+                revision_or_fingerprint=spec.revision,
+            ))
+            graph.edges = [
+                edge for edge in graph.edges
+                if edge.to_node_id != spec_node_id
+                and not edge.from_node_id.startswith(unit_prefix)
+                and not edge.to_node_id.startswith(unit_prefix)
+            ]
+            units = spec.unit_bindings or {"__whole__": spec.source_bindings}
+            for unit_id, bindings in units.items():
+                unit_node_id = f"{unit_prefix}{unit_id}"
+                graph.nodes.append(DerivationNode(
+                    node_id=unit_node_id,
+                    node_type="spec",
+                    object_id=f"{spec.spec_id}:{unit_id}",
+                    revision_or_fingerprint=stable_hash({
+                        "spec_revision": spec.revision,
+                        "unit_id": unit_id,
+                    }, prefix="tur_"),
+                ))
+                graph.edges.append(DerivationEdge(
+                    edge_id=stable_hash({
+                        "course_id": spec.course_id,
+                        "source": unit_node_id,
+                        "target": spec_node_id,
+                    }, prefix="dre_"),
+                    from_node_id=unit_node_id,
+                    to_node_id=spec_node_id,
+                    dependency_scope={"unit_id": unit_id},
+                ))
+                for binding in bindings:
+                    for source_key, revision in binding.source_revisions.items():
+                        source_node_id = f"source::{source_key}"
+                        source_node = next(
+                            (node for node in graph.nodes if node.node_id == source_node_id),
+                            None,
+                        )
+                        if source_node is None:
+                            source_node = DerivationNode(
+                                node_id=source_node_id,
+                                node_type="source",
+                                object_id=source_key,
+                                revision_or_fingerprint=revision,
+                            )
+                            graph.nodes.append(source_node)
+                        else:
+                            source_node.revision_or_fingerprint = revision
+                            source_node.status = "current"
+                        graph.edges.append(DerivationEdge(
+                            edge_id=stable_hash({
+                                "course_id": spec.course_id,
+                                "source": source_node_id,
+                                "target": unit_node_id,
+                            }, prefix="dre_"),
+                            from_node_id=source_node_id,
+                            to_node_id=unit_node_id,
+                            dependency_scope={
+                                "unit_id": unit_id,
+                                "section_id": binding.section_id,
+                                "block_id": binding.block_id,
+                            },
+                        ))
+            return self.save(registry)
+
     def register_representation(
         self,
         representation: TeachingRepresentation,
@@ -316,7 +423,12 @@ class TeachingRepresentationRepository:
                 if node:
                     node.status = "removed"
 
-            stale_representation_ids = self._downstream_representation_ids(graph, changed_keys)
+            downstream_node_ids = self._downstream_node_ids(graph, changed_keys)
+            stale_representation_ids = {
+                node.object_id
+                for node in graph.nodes
+                if node.node_id in downstream_node_ids and node.node_type == "representation"
+            }
             removed = set(item.removed_source_keys)
             for representation in registry.representations:
                 if representation.representation_id not in stale_representation_ids:
@@ -330,10 +442,26 @@ class TeachingRepresentationRepository:
                 for reason in reasons:
                     if reason not in representation.stale_reasons:
                         representation.stale_reasons.append(reason)
+                spec = next(
+                    (value for value in registry.specs if value.spec_id == representation.spec_id),
+                    None,
+                )
+                if spec:
+                    affected_units = [
+                        unit_id
+                        for unit_id, bindings in spec.unit_bindings.items()
+                        if any(
+                            changed_keys.intersection(binding.source_revisions)
+                            for binding in bindings
+                        )
+                    ]
+                    representation.stale_unit_ids = sorted(set(
+                        representation.stale_unit_ids + affected_units
+                    ))
                 representation.updated_at = item.created_at
 
             for node in graph.nodes:
-                if node.node_type == "representation" and node.object_id in stale_representation_ids:
+                if node.node_id in downstream_node_ids and node.node_type != "source":
                     node.status = "stale"
 
             registry.applied_revision_event_ids.append(item.event_id)
@@ -380,6 +508,20 @@ class TeachingRepresentationRepository:
         ))
         graph.edges = [edge for edge in graph.edges if edge.to_node_id != representation_node_id]
 
+        spec_node_id = f"spec::{representation.spec_id}"
+        if any(node.node_id == spec_node_id for node in graph.nodes):
+            graph.edges.append(DerivationEdge(
+                edge_id=stable_hash({
+                    "course_id": representation.course_id,
+                    "source": spec_node_id,
+                    "target": representation_node_id,
+                }, prefix="dre_"),
+                from_node_id=spec_node_id,
+                to_node_id=representation_node_id,
+                dependency_kind=dependency_kind,
+                rebuild_policy=rebuild_policy,
+            ))
+
         nodes_by_id = {node.node_id: node for node in graph.nodes}
         for binding in representation.source_bindings:
             for source_key, revision in binding.source_revisions.items():
@@ -412,7 +554,7 @@ class TeachingRepresentationRepository:
                 ))
 
     @staticmethod
-    def _downstream_representation_ids(
+    def _downstream_node_ids(
         graph: AssetDerivationGraph,
         changed_source_keys: set[str],
     ) -> set[str]:
@@ -428,11 +570,7 @@ class TeachingRepresentationRepository:
                 if target not in visited:
                     visited.add(target)
                     queue.append(target)
-        return {
-            node.object_id
-            for node in graph.nodes
-            if node.node_id in visited and node.node_type == "representation"
-        }
+        return visited
 
     @staticmethod
     def _representation_depends_on(

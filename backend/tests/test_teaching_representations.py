@@ -11,6 +11,17 @@ from course_commands import CourseCommandService
 from course_document import document_from_legacy_course
 from course_repository import CourseDocumentRepository
 from course_revisions import revision_event_for_documents, revision_vector_for_document
+from representation_compiler import (
+    CORE_TYPES,
+    compile_core_representations,
+    export_slide_deck_pptx,
+    validate_compiled_representations,
+)
+from representation_edits import (
+    apply_representation_only_edit,
+    classify_representation_edit,
+    representation_edit_impact,
+)
 from teaching_representations import (
     RepresentationConflict,
     SourceBinding,
@@ -285,3 +296,107 @@ def test_representation_router_reconciles_and_returns_graph(tmp_path, monkeypatc
     payload = response.json()
     assert payload["course_id"] == "course-1"
     assert payload["derivation_graph"]["nodes"]
+
+
+def test_compiler_builds_five_bound_representations_and_exports_pptx(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    course_data = legacy_course()
+    course_data["learning_assets"] = {
+        "questions": [{
+            "question_id": "question-a",
+            "revision_id": "question-revision-a",
+            "node_id": "section-a",
+            "prompt": "向量有哪些基本属性？",
+            "practice_level": "understanding",
+        }],
+        "misconceptions": [{
+            "node_id": "section-a",
+            "error_pattern": "把方向相反的向量当成相同向量",
+        }],
+    }
+
+    result = compile_core_representations(document, course_data, repository)
+    registry = repository.load(document.course_id)
+    current_spec_ids = {item.spec_id for item in registry.representations}
+    specs = [item for item in registry.specs if item.spec_id in current_spec_ids]
+
+    assert {item.representation_type for item in registry.representations} == set(CORE_TYPES)
+    assert len(result["representations"]) == 5
+    assert all(spec.unit_bindings for spec in specs)
+    assert validate_compiled_representations(specs)["passed"] is True
+    practice = next(spec for spec in specs if spec.representation_type == "practice_sheet")
+    assert practice.payload["content"]["units"][0]["practice_task_id"] == "question-a"
+
+    slides = next(spec for spec in specs if spec.representation_type == "slide_deck")
+    output = export_slide_deck_pptx(slides, tmp_path / "course.pptx")
+    assert output.exists()
+    assert output.stat().st_size > 0
+
+
+def test_compiled_representations_track_stale_units_instead_of_whole_course(tmp_path):
+    before = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    course_data = legacy_course()
+    course_data["learning_assets"] = {"questions": [], "misconceptions": []}
+    compile_core_representations(before, course_data, repository)
+
+    after = before.model_copy(deep=True)
+    changed_block = after.blocks[0]
+    changed_block.payload["markdown"] = "向量同时具有大小、方向和线性组合语义。"
+    from course_document import refresh_document_revision
+
+    refresh_document_revision(after)
+    event = revision_event_for_documents(before, after, command_id="unit-change")
+    updated = repository.apply_revision_event(before.course_id, event)
+    by_type = {item.representation_type: item for item in updated.representations}
+
+    assert by_type["slide_deck"].status == "stale"
+    assert by_type["slide_deck"].stale_unit_ids == ["slide:section-a"]
+    assert "slide:title" not in by_type["slide_deck"].stale_unit_ids
+    assert by_type["handout"].stale_unit_ids == ["handout:section-a"]
+
+
+def test_representation_edits_classify_semantic_boundary_and_preserve_course_source(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    compile_core_representations(
+        document,
+        {**legacy_course(), "learning_assets": {"questions": [], "misconceptions": []}},
+        repository,
+    )
+    registry = repository.load(document.course_id)
+    original_block_payload = deepcopy(document.blocks[0].payload)
+    slides = next(item for item in registry.representations if item.representation_type == "slide_deck")
+    spec = next(item for item in registry.specs if item.spec_id == slides.spec_id)
+
+    assert classify_representation_edit(
+        field="layout", before="left", after="right",
+    )["classification"] == "presentation"
+    assert classify_representation_edit(
+        field="example", before="旧例子", after="具有不同数学含义的新例子",
+    )["classification"] == "ambiguous"
+    assert classify_representation_edit(
+        field="example", before="旧例子", after="新例子", semantic_intent=True,
+    )["classification"] == "semantic"
+
+    impact = representation_edit_impact(registry, spec, unit_id="slide:section-a")
+    assert document.blocks[0].block_id in impact["block_ids"]
+    assert {item["representation_type"] for item in impact["affected_representations"]} >= {
+        "outline", "lesson_plan", "handout", "slide_deck",
+    }
+
+    updated = apply_representation_only_edit(
+        repository,
+        registry,
+        slides,
+        spec,
+        unit_id="slide:section-a",
+        field="title",
+        after="向量意味着什么",
+    )
+    updated_slides = next(item for item in updated.representations if item.representation_type == "slide_deck")
+    updated_spec = next(item for item in updated.specs if item.spec_id == updated_slides.spec_id)
+    unit = next(item for item in updated_spec.payload["content"]["slides"] if item["unit_id"] == "slide:section-a")
+    assert unit["title"] == "向量意味着什么"
+    assert document.blocks[0].payload == original_block_payload
