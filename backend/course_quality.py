@@ -13,7 +13,7 @@ from course_coherence import evaluate_course_coherence
 from course_pedagogy import MODULES, coerce_persisted_profile
 
 
-QUALITY_CONTRACT_VERSION = "course_quality_v8"
+QUALITY_CONTRACT_VERSION = "course_quality_v9"
 
 
 MODULE_SIGNAL_RULES: dict[str, tuple[tuple[str, ...], str]] = {
@@ -149,6 +149,39 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
             node_id,
         ))
 
+    level_two_headings = [
+        item.strip()
+        for item in re.findall(r"(?m)^##\s+(.+?)\s*$", text)
+        if item.strip()
+    ]
+    node_title = str(node.get("node_name") or "").strip()
+    if node_title and any(_same_heading(item, node_title) for item in level_two_headings):
+        issues.append(_issue(
+            "duplicate_section_heading",
+            "major",
+            "正文重复使用了页面已经展示的节点标题，生成后会形成空引入块或重复标题",
+            "删除节点同名标题，直接从本节任务或真实引入模块开始",
+            node_id,
+        ))
+    required_module_labels = [
+        str(module.get("label") or "").strip()
+        for module in node.get("module_plan") or []
+        if module.get("required", True) and str(module.get("label") or "").strip()
+    ]
+    missing_module_headings = [
+        label
+        for label in required_module_labels
+        if not any(_module_heading_matches(item, label) for item in level_two_headings)
+    ]
+    if missing_module_headings:
+        issues.append(_issue(
+            "missing_module_headings",
+            "major",
+            f"必需教学模块缺少稳定的二级标题：{'、'.join(missing_module_headings[:6])}",
+            "按模块契约使用原始标签作为二级标题，内部层次改用三级标题",
+            node_id,
+        ))
+
     if not _contains_any(text, ("练习", "任务", "请", "尝试", "思考", "完成", "写出", "计算", "实现", "分析", "表达")):
         issues.append(_issue("missing_learner_action", "major", "缺少学习者主动任务", "加入与学习目标一致的计算、实现、分析、表达或操作", node_id))
     if not _contains_any(text, ("答案", "检查", "标准", "提示", "验证", "参考", "自测", "反馈")):
@@ -182,7 +215,12 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
 
     score = _score_from_issues(issues)
     has_content_integrity_failure = any(
-        item.get("code") in {"model_self_correction", "markdown_block_join"}
+        item.get("code") in {
+            "model_self_correction",
+            "markdown_block_join",
+            "duplicate_section_heading",
+            "missing_module_headings",
+        }
         for item in issues
     )
     return {
@@ -698,6 +736,25 @@ def build_final_course_quality_report(
 def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
     lowered = text.lower()
     return any(marker.lower() in lowered for marker in markers)
+
+
+def _normalized_heading(value: str) -> str:
+    text = re.sub(r"^[#\s]+", "", str(value or ""))
+    return re.sub(r"[\s　]+", "", text).strip("：:、。 ").lower()
+
+
+def _same_heading(left: str, right: str) -> bool:
+    return bool(right) and _normalized_heading(left) == _normalized_heading(right)
+
+
+def _module_heading_matches(heading: str, label: str) -> bool:
+    normalized_heading = _normalized_heading(heading)
+    normalized_label = _normalized_heading(label)
+    return bool(normalized_label) and (
+        normalized_heading == normalized_label
+        or normalized_heading.startswith(f"{normalized_label}：")
+        or normalized_heading.startswith(f"{normalized_label}:")
+    )
 
 
 def _current_node_quality(node: dict[str, Any]) -> dict[str, Any]:

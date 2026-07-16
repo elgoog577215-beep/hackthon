@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from enum import Enum
 from math import ceil
+import re
 from typing import Any, Iterable
 
 
@@ -57,6 +58,7 @@ class TeachingModuleSpec:
         return {
             "module_id": self.module_id,
             "label": self.label,
+            "block_role": module_block_role(self.module_id),
             "scope": self.scope.value,
             "frequency": self.frequency.value,
             "source_mode": source_mode,
@@ -213,6 +215,99 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "business_roleplay": _module("business_roleplay", "角色模拟", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "模拟沟通、谈判或决策", "给出双方目标、信息差和复盘问题", "谈判", "沟通", "汇报", "面试"),
     "business_data": _module("business_data", "数据分析", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "使用数据支持判断", "明确指标定义、计算和决策含义", "数据", "指标", "财务", "分析"),
 }
+
+
+# 教学模块和课程块共享这一套语义角色。生成器、Markdown 拆块器和前端标签
+# 都必须消费这里的结果，不能再按“第几个块”猜测角色。
+MODULE_BLOCK_ROLES: dict[str, str] = {
+    "course_positioning": "orientation",
+    "learning_path": "orientation",
+    "integrated_transfer": "transfer",
+    "lesson_goal": "objective",
+    "core_explanation": "concept",
+    "learner_action": "activity",
+    "feedback_check": "feedback",
+    "general_concept_map": "concept",
+    "general_explained_example": "example",
+    "general_application": "application",
+    "general_checklist": "application",
+    "general_comparison": "counterexample",
+    "math_prerequisite_diagnostic": "prerequisite",
+    "math_intuition": "orientation",
+    "math_formalization": "concept",
+    "math_worked_example": "example",
+    "math_variation": "activity",
+    "math_error_analysis": "misconception",
+    "math_proof": "reasoning",
+    "math_modeling": "application",
+    "engineering_artifact_path": "orientation",
+    "engineering_minimal_run": "example",
+    "engineering_output": "feedback",
+    "engineering_mechanism": "reasoning",
+    "engineering_modification": "activity",
+    "engineering_debugging": "misconception",
+    "engineering_testing": "feedback",
+    "engineering_architecture": "concept",
+    "science_phenomenon_path": "orientation",
+    "science_phenomenon": "orientation",
+    "science_model": "concept",
+    "science_evidence": "reasoning",
+    "science_boundary": "concept",
+    "science_prediction": "application",
+    "science_experiment_design": "activity",
+    "science_data_analysis": "reasoning",
+    "life_system_levels": "concept",
+    "life_location_structure": "concept",
+    "life_function": "concept",
+    "life_mechanism": "reasoning",
+    "life_regulation": "reasoning",
+    "life_case": "example",
+    "life_normal_abnormal": "counterexample",
+    "life_evidence": "reasoning",
+    "humanities_question_path": "orientation",
+    "humanities_context": "orientation",
+    "humanities_source": "example",
+    "humanities_claim": "reasoning",
+    "humanities_comparison": "counterexample",
+    "humanities_response": "activity",
+    "humanities_source_criticism": "activity",
+    "humanities_timeline": "orientation",
+    "language_scenario_path": "orientation",
+    "language_input": "example",
+    "language_chunks": "concept",
+    "language_form_use": "concept",
+    "language_controlled_practice": "activity",
+    "language_output": "activity",
+    "language_review": "remediation",
+    "language_pronunciation": "concept",
+    "language_pragmatics": "application",
+    "business_deliverable_path": "orientation",
+    "business_scenario": "orientation",
+    "business_framework": "concept",
+    "business_case": "example",
+    "business_tool": "application",
+    "business_task": "activity",
+    "business_metric": "feedback",
+    "business_roleplay": "activity",
+    "business_data": "reasoning",
+}
+
+
+def module_block_role(module_id: str) -> str:
+    return MODULE_BLOCK_ROLES.get(str(module_id or ""), "concept")
+
+
+def module_role_from_heading(title: str) -> str | None:
+    """Resolve a generated heading only when it matches a registered module label."""
+    normalized = re.sub(r"\s+", "", str(title or "")).strip("：:、。 ").lower()
+    if not normalized:
+        return None
+    matches: list[tuple[int, str]] = []
+    for module_id, module in MODULES.items():
+        label = re.sub(r"\s+", "", module.label).strip("：:、。 ").lower()
+        if normalized == label or normalized.startswith(f"{label}：") or normalized.startswith(f"{label}:"):
+            matches.append((len(label), module_block_role(module_id)))
+    return max(matches, default=(0, ""))[1] or None
 
 
 COMMON_COURSE_MODULES = ("course_positioning", "learning_path", "integrated_transfer")
@@ -568,6 +663,12 @@ def attach_module_plans_to_plan(
 
 def validate_module_registry() -> list[str]:
     issues: list[str] = []
+    missing_roles = sorted(set(MODULES) - set(MODULE_BLOCK_ROLES))
+    unknown_modules = sorted(set(MODULE_BLOCK_ROLES) - set(MODULES))
+    if missing_roles:
+        issues.append(f"教学模块缺少课程块角色: {', '.join(missing_roles)}")
+    if unknown_modules:
+        issues.append(f"课程块角色引用了不存在的教学模块: {', '.join(unknown_modules)}")
     for mode, template in TEMPLATES.items():
         referenced = template.course_modules + template.lesson_modules + template.conditional_modules
         missing = [module_id for module_id in referenced if module_id not in MODULES]
@@ -649,6 +750,7 @@ __all__ = [
     "PedagogyTemplate",
     "SubjectPedagogyProfile",
     "MODULES",
+    "MODULE_BLOCK_ROLES",
     "TEMPLATES",
     "COMMON_COURSE_MODULES",
     "COMMON_LESSON_MODULES",
@@ -657,5 +759,7 @@ __all__ = [
     "coerce_persisted_profile",
     "build_course_module_plan",
     "attach_module_plans_to_plan",
+    "module_block_role",
+    "module_role_from_heading",
     "validate_module_registry",
 ]

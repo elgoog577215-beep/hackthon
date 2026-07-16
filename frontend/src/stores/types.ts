@@ -17,7 +17,7 @@ export interface NodeGenerationConfig {
 export interface ContentBlock {
   block_id: string
   parent_block_id?: string | null
-  type: 'intro' | 'concept' | 'reasoning' | 'example' | 'application' | 'exercise' | 'summary' | 'custom'
+  type: 'intro' | 'orientation' | 'prerequisite' | 'objective' | 'concept' | 'reasoning' | 'example' | 'counterexample' | 'application' | 'activity' | 'feedback' | 'exercise' | 'checkpoint' | 'misconception' | 'remediation' | 'summary' | 'transfer' | 'custom'
   title: string
   content: string
   summary?: string
@@ -29,7 +29,7 @@ export interface ContentBlock {
 }
 
 export type CourseBlockKind = 'rich_text' | 'formula' | 'code' | 'image' | 'audio' | 'video' | 'diagram' | 'table' | 'callout' | 'source_excerpt' | 'practice_ref' | 'code_lab' | 'reflection' | 'project' | 'mastery_check' | 'review_checkpoint' | 'remediation_slot' | 'graph_embed'
-export type CourseBlockRole = 'orientation' | 'prerequisite' | 'concept' | 'reasoning' | 'example' | 'counterexample' | 'application' | 'misconception' | 'checkpoint' | 'remediation' | 'summary' | 'transfer'
+export type CourseBlockRole = 'orientation' | 'prerequisite' | 'objective' | 'concept' | 'reasoning' | 'example' | 'counterexample' | 'application' | 'activity' | 'feedback' | 'misconception' | 'checkpoint' | 'remediation' | 'summary' | 'transfer'
 
 export interface CourseDocumentBlock {
   block_id: string

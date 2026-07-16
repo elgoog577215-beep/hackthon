@@ -15,7 +15,12 @@ from shared.prompt_config import DifficultyLevel, TeachingStyle
 class ContentBlock(BaseModel):
     block_id: str
     parent_block_id: Optional[str] = None
-    type: Literal["intro", "concept", "reasoning", "example", "application", "exercise", "summary", "custom"] = "custom"
+    type: Literal[
+        "intro", "orientation", "prerequisite", "objective", "concept",
+        "reasoning", "example", "counterexample", "application", "activity",
+        "feedback", "exercise", "checkpoint", "misconception", "remediation",
+        "summary", "transfer", "custom",
+    ] = "custom"
     title: str
     content: str = ""
     summary: str = ""
