@@ -1,8 +1,86 @@
+from copy import deepcopy
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from course_knowledge_rebuild import CourseKnowledgeRebuildError
 from routers import knowledge_libraries
-from subject_library_service import SubjectLibraryVersionConflict, SubjectOntologyGenerationError
+from subject_library_service import SubjectLibraryVersionConflict
+
+
+def _course():
+    return {
+        "course_id": "course-1",
+        "course_name": "变量课程",
+        "course_purpose": "systematic",
+        "nodes": [{
+            "node_id": "node-1",
+            "node_level": 2,
+            "node_name": "变量基础",
+            "node_content": "变量绑定与重新赋值。",
+            "learning_objective": "能够解释变量绑定与重新赋值",
+            "assessment": ["解释一组赋值语句"],
+            "knowledge_structure": [{
+                "concept_group": "变量语义",
+                "description": "区分绑定与重新赋值",
+                "knowledge_points": [{
+                    "name": "变量绑定",
+                    "statement": "变量名通过绑定关系指向当前值。",
+                    "knowledge_type": "definition",
+                    "conditions": ["已经执行赋值语句"],
+                    "boundaries": ["变量名本身不是值对象"],
+                    "capability_points": [{
+                        "name": "解释变量绑定",
+                        "observable_behavior": "给定赋值语句，标出变量名、绑定和值",
+                    }],
+                    "misconceptions": [{
+                        "name": "把变量名当成值",
+                        "observable_error_pattern": "认为变量名就是值对象本身",
+                        "discrimination": "分别标注变量名、绑定和值",
+                        "repair_strategy": "绘制变量绑定图后重新解释",
+                    }],
+                    "mastery_criteria": [{
+                        "name": "变量绑定解释达标",
+                        "observable_performance": "独立解释变量名、绑定和值",
+                        "verification_method": "分析三个赋值案例",
+                    }],
+                    "entry_reason": "变量绑定是本课入口。",
+                    "relations": [{
+                        "target_name": "重新赋值",
+                        "relation_type": "prerequisite",
+                        "reason": "理解已有绑定后才能解释重新赋值",
+                    }],
+                }, {
+                    "name": "重新赋值",
+                    "statement": "重新赋值会更新变量名指向的当前值。",
+                    "knowledge_type": "rule",
+                    "conditions": ["执行新的赋值语句"],
+                    "boundaries": ["对象原地修改不属于重新绑定"],
+                    "capability_points": [{
+                        "name": "追踪重新赋值",
+                        "observable_behavior": "逐步追踪多次赋值后的变量当前值",
+                    }],
+                    "mastery_criteria": [{
+                        "name": "重新赋值追踪达标",
+                        "observable_performance": "独立追踪多步赋值并解释绑定变化",
+                        "verification_method": "完成多步赋值状态追踪",
+                    }],
+                }],
+            }],
+        }],
+    }
+
+
+class _CourseRepository:
+    def __init__(self, course=None):
+        self.course = deepcopy(course or _course())
+
+    def load_course_view(self, _course_id):
+        return deepcopy(self.course)
+
+    async def update_metadata(self, _course_id, metadata):
+        self.course.update(deepcopy(metadata))
+        return deepcopy(self.course)
 
 
 class _LibraryService:
@@ -24,6 +102,23 @@ class _LibraryService:
         return {"library": {"revision_id": revision_id, "lifecycle_status": "accepted"}}
 
 
+class _RebuildService:
+    async def rebuild_course(self, course_id, *, force=False):
+        return {
+            "course_id": course_id,
+            "force": force,
+            "library": {
+                "schema_version": "knowledge_library_view_v3",
+                "lifecycle_status": "accepted",
+                "identity_scope": "course_local",
+            },
+            "course_knowledge_base": {"schema_version": "course_knowledge_base_v2"},
+            "course_map": {"coverage": {"mapped_ratio": 1.0}},
+            "quality_report": {"passed": True, "strict_passed": True},
+            "reference_catalog_required": False,
+        }
+
+
 class _MigrationService:
     def create_job(self):
         return {"job_id": "migration-1", "status": "pending"}
@@ -35,6 +130,7 @@ class _MigrationService:
 def _client():
     app = FastAPI()
     app.include_router(knowledge_libraries.router, prefix="/api")
+    app.dependency_overrides[knowledge_libraries.get_course_knowledge_rebuild_service] = lambda: _RebuildService()
     app.dependency_overrides[knowledge_libraries.get_subject_library_service] = lambda: _LibraryService()
     app.dependency_overrides[knowledge_libraries.get_subject_library_migration_service] = lambda: _MigrationService()
     return TestClient(app)
@@ -55,7 +151,9 @@ def test_rebuild_review_and_accept_contracts():
     )
 
     assert rebuilt.status_code == 200
-    assert rebuilt.json()["library"]["lifecycle_status"] == "candidate"
+    assert rebuilt.json()["library"]["lifecycle_status"] == "accepted"
+    assert rebuilt.json()["library"]["identity_scope"] == "course_local"
+    assert rebuilt.json()["reference_catalog_required"] is False
     assert review.json()["diff"]["added"] == 3
     assert accepted.json()["library"]["lifecycle_status"] == "accepted"
     assert stale.status_code == 409
@@ -77,25 +175,26 @@ def test_migration_job_contracts():
     }
 
 
-def test_rebuild_exposes_retryable_provider_failure():
-    class _FailingLibraryService(_LibraryService):
+def test_rebuild_exposes_degraded_course_quality_without_calling_subject_provider():
+    class _FailingRebuildService:
         async def rebuild_course(self, course_id, *, force=False):
-            raise SubjectOntologyGenerationError(
-                code="insufficient_quota",
-                message="AI 服务额度不足，知识库未重新生成",
+            raise CourseKnowledgeRebuildError(
+                code="knowledge_quality_failed",
+                message="课程知识化结果未通过质量门，原课程保持不变",
                 retryable=True,
+                quality_report={"strict_passed": False, "blocking_issues": [{"message": "知识点只有名称"}]},
             )
 
     app = FastAPI()
     app.include_router(knowledge_libraries.router, prefix="/api")
-    app.dependency_overrides[knowledge_libraries.get_subject_library_service] = lambda: _FailingLibraryService()
+    app.dependency_overrides[knowledge_libraries.get_course_knowledge_rebuild_service] = (
+        lambda: _FailingRebuildService()
+    )
     client = TestClient(app)
 
     response = client.post("/api/courses/course-1/knowledge-library/rebuild", json={"force": True})
 
-    assert response.status_code == 429
-    assert response.json()["detail"] == {
-        "code": "insufficient_quota",
-        "message": "AI 服务额度不足，知识库未重新生成",
-        "retryable": True,
-    }
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "knowledge_quality_failed"
+    assert response.json()["detail"]["retryable"] is True
+    assert response.json()["detail"]["quality_report"]["blocking_issues"]

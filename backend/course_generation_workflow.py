@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -20,10 +21,9 @@ from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
 )
-from course_pedagogy import SubjectPedagogyProfile
 from course_knowledge_map import normalize_knowledge_structure
+from course_pedagogy import SubjectPedagogyProfile
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
-
 
 PIPELINE_VERSION = "course_generation_v4"
 
@@ -238,8 +238,9 @@ def validate_course_plan_constraints(
             "message": f"用户明确要求 {expected_sections} 个小节，蓝图实际为 {section_count} 个",
             "blocking": True,
         })
+    issues.extend(_knowledge_contract_issues(plan, chapters))
     return {
-        "schema_version": "course_plan_constraints_v1",
+        "schema_version": "course_plan_constraints_v2",
         "passed": not issues,
         "expected": constraints,
         "actual": {
@@ -248,6 +249,182 @@ def validate_course_plan_constraints(
         },
         "issues": issues,
     }
+
+
+def _knowledge_contract_issues(
+    plan: dict[str, Any],
+    chapters: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Reject chapter-title indexes before any expensive content generation."""
+    issues: list[dict[str, Any]] = []
+    point_names: dict[str, str] = {}
+    inbound_names: set[str] = set()
+    entry_names: set[str] = set()
+    relation_candidates: list[dict[str, Any]] = [
+        deepcopy(item) for item in plan.get("knowledge_relations") or []
+        if isinstance(item, dict)
+    ]
+    allowed_relations = {
+        "prerequisite",
+        "derives",
+        "equivalent_to",
+        "contrasts_with",
+        "applies_to",
+        "generalizes",
+    }
+
+    for chapter in chapters:
+        if not isinstance(chapter, dict):
+            continue
+        for section in chapter.get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            section_label = str(section.get("section_number") or section.get("node_id") or "未知小节")
+            section_title = _normalize_knowledge_name(section.get("title"))
+            prior_point_names = set(point_names)
+            structures = section.get("knowledge_structure") or []
+            if not structures:
+                issues.append(_plan_issue(
+                    "plan:missing_knowledge_structure",
+                    f"小节 {section_label} 没有课程知识蓝图",
+                ))
+                continue
+            for raw_group in structures:
+                if not isinstance(raw_group, dict):
+                    continue
+                group_name = str(
+                    raw_group.get("concept_group")
+                    or raw_group.get("topic")
+                    or raw_group.get("name")
+                    or ""
+                ).strip()
+                points = [item for item in raw_group.get("knowledge_points") or [] if isinstance(item, dict)]
+                if not group_name or _normalize_knowledge_name(group_name) == section_title:
+                    issues.append(_plan_issue(
+                        "plan:concept_group_mirrors_section",
+                        f"小节 {section_label} 的概念组缺失或复制了小节标题",
+                    ))
+                if len(points) < 2:
+                    issues.append(_plan_issue(
+                        "plan:concept_group_too_small",
+                        f"小节 {section_label} 的概念组「{group_name or '未命名'}」少于两个原子知识点",
+                    ))
+                for point in points:
+                    name = str(point.get("name") or "").strip()
+                    normalized = _normalize_knowledge_name(name)
+                    if not name or normalized == section_title:
+                        issues.append(_plan_issue(
+                            "plan:knowledge_point_mirrors_section",
+                            f"小节 {section_label} 存在缺失名称或复制标题的知识点",
+                        ))
+                        continue
+                    if normalized in point_names:
+                        issues.append(_plan_issue(
+                            "plan:duplicate_knowledge_identity",
+                            f"知识点「{name}」在全课重复创建，应复用同一课程知识身份",
+                        ))
+                    point_names[normalized] = name
+                    if not str(point.get("statement") or point.get("description") or "").strip():
+                        issues.append(_plan_issue(
+                            "plan:knowledge_point_missing_statement",
+                            f"知识点「{name}」只有名称，没有独立知识陈述",
+                        ))
+                    if not point.get("conditions") and not point.get("boundaries"):
+                        issues.append(_plan_issue(
+                            "plan:knowledge_point_missing_boundary",
+                            f"知识点「{name}」没有成立条件或适用边界",
+                        ))
+                    skills = point.get("capability_points") or point.get("capabilities") or []
+                    if not skills or any(
+                        not isinstance(item, dict)
+                        or not str(item.get("observable_behavior") or "").strip()
+                        for item in skills
+                    ):
+                        issues.append(_plan_issue(
+                            "plan:knowledge_point_missing_skill",
+                            f"知识点「{name}」缺少可观察能力点",
+                        ))
+                    mastery = point.get("mastery_criteria") or []
+                    if not mastery or any(
+                        not isinstance(item, dict)
+                        or not str(item.get("observable_performance") or "").strip()
+                        or not str(item.get("verification_method") or "").strip()
+                        for item in mastery
+                    ):
+                        issues.append(_plan_issue(
+                            "plan:knowledge_point_missing_mastery",
+                            f"知识点「{name}」缺少可验证掌握标准",
+                        ))
+                    for mistake in point.get("misconceptions") or []:
+                        if not isinstance(mistake, dict) or any(
+                            not str(mistake.get(field) or "").strip()
+                            for field in ("observable_error_pattern", "discrimination", "repair_strategy")
+                        ):
+                            issues.append(_plan_issue(
+                                "plan:misconception_is_template",
+                                f"知识点「{name}」存在无法观察、辨别或修复的模板易错点",
+                            ))
+                    if str(point.get("entry_reason") or "").strip():
+                        entry_names.add(normalized)
+                    for prerequisite in point.get("prerequisite_names") or []:
+                        relation_candidates.append({
+                            "source_name": str(prerequisite),
+                            "target_name": name,
+                            "relation_type": "prerequisite",
+                            "reason": "蓝图声明的必要前置",
+                        })
+                    for relation in point.get("relations") or []:
+                        if isinstance(relation, dict):
+                            relation_candidates.append({**deepcopy(relation), "source_name": name})
+            for reused_name in section.get("reused_knowledge_names") or []:
+                if _normalize_knowledge_name(reused_name) not in prior_point_names:
+                    issues.append(_plan_issue(
+                        "plan:invalid_reused_knowledge",
+                        f"小节 {section_label} 复用了尚未在前序小节定义的知识点「{reused_name}」",
+                    ))
+
+    for relation in relation_candidates:
+        relation_type = str(relation.get("relation_type") or "").strip()
+        source_name = _normalize_knowledge_name(relation.get("source_name"))
+        target_name = _normalize_knowledge_name(relation.get("target_name"))
+        if relation_type not in allowed_relations:
+            issues.append(_plan_issue(
+                "plan:invalid_knowledge_relation",
+                f"知识关系只允许六类正式关系，收到「{relation_type or '空'}」",
+            ))
+            continue
+        if source_name not in point_names or target_name not in point_names or source_name == target_name:
+            issues.append(_plan_issue(
+                "plan:invalid_relation_endpoint",
+                "知识关系端点必须引用当前课程内两个不同的原子知识点规范名称",
+            ))
+            continue
+        if not str(relation.get("reason") or "").strip():
+            issues.append(_plan_issue("plan:relation_missing_reason", "知识关系缺少具体判定理由"))
+        if relation_type == "derives" and not relation.get("derivation_steps"):
+            issues.append(_plan_issue("plan:derivation_missing_steps", "推导关系缺少关键步骤"))
+        if relation_type == "contrasts_with" and not str(relation.get("distinction") or "").strip():
+            issues.append(_plan_issue("plan:contrast_missing_distinction", "对比关系缺少具体判别维度"))
+        inbound_names.add(target_name)
+        if relation_type in {"equivalent_to", "contrasts_with"}:
+            inbound_names.add(source_name)
+
+    for normalized, name in point_names.items():
+        if normalized not in inbound_names and normalized not in entry_names:
+            issues.append(_plan_issue(
+                "plan:knowledge_entry_reason_missing",
+                f"知识点「{name}」既无关系入边，也没有入口理由",
+            ))
+    return issues
+
+
+def _normalize_knowledge_name(value: Any) -> str:
+    text = re.sub(r"^\d+(?:\.\d+)*\s*", "", str(value or "").strip())
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", text.lower())
+
+
+def _plan_issue(code: str, message: str) -> dict[str, Any]:
+    return {"code": code, "message": message, "blocking": True}
 
 
 def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:
@@ -266,6 +443,7 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
                 "grounding_contract": section.get("grounding_contract", {}),
                 "knowledge_points": section.get("key_points", []),
                 "knowledge_structure": section.get("knowledge_structure", []),
+                "reused_knowledge_names": section.get("reused_knowledge_names", []),
                 "example_plan": section.get("examples_plan") or _example_plan_for_refs(section.get("evidence_refs", []), artifacts),
                 "exercise_plan": section.get("exercise_plan") or _exercise_plan_for_refs(section.get("evidence_refs", []), artifacts),
                 "misconceptions": section.get("misconceptions", []),
@@ -283,6 +461,7 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
         "positioning": plan.get("positioning") or artifacts.get("course_generation_brief", {}).get("goal", "电子课程资料"),
         "learning_objectives": plan.get("learning_objectives", []),
         "prerequisites": plan.get("prerequisites", []),
+        "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
         "subject_pedagogy_profile": artifacts.get("subject_pedagogy_profile") or plan.get("subject_pedagogy_profile") or {},
         "difficulty_profile": artifacts.get("difficulty_profile") or plan.get("difficulty_profile") or {},
         "difficulty_gap_assessment": artifacts.get("difficulty_gap_assessment") or {},
@@ -636,6 +815,7 @@ def _format_node_blueprint(node_blueprint: dict[str, Any]) -> str:
         f"- 小节：{node_blueprint.get('section_number', '')} {node_blueprint.get('title', '')}",
         f"- 学习目标：{node_blueprint.get('learning_objective', '')}",
         f"- 核心知识点：{'；'.join(node_blueprint.get('knowledge_points', []))}",
+        f"- 复用前序知识：{'；'.join(node_blueprint.get('reused_knowledge_names', [])) or '无'}",
         f"- 易错点：{'；'.join(node_blueprint.get('misconceptions', []))}",
         f"- 范围边界：{node_blueprint.get('scope_boundary', '')}",
         f"- 例题计划：{'；'.join(node_blueprint.get('example_plan', []))}",

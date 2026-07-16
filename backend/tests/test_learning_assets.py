@@ -1,10 +1,10 @@
+from content_blocks import set_node_content_blocks
+from learning_asset_storage import LearningAssetRepository
 from learning_assets import (
     compile_learning_asset_plan,
     compile_learning_assets,
     evaluate_learning_asset_quality,
 )
-from content_blocks import set_node_content_blocks
-from learning_asset_storage import LearningAssetRepository
 
 
 def _course(mode="programming_engineering"):
@@ -26,11 +26,60 @@ def _course(mode="programming_engineering"):
             "node_id": "L2-1-1",
             "node_level": 2,
             "node_name": "第一个程序",
-            "node_content": "## 核心概念\n\nprint 将内容写入标准输出。",
+            "node_content": (
+                "## print 的输出副作用\n\n调用 print 会把格式化后的文本写入标准输出。\n\n"
+                "## 标准输出流\n\n标准输出流是程序向运行环境发送普通文本结果的默认通道。"
+            ),
             "learning_objective": "能够运行并解释 print 程序",
-            "key_points": ["print", "标准输出"],
+            "knowledge_structure": [{
+                "concept_group": "程序输出行为",
+                "description": "区分函数调用、输出副作用与标准输出通道",
+                "knowledge_points": [{
+                    "name": "print 的输出副作用",
+                    "statement": "调用 print 会把格式化后的内容写入标准输出，而不是把该内容作为函数返回值。",
+                    "knowledge_type": "principle",
+                    "conditions": ["程序运行环境提供标准输出通道"],
+                    "boundaries": ["输出副作用不等同于函数返回值"],
+                    "capability_points": [{
+                        "name": "解释 print 调用结果",
+                        "observable_behavior": "运行 print 程序并区分屏幕输出与返回值",
+                    }],
+                    "misconceptions": [{
+                        "name": "把 print 输出当成返回值",
+                        "observable_error_pattern": "把屏幕上出现的文本写成 print 调用的返回值",
+                        "discrimination": "分别观察标准输出与表达式求值结果",
+                        "repair_strategy": "同时记录 print 的屏幕输出和返回值后进行对照",
+                    }],
+                    "mastery_criteria": [{
+                        "name": "print 行为辨析达标",
+                        "observable_performance": "独立运行示例并准确解释输出副作用与返回值的差别",
+                        "verification_method": "运行包含赋值和 print 的对照程序并解释结果",
+                    }],
+                    "entry_reason": "这是理解程序输出的课程入口。",
+                    "relations": [{
+                        "target_name": "标准输出流",
+                        "relation_type": "applies_to",
+                        "reason": "print 的输出副作用具体作用于标准输出流",
+                    }],
+                }, {
+                    "name": "标准输出流",
+                    "statement": "标准输出流是程序向运行环境发送普通结果文本的默认输出通道。",
+                    "knowledge_type": "definition",
+                    "conditions": ["运行环境没有重定向标准输出"],
+                    "boundaries": ["标准错误流不是标准输出流"],
+                    "capability_points": [{
+                        "name": "识别标准输出",
+                        "observable_behavior": "给定程序运行记录，准确标出写入标准输出的内容",
+                    }],
+                    "mastery_criteria": [{
+                        "name": "标准输出识别达标",
+                        "observable_performance": "在包含返回值与错误输出的案例中独立识别标准输出",
+                        "verification_method": "对三个混合输出案例分类并说明依据",
+                    }],
+                }],
+            }],
+            "key_points": ["print 的输出副作用", "标准输出流"],
             "assessment": ["提交可运行程序并说明输出"],
-            "misconceptions": ["把 print 当成返回值"],
             "prerequisite_node_ids": [],
             "difficulty_contract": {
                 "challenge": {"reasoning_steps": 2},
@@ -70,25 +119,37 @@ def test_assets_have_stable_revisions_and_five_passing_gates():
 
     course_map = bundle["assets"]["course_knowledge_map"][0]
     assert course_map["schema_version"] == "course_knowledge_map_v2"
-    assert course_map["status"] == "library_unavailable"
+    assert course_map["status"] == "active"
     assert course_map["coverage"]["unmapped_count"] == course_map["coverage"]["mapping_count"]
-    assert question["concept_ids"] == []
+    assert question["concept_ids"] == question["course_knowledge_refs"]
+    assert question["concept_ids"]
     assert criterion["concept_ids"] == question["concept_ids"]
-    assert misconception["concept_ids"] == question["concept_ids"]
-    assert course["nodes"][0]["content_blocks"][0]["metadata"]["concept_refs"] == question["concept_ids"]
+    assert misconception["concept_ids"]
+    assert set(misconception["concept_ids"]).issubset(question["concept_ids"])
+    block_refs = course["nodes"][0]["content_blocks"][0]["metadata"]["concept_refs"]
+    assert block_refs
+    assert set(block_refs).issubset(question["concept_ids"])
     knowledge_view = bundle["assets"]["knowledge_library"][0]
     assert knowledge_view["library_id"].startswith("ckb_")
     assert knowledge_view["course_knowledge_base_revision_id"].startswith("ckbr_")
     assert knowledge_view["nodes"]
-    assert all(node["source_status"] == "course_local" for node in knowledge_view["nodes"])
-    assert all(node["formal_knowledge_refs"] == [] for node in knowledge_view["nodes"])
+    assert knowledge_view["schema_version"] == "knowledge_library_view_v3"
+    assert all(
+        node["source_status"] in {"course_path", "course_source"}
+        for node in knowledge_view["nodes"]
+    )
+    assert all(
+        node["identity_scope"] == "course_local"
+        for node in knowledge_view["nodes"]
+        if node["node_type"] == "knowledge_point"
+    )
     progression = bundle["assets"]["chapter_progression_contracts"][0]
     assert progression["chapter_id"] == "L2-1-1"
     assert progression["required_objective_ids"] == [criterion["objective_id"]]
     assert progression["revision_id"].startswith("cpcr_")
 
 
-def test_linear_algebra_assets_bind_one_formal_knowledge_library():
+def test_legacy_linear_algebra_outline_is_degraded_without_borrowing_subject_identity():
     course = _course(mode="math_formal")
     course["course_name"] = "线性代数"
     node = course["nodes"][0]
@@ -108,23 +169,21 @@ def test_linear_algebra_assets_bind_one_formal_knowledge_library():
     course_map = bundle["assets"]["course_knowledge_map"][0]
     knowledge_view = bundle["assets"]["knowledge_library"][0]
     question = bundle["assets"]["questions"][0]
-    misconception = bundle["assets"]["misconceptions"][0]
 
-    assert bundle["quality_report"]["passed"] is True
+    assert bundle["quality_report"]["passed"] is False
     assert course_map["coverage"]["status"] == "mapped"
-    assert "math.la.system.gaussian_elimination.forward" in question["concept_ids"]
-    assert question["skill_unit_ids"]
-    assert question["mistake_point_ids"]
-    assert "improvement_point_ids" in question
-    assert misconception["standard_fit"] == "hit"
-    assert misconception["mistake_point_id"]
-    assert knowledge_view["nodes"][0]["node_type"] == "subject"
-    assert knowledge_view["skill_units"]
-    assert knowledge_view["mistake_points"]
-    assert knowledge_view["improvement_points"]
-    assert not {"course", "chapter", "section"}.intersection(
-        item["node_type"] for item in knowledge_view["nodes"]
+    assert knowledge_view["identity_scope"] == "course_local"
+    assert knowledge_view["lifecycle_status"] == "degraded"
+    assert not any(
+        str(item).startswith("math.")
+        for item in question["concept_ids"]
     )
+    assert question["skill_unit_ids"] == []
+    assert question["mistake_point_ids"] == []
+    assert knowledge_view["skill_units"] == []
+    assert knowledge_view["mistake_points"] == []
+    assert knowledge_view["improvement_points"] == []
+    assert knowledge_view["nodes"] == []
 
 
 def test_quality_gate_rejects_missing_required_questions():
@@ -224,7 +283,7 @@ def test_asset_repository_keeps_immutable_bundle_revisions(tmp_path):
     repository = LearningAssetRepository(tmp_path)
     first = repository.save_bundle("course-1", compile_learning_assets(_course()))
     changed_course = _course()
-    changed_course["nodes"][0]["key_points"].append("解释器")
+    changed_course["nodes"][0]["knowledge_structure"][0]["knowledge_points"][0]["statement"] += " 该行为可以被重定向。"
     second = repository.save_bundle("course-1", compile_learning_assets(changed_course))
 
     assert first["bundle_revision_id"] != second["bundle_revision_id"]

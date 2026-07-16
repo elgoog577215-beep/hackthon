@@ -56,6 +56,7 @@ def legacy_course() -> dict:
                 "node_level": 1,
                 "learning_objective": "理解向量",
                 "objective_id": "objective-a",
+                "concept_refs": ["ckp-vector-definition"],
                 "node_content": "## 定义\n\n向量有大小和方向。",
             },
             {
@@ -65,6 +66,7 @@ def legacy_course() -> dict:
                 "node_level": 1,
                 "learning_objective": "理解矩阵",
                 "objective_id": "objective-b",
+                "concept_refs": ["ckp-matrix-definition"],
                 "node_content": "## 定义\n\n矩阵是数字的矩形阵列。",
             },
         ],
@@ -309,6 +311,7 @@ def test_compiler_builds_five_bound_representations_and_exports_pptx(tmp_path):
             "node_id": "section-a",
             "prompt": "向量有哪些基本属性？",
             "practice_level": "understanding",
+            "course_knowledge_refs": ["ckp-vector-definition"],
         }],
         "misconceptions": [{
             "node_id": "section-a",
@@ -325,6 +328,25 @@ def test_compiler_builds_five_bound_representations_and_exports_pptx(tmp_path):
     assert len(result["representations"]) == 5
     assert all(spec.unit_bindings for spec in specs)
     assert validate_compiled_representations(specs)["passed"] is True
+    assert set(registry.plans[0].knowledge_refs) == {
+        "ckp-vector-definition",
+        "ckp-matrix-definition",
+    }
+    for spec in specs:
+        units = (
+            spec.payload["content"].get("units")
+            or spec.payload["content"].get("slides")
+            or spec.payload["content"].get("sections")
+            or []
+        )
+        content_units = [item for item in units if item.get("section_id")]
+        assert content_units
+        assert all(item.get("knowledge_refs") for item in content_units)
+        assert any(
+            binding.knowledge_node_ids
+            for bindings in spec.unit_bindings.values()
+            for binding in bindings
+        )
     practice = next(spec for spec in specs if spec.representation_type == "practice_sheet")
     assert practice.payload["content"]["units"][0]["practice_task_id"] == "question-a"
 

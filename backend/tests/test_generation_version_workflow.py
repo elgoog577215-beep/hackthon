@@ -3,8 +3,8 @@ from copy import deepcopy
 import pytest
 
 from course_repository import CourseDocumentRepository
-from course_versions import CourseVersionRepository
 from course_versioning import build_blueprint_draft
+from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
 from subject_ontology import build_subject_ontology
 from task_manager import TaskManager
@@ -42,7 +42,49 @@ class BlueprintService:
                 "parent_node_id": "root",
                 "node_name": "概念",
                 "learning_objective": "能够解释概念",
-                "key_points": ["概念"],
+                "knowledge_structure": [{
+                    "concept_group": "概念辨析",
+                    "description": "区分概念的内涵与外延",
+                    "knowledge_points": [{
+                        "name": "概念的内涵",
+                        "statement": "概念的内涵由该概念所反映对象的本质属性组成。",
+                        "knowledge_type": "definition",
+                        "conditions": ["讨论的是同一语境下的概念"],
+                        "boundaries": ["内涵不是对象实例的简单罗列"],
+                        "capability_points": [{
+                            "name": "解释概念内涵",
+                            "observable_behavior": "给定一个概念，准确说出构成其内涵的本质属性",
+                        }],
+                        "mastery_criteria": [{
+                            "name": "概念内涵解释达标",
+                            "observable_performance": "独立解释一个新概念的内涵并排除偶然属性",
+                            "verification_method": "分析三个属性并说明保留或排除理由",
+                        }],
+                        "entry_reason": "内涵是建立概念边界的课程入口。",
+                        "relations": [{
+                            "target_name": "概念的外延",
+                            "relation_type": "contrasts_with",
+                            "reason": "内涵描述本质属性，外延描述符合这些属性的对象范围",
+                            "distinction": "属性集合与对象范围",
+                        }],
+                    }, {
+                        "name": "概念的外延",
+                        "statement": "概念的外延是所有符合该概念内涵的对象组成的范围。",
+                        "knowledge_type": "definition",
+                        "conditions": ["对象满足概念的全部本质属性"],
+                        "boundaries": ["不满足任一本质属性的对象不属于外延"],
+                        "capability_points": [{
+                            "name": "判断概念外延",
+                            "observable_behavior": "给定对象集合，准确判断哪些对象属于概念外延",
+                        }],
+                        "mastery_criteria": [{
+                            "name": "概念外延判断达标",
+                            "observable_performance": "独立判断新对象是否属于概念外延并说明依据",
+                            "verification_method": "完成正例、反例和边界例的分类",
+                        }],
+                    }],
+                }],
+                "key_points": ["概念的内涵", "概念的外延"],
                 "assessment": ["解释概念"],
                 "difficulty_contract": {},
                 "grounding_contract": {},
@@ -112,11 +154,13 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     workspace_course = manager.get_generation_workspace_course(job["course_id"])
     assert workspace_course is not None
     assert workspace_course["nodes"][0]["node_name"] == "概念"
-    binding = workspace_course["knowledge_library_binding"]
-    assert binding["binding_status"] == "pinned"
-    assert workspace_course["course_knowledge_map"]["binding_revision_id"] == binding["revision_id"]
-    assert workspace_course["course_knowledge_base"]["formal_library_revision_id"] == binding["revision_id"]
-    assert subject_libraries.prepare_calls == 1
+    assert "knowledge_library_binding" not in workspace_course
+    knowledge_base = workspace_course["course_knowledge_base"]
+    assert knowledge_base["schema_version"] == "course_knowledge_base_v2"
+    assert knowledge_base["lifecycle_status"] == "active"
+    assert knowledge_base["reference_catalog"]["required"] is False
+    assert workspace_course["course_knowledge_map"]["binding_revision_id"] is None
+    assert subject_libraries.prepare_calls == 0
     preview = manager.get_generation_preview(job["course_id"])
     assert preview is not None
     assert preview["projection"] == "generation_workspace"
@@ -157,8 +201,15 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert resumed["job_id"] == job["job_id"]
     assert manager.tasks[job["job_id"]]["status"] == "pending"
     confirmed_course = manager.get_generation_workspace_course(job["course_id"])
-    assert confirmed_course["course_knowledge_base"]["formal_library_revision_id"] == binding["revision_id"]
-    assert subject_libraries.prepare_calls == 1
+    confirmed_knowledge = confirmed_course["course_knowledge_base"]
+    assert confirmed_knowledge["knowledge_base_id"] == knowledge_base["knowledge_base_id"]
+    assert {
+        item["knowledge_id"] for item in confirmed_knowledge["knowledge_points"]
+    } == {
+        item["knowledge_id"] for item in knowledge_base["knowledge_points"]
+    }
+    assert confirmed_knowledge["lifecycle_status"] == "active"
+    assert subject_libraries.prepare_calls == 0
     assert await manager._task_queue.get() == job["job_id"]
     workspaces.set_status(job["job_id"], "published")
     assert manager.get_generation_preview(job["course_id"]) is None

@@ -24,9 +24,9 @@
                 <p v-if="libraryView">
                   {{ t('knowledgeLibrary.courseCoverage', '本课覆盖') }} {{ coveredPointCount }} / {{ pointCount }}
                   <span aria-hidden="true">·</span>
-                  {{ t('knowledgeLibrary.relationCount', '知识关系') }} {{ formalRelations.length }}
+                  {{ t('knowledgeLibrary.relationCount', '知识关系') }} {{ activeRelations.length }}
                 </p>
-                <p v-else>{{ t('knowledgeLibrary.subtitle', '查看学科结构与本课程覆盖') }}</p>
+                <p v-else>{{ t('knowledgeLibrary.subtitle', '沿课程路径查看原子知识、能力与关系') }}</p>
               </div>
             </div>
 
@@ -68,7 +68,7 @@
               </span>
               <div data-testid="knowledge-quality" class="knowledge-tree-quality">
                 <strong>{{ t('knowledgeLibrary.qualityScore', '质量') }} {{ libraryView.quality_report?.score ?? '—' }}</strong>
-                <span>{{ t('knowledgeLibrary.mappingRate', '映射率') }} {{ percent(libraryView.quality_report?.metrics?.mapped_ratio ?? libraryView.coverage.mapped_ratio) }}</span>
+                <span>{{ t('knowledgeLibrary.mappingRate', '路径覆盖') }} {{ percent(libraryView.quality_report?.metrics?.mapped_ratio ?? libraryView.coverage.mapped_ratio) }}</span>
                 <span>{{ t('knowledgeLibrary.relationCoverage', '关系覆盖') }} {{ percent(libraryView.quality_report?.metrics?.relation_coverage ?? 0) }}</span>
               </div>
               <div data-testid="knowledge-source-summary" class="knowledge-tree-quality">
@@ -132,7 +132,7 @@
             <div v-if="loading" class="knowledge-tree-state" role="status">
               <LoaderCircle :size="24" class="knowledge-tree-spinner" />
               <strong>{{ t('knowledgeLibrary.loading', '正在读取知识库') }}</strong>
-              <span>{{ t('knowledgeLibrary.loadingHint', '知识、能力、易错、提升与本课覆盖会一起载入') }}</span>
+              <span>{{ t('knowledgeLibrary.loadingHint', '课程路径、原子知识、能力、易错和掌握标准会一起载入') }}</span>
             </div>
 
             <div v-else-if="loadError" class="knowledge-tree-state knowledge-tree-state--error" role="alert">
@@ -147,22 +147,19 @@
 
             <div v-else-if="!libraryView || !libraryView.nodes.length" class="knowledge-tree-state">
               <FolderTree :size="25" />
-              <strong>{{ t('knowledgeLibrary.empty', '当前学科还没有可用的正式知识库') }}</strong>
+              <strong>{{ t('knowledgeLibrary.empty', '当前课程还没有通过质量门的知识库') }}</strong>
             </div>
 
             <template v-else>
-              <aside class="knowledge-tree-pane" :aria-label="t('knowledgeLibrary.outline', '学科知识目录')">
+              <aside class="knowledge-tree-pane" :aria-label="t('knowledgeLibrary.outline', '课程知识路径')">
                 <div class="knowledge-tree-pane-head">
                   <div>
                     <ListTree :size="15" />
-                    <strong>{{ t('knowledgeLibrary.outline', '学科知识目录') }}</strong>
+                    <strong>{{ t('knowledgeLibrary.outline', '课程知识路径') }}</strong>
                   </div>
                   <div class="knowledge-tree-scope" :aria-label="t('knowledgeLibrary.scope', '知识范围')">
-                    <button type="button" :class="{ active: coverageMode === 'course' }" @click="coverageMode = 'course'">
-                      {{ t('knowledgeLibrary.coveredOnly', '本课覆盖') }}
-                    </button>
-                    <button type="button" :class="{ active: coverageMode === 'all' }" @click="coverageMode = 'all'">
-                      {{ t('knowledgeLibrary.allKnowledge', '全部知识') }}
+                    <button type="button" class="active" disabled>
+                      {{ t('knowledgeLibrary.coveredOnly', '仅当前课程') }}
                     </button>
                   </div>
                 </div>
@@ -271,7 +268,7 @@
                   </section>
 
                   <section v-if="selectedSkillGroups.length" class="knowledge-tree-section">
-                    <h3><BrainCircuit :size="17" />{{ t('knowledgeLibrary.skillStructure', '能力、易错与提升') }}</h3>
+                    <h3><BrainCircuit :size="17" />{{ t('knowledgeLibrary.skillStructure', '能力与易错') }}</h3>
                     <div class="knowledge-tree-skill-groups">
                       <article v-for="group in selectedSkillGroups" :key="group.skill.skill_unit_id" class="knowledge-tree-skill-group">
                         <div class="knowledge-tree-skill-head">
@@ -279,7 +276,7 @@
                           <strong>{{ group.skill.name }}</strong>
                           <p>{{ group.skill.learning_goal }}</p>
                         </div>
-                        <div v-if="group.mistakes.length || group.improvements.length" class="knowledge-tree-skill-children">
+                        <div v-if="group.mistakes.length" class="knowledge-tree-skill-children">
                           <div v-if="group.mistakes.length" class="knowledge-tree-skill-branch is-mistake">
                             <h4><AlertTriangle :size="14" />{{ t('knowledgeLibrary.mistakePoints', '易错点') }}</h4>
                             <div v-for="item in group.mistakes" :key="item.mistake_point_id">
@@ -287,16 +284,19 @@
                               <p>{{ item.repair_strategy || item.discrimination }}</p>
                             </div>
                           </div>
-                          <div v-if="group.improvements.length" class="knowledge-tree-skill-branch is-improvement">
-                            <h4><TrendingUp :size="14" />{{ t('knowledgeLibrary.improvementPoints', '提升点') }}</h4>
-                            <div v-for="item in group.improvements" :key="item.improvement_point_id">
-                              <strong>{{ item.name }}</strong>
-                              <p>{{ item.practice_strategy || item.learning_goal }}</p>
-                            </div>
-                          </div>
                         </div>
                       </article>
                     </div>
+                  </section>
+
+                  <section v-if="selectedMasteryCriteria.length" class="knowledge-tree-section">
+                    <h3><CheckCircle2 :size="17" />{{ t('knowledgeLibrary.masteryCriteria', '掌握标准') }}</h3>
+                    <ul class="knowledge-tree-evidence-list">
+                      <li v-for="criterion in selectedMasteryCriteria" :key="criterion.criterion_id">
+                        {{ criterion.observable_performance }}
+                        <span v-if="criterion.verification_method"> · {{ criterion.verification_method }}</span>
+                      </li>
+                    </ul>
                   </section>
 
                   <section v-if="selectedChildren.length" class="knowledge-tree-section">
@@ -347,7 +347,10 @@
                         @click="selectNode(entry.node, hasChildren(entry.node.knowledge_id))"
                       >
                         <span>{{ relationLabel(entry.relation, entry.direction) }}</span>
-                        <strong>{{ entry.node.name }}</strong>
+                        <span class="knowledge-tree-relation-copy">
+                          <strong>{{ entry.node.name }}</strong>
+                          <small v-if="entry.relation.reason">{{ entry.relation.reason }}</small>
+                        </span>
                         <ChevronRight :size="14" />
                       </button>
                     </div>
@@ -403,7 +406,6 @@ import {
   RefreshCw,
   Search,
   Target,
-  TrendingUp,
   X,
 } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
@@ -420,7 +422,7 @@ import type {
   KnowledgeNode,
   KnowledgeRelation,
   KnowledgeLibraryReview,
-  ImprovementPoint,
+  CourseMasteryCriterion,
   MistakePoint,
   SkillUnit,
 } from '../types/knowledge-library'
@@ -469,7 +471,7 @@ const coveredPointCount = computed(() => (
   libraryView.value?.nodes.filter(node => node.node_type === 'knowledge_point' && node.covered_by_course).length || 0
 ))
 
-const formalRelations = computed(() => (
+const activeRelations = computed(() => (
   libraryView.value?.relations.filter(relation => (
     relation.status === 'accepted'
     || (libraryView.value?.lifecycle_status === 'candidate' && relation.status === 'candidate')
@@ -493,10 +495,10 @@ const sourceSummaryRows = computed(() => {
 })
 
 const lifecycleLabel = computed(() => ({
-  accepted: t('knowledgeLibrary.lifecycleAccepted', '正式知识库'),
-  candidate: t('knowledgeLibrary.lifecycleCandidate', '候选知识库'),
-  degraded: t('knowledgeLibrary.lifecycleDegraded', '课程索引 · 待重建'),
-  rejected: t('knowledgeLibrary.lifecycleRejected', '已退回知识库'),
+  accepted: t('knowledgeLibrary.lifecycleAccepted', '课程知识库'),
+  candidate: t('knowledgeLibrary.lifecycleCandidate', '课程知识库候选'),
+  degraded: t('knowledgeLibrary.lifecycleDegraded', '未通过质量门 · 待重建'),
+  rejected: t('knowledgeLibrary.lifecycleRejected', '已退回课程知识库'),
 }[libraryView.value?.lifecycle_status || 'degraded']))
 
 const normalizedQuery = computed(() => searchQuery.value.trim().toLocaleLowerCase())
@@ -600,9 +602,15 @@ const selectedSkillGroups = computed(() => selectedSkills.value.map(skill => ({
   skill,
   mistakes: (libraryView.value?.mistake_points || [])
     .filter((item: MistakePoint) => item.skill_unit_id === skill.skill_unit_id),
-  improvements: (libraryView.value?.improvement_points || [])
-    .filter((item: ImprovementPoint) => item.skill_unit_id === skill.skill_unit_id),
 })))
+
+const selectedMasteryCriteria = computed(() => (
+  (libraryView.value?.mastery_criteria || [])
+    .filter((item: CourseMasteryCriterion) => (
+      selectedNode.value
+      && item.knowledge_ids.includes(selectedNode.value.knowledge_id)
+    ))
+))
 
 const relatedKnowledge = computed(() => {
   const selectedId = selectedNode.value?.knowledge_id
@@ -612,7 +620,7 @@ const relatedKnowledge = computed(() => {
     node: KnowledgeNode
     direction: 'incoming' | 'outgoing'
   }> = []
-  for (const relation of formalRelations.value) {
+  for (const relation of activeRelations.value) {
     const outgoing = relation.source_knowledge_id === selectedId
     const incoming = relation.target_knowledge_id === selectedId
     if (!outgoing && !incoming) continue
@@ -636,8 +644,10 @@ const jumpTarget = computed(() => {
 })
 
 const childSectionTitle = computed(() => {
-  if (selectedNode.value?.node_type === 'concept') return t('knowledgeLibrary.knowledgePoints', '细知识点')
-  if (selectedNode.value?.node_type === 'topic') return t('knowledgeLibrary.concepts', '核心概念')
+  if (selectedNode.value?.node_type === 'concept_group') return t('knowledgeLibrary.knowledgePoints', '原子知识点')
+  if (selectedNode.value?.node_type === 'section') return t('knowledgeLibrary.concepts', '概念组')
+  if (selectedNode.value?.node_type === 'chapter') return t('knowledgeLibrary.sections', '小节')
+  if (selectedNode.value?.node_type === 'course') return t('knowledgeLibrary.chapters', '章节')
   return t('knowledgeLibrary.children', '下级知识')
 })
 
@@ -674,7 +684,7 @@ async function loadLibrary(): Promise<void> {
     const assets = response.data?.assets || {}
     const view = assets.knowledge_library?.[0]
     if (!view || view.schema_version !== 'knowledge_library_view_v3') {
-      throw new Error(t('knowledgeLibrary.unsupported', '当前课程尚未接入正式知识库'))
+      throw new Error(t('knowledgeLibrary.unsupported', '当前课程尚未接入课程知识库 v2'))
     }
     libraryView.value = view as KnowledgeLibraryView
     reviewSummary.value = null
@@ -691,7 +701,7 @@ async function loadLibrary(): Promise<void> {
     misconceptions.value = assets.misconceptions || []
     expandedIds.value = new Set(
       view.nodes
-        .filter((node: KnowledgeNode) => ['subject', 'domain', 'topic', 'concept'].includes(node.node_type) && node.covered_by_course)
+        .filter((node: KnowledgeNode) => ['course', 'chapter', 'section', 'concept_group'].includes(node.node_type) && node.covered_by_course)
         .map((node: KnowledgeNode) => node.knowledge_id),
     )
     selectedNode.value = view.nodes.find((node: KnowledgeNode) => node.knowledge_id === view.root_node_id) || view.nodes[0] || null
@@ -782,31 +792,31 @@ function handleKeydown(event: KeyboardEvent): void {
 
 function nodeIcon(type: KnowledgeNodeType) {
   return {
-    subject: Library,
-    domain: BookOpen,
-    topic: Layers3,
-    concept: Network,
+    course: Library,
+    chapter: BookOpen,
+    section: Layers3,
+    concept_group: Network,
     knowledge_point: CircleDot,
   }[type]
 }
 
 function nodeTypeLabel(type: KnowledgeNodeType): string {
   return {
-    subject: t('knowledgeLibrary.typeSubject', '学科'),
-    domain: t('knowledgeLibrary.typeDomain', '领域'),
-    topic: t('knowledgeLibrary.typeTopic', '主题'),
-    concept: t('knowledgeLibrary.typeConcept', '概念'),
-    knowledge_point: t('knowledgeLibrary.typePoint', '细知识点'),
+    course: t('knowledgeLibrary.typeCourse', '课程'),
+    chapter: t('knowledgeLibrary.typeChapter', '章节'),
+    section: t('knowledgeLibrary.typeSection', '小节'),
+    concept_group: t('knowledgeLibrary.typeConceptGroup', '概念组'),
+    knowledge_point: t('knowledgeLibrary.typePoint', '原子知识点'),
   }[type]
 }
 
 function descriptionFallback(_node: KnowledgeNode): string {
-  return t('knowledgeLibrary.descriptionFallback', '该节点来自正式知识库，用于组织稳定知识语义。')
+  return t('knowledgeLibrary.descriptionFallback', '该节点用于组织当前课程的学习路径与知识语义。')
 }
 
 function sourceLabel(source: string): string {
-  if (source === 'curated') return t('knowledgeLibrary.sourceCurated', '正式学科库')
-  return t('knowledgeLibrary.sourceFormal', '版本化知识条目')
+  if (source === 'course_path') return t('knowledgeLibrary.sourceCoursePath', '课程路径投影')
+  return t('knowledgeLibrary.sourceCourse', '当前课程知识库')
 }
 
 function relationLabel(relation: KnowledgeRelation, direction: 'incoming' | 'outgoing'): string {
@@ -815,9 +825,10 @@ function relationLabel(relation: KnowledgeRelation, direction: 'incoming' | 'out
       ? t('knowledgeLibrary.prerequisite', '前置知识')
       : t('knowledgeLibrary.followingDepends', '后续依赖'),
     derives: t('knowledgeLibrary.derives', '推导关系'),
+    equivalent_to: t('knowledgeLibrary.equivalent', '等价关系'),
     contrasts_with: t('knowledgeLibrary.contrasts', '对比辨析'),
     applies_to: t('knowledgeLibrary.applies', '应用关系'),
-    related: t('knowledgeLibrary.related', '相关知识'),
+    generalizes: t('knowledgeLibrary.generalizes', '一般化关系'),
   }
   return labels[relation.relation_type] || relation.relation_type
 }
@@ -957,6 +968,8 @@ watch(() => courseStore.currentCourseId, () => {
 .knowledge-tree-relations button { grid-template-columns:80px minmax(0,1fr) 15px; gap:10px; min-height:42px; padding:7px 10px; text-align:left; }
 .knowledge-tree-relations button span { color:#8b729e; font-size:10px; }
 .knowledge-tree-relations button strong { overflow:hidden; font-size:11.5px; text-overflow:ellipsis; white-space:nowrap; }
+.knowledge-tree-relations button .knowledge-tree-relation-copy { display:grid; gap:2px; min-width:0; color:inherit; }
+.knowledge-tree-relations button .knowledge-tree-relation-copy small { overflow:hidden; color:#777e91; font-size:10px; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
 .knowledge-tree-detail-footer { max-width:880px; display:flex; align-items:center; justify-content:space-between; gap:20px; margin-top:32px; padding-top:18px; border-top:1px solid #e8eaf2; }
 .knowledge-tree-detail-footer > div { min-width:0; display:flex; flex-wrap:wrap; gap:6px 12px; color:#9aa0b1; font-size:9.5px; }
 .knowledge-tree-detail-footer button, .knowledge-tree-state button { min-height:36px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border:1px solid #6a50e8; border-radius:9px; color:#fff; background:#6a50e8; font-size:11px; font-weight:700; cursor:pointer; }

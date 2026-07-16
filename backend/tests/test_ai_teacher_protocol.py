@@ -31,8 +31,59 @@ def _course() -> dict:
             "node_id": "node-1",
             "node_name": "变量",
             "node_level": 2,
-            "node_content": "## 变量\n变量用于保存可以变化的值。\n\n### 示例\n令 x = 1。",
-            "learning_objective": "理解变量",
+            "node_content": (
+                "## 变量绑定\n变量名通过绑定指向当前值。\n\n"
+                "## 可变值更新\n重新赋值会更新变量名指向的值。"
+            ),
+            "learning_objective": "能够解释变量绑定与重新赋值",
+            "knowledge_structure": [{
+                "concept_group": "变量语义",
+                "description": "区分变量名、绑定和值的更新",
+                "knowledge_points": [{
+                    "name": "变量绑定",
+                    "statement": "变量名通过绑定关系指向当前值。",
+                    "knowledge_type": "definition",
+                    "conditions": ["变量名已经完成赋值"],
+                    "boundaries": ["变量名本身不是被保存的值"],
+                    "capability_points": [{
+                        "name": "解释变量绑定",
+                        "observable_behavior": "给定一条赋值语句，准确指出变量名、绑定和值",
+                    }],
+                    "misconceptions": [{
+                        "name": "把变量名等同于值",
+                        "observable_error_pattern": "认为变量名改变会直接改变原值对象",
+                        "discrimination": "分别标注变量名、绑定关系和值对象",
+                        "repair_strategy": "绘制赋值前后的变量绑定图再解释变化",
+                    }],
+                    "mastery_criteria": [{
+                        "name": "变量绑定解释达标",
+                        "observable_performance": "独立解释赋值语句中的变量名、绑定和值",
+                        "verification_method": "分析三个赋值案例并画出绑定关系",
+                    }],
+                    "entry_reason": "变量绑定是理解后续赋值行为的入口。",
+                    "relations": [{
+                        "target_name": "可变值更新",
+                        "relation_type": "prerequisite",
+                        "reason": "理解原有绑定后才能解释重新赋值如何更新指向",
+                    }],
+                }, {
+                    "name": "可变值更新",
+                    "statement": "重新赋值会让变量名指向新的值，而不会改写历史绑定事实。",
+                    "knowledge_type": "rule",
+                    "conditions": ["执行新的赋值语句"],
+                    "boundaries": ["可变对象的原地修改不是重新绑定"],
+                    "capability_points": [{
+                        "name": "追踪重新赋值",
+                        "observable_behavior": "逐步追踪多条赋值语句后的变量当前值",
+                    }],
+                    "mastery_criteria": [{
+                        "name": "重新赋值追踪达标",
+                        "observable_performance": "独立追踪多步赋值并说明每次绑定变化",
+                        "verification_method": "完成一组多步赋值追踪并核对最终状态",
+                    }],
+                }],
+            }],
+            "key_points": ["变量绑定", "可变值更新"],
         }],
     }
 
@@ -143,70 +194,41 @@ def test_context_package_is_scoped_and_never_includes_reference_answer(monkeypat
     assert public["learner_model_revision_id"] == "model-1"
 
 
-def test_ai_teacher_receives_bounded_formal_knowledge_as_reference_only(monkeypatch):
+def test_ai_teacher_receives_bounded_current_course_knowledge_as_runtime_truth(monkeypatch):
     monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
     monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])
     course = _course()
-    course["course_name"] = "线性代数"
-    course["nodes"][0].update({
-        "node_name": "高斯消元",
-        "key_points": ["高斯消元法步骤与行简化阶梯形"],
-        "node_content": "## 高斯消元\n使用高斯消元法步骤与行简化阶梯形求解。",
-    })
 
     package = build_ai_teacher_context(
         course,
         user_id="u1",
-        question="为什么行变换不会改变解集？",
+        question="为什么重新赋值不会改写原来的值？",
         node_id="node-1",
         entrypoint="selection",
     )
 
     context = package["knowledge_context"]
-    assert context["knowledge_library_id"] == "math.linear_algebra.v1"
+    assert context["schema_version"] == "ai_knowledge_context_v3"
+    assert context["knowledge_library_id"].startswith("ckb_")
     assert 1 <= len(context["knowledge_nodes"]) <= 16
     assert context["skill_units"]
     assert context["mistake_points"]
-    assert context["usage_policy"]["role"] == "reference_only"
-    assert context["usage_policy"]["allowed_fit"] == ["hit", "partial", "miss"]
+    assert context["relations"]
+    assert context["mastery_criteria"]
+    assert context["usage_policy"]["role"] == "course_runtime_truth"
+    assert context["usage_policy"]["identity_scope"] == "current_course_only"
     assert context["usage_policy"]["may_invent_formal_ids"] is False
     prompt = format_ai_teacher_context_prompt(package)
-    assert "必须先依据当前正文、任务和证据判断" in prompt
-    assert context_public_summary(package)["knowledge"]["course_map_revision_id"]
+    assert "当前课程知识库是本课程知识身份" in prompt
+    assert context_public_summary(package)["knowledge"]["knowledge_library_id"].startswith("ckb_")
 
 
-def test_ai_teacher_does_not_treat_degraded_course_index_as_formal_knowledge(monkeypatch):
+def test_ai_teacher_does_not_treat_degraded_course_index_as_runtime_truth(monkeypatch):
     monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
     monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])
     course = _course()
-    course["knowledge_library_binding"] = {
-        "library_id": "generated.degraded",
-        "revision_id": "sklr_degraded",
-        "lifecycle_status": "degraded",
-    }
-    degraded = {
-        "library_id": "generated.degraded",
-        "version": "3.0.0",
-        "revision_id": "sklr_degraded",
-        "lifecycle_status": "degraded",
-        "origin": "course_index",
-        "nodes": [{
-            "knowledge_id": "index.point",
-            "name": "课程索引项",
-            "node_type": "knowledge_point",
-            "path_names": ["课程索引项"],
-            "learning_actions": [],
-        }],
-        "skill_units": [],
-        "mistake_points": [],
-        "improvement_points": [],
-        "usage_policy": {},
-    }
-    monkeypatch.setattr(ai_teacher_context, "resolve_subject_library", lambda _course: degraded)
-    monkeypatch.setattr(ai_teacher_context, "project_course_knowledge_map", lambda _course: {
-        "revision_id": "map-degraded",
-        "section_knowledge_ids": {"node-1": ["index.point"]},
-    })
+    course["nodes"][0].pop("knowledge_structure", None)
+    course["nodes"][0]["key_points"] = ["变量"]
 
     package = build_ai_teacher_context(
         course,
@@ -220,7 +242,9 @@ def test_ai_teacher_does_not_treat_degraded_course_index_as_formal_knowledge(mon
     assert context["mapping_status"] == "degraded"
     assert context["knowledge_nodes"] == []
     assert context["skill_units"] == []
-    assert context["usage_policy"]["role"] == "course_index_only"
+    assert context["relations"] == []
+    assert context["mastery_criteria"] == []
+    assert context["usage_policy"]["role"] == "unavailable_until_quality_passed"
 
 
 def test_explanation_context_does_not_load_unrelated_model_details(monkeypatch):

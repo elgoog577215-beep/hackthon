@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import hashlib
 import json
+from copy import deepcopy
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -16,7 +16,6 @@ from content_blocks import (
     heading_matches_section,
     normalize_blocks,
 )
-
 
 COURSE_DOCUMENT_SCHEMA = "course_document_v1"
 
@@ -209,7 +208,11 @@ def document_from_legacy_course(course_data: dict[str, Any]) -> CourseDocument:
                     metadata.get("objective_refs"),
                     [objective_id] if objective_id else [],
                 ),
-                concept_refs=_unique_refs(metadata.get("concept_refs")),
+                concept_refs=_unique_refs(
+                    metadata.get("concept_refs")
+                    if metadata.get("concept_refs")
+                    else node.get("concept_refs")
+                ),
                 evidence_refs=_unique_refs(metadata.get("evidence_refs")),
                 status="draft" if legacy_block.get("status") == "draft" else "final",
             )

@@ -14,16 +14,16 @@ vi.mock('@/utils/logger', () => ({ default: { error: vi.fn() } }))
 
 function node(overrides: Record<string, unknown>) {
   return {
-    knowledge_id: 'math',
-    code: 'MATH',
+    knowledge_id: 'course-path:course-1',
+    code: 'course-path:course-1',
     parent_id: null,
-    node_type: 'subject',
-    name: '数学',
+    node_type: 'course',
+    name: '线性代数课程',
     description: '',
     depth: 0,
     sort_order: 0,
-    path_ids: ['math'],
-    path_names: ['数学'],
+    path_ids: ['course-path:course-1'],
+    path_names: ['线性代数课程'],
     aliases: [],
     learning_actions: [],
     typical_problems: [],
@@ -36,8 +36,9 @@ function node(overrides: Record<string, unknown>) {
     skill_unit_ids: [],
     mistake_point_ids: [],
     improvement_ids: [],
-    covered_by_course: false,
-    source_status: 'curated',
+    mastery_criterion_ids: [],
+    covered_by_course: true,
+    source_status: 'course_path',
     status: 'active',
     revision_id: 'knr-math',
     ...overrides,
@@ -47,75 +48,85 @@ function node(overrides: Record<string, unknown>) {
 const libraryView = {
   schema_version: 'knowledge_library_view_v3',
   asset_id: 'view-1',
-  library_id: 'math.linear_algebra.v1',
-  subject_id: 'math.linear_algebra',
-  library_version: '1.0.0',
-  root_node_id: 'math',
+  library_id: 'ckb-course-1',
+  subject_id: 'course-1',
+  library_version: 'ckbr-1',
+  root_node_id: 'course-path:course-1',
   status: 'active',
-  lifecycle_status: 'candidate',
-  origin: 'model_generated',
-  binding_revision_id: 'sklr-1',
+  lifecycle_status: 'accepted',
+  origin: 'course_and_domain_generated',
+  binding_revision_id: 'ckbr-1',
   quality_report: {
     passed: true,
     score: 92,
-    metrics: { mapped_ratio: 1, relation_coverage: 0.75, cross_skill_ratio: 0.4 },
+    metrics: { mapped_ratio: 1, relation_coverage: 0.5 },
     issues: [],
     blocking_issues: [],
   },
-  generation_audit: {
-    generation_calls: 1,
-    review_calls: 1,
-    repair_calls: 0,
-    sources: ['course_source', 'model_inferred'],
-    provider_failure: null,
-  },
-  source_summary: { course_source: 4, model_inferred: 8 },
+  generation_audit: { invalid_relation_candidates: [], unresolved_relation_candidates: [], title_fallback_used: false },
+  source_summary: { course_source: 2 },
   revision_id: 'viewr-1',
   course_map_revision_id: 'mapr-1',
-  coverage: { formal_knowledge_count: 1, mapped_count: 1, unmapped_count: 0, mapped_ratio: 1, status: 'mapped' },
+  coverage: { formal_knowledge_count: 0, mapped_count: 2, unmapped_count: 0, mapped_ratio: 1, status: 'course_local' },
   unresolved_mappings: [],
   nodes: [
-    node({ covered_by_course: true, section_ids: ['L2-1-1'] }),
+    node({ section_ids: ['L2-1-1'] }),
     node({
-      knowledge_id: 'linear-algebra', parent_id: 'math', node_type: 'domain', name: '线性代数', depth: 1,
-      path_ids: ['math', 'linear-algebra'], path_names: ['数学', '线性代数'], covered_by_course: true, section_ids: ['L2-1-1'],
+      knowledge_id: 'course-path:chapter:L1-1', parent_id: 'course-path:course-1', node_type: 'chapter', name: '向量基础', depth: 1,
+      path_ids: ['course-path:course-1', 'course-path:chapter:L1-1'], path_names: ['线性代数课程', '向量基础'], section_ids: ['L1-1'],
     }),
     node({
-      knowledge_id: 'vectors', parent_id: 'linear-algebra', node_type: 'topic', name: '向量、线性组合与张成', depth: 2,
-      path_ids: ['math', 'linear-algebra', 'vectors'], path_names: ['数学', '线性代数', '向量、线性组合与张成'], covered_by_course: true, section_ids: ['L2-1-1'],
+      knowledge_id: 'course-path:section:L2-1-1', parent_id: 'course-path:chapter:L1-1', node_type: 'section', name: '线性组合与数域', depth: 2,
+      path_ids: ['course-path:course-1', 'course-path:chapter:L1-1', 'course-path:section:L2-1-1'],
+      path_names: ['线性代数课程', '向量基础', '线性组合与数域'], section_ids: ['L2-1-1'],
     }),
     node({
-      knowledge_id: 'linear-combination', parent_id: 'vectors', node_type: 'concept', name: '线性组合', depth: 3,
-      path_ids: ['math', 'linear-algebra', 'vectors', 'linear-combination'], path_names: ['数学', '线性代数', '向量、线性组合与张成', '线性组合'], covered_by_course: true, section_ids: ['L2-1-1'],
+      knowledge_id: 'group-linear-combination', parent_id: 'course-path:section:L2-1-1', node_type: 'concept_group', name: '线性表示机制', depth: 3,
+      path_ids: ['course-path:course-1', 'course-path:chapter:L1-1', 'course-path:section:L2-1-1', 'group-linear-combination'],
+      path_names: ['线性代数课程', '向量基础', '线性组合与数域', '线性表示机制'], section_ids: ['L2-1-1'],
     }),
     node({
-      knowledge_id: 'linear-combination-definition', parent_id: 'linear-combination', node_type: 'knowledge_point',
-      name: '线性组合的形式定义', description: '有限个向量与标量系数构成的和。', depth: 4,
-      path_ids: ['math', 'linear-algebra', 'vectors', 'linear-combination', 'linear-combination-definition'],
-      path_names: ['数学', '线性代数', '向量、线性组合与张成', '线性组合', '线性组合的形式定义'],
+      knowledge_id: 'linear-combination-definition', parent_id: 'group-linear-combination', node_type: 'knowledge_point',
+      name: '线性组合的形式定义', description: '有限个向量分别乘以标量后相加所得的向量。', statement: '有限个向量分别乘以标量后相加所得的向量称为这些向量的线性组合。', depth: 4,
+      conditions: ['系数属于指定数域'], boundaries: ['向量必须属于同一向量空间'],
+      path_ids: ['course-path:course-1', 'course-path:chapter:L1-1', 'course-path:section:L2-1-1', 'group-linear-combination', 'linear-combination-definition'],
+      path_names: ['线性代数课程', '向量基础', '线性组合与数域', '线性表示机制', '线性组合的形式定义'],
       covered_by_course: true, section_ids: ['L2-1-1'], block_ids: ['block-1'],
       learning_actions: ['写出并解释线性组合'], question_ids: ['question-1'], criterion_ids: ['criterion-1'],
-      misconception_ids: ['mis-1'], skill_unit_ids: ['skill-1'], mistake_point_ids: [], improvement_ids: [],
+      misconception_ids: ['mis-1'], skill_unit_ids: ['skill-1'], mistake_point_ids: ['mistake-1'], mastery_criterion_ids: ['mastery-1'], improvement_ids: [],
     }),
     node({
-      knowledge_id: 'span', parent_id: 'vectors', node_type: 'concept', name: '张成空间与维数', depth: 3, sort_order: 1,
-      path_ids: ['math', 'linear-algebra', 'vectors', 'span'], path_names: ['数学', '线性代数', '向量、线性组合与张成', '张成空间与维数'],
+      knowledge_id: 'coefficient-domain-boundary', parent_id: 'group-linear-combination', node_type: 'knowledge_point',
+      name: '系数数域的约束', description: '线性组合中的系数必须来自当前向量空间的标量域。', depth: 4, sort_order: 1,
+      path_ids: ['course-path:course-1', 'course-path:chapter:L1-1', 'course-path:section:L2-1-1', 'group-linear-combination', 'coefficient-domain-boundary'],
+      path_names: ['线性代数课程', '向量基础', '线性组合与数域', '线性表示机制', '系数数域的约束'],
+      covered_by_course: true, section_ids: ['L2-1-1'], learning_actions: ['判断系数是否属于指定数域'],
     }),
   ],
-  relations: [],
+  relations: [{
+    relation_id: 'relation-1', source_knowledge_id: 'coefficient-domain-boundary',
+    target_knowledge_id: 'linear-combination-definition', relation_type: 'prerequisite',
+    source_status: 'course_source', status: 'accepted',
+    reason: '先确定允许使用的标量域，才能正确解释线性组合的形式定义', revision_id: 'relr-1',
+  }],
   skill_units: [{
     skill_unit_id: 'skill-1', name: '识别线性组合', learning_goal: '判断向量是否可由给定向量组线性表示',
     primary_knowledge_id: 'linear-combination-definition', knowledge_ids: ['linear-combination-definition'],
   }],
   mistake_points: [{
     mistake_point_id: 'mistake-1', skill_unit_id: 'skill-1', name: '遗漏系数的数域',
+    error_pattern: '默认系数可以来自任意集合', discrimination: '先确认向量空间的标量域',
     repair_strategy: '先确认系数所属数域', knowledge_ids: ['linear-combination-definition'],
   }],
-  improvement_points: [{
-    improvement_point_id: 'improve-1', skill_unit_id: 'skill-1', name: '从表示推进到方程化',
-    practice_strategy: '把成员关系改写为线性方程组', knowledge_ids: ['linear-combination-definition'],
+  mastery_criteria: [{
+    criterion_id: 'mastery-1', name: '线性组合定义掌握', observable_performance: '独立写出线性组合并说明系数数域',
+    knowledge_ids: ['linear-combination-definition'], skill_ids: ['skill-1'], verification_method: '完成正反例辨析',
   }],
-  usage_policy: { ai_must_judge_independently: true, allowed_fit: ['hit', 'partial', 'miss'], may_invent_formal_ids: false },
+  improvement_points: [],
+  usage_policy: {
+    ai_must_judge_independently: true, allowed_fit: ['hit', 'partial', 'miss'], may_invent_formal_ids: false,
+    identity_scope: 'course_only', personal_state_can_modify_library: false,
+  },
 }
 
 function response() {
@@ -127,16 +138,6 @@ function response() {
         mastery_criteria: [{ asset_id: 'criterion-1', criterion_id: 'criterion-1', observable_performance: '独立写出线性组合' }],
         misconceptions: [{ asset_id: 'mis-1', misconception_id: 'mis-1', error_pattern: '系数只能为正数', discrimination: '系数可以是任意标量' }],
       },
-    },
-  }
-}
-
-function reviewResponse() {
-  return {
-    data: {
-      library: libraryView,
-      previous_revision_id: 'sklr-0',
-      diff: { added: 4, modified: 2, removed: 1 },
     },
   }
 }
@@ -154,12 +155,10 @@ async function mountLibrary() {
   return { wrapper, courseStore }
 }
 
-describe('Subject knowledge library', () => {
+describe('Course knowledge library', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
-    httpMock.get.mockImplementation((url: string) => (
-      url.endsWith('/review') ? Promise.resolve(reviewResponse()) : Promise.resolve(response())
-    ))
+    httpMock.get.mockResolvedValue(response())
     httpMock.post.mockResolvedValue({ data: { library: libraryView } })
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => ({
       ok: true,
@@ -168,20 +167,23 @@ describe('Subject knowledge library', () => {
     await setLocale('zh')
   })
 
-  it('默认聚焦本课覆盖，并可切换到完整学科知识', async () => {
+  it('只展示当前课程的路径结构与原子知识点', async () => {
     const { wrapper } = await mountLibrary()
 
     expect(httpMock.get).toHaveBeenCalledWith('/api/courses/course-1/learning-assets')
-    expect(wrapper.text()).toContain('本课覆盖 1 / 1')
-    expect(wrapper.text()).not.toContain('第1章')
-    expect(wrapper.findAll('.knowledge-tree-row')).toHaveLength(5)
-
-    await wrapper.get('.knowledge-tree-scope button:nth-child(2)').trigger('click')
+    expect(wrapper.text()).toContain('本课覆盖 2 / 2')
+    expect(wrapper.text()).toContain('线性代数课程')
+    expect(wrapper.text()).toContain('向量基础')
+    expect(wrapper.text()).toContain('线性组合与数域')
+    expect(wrapper.text()).toContain('线性表示机制')
+    expect(wrapper.findAll('.knowledge-tree-scope button')).toHaveLength(1)
+    expect(wrapper.get('.knowledge-tree-scope button').attributes('disabled')).toBeDefined()
     expect(wrapper.findAll('.knowledge-tree-row')).toHaveLength(6)
-    expect(wrapper.text()).toContain('张成空间与维数')
+    expect(wrapper.text()).toContain('线性组合的形式定义')
+    expect(wrapper.text()).toContain('系数数域的约束')
   })
 
-  it('知识详情汇合能力、练习、易错、提升和正文位置', async () => {
+  it('知识详情汇合能力、练习、易错、掌握标准、关系理由和正文位置', async () => {
     const { wrapper, courseStore } = await mountLibrary()
     const scrollSpy = vi.spyOn(courseStore, 'scrollToNode')
     await wrapper.get('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node').trigger('click')
@@ -190,10 +192,12 @@ describe('Subject knowledge library', () => {
     expect(wrapper.text()).toContain('识别线性组合')
     expect(wrapper.text()).toContain('独立写出线性组合')
     expect(wrapper.text()).toContain('遗漏系数的数域')
-    expect(wrapper.text()).toContain('从表示推进到方程化')
+    expect(wrapper.text()).toContain('完成正反例辨析')
+    expect(wrapper.text()).toContain('先确定允许使用的标量域')
     expect(wrapper.findAll('.knowledge-tree-skill-group')).toHaveLength(1)
     expect(wrapper.get('.knowledge-tree-skill-group').text()).toContain('易错点')
-    expect(wrapper.get('.knowledge-tree-skill-group').text()).toContain('提升点')
+    expect(wrapper.text()).toContain('掌握标准')
+    expect(wrapper.text()).not.toContain('提升点')
     expect(wrapper.text()).toContain('回到对应正文')
 
     await wrapper.get('.knowledge-tree-detail-footer button').trigger('click')
@@ -202,75 +206,63 @@ describe('Subject knowledge library', () => {
     expect(scrollSpy).toHaveBeenCalledWith('L2-1-1')
   })
 
-  it('全部知识模式下搜索保留语义祖先路径', async () => {
+  it('搜索原子知识时保留课程、章节、小节和概念组祖先路径', async () => {
     const { wrapper } = await mountLibrary()
-    await wrapper.get('.knowledge-tree-scope button:nth-child(2)').trigger('click')
     const input = wrapper.get('.knowledge-tree-search input')
-    await input.setValue('张成空间')
+    await input.setValue('系数数域')
     await input.trigger('keydown', { key: 'Enter' })
 
-    expect(wrapper.findAll('.knowledge-tree-row')).toHaveLength(4)
-    expect(wrapper.get('.knowledge-tree-detail h2').text()).toBe('张成空间与维数')
+    expect(wrapper.findAll('.knowledge-tree-row')).toHaveLength(5)
+    expect(wrapper.get('.knowledge-tree-detail h2').text()).toBe('系数数域的约束')
+    expect(wrapper.get('.knowledge-tree-breadcrumb').text()).toContain('线性代数课程')
+    expect(wrapper.get('.knowledge-tree-breadcrumb').text()).toContain('线性表示机制')
   })
 
-  it('英文模式完整呈现统一父子结构且不泄露翻译键', async () => {
+  it('英文模式呈现课程知识结构且不泄露翻译键', async () => {
     await setLocale('en')
     const { wrapper } = await mountLibrary()
     await wrapper.get('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node').trigger('click')
 
     expect(wrapper.text()).toContain('Knowledge library')
-    expect(wrapper.text()).toContain('Skills, mistakes, and improvements')
+    expect(wrapper.text()).toContain('Skills and misconceptions')
     expect(wrapper.text()).toContain('Mistake points')
-    expect(wrapper.text()).toContain('Improvement points')
+    expect(wrapper.text()).toContain('Mastery criteria')
+    expect(wrapper.text()).not.toContain('Improvement points')
     expect(wrapper.text()).not.toContain('knowledgeLibrary.')
   })
 
-  it('展示候选状态、质量摘要和版本差异', async () => {
+  it('展示课程知识库状态、质量摘要和课程来源', async () => {
     const { wrapper } = await mountLibrary()
 
-    expect(wrapper.get('[data-testid="knowledge-lifecycle"]').text()).toContain('候选知识库')
+    expect(wrapper.get('[data-testid="knowledge-lifecycle"]').text()).toContain('课程知识库')
     expect(wrapper.get('[data-testid="knowledge-quality"]').text()).toContain('92')
-    expect(wrapper.get('[data-testid="knowledge-quality"]').text()).toContain('映射率 100%')
-    expect(wrapper.get('[data-testid="knowledge-source-summary"]').text()).toContain('课程来源 4')
-    expect(wrapper.get('[data-testid="knowledge-source-summary"]').text()).toContain('模型推断 8')
-    expect(wrapper.get('[data-testid="knowledge-diff"]').text()).toContain('新增 4')
-    expect(wrapper.get('[data-testid="knowledge-diff"]').text()).toContain('修改 2')
-    expect(wrapper.get('[data-testid="knowledge-diff"]').text()).toContain('删除 1')
+    expect(wrapper.get('[data-testid="knowledge-quality"]').text()).toContain('路径覆盖 100%')
+    expect(wrapper.get('[data-testid="knowledge-source-summary"]').text()).toContain('当前课程知识库 2')
+    expect(wrapper.find('[data-testid="knowledge-diff"]').exists()).toBe(false)
   })
 
-  it('可以接受、退回或重新生成整个候选版本', async () => {
+  it('课程知识库只提供重新生成，不走学科库接受或退回链路', async () => {
     const { wrapper } = await mountLibrary()
-    const note = wrapper.get('[data-testid="knowledge-review-note"]')
-    await note.setValue('关系结构需要复核')
-
-    await wrapper.get('[data-testid="knowledge-accept"]').trigger('click')
-    await flushPromises()
-    expect(httpMock.post).toHaveBeenCalledWith('/api/courses/course-1/knowledge-library/review', {
-      revision_id: 'sklr-1', decision: 'accept', note: '关系结构需要复核',
-    })
-
-    await wrapper.get('[data-testid="knowledge-reject"]').trigger('click')
-    await flushPromises()
-    expect(httpMock.post).toHaveBeenCalledWith('/api/courses/course-1/knowledge-library/review', {
-      revision_id: 'sklr-1', decision: 'reject', note: '关系结构需要复核',
-    })
+    expect(wrapper.find('[data-testid="knowledge-review-note"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-accept"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-reject"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="knowledge-rebuild"]').trigger('click')
     await flushPromises()
     expect(httpMock.post).toHaveBeenCalledWith('/api/courses/course-1/knowledge-library/rebuild', { force: true })
   })
 
-  it('降级库明确显示为课程索引且不提供审核晋升按钮', async () => {
+  it('降级库不把章节索引伪装成知识点，并明确要求重建', async () => {
     const degraded = {
       ...libraryView,
       lifecycle_status: 'degraded',
       origin: 'course_index',
-      status: 'degraded',
-      relations: [{
-        relation_id: 'candidate-relation', source_knowledge_id: 'linear-combination-definition',
-        target_knowledge_id: 'span', relation_type: 'related', source_status: 'model_inferred',
-        status: 'candidate', reason: '候选关系', revision_id: 'rel-1',
-      }],
+      status: 'unavailable',
+      nodes: [],
+      relations: [],
+      skill_units: [],
+      mistake_points: [],
+      mastery_criteria: [],
       quality_report: {
         ...libraryView.quality_report,
         passed: false,
@@ -285,24 +277,25 @@ describe('Subject knowledge library', () => {
 
     const { wrapper } = await mountLibrary()
 
-    expect(wrapper.get('[data-testid="knowledge-lifecycle"]').text()).toContain('课程索引')
+    expect(wrapper.get('[data-testid="knowledge-lifecycle"]').text()).toContain('未通过质量门')
     expect(wrapper.find('[data-testid="knowledge-accept"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="knowledge-reject"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="knowledge-rebuild"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="knowledge-quality-issues"]').text()).toContain('结构仍与章节一一对应')
-    expect(wrapper.get('[data-testid="knowledge-candidate-relations"]').text()).toContain('1')
+    expect(wrapper.findAll('.knowledge-tree-row')).toHaveLength(0)
+    expect(wrapper.text()).toContain('当前课程还没有通过质量门的知识库')
   })
 
   it('重新生成失败时显示后端结构化错误而不是对象字符串', async () => {
     const { wrapper } = await mountLibrary()
     httpMock.post.mockRejectedValueOnce({
-      response: { data: { detail: { code: 'insufficient_quota', message: 'AI 服务额度不足，原版本保持不变', retryable: true } } },
+      response: { data: { detail: { code: 'knowledge_quality_failed', message: '课程知识结构仍不完整，原版本保持不变', retryable: true } } },
     })
 
     await wrapper.get('[data-testid="knowledge-rebuild"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('.knowledge-tree-governance-error').text()).toContain('AI 服务额度不足')
+    expect(wrapper.get('.knowledge-tree-governance-error').text()).toContain('课程知识结构仍不完整')
     expect(wrapper.get('.knowledge-tree-governance-error').text()).not.toContain('[object Object]')
   })
 })

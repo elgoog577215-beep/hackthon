@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 import inspect
 import json
 import logging
@@ -25,25 +24,29 @@ import os
 import re
 import time
 import uuid
+from collections.abc import Callable
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from models import (
-    NodeGenerationConfig,
-    NodeStatus,
-    TaskLogEntry,
-)
+from content_blocks import set_node_content_blocks
 from course_coherence import (
     compile_course_coherence_contract,
     evaluate_course_coherence,
 )
+from course_document import document_from_generation_draft
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,
 )
 from course_knowledge_map import compile_course_knowledge_map
 from course_quality import build_final_course_quality_report, evaluate_node_content
+from course_repository import (
+    CourseDocumentConflict,
+    CourseDocumentNotFound,
+    CourseDocumentRepository,
+)
 from course_versioning import (
     analyze_blueprint_impact,
     build_blueprint_draft,
@@ -54,24 +57,23 @@ from course_versions import (
     CourseVersionRepository,
     course_version_repository,
 )
-from material_pipeline import ingest_legacy_material_inputs
-from material_storage import material_repository
-from learning_assets import compile_learning_asset_plan, compile_learning_assets
-from learning_asset_storage import LearningAssetRepository, learning_asset_repository
-from content_blocks import set_node_content_blocks
-from course_document import document_from_generation_draft
-from course_repository import (
-    CourseDocumentConflict,
-    CourseDocumentNotFound,
-    CourseDocumentRepository,
-)
 from generation_workspace import (
     GenerationWorkspaceNotFound,
     GenerationWorkspaceRepository,
     generation_workspace_repository,
 )
-from subject_library_service import SubjectLibraryService
+from learning_asset_storage import LearningAssetRepository, learning_asset_repository
+from learning_assets import compile_learning_asset_plan, compile_learning_assets
+from material_pipeline import ingest_legacy_material_inputs
+from material_storage import material_repository
+from models import (
+    NodeGenerationConfig,
+    NodeStatus,
+    TaskLogEntry,
+)
 from representation_compiler import compile_core_representations
+from subject_knowledge import resolve_subject_library
+from subject_library_service import SubjectLibraryService
 from teaching_representations import teaching_representation_repository
 
 logger = logging.getLogger(__name__)
@@ -481,6 +483,7 @@ class TaskManager:
         confirmed["generation_status"] = "content_generation"
         confirmed["blueprint_revision_id"] = impact.get("draft_blueprint_revision_id")
         confirmed = await self._prepare_subject_knowledge(task_id, confirmed)
+        self._require_course_knowledge_ready(confirmed)
         frozen = self._version_repository.freeze_blueprint(course_id, confirmed)
         await self._save_task_course(task_id, confirmed)
         self._version_repository.delete_draft(course_id)
@@ -1327,7 +1330,6 @@ class TaskManager:
             logger.warning("skip_node: task %s not found", task_id)
             return
 
-        course_id = task["course_id"]
         course_data = self._load_task_course(task_id)
         if not course_data:
             return
@@ -1381,7 +1383,6 @@ class TaskManager:
                 status=str(task.get("status") or "running"),
             )
 
-        course_id = task["course_id"]
         course_data = self._load_task_course(task_id)
         if not course_data:
             return
@@ -1451,7 +1452,6 @@ class TaskManager:
         # Mark node as completed with partial content
         task = self.tasks.get(task_id)
         if task:
-            course_id = task["course_id"]
             course_data = self._load_task_course(task_id)
             if course_data:
                 for node in course_data.get("nodes", []):
@@ -1493,7 +1493,6 @@ class TaskManager:
                 status=str(task.get("status") or "running"),
             )
 
-        course_id = task["course_id"]
         course_data = self._load_task_course(task_id)
         if not course_data:
             return
@@ -1685,52 +1684,25 @@ class TaskManager:
         task_id: str,
         course_data: dict[str, Any],
     ) -> dict[str, Any]:
-        """Pin one subject revision and compile all course-local knowledge from it."""
-        if self._subject_library_service is None:
-            return course_data
+        """Compile the course-owned knowledge blueprint before content generation.
 
+        The historical method name is retained for checkpoint compatibility.  A
+        subject catalog may contribute terminology suggestions, but it is never a
+        generation or publication prerequisite.
+        """
         working = deepcopy(course_data)
-        binding = working.get("knowledge_library_binding") or {}
-        library = None
-        quality_report: dict[str, Any] = {}
-        if binding.get("library_id") and binding.get("revision_id"):
-            library = self._subject_library_service.resolve_course_library(working)
-            if library is None:
-                raise RuntimeError("Pinned knowledge-library revision is unavailable")
-            quality_report = deepcopy(library.get("quality_report") or {})
-        else:
-            await self._update_phase(
-                task_id,
-                "subject_resolution",
-                44,
-                "正在识别学科与可复用知识库",
-                phase_progress=100,
-            )
-            await self._update_phase(
-                task_id,
-                "ontology_generation",
-                46,
-                "正在生成学科骨架与课程覆盖详图",
-                phase_progress=20,
-            )
-            result = await self._subject_library_service.prepare_course(working)
-            library = deepcopy(result["library"])
-            binding = deepcopy(result["binding"])
-            quality_report = deepcopy(result.get("quality_report") or {})
-            working["knowledge_library_binding"] = binding
-            await self._update_phase(
-                task_id,
-                "ontology_validation",
-                48,
-                "正在检查知识层级、关系、能力与易错点",
-                phase_progress=100,
-                phase_detail={"quality_report": quality_report},
-            )
-
-        course_map = compile_course_knowledge_map(working, library)
+        await self._update_phase(
+            task_id,
+            "course_knowledge_blueprint",
+            46,
+            "正在生成当前课程的概念组、原子知识点与能力包",
+            phase_progress=35,
+        )
+        reference_library = resolve_subject_library(working)
+        course_map = compile_course_knowledge_map(working, reference_library)
         course_knowledge_base = compile_course_knowledge_base(
             working,
-            library=library,
+            library=reference_library,
             course_map=course_map,
             assets=working.get("learning_assets") or {},
         )
@@ -1740,7 +1712,7 @@ class TaskManager:
         )
         course_knowledge_base = compile_course_knowledge_base(
             working,
-            library=library,
+            library=reference_library,
             course_map=course_map,
             assets=working.get("learning_assets") or {},
         )
@@ -1751,7 +1723,7 @@ class TaskManager:
         )
         blueprint = working.get("course_blueprint")
         if isinstance(blueprint, dict):
-            blueprint["knowledge_library_revision_id"] = binding.get("revision_id")
+            blueprint["reference_catalog_revision_id"] = reference_library.get("revision_id")
             blueprint["course_knowledge_base_revision_id"] = course_knowledge_base.get(
                 "revision_id"
             )
@@ -1759,16 +1731,32 @@ class TaskManager:
             task_id,
             "knowledge_mapping",
             49,
-            "正在固定课程与知识库版本映射",
+            "正在检查原子性、六类关系与精确教学绑定",
             phase_progress=100,
             phase_detail={
-                "binding": binding,
                 "course_knowledge_base_revision_id": course_knowledge_base.get(
                     "revision_id"
                 ),
+                "lifecycle_status": course_knowledge_base.get("lifecycle_status"),
+                "quality_report": course_knowledge_base.get("quality_report"),
+                "reference_catalog_required": False,
             },
         )
         return working
+
+    @staticmethod
+    def _require_course_knowledge_ready(course_data: dict[str, Any]) -> None:
+        knowledge_base = course_data.get("course_knowledge_base") or {}
+        if knowledge_base.get("lifecycle_status") == "active":
+            return
+        report = knowledge_base.get("quality_report") or {}
+        messages = [
+            str(item.get("message") or "")
+            for item in report.get("blocking_issues") or report.get("issues") or []
+            if str(item.get("message") or "").strip()
+        ]
+        detail = "；".join(messages[:6]) or "课程知识蓝图缺失或尚未通过质量门"
+        raise RuntimeError(f"正文生成已停止：{detail}")
 
     async def _process_task(self, task_id: str) -> None:
         """处理单个任务：分析课程结构并调度节点。
@@ -1840,6 +1828,9 @@ class TaskManager:
                 on_checkpoint=on_checkpoint,
             )
             course_data = await self._prepare_subject_knowledge(task_id, course_data)
+            request_mode = str(request.get("generation_mode") or "fast")
+            if request_mode != "review_blueprint":
+                self._require_course_knowledge_ready(course_data)
             course_data["learning_asset_plan"] = compile_learning_asset_plan(course_data)
             if isinstance(course_data.get("course_blueprint"), dict):
                 course_data["course_blueprint"]["learning_asset_plan"] = course_data["learning_asset_plan"]
@@ -1849,7 +1840,6 @@ class TaskManager:
             task["blueprint_revision_id"] = frozen["blueprint_revision_id"]
             await self._save_task_course(task_id, course_data)
 
-            request_mode = str(request.get("generation_mode") or "fast")
             if request_mode == "review_blueprint" and not task.get("blueprint_confirmed"):
                 draft = build_blueprint_draft(course_data)
                 impact = analyze_blueprint_impact(course_data, draft)
@@ -1872,6 +1862,17 @@ class TaskManager:
                 )
                 await self._push_progress(task_id)
                 return
+
+        request = task.get("request_snapshot") or course_data.get("generation_request") or {}
+        review_pending = (
+            str(request.get("generation_mode") or "fast") == "review_blueprint"
+            and not task.get("blueprint_confirmed")
+        )
+        if task.get("type") == "course_generation" and not review_pending:
+            if not course_data.get("course_knowledge_base"):
+                course_data = await self._prepare_subject_knowledge(task_id, course_data)
+                await self._save_task_course(task_id, course_data)
+            self._require_course_knowledge_ready(course_data)
 
         if task.get("status") == "paused":
             return

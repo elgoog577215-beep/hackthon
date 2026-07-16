@@ -21,6 +21,58 @@ from course_pedagogy import (
 from course_service import CourseService
 
 
+def _knowledge_structure(label):
+    premise = f"{label}的成立条件"
+    application = f"{label}的应用判断"
+    return [{
+        "concept_group": f"{label}的核心机制",
+        "description": f"从成立条件走向{label}的独立应用",
+        "knowledge_points": [{
+            "name": premise,
+            "statement": f"使用{label}前必须先识别对象并核对全部成立条件。",
+            "knowledge_type": "rule",
+            "conditions": [f"已经明确{label}所处理的对象"],
+            "boundaries": [f"任一条件不成立时不能直接使用{label}"],
+            "capability_points": [{
+                "name": f"核对{label}条件",
+                "observable_behavior": f"给定案例，逐项判断{label}的成立条件是否满足",
+            }],
+            "misconceptions": [{
+                "name": f"跳过{label}条件检查",
+                "observable_error_pattern": f"没有核对条件就直接套用{label}",
+                "discrimination": f"把{label}的对象、条件和结论分别列出",
+                "repair_strategy": f"补做{label}条件清单后重新推理",
+            }],
+            "mastery_criteria": [{
+                "name": f"{label}条件判断达标",
+                "observable_performance": f"独立判断新案例是否满足{label}的成立条件",
+                "verification_method": "完成正例、反例与边界例的分类",
+            }],
+            "entry_reason": f"{premise}是本节的学习入口。",
+            "relations": [{
+                "target_name": application,
+                "relation_type": "prerequisite",
+                "reason": f"只有先核对{label}的成立条件，才能进行应用判断",
+            }],
+        }, {
+            "name": application,
+            "statement": f"满足条件后，应选择{label}完成任务并检查结果是否落在适用边界内。",
+            "knowledge_type": "procedure",
+            "conditions": [f"{label}的全部成立条件已经满足"],
+            "boundaries": [f"结果超出{label}适用范围时需要更换方法"],
+            "capability_points": [{
+                "name": f"应用{label}",
+                "observable_behavior": f"在新情境中独立应用{label}并检查结果",
+            }],
+            "mastery_criteria": [{
+                "name": f"{label}应用达标",
+                "observable_performance": f"独立完成一个{label}迁移任务并说明检查过程",
+                "verification_method": "提交完整过程并使用边界案例复核",
+            }],
+        }],
+    }]
+
+
 def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
     artifacts = build_course_generation_artifacts(
         course_id="course-1",
@@ -206,6 +258,7 @@ async def test_course_service_builds_v4_blueprint_without_legacy_quality_report(
                     "section_number": "1.1",
                     "title": "导数的定义",
                     "key_points": ["差商极限", "瞬时变化率"],
+                    "knowledge_structure": _knowledge_structure("导数定义"),
                     "complexity": "medium",
                     "learning_objective": "能用定义解释导数",
                     "prerequisite_node_ids": [],
@@ -280,6 +333,7 @@ async def test_course_service_resumes_from_persisted_pedagogy_checkpoint(monkeyp
                 "sections": [{
                     "section_number": "1.1",
                     "title": "启动项目",
+                    "knowledge_structure": _knowledge_structure("项目启动"),
                     "learning_objective": "能运行并验证输出",
                     "assessment": ["命令返回预期结果"],
                 }],
@@ -361,6 +415,7 @@ def test_explicit_course_shape_is_compiled_as_a_hard_constraint():
     assert {item["code"] for item in invalid["issues"]} == {
         "plan:chapter_count_mismatch",
         "plan:section_count_mismatch",
+        "plan:missing_knowledge_structure",
     }
 
     malformed = validate_course_plan_constraints({"chapters": ["不是章节对象"]}, brief)
@@ -400,6 +455,7 @@ async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkey
                         "node_id": "L2-1-1",
                         "section_number": "1.1",
                         "title": "判别式与根的情况",
+                        "knowledge_structure": _knowledge_structure("判别式判断"),
                         "learning_objective": "能使用判别式判断实数根的个数",
                         "prerequisite_node_ids": [],
                         "assessment": ["判断三个方程的根的情况"],
@@ -408,6 +464,7 @@ async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkey
                         "node_id": "L2-1-2",
                         "section_number": "1.2",
                         "title": "实际问题建模",
+                        "knowledge_structure": _knowledge_structure("面积问题建模"),
                         "learning_objective": "能把面积问题转化为一元二次方程并验根",
                         "prerequisite_node_ids": ["L2-1-1"],
                         "assessment": ["完成一个面积建模任务"],

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
-import re
 from typing import Any
 
 from course_document import CourseBlock, CourseDocument, stable_hash
@@ -17,7 +17,6 @@ from teaching_representations import (
     TeachingRepresentationSpec,
     source_binding_for_document,
 )
-
 
 REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v1"
 CORE_TYPES = ("outline", "lesson_plan", "handout", "practice_sheet", "slide_deck")
@@ -44,6 +43,7 @@ def compile_core_representations(
         source_revision_vector=vector,
         target_scope={"kind": "course"},
         requested_representations=list(CORE_TYPES),
+        knowledge_refs=_course_knowledge_refs(document, course_data),
         pedagogical_reasons=[
             "为学习者、课程维护者和课堂展示提供同一课程语义的不同用途表达",
             "保持大纲、讲义、教案、正式题目和幻灯之间的来源与修订一致",
@@ -225,6 +225,7 @@ def _outline_spec(document: CourseDocument) -> dict[str, Any]:
             "source_section_ids": [section.section_id],
             "source_block_ids": [block.block_id for block in blocks],
             "block_roles": [block.role for block in blocks],
+            "knowledge_refs": _knowledge_refs_for_blocks(blocks),
         })
     return {"title": document.title, "sections": sections}
 
@@ -249,6 +250,7 @@ def _lesson_plan_spec(document: CourseDocument, course_data: dict[str, Any]) -> 
             ],
             "misconceptions": _section_misconceptions(course_data, section.section_id),
             "practice_task_ids": _section_question_ids(course_data, section.section_id),
+            "knowledge_refs": _knowledge_refs_for_blocks(blocks),
         })
     return {"title": f"{document.title} 教案", "units": units}
 
@@ -264,12 +266,14 @@ def _handout_spec(document: CourseDocument) -> dict[str, Any]:
             "title": section.title,
             "learning_objective": section.learning_objective,
             "source_block_ids": [block.block_id for block in blocks],
+            "knowledge_refs": _knowledge_refs_for_blocks(blocks),
             "blocks": [
                 {
                     "block_id": block.block_id,
                     "role": block.role,
                     "title": str(block.payload.get("title") or ""),
                     "markdown": str(block.payload.get("markdown") or block.payload.get("text") or ""),
+                    "knowledge_refs": list(block.concept_refs),
                 }
                 for block in blocks if block.status != "retired"
             ],
@@ -278,7 +282,7 @@ def _handout_spec(document: CourseDocument) -> dict[str, Any]:
 
 
 def _practice_sheet_spec(document: CourseDocument, course_data: dict[str, Any]) -> dict[str, Any]:
-    questions = list(((course_data.get("learning_assets") or {}).get("questions") or []))
+    questions = list((course_data.get("learning_assets") or {}).get("questions") or [])
     units = []
     by_section = {section.section_id: section for section in document.sections}
     for question in questions:
@@ -294,6 +298,16 @@ def _practice_sheet_spec(document: CourseDocument, course_data: dict[str, Any]) 
             "practice_revision_id": question.get("revision_id"),
             "prompt": question.get("prompt"),
             "practice_level": question.get("practice_level"),
+            "knowledge_refs": _unique([
+                *(question.get("course_knowledge_refs") or []),
+                *(question.get("concept_ids") or []),
+                *[
+                    knowledge_id
+                    for block in document.blocks
+                    if block.section_id == section_id
+                    for knowledge_id in block.concept_refs
+                ],
+            ]),
             "answer_policy": "separate_answer_key",
         })
     return {"title": f"{document.title} 练习", "units": units}
@@ -309,6 +323,7 @@ def _slide_deck_spec(document: CourseDocument, course_data: dict[str, Any]) -> d
         "speaker_notes": "从课程目标和学习者已有经验开始。",
         "source_keys": ["course_title"],
         "source_block_ids": [],
+        "knowledge_refs": [],
     }]
     for section in _learning_sections(document):
         blocks = blocks_by_section.get(section.section_id, [])
@@ -330,6 +345,7 @@ def _slide_deck_spec(document: CourseDocument, course_data: dict[str, Any]) -> d
             "speaker_notes": f"本页目标：{section.learning_objective or section.title}",
             "source_block_ids": [block.block_id for block in blocks],
             "practice_task_ids": _section_question_ids(course_data, section.section_id)[:1],
+            "knowledge_refs": _knowledge_refs_for_blocks(blocks),
         })
     return {"title": document.title, "slides": slides, "theme": "lingzhi-light-v1"}
 
@@ -339,6 +355,7 @@ def _unit_bindings_for_payload(
     payload: dict[str, Any],
 ) -> dict[str, list[SourceBinding]]:
     vector = revision_vector_for_document(document).revisions
+    blocks_by_id = {block.block_id: block for block in document.blocks}
     result: dict[str, list[SourceBinding]] = {}
     units = payload.get("units") or payload.get("slides") or payload.get("sections") or []
     for unit in units:
@@ -347,9 +364,18 @@ def _unit_bindings_for_payload(
             continue
         bindings: list[SourceBinding] = []
         for block_id in unit.get("source_block_ids") or []:
-            bindings.append(source_binding_for_document(document, block_id=str(block_id)))
+            block = blocks_by_id.get(str(block_id))
+            bindings.append(source_binding_for_document(
+                document,
+                block_id=str(block_id),
+                knowledge_node_ids=list(block.concept_refs) if block else [],
+            ))
         for section_id in unit.get("source_section_ids") or []:
-            bindings.append(source_binding_for_document(document, section_id=str(section_id)))
+            bindings.append(source_binding_for_document(
+                document,
+                section_id=str(section_id),
+                knowledge_node_ids=_unique(unit.get("knowledge_refs") or []),
+            ))
         source_keys = [
             str(source_key) for source_key in unit.get("source_keys") or []
             if str(source_key) in vector
@@ -365,6 +391,7 @@ def _unit_bindings_for_payload(
             bindings.append(SourceBinding(
                 course_id=document.course_id,
                 section_id=str(unit.get("section_id") or "") or None,
+                knowledge_node_ids=_unique(unit.get("knowledge_refs") or []),
                 practice_task_ids=[practice_task_id],
                 source_revisions={f"practice:{practice_task_id}": practice_revision_id},
             ))
@@ -440,3 +467,35 @@ def _section_misconceptions(course_data: dict[str, Any], section_id: str) -> lis
         for item in ((course_data.get("learning_assets") or {}).get("misconceptions") or [])
         if str(item.get("node_id") or "") == section_id and item.get("error_pattern")
     ]
+
+
+def _knowledge_refs_for_blocks(blocks: list[CourseBlock]) -> list[str]:
+    return _unique([
+        knowledge_id
+        for block in blocks
+        for knowledge_id in block.concept_refs
+    ])
+
+
+def _course_knowledge_refs(
+    document: CourseDocument,
+    course_data: dict[str, Any],
+) -> list[str]:
+    asset_refs = [
+        knowledge_id
+        for values in (course_data.get("learning_assets") or {}).values()
+        if isinstance(values, list)
+        for item in values
+        if isinstance(item, dict)
+        for knowledge_id in item.get("course_knowledge_refs") or []
+    ]
+    return _unique([
+        *[knowledge_id for block in document.blocks for knowledge_id in block.concept_refs],
+        *asset_refs,
+    ])
+
+
+def _unique(values: list[Any]) -> list[str]:
+    return list(dict.fromkeys(
+        str(value).strip() for value in values if str(value).strip()
+    ))

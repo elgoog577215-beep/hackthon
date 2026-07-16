@@ -5,27 +5,24 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from course_coherence import course_coherence_prompt_context
 from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
 )
-from course_coherence import course_coherence_prompt_context
 from course_knowledge_base import (
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
+    knowledge_binding_for_section,
 )
-from course_knowledge_map import knowledge_ids_for_section, project_course_knowledge_map
 from course_pedagogy import MODULES, TEMPLATES, SubjectPedagogyProfile, module_block_role
 from subject_knowledge import (
     knowledge_index,
     knowledge_library_prompt_context,
-    knowledge_library_slice,
-    knowledge_library_slice_prompt_context,
     resolve_subject_library,
 )
 
-
-PROMPT_CONTRACT_VERSION = "course_prompt_v9"
+PROMPT_CONTRACT_VERSION = "course_prompt_v10"
 
 
 class CoursePromptComposer:
@@ -122,7 +119,7 @@ class CoursePromptComposer:
 ## 资料上下文
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
 
-## 学科知识参照
+## 可选术语参照
 {subject_knowledge_context}
 
 ## 蓝图要求
@@ -132,15 +129,16 @@ class CoursePromptComposer:
 4. `suggested_module_ids` 只能从可用模块中选择；后端会补齐必备模块并校验辅模式注入。
 5. 每个小节必须给出 `node_id`，统一使用 `L2-章号-节号`，例如第 1 章第 1 节是 `L2-1-1`。
 6. 前置依赖只能引用已经出现的 `node_id`，不得使用 `1.1`、`L1-1` 或尚未出现的节点。
-7. `knowledge_structure` 表达本课程对学科知识的覆盖，不是另一套正式知识库。优先使用学科参照中的规范名称或正式别名，并按实际教学需要组织 1-4 个局部主题；不得为了凑数重复知识。
-8. 每个局部主题包含 1-5 个可单独解释、练习和诊断的细知识要求；说明对象、成立条件或适用边界。
-9. 每个细知识点必须继续拆出能力点、易错点和提升点，层级固定为“知识点 → 能力点 → 易错点/提升点”。能力必须是可观察动作；易错必须描述会怎样错；提升必须描述在何种新情境或更高约束下独立完成什么。
-10. 同一个能力、误区或提升要求不要在多个知识点下机械复制。它们必须与父知识点直接相关，并能指导正文、练习和反馈。
-11. 不得输出或编造正式知识 ID。参照中没有的课程必要内容可以保留真实名称，后端会将其标记为课程局部知识，不要强行套入相近概念。
+7. `knowledge_structure` 就是当前课程自己的知识蓝图，不是章节标题索引，也不依赖外部学科库。每节按实际内容组织 1-4 个 `concept_group`，概念组名称必须表达知识问题域，禁止复制小节标题。
+8. 每个概念组包含 2-5 个可单独解释、练习和诊断的原子知识点。每个知识点必须写出独立 `statement`、`knowledge_type`、成立 `conditions` 或适用 `boundaries`；不得把定义、公式、图像和应用打包成一个粗节点。
+9. 每个原子知识点至少包含一个可观察 `capability_points` 和一个可验证 `mastery_criteria`。`misconceptions` 只有存在具体错误表现、判别方法和修复策略时才生成，允许为空，禁止模板填充。
+10. `ImprovementPoint` 已退出知识库。稳定提升目标写成能力，具体训练进入练习，个性化建议留给学习阶段 AI，不得在蓝图中生成 `improvement_points`。
+11. 同一知识在全课只能有一个名称身份；后续小节再次使用时不得在 `knowledge_structure` 重建，必须把前序规范名称写入该小节的 `reused_knowledge_names`，由绑定表示巩固或应用。外部术语参照只帮助命名，缺失或冲突时以当前课程目标和资料为准，不得输出外部知识 ID。
 12. 不编造论文、链接、书目、年份或未上传资料。
 13. 从整门课程角度分配小节责任：相邻小节的学习目标不得只是换句话重复；需要承接的前置必须写入 `prerequisite_node_ids`，只需上下文衔接但可并行生成的内容不要伪造成硬依赖。
 14. 每节只完整展开自己的知识与能力产出。允许简短回顾前置，但不得复制前节实质讲解；后续小节的核心知识只能提示方向，不能在当前小节提前讲完。
 15. 全课程使用统一术语和符号。相同概念优先复用规范名称，把其他叫法写入知识点 `aliases`，不得在不同章节把同一概念写成互不关联的新知识点。
+16. 只允许六类知识关系：`prerequisite / derives / equivalent_to / contrasts_with / applies_to / generalizes`。禁止 `related`。每条关系必须给出具体理由；推导给步骤，对比给判别维度；没有入边的真正入口知识必须写 `entry_reason`。
 
 ## JSON Schema
 {{
@@ -148,6 +146,19 @@ class CoursePromptComposer:
   "positioning": "课程定位与最终成果",
   "learning_objectives": ["可观察成果"],
   "prerequisites": ["必要前置"],
+  "knowledge_relations": [
+    {{
+      "source_name": "来源知识点规范名称",
+      "target_name": "目标知识点规范名称",
+      "relation_type": "prerequisite",
+      "reason": "为什么属于该关系，而不是课程先后顺序",
+      "conditions": [],
+      "distinction": "仅 contrasts_with 必填",
+      "derivation_steps": ["仅 derives 必填"],
+      "necessity": "required",
+      "priority": "core"
+    }}
+  ],
   "chapters": [
     {{
       "chapter_number": 1,
@@ -161,39 +172,51 @@ class CoursePromptComposer:
           "key_points": ["核心知识点"],
           "knowledge_structure": [
             {{
-              "topic": "可教学主题",
+              "concept_group": "知识问题域，不得复制小节标题",
               "description": "本主题在本节中的作用与边界",
               "knowledge_points": [
                 {{
                   "name": "可单独解释和检测的细知识点",
-                  "description": "对象、条件、机制或适用边界",
-                  "capability": "学习者能够完成的可观察动作",
+                  "statement": "脱离章节标题也能独立成立的知识命题或操作规则",
+                  "knowledge_type": "definition",
+                  "conditions": ["成立条件；普遍成立时写明适用域"],
+                  "boundaries": ["不适用范围或易混边界"],
+                  "counterexamples": [],
                   "capability_points": [
                     {{
                       "name": "细颗粒能力名称",
-                      "observable_behavior": "学习者在不依赖答案时可观察到的动作"
+                      "observable_behavior": "学习者在不依赖答案时可观察到的动作",
+                      "required_evidence_types": ["practice_attempt"]
                     }}
                   ],
-                  "mistake_points": [
+                  "misconceptions": [
                     {{
                       "name": "常见错误模式",
-                      "description": "错误表现与触发条件",
+                      "observable_error_pattern": "学生会以什么具体方式出错",
+                      "confused_with": "容易与什么混淆",
+                      "discrimination": "靠什么条件或反例区分",
                       "repair_strategy": "如何辨别并修复"
                     }}
                   ],
-                  "improvement_points": [
+                  "mastery_criteria": [
                     {{
-                      "name": "提升方向",
-                      "learning_goal": "更高水平的独立表现",
-                      "practice_strategy": "新情境、变式、边界或综合任务"
+                      "name": "掌握标准名称",
+                      "observable_performance": "出现什么独立表现才算掌握",
+                      "required_independence": "independent",
+                      "required_transfer": "variation",
+                      "verification_method": "用何种题目、产物或行为验证",
+                      "required_evidence_types": ["practice_attempt"]
                     }}
                   ],
                   "aliases": [],
-                  "prerequisite_names": []
+                  "entry_reason": "只有真正入口知识才填写",
+                  "prerequisite_names": [],
+                  "relations": []
                 }}
               ]
             }}
           ],
+          "reused_knowledge_names": ["仅填写前序小节已经定义、当前小节再次巩固或应用的规范知识名称"],
           "learning_objective": "学完后能完成的任务",
           "prerequisite_node_ids": [],
           "misconceptions": ["需要澄清的误区"],
@@ -283,8 +306,9 @@ class CoursePromptComposer:
 6. 如果使用资料事实，必须在对应陈述后追加 `[[evidence:证据ID]]`；证据 ID 只能来自当前节点允许列表。
 7. 证据标记不是参考文献装饰，不能把讲法参考或弱背景伪装成事实来源。
 8. 输出前完成内部一致性检查；正文不得保留“我的计算有误”“等待，更正”“请重新检查任务”等模型自我纠错痕迹，也不得让题干、答案和量规互相矛盾。
-9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和提升坐标，不得各写各的。
+9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和掌握标准，不得各写各的。
 10. 当前节点名称已经由页面显示，正文不得再次把“{node.get('node_name', '')}”写成二级标题，也不得输出只有标题没有正文的空模块。
+11. 每个 `##` 教学块必须在首段明确写出它实际讲解、练习或检查的一个或多个知识点规范名称；不得只用“本概念”“上述方法”等代词。规范名称来自下方“当前课程知识库契约”，用于建立正文块到知识点的精确绑定。
 
 ## 课程
 - 名称：{course_data.get('course_name', '')}
@@ -304,10 +328,10 @@ class CoursePromptComposer:
 - 验收标准：{'；'.join(node.get('assessment', []))}
 - 范围边界：{node.get('scope_boundary', '')}
 
-## 正式学科知识切片
+## 可选术语参照
 {knowledge_context}
 
-## 当前知识下的能力、易错与提升
+## 可选参照中的教学提示
 {teaching_context}
 
 ## 当前课程知识库契约
@@ -354,24 +378,30 @@ class CoursePromptComposer:
         library = resolve_subject_library(course_data)
         if not library.get("nodes"):
             return (
-                "当前课程尚无正式学科包；保留课程局部知识表述，不得编造正式 ID。",
-                "正式学科库尚未覆盖本主题；能力、易错和提升以当前课程知识库为准。",
+                "当前没有可用术语参考；这不会影响课程知识库生成和使用。",
+                "能力、易错和掌握标准只以当前课程知识库为准。",
                 local_context,
             )
-        course_map = project_course_knowledge_map(course_data)
-        selected_ids = knowledge_ids_for_section(course_map, node_id)
+        selected_ids = set(
+            knowledge_binding_for_section(course_knowledge_base, node_id)["course_knowledge_refs"]
+        )
+        reference_ids = {
+            str(reference_id)
+            for point in course_knowledge_base.get("knowledge_points") or []
+            if point.get("knowledge_id") in selected_ids
+            for suggestion in point.get("reference_suggestions") or []
+            for reference_id in suggestion.get("reference_knowledge_ids") or []
+        }
         by_id = knowledge_index(library)
         rows = [
             " / ".join(by_id[item].get("path_names") or [])
-            for item in selected_ids
+            for item in reference_ids
             if item in by_id
         ]
         knowledge_context = "\n".join(
-            ["以下是当前节点已确定映射的正式知识路径：", *[f"- {row}" for row in rows]]
-        ) if rows else "当前节点尚无精确正式映射；保留课程局部表述，不得强行映射。"
-        teaching_context = knowledge_library_slice_prompt_context(
-            knowledge_library_slice(library, selected_ids),
-        )
+            ["以下术语路径只用于命名校准，不替代当前课程知识身份：", *[f"- {row}" for row in rows]]
+        ) if rows else "术语参考没有匹配项；继续使用当前课程知识命题，不得强行映射。"
+        teaching_context = "外部参考不提供当前课程的能力、易错或掌握结论。"
         return knowledge_context, teaching_context, local_context
 
     def build_repair_prompt(

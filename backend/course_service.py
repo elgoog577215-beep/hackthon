@@ -21,6 +21,7 @@ from typing import (
 )
 
 from ai_base import AIBase, AIProviderRequestError
+from ai_learning_context import build_ai_learning_context
 from ai_output_quality import assess_ai_output
 from content_blocks import (
     normalize_blocks,
@@ -32,6 +33,7 @@ from course_coherence import (
     compile_course_coherence_contract,
     evaluate_course_coherence,
 )
+from course_context import CourseContextManager, get_context_manager
 from course_difficulty import (
     assess_readiness,
     attach_difficulty_contracts_to_plan,
@@ -51,8 +53,8 @@ from course_generation_strategy import (
 )
 from course_generation_workflow import (
     attach_difficulty_artifacts,
-    attach_pedagogy_profile,
     attach_generation_artifacts_to_plan,
+    attach_pedagogy_profile,
     build_course_blueprint_from_plan,
     build_course_generation_artifacts,
     build_node_generation_context,
@@ -60,6 +62,11 @@ from course_generation_workflow import (
     normalize_course_plan_contract,
     validate_course_plan_constraints,
 )
+from course_knowledge_base import (
+    bind_course_knowledge_base_to_map,
+    compile_course_knowledge_base,
+)
+from course_knowledge_map import compile_course_knowledge_map, normalize_knowledge_structure
 from course_pedagogy import (
     SubjectPedagogyProfile,
     attach_module_plans_to_plan,
@@ -73,14 +80,7 @@ from course_prompt_composer import (
     get_course_prompt_composer,
 )
 from course_quality import evaluate_node_content, validate_blueprint
-from course_context import CourseContextManager, get_context_manager
-from ai_learning_context import build_ai_learning_context
 from learner_context import DEFAULT_USER_ID
-from course_knowledge_base import (
-    bind_course_knowledge_base_to_map,
-    compile_course_knowledge_base,
-)
-from course_knowledge_map import compile_course_knowledge_map, normalize_knowledge_structure
 from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialRepository, material_repository
@@ -523,6 +523,7 @@ class CourseService(AIBase):
             "course_difficulty_curve": course_difficulty_curve,
             "nodes": nodes,
             "course_plan": plan,
+            "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
             "material_cards": artifacts["material_cards"],
             "course_generation_brief": artifacts["course_generation_brief"],
             "material_assets": artifacts.get("material_assets", []),
@@ -803,6 +804,7 @@ class CourseService(AIBase):
                     "node_type": "original",
                     "key_points": section.get("key_points", []),
                     "knowledge_structure": section.get("knowledge_structure", []),
+                    "reused_knowledge_names": section.get("reused_knowledge_names", []),
                     "learning_objective": section.get("learning_objective", ""),
                     "prerequisite_node_ids": section.get("prerequisite_node_ids", []),
                     "misconceptions": section.get("misconceptions", []),
@@ -1900,13 +1902,14 @@ class CourseService(AIBase):
 ## 课程难度能力契约
 {format_difficulty_profile(difficulty_profile.to_dict())}
 
-## 学科知识参照
+## 可选术语参照
 {subject_knowledge_context}
 
 ## 知识边界
-1. `knowledge_structure` 只描述这些小节覆盖哪些知识，不得另造一套正式知识树。
-2. 优先使用学科知识参照中的规范名称或正式别名，不得输出或编造正式知识 ID。
-3. 参照中没有但课程确实需要的内容应保留真实名称，后端会标记为待归一，不要强行套入相近概念。
+1. `knowledge_structure` 是当前课程自己的知识蓝图，不是小节标题索引。
+2. 每个概念组至少拆出两个原子知识点；知识点必须有独立命题、条件或边界、可观察能力和掌握标准。
+3. 可选术语参照只帮助命名，缺失或冲突时不得阻断当前课程，也不得输出外部知识 ID。
+4. 不生成提升点；易错点没有可靠内容时允许为空，禁止模板填充。
 
 ## 输出格式
 ```json
@@ -1917,19 +1920,33 @@ class CourseService(AIBase):
     "key_points": ["要点"],
     "knowledge_structure": [
       {{
-        "topic": "可教学主题",
+        "concept_group": "知识问题域，不得复制小节标题",
         "description": "主题作用与边界",
         "knowledge_points": [
           {{
             "name": "可独立解释和检测的细知识点",
-            "description": "对象、条件、机制或适用边界",
-            "capability": "学习者可完成的动作",
+            "statement": "独立知识命题或操作规则",
+            "knowledge_type": "definition",
+            "conditions": ["成立条件或适用域"],
+            "boundaries": ["不适用范围或易混边界"],
+            "capability_points": [{{"name": "能力名称", "observable_behavior": "可观察动作"}}],
+            "misconceptions": [],
+            "mastery_criteria": [{{
+              "name": "掌握标准",
+              "observable_performance": "独立可验证表现",
+              "required_independence": "independent",
+              "required_transfer": "variation",
+              "verification_method": "验证方法"
+            }}],
             "aliases": [],
-            "prerequisite_names": []
+            "entry_reason": "只有入口知识填写",
+            "prerequisite_names": [],
+            "relations": []
           }}
         ]
       }}
     ],
+    "reused_knowledge_names": [],
     "learning_objective": "学完本节后学习者能完成的具体任务",
     "prerequisite_node_ids": [],
     "misconceptions": ["本节需要澄清的常见误区"],
@@ -1974,6 +1991,7 @@ class CourseService(AIBase):
                 "node_type": "custom",
                 "key_points": item.get("key_points", []),
                 "knowledge_structure": item.get("knowledge_structure", []),
+                "reused_knowledge_names": item.get("reused_knowledge_names", []),
                 "learning_objective": item.get("learning_objective", ""),
                 "prerequisite_node_ids": item.get("prerequisite_node_ids", []),
                 "misconceptions": item.get("misconceptions", []),

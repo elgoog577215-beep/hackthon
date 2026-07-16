@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 from typing import Literal
 
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from course_knowledge_rebuild import (
+    CourseKnowledgeRebuildError,
+    CourseKnowledgeRebuildService,
+)
 from course_repository import CourseDocumentRepository
 from dependencies import get_course_document_repository
 from knowledge_library_migrations import KnowledgeLibraryMigrationService
 from subject_library_service import (
     SubjectLibraryService,
     SubjectLibraryVersionConflict,
-    SubjectOntologyGenerationError,
 )
-
 
 router = APIRouter(tags=["knowledge_libraries"])
 
@@ -42,19 +45,22 @@ def get_subject_library_migration_service(
     return KnowledgeLibraryMigrationService(course_repository, service)
 
 
+def get_course_knowledge_rebuild_service(
+    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
+) -> CourseKnowledgeRebuildService:
+    return CourseKnowledgeRebuildService(course_repository)
+
+
 @router.post("/courses/{course_id}/knowledge-library/rebuild")
 async def rebuild_course_library(
     course_id: str,
     body: RebuildRequest,
-    service: SubjectLibraryService = Depends(get_subject_library_service),
-):
+    service: CourseKnowledgeRebuildService = Depends(get_course_knowledge_rebuild_service),
+) -> dict:
     try:
         return await service.rebuild_course(course_id, force=body.force)
-    except SubjectOntologyGenerationError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"code": exc.code, "message": exc.message, "retryable": exc.retryable},
-        ) from exc
+    except CourseKnowledgeRebuildError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

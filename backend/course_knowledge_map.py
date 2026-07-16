@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import re
+from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
@@ -15,17 +15,26 @@ from subject_knowledge import (
     suggest_subject_knowledge,
 )
 
-
 COURSE_MAP_SCHEMA = "course_knowledge_map_v2"
 
 
 def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize course-local outline concepts without promoting them to formal knowledge."""
+    """Normalize the course-owned knowledge blueprint without copying section titles.
+
+    Historical ``key_points`` remain readable as degraded candidates, but a missing
+    knowledge blueprint is never repaired by manufacturing a point from the section
+    title. New-course publication is blocked later by the v2 knowledge quality gate.
+    """
     normalized: list[dict[str, Any]] = []
     for topic_index, raw_topic in enumerate(section.get("knowledge_structure") or []):
         if not isinstance(raw_topic, dict):
             continue
-        topic_name = str(raw_topic.get("topic") or raw_topic.get("name") or "").strip()
+        topic_name = str(
+            raw_topic.get("concept_group")
+            or raw_topic.get("topic")
+            or raw_topic.get("name")
+            or ""
+        ).strip()
         points = [
             point
             for point_index, raw_point in enumerate(raw_topic.get("knowledge_points") or [])
@@ -34,6 +43,7 @@ def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any
         if not topic_name or not points:
             continue
         normalized.append({
+            "concept_group": topic_name,
             "topic": topic_name,
             "description": str(raw_topic.get("description") or "").strip(),
             "knowledge_points": points,
@@ -43,6 +53,7 @@ def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any
 
     if normalized:
         section["knowledge_structure"] = normalized
+        section["knowledge_structure_status"] = "structured"
         section["key_points"] = _unique([
             point["name"]
             for topic in normalized
@@ -56,16 +67,28 @@ def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any
         if str(item).strip()
     ])
     if not names:
-        names = [str(section.get("node_name") or section.get("title") or "本节内容").strip()]
-    topic_name = str(section.get("node_name") or section.get("title") or "本节内容").strip()
+        section["knowledge_structure"] = []
+        section["knowledge_structure_status"] = "needs_enrichment"
+        return []
     normalized = [{
-        "topic": topic_name,
-        "description": "来自课程大纲的局部表述，尚未完成课程内细化。",
+        "concept_group": "待知识化内容",
+        "topic": "待知识化内容",
+        "description": "历史课程只保留了要点名称，尚未形成可发布的原子知识结构。",
         "knowledge_points": [{
             "name": name,
+            "statement": "",
             "description": "",
-            "capability": f"能够解释并在本节任务中应用「{name}」",
+            "knowledge_type": "definition",
+            "conditions": [],
+            "boundaries": [],
+            "counterexamples": [],
+            "capability": "",
+            "capability_points": [],
+            "misconceptions": [],
+            "mastery_criteria": [],
+            "relations": [],
             "aliases": [],
+            "entry_reason": "",
             "prerequisite_names": [],
             "order": index,
         } for index, name in enumerate(names)],
@@ -73,6 +96,7 @@ def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any
         "order": 0,
     }]
     section["knowledge_structure"] = normalized
+    section["knowledge_structure_status"] = "needs_enrichment"
     section["key_points"] = names
     return normalized
 
@@ -82,7 +106,14 @@ def compile_course_knowledge_map(
     library: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile deterministic course coverage without creating formal knowledge IDs."""
-    subject_library = deepcopy(library) if library is not None else resolve_subject_library(course_data)
+    # Cross-course catalogs are optional terminology references.  The course map
+    # must remain usable when no catalog is supplied, while explicit/curated
+    # catalogs continue to support terminology matching and legacy analytics.
+    subject_library = (
+        deepcopy(library)
+        if library is not None
+        else resolve_subject_library(course_data)
+    )
     formal_nodes = knowledge_index(subject_library)
     course_id = str(course_data.get("course_id") or "")
     sections = [
@@ -205,7 +236,7 @@ def compile_course_knowledge_map(
             ),
         },
         "unresolved_candidates": unresolved,
-        "status": "active" if formal_nodes else "library_unavailable",
+        "status": "active" if subject_library.get("nodes") else "library_unavailable",
     }
     payload["revision_id"] = _revision_id(payload, "ckmvr_")
     return payload
@@ -227,7 +258,6 @@ def project_learning_assets_to_knowledge(
         compile_course_knowledge_base,
         knowledge_binding_for_section,
     )
-    from subject_knowledge import build_knowledge_library_view
 
     projected_course = deepcopy(course_data)
     projected_assets = deepcopy(assets)
@@ -281,22 +311,25 @@ def project_learning_assets_to_knowledge(
             ]
             for field in (
                 "course_knowledge_refs",
-                "course_capability_refs",
-                "course_mistake_refs",
-                "course_improvement_refs",
+                "course_skill_refs",
+                "course_misconception_refs",
+                "course_mastery_refs",
             ):
-                asset[field] = _unique([
+                explicit = _unique(list(asset.get(field) or []))
+                asset[field] = explicit or _unique([
                     ref for binding in bindings for ref in binding.get(field) or []
                 ])
+            asset["course_capability_refs"] = list(asset["course_skill_refs"])
+            asset["course_mistake_refs"] = list(asset["course_misconception_refs"])
+            asset["course_improvement_refs"] = []
             asset["course_knowledge_base_revision_id"] = course_knowledge_base.get("revision_id")
 
-    knowledge_view = build_knowledge_library_view(library, course_map, projected_assets)
-    if knowledge_view.get("status") == "unavailable":
-        knowledge_view = build_course_knowledge_library_view(
-            course_knowledge_base,
-            course_map,
-            projected_assets,
-        )
+    knowledge_view = build_course_knowledge_library_view(
+        course_knowledge_base,
+        course_map,
+        projected_assets,
+        projected_course,
+    )
     projected_assets.pop("knowledge_graph", None)
     projected_assets.pop("subject_knowledge", None)
     projected_assets.pop("teaching_standards", None)
@@ -544,27 +577,28 @@ def validate_course_knowledge_map(
             "major",
             f"仍有 {len(course_map.get('unresolved_candidates') or [])} 个课程局部知识待归一",
         ))
+    course_knowledge_base = next(iter((assets or {}).get("course_knowledge_base") or []), None)
+    local_ids = {
+        str(item.get("knowledge_id") or "")
+        for item in (course_knowledge_base or {}).get("knowledge_points") or []
+    }
+    valid_asset_knowledge_ids = formal_ids | local_ids
     for values in (assets or {}).values():
         if not isinstance(values, list):
             continue
         for asset in values:
             if not isinstance(asset, dict):
                 continue
-            invalid = set(str(item) for item in asset.get("concept_ids") or []) - formal_ids
+            invalid = set(str(item) for item in asset.get("concept_ids") or []) - valid_asset_knowledge_ids
             if invalid:
-                issues.append(_map_issue("structure", "critical", f"学习资产引用不存在的正式知识：{sorted(invalid)}"))
+                issues.append(_map_issue("structure", "critical", f"学习资产引用不存在的正式知识或课程知识：{sorted(invalid)}"))
     for section in course_data.get("nodes") or []:
         for block in section.get("content_blocks") or []:
             refs = ((block.get("metadata") or {}).get("concept_refs") or [])
-            invalid = set(str(item) for item in refs) - formal_ids
+            invalid = set(str(item) for item in refs) - valid_asset_knowledge_ids
             if invalid:
-                issues.append(_map_issue("structure", "critical", f"正文块引用不存在的正式知识：{sorted(invalid)}"))
-    course_knowledge_base = next(iter((assets or {}).get("course_knowledge_base") or []), None)
+                issues.append(_map_issue("structure", "critical", f"正文块引用不存在的知识条目：{sorted(invalid)}"))
     if course_knowledge_base:
-        local_ids = {
-            str(item.get("node_id") or "")
-            for item in course_knowledge_base.get("nodes") or []
-        }
         for mapping in mappings:
             invalid_local = {
                 str(item) for item in mapping.get("course_knowledge_node_ids") or []
@@ -731,18 +765,28 @@ def _normalize_point(raw_point: Any, order: int) -> dict[str, Any] | None:
         return None
     return {
         "name": name,
-        "description": str(raw.get("description") or "").strip(),
-        "capability": str(raw.get("capability") or f"能够解释并应用「{name}」").strip(),
+        "statement": str(raw.get("statement") or raw.get("description") or "").strip(),
+        "description": str(raw.get("description") or raw.get("statement") or "").strip(),
+        "knowledge_type": str(raw.get("knowledge_type") or "definition").strip(),
+        "conditions": _unique(raw.get("conditions") or []),
+        "boundaries": _unique(raw.get("boundaries") or []),
+        "counterexamples": _unique(raw.get("counterexamples") or []),
+        "content_block_refs": _unique(
+            raw.get("content_block_refs") or raw.get("block_refs") or []
+        ),
+        "capability": str(raw.get("capability") or "").strip(),
         "capability_points": _normalize_standard_points(
             raw.get("capability_points") or raw.get("capabilities") or []
         ),
-        "mistake_points": _normalize_standard_points(
+        "misconceptions": _normalize_standard_points(
             raw.get("mistake_points") or raw.get("misconceptions") or []
         ),
-        "improvement_points": _normalize_standard_points(
-            raw.get("improvement_points") or []
+        "mastery_criteria": _normalize_standard_points(
+            raw.get("mastery_criteria") or []
         ),
+        "relations": _normalize_relations(raw.get("relations") or []),
         "aliases": _unique([str(item).strip() for item in raw.get("aliases") or []]),
+        "entry_reason": str(raw.get("entry_reason") or "").strip(),
         "prerequisite_names": _unique([str(item).strip() for item in raw.get("prerequisite_names") or []]),
         "order": order,
     }
@@ -760,7 +804,10 @@ def _normalize_standard_points(values: Any) -> list[Any]:
                 if key in {
                     "name", "label", "statement", "description", "learning_goal",
                     "observable_behavior", "capability", "repair_strategy",
-                    "practice_strategy", "source_status",
+                    "practice_strategy", "source_status", "observable_error_pattern",
+                    "confused_with", "discrimination", "observable_performance",
+                    "required_independence", "required_transfer", "verification_method",
+                    "required_evidence_types", "related_knowledge_names",
                 }
             }
             if any(str(item.get(key) or "").strip() for key in ("name", "label", "statement")):
@@ -768,6 +815,32 @@ def _normalize_standard_points(values: Any) -> list[Any]:
         elif str(value).strip():
             normalized.append(str(value).strip())
     return normalized
+
+
+def _normalize_relations(values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        values = [values] if values else []
+    result: list[dict[str, Any]] = []
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        target_name = str(value.get("target_name") or "").strip()
+        relation_type = str(value.get("relation_type") or "").strip()
+        if not target_name or not relation_type:
+            continue
+        result.append({
+            "target_name": target_name,
+            "relation_type": relation_type,
+            "reason": str(value.get("reason") or "").strip(),
+            "conditions": _unique(value.get("conditions") or []),
+            "distinction": str(value.get("distinction") or "").strip(),
+            "derivation_steps": _unique(value.get("derivation_steps") or []),
+            "necessity": str(value.get("necessity") or "").strip(),
+            "priority": str(value.get("priority") or "core").strip(),
+            "relation_group_id": str(value.get("relation_group_id") or "").strip() or None,
+            "group_operator": str(value.get("group_operator") or "").strip() or None,
+        })
+    return result
 
 
 def _section_evidence_ids(section: dict[str, Any]) -> list[str]:
