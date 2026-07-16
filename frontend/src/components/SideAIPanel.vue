@@ -232,6 +232,24 @@
         </article>
       </section>
 
+      <section
+        v-if="!props.blockTarget && changeProposalsStore.lastRepresentationSync"
+        class="representation-sync-receipt"
+        :data-status="changeProposalsStore.lastRepresentationSync.status"
+        aria-live="polite"
+      >
+        <CheckCircle2 v-if="changeProposalsStore.lastRepresentationSync.status === 'synchronized'" :size="15" />
+        <AlertCircle v-else :size="15" />
+        <div>
+          <strong>{{ changeProposalsStore.lastRepresentationSync.status === 'synchronized'
+            ? t('courseWorkspace.changeProposals.synced', '基础课程及教学资源已同步')
+            : t('courseWorkspace.changeProposals.syncFallback', '基础课程已更新，旧教学资源暂时保留') }}</strong>
+          <small>{{ changeProposalsStore.lastRepresentationSync.status === 'synchronized'
+            ? t('courseWorkspace.changeProposals.syncedUnits', '已精准重建 {count} 个受影响单元').replace('{count}', String(representationSyncUnitCount))
+            : t('courseWorkspace.changeProposals.syncFallbackDetail', '重建未通过检查，旧版本已标记为待同步，没有被覆盖') }}</small>
+        </div>
+      </section>
+
       <section v-if="props.blockTarget" class="block-edit-workspace" aria-live="polite">
         <header class="block-edit-heading">
           <div>
@@ -572,6 +590,12 @@ const blockCandidateStatus = computed(() => {
     stale: t('courseWorkspace.blockRegeneration.stale', '课程已变化，请重新生成'),
   } as Record<string, string>)[status || ''] || ''
 })
+const representationSyncUnitCount = computed(() => (
+  (changeProposalsStore.lastRepresentationSync?.rebuilt || []).reduce(
+    (total: number, item: Record<string, any>) => total + (item.rebuilt_unit_ids?.length || 0),
+    0,
+  )
+))
 const blockCandidateFailureHelp = computed(() => {
   const failureCode = blockCandidate.value?.failure_code || ''
   return ({
@@ -1078,6 +1102,11 @@ onUnmounted(() => {
 .block-target-line strong { min-width:0; overflow:hidden; color:var(--lz-text-secondary); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 
 .change-proposals-panel { min-height:0; max-height:44%; overflow-y:auto; margin:0 12px 10px; padding:10px 11px; border:1px solid rgba(199,210,254,.7); border-radius:10px; background:linear-gradient(100deg,rgba(238,242,255,.5),rgba(250,250,255,.4)); }
+.representation-sync-receipt { display:grid; grid-template-columns:20px minmax(0,1fr); align-items:center; gap:7px; margin:0 12px 10px; padding:9px 10px; border:1px solid #a7f3d0; border-radius:8px; color:#047857; background:#f0fdf4; }
+.representation-sync-receipt[data-status="failed_using_last_available"] { border-color:#fde68a; color:#92400e; background:#fffbeb; }
+.representation-sync-receipt > div { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.representation-sync-receipt strong { font-size:10px; }
+.representation-sync-receipt small { color:#64748b; font-size:8px; line-height:1.45; }
 .change-proposals-heading { display:flex; align-items:center; gap:7px; margin-bottom:9px; color:var(--lz-brand-strong); }
 .change-proposals-heading span { display:grid; place-items:center; color:var(--lz-brand); }
 .change-proposals-heading strong { font-size:11px; }

@@ -301,6 +301,7 @@ async def test_reject_item_records_reason_and_is_idempotent_protected(tmp_path, 
                 "reason": "补充解释",
             }
         ],
+        source="evidence",
     )
     item_id = proposal["items"][0]["item_id"]
 
@@ -327,6 +328,37 @@ async def test_reject_item_records_reason_and_is_idempotent_protected(tmp_path, 
 
     with pytest.raises(ChangeProposalConflict):
         reject_item(proposals, proposal["proposal_id"], item_id, reason="again")
+
+
+@pytest.mark.asyncio
+async def test_base_course_rejection_does_not_become_learner_evidence(tmp_path, monkeypatch):
+    memory_events = MemoryDataStorage()
+    monkeypatch.setattr(learning_events, "storage", memory_events)
+    _storage, _repo, proposals, _cmd, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="teacher-rejects-authoring-change",
+        scope="block",
+        target_block_ids=[target.block_id],
+        items=[{
+            "block_id": target.block_id,
+            "before": target.payload,
+            "after": {"payload": target.payload},
+            "reason": "课程维护建议",
+        }],
+        source="representation_semantic",
+    )
+
+    reject_item(
+        proposals,
+        proposal["proposal_id"],
+        proposal["items"][0]["item_id"],
+        reason="维护者认为语义不准确",
+    )
+
+    assert memory_events.data.get(learning_events.LEARNING_EVENTS_FILE, []) == []
 
 
 @pytest.mark.asyncio
@@ -545,6 +577,70 @@ async def test_regenerate_route_generates_candidate_before_replacing_item(tmp_pa
     assert new_item["status"] == "pending"
     assert new_item["after"]["payload"]["markdown"] == "AI regenerated content"
     assert new_item["generation_meta"]["candidate_id"] == "candidate-ready-1"
+
+
+@pytest.mark.asyncio
+async def test_router_base_course_apply_returns_representation_sync_receipt(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import routers.change_proposals as change_proposals_router
+
+    _storage, course_repository, proposals, _command_service, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="base-course-sync-receipt",
+        scope="block",
+        target_block_ids=[target.block_id],
+        items=[{
+            "block_id": target.block_id,
+            "before": target.payload,
+            "after": {
+                "payload": {
+                    **target.payload,
+                    "content": "向量不仅有坐标，还表达大小与方向。",
+                },
+            },
+            "reason": "修正课程语义",
+        }],
+        source="representation_semantic",
+    )
+    sync_receipt = {
+        "status": "synchronized",
+        "quality": {"passed": True, "issues": []},
+        "stale_before": [{
+            "representation_type": "slide_deck",
+            "stale_unit_ids": ["slide:section-a"],
+        }],
+        "rebuilt": [{
+            "representation_type": "slide_deck",
+            "rebuilt_unit_ids": ["slide:section-a"],
+        }],
+    }
+    monkeypatch.setattr(change_proposals_router, "change_proposal_repository", proposals)
+    monkeypatch.setattr(change_proposals_router, "get_change_proposal_repository", lambda: proposals)
+    monkeypatch.setattr(change_proposals_router, "get_course_document_repository", lambda: course_repository)
+    monkeypatch.setattr(
+        change_proposals_router,
+        "synchronize_teaching_representations",
+        lambda _course_id: sync_receipt,
+    )
+
+    app = FastAPI()
+    app.include_router(change_proposals_router.router)
+    client = TestClient(app)
+    response = client.post(
+        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{proposal['items'][0]['item_id']}/apply",
+        headers={"X-User-Id": "teacher-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["representation_sync"] == sync_receipt
+    updated, canonical = course_repository.load_document("course-1")
+    assert canonical is True
+    assert block(updated, target.block_id).payload["content"] == "向量不仅有坐标，还表达大小与方向。"
 
 
 def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeypatch):

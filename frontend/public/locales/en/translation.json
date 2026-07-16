@@ -160,12 +160,18 @@
     "feedback": "Was this support useful?",
     "helpful": "Helpful",
     "notHelpful": "Not helpful",
+    "structuredAnimation": "Structured animation",
+    "playAnimation": "Play animation",
+    "pauseAnimation": "Pause animation",
+    "animationFallbackAvailable": "Every keyframe can be paused. Static steps remain available if dynamic rendering fails.",
+    "animationFallback": "A verifiable step-by-step fallback is shown. The learning sequence remains available when dynamic rendering is unavailable.",
     "evidenceBased": "Based on current learning evidence",
     "kinds": {
       "explanation": "Additional explanation",
       "counterexample": "Counterexample contrast",
       "transition": "Before the next step",
-      "understanding_check": "Quick understanding check"
+      "understanding_check": "Quick understanding check",
+      "animation": "Dynamic process demonstration"
     },
     "reasons": {
       "repeated_failure_under_diagnosis": "Repeated errors are being diagnosed",
@@ -188,9 +194,14 @@
     "reject": "Not now",
     "applied": "Applied to the personal learning view",
     "undo": "Undo",
+    "adjust": "Generate adjustment",
+    "rollback": "Confirm rollback",
+    "navigatorMarker": "AI suggestion",
+    "navigatorMarkerDetail": "This location is affected by a personal adaptation plan",
+    "dependentBlocks": "Links to {count} later teaching blocks",
     "sources": { "dialogue": "Dialogue and feedback", "record": "Learning record", "practice": "Formal practice" },
     "operations": { "explanation": "Additional explanation", "transition": "Follow-up transition", "checkpoint": "Understanding check", "animation": "Step animation" },
-    "effects": { "effective": "Later evidence shows improvement", "ineffective": "Later evidence suggests another adjustment", "insufficient": "Waiting for later formal evidence" }
+    "effects": { "effective": "Later evidence shows improvement; keep this adaptation", "ineffective": "Later evidence suggests another adjustment", "harmful": "Later evidence shows side effects; rollback is recommended", "insufficient": "Waiting for later formal evidence" }
   },
   "learningNavigator": {
     "title": "Course outline",
@@ -645,7 +656,7 @@
     "practiceStart": "Start practice",
     "practiceOpenNeedsReview": "Open practice that needs review",
     "smartBar": { "openNotes": "Open notes", "notes": "Notes", "notebook": "Notebook", "items": "items", "noNotes": "No notes yet. Select text to add one.", "viewAllNotes": "View all notes", "ai": "AI tutor", "openAi": "Open AI tutor", "closeAi": "Close AI tutor", "stats": "Overview", "openStats": "View learning overview", "knowledgeLibrary": "Knowledge library", "openKnowledgeLibrary": "Open knowledge library" },
-    "changeProposals": { "title": "Base-course changes", "currentNode": "Affects the current node", "awaitingGeneration": "This item is waiting to be regenerated. Refresh later or contact an administrator.", "added": "Added", "before": "Before", "after": "After", "kgNodeReviewOnly": "This suggestion concerns a knowledge node. Accepting it only records a review note and does not rewrite the formal definition.", "accept": "Accept", "reject": "Reject", "regenerate": "Regenerate", "rejectReasonPlaceholder": "Optional rejection reason", "regenerateInstructionPlaceholder": "Optional regeneration instruction", "confirm": "Confirm", "cancel": "Cancel", "scope": { "block": "Current block", "section": "Current section", "sections": "Multiple sections", "chapters": "Multiple chapters", "book": "Entire course" }, "source": { "evidence": "Legacy personal-evidence proposal", "kbLink": "Knowledge review", "representationSemantic": "Teaching-resource semantic edit", "blockRegeneration": "Formal content improvement" } },
+    "changeProposals": { "title": "Base-course changes", "currentNode": "Affects the current node", "awaitingGeneration": "This item is waiting to be regenerated. Refresh later or contact an administrator.", "added": "Added", "before": "Before", "after": "After", "kgNodeReviewOnly": "This suggestion concerns a knowledge node. Accepting it only records a review note and does not rewrite the formal definition.", "accept": "Accept", "reject": "Reject", "regenerate": "Regenerate", "rejectReasonPlaceholder": "Optional rejection reason", "regenerateInstructionPlaceholder": "Optional regeneration instruction", "confirm": "Confirm", "cancel": "Cancel", "synced": "Base course and teaching resources synchronized", "syncedUnits": "Precisely rebuilt {count} affected units", "syncFallback": "Base course updated; previous teaching resources retained", "syncFallbackDetail": "The rebuild failed quality checks. The previous version remains available and is marked stale.", "scope": { "block": "Current block", "section": "Current section", "sections": "Multiple sections", "chapters": "Multiple chapters", "book": "Entire course" }, "source": { "evidence": "Legacy personal-evidence proposal", "kbLink": "Knowledge review", "representationSemantic": "Teaching-resource semantic edit", "blockRegeneration": "Formal content improvement" } },
     "modes": { "reading": "Read", "overview": "Overview", "practice": "Practice", "mastery": "Mastery", "blueprint": "Blueprint", "versions": "Versions" },
     "purpose": { "systematic": "Systematic learning", "exam_sprint": "Exam sprint", "material_organization": "Material organization", "personalized_remedial": "Personal remediation" },
     "quality": { "passed": "Assets verified", "warning": "Assets need repair" },

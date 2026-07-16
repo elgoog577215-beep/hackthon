@@ -14,6 +14,7 @@ export interface EvolutionOperation {
   operation_id: string
   operation_type: string
   target_block_id: string
+  target_section_id: string
   scope: 'current' | 'next'
   reason: string
   payload: Record<string, any>
@@ -114,6 +115,18 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       try {
         const response = await http.post(
           `/api/courses/${this.courseId}/personal-adaptation/plans/${planId}/undo`,
+        )
+        this.applyPayload(this.courseId, response.data)
+        return response.data
+      } finally {
+        this.actingId = ''
+      }
+    },
+    async adjust(planId: string) {
+      this.actingId = planId
+      try {
+        const response = await http.post(
+          `/api/courses/${this.courseId}/personal-adaptation/plans/${planId}/adjust`,
         )
         this.applyPayload(this.courseId, response.data)
         return response.data

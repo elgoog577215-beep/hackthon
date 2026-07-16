@@ -11,6 +11,9 @@
       <span v-if="isChapter" class="node-kind chapter-kind"><BookOpenText :size="14" /></span>
       <span v-else class="node-kind leaf-kind" :class="[{ active: activeId === node.node_id, learned: isLearned }, generationState]"></span>
       <span class="node-label">{{ node.node_name }}</span>
+      <span v-if="adaptationSuggestionCount" class="adaptation-marker" :title="t('courseEvolution.navigatorMarkerDetail', '该位置在个人适配方案的影响范围内')">
+        {{ t('courseEvolution.navigatorMarker', 'AI 建议') }}<b>{{ adaptationSuggestionCount }}</b>
+      </span>
       <component v-if="isGenerationPreview && generationIcon" :is="generationIcon" :size="13" class="status generation" :class="[generationState, { spinning: generationState === 'generating' }]" />
       <CheckCircle2 v-else-if="progress?.mastery_status === 'mastered'" :size="13" class="status mastered" />
       <CircleDot v-else-if="activeId === node.node_id" :size="13" class="status current" />
@@ -36,6 +39,7 @@ import { BookOpenText, CheckCircle2, ChevronRight, CircleDot, LoaderCircle, Tria
 import type { Node } from '../stores/types'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { useCourseStore } from '../stores/course'
+import { t } from '../shared/i18n'
 
 defineOptions({ name: 'CourseNavigatorNode' })
 const props = withDefaults(defineProps<{ node: Node; activeId?: string; query?: string; depth?: number }>(), { activeId: '', query: '', depth: 0 })
@@ -48,6 +52,21 @@ const progress = computed(() => progressStore.nodeProgress(props.node.node_id))
 const isChapter = computed(() => props.depth === 0 || props.node.node_level === 1)
 const isLearned = computed(() => progress.value?.reading_status === 'learned' || progress.value?.mastery_status === 'mastered')
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
+const adaptationSuggestionCount = computed(() => {
+  const ids = new Set<string>()
+  const collect = (node: Node) => {
+    ids.add(node.node_id)
+    for (const child of node.children || []) collect(child)
+  }
+  collect(props.node)
+  const plans = progressStore.runtime?.course_evolution?.adaptation_plans || []
+  return plans.filter((plan: Record<string, any>) => {
+    if (plan.status !== 'pending') return false
+    const affected = plan.impact_summary?.affected_section_ids || []
+    if (affected.some((sectionId: string) => ids.has(sectionId))) return true
+    return (plan.operations || []).some((operation: Record<string, any>) => ids.has(operation.target_section_id))
+  }).length
+})
 const generationState = computed(() => {
   if (!isGenerationPreview.value) return ''
   const status = String(props.node.generation_status || '')
@@ -77,7 +96,7 @@ watch(normalizedQuery, value => { if (value) expanded.value = true })
 .navigator-node ul { position:relative; margin:1px 0 4px 19px; padding:1px 0 2px 12px; border-left:1px dashed rgba(167,180,214,.72); transition:border-color .18s ease; }
 .navigator-node ul:hover { border-left-color:rgba(139,92,246,.52); }
 .navigator-node ul::before { content:""; position:absolute; top:0; left:-1px; width:8px; height:1px; background:rgba(165,180,252,.48); }
-.node-button { position:relative; width:100%; min-height:38px; display:grid; grid-template-columns:13px 24px minmax(0,1fr) auto; align-items:center; gap:7px; overflow:hidden; padding:5px 8px; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease; }
+.node-button { position:relative; width:100%; min-height:38px; display:grid; grid-template-columns:13px 24px minmax(0,1fr) auto auto; align-items:center; gap:7px; overflow:hidden; padding:5px 8px; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease; }
 .node-button::before { content:""; position:absolute; left:0; top:50%; width:3px; height:0; border-radius:0 4px 4px 0; background:linear-gradient(180deg,#818cf8,#7c3aed); transform:translateY(-50%); transition:height .18s ease; }
 .node-button:hover { transform:translateX(1px); color:var(--lz-text-strong); background:rgba(255,255,255,.7); }
 .node-button.active { border-color:rgba(255,255,255,.9); color:var(--lz-brand-strong); background:linear-gradient(90deg,rgba(255,255,255,.96),rgba(238,242,255,.84)); box-shadow:0 7px 18px rgba(99,102,241,.11),inset 0 1px 0 #fff; font-weight:700; }
@@ -97,6 +116,8 @@ watch(normalizedQuery, value => { if (value) expanded.value = true })
 .leaf-kind.draft { border-color:#8b5cf6; background:#ddd6fe; }
 .leaf-kind.failed { border-color:#ef4444; background:#fecaca; }
 .node-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; letter-spacing:0; }
+.adaptation-marker { display:inline-flex; align-items:center; gap:3px; padding:2px 5px; border:1px solid #c4b5fd; border-radius:5px; color:#6d28d9; background:#f5f3ff; font-size:8px; font-weight:700; white-space:nowrap; }
+.adaptation-marker b { min-width:12px; height:12px; display:grid; place-items:center; border-radius:50%; color:#fff; background:#8b5cf6; font-size:7px; }
 .status { flex: 0 0 auto; }
 .status.mastered { color: var(--lz-success); }
 .status.current { color: var(--lz-brand); }

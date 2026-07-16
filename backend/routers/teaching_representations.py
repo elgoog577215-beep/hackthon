@@ -15,8 +15,8 @@ from course_document import stable_hash
 from dependencies import get_course_document_repository, get_course_or_404
 from learner_context import require_user_id
 from representation_compiler import (
-    compile_core_representations,
     export_slide_deck_pptx,
+    rebuild_core_representations_safely,
     validate_compiled_representations,
 )
 from storage import DATA_DIR
@@ -71,7 +71,7 @@ def _compile_registry(course_id: str) -> dict:
     if not canonical:
         raise RepresentationConflict("Course must be migrated before compiling representations")
     raw = course_repository.load_raw(course_id)
-    build = compile_core_representations(
+    build = rebuild_core_representations_safely(
         document,
         course_repository.load_course_view(course_id),
         get_teaching_representation_repository(),
@@ -84,7 +84,7 @@ def _compile_registry(course_id: str) -> dict:
     current_specs = [item for item in registry.specs if item.spec_id in current_spec_ids]
     return {
         "build": build,
-        "quality": validate_compiled_representations(current_specs),
+        "quality": build.get("quality") or validate_compiled_representations(current_specs),
         "registry": registry.model_dump(mode="json"),
     }
 

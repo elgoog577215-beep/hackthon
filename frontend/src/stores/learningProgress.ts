@@ -146,7 +146,7 @@ export interface LearningProgressProjection {
   nodes: LearningObjectiveProgress[]
 }
 
-export type AdaptiveBlockKind = 'explanation' | 'counterexample' | 'transition' | 'understanding_check'
+export type AdaptiveBlockKind = 'explanation' | 'counterexample' | 'transition' | 'understanding_check' | 'animation'
 export type AdaptiveBlockFeedback = 'unrated' | 'helpful' | 'not_helpful' | 'dismissed'
 
 export interface AdaptiveLearningBlock {
@@ -164,7 +164,28 @@ export interface AdaptiveLearningBlock {
     contrast: string
     prompt: string
     objective: string
+    knowledge_refs?: string[]
+    ability_refs?: string[]
+    expected_effect?: string
     steps?: Array<{ index: number; label: string }>
+    animation_spec?: {
+      schema_version: 'animation_spec_v1'
+      animation_id: string
+      title: string
+      scene: Record<string, string>
+      object_bindings: Array<Record<string, unknown>>
+      knowledge_refs: string[]
+      keyframes: Array<{
+        index: number
+        label: string
+        state: Record<string, string>
+        transformations: string[]
+        duration_ms: number
+        pause_after: boolean
+      }>
+      fallback_frames: Array<{ index: number; label: string; description?: string }>
+      accessibility_text: string
+    }
   }
   reason_code: string
   evidence_refs: string[]

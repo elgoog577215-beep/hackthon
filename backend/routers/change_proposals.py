@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from block_regeneration import (
@@ -29,10 +30,12 @@ from course_knowledge_map import propose_kb_linkage_from_block_change
 from course_repository import CourseDocumentConflict, CourseDocumentNotFound
 from dependencies import get_course_document_repository
 from learner_context import require_user_id
+from representation_compiler import rebuild_core_representations_safely
 from subject_library_repository import (
     SubjectLibraryRepository,
     subject_library_repository,
 )
+from teaching_representations import teaching_representation_repository
 
 
 router = APIRouter(
@@ -66,6 +69,37 @@ def get_change_proposal_regeneration_service() -> BlockRegenerationService:
 
 def get_subject_library_repository() -> SubjectLibraryRepository:
     return subject_library_repository
+
+
+def synchronize_teaching_representations(course_id: str) -> dict[str, Any]:
+    """Reconcile exact stale units, then atomically publish a passing rebuild."""
+    try:
+        course_repository = get_course_document_repository()
+        raw = course_repository.load_raw(course_id)
+        teaching_representation_repository.reconcile_course_operation_log(
+            course_id,
+            list(raw.get("course_operation_log") or []),
+        )
+        document, canonical = course_repository.load_document(course_id)
+        if not canonical:
+            raise ValueError("course_not_canonical")
+        return rebuild_core_representations_safely(
+            document,
+            course_repository.load_course_view(course_id),
+            teaching_representation_repository,
+        )
+    except Exception as exc:
+        return {
+            "status": "failed_using_last_available",
+            "quality": {
+                "passed": False,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "representation_sync_unavailable",
+                    "message": str(exc),
+                }],
+            },
+        }
 
 
 @router.get("")
@@ -142,6 +176,11 @@ async def apply_change_proposal_item(
             )
         except Exception:
             pass
+        if proposal.get("write_target", "base_course") == "base_course":
+            result["representation_sync"] = await run_in_threadpool(
+                synchronize_teaching_representations,
+                course_id,
+            )
         return result
     except (ChangeProposalNotFound, CourseDocumentNotFound) as exc:
         raise HTTPException(status_code=404, detail="Change proposal or item not found") from exc

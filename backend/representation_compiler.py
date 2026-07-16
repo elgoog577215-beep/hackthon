@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -141,6 +142,98 @@ def compile_core_representations(
             ),
         })
     return {"plan_id": plan.plan_id, "representations": built}
+
+
+def rebuild_core_representations_safely(
+    document: CourseDocument,
+    course_data: dict[str, Any],
+    repository: TeachingRepresentationRepository,
+) -> dict[str, Any]:
+    """Compile in isolation and publish only a complete, quality-passing set.
+
+    The active registry remains available in its stale state when compilation
+    or validation fails. This keeps the last usable lesson plan, handout,
+    practice sheet and slide deck accessible without pretending they match the
+    latest course revision.
+    """
+    previous = repository.load(document.course_id)
+    stale_before = [
+        {
+            "representation_id": item.representation_id,
+            "representation_type": item.representation_type,
+            "spec_id": item.spec_id,
+            "stale_unit_ids": list(item.stale_unit_ids),
+            "stale_reasons": list(item.stale_reasons),
+        }
+        for item in previous.representations
+        if item.status == "stale"
+    ]
+    try:
+        with tempfile.TemporaryDirectory(prefix="lingzhi-representation-build-") as temp_dir:
+            shadow = TeachingRepresentationRepository(temp_dir)
+            build = compile_core_representations(document, course_data, shadow)
+            candidate = shadow.load(document.course_id)
+            current_spec_ids = {item.spec_id for item in candidate.representations}
+            current_specs = [
+                item for item in candidate.specs if item.spec_id in current_spec_ids
+            ]
+            quality = validate_compiled_representations(current_specs)
+            if not quality["passed"]:
+                return {
+                    "status": "failed_using_last_available",
+                    "quality": quality,
+                    "stale_before": stale_before,
+                    "last_available": [
+                        {
+                            "representation_id": item.representation_id,
+                            "representation_type": item.representation_type,
+                            "spec_id": item.spec_id,
+                            "status": item.status,
+                        }
+                        for item in previous.representations
+                    ],
+                }
+            candidate.applied_revision_event_ids = list(previous.applied_revision_event_ids)
+            committed = repository.save(candidate)
+            stale_by_type = {
+                item["representation_type"]: item["stale_unit_ids"]
+                for item in stale_before
+            }
+            return {
+                "status": "synchronized",
+                "quality": quality,
+                "stale_before": stale_before,
+                "rebuilt": [
+                    {
+                        **item,
+                        "rebuilt_unit_ids": stale_by_type.get(item["representation_type"], []),
+                    }
+                    for item in build["representations"]
+                ],
+                "registry_revision": committed.registry_revision,
+            }
+    except Exception as exc:
+        return {
+            "status": "failed_using_last_available",
+            "quality": {
+                "passed": False,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "representation_rebuild_failed",
+                    "message": str(exc),
+                }],
+            },
+            "stale_before": stale_before,
+            "last_available": [
+                {
+                    "representation_id": item.representation_id,
+                    "representation_type": item.representation_type,
+                    "spec_id": item.spec_id,
+                    "status": item.status,
+                }
+                for item in previous.representations
+            ],
+        }
 
 
 def export_slide_deck_pptx(spec: TeachingRepresentationSpec, output_path: str | Path) -> Path:

@@ -8,6 +8,7 @@ interface ChangeProposalsState {
   proposals: ChangeProposal[]
   loading: boolean
   actingItemIds: Set<string>
+  lastRepresentationSync: Record<string, any> | null
 }
 
 export const useChangeProposalsStore = defineStore('changeProposals', {
@@ -16,6 +17,7 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
     proposals: [],
     loading: false,
     actingItemIds: new Set<string>(),
+    lastRepresentationSync: null,
   }),
 
   getters: {
@@ -93,10 +95,12 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
       if (!this.courseId) throw new Error('Missing current course')
       this.actingItemIds.add(itemId)
       try {
-        await http.post(
+        const response = await http.post(
           `/api/courses/${this.courseId}/authoring-changes/${proposalId}/items/${itemId}/apply`,
         )
+        this.lastRepresentationSync = response.data?.representation_sync || null
         this.patchItem(proposalId, itemId, { status: 'applied' })
+        return response.data
       } finally {
         this.actingItemIds.delete(itemId)
       }

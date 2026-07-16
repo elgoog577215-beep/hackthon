@@ -51,7 +51,12 @@ describe('change proposals store', () => {
 
   it('applies one item without affecting sibling items in the same proposal', async () => {
     httpMock.get.mockResolvedValue({ data: [buildProposal()] })
-    httpMock.post.mockResolvedValue({ data: {} })
+    httpMock.post.mockResolvedValue({ data: {
+      representation_sync: {
+        status: 'synchronized',
+        rebuilt: [{ representation_type: 'slide_deck', rebuilt_unit_ids: ['slide-1'] }],
+      },
+    } })
     const store = useChangeProposalsStore()
     await store.fetchChangeProposals('course-1')
 
@@ -63,6 +68,7 @@ describe('change proposals store', () => {
     const proposal = store.findProposal('cp-1')!
     expect(proposal.items.find(item => item.item_id === 'item-1')?.status).toBe('applied')
     expect(proposal.items.find(item => item.item_id === 'item-2')?.status).toBe('pending')
+    expect(store.lastRepresentationSync?.status).toBe('synchronized')
     // proposal 仍未 resolved，因为还有一个 pending item
     expect(proposal.status).toBe('pending')
   })

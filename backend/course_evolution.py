@@ -21,6 +21,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from course_document import CourseDocument, stable_hash
+from course_knowledge_base import compile_course_knowledge_base, knowledge_binding_for_section
 from course_revisions import revision_vector_for_document
 from learning_events import load_learning_events
 from learning_records import learning_record_repository
@@ -95,6 +96,27 @@ class PersonalAdaptationOperation(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class AnimationKeyframe(BaseModel):
+    index: int
+    label: str
+    state: dict[str, str] = Field(default_factory=dict)
+    transformations: list[str] = Field(default_factory=list)
+    duration_ms: int = 1200
+    pause_after: bool = True
+
+
+class AnimationSpec(BaseModel):
+    schema_version: Literal["animation_spec_v1"] = "animation_spec_v1"
+    animation_id: str
+    title: str
+    scene: dict[str, str] = Field(default_factory=dict)
+    object_bindings: list[dict[str, Any]] = Field(default_factory=list)
+    knowledge_refs: list[str] = Field(default_factory=list)
+    keyframes: list[AnimationKeyframe] = Field(default_factory=list)
+    fallback_frames: list[dict[str, Any]] = Field(default_factory=list)
+    accessibility_text: str = ""
+
+
 class PersonalAdaptationPlan(BaseModel):
     plan_kind: Literal["personal_adaptation_plan"] = "personal_adaptation_plan"
     write_target: Literal["personal_overlay"] = "personal_overlay"
@@ -102,6 +124,7 @@ class PersonalAdaptationPlan(BaseModel):
     user_id: str
     course_id: str
     hypothesis_id: str
+    replaces_change_set_id: str = ""
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
     evidence_ids: list[str] = Field(default_factory=list)
     operations: list[PersonalAdaptationOperation] = Field(default_factory=list)
@@ -217,9 +240,21 @@ def synchronize_and_evaluate_course_evolution(
     if not course_id or not user_id:
         raise ValueError("Course and learner identifiers are required")
     document = _course_document(course_data)
+    # Knowledge compilation normalizes legacy fields in-place. Personal
+    # adaptation is a read-only consumer, so compile from an isolated snapshot.
+    knowledge_base = compile_course_knowledge_base(deepcopy(course_data))
     state = repository.load(user_id, course_id)
-    state.evidence_items = _collect_evidence(course_data, document, user_id=user_id)
-    _evaluate_hypotheses_and_candidates(state, document)
+    state.evidence_items = _collect_evidence(
+        course_data,
+        document,
+        user_id=user_id,
+        knowledge_base=knowledge_base,
+    )
+    _evaluate_hypotheses_and_candidates(
+        state,
+        document,
+        knowledge_base=knowledge_base,
+    )
     _evaluate_applied_effects(state, user_id=user_id)
     return repository.save(state)
 
@@ -254,9 +289,100 @@ def accept_change_set(
     change_set.accepted_at = _now()
     change_set.resolved_at = change_set.accepted_at
     change_set.updated_at = change_set.accepted_at
+    if change_set.replaces_change_set_id:
+        replaced = _change_set(state, change_set.replaces_change_set_id)
+        if replaced.status != "applied":
+            raise ValueError("Replaced personal adaptation is no longer active")
+        replaced.status = "undone"
+        replaced.resolved_at = change_set.accepted_at
+        replaced.updated_at = change_set.accepted_at
+        replaced.effect_evaluation = {
+            **replaced.effect_evaluation,
+            "resolution": "replaced_by_adjustment",
+            "replacement_change_set_id": change_set.change_set_id,
+        }
     hypothesis = _hypothesis(state, change_set.hypothesis_id)
     hypothesis.status = "evaluating"
     hypothesis.updated_at = change_set.accepted_at
+    return repository.save(state)
+
+
+def create_adjustment_plan(
+    *,
+    user_id: str,
+    course_id: str,
+    change_set_id: str,
+    repository: CourseEvolutionRepository | None = None,
+) -> CourseEvolutionState:
+    """Create a reviewable replacement after an applied plan proves ineffective."""
+    repository = repository or course_evolution_repository
+    state = repository.load(user_id, course_id)
+    source = _change_set(state, change_set_id)
+    effect_status = str(source.effect_evaluation.get("status") or "")
+    if source.status != "applied" or effect_status not in {"ineffective", "harmful"}:
+        raise ValueError("Only ineffective or harmful active adaptations can be adjusted")
+    existing = next((
+        item for item in state.change_sets
+        if item.replaces_change_set_id == source.change_set_id and item.status == "pending"
+    ), None)
+    if existing:
+        return state
+
+    operations: list[PersonalAdaptationOperation] = []
+    for operation in source.operations:
+        payload = deepcopy(operation.payload)
+        if operation.operation_type == "INSERT_PERSONAL_SUPPORT":
+            payload["body"] = (
+                "改用具体状态对照：先指出变化前的对象，再逐步说明每次操作改变了什么，"
+                "最后让学习者用自己的话连接操作与结论。"
+            )
+            payload["contrast"] = "替换上一版抽象解释；基础课程正文保持不变。"
+        elif operation.operation_type == "ADD_ANIMATION":
+            payload["animation_spec"] = _adjusted_animation_spec(
+                payload.get("animation_spec") or {},
+                source.change_set_id,
+            )
+            payload["steps"] = [
+                {"index": frame.get("index"), "label": frame.get("label")}
+                for frame in payload["animation_spec"].get("fallback_frames") or []
+            ]
+        elif operation.operation_type == "ADD_CHECKPOINT":
+            payload["body"] = "比较两个具体状态，指出哪一步改变了对象之间的关系。"
+            payload["prompt"] = "请先指认变化，再解释原因；不要只复述计算步骤。"
+        operations.append(operation.model_copy(update={
+            "operation_id": stable_hash({
+                "source_operation_id": operation.operation_id,
+                "adjustment": "state_contrast_v1",
+            }, prefix="ceo_"),
+            "reason": "后续证据显示上一版支持未达到预期，改用具体状态对照并缩短推理跨度。",
+            "payload": payload,
+        }, deep=True))
+
+    now = _now()
+    replacement = PersonalAdaptationPlan(
+        change_set_id=stable_hash({
+            "source_change_set_id": source.change_set_id,
+            "effect_evaluation": source.effect_evaluation,
+            "adjustment": "state_contrast_v1",
+        }, prefix="ces_"),
+        user_id=user_id,
+        course_id=course_id,
+        hypothesis_id=source.hypothesis_id,
+        replaces_change_set_id=source.change_set_id,
+        base_revision_vector=deepcopy(source.base_revision_vector),
+        evidence_ids=list(source.evidence_ids),
+        operations=operations,
+        allowed_scopes=list(source.allowed_scopes),
+        impact_summary={
+            **deepcopy(source.impact_summary),
+            "adjustment_of": source.change_set_id,
+            "protected": list(source.impact_summary.get("protected") or []),
+        },
+        expected_effect="用更具体的状态对照替换无效支持，再通过同能力任务复验。",
+        created_at=now,
+        updated_at=now,
+    )
+    state.change_sets.append(replacement)
     return repository.save(state)
 
 
@@ -327,7 +453,7 @@ def project_applied_adaptive_blocks(
                 "INSERT_PERSONAL_SUPPORT": "explanation",
                 "ADD_TRANSITION_SUPPORT": "transition",
                 "ADD_CHECKPOINT": "understanding_check",
-                "ADD_ANIMATION": "counterexample",
+                "ADD_ANIMATION": "animation",
             }[operation.operation_type]
             blocks.append({
                 "adaptive_block_id": operation.operation_id,
@@ -345,6 +471,10 @@ def project_applied_adaptive_blocks(
                     "prompt": str(operation.payload.get("prompt") or ""),
                     "objective": str(operation.payload.get("objective") or ""),
                     "steps": operation.payload.get("steps") or [],
+                    "animation_spec": deepcopy(operation.payload.get("animation_spec") or {}),
+                    "knowledge_refs": list(operation.payload.get("knowledge_refs") or []),
+                    "ability_refs": list(operation.payload.get("ability_refs") or []),
+                    "expected_effect": str(operation.payload.get("expected_effect") or ""),
                 },
                 "reason_code": "accepted_evidence_driven_growth",
                 "evidence_refs": change_set.evidence_ids,
@@ -422,6 +552,7 @@ def _collect_evidence(
     document: CourseDocument,
     *,
     user_id: str,
+    knowledge_base: dict[str, Any] | None = None,
 ) -> list[EvidenceItem]:
     course_id = document.course_id
     items: list[EvidenceItem] = []
@@ -443,7 +574,7 @@ def _collect_evidence(
             summary=summary,
             strength=strength,
             is_counterevidence=counter,
-            anchor=_resolve_anchor(document, event),
+            anchor=_resolve_anchor(document, event, knowledge_base=knowledge_base),
             created_at=str(event.get("created_at") or _now()),
         ))
     for record in learning_record_repository.list(user_id, course_id):
@@ -464,7 +595,7 @@ def _collect_evidence(
             summary=_compact(record.get("content") or record.get("quote") or record.get("title")),
             strength=strength,
             is_counterevidence=record.get("status") in {"resolved", "completed"},
-            anchor=_resolve_anchor(document, record),
+            anchor=_resolve_anchor(document, record, knowledge_base=knowledge_base),
             created_at=str(record.get("created_at") or _now()),
         ))
     for attempt in practice_attempt_repository.list(user_id, course_id):
@@ -487,7 +618,7 @@ def _collect_evidence(
             summary="正式练习已通过" if passed else _compact(result.get("feedback") or "正式练习未通过"),
             strength=strength,
             is_counterevidence=passed,
-            anchor=_resolve_anchor(document, attempt),
+            anchor=_resolve_anchor(document, attempt, knowledge_base=knowledge_base),
             created_at=str(attempt.get("graded_at") or attempt.get("updated_at") or _now()),
         ))
     return sorted(items, key=lambda item: item.created_at)
@@ -496,6 +627,8 @@ def _collect_evidence(
 def _evaluate_hypotheses_and_candidates(
     state: CourseEvolutionState,
     document: CourseDocument,
+    *,
+    knowledge_base: dict[str, Any] | None = None,
 ) -> None:
     grouped: dict[str, list[EvidenceItem]] = {}
     for item in state.evidence_items:
@@ -523,7 +656,12 @@ def _evaluate_hypotheses_and_candidates(
         }, prefix="ahp_")
         now = _now()
         hypothesis = next((item for item in state.hypotheses if item.hypothesis_id == hypothesis_id), None)
-        affected = _affected_blocks(document, block_id, scope=scope)
+        affected = _affected_blocks(
+            document,
+            block_id,
+            scope=scope,
+            knowledge_base=knowledge_base,
+        )
         if hypothesis is None:
             hypothesis = AdaptationHypothesis(
                 hypothesis_id=hypothesis_id,
@@ -577,6 +715,7 @@ def _evaluate_hypotheses_and_candidates(
             document,
             hypothesis,
             evidence_signature=evidence_signature,
+            knowledge_base=knowledge_base,
         )
         state.change_sets.append(change_set)
         hypothesis.status = "candidate_created"
@@ -588,12 +727,18 @@ def _build_change_set(
     hypothesis: AdaptationHypothesis,
     *,
     evidence_signature: str,
+    knowledge_base: dict[str, Any] | None = None,
 ) -> PersonalAdaptationPlan:
     blocks = {item.block_id: item for item in document.blocks}
     sections = {item.section_id: item for item in document.sections}
     target = blocks[hypothesis.target_block_id]
     target_text = _block_text(target.payload)
     target_title = str(target.payload.get("title") or sections.get(target.section_id, {}).title if sections.get(target.section_id) else "当前内容")
+    target_binding = _knowledge_binding_for_anchor(
+        knowledge_base or {},
+        section_id=target.section_id,
+        block_id=target.block_id,
+    )
     operations: list[PersonalAdaptationOperation] = []
 
     def append_operation(operation_type: str, block_id: str, scope: str, reason: str, payload: dict[str, Any]) -> None:
@@ -633,11 +778,13 @@ def _build_change_set(
         "空间或过程关系优先使用分步表达，而不是继续堆文字。",
         {
             "body": "分步演示：每一步只改变一个对象，并在变化后暂停检查。",
-            "steps": [
-                {"index": 1, "label": "确定输入与目标"},
-                {"index": 2, "label": "执行当前变换并观察中间状态"},
-                {"index": 3, "label": "把中间状态连接到最终结论"},
-            ],
+            "animation_spec": _animation_spec_for_block(
+                target,
+                title=target_title,
+                evidence_signature=evidence_signature,
+                knowledge_refs=target_binding["knowledge_ids"],
+            ),
+            "steps": _animation_fallback_steps(),
             "contrast": "若动态演示不可用，使用同样三步的静态分解图。",
         },
     )
@@ -650,6 +797,9 @@ def _build_change_set(
             "body": "用自己的话说明：这一步为什么必要？如果省略，会在哪个后续结论上出错？",
             "prompt": "请不用复述公式，只解释这一步的作用与后果。",
             "objective": "验证概念原因，而不是重复计算。",
+            "knowledge_refs": target_binding["knowledge_ids"],
+            "ability_refs": target_binding["skill_ids"],
+            "expected_effect": "能够解释当前操作的语义作用，并迁移到后续同能力任务。",
         },
     )
     for block_id in hypothesis.affected_block_ids[1:]:
@@ -682,6 +832,15 @@ def _build_change_set(
         item for item in state.evidence_items
         if item.evidence_id in hypothesis.support_evidence_ids
     ]
+    knowledge_ids = {
+        value for item in linked_evidence for value in item.anchor.knowledge_node_ids
+    }
+    ability_ids = {
+        value for item in linked_evidence for value in item.anchor.ability_point_ids
+    }
+    misconception_ids = {
+        value for item in linked_evidence for value in item.anchor.misconception_point_ids
+    }
     return PersonalAdaptationPlan(
         change_set_id=stable_hash({
             "user_id": state.user_id,
@@ -708,6 +867,10 @@ def _build_change_set(
             "misconception_point_ids": sorted({
                 value for item in linked_evidence for value in item.anchor.misconception_point_ids
             }),
+            "knowledge_labels": _knowledge_labels(knowledge_base, knowledge_ids),
+            "ability_labels": _ability_labels(knowledge_base, ability_ids),
+            "misconception_labels": _misconception_labels(knowledge_base, misconception_ids),
+            "affected_section_ids": sorted(affected_section_ids),
             "protected": ["基础课程", "其他学习者课程", "历史作答", "笔记原文", "正式知识库"],
             "representation_impacts": ["个人讲义补充", "分步演示", "理解检查"],
         },
@@ -715,6 +878,100 @@ def _build_change_set(
         created_at=now,
         updated_at=now,
     )
+
+
+def _animation_fallback_steps() -> list[dict[str, Any]]:
+    return [
+        {"index": 1, "label": "确定输入、对象与目标"},
+        {"index": 2, "label": "执行当前变换并观察中间状态"},
+        {"index": 3, "label": "把中间状态连接到最终结论"},
+    ]
+
+
+def _animation_spec_for_block(
+    block: Any,
+    *,
+    title: str,
+    evidence_signature: str,
+    knowledge_refs: list[str],
+) -> dict[str, Any]:
+    fallback = _animation_fallback_steps()
+    keyframes = [
+        AnimationKeyframe(
+            index=1,
+            label=fallback[0]["label"],
+            state={"focus": "input", "description": "标出起始对象和预期结果"},
+            transformations=["highlight_input", "highlight_goal"],
+        ),
+        AnimationKeyframe(
+            index=2,
+            label=fallback[1]["label"],
+            state={"focus": "transition", "description": "只执行一个变换并保留中间状态"},
+            transformations=["apply_single_transform", "hold_intermediate_state"],
+        ),
+        AnimationKeyframe(
+            index=3,
+            label=fallback[2]["label"],
+            state={"focus": "result", "description": "比较中间状态和最终结论"},
+            transformations=["connect_intermediate_to_result", "show_semantic_relation"],
+        ),
+    ]
+    spec = AnimationSpec(
+        animation_id=stable_hash({
+            "block_id": block.block_id,
+            "evidence_signature": evidence_signature,
+            "kind": "personal_state_transition",
+        }, prefix="ans_"),
+        title=f"{title}：分步变换演示",
+        scene={
+            "kind": "state_transition",
+            "renderer": "step_timeline_v1",
+            "fallback": "static_keyframes",
+        },
+        object_bindings=[{
+            "object_id": f"course-block:{block.block_id}",
+            "object_type": "course_block",
+            "role": "semantic_source",
+        }],
+        knowledge_refs=_unique([*knowledge_refs, *block.concept_refs]),
+        keyframes=keyframes,
+        fallback_frames=[
+            {
+                **step,
+                "description": keyframes[index].state["description"],
+            }
+            for index, step in enumerate(fallback)
+        ],
+        accessibility_text=(
+            "动画依次展示输入与目标、单步变换及中间状态、最终结论之间的联系；"
+            "每一帧均可暂停并以静态文字步骤阅读。"
+        ),
+    )
+    return spec.model_dump(mode="json")
+
+
+def _adjusted_animation_spec(
+    source: dict[str, Any],
+    source_change_set_id: str,
+) -> dict[str, Any]:
+    value = deepcopy(source)
+    value["schema_version"] = "animation_spec_v1"
+    value["animation_id"] = stable_hash({
+        "source_animation_id": source.get("animation_id"),
+        "source_change_set_id": source_change_set_id,
+        "adjustment": "state_contrast_v1",
+    }, prefix="ans_")
+    value["title"] = f"{source.get('title') or '分步演示'}（状态对照版）"
+    value["scene"] = {
+        **(source.get("scene") or {}),
+        "comparison_mode": "before_after",
+    }
+    for frame in value.get("keyframes") or []:
+        frame["transformations"] = [
+            *(frame.get("transformations") or []),
+            "compare_before_after",
+        ]
+    return value
 
 
 def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> None:
@@ -734,6 +991,7 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
             item for item in attempts
             if item.get("status") == "graded"
             and str(item.get("graded_at") or item.get("updated_at") or "") >= change_set.accepted_at
+            and _attempt_matches_change_set(item, change_set)
         ]
         helpful = any((item.get("result") or {}).get("feedback") == "helpful" for item in feedback)
         unhelpful = any((item.get("result") or {}).get("feedback") == "not_helpful" for item in feedback)
@@ -742,6 +1000,8 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
         if helpful and passed:
             status = "effective"
         elif unhelpful and failed >= 2:
+            status = "harmful"
+        elif unhelpful or failed >= 2:
             status = "ineffective"
         else:
             status = "insufficient_evidence"
@@ -749,12 +1009,70 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
             "status": status,
             "feedback_event_ids": [item.get("event_id") for item in feedback],
             "attempt_ids": [item.get("attempt_id") for item in later_attempts],
+            "recommended_action": (
+                "keep" if status == "effective"
+                else "rollback" if status == "harmful"
+                else "adjust" if status == "ineffective"
+                else "collect_more_evidence"
+            ),
+            "follow_up_candidate": (
+                {
+                    "candidate_type": "rollback_personal_adaptation",
+                    "status": "pending_confirmation",
+                    "source_change_set_id": change_set.change_set_id,
+                    "reason": "负面反馈与重复失败同时出现，建议撤销当前个人适配。",
+                }
+                if status == "harmful"
+                else {
+                    "candidate_type": "adjust_personal_adaptation",
+                    "status": "available",
+                    "source_change_set_id": change_set.change_set_id,
+                    "reason": "当前支持没有改善后续表现，可生成另一种解释与检查方案。",
+                }
+                if status == "ineffective"
+                else {}
+            ),
             "evaluated_at": _now(),
         }
         hypothesis = _hypothesis(state, change_set.hypothesis_id)
         if status in {"effective", "ineffective", "harmful"}:
             hypothesis.status = status
             hypothesis.updated_at = _now()
+
+
+def _attempt_matches_change_set(
+    attempt: dict[str, Any],
+    change_set: PersonalAdaptationPlan,
+) -> bool:
+    impact = change_set.impact_summary
+    section_ids = set(impact.get("affected_section_ids") or [])
+    node_id = str(attempt.get("node_id") or (attempt.get("context") or {}).get("node_id") or "")
+    if node_id and node_id in section_ids:
+        return True
+
+    knowledge_ids = set(impact.get("knowledge_node_ids") or [])
+    ability_ids = set(impact.get("ability_point_ids") or [])
+    result = attempt.get("result") or {}
+    attempt_knowledge = {
+        str(value) for value in [
+            *(attempt.get("concept_ids") or []),
+            *(attempt.get("course_knowledge_refs") or []),
+            *(result.get("concept_ids") or []),
+            *(result.get("course_knowledge_refs") or []),
+        ] if value
+    }
+    attempt_abilities = {
+        str(value) for value in [
+            *(attempt.get("skill_unit_ids") or []),
+            *(attempt.get("ability_point_ids") or []),
+            *(result.get("skill_unit_ids") or []),
+            *(result.get("ability_point_ids") or []),
+        ] if value
+    }
+    return bool(
+        (knowledge_ids and attempt_knowledge & knowledge_ids)
+        or (ability_ids and attempt_abilities & ability_ids)
+    )
 
 
 def _event_signal(event: dict[str, Any]) -> tuple[str, float, bool]:
@@ -764,6 +1082,12 @@ def _event_signal(event: dict[str, Any]) -> tuple[str, float, bool]:
     if event_type == "learner_self_reported":
         explicit = any(marker in statement for marker in ("完全看不懂", "不理解为什么", "推导跳步", "还是没懂", "没有解决"))
         return "explicit_comprehension_gap", 0.9 if explicit else 0.56, False
+    if event_type == "assistant_question_submitted":
+        question = str((event.get("evidence") or {}).get("question") or "")
+        explicit = any(marker in question for marker in (
+            "完全看不懂", "不理解为什么", "为什么要", "推导跳步", "还是没懂", "不会",
+        ))
+        return "learner_question", 0.84 if explicit else 0.48, False
     if event_type == "assistant_answer_feedback_submitted":
         return "assistant_feedback", 0.72 if feedback == "unclear" else 0.55, feedback in {"resolved", "helpful"}
     if event_type == "practice_attempt_graded":
@@ -781,24 +1105,38 @@ def _event_summary(event: dict[str, Any]) -> str:
     result = event.get("result") or {}
     return _compact(
         evidence.get("statement")
+        or evidence.get("question")
         or evidence.get("quote")
         or result.get("feedback")
         or event.get("event_type")
     )
 
 
-def _resolve_anchor(document: CourseDocument, source: dict[str, Any]) -> EvidenceAnchor:
+def _resolve_anchor(
+    document: CourseDocument,
+    source: dict[str, Any],
+    *,
+    knowledge_base: dict[str, Any] | None = None,
+) -> EvidenceAnchor:
     vector = revision_vector_for_document(document).revisions
     blocks = {item.block_id: item for item in document.blocks}
     section_ids = {item.section_id for item in document.sections}
-    raw_anchor = source.get("anchor") or (source.get("evidence") or {}).get("anchor") or (source.get("metadata") or {}).get("content_anchor") or {}
+    metadata = source.get("metadata") or {}
+    context_ref = metadata.get("context_ref") or {}
+    raw_anchor = (
+        source.get("anchor")
+        or (source.get("evidence") or {}).get("anchor")
+        or metadata.get("content_anchor")
+        or context_ref.get("content_anchor")
+        or {}
+    )
     block_id = str(
         raw_anchor.get("content_block_id")
         or raw_anchor.get("block_id")
-        or (source.get("metadata") or {}).get("block_id")
+        or metadata.get("block_id")
         or ""
     )
-    node_id = str(source.get("node_id") or "")
+    node_id = str(source.get("node_id") or context_ref.get("node_id") or "")
     if not block_id and node_id in blocks:
         block_id = node_id
     section_id = blocks[block_id].section_id if block_id in blocks else (node_id if node_id in section_ids else "")
@@ -806,13 +1144,25 @@ def _resolve_anchor(document: CourseDocument, source: dict[str, Any]) -> Evidenc
         block = next((item for item in document.blocks if item.section_id == section_id and item.status != "retired"), None)
         block_id = block.block_id if block else ""
     revision = vector.get(f"block:{block_id}", "") if block_id else ""
+    knowledge_refs = [str(item) for item in source.get("concept_ids") or [] if item]
+    ability_refs = [str(item) for item in source.get("skill_unit_ids") or [] if item]
+    misconception_refs = [str(item) for item in source.get("mistake_point_ids") or [] if item]
+    if knowledge_base:
+        resolved = _knowledge_binding_for_anchor(
+            knowledge_base,
+            section_id=section_id,
+            block_id=block_id,
+        )
+        knowledge_refs = _unique([*knowledge_refs, *resolved["knowledge_ids"]])
+        ability_refs = _unique([*ability_refs, *resolved["skill_ids"]])
+        misconception_refs = _unique([*misconception_refs, *resolved["misconception_ids"]])
     return EvidenceAnchor(
         section_id=section_id,
         block_id=block_id,
         span=deepcopy(raw_anchor.get("span") or {}),
-        knowledge_node_ids=[str(item) for item in source.get("concept_ids") or [] if item],
-        ability_point_ids=[str(item) for item in source.get("skill_unit_ids") or [] if item],
-        misconception_point_ids=[str(item) for item in source.get("mistake_point_ids") or [] if item],
+        knowledge_node_ids=knowledge_refs,
+        ability_point_ids=ability_refs,
+        misconception_point_ids=misconception_refs,
         practice_task_id=str(source.get("task_revision_id") or source.get("question_revision_id") or ""),
         source_revision=revision,
         resolution_status="resolved" if block_id else ("partial" if section_id else "unresolved"),
@@ -851,6 +1201,7 @@ def _affected_blocks(
     block_id: str,
     *,
     scope: str,
+    knowledge_base: dict[str, Any] | None = None,
 ) -> list[str]:
     ordered = sorted(
         [item for item in document.blocks if item.status != "retired"],
@@ -864,7 +1215,118 @@ def _affected_blocks(
     if index < 0:
         return [block_id]
     count = 4 if scope == "current_and_next" else 1
-    return [item.block_id for item in ordered[index:index + count]]
+    if count == 1 or not knowledge_base:
+        return [item.block_id for item in ordered[index:index + count]]
+
+    source_binding = _knowledge_binding_for_anchor(
+        knowledge_base,
+        section_id=ordered[index].section_id,
+        block_id=block_id,
+    )
+    source_knowledge_ids = set(source_binding["knowledge_ids"])
+    related_knowledge_ids = set(source_knowledge_ids)
+    for relation in knowledge_base.get("relations") or []:
+        source_id = str(relation.get("source_knowledge_id") or relation.get("source_id") or "")
+        target_id = str(relation.get("target_knowledge_id") or relation.get("target_id") or "")
+        relation_type = str(relation.get("relation_type") or "")
+        if relation_type in {"prerequisite", "derives", "applies_to", "generalizes"}:
+            if source_id in source_knowledge_ids and target_id:
+                related_knowledge_ids.add(target_id)
+            if relation_type == "prerequisite" and target_id in source_knowledge_ids and source_id:
+                related_knowledge_ids.add(source_id)
+
+    related_block_ids = {
+        str(binding.get("target_id") or "")
+        for binding in knowledge_base.get("bindings") or []
+        if binding.get("target_type") == "course_block"
+        and set(binding.get("knowledge_ids") or []) & related_knowledge_ids
+    }
+    selected = [block_id]
+    for item in ordered[index + 1:]:
+        if item.block_id in related_block_ids and item.block_id not in selected:
+            selected.append(item.block_id)
+        if len(selected) >= count:
+            return selected
+    for item in ordered[index + 1:]:
+        if item.block_id not in selected:
+            selected.append(item.block_id)
+        if len(selected) >= count:
+            break
+    return selected
+
+
+def _knowledge_binding_for_anchor(
+    knowledge_base: dict[str, Any],
+    *,
+    section_id: str,
+    block_id: str,
+) -> dict[str, list[str]]:
+    relevant = [
+        item
+        for item in knowledge_base.get("bindings") or []
+        if item.get("target_type") == "course_block"
+        and str(item.get("target_id") or "") == block_id
+    ]
+    if relevant:
+        knowledge_ids = _unique([
+            value for item in relevant for value in item.get("knowledge_ids") or []
+        ])
+        skill_ids = _unique([
+            value for item in relevant for value in item.get("skill_ids") or []
+        ])
+    elif section_id:
+        section_binding = knowledge_binding_for_section(knowledge_base, section_id)
+        knowledge_ids = list(section_binding.get("course_knowledge_refs") or [])
+        skill_ids = list(section_binding.get("course_skill_refs") or [])
+    else:
+        knowledge_ids = []
+        skill_ids = []
+    point_ids = set(knowledge_ids)
+    misconception_ids = _unique([
+        str(item.get("misconception_id") or "")
+        for item in knowledge_base.get("misconceptions") or []
+        if str(item.get("primary_knowledge_id") or "") in point_ids
+        or bool(set(item.get("knowledge_ids") or []) & point_ids)
+    ])
+    return {
+        "knowledge_ids": knowledge_ids,
+        "skill_ids": skill_ids,
+        "misconception_ids": misconception_ids,
+    }
+
+
+def _knowledge_labels(knowledge_base: dict[str, Any] | None, ids: set[str]) -> list[str]:
+    if not knowledge_base:
+        return []
+    return _unique([
+        str(item.get("name") or item.get("statement") or "")
+        for item in knowledge_base.get("knowledge_points") or []
+        if str(item.get("knowledge_id") or "") in ids
+    ])
+
+
+def _ability_labels(knowledge_base: dict[str, Any] | None, ids: set[str]) -> list[str]:
+    if not knowledge_base:
+        return []
+    return _unique([
+        str(item.get("name") or item.get("observable_behavior") or item.get("description") or "")
+        for item in knowledge_base.get("skill_units") or []
+        if str(item.get("skill_id") or "") in ids
+    ])
+
+
+def _misconception_labels(knowledge_base: dict[str, Any] | None, ids: set[str]) -> list[str]:
+    if not knowledge_base:
+        return []
+    return _unique([
+        str(item.get("name") or item.get("description") or item.get("trigger") or "")
+        for item in knowledge_base.get("misconceptions") or []
+        if str(item.get("misconception_id") or "") in ids
+    ])
+
+
+def _unique(values: list[Any]) -> list[str]:
+    return list(dict.fromkeys(str(value) for value in values if str(value).strip()))
 
 
 def _course_document(course_data: dict[str, Any]) -> CourseDocument:

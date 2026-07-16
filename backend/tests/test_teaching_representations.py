@@ -15,6 +15,7 @@ from representation_compiler import (
     CORE_TYPES,
     compile_core_representations,
     export_slide_deck_pptx,
+    rebuild_core_representations_safely,
     validate_compiled_representations,
 )
 from representation_edits import (
@@ -70,6 +71,23 @@ def legacy_course() -> dict:
                 "node_content": "## 定义\n\n矩阵是数字的矩形阵列。",
             },
         ],
+    }
+
+
+def course_data_with_practice() -> dict:
+    return {
+        **legacy_course(),
+        "learning_assets": {
+            "questions": [{
+                "question_id": "question-vector-1",
+                "revision_id": "question-vector-1-r1",
+                "node_id": "section-a",
+                "prompt": "向量由哪些要素确定？",
+                "practice_level": "understand",
+                "course_knowledge_refs": ["ckp-vector-definition"],
+            }],
+            "misconceptions": [],
+        },
     }
 
 
@@ -498,3 +516,50 @@ def test_semantic_representation_edit_creates_authoring_change_without_writing_c
     assert change["write_target"] == "base_course"
     assert change["source"] == "representation_semantic"
     assert storage.course == before_course
+
+
+def test_safe_rebuild_publishes_only_after_quality_passes(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    course_data = course_data_with_practice()
+    compile_core_representations(document, course_data, repository)
+    before = repository.load(document.course_id)
+
+    changed = document.model_copy(deep=True)
+    changed.blocks[0].payload["markdown"] = "向量表达大小和方向。"
+    from course_document import refresh_document_revision
+
+    refresh_document_revision(changed)
+    repository.apply_revision_event(
+        document.course_id,
+        revision_event_for_documents(document, changed, command_id="edit-1"),
+    )
+
+    result = rebuild_core_representations_safely(changed, course_data, repository)
+    current = repository.load(document.course_id)
+
+    assert result["status"] == "synchronized"
+    assert result["quality"]["passed"] is True
+    assert any(item["stale_unit_ids"] for item in result["stale_before"])
+    assert all(item.status == "ready" for item in current.representations)
+    assert current.registry_revision != before.registry_revision
+
+
+def test_safe_rebuild_failure_keeps_last_available_registry(tmp_path, monkeypatch):
+    import representation_compiler
+
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    course_data = course_data_with_practice()
+    compile_core_representations(document, course_data, repository)
+    before = repository.load(document.course_id).model_dump(mode="json")
+
+    def fail_compile(*_args, **_kwargs):
+        raise RuntimeError("renderer unavailable")
+
+    monkeypatch.setattr(representation_compiler, "compile_core_representations", fail_compile)
+    result = rebuild_core_representations_safely(document, course_data, repository)
+
+    assert result["status"] == "failed_using_last_available"
+    assert result["quality"]["passed"] is False
+    assert repository.load(document.course_id).model_dump(mode="json") == before

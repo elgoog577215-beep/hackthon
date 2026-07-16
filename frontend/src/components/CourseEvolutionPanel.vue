@@ -14,6 +14,12 @@
             <component :is="evidenceIcon(evidence.source_type)" :size="12" />{{ evidenceLabel(evidence.source_type) }}
           </span>
         </div>
+        <div v-if="impactLabels(plan).length" class="evolution-impact">
+          <span v-for="label in impactLabels(plan)" :key="label">{{ label }}</span>
+          <small v-if="plan.impact_summary?.dependent_block_ids?.length">
+            {{ t('courseEvolution.dependentBlocks', '关联后续 {count} 个教学块').replace('{count}', String(plan.impact_summary.dependent_block_ids.length)) }}
+          </small>
+        </div>
         <button type="button" class="evolution-details-toggle" @click="expandedId = expandedId === plan.change_set_id ? '' : plan.change_set_id">
           <ChevronUp v-if="expandedId === plan.change_set_id" :size="13" /><ChevronDown v-else :size="13" />
           {{ expandedId === plan.change_set_id ? t('courseEvolution.hideDetails', '收起依据与范围') : t('courseEvolution.showDetails', '查看依据与范围') }}
@@ -33,7 +39,12 @@
         </div>
       </template>
       <template v-else>
-        <div class="applied-growth"><CheckCircle2 :size="15" /><span><strong>{{ t('courseEvolution.applied', '个人学习内容已调整') }}</strong><small>{{ effectLabel(plan.effect_evaluation?.status) }}</small></span><button type="button" @click="undo(plan)"><Undo2 :size="13" />{{ t('courseEvolution.undo', '撤销') }}</button></div>
+        <div class="applied-growth">
+          <CheckCircle2 :size="15" />
+          <span><strong>{{ t('courseEvolution.applied', '个人学习内容已调整') }}</strong><small>{{ effectLabel(plan.effect_evaluation?.status) }}</small></span>
+          <button v-if="plan.effect_evaluation?.status === 'ineffective'" type="button" :disabled="store.actingId === plan.change_set_id" @click="adjust(plan)"><RefreshCw :size="13" />{{ t('courseEvolution.adjust', '生成调整方案') }}</button>
+          <button v-else type="button" @click="undo(plan)"><Undo2 :size="13" />{{ plan.effect_evaluation?.status === 'harmful' ? t('courseEvolution.rollback', '确认回退') : t('courseEvolution.undo', '撤销') }}</button>
+        </div>
       </template>
     </article>
   </section>
@@ -57,9 +68,11 @@ function evidenceFor(plan: PersonalAdaptationPlan) { return store.evidenceItems.
 function evidenceLabel(source: EvolutionEvidence['source_type']) { return ({ learning_event: t('courseEvolution.sources.dialogue', '对话与反馈'), learning_record: t('courseEvolution.sources.record', '学习记录'), practice_attempt: t('courseEvolution.sources.practice', '正式练习') })[source] }
 function evidenceIcon(source: EvolutionEvidence['source_type']) { return ({ learning_event: FileQuestion, learning_record: NotebookTabs, practice_attempt: BookOpenText })[source] }
 function operationLabel(type: string) { return ({ INSERT_PERSONAL_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), ADD_TRANSITION_SUPPORT: t('courseEvolution.operations.transition', '后续承接'), ADD_CHECKPOINT: t('courseEvolution.operations.checkpoint', '理解检查'), ADD_ANIMATION: t('courseEvolution.operations.animation', '分步演示') } as Record<string, string>)[type] || type }
-function effectLabel(status?: string) { return ({ effective: t('courseEvolution.effects.effective', '后续证据显示有效'), ineffective: t('courseEvolution.effects.ineffective', '后续证据显示需要调整'), insufficient_evidence: t('courseEvolution.effects.insufficient', '等待后续正式证据') } as Record<string, string>)[status || ''] || t('courseEvolution.effects.insufficient', '等待后续正式证据') }
+function impactLabels(plan: PersonalAdaptationPlan) { return [...(plan.impact_summary?.knowledge_labels || []), ...(plan.impact_summary?.ability_labels || []), ...(plan.impact_summary?.misconception_labels || [])].slice(0, 4) }
+function effectLabel(status?: string) { return ({ effective: t('courseEvolution.effects.effective', '后续证据显示有效，保留当前适配'), ineffective: t('courseEvolution.effects.ineffective', '后续证据显示需要调整'), harmful: t('courseEvolution.effects.harmful', '后续证据显示有副作用，建议回退'), insufficient_evidence: t('courseEvolution.effects.insufficient', '等待后续正式证据') } as Record<string, string>)[status || ''] || t('courseEvolution.effects.insufficient', '等待后续正式证据') }
 async function accept(plan: PersonalAdaptationPlan) { await store.accept(plan.change_set_id, selectedScope[plan.change_set_id] || 'current'); await progressStore.loadRuntime(props.courseId) }
 async function undo(plan: PersonalAdaptationPlan) { await store.undo(plan.change_set_id); await progressStore.loadRuntime(props.courseId) }
+async function adjust(plan: PersonalAdaptationPlan) { await store.adjust(plan.change_set_id) }
 async function load() {
   if (!props.courseId) return
   if (import.meta.env.MODE === 'test') return
@@ -76,6 +89,7 @@ onMounted(load)
 <style scoped>
 .evolution-panel { min-height:0; max-height:52%; overflow:auto; margin:0 12px 10px; padding:10px 11px; border:1px solid rgba(167,243,208,.8); border-radius:10px; background:linear-gradient(110deg,rgba(236,253,245,.72),rgba(248,250,252,.62)); }.evolution-panel > header { display:grid; grid-template-columns:24px minmax(0,1fr) 28px; align-items:center; gap:6px; margin-bottom:8px; color:#047857; }.evolution-panel > header > span { display:grid; place-items:center; }.evolution-panel header div { display:flex; flex-direction:column; }.evolution-panel header small { color:#6b7280; font-size:8px; }.evolution-panel header strong { font-size:11px; }.evolution-panel header button { width:28px; height:28px; display:grid; place-items:center; border:0; border-radius:6px; color:#047857; background:transparent; cursor:pointer; }
 .evolution-panel article { padding:9px 10px; border:1px solid #dbe7df; border-radius:8px; background:#fff; }.evolution-effect { margin:0 0 8px; color:#1f2937; font-size:11px; font-weight:700; line-height:1.55; }.evolution-evidence { display:flex; flex-wrap:wrap; gap:4px; }.evolution-evidence span { display:inline-flex; align-items:center; gap:4px; padding:3px 6px; border-radius:4px; color:#475569; background:#f1f5f9; font-size:8px; }.evolution-evidence span[data-source="practice_attempt"] { color:#075985; background:#f0f9ff; }.evolution-evidence span[data-source="learning_record"] { color:#6d28d9; background:#f5f3ff; }
+.evolution-impact { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin-top:7px; }.evolution-impact span { max-width:100%; overflow:hidden; padding:3px 6px; border:1px solid #dbeafe; border-radius:5px; color:#1d4ed8; background:#eff6ff; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }.evolution-impact small { color:#64748b; font-size:8px; }
 .evolution-details-toggle { min-height:28px; display:flex; align-items:center; gap:4px; margin-top:6px; padding:0; border:0; color:#64748b; background:transparent; font-size:9px; cursor:pointer; }.evolution-details { margin:6px 0 9px; padding:8px 0; border-top:1px solid #edf2ef; border-bottom:1px solid #edf2ef; }.evolution-details > p { display:grid; grid-template-columns:60px minmax(0,1fr); gap:6px; margin:4px 0; color:#64748b; font-size:9px; line-height:1.45; }.evolution-details p b { color:#334155; }.evolution-details ul { display:grid; gap:5px; margin:8px 0 0; padding:0; list-style:none; }.evolution-details li { color:#64748b; font-size:9px; line-height:1.45; }.evolution-details li span { display:inline-block; min-width:58px; color:#047857; font-weight:700; }.evolution-details .protected { display:flex; grid-template-columns:none; align-items:center; gap:5px; margin-top:8px; color:#047857; }
 .scope-control { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin:7px 0; padding:3px; border-radius:7px; background:#f1f5f9; }.scope-control button { min-height:28px; border:0; border-radius:5px; color:#64748b; background:transparent; font-size:9px; cursor:pointer; }.scope-control button.active { color:#065f46; background:#fff; box-shadow:0 1px 4px rgba(15,23,42,.08); font-weight:700; }.evolution-actions { display:flex; gap:5px; margin-top:8px; }.evolution-actions button,.applied-growth button { min-height:30px; display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:0 8px; border:1px solid #d1d5db; border-radius:6px; color:#64748b; background:#fff; font-size:9px; cursor:pointer; }.evolution-actions button.primary { color:#fff; border-color:#059669; background:#059669; }.applied-growth { display:grid; grid-template-columns:20px minmax(0,1fr) auto; align-items:center; gap:7px; color:#047857; }.applied-growth > span { display:flex; flex-direction:column; }.applied-growth strong { font-size:10px; }.applied-growth small { margin-top:2px; color:#64748b; font-size:8px; }.spinning { animation:evolution-spin .8s linear infinite; }@keyframes evolution-spin { to { transform:rotate(360deg); } }
 </style>

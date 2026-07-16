@@ -64,4 +64,18 @@ describe('personal adaptation store', () => {
     expect(store.appliedPlans).toHaveLength(1)
     expect(store.personalCourseOverlay?.active_plan_ids).toEqual(['plan-1'])
   })
+
+  it('requests a reviewable replacement after an ineffective adaptation', async () => {
+    httpMock.get.mockResolvedValue({ data: payload('applied') })
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+    await store.load('course-1')
+
+    await store.adjust('plan-1')
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/personal-adaptation/plans/plan-1/adjust',
+    )
+    expect(store.pendingPlans).toHaveLength(1)
+  })
 })

@@ -483,43 +483,12 @@ def reject_item(
     *,
     reason: str | None = None,
 ) -> dict[str, Any]:
-    """Reject a single pending item and record `reason` on the item.
+    """Reject one item and keep learner evidence separate from course authoring.
 
-    Evidence back-flow: spec §4 "AI 变更 MUST 以待确认形式呈现" hard-requires
-    that a rejection reason flows back into the learner's evidence trail as a
-    new `LearningEvent`, not just onto the change-proposal item itself. That
-    write happens *here* (inside the state-machine module), not only in the
-    HTTP router layer (`routers/change_proposals.py`). Reasoning: this module
-    is otherwise a pure state machine with no dependency on
-    `learning_events.py`, which is the cleaner default layering — but a
-    router-only implementation would silently skip the MUST for any caller
-    that invokes `reject_item` directly (background jobs, batch/regrade
-    tooling, tests), which is a real and likely path here (this module already
-    has non-HTTP callers). A missed hard requirement is worse than the extra
-    coupling, so the single choke point every rejection passes through
-    (`reject_item` itself) is what performs the write. The import of
-    `learning_events` is deferred to function scope to avoid a module-level
-    dependency/import-cycle risk given `learning_events.py` may in turn touch
-    course/learner services.
-
-    `event_type="learner_self_reported"` is reused deliberately (not a new
-    enum value) so the rejection reason is picked up by the *existing*
-    evidence classification/trigger logic in `learner_model.py`
-    (`classify_evidence_event` / `evaluate_evidence_trigger`) without any
-    change to that logic, and so it also goes through the existing
-    `_maybe_trigger_evidence_evaluation` hook in `learning_events.py` that can
-    generate a follow-up change proposal from strong-enough evidence.
-
-    Decision on empty `reason`: if the student rejects without typing a
-    reason, we still emit one low-strength generic evidence event (rather
-    than silently doing nothing). Silence would make the change-proposal
-    history inconsistent with the evidence trail (a rejection happened, the
-    student had *some* implicit judgment, but nothing about it is ever
-    recoverable from `learning_events.json`). The event's `evidence.statement`
-    is left empty/marked so it classifies as the weakest signal
-    (`reexplain_request` at half-weight in `classify_evidence_event`, since it
-    won't match any incomprehension/reexplain marker) and can only ever
-    contribute in aggregate with other evidence, never trigger alone.
+    Rejections flow back into the learner evidence trail only for proposals
+    created from learning evidence or proposals that write to a personal
+    overlay. Rejecting a base-course authoring change is a maintainer action
+    and must not alter any learner model.
     """
     proposal = repository.load(proposal_id)
     item = _find_item(proposal, item_id)
@@ -553,8 +522,9 @@ def reject_item(
             proposal=updated,
         )
 
-    rejected_item = _find_item(updated, item_id)
-    _record_rejection_evidence(updated, rejected_item, reason=reason)
+    if updated.get("source") == "evidence" or updated.get("write_target") == "personal_overlay":
+        rejected_item = _find_item(updated, item_id)
+        _record_rejection_evidence(updated, rejected_item, reason=reason)
     return updated
 
 

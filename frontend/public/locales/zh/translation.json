@@ -160,12 +160,18 @@
     "feedback": "这条支持是否有帮助",
     "helpful": "有帮助",
     "notHelpful": "没有帮助",
+    "structuredAnimation": "结构化动画",
+    "playAnimation": "播放动画",
+    "pauseAnimation": "暂停动画",
+    "animationFallbackAvailable": "每个关键帧都可暂停；动态渲染失败时自动保留为静态步骤。",
+    "animationFallback": "当前使用可验证的静态分步演示；动态渲染不可用时，学习步骤仍然完整保留。",
     "evidenceBased": "基于当前学习证据",
     "kinds": {
       "explanation": "补充解释",
       "counterexample": "反例对照",
       "transition": "进入下一步前",
-      "understanding_check": "快速理解检查"
+      "understanding_check": "快速理解检查",
+      "animation": "动态过程演示"
     },
     "reasons": {
       "repeated_failure_under_diagnosis": "连续失误，正在核对根因",
@@ -188,9 +194,14 @@
     "reject": "暂不调整",
     "applied": "个人学习内容已调整",
     "undo": "撤销",
+    "adjust": "生成调整方案",
+    "rollback": "确认回退",
+    "navigatorMarker": "AI 建议",
+    "navigatorMarkerDetail": "该位置在个人适配方案的影响范围内",
+    "dependentBlocks": "关联后续 {count} 个教学块",
     "sources": { "dialogue": "对话与反馈", "record": "学习记录", "practice": "正式练习" },
     "operations": { "explanation": "补充解释", "transition": "后续承接", "checkpoint": "理解检查", "animation": "分步演示" },
-    "effects": { "effective": "后续证据显示有效", "ineffective": "后续证据显示需要调整", "insufficient": "等待后续正式证据" }
+    "effects": { "effective": "后续证据显示有效，保留当前适配", "ineffective": "后续证据显示需要调整", "harmful": "后续证据显示有副作用，建议回退", "insufficient": "等待后续正式证据" }
   },
   "learningNavigator": {
     "title": "课程目录",
@@ -645,7 +656,7 @@
     "practiceStart": "开始练习",
     "practiceOpenNeedsReview": "查看待巩固练习",
     "smartBar": { "openNotes": "打开笔记", "notes": "笔记", "notebook": "笔记本", "items": "条", "noNotes": "暂无笔记，选中文本可添加", "viewAllNotes": "查看全部笔记", "ai": "AI 老师", "openAi": "打开 AI 老师", "closeAi": "关闭 AI 老师", "stats": "概况", "openStats": "查看学习概况", "knowledgeLibrary": "知识库", "openKnowledgeLibrary": "打开知识库" },
-    "changeProposals": { "title": "基础课程修改", "currentNode": "涉及当前节点", "awaitingGeneration": "该条目正在等待重新生成，请稍后刷新或联系管理员。", "added": "新增", "before": "原文", "after": "修改为", "kgNodeReviewOnly": "该建议涉及知识库节点：接受后仅记录待人工复核备注，不会自动改写正式定义。", "accept": "接受", "reject": "拒绝", "regenerate": "重新生成", "rejectReasonPlaceholder": "（可选）说明拒绝理由", "regenerateInstructionPlaceholder": "（可选）补充生成说明", "confirm": "确认", "cancel": "取消", "scope": { "block": "当前块", "section": "当前小节", "sections": "多个小节", "chapters": "多个章节", "book": "全书" }, "source": { "evidence": "旧个人证据提案", "kbLink": "联动至知识库", "representationSemantic": "教学资源语义修改", "blockRegeneration": "正式正文改进" } },
+    "changeProposals": { "title": "基础课程修改", "currentNode": "涉及当前节点", "awaitingGeneration": "该条目正在等待重新生成，请稍后刷新或联系管理员。", "added": "新增", "before": "原文", "after": "修改为", "kgNodeReviewOnly": "该建议涉及知识库节点：接受后仅记录待人工复核备注，不会自动改写正式定义。", "accept": "接受", "reject": "拒绝", "regenerate": "重新生成", "rejectReasonPlaceholder": "（可选）说明拒绝理由", "regenerateInstructionPlaceholder": "（可选）补充生成说明", "confirm": "确认", "cancel": "取消", "synced": "基础课程及教学资源已同步", "syncedUnits": "已精准重建 {count} 个受影响单元", "syncFallback": "基础课程已更新，旧教学资源暂时保留", "syncFallbackDetail": "重建未通过检查，旧版本已标记为待同步，没有被覆盖", "scope": { "block": "当前块", "section": "当前小节", "sections": "多个小节", "chapters": "多个章节", "book": "全书" }, "source": { "evidence": "旧个人证据提案", "kbLink": "联动至知识库", "representationSemantic": "教学资源语义修改", "blockRegeneration": "正式正文改进" } },
     "modes": { "reading": "阅读", "overview": "总览", "practice": "练习", "mastery": "掌握", "blueprint": "蓝图", "versions": "版本" },
     "purpose": { "systematic": "系统学习", "exam_sprint": "备考冲刺", "material_organization": "资料整理", "personalized_remedial": "个性补弱" },
     "quality": { "passed": "资产已验证", "warning": "资产待修复" },
