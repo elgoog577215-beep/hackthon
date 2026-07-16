@@ -4,6 +4,7 @@ from copy import deepcopy
 
 import pytest
 
+import learner_model_service
 from change_proposals import (
     ChangeProposalConflict,
     ChangeProposalNotFound,
@@ -347,6 +348,11 @@ async def test_regenerate_item_reruns_template_generator_for_evidence_source(tmp
     resolved."""
     memory_events = MemoryDataStorage()
     monkeypatch.setattr(learning_events, "storage", memory_events)
+    monkeypatch.setattr(
+        learner_model_service,
+        "_run_llm_supplement_sync",
+        lambda _block_payload, _events: None,
+    )
     storage, _repo, proposals, _cmd, document = await canonical_setup(tmp_path)
     # The lazily-imported `storage.storage` singleton inside change_proposals
     # must resolve to the same course storage this test set up.

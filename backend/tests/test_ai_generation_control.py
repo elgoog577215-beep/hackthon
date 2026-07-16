@@ -448,6 +448,7 @@ async def test_schedule_nodes_waits_for_declared_dependencies():
 
     async def fake_process(_task_id, node):
         order.append(node["node_id"])
+        node["generation_status"] = "completed"
 
     manager._process_node = fake_process
     manager._is_content_complete = lambda _node: False
