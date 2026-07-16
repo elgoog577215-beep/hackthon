@@ -80,6 +80,33 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     workspace_course = manager.get_generation_workspace_course(job["course_id"])
     assert workspace_course is not None
     assert workspace_course["nodes"][0]["node_name"] == "概念"
+    preview = manager.get_generation_preview(job["course_id"])
+    assert preview is not None
+    assert preview["projection"] == "generation_workspace"
+    assert preview["task"]["status"] == "waiting_for_review"
+    assert preview["nodes"][0]["node_name"] == "概念"
+    assert preview["nodes"][0]["content_state"] == "pending"
+    assert "request_snapshot" not in preview["task"]
+
+    workspaces.update_course(
+        job["job_id"],
+        lambda course: {
+            **course,
+            "nodes": [{
+                **course["nodes"][0],
+                "node_content_draft": "正在形成的课程正文",
+                "generation_status": "generating",
+            }],
+        },
+    )
+    draft_preview = manager.get_generation_preview(job["course_id"])
+    assert draft_preview is not None
+    assert draft_preview["nodes"][0]["node_content"] == "正在形成的课程正文"
+    assert draft_preview["nodes"][0]["content_state"] == "draft"
+    manager.tasks[job["job_id"]]["current_nodes"] = [{"node_id": draft_preview["nodes"][0]["node_id"]}]
+    active_preview = manager.get_generation_preview(job["course_id"])
+    assert active_preview is not None
+    assert active_preview["nodes"][0]["generation_status"] == "generating"
     from routers import course_versions as course_versions_router
 
     async def load_formal_shell(_course_id):
@@ -93,6 +120,8 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert resumed["job_id"] == job["job_id"]
     assert manager.tasks[job["job_id"]]["status"] == "pending"
     assert await manager._task_queue.get() == job["job_id"]
+    workspaces.set_status(job["job_id"], "published")
+    assert manager.get_generation_preview(job["course_id"]) is None
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,10 @@ const SERVER_BACKED_TASK_STATUSES = new Set<Task['status']>([
   'error',
   'completed_with_warnings',
 ])
+const isPublishedTask = (task: Task, backendTask?: Record<string, any>) => (
+  task.status === 'completed'
+  || (task.status === 'completed_with_warnings' && backendTask?.publication_allowed !== false)
+)
 const PHASE_LABELS: Record<string, string> = {
   queued: 'courseGeneration.phases.queued',
   requirement_analysis: 'courseGeneration.phases.requirement_analysis',
@@ -42,6 +46,17 @@ const PHASE_LABELS: Record<string, string> = {
 }
 
 const phaseLabel = (phase: string): string => t(PHASE_LABELS[phase] || '', phase)
+
+const mergeStreamDelta = (existing: string, delta: string): string => {
+  if (!delta || existing.endsWith(delta)) return existing
+  const maxOverlap = Math.min(existing.length, delta.length)
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (existing.endsWith(delta.slice(0, overlap))) {
+      return existing + delta.slice(overlap)
+    }
+  }
+  return existing + delta
+}
 
 type TaskProgressState = {
   percentage: number
@@ -115,6 +130,10 @@ export const useGenerationStore = defineStore('generation', {
     // --- WebSocket state ---
     wsConnected: false,
     wsConnectionState: 'disconnected' as ConnectionState,
+    wsInitialized: false,
+    observedCourseId: '' as string,
+    previewHydrationPending: new Set<string>(),
+    lastGenerationPreviewRefreshAt: 0,
     // --- Outline edit mode ---
     isOutlineEditMode: false,
     // --- Failure report ---
@@ -131,6 +150,11 @@ export const useGenerationStore = defineStore('generation', {
     // ========== WebSocket Integration ==========
 
     initWebSocket() {
+      if (this.wsInitialized) {
+        useTaskWebSocket().connect()
+        return
+      }
+      this.wsInitialized = true
       const ws = useTaskWebSocket({
         onMessage: (message: WSMessage) => {
           this.handleWSMessage(message)
@@ -145,12 +169,12 @@ export const useGenerationStore = defineStore('generation', {
             this.startGlobalMonitor()
             // Re-subscribe to current course if available
             const cs = this._courseStore()
-            if (cs.currentCourseId) {
-              ws.subscribe(cs.currentCourseId)
+            if (this.observedCourseId) {
+              ws.subscribe(this.observedCourseId)
             }
             // Deterministic refresh on reconnect (Req 12.3)
-            if (!wasConnected && cs.currentCourseId) {
-              cs.refreshCourseData(cs.currentCourseId)
+            if (!wasConnected && this.observedCourseId) {
+              cs.refreshCourseData(this.observedCourseId)
             }
           } else if (state === 'disconnected' || state === 'error') {
             // WebSocket disconnected → fall back to HTTP polling (Req 1.4)
@@ -159,6 +183,23 @@ export const useGenerationStore = defineStore('generation', {
         },
       })
       ws.connect()
+    },
+
+    observeCourse(courseId: string) {
+      const ws = useTaskWebSocket()
+      if (this.observedCourseId && this.observedCourseId !== courseId) {
+        ws.unsubscribe(this.observedCourseId)
+      }
+      this.observedCourseId = courseId
+      this.initWebSocket()
+      ws.subscribe(courseId)
+      this.startGlobalMonitor()
+    },
+
+    unobserveCourse(courseId: string) {
+      if (!courseId || this.observedCourseId !== courseId) return
+      useTaskWebSocket().unsubscribe(courseId)
+      this.observedCourseId = ''
     },
 
     handleWSMessage(message: WSMessage) {
@@ -300,13 +341,27 @@ export const useGenerationStore = defineStore('generation', {
 
       const cs = this._courseStore()
       if (course_id === cs.currentCourseId) {
+        const node = cs.nodes.find((item: Node) => item.node_id === nodeId)
+        if (!node) {
+          if (!this.previewHydrationPending.has(nodeId)) {
+            this.previewHydrationPending.add(nodeId)
+            void cs.refreshGenerationPreview(course_id).then(() => {
+              const hydratedNode = cs.nodes.find((item: Node) => item.node_id === nodeId)
+              if (!hydratedNode) return
+              hydratedNode.node_content = mergeStreamDelta(
+                hydratedNode.node_content || '',
+                this.streamingContent[nodeId] || '',
+              )
+              hydratedNode.generation_status = 'generating'
+              this.currentGeneratingNode = `正在生成: ${hydratedNode.node_name}`
+            }).finally(() => this.previewHydrationPending.delete(nodeId))
+          }
+          return
+        }
         if (this.currentGeneratingNodeId !== nodeId) {
           this.currentGeneratingNodeId = nodeId
-          const node = cs.nodes.find((n: Node) => n.node_id === nodeId)
-          if (node) {
-            this.currentGeneratingNode = `正在生成: ${node.node_name}`
-            node.generation_status = 'generating'
-          }
+          this.currentGeneratingNode = `正在生成: ${node.node_name}`
+          node.generation_status = 'generating'
         }
         this.addToBuffer(nodeId, chunk)
       }
@@ -758,7 +813,11 @@ export const useGenerationStore = defineStore('generation', {
             })
 
             // Deterministic refresh: only when task transitions to completed (Req 12.1, 12.3)
-            if (prevStatus !== 'completed' && localTask.status === 'completed') {
+            if (
+              prevStatus !== 'completed'
+              && prevStatus !== 'completed_with_warnings'
+              && isPublishedTask(localTask, backendTask)
+            ) {
               publishedCourseIds.add(courseId)
             }
           }
@@ -767,6 +826,18 @@ export const useGenerationStore = defineStore('generation', {
           await this.reconcilePublishedCourses(publishedCourseIds)
         } else if (discoveredCourseIds.size) {
           await this._courseStore().fetchCourseList()
+        }
+        const cs = this._courseStore()
+        const now = Date.now()
+        const currentTask = cs.currentCourseId ? this.tasks.get(cs.currentCourseId) : undefined
+        if (
+          cs.currentCourseProjection === 'generation_preview'
+          && currentTask
+          && SERVER_BACKED_TASK_STATUSES.has(currentTask.status)
+          && now - this.lastGenerationPreviewRefreshAt >= 5000
+        ) {
+          this.lastGenerationPreviewRefreshAt = now
+          await cs.refreshGenerationPreview(cs.currentCourseId)
         }
       } catch (e) { console.error('Failed to fetch global tasks', e) }
     },

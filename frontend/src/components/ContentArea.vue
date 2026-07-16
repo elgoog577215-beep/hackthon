@@ -6,7 +6,7 @@
     </div>
 
     <div
-        v-if="courseStore.currentCourseId"
+        v-if="courseStore.currentCourseId && !isGenerationPreview"
         class="absolute top-3 right-3 z-20 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm backdrop-blur-md"
         :class="learningSyncClass"
         :title="t('courseWorkspace.learningSession.title', '学习现场')"
@@ -231,7 +231,7 @@
         <!-- Selection Menu -->
     <Teleport to="body">
       <transition name="scale-fade">
-        <div v-if="selectionMenu.visible" 
+        <div v-if="selectionMenu.visible && !isGenerationPreview"
             id="selection-menu"
             class="fixed z-50 flex flex-col p-1.5 bg-white/95 backdrop-blur-xl rounded-lg shadow-[0_12px_40px_rgba(0,0,0,0.15)] border border-white/40 ring-1 ring-black/5 min-w-[300px] select-none"
             :style="{ 
@@ -341,7 +341,9 @@
                         :line-height="lineHeight"
                         :records="inlineRecordsForNode(node.node_id)"
                         :search-words="searchTokens"
-                        :can-improve-blocks="courseStore.currentCourseSourceFormat === 'canonical'"
+                        :is-streaming="node.generation_status === 'generating'"
+                        :generation-preview="isGenerationPreview"
+                        :can-improve-blocks="!isGenerationPreview && courseStore.currentCourseSourceFormat === 'canonical'"
                         @start-practice="handleStartPractice"
                         @open-record="openInlineRecord"
                         @improve-block="emit('improveBlock', $event)"
@@ -365,6 +367,14 @@
       </div>
       
       <!-- Loading State -->
+      <div v-else-if="isGenerationPreview" class="generation-empty-state">
+          <LoaderCircle :size="22" class="generation-empty-state__spin" />
+          <div>
+              <strong>{{ t('courseGeneration.workspace.preparing', '正在准备课程结构') }}</strong>
+              <span>{{ t('courseGeneration.workspace.contentWillAppear', '目录与正文会随着真实生成结果逐步出现') }}</span>
+          </div>
+      </div>
+
       <div v-else class="flex flex-col items-center justify-center h-64 gap-4">
           <div class="w-12 h-12 border-4 border-primary-200 border-t-primary-500 rounded-full animate-spin"></div>
           <p class="text-sm text-slate-500 font-medium animate-pulse">正在加载精彩内容...</p>
@@ -464,6 +474,7 @@ const courseStore = useCourseStore()
 const noteStore = useNoteStore()
 const workspaceStore = useCourseWorkspaceStore()
 const learningSessionStore = useLearningSessionStore()
+const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
 const learningSyncLabel = computed(() => t(
     `courseWorkspace.learningSession.${learningSessionStore.status}`,
     learningSessionStore.status,
@@ -903,7 +914,12 @@ const flatNodes = computed(() => {
         }
     }
     traverse(courseStore.treeData)
-    return nodes
+    if (!isGenerationPreview.value) return nodes
+    return nodes.filter(node => (
+        node.node_id === courseStore.currentNode?.node_id
+        || Boolean(node.node_content)
+        || ['generating', 'completed', 'error'].includes(String(node.generation_status || ''))
+    ))
 })
 
 // --- Performance Optimization: windowed rendering ---
@@ -1045,6 +1061,19 @@ watch(() => flatNodes.value.length, () => {
     })
     nextTick(() => scheduleWindowUpdate())
 })
+
+watch(
+    () => isGenerationPreview.value
+        ? courseStore.nodes.map(node => `${node.node_id}:${node.node_content?.length || 0}:${node.generation_status || ''}`).join('|')
+        : '',
+    () => {
+        for (const node of courseStore.nodes) {
+            if (node.generation_status === 'generating') measuredNodeHeights.delete(node.node_id)
+        }
+        scheduleWindowUpdate()
+    },
+    { flush: 'post' },
+)
 
 // Reset when course changes significantly
 watch(() => courseStore.currentCourseId, () => {
@@ -1631,6 +1660,7 @@ const scrollToNote = (noteId: string) => {
 let resizeObserver: ResizeObserver | null = null
 
 const handleGlobalKeydown = (e: KeyboardEvent) => {
+    if (isGenerationPreview.value) return
     // Only handle if Ctrl or Meta is pressed
     if (!(e.ctrlKey || e.metaKey)) return
 
@@ -1700,6 +1730,10 @@ watch(() => visibleNotes.value, () => {
 
 // Selection Handling
 const handleMouseUp = (_e: MouseEvent) => {
+    if (isGenerationPreview.value) {
+        selectionMenu.value.visible = false
+        return
+    }
     // Check if clicked on image
     const target = _e.target as HTMLElement
     if (target.tagName === 'IMG' && target.closest('.prose')) {
@@ -2094,7 +2128,7 @@ const detectCurrentVisibleNode = (container: HTMLElement) => {
 }
 
 const saveSemanticPosition = debounce((container: HTMLElement) => {
-    if (isManualScrolling.value || !courseStore.currentCourseId || !courseStore.currentNode) return
+    if (isGenerationPreview.value || isManualScrolling.value || !courseStore.currentCourseId || !courseStore.currentNode) return
     const node = courseStore.currentNode
     const nodeElement = document.getElementById(`node-${node.node_id}`)
     if (!nodeElement) return
@@ -2209,7 +2243,7 @@ let initializedLearningCourseId = ''
 let contentMounted = false
 const initializeLearningPosition = async () => {
     const courseId = courseStore.currentCourseId
-    if (!contentMounted || !courseId || courseStore.loading || !flatNodes.value.length || initializedLearningCourseId === courseId) return
+    if (isGenerationPreview.value || !contentMounted || !courseId || courseStore.loading || !flatNodes.value.length || initializedLearningCourseId === courseId) return
     initializedLearningCourseId = courseId
     const snapshot = await learningSessionStore.load(courseId)
     if (!snapshot) {
@@ -2228,14 +2262,14 @@ const initializeLearningPosition = async () => {
 }
 
 watch(
-    () => [courseStore.currentCourseId, courseStore.loading, flatNodes.value.length] as const,
-    async ([courseId, loading, count], previous) => {
+    () => [courseStore.currentCourseId, courseStore.loading, flatNodes.value.length, courseStore.currentCourseProjection] as const,
+    async ([courseId, loading, count, projection], previous) => {
         const previousCourseId = previous?.[0]
         if (previousCourseId && previousCourseId !== courseId && learningSessionStore.courseId === previousCourseId) {
             await learningSessionStore.flush()
             initializedLearningCourseId = ''
         }
-        if (courseId && !loading && count > 0) await initializeLearningPosition()
+        if (courseId && !loading && count > 0 && projection === 'published') await initializeLearningPosition()
     },
     { immediate: true, flush: 'post' },
 )
@@ -2295,6 +2329,12 @@ defineExpose({
 </script>
 
 <style scoped>
+.generation-empty-state { height:260px; display:flex; align-items:center; justify-content:center; gap:13px; color:var(--lz-text-muted); }
+.generation-empty-state__spin { flex:0 0 auto; color:var(--lz-brand); animation:generation-empty-spin .9s linear infinite; }
+.generation-empty-state div { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.generation-empty-state strong { color:var(--lz-text-strong); font-size:13px; }
+.generation-empty-state span { font-size:11px; }
+@keyframes generation-empty-spin { to { transform:rotate(360deg); } }
 .record-later-option {
     min-height: 30px;
     border-radius: 6px;

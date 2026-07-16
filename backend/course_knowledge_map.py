@@ -193,6 +193,12 @@ def project_learning_assets_to_knowledge(
     assets: dict[str, list[dict[str, Any]]],
 ) -> dict[str, list[dict[str, Any]]]:
     """Return a read-only current projection for legacy or current asset bundles."""
+    from course_knowledge_base import (
+        bind_course_knowledge_base_to_map,
+        build_course_knowledge_library_view,
+        compile_course_knowledge_base,
+        knowledge_binding_for_section,
+    )
     from subject_knowledge import build_knowledge_library_view
 
     projected_course = deepcopy(course_data)
@@ -216,10 +222,57 @@ def project_learning_assets_to_knowledge(
                 legacy_mapping=legacy_mapping,
             )
 
+    course_knowledge_base = compile_course_knowledge_base(
+        projected_course,
+        library=library,
+        course_map=course_map,
+        assets=projected_assets,
+    )
+    course_map = bind_course_knowledge_base_to_map(course_map, course_knowledge_base)
+    course_knowledge_base = compile_course_knowledge_base(
+        projected_course,
+        library=library,
+        course_map=course_map,
+        assets=projected_assets,
+    )
+    for asset_type, values in projected_assets.items():
+        if asset_type in {"knowledge_library", "course_knowledge_base", "course_knowledge_map"}:
+            continue
+        if not isinstance(values, list):
+            continue
+        for asset in values:
+            if not isinstance(asset, dict):
+                continue
+            section_ids = _unique([
+                asset.get("node_id"),
+                *(asset.get("node_ids") or []),
+            ])
+            bindings = [
+                knowledge_binding_for_section(course_knowledge_base, section_id)
+                for section_id in section_ids
+            ]
+            for field in (
+                "course_knowledge_refs",
+                "course_capability_refs",
+                "course_mistake_refs",
+                "course_improvement_refs",
+            ):
+                asset[field] = _unique([
+                    ref for binding in bindings for ref in binding.get(field) or []
+                ])
+            asset["course_knowledge_base_revision_id"] = course_knowledge_base.get("revision_id")
+
     knowledge_view = build_knowledge_library_view(library, course_map, projected_assets)
+    if knowledge_view.get("status") == "unavailable":
+        knowledge_view = build_course_knowledge_library_view(
+            course_knowledge_base,
+            course_map,
+            projected_assets,
+        )
     projected_assets.pop("knowledge_graph", None)
     projected_assets.pop("subject_knowledge", None)
     projected_assets.pop("teaching_standards", None)
+    projected_assets["course_knowledge_base"] = [course_knowledge_base]
     projected_assets["course_knowledge_map"] = [course_map]
     projected_assets["knowledge_library"] = [knowledge_view]
     return projected_assets
@@ -478,6 +531,33 @@ def validate_course_knowledge_map(
             invalid = set(str(item) for item in refs) - formal_ids
             if invalid:
                 issues.append(_map_issue("structure", "critical", f"正文块引用不存在的正式知识：{sorted(invalid)}"))
+    course_knowledge_base = next(iter((assets or {}).get("course_knowledge_base") or []), None)
+    if course_knowledge_base:
+        local_ids = {
+            str(item.get("node_id") or "")
+            for item in course_knowledge_base.get("nodes") or []
+        }
+        for mapping in mappings:
+            invalid_local = {
+                str(item) for item in mapping.get("course_knowledge_node_ids") or []
+            } - local_ids
+            if invalid_local:
+                issues.append(_map_issue(
+                    "structure",
+                    "critical",
+                    f"课程知识映射引用不存在的课程局部知识：{sorted(invalid_local)}",
+                ))
+        missing_local_sections = section_ids - {
+            section_id
+            for section_id, refs in (course_map.get("section_course_knowledge_ids") or {}).items()
+            if refs
+        }
+        if missing_local_sections:
+            issues.append(_map_issue(
+                "coverage",
+                "critical",
+                f"课程知识映射未连接课程局部知识：{sorted(missing_local_sections)}",
+            ))
     return _dedupe_issues(issues)
 
 
@@ -590,10 +670,41 @@ def _normalize_point(raw_point: Any, order: int) -> dict[str, Any] | None:
         "name": name,
         "description": str(raw.get("description") or "").strip(),
         "capability": str(raw.get("capability") or f"能够解释并应用「{name}」").strip(),
+        "capability_points": _normalize_standard_points(
+            raw.get("capability_points") or raw.get("capabilities") or []
+        ),
+        "mistake_points": _normalize_standard_points(
+            raw.get("mistake_points") or raw.get("misconceptions") or []
+        ),
+        "improvement_points": _normalize_standard_points(
+            raw.get("improvement_points") or []
+        ),
         "aliases": _unique([str(item).strip() for item in raw.get("aliases") or []]),
         "prerequisite_names": _unique([str(item).strip() for item in raw.get("prerequisite_names") or []]),
         "order": order,
     }
+
+
+def _normalize_standard_points(values: Any) -> list[Any]:
+    if not isinstance(values, list):
+        values = [values] if values else []
+    normalized: list[Any] = []
+    for value in values:
+        if isinstance(value, dict):
+            item = {
+                key: current
+                for key, current in value.items()
+                if key in {
+                    "name", "label", "statement", "description", "learning_goal",
+                    "observable_behavior", "capability", "repair_strategy",
+                    "practice_strategy", "source_status",
+                }
+            }
+            if any(str(item.get(key) or "").strip() for key in ("name", "label", "statement")):
+                normalized.append(item)
+        elif str(value).strip():
+            normalized.append(str(value).strip())
+    return normalized
 
 
 def _section_evidence_ids(section: dict[str, Any]) -> list[str]:

@@ -25,7 +25,7 @@ from course_knowledge_map import normalize_knowledge_structure
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
 
-PIPELINE_VERSION = "course_generation_v3"
+PIPELINE_VERSION = "course_generation_v4"
 
 MATERIAL_USAGE_LABELS = {
     "content_source": "正文依据",
@@ -161,6 +161,93 @@ def normalize_course_plan_contract(plan: dict[str, Any]) -> dict[str, Any]:
         section.pop("complexity", None)
         earlier_ids.add(canonical)
     return plan
+
+
+def validate_course_plan_constraints(
+    plan: dict[str, Any],
+    brief: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate explicit user-owned course shape before content generation."""
+    chapters = plan.get("chapters") if isinstance(plan, dict) else None
+    chapters = chapters if isinstance(chapters, list) else []
+    malformed_chapter_indexes = [
+        index
+        for index, chapter in enumerate(chapters, start=1)
+        if not isinstance(chapter, dict)
+    ]
+    malformed_section_chapters = [
+        index
+        for index, chapter in enumerate(chapters, start=1)
+        if isinstance(chapter, dict) and not isinstance(chapter.get("sections"), list)
+    ]
+    malformed_sections = [
+        f"{chapter_index}.{section_index}"
+        for chapter_index, chapter in enumerate(chapters, start=1)
+        if isinstance(chapter, dict) and isinstance(chapter.get("sections"), list)
+        for section_index, section in enumerate(chapter.get("sections") or [], start=1)
+        if not isinstance(section, dict)
+    ]
+    section_count = sum(
+        len(chapter.get("sections") or [])
+        for chapter in chapters
+        if isinstance(chapter, dict) and isinstance(chapter.get("sections"), list)
+    )
+    constraints = brief.get("course_shape_constraints") or {}
+    issues: list[dict[str, Any]] = []
+    if not chapters:
+        issues.append({
+            "code": "plan:missing_chapters",
+            "message": "模型没有返回可用的课程章节 JSON",
+            "blocking": True,
+        })
+    if malformed_chapter_indexes:
+        issues.append({
+            "code": "plan:malformed_chapters",
+            "message": f"课程蓝图第 {malformed_chapter_indexes} 章不是合法对象",
+            "blocking": True,
+        })
+    if malformed_section_chapters:
+        issues.append({
+            "code": "plan:malformed_section_lists",
+            "message": f"课程蓝图第 {malformed_section_chapters} 章缺少合法小节列表",
+            "blocking": True,
+        })
+    if malformed_sections:
+        issues.append({
+            "code": "plan:malformed_sections",
+            "message": f"课程蓝图小节 {malformed_sections} 不是合法对象",
+            "blocking": True,
+        })
+    if chapters and not section_count:
+        issues.append({
+            "code": "plan:missing_sections",
+            "message": "课程蓝图没有可生成的小节",
+            "blocking": True,
+        })
+    expected_chapters = constraints.get("chapter_count")
+    if expected_chapters and len(chapters) != int(expected_chapters):
+        issues.append({
+            "code": "plan:chapter_count_mismatch",
+            "message": f"用户明确要求 {expected_chapters} 章，蓝图实际为 {len(chapters)} 章",
+            "blocking": True,
+        })
+    expected_sections = constraints.get("section_count")
+    if expected_sections and section_count != int(expected_sections):
+        issues.append({
+            "code": "plan:section_count_mismatch",
+            "message": f"用户明确要求 {expected_sections} 个小节，蓝图实际为 {section_count} 个",
+            "blocking": True,
+        })
+    return {
+        "schema_version": "course_plan_constraints_v1",
+        "passed": not issues,
+        "expected": constraints,
+        "actual": {
+            "chapter_count": len(chapters),
+            "section_count": section_count,
+        },
+        "issues": issues,
+    }
 
 
 def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:
@@ -352,6 +439,7 @@ def _build_brief(
     learner_profile_summary: str,
 ) -> dict[str, Any]:
     lowered = requirements.lower()
+    shape_constraints = _extract_course_shape_constraints(requirements)
     unprovided = _extract_unprovided_references(requirements, material_cards)
     style_requirements = [
         "覆盖完整",
@@ -369,6 +457,14 @@ def _build_brief(
     ]
     if "不要" in requirements or "不能" in requirements or "avoid" in lowered:
         hard_constraints.append("遵守用户备注中的禁止项")
+    if shape_constraints.get("chapter_count"):
+        hard_constraints.append(
+            f"课程必须恰好包含 {shape_constraints['chapter_count']} 章"
+        )
+    if shape_constraints.get("section_count"):
+        hard_constraints.append(
+            f"课程必须恰好包含 {shape_constraints['section_count']} 个小节"
+        )
     return {
         "brief_id": f"brief-{uuid.uuid4().hex[:10]}",
         "goal": "生成一本高质量电子课程资料",
@@ -388,6 +484,7 @@ def _build_brief(
         "output_format": ["软件内课程", "Markdown 正文", "可导出 PDF 的结构"],
         "learner_profile_summary": learner_profile_summary,
         "hard_constraints": hard_constraints,
+        "course_shape_constraints": shape_constraints,
         "unprovided_references": unprovided,
         "raw_requirement": requirements,
         "desired_outcomes": _extract_desired_outcomes(requirements, topic),
@@ -427,7 +524,63 @@ def _extract_deliverables(requirements: str) -> list[str]:
     ])[:6]
 
 
+def _extract_course_shape_constraints(requirements: str) -> dict[str, int]:
+    text = str(requirements or "")
+    chapter_match = re.search(
+        r"(?<!第)([0-9一二两三四五六七八九十]+)\s*(?:个\s*)?章(?:节)?",
+        text,
+    )
+    section_match = re.search(
+        r"(?<!第)([0-9一二两三四五六七八九十]+)\s*(?:个\s*)?(?:递进\s*)?(?:小节|节)",
+        text,
+    )
+    result: dict[str, int] = {}
+    if chapter_match:
+        value = _parse_count(chapter_match.group(1))
+        if value:
+            result["chapter_count"] = value
+    if section_match:
+        value = _parse_count(section_match.group(1))
+        if value:
+            result["section_count"] = value
+    return result
+
+
+def _parse_count(value: str) -> int | None:
+    if value.isdigit():
+        number = int(value)
+        return number if 0 < number <= 100 else None
+    digits = {
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+    if value == "十":
+        return 10
+    if "十" in value:
+        left, right = value.split("十", 1)
+        tens = digits.get(left, 1) if left else 1
+        ones = digits.get(right, 0) if right else 0
+        return (tens * 10) + ones
+    return digits.get(value)
+
+
 def _format_brief(brief: dict[str, Any]) -> str:
+    shape = brief.get("course_shape_constraints") or {}
+    shape_text = "；".join(
+        item for item in (
+            f"章数：{shape.get('chapter_count')}" if shape.get("chapter_count") else "",
+            f"小节数：{shape.get('section_count')}" if shape.get("section_count") else "",
+        )
+        if item
+    ) or "未指定，由教学设计决定"
     return "\n".join([
         f"- 生成目标：{brief.get('goal', '')}",
         f"- 学科/主题：{brief.get('subject', '')}",
@@ -437,6 +590,7 @@ def _format_brief(brief: dict[str, Any]) -> str:
         f"- 资料使用策略：{brief.get('material_usage_strategy', '')}",
         f"- 必须避免：{'；'.join(brief.get('avoid_styles', []))}",
         f"- 用户原始备注：{brief.get('raw_requirement', '') or '无'}",
+        f"- 用户明确课程形状：{shape_text}",
         f"- 期望学习成果：{'；'.join(brief.get('desired_outcomes', [])) or '理解并应用课程主题'}",
         f"- 主要学习行为：{'；'.join(brief.get('dominant_learning_actions', [])) or '由教学画像决定'}",
         f"- 预期交付物：{'；'.join(brief.get('expected_deliverables', [])) or '课程综合任务'}",

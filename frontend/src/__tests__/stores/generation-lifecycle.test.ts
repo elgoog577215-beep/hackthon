@@ -70,6 +70,86 @@ describe('course generation lifecycle reconciliation', () => {
     expect(generation.generationStatus).toBe('idle')
   })
 
+  it('活动任务进入学习页时读取生成工作区而不是空正式文档', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    const get = vi.spyOn(http, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/courses/course-live/task') {
+        return { data: { id: 'job-live', status: 'running', progress: 48, phase: 'content_generation' } } as never
+      }
+      if (url === '/api/courses/course-live/generation-preview') {
+        return { data: {
+          schema_version: 'generation_preview_v1', projection: 'generation_workspace',
+          course_id: 'course-live', course_name: '线性代数', workspace_id: 'job-live', workspace_status: 'active',
+          task: {
+            id: 'job-live', status: 'running', progress: 48, phase: 'content_generation',
+            message: '正在生成：向量空间', current_nodes: [{ node_id: 'L2-1-1', node_name: '向量空间', action: '生成中', type: 'content' }],
+          },
+          nodes: [{
+            node_id: 'L2-1-1', parent_node_id: 'root', node_name: '向量空间', node_level: 2,
+            node_content: '# 向量空间\n\n正在形成的正文', node_type: 'original', generation_status: 'generating',
+            content_state: 'draft', generated_chars: 20,
+          }],
+        } } as never
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    await courses.loadCourse('course-live')
+
+    expect(courses.currentCourseProjection).toBe('generation_preview')
+    expect(courses.nodes[0]?.node_content).toContain('正在形成的正文')
+    expect(courses.currentNode?.node_id).toBe('L2-1-1')
+    expect(get).not.toHaveBeenCalledWith('/api/courses/course-live/document')
+  })
+
+  it('服务端草稿检查点较旧时不覆盖浏览器已经收到的正文增量', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-live'
+    courses.currentCourseProjection = 'generation_preview'
+    courses.nodes = [{
+      node_id: 'L2-1-1', parent_node_id: 'root', node_name: '向量空间', node_level: 2,
+      node_content: '已检查点正文 + 刚收到的增量', node_type: 'original', generation_status: 'generating',
+      content_state: 'draft', generated_chars: 15,
+    }]
+    generation.createTask('job-live', 'course-live', '线性代数')
+    vi.spyOn(http, 'get').mockResolvedValue({ data: {
+      schema_version: 'generation_preview_v1', projection: 'generation_workspace',
+      course_id: 'course-live', course_name: '线性代数', workspace_id: 'job-live', workspace_status: 'active',
+      task: { id: 'job-live', status: 'running', progress: 50, phase: 'content_generation' },
+      nodes: [{
+        node_id: 'L2-1-1', parent_node_id: 'root', node_name: '向量空间', node_level: 2,
+        node_content: '已检查点正文', node_type: 'original', generation_status: 'generating',
+        content_state: 'draft', generated_chars: 7,
+      }],
+    } })
+
+    await courses.refreshGenerationPreview('course-live')
+
+    expect(courses.nodes[0]?.node_content).toBe('已检查点正文 + 刚收到的增量')
+  })
+
+  it('带质量建议发布后也从草稿投影切换到正式课程', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-warning'
+    courses.currentCourseProjection = 'generation_preview'
+    const localTask = generation.createTask('job-warning', 'course-warning', '建议课程')
+    localTask.status = 'running'
+    vi.spyOn(http, 'get').mockResolvedValue({ data: [{
+      id: 'job-warning', course_id: 'course-warning', course_name: '建议课程',
+      status: 'completed_with_warnings', progress: 100, phase: 'completed', publication_allowed: true,
+    }] })
+    const refreshDocument = vi.spyOn(courses, 'refreshCourseData').mockResolvedValue(undefined)
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    await generation.fetchGlobalTasks()
+
+    expect(refreshDocument).toHaveBeenCalledWith('course-warning')
+  })
+
   it('后端确认任务不存在时清理失效的本地活动状态', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()

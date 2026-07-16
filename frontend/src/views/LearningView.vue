@@ -13,17 +13,26 @@
     </Transition>
 
     <main class="learning-main glass-panel-elevated">
-      <div class="learning-context-bar">
+      <div class="learning-context-bar" :class="{ 'is-generation': isGenerationPreview }">
         <button v-if="!navigatorVisible" type="button" :title="t('learningShell.openNavigator', '打开课程目录')" :aria-label="t('learningShell.openNavigator', '打开课程目录')" @click="navigatorOpen = true">
           <PanelLeftOpen :size="17" />
         </button>
-        <div>
-          <span>{{ currentParentLabel }}</span>
-          <strong>{{ courseStore.currentNode?.node_name || t('learningShell.selectNode', '选择一个学习目标') }}</strong>
+        <div class="context-copy">
+          <span>{{ isGenerationPreview ? t('courseGeneration.workspace.live', '课程正在生成') : currentParentLabel }}</span>
+          <strong>{{ isGenerationPreview ? generationStatusText : (courseStore.currentNode?.node_name || t('learningShell.selectNode', '选择一个学习目标')) }}</strong>
         </div>
-        <button v-if="!aiVisible" type="button" :title="t('learningShell.openAi', '打开 AI 老师')" :aria-label="t('learningShell.openAi', '打开 AI 老师')" @click="openAi()">
-          <MessageSquareText :size="17" />
-        </button>
+        <div class="context-actions">
+          <div v-if="isGenerationPreview" class="generation-meter" :aria-label="t('courseGeneration.workspace.progress', '生成进度')">
+            <span>{{ generationProgress }}%</span>
+            <i><b :style="{ width: `${generationProgress}%` }"></b></i>
+          </div>
+          <button v-if="isGenerationPreview && !autoFollowGeneration" type="button" :title="t('courseGeneration.workspace.follow', '跟随当前生成章节')" :aria-label="t('courseGeneration.workspace.follow', '跟随当前生成章节')" @click="resumeGenerationFollow">
+            <LocateFixed :size="17" />
+          </button>
+          <button v-if="!aiVisible && !isGenerationPreview" type="button" :title="t('learningShell.openAi', '打开 AI 老师')" :aria-label="t('learningShell.openAi', '打开 AI 老师')" @click="openAi()">
+            <MessageSquareText :size="17" />
+          </button>
+        </div>
       </div>
 
       <ContentArea
@@ -36,6 +45,7 @@
       />
 
       <LearningDock
+        v-if="!isGenerationPreview"
         :location="dockLocation"
         :record-count="recordCount"
         :practice-available="Boolean(currentPracticeNode)"
@@ -51,7 +61,7 @@
       />
 
       <LearningTaskOverlay
-        v-if="taskOpen && courseStore.currentCourseId"
+        v-if="taskOpen && courseStore.currentCourseId && !isGenerationPreview"
         :course-id="courseStore.currentCourseId"
         :node-id="taskNode?.node_id"
         :node-label="taskNode?.node_name"
@@ -74,7 +84,7 @@
 
     <Transition name="slide-right">
       <SideAIPanel
-        v-if="aiVisible && !courseStore.isFocusMode"
+        v-if="aiVisible && !courseStore.isFocusMode && !isGenerationPreview"
         :visible="aiVisible"
         :quote-text="aiQuote"
         :quote-node-id="aiNodeId"
@@ -88,13 +98,13 @@
       />
     </Transition>
 
-    <button v-if="showMobileResumePrompt && resumableAction" type="button" class="mobile-resume-prompt" :disabled="continuityBusy || resumableAction.availability !== 'available'" @click="runResumeAction">
+    <button v-if="showMobileResumePrompt && resumableAction && !isGenerationPreview" type="button" class="mobile-resume-prompt" :disabled="continuityBusy || resumableAction.availability !== 'available'" @click="runResumeAction">
       <LoaderCircle v-if="continuityBusy" :size="15" class="mobile-resume-prompt__spin" />
       <History v-else :size="15" />
       <span>{{ resumeActionLabel }}</span>
     </button>
 
-    <nav class="mobile-learning-nav" :aria-label="t('learningShell.mobileNavigation', '学习导航')">
+    <nav v-if="!isGenerationPreview" class="mobile-learning-nav" :aria-label="t('learningShell.mobileNavigation', '学习导航')">
       <button type="button" :class="{ active: navigatorOpen }" @click="toggleMobileSurface('navigator')"><ListTree :size="17" /><span>{{ t('learningShell.navigator', '目录') }}</span></button>
       <button type="button" :disabled="!currentPracticeNode" @click="openCurrentPractice"><ClipboardCheck :size="17" /><span>{{ t('learningShell.practice', '练习') }}</span></button>
       <button type="button" :class="{ active: recordsOpen }" @click="toggleMobileSurface('records')"><NotebookTabs :size="17" /><span>{{ t('learningShell.records', '记录') }}</span></button>
@@ -107,7 +117,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ClipboardCheck, History, Library, ListTree, LoaderCircle, MessageSquareText, NotebookTabs, PanelLeftOpen, X } from 'lucide-vue-next'
+import { ClipboardCheck, History, Library, ListTree, LoaderCircle, LocateFixed, MessageSquareText, NotebookTabs, PanelLeftOpen, X } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import LearningDock from '../components/LearningDock.vue'
@@ -156,8 +166,19 @@ const aiAnchor = ref<Record<string, unknown> | undefined>(undefined)
 const aiPrefill = ref('')
 const aiEntrypoint = ref<'global' | 'selection' | 'practice' | 'continuity' | 'record'>('global')
 const aiBlockTarget = ref<CourseBlockEditTarget | undefined>(undefined)
+const autoFollowGeneration = ref(true)
+const loadedLearningCourseId = ref('')
 
 const isNarrow = computed(() => windowWidth.value < 1024)
+const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
+const generationTask = computed(() => courseStore.currentCourseId ? generationStore.tasks.get(courseStore.currentCourseId) : undefined)
+const generationProgress = computed(() => Math.max(0, Math.min(100, Math.round(generationTask.value?.progress || generationStore.generationProgress || 0))))
+const activeGenerationNodeId = computed(() => generationTask.value?.currentNodes?.[0]?.node_id || generationStore.currentGeneratingNodeId || '')
+const generationStatusText = computed(() => (
+  generationTask.value?.currentStep
+  || generationTask.value?.currentPhase
+  || t('courseGeneration.workspace.preparing', '正在准备课程结构')
+))
 const navigatorVisible = computed(() => !courseStore.isFocusMode && (isNarrow.value ? navigatorOpen.value : navigatorOpen.value))
 const overlayVisible = computed(() => isNarrow.value && navigatorOpen.value && !taskOpen.value)
 const recordCount = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format').length)
@@ -172,6 +193,7 @@ const dockLocation = computed(() => {
   return `${currentParentLabel.value} · ${current}`
 })
 const currentPracticeNode = computed(() => {
+  if (isGenerationPreview.value) return null
   const current = courseStore.currentNode
   if (!current) return null
   const questions = workspaceStore.assets?.assets?.questions || []
@@ -187,32 +209,62 @@ const showMobileResumePrompt = computed(() => Boolean(
   && !statsOpen.value
   && !taskOpen.value
   && !aiVisible.value
-  && !courseStore.isFocusMode,
+  && !courseStore.isFocusMode
+  && !isGenerationPreview.value,
 ))
 
 watch(() => route.params.courseId, async value => {
   if (!value) return
   const courseId = String(value)
+  loadedLearningCourseId.value = loadedLearningCourseId.value === courseId ? loadedLearningCourseId.value : ''
+  autoFollowGeneration.value = true
+  aiVisible.value = false
+  recordsOpen.value = false
+  statsOpen.value = false
+  taskOpen.value = false
   await courseStore.fetchCourseList()
   await courseStore.loadCourse(courseId)
+  generationStore.observeCourse(courseId)
+  if (isGenerationPreview.value) {
+    selectInitialNode()
+    return
+  }
+  await loadPublishedLearningContext(courseId)
+  selectInitialNode()
+}, { immediate: true })
+
+async function loadPublishedLearningContext(courseId: string) {
+  if (courseStore.currentCourseProjection !== 'published' || loadedLearningCourseId.value === courseId) return
   await workspaceStore.loadAssets(courseId)
   await noteStore.loadCourseRecords(courseId)
   await workspaceStore.migrateLegacyPracticeData(courseId, courseStore.nodes.map(node => node.node_id)).catch(() => undefined)
   await learningProgressStore.load(courseId, String(route.params.nodeId || '') || undefined)
   await aiTeacherStore.load(courseId, String(route.params.nodeId || '') || undefined)
-  // 不阻塞主流程：变更提案是旁路信息，加载失败/慢不应拖慢课程进入
+  loadedLearningCourseId.value = courseId
   void changeProposalsStore.fetchChangeProposals(courseId)
+}
+
+watch(() => courseStore.currentCourseProjection, async (projection, previous) => {
+  if (projection !== 'published' || previous !== 'generation_preview' || !courseStore.currentCourseId) return
+  autoFollowGeneration.value = false
+  await loadPublishedLearningContext(courseStore.currentCourseId)
   selectInitialNode()
-}, { immediate: true })
+})
+
+watch(activeGenerationNodeId, nodeId => {
+  if (!nodeId || !isGenerationPreview.value || !autoFollowGeneration.value) return
+  const node = courseStore.nodes.find(item => item.node_id === nodeId)
+  if (node) selectNode(node, false, false)
+})
 
 watch(() => route.params.nodeId, value => {
   if (!value || String(value) === courseStore.currentNode?.node_id) return
   const node = courseStore.nodes.find(item => item.node_id === String(value))
-  if (node) selectNode(node, false)
+  if (node) selectNode(node, false, false)
 })
 
 watch(() => courseStore.currentNode, async node => {
-  if (!node || !courseStore.currentCourseId) return
+  if (!node || !courseStore.currentCourseId || isGenerationPreview.value) return
   if (isStartableLearningObjective(node)) {
     await learningProgressStore.startNode(courseStore.currentCourseId, node.node_id)
       .catch(() => learningProgressStore.loadRuntime(courseStore.currentCourseId, node.node_id))
@@ -226,7 +278,10 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
 })
 
-onUnmounted(() => window.removeEventListener('resize', handleResize))
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+  generationStore.unobserveCourse(courseStore.currentCourseId)
+})
 
 function handleResize() {
   windowWidth.value = window.innerWidth
@@ -236,21 +291,40 @@ function handleResize() {
 
 function selectInitialNode() {
   const requested = String(route.params.nodeId || '')
+  if (isGenerationPreview.value) {
+    const node = courseStore.nodes.find(item => item.node_id === requested)
+      || courseStore.nodes.find(item => item.node_id === activeGenerationNodeId.value)
+      || courseStore.currentNode
+      || courseStore.nodes.find(item => item.node_level >= 2 && Boolean(item.node_content))
+      || courseStore.nodes[0]
+    if (node) selectNode(node, false, false)
+    return
+  }
   const runtimeNode = learningProgressStore.runtime?.context.node_id || ''
   const node = courseStore.nodes.find(item => item.node_id === (requested || runtimeNode))
     || courseStore.nodes.find(item => item.node_level >= 2 && Boolean(item.node_content))
     || courseStore.nodes[0]
-  if (node) selectNode(node, false)
+  if (node) selectNode(node, false, false)
 }
 
-function selectNode(node: Node, updateRoute = true) {
+function selectNode(node: Node, updateRoute = true, manualSelection = true) {
+  if (isGenerationPreview.value && manualSelection && node.node_id !== activeGenerationNodeId.value) {
+    autoFollowGeneration.value = false
+  }
   courseStore.selectNode(node)
   courseStore.scrollToNode(node.node_id)
   if (updateRoute) void router.replace({ name: 'learning', params: { courseId: courseStore.currentCourseId, nodeId: node.node_id } })
   if (isNarrow.value) navigatorOpen.value = false
 }
 
+function resumeGenerationFollow() {
+  autoFollowGeneration.value = true
+  const node = courseStore.nodes.find(item => item.node_id === activeGenerationNodeId.value)
+  if (node) selectNode(node, false, false)
+}
+
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
+  if (isGenerationPreview.value) return
   aiBlockTarget.value = undefined
   aiQuote.value = payload?.text || ''
   aiNodeId.value = payload?.nodeId || courseStore.currentNode?.node_id || ''
@@ -402,12 +476,17 @@ function closeMobileSurfaces() {
 .learning-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; gap: 12px; overflow: hidden; background: transparent; }
 .navigator-surface { flex: 0 0 280px; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
-.learning-context-bar { min-height: 44px; flex: 0 0 auto; display: none; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 5px 10px; border-bottom: 1px solid var(--lz-border); background: rgba(255,255,255,.72); }
+.learning-context-bar { min-height: 44px; flex: 0 0 auto; display:none; align-items:center; gap:9px; padding:5px 10px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.72); }
+.learning-context-bar.is-generation { display:flex; min-height:52px; background:rgba(255,255,255,.9); }
 .learning-context-bar button { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 6px; color: var(--lz-text-secondary); background: transparent; cursor: pointer; }
 .learning-context-bar button:hover { color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
-.learning-context-bar div { min-width: 0; display: flex; flex-direction: column; }
-.learning-context-bar span { color: var(--lz-text-muted); font-size: 9px; }
-.learning-context-bar strong { margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lz-text-strong); font-size: 12px; }
+.context-copy { min-width:0; flex:1; display:flex; flex-direction:column; }
+.context-copy span { color:var(--lz-text-muted); font-size:9px; }
+.context-copy strong { margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--lz-text-strong); font-size:12px; }
+.context-actions { flex:0 0 auto; display:flex; align-items:center; gap:7px; }
+.generation-meter { width:clamp(112px,16vw,220px); display:grid; grid-template-columns:auto minmax(60px,1fr); align-items:center; gap:8px; color:var(--lz-brand-strong); font-size:11px; font-weight:800; }
+.generation-meter i { height:5px; overflow:hidden; border-radius:999px; background:#e8eaff; }
+.generation-meter b { height:100%; display:block; border-radius:inherit; background:#6366f1; transition:width .35s ease; }
 .learning-content { min-height: 0; flex: 1; }
 .records-overlay, .stats-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; background:#fff; box-shadow:var(--lz-shadow-overlay); }
 .records-overlay > button, .stats-overlay > button { position:absolute; top:11px; right:12px; z-index:2; width:32px; height:32px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-secondary); background:#fff; cursor:pointer; }
@@ -420,7 +499,7 @@ function closeMobileSurfaces() {
 .slide-left-enter-active, .slide-left-leave-active, .slide-right-enter-active, .slide-right-leave-active { transition: transform .2s ease, opacity .2s ease; }
 .slide-left-enter-from, .slide-left-leave-to { transform: translateX(-100%); opacity: 0; }
 .slide-right-enter-from, .slide-right-leave-to { transform: translateX(100%); opacity: 0; }
-@media (max-width: 1279px) { .learning-context-bar { display:grid; } .learning-view :deep(.ai-teacher-panel.is-overlay) { inset: 0; padding: 80px 12px 12px; } }
+@media (max-width: 1279px) { .learning-context-bar { display:flex; } .learning-view :deep(.ai-teacher-panel.is-overlay) { inset: 0; padding: 80px 12px 12px; } }
 @media (max-width: 1023px) {
   .learning-view { gap: 0; }
   .navigator-surface { position: fixed; left: 12px; top: 80px; bottom: 12px; z-index: 101; width: min(82vw, 300px); height: auto; box-shadow: var(--lz-shadow-overlay); }
@@ -431,6 +510,7 @@ function closeMobileSurfaces() {
   .learning-view.has-mobile-resume { padding-bottom:calc(96px + env(safe-area-inset-bottom, 0px)); }
   .navigator-surface { left:0; top:56px; bottom:calc(52px + env(safe-area-inset-bottom, 0px)); border-radius:0 16px 0 0; }
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
+  .generation-meter { width:92px; grid-template-columns:auto minmax(44px,1fr); }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:56px 0 calc(52px + env(safe-area-inset-bottom, 0px)); }
   .records-overlay, .stats-overlay { position:fixed; inset:56px 0 calc(52px + env(safe-area-inset-bottom, 0px)); z-index:105; }
   .mobile-resume-prompt { position:fixed; left:10px; right:10px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); z-index:119; min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #15803d; border-radius:11px; color:#fff; background:#15803d; box-shadow:0 8px 22px rgba(21,128,61,.2); font-size:12px; font-weight:750; }

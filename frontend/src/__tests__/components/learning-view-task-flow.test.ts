@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import LearningView from '@/views/LearningView.vue'
 import { useAITeacherStore } from '@/stores/aiTeacher'
+import { useChangeProposalsStore } from '@/stores/changeProposals'
 import { useCourseStore } from '@/stores/course'
 import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import { useGenerationStore } from '@/stores/generation'
@@ -72,7 +73,10 @@ describe('LearningView 正文任务覆盖层', () => {
     vi.spyOn(progress, 'startNode').mockResolvedValue(null)
     const ai = useAITeacherStore()
     vi.spyOn(ai, 'load').mockResolvedValue(undefined)
-    vi.spyOn(useGenerationStore(), 'restoreGenerationState').mockReturnValue(null)
+    const generation = useGenerationStore()
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+    vi.spyOn(generation, 'observeCourse').mockImplementation(() => undefined)
+    vi.spyOn(useChangeProposalsStore(), 'fetchChangeProposals').mockResolvedValue(undefined)
   })
 
   it('从正文打开任务并在关闭后恢复原滚动位置', async () => {

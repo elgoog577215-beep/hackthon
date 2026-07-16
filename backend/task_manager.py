@@ -34,6 +34,10 @@ from models import (
     NodeStatus,
     TaskLogEntry,
 )
+from course_coherence import (
+    compile_course_coherence_contract,
+    evaluate_course_coherence,
+)
 from course_quality import build_final_course_quality_report, evaluate_node_content
 from course_versioning import (
     analyze_blueprint_impact,
@@ -124,8 +128,11 @@ def fix_latex_content(content: str) -> str:
     content = re.sub(r'\\\[(.+?)\\\]', r'\n$$\n\1\n$$\n', content, flags=re.DOTALL)
     content = re.sub(r'\\\((.+?)\\\)', r'$\1$', content, flags=re.DOTALL)
     
-    content = re.sub(r'\$\s+', '$', content)
-    content = re.sub(r'\s+\$', '$', content)
+    content = re.sub(
+        r'(?<!\$)\$([^\n$]+?)\$(?!\$)',
+        lambda match: f'${match.group(1).strip()}$',
+        content,
+    )
     
     return content
 
@@ -390,7 +397,7 @@ class TaskManager:
         course_data = {
             "course_id": course_id,
             "course_name": subject,
-            "generation_schema_version": "course_generation_v3",
+            "generation_schema_version": "course_generation_v4",
             "generation_status": "queued",
             "nodes": [],
             "generation_request": request_snapshot,
@@ -644,6 +651,102 @@ class TaskManager:
             except GenerationWorkspaceNotFound:
                 continue
         return None
+
+    def get_generation_preview(self, course_id: str) -> dict[str, Any] | None:
+        """Project one active generation workspace into a user-safe read model."""
+        candidates = [
+            task for task in self.tasks.values()
+            if task.get("course_id") == course_id and task.get("workspace_id")
+        ]
+        candidates.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+        if not candidates:
+            return None
+        task = candidates[0]
+        workspace_id = str(task.get("workspace_id") or "")
+        if not workspace_id:
+            return None
+        try:
+            workspace = self._generation_workspace_repository.load(workspace_id)
+            if workspace.get("status") == "published":
+                return None
+            course_data = self._generation_workspace_repository.load_course(workspace_id)
+        except GenerationWorkspaceNotFound:
+            return None
+
+        task_view = self._task_view(task)
+        active_node_ids = {
+            str(item.get("node_id") or "")
+            for item in task_view.get("current_nodes") or []
+            if item.get("node_id")
+        }
+        nodes: list[dict[str, Any]] = []
+        for raw in course_data.get("nodes") or []:
+            status = str(raw.get("generation_status") or NodeStatus.PENDING.value)
+            node_id = str(raw.get("node_id") or "")
+            if node_id in active_node_ids and status == NodeStatus.PENDING.value:
+                status = NodeStatus.GENERATING.value
+            final_content = str(raw.get("node_content") or "")
+            draft_content = str(raw.get("node_content_draft") or "")
+            visible_content = final_content or draft_content
+            if status == NodeStatus.COMPLETED.value:
+                content_state = "finalized"
+            elif visible_content:
+                content_state = "draft"
+            elif status == NodeStatus.ERROR.value:
+                content_state = "failed"
+            else:
+                content_state = status
+            node = {
+                "node_id": node_id,
+                "parent_node_id": str(raw.get("parent_node_id") or "root"),
+                "node_name": str(raw.get("node_name") or "未命名章节"),
+                "node_level": int(raw.get("node_level") or 1),
+                "node_type": str(raw.get("node_type") or "original"),
+                "node_content": visible_content,
+                "learning_objective": str(raw.get("learning_objective") or ""),
+                "generation_status": status,
+                "content_state": content_state,
+                "generated_chars": int(raw.get("generated_chars") or len(visible_content)),
+                "error_summary": raw.get("error_summary"),
+                "difficulty_contract": deepcopy(raw.get("difficulty_contract") or {}),
+                "content_blocks": (
+                    deepcopy(raw.get("content_blocks") or [])
+                    if status == NodeStatus.COMPLETED.value
+                    else []
+                ),
+            }
+            nodes.append(node)
+
+        return {
+            "schema_version": "generation_preview_v1",
+            "projection": "generation_workspace",
+            "course_id": str(course_data.get("course_id") or course_id),
+            "course_name": str(course_data.get("course_name") or task.get("course_name") or ""),
+            "workspace_id": workspace_id,
+            "workspace_status": str(workspace.get("status") or "active"),
+            "updated_at": workspace.get("updated_at") or task.get("updated_at"),
+            "task": {
+                key: deepcopy(task_view.get(key))
+                for key in (
+                    "id",
+                    "course_id",
+                    "course_name",
+                    "status",
+                    "phase",
+                    "progress",
+                    "phase_progress",
+                    "message",
+                    "completed_nodes",
+                    "total_nodes",
+                    "current_node_name",
+                    "current_nodes",
+                    "updated_at",
+                    "operation",
+                    "recovery",
+                )
+            },
+            "nodes": nodes,
+        }
 
     def describe_task_recovery(self, task_id: str) -> dict[str, Any]:
         task = self.tasks.get(task_id)
@@ -2451,6 +2554,31 @@ class TaskManager:
             ):
                 set_node_content_blocks(node, str(node.get("node_content") or ""))
 
+        coherence_report = evaluate_course_coherence(fresh_course)
+        if (
+            not coherence_report.get("passed")
+            and hasattr(self.course_service, "repair_course_coherence")
+        ):
+            await self._update_phase(
+                task_id,
+                "coherence_repair",
+                90,
+                "正在定点修复跨章节重复或断裂",
+                phase_progress=40,
+            )
+            try:
+                fresh_course, coherence_report = await self.course_service.repair_course_coherence(
+                    fresh_course,
+                    coherence_report,
+                )
+            except Exception as exc:
+                logger.warning("Course coherence repair failed for %s: %s", task_id, exc)
+        fresh_course["course_coherence_contract"] = compile_course_coherence_contract(
+            fresh_course
+        )
+        fresh_course["course_coherence_quality_report"] = coherence_report
+        await self._save_task_course(task_id, fresh_course)
+
         await self._update_phase(
             task_id,
             "learning_assets",
@@ -2468,6 +2596,25 @@ class TaskManager:
         fresh_course["learning_assets"] = asset_bundle["assets"]
         fresh_course["learning_asset_bundle_revision_id"] = asset_bundle["bundle_revision_id"]
         fresh_course["asset_quality_report"] = asset_bundle["quality_report"]
+        compiled_knowledge_base = next(iter(
+            fresh_course["learning_assets"].get("course_knowledge_base") or []
+        ), None)
+        if compiled_knowledge_base:
+            fresh_course["course_knowledge_base"] = compiled_knowledge_base
+            fresh_course["course_knowledge_quality_report"] = compiled_knowledge_base.get(
+                "quality_report"
+            )
+        compiled_knowledge_map = next(iter(
+            fresh_course["learning_assets"].get("course_knowledge_map") or []
+        ), None)
+        if compiled_knowledge_map:
+            fresh_course["course_knowledge_map"] = compiled_knowledge_map
+        fresh_course["course_coherence_contract"] = compile_course_coherence_contract(
+            fresh_course
+        )
+        fresh_course["course_coherence_quality_report"] = evaluate_course_coherence(
+            fresh_course
+        )
         await self._save_task_course(task_id, fresh_course)
 
         await self._update_phase(

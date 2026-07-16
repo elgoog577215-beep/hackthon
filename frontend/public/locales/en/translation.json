@@ -334,6 +334,18 @@
       "eyebrow": "Create a learning course",
       "topicHelp": "Describe the learning topic here; control difficulty, structure, and source boundaries below."
     },
+    "workspace": {
+      "live": "Course generation in progress",
+      "progress": "Generation progress",
+      "preparing": "Preparing the course structure",
+      "contentWillAppear": "The outline and lesson text will appear as real generation results arrive",
+      "follow": "Follow the chapter being generated",
+      "generating": "Generating",
+      "finalized": "Finalized",
+      "failed": "Generation failed",
+      "draft": "AI draft",
+      "waiting": "Waiting"
+    },
     "form": {
       "topic": "Course topic",
       "topicPlaceholder": "For example: quantum mechanics, Python programming, Western philosophy...",
