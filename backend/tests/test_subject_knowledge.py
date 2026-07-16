@@ -47,6 +47,42 @@ def _course(course_id: str = "course-linear") -> dict:
     }
 
 
+def _uncovered_course(course_id: str = "course-data-structures") -> dict:
+    return {
+        "course_id": course_id,
+        "course_name": "高级数据结构入门：可运行实现与应用",
+        "subject": "数据结构",
+        "nodes": [{
+            "node_id": "L2-1-1",
+            "node_level": 2,
+            "node_name": "线性表与链表",
+            "learning_objective": "实现链表操作并分析复杂度",
+            "knowledge_structure": [{
+                "topic": "链表核心机制",
+                "description": "理解链式存储与节点操作",
+                "knowledge_points": [{
+                    "name": "单链表插入与删除",
+                    "description": "维护前驱、后继与头尾边界",
+                    "capability": "实现插入和删除并验证边界条件",
+                    "aliases": ["单向链表操作"],
+                    "prerequisite_names": [],
+                }, {
+                    "name": "链表操作复杂度",
+                    "description": "分析查找、插入和删除的复杂度",
+                    "capability": "根据操作位置说明时间复杂度",
+                    "aliases": [],
+                    "prerequisite_names": ["单链表插入与删除"],
+                }],
+            }],
+            "key_points": ["单链表插入与删除", "链表操作复杂度"],
+            "misconceptions": ["忽略头节点和尾节点的边界条件"],
+            "content_blocks": [],
+            "grounding_contract": {},
+            "prerequisite_node_ids": [],
+        }],
+    }
+
+
 def test_subject_library_is_independent_fine_grained_and_valid():
     library = load_subject_library("math.linear_algebra.v1")
 
@@ -59,6 +95,51 @@ def test_subject_library_is_independent_fine_grained_and_valid():
     assert "math.la.matrix.row_reduction.solution_preservation" in {
         item["knowledge_id"] for item in leaves
     }
+
+
+def test_uncovered_course_does_not_generate_a_library_during_read():
+    course = _uncovered_course()
+
+    library = resolve_subject_library(course)
+    course_map = compile_course_knowledge_map(deepcopy(course), library)
+
+    assert library["library_id"] == "unresolved"
+    assert library["nodes"] == []
+    assert library["status"] == "unavailable"
+    assert course_map["status"] == "library_unavailable"
+    assert course_map["coverage"]["mapped_count"] == 0
+
+
+def test_subject_hint_without_course_structure_remains_unavailable():
+    library = resolve_subject_library("一个尚未建设的新学科")
+
+    assert library["library_id"] == "unresolved"
+    assert library["nodes"] == []
+    assert library["status"] == "unavailable"
+
+
+def test_pedagogical_project_scaffolding_is_excluded_from_mapping_denominator():
+    course = _uncovered_course()
+    course["nodes"].append({
+        "node_id": "project",
+        "node_level": 2,
+        "node_name": "6.1 项目设计与架构",
+        "knowledge_structure": [{
+            "topic": "系统设计",
+            "knowledge_points": ["需求定义", "架构选择"],
+        }],
+        "content_blocks": [],
+    })
+
+    course_map = compile_course_knowledge_map(course, resolve_subject_library(course))
+
+    assert course_map["coverage"]["excluded_pedagogical_count"] == 3
+    assert course_map["coverage"]["mapping_count"] == 3
+    assert all(
+        mapping["mapping_scope"] == "pedagogical"
+        for mapping in course_map["mappings"]
+        if mapping["section_id"] == "project"
+    )
 
 
 def test_two_courses_share_formal_knowledge_but_keep_separate_mappings():
@@ -114,8 +195,8 @@ def test_legacy_graph_is_only_migration_input_and_is_not_returned():
     projected = project_learning_assets_to_knowledge(course, legacy_assets)
 
     assert "knowledge_graph" not in projected
-    assert projected["course_knowledge_map"][0]["schema_version"] == "course_knowledge_map_v1"
-    assert projected["knowledge_library"][0]["schema_version"] == "knowledge_library_view_v2"
+    assert projected["course_knowledge_map"][0]["schema_version"] == "course_knowledge_map_v2"
+    assert projected["knowledge_library"][0]["schema_version"] == "knowledge_library_view_v3"
     assert "subject_knowledge" not in projected
     assert "teaching_standards" not in projected
     assert projected["questions"][0]["concept_ids"] == ["math.la.system.gaussian_elimination"]
@@ -180,6 +261,10 @@ def test_knowledge_view_projects_skill_children_to_the_parent_knowledge_node():
     )
 
     assert "skill.la.matrix.row.reduction" in parent["skill_unit_ids"]
+    root = next(item for item in view["nodes"] if item["knowledge_id"] == "math")
+    assert "skill.la.matrix.row.reduction" in root["skill_unit_ids"]
+    assert root["mistake_point_ids"]
+    assert root["improvement_ids"]
     assert "mistake.la.row-reduction.partial-row" in parent["mistake_point_ids"]
     assert "mistake.la.row-reduction.ref-rref-confused" in parent["mistake_point_ids"]
     assert "improve.la.row-operation-audit" in parent["improvement_ids"]

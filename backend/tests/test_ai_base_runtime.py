@@ -74,6 +74,36 @@ def test_provider_client_disables_hidden_retries_and_bounds_timeouts(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_global_thinking_switch_overrides_call_site_request(monkeypatch):
+    captured = {}
+
+    class CapturingCompletions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return FakeStream([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+                    reasoning_content=None,
+                    content="正式答案",
+                ))]),
+            ])
+
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_ENABLE_THINKING", "false")
+    service = AIBase()
+    service.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=CapturingCompletions())
+    )
+    service.smart_models = ["deepseek-ai/DeepSeek-V4-Pro"]
+    service._working_model_cache.clear()
+
+    result = await service._call_llm("test", retry_count=1, enable_thinking=True)
+
+    assert result == "正式答案"
+    assert captured["model"] == "deepseek-ai/DeepSeek-V4-Pro"
+    assert captured["extra_body"]["enable_thinking"] is False
+
+
+@pytest.mark.asyncio
 async def test_stream_failure_raises_typed_error_without_fake_content(monkeypatch):
     calls = []
 

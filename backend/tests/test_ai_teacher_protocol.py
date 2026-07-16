@@ -175,6 +175,54 @@ def test_ai_teacher_receives_bounded_formal_knowledge_as_reference_only(monkeypa
     assert context_public_summary(package)["knowledge"]["course_map_revision_id"]
 
 
+def test_ai_teacher_does_not_treat_degraded_course_index_as_formal_knowledge(monkeypatch):
+    monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
+    monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])
+    course = _course()
+    course["knowledge_library_binding"] = {
+        "library_id": "generated.degraded",
+        "revision_id": "sklr_degraded",
+        "lifecycle_status": "degraded",
+    }
+    degraded = {
+        "library_id": "generated.degraded",
+        "version": "3.0.0",
+        "revision_id": "sklr_degraded",
+        "lifecycle_status": "degraded",
+        "origin": "course_index",
+        "nodes": [{
+            "knowledge_id": "index.point",
+            "name": "课程索引项",
+            "node_type": "knowledge_point",
+            "path_names": ["课程索引项"],
+            "learning_actions": [],
+        }],
+        "skill_units": [],
+        "mistake_points": [],
+        "improvement_points": [],
+        "usage_policy": {},
+    }
+    monkeypatch.setattr(ai_teacher_context, "resolve_subject_library", lambda _course: degraded)
+    monkeypatch.setattr(ai_teacher_context, "project_course_knowledge_map", lambda _course: {
+        "revision_id": "map-degraded",
+        "section_knowledge_ids": {"node-1": ["index.point"]},
+    })
+
+    package = build_ai_teacher_context(
+        course,
+        user_id="u1",
+        question="解释这个知识点",
+        node_id="node-1",
+        entrypoint="selection",
+    )
+    context = package["knowledge_context"]
+
+    assert context["mapping_status"] == "degraded"
+    assert context["knowledge_nodes"] == []
+    assert context["skill_units"] == []
+    assert context["usage_policy"]["role"] == "course_index_only"
+
+
 def test_explanation_context_does_not_load_unrelated_model_details(monkeypatch):
     monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
     monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])

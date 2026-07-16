@@ -7,7 +7,7 @@ import { useCourseStore } from '@/stores/course'
 import enMessages from '../../../public/locales/en/translation.json'
 import zhMessages from '../../../public/locales/zh/translation.json'
 
-const httpMock = vi.hoisted(() => ({ get: vi.fn() }))
+const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 
 vi.mock('@/utils/http', () => ({ default: httpMock }))
 vi.mock('@/utils/logger', () => ({ default: { error: vi.fn() } }))
@@ -45,13 +45,31 @@ function node(overrides: Record<string, unknown>) {
 }
 
 const libraryView = {
-  schema_version: 'knowledge_library_view_v2',
+  schema_version: 'knowledge_library_view_v3',
   asset_id: 'view-1',
   library_id: 'math.linear_algebra.v1',
   subject_id: 'math.linear_algebra',
   library_version: '1.0.0',
   root_node_id: 'math',
   status: 'active',
+  lifecycle_status: 'candidate',
+  origin: 'model_generated',
+  binding_revision_id: 'sklr-1',
+  quality_report: {
+    passed: true,
+    score: 92,
+    metrics: { mapped_ratio: 1, relation_coverage: 0.75, cross_skill_ratio: 0.4 },
+    issues: [],
+    blocking_issues: [],
+  },
+  generation_audit: {
+    generation_calls: 1,
+    review_calls: 1,
+    repair_calls: 0,
+    sources: ['course_source', 'model_inferred'],
+    provider_failure: null,
+  },
+  source_summary: { course_source: 4, model_inferred: 8 },
   revision_id: 'viewr-1',
   course_map_revision_id: 'mapr-1',
   coverage: { formal_knowledge_count: 1, mapped_count: 1, unmapped_count: 0, mapped_ratio: 1, status: 'mapped' },
@@ -113,6 +131,16 @@ function response() {
   }
 }
 
+function reviewResponse() {
+  return {
+    data: {
+      library: libraryView,
+      previous_revision_id: 'sklr-0',
+      diff: { added: 4, modified: 2, removed: 1 },
+    },
+  }
+}
+
 async function mountLibrary() {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -129,7 +157,10 @@ async function mountLibrary() {
 describe('Subject knowledge library', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
-    httpMock.get.mockResolvedValue(response())
+    httpMock.get.mockImplementation((url: string) => (
+      url.endsWith('/review') ? Promise.resolve(reviewResponse()) : Promise.resolve(response())
+    ))
+    httpMock.post.mockResolvedValue({ data: { library: libraryView } })
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => ({
       ok: true,
       json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
@@ -192,5 +223,86 @@ describe('Subject knowledge library', () => {
     expect(wrapper.text()).toContain('Mistake points')
     expect(wrapper.text()).toContain('Improvement points')
     expect(wrapper.text()).not.toContain('knowledgeLibrary.')
+  })
+
+  it('展示候选状态、质量摘要和版本差异', async () => {
+    const { wrapper } = await mountLibrary()
+
+    expect(wrapper.get('[data-testid="knowledge-lifecycle"]').text()).toContain('候选知识库')
+    expect(wrapper.get('[data-testid="knowledge-quality"]').text()).toContain('92')
+    expect(wrapper.get('[data-testid="knowledge-quality"]').text()).toContain('映射率 100%')
+    expect(wrapper.get('[data-testid="knowledge-source-summary"]').text()).toContain('课程来源 4')
+    expect(wrapper.get('[data-testid="knowledge-source-summary"]').text()).toContain('模型推断 8')
+    expect(wrapper.get('[data-testid="knowledge-diff"]').text()).toContain('新增 4')
+    expect(wrapper.get('[data-testid="knowledge-diff"]').text()).toContain('修改 2')
+    expect(wrapper.get('[data-testid="knowledge-diff"]').text()).toContain('删除 1')
+  })
+
+  it('可以接受、退回或重新生成整个候选版本', async () => {
+    const { wrapper } = await mountLibrary()
+    const note = wrapper.get('[data-testid="knowledge-review-note"]')
+    await note.setValue('关系结构需要复核')
+
+    await wrapper.get('[data-testid="knowledge-accept"]').trigger('click')
+    await flushPromises()
+    expect(httpMock.post).toHaveBeenCalledWith('/api/courses/course-1/knowledge-library/review', {
+      revision_id: 'sklr-1', decision: 'accept', note: '关系结构需要复核',
+    })
+
+    await wrapper.get('[data-testid="knowledge-reject"]').trigger('click')
+    await flushPromises()
+    expect(httpMock.post).toHaveBeenCalledWith('/api/courses/course-1/knowledge-library/review', {
+      revision_id: 'sklr-1', decision: 'reject', note: '关系结构需要复核',
+    })
+
+    await wrapper.get('[data-testid="knowledge-rebuild"]').trigger('click')
+    await flushPromises()
+    expect(httpMock.post).toHaveBeenCalledWith('/api/courses/course-1/knowledge-library/rebuild', { force: true })
+  })
+
+  it('降级库明确显示为课程索引且不提供审核晋升按钮', async () => {
+    const degraded = {
+      ...libraryView,
+      lifecycle_status: 'degraded',
+      origin: 'course_index',
+      status: 'degraded',
+      relations: [{
+        relation_id: 'candidate-relation', source_knowledge_id: 'linear-combination-definition',
+        target_knowledge_id: 'span', relation_type: 'related', source_status: 'model_inferred',
+        status: 'candidate', reason: '候选关系', revision_id: 'rel-1',
+      }],
+      quality_report: {
+        ...libraryView.quality_report,
+        passed: false,
+        score: 35,
+        issues: [{ code: 'course_outline_mirror', severity: 'critical', message: '结构仍与章节一一对应' }],
+        blocking_issues: [{ code: 'course_outline_mirror', severity: 'critical', message: '结构仍与章节一一对应' }],
+      },
+    }
+    httpMock.get.mockResolvedValue({
+      data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [degraded] } },
+    })
+
+    const { wrapper } = await mountLibrary()
+
+    expect(wrapper.get('[data-testid="knowledge-lifecycle"]').text()).toContain('课程索引')
+    expect(wrapper.find('[data-testid="knowledge-accept"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-reject"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-rebuild"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="knowledge-quality-issues"]').text()).toContain('结构仍与章节一一对应')
+    expect(wrapper.get('[data-testid="knowledge-candidate-relations"]').text()).toContain('1')
+  })
+
+  it('重新生成失败时显示后端结构化错误而不是对象字符串', async () => {
+    const { wrapper } = await mountLibrary()
+    httpMock.post.mockRejectedValueOnce({
+      response: { data: { detail: { code: 'insufficient_quota', message: 'AI 服务额度不足，原版本保持不变', retryable: true } } },
+    })
+
+    await wrapper.get('[data-testid="knowledge-rebuild"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.knowledge-tree-governance-error').text()).toContain('AI 服务额度不足')
+    expect(wrapper.get('.knowledge-tree-governance-error').text()).not.toContain('[object Object]')
   })
 })

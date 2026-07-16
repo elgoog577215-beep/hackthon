@@ -69,12 +69,16 @@ def test_assets_have_stable_revisions_and_five_passing_gates():
     assert bundle["quality_report"]["passed"] is True
 
     course_map = bundle["assets"]["course_knowledge_map"][0]
-    assert course_map["schema_version"] == "course_knowledge_map_v1"
+    assert course_map["schema_version"] == "course_knowledge_map_v2"
     assert course_map["status"] == "library_unavailable"
+    assert course_map["coverage"]["unmapped_count"] == course_map["coverage"]["mapping_count"]
     assert question["concept_ids"] == []
     assert criterion["concept_ids"] == question["concept_ids"]
     assert misconception["concept_ids"] == question["concept_ids"]
     assert course["nodes"][0]["content_blocks"][0]["metadata"]["concept_refs"] == question["concept_ids"]
+    knowledge_view = bundle["assets"]["knowledge_library"][0]
+    assert knowledge_view["library_id"] == "unresolved"
+    assert knowledge_view["nodes"] == []
     progression = bundle["assets"]["chapter_progression_contracts"][0]
     assert progression["chapter_id"] == "L2-1-1"
     assert progression["required_objective_ids"] == [criterion["objective_id"]]
