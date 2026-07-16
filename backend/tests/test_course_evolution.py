@@ -7,6 +7,8 @@ from course_document import document_from_legacy_course
 from course_evolution import (
     CourseEvolutionRepository,
     accept_change_set,
+    course_evolution_view,
+    personal_course_overlay,
     project_applied_adaptive_blocks,
     synchronize_and_evaluate_course_evolution,
     undo_change_set,
@@ -124,9 +126,21 @@ def test_acceptance_grows_only_the_selected_learner_course_and_can_be_undone(
         repository=repository,
     )
     student_a_blocks = project_applied_adaptive_blocks(applied)
+    overlay = personal_course_overlay(applied)
+    view = course_evolution_view(applied)
     student_b = repository.load("student-b", course["course_id"])
 
     assert len(student_a_blocks) > 3
+    assert overlay.active_plan_ids == [change_set_id]
+    assert overlay.operations
+    assert view["adaptation_plans"][0]["plan_kind"] == "personal_adaptation_plan"
+    assert view["personal_course_overlay"]["overlay_id"] == overlay.overlay_id
+    assert view["permissions"] == {
+        "write_target": "personal_overlay",
+        "can_modify_base_course": False,
+        "can_modify_other_learners": False,
+        "can_modify_course_knowledge_base": False,
+    }
     assert project_applied_adaptive_blocks(student_b) == []
     assert course == base_course
 
@@ -165,3 +179,46 @@ def test_single_explicit_evidence_stays_local_instead_of_expanding_by_count(
     assert state.hypotheses[0].recommended_scope == "current"
     assert state.change_sets[0].allowed_scopes == ["current"]
     assert all(operation.scope == "current" for operation in state.change_sets[0].operations)
+
+
+def test_personal_adaptation_api_uses_overlay_without_mutating_base_course(
+    tmp_path,
+    monkeypatch,
+):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers import course_evolution as evolution_router
+
+    course = _course()
+    base_course = deepcopy(course)
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    repository = CourseEvolutionRepository(tmp_path)
+    monkeypatch.setattr(course_evolution, "course_evolution_repository", repository)
+
+    async def existing_course(_course_id: str):
+        return course
+
+    monkeypatch.setattr(evolution_router, "get_course_or_404", existing_course)
+    app = FastAPI()
+    app.include_router(evolution_router.personal_router, prefix="/api")
+    client = TestClient(app)
+
+    loaded = client.get(
+        "/api/courses/course-growth/personal-adaptation",
+        headers={"X-User-Id": "student-a"},
+    )
+    assert loaded.status_code == 200
+    plan_id = loaded.json()["adaptation_plans"][0]["plan_id"]
+
+    accepted = client.post(
+        f"/api/courses/course-growth/personal-adaptation/plans/{plan_id}/accept",
+        headers={"X-User-Id": "student-a"},
+        json={"selected_scope": "current_and_next"},
+    )
+
+    assert accepted.status_code == 200
+    payload = accepted.json()
+    assert payload["personal_course_overlay"]["active_plan_ids"] == [plan_id]
+    assert payload["permissions"]["can_modify_base_course"] is False
+    assert course == base_course

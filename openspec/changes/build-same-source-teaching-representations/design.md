@@ -55,7 +55,7 @@ semantic
 ambiguous
 ```
 
-前两类只改变表示修订；`semantic` 转换为统一 `CourseChangeSet`；`ambiguous` 要求用户决定。任何表示编辑都不得绕过课程领域命令直接覆盖正式语义。
+前两类只改变表示修订；`semantic` 转换为 `CourseAuthoringChange`；`ambiguous` 要求用户决定。只有教师或课程维护者确认后，基础课程领域命令才能覆盖正式语义。个人学习证据和 `PersonalAdaptationPlan` 不进入这条写入链。
 
 ## 6. 任务与恢复
 
@@ -68,4 +68,4 @@ ambiguous
 3. R2：增量重建、状态恢复、降级和跨产物一致性。
 4. R3：结构化 PPT 反向语义编辑。
 5. M：图解与结构化动画。
-6. I：与个体化课程生长联合验收。
+6. I：独立完成同源闭环，再验证与个人覆盖层的受控边界协作。

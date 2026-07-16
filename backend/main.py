@@ -156,9 +156,11 @@ app.include_router(diagnostics.router, prefix="/api")
 app.include_router(course_acceptance.router, prefix="/api")
 app.include_router(block_regeneration.router, prefix="/api")
 app.include_router(change_proposals.router, prefix="/api")
+app.include_router(change_proposals.authoring_router, prefix="/api")
 app.include_router(knowledge_libraries.router, prefix="/api")
 app.include_router(teaching_representations.router, prefix="/api")
 app.include_router(course_evolution.router, prefix="/api")
+app.include_router(course_evolution.personal_router, prefix="/api")
 
 
 # ============================================================================

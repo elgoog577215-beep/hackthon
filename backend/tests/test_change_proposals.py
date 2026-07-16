@@ -245,6 +245,43 @@ async def test_apply_item_writes_via_course_command_service_and_is_isolated(tmp_
 
 
 @pytest.mark.asyncio
+async def test_evidence_proposal_cannot_write_base_course(tmp_path):
+    storage, repository, proposals, command_service, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="evidence-must-stay-personal",
+        scope="block",
+        target_block_ids=[target.block_id],
+        items=[{
+            "block_id": target.block_id,
+            "before": target.payload,
+            "after": {"payload": {**target.payload, "markdown": "个人补充"}},
+            "reason": "学习证据触发个人适配",
+        }],
+        source="evidence",
+    )
+    saves_before = storage.save_count
+
+    assert proposal["write_target"] == "personal_overlay"
+    with pytest.raises(ChangeProposalConflict, match="Personal adaptation"):
+        await apply_item(
+            proposals,
+            command_service,
+            proposal["proposal_id"],
+            proposal["items"][0]["item_id"],
+            expected_document_revision=document.document_revision,
+            expected_block_revision=target.internal_revision,
+            actor="student-a",
+        )
+
+    unchanged, _ = repository.load_document("course-1")
+    assert unchanged == document
+    assert storage.save_count == saves_before
+
+
+@pytest.mark.asyncio
 async def test_reject_item_records_reason_and_is_idempotent_protected(tmp_path, monkeypatch):
     memory_events = MemoryDataStorage()
     monkeypatch.setattr(learning_events, "storage", memory_events)
@@ -491,10 +528,10 @@ async def test_regenerate_route_generates_candidate_before_replacing_item(tmp_pa
     )
 
     app = FastAPI()
-    app.include_router(change_proposals_router.router, prefix="")
+    app.include_router(change_proposals_router.authoring_router, prefix="")
     client = TestClient(app)
     response = client.post(
-        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{item_id}/regenerate",
+        f"/courses/course-1/authoring-changes/{proposal['proposal_id']}/items/{item_id}/regenerate",
         json={"extra_instruction": "make it more concrete"},
         headers={"X-User-Id": "user-1"},
     )

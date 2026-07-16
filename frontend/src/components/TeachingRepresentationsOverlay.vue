@@ -180,7 +180,7 @@ async function applySlideEdit(slide: Record<string, any>, decision: 'representat
     })
     if (decision === 'course_semantic') {
       await changeProposalsStore.fetchChangeProposals(props.courseId)
-      editResult.value = t('teachingRepresentations.courseCandidateReady', '已生成课程语义候选，请在 AI 老师中确认')
+      editResult.value = t('teachingRepresentations.courseCandidateReady', '已生成基础课程修改候选，请在 AI 老师中确认')
     } else {
       editResult.value = t('teachingRepresentations.representationSaved', '当前 PPT 已更新，课程正文保持不变')
       editBefore.value = editValue.value

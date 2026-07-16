@@ -9,9 +9,9 @@
 1. 建立 `RepresentationPlan / TeachingRepresentation / RepresentationSet` 和结构化表达规格，使多种教学表达引用同一课程语义。
 2. 建立 `SourceBinding / RevisionVector / AssetDerivationGraph`，记录课程对象、表达规格和产物之间的派生关系。
 3. 课程正式命令持久化修订变化事件；派生系统据此精准标记过期并安排可恢复的增量重建。
-4. 区分表现修改、等义修改、语义修改和无法判断的修改；语义修改复用统一 `CourseChangeSet`，不得直接反写课程。
+4. 区分表现修改、等义修改、语义修改和无法判断的修改；语义修改进入教师/维护者的 `CourseAuthoringChange`，不得直接反写课程。
 5. 建立各表达质量门、跨产物一致性检查、降级链和真实状态展示。
-6. 与 `build-structured-adaptive-course-ai` 共享课程真源、变化协议、任务边界和联合验收，不建立第二套课程主链。
+6. 与 `build-structured-adaptive-course-ai` 只共享稳定课程/知识引用、修订、任务和审计底座；两者分别维护业务状态机与完成标准。
 
 ## Out of Scope
 
@@ -27,4 +27,4 @@
 - 旧产物在重建失败时仍可访问，但明确标记为旧修订。
 - PPT 表现修改不污染课程；语义修改必须进入统一变化候选和用户确认。
 - 大纲、教案、PPT、讲义和题目通过跨产物一致性检查。
-- 与个体化生长链联合通过完整演示验收。
+- 独立通过结构化同源演示与故障矩阵；再通过“基础课程更新后个人覆盖重定位”的边界协作验收。

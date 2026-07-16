@@ -122,7 +122,7 @@
       >
         <header class="change-proposals-heading">
           <span><FileDiff :size="14" /></span>
-          <strong>{{ t('courseWorkspace.changeProposals.title', '待确认的变更提案') }}</strong>
+          <strong>{{ t('courseWorkspace.changeProposals.title', '基础课程修改') }}</strong>
         </header>
 
         <article
@@ -861,7 +861,9 @@ function proposalItemContent(content: ChangeProposalContent): string {
 function sourceLabel(source: ChangeProposalSource) {
   return ({
     manual: '',
-    evidence: t('courseWorkspace.changeProposals.source.evidence', 'AI 生成'),
+    representation_semantic: t('courseWorkspace.changeProposals.source.representationSemantic', '教学资源语义修改'),
+    block_regeneration: t('courseWorkspace.changeProposals.source.blockRegeneration', '正式正文改进'),
+    evidence: t('courseWorkspace.changeProposals.source.evidence', '旧个人证据提案'),
     kb_link: t('courseWorkspace.changeProposals.source.kbLink', '联动至知识库'),
   } as Record<ChangeProposalSource, string>)[source] || ''
 }

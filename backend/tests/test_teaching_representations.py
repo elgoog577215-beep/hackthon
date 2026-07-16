@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from course_commands import CourseCommandService
-from course_document import document_from_legacy_course
+from course_document import COURSE_DOCUMENT_SCHEMA, document_from_legacy_course
 from course_repository import CourseDocumentRepository
 from course_revisions import revision_event_for_documents, revision_vector_for_document
 from representation_compiler import (
@@ -422,3 +422,79 @@ def test_representation_edits_classify_semantic_boundary_and_preserve_course_sou
     unit = next(item for item in updated_spec.payload["content"]["slides"] if item["unit_id"] == "slide:section-a")
     assert unit["title"] == "向量意味着什么"
     assert document.blocks[0].payload == original_block_payload
+
+
+def test_semantic_representation_edit_creates_authoring_change_without_writing_course(
+    tmp_path,
+    monkeypatch,
+):
+    from change_proposals import ChangeProposalRepository
+    from routers import teaching_representations as representation_router
+
+    course = legacy_course()
+    document = document_from_legacy_course(course)
+    canonical = {
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+    }
+    storage = MemoryStorage(canonical)
+    course_repository = CourseDocumentRepository(storage)
+    representation_repository = TeachingRepresentationRepository(tmp_path / "representations")
+    compile_core_representations(
+        document,
+        {**course, "learning_assets": {"questions": [], "misconceptions": []}},
+        representation_repository,
+    )
+    proposal_repository = ChangeProposalRepository(tmp_path / "authoring_changes")
+    slides = next(
+        item for item in representation_repository.load("course-1").representations
+        if item.representation_type == "slide_deck"
+    )
+
+    monkeypatch.setattr(
+        representation_router,
+        "get_teaching_representation_repository",
+        lambda: representation_repository,
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "change_proposal_repository",
+        proposal_repository,
+    )
+
+    async def existing_course(_course_id: str):
+        return course_repository.load_course_view("course-1")
+
+    monkeypatch.setattr(representation_router, "get_course_or_404", existing_course)
+    app = FastAPI()
+    app.include_router(representation_router.router, prefix="/api")
+    client = TestClient(app)
+    before_course = deepcopy(storage.course)
+
+    response = client.post(
+        f"/api/courses/course-1/teaching-representations/{slides.representation_id}/edits/apply",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "unit_id": "slide:section-a",
+            "field": "title",
+            "before": "向量",
+            "after": "向量的几何含义",
+            "semantic_intent": True,
+            "decision": "course_semantic",
+        },
+    )
+
+    assert response.status_code == 200
+    change = response.json()["authoring_change"]
+    assert change["change_kind"] == "course_authoring_change"
+    assert change["write_target"] == "base_course"
+    assert change["source"] == "representation_semantic"
+    assert storage.course == before_course

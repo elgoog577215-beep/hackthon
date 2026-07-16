@@ -3,7 +3,7 @@
 
 export type ChangeProposalScope = 'block' | 'section' | 'sections' | 'chapters' | 'book'
 
-export type ChangeProposalSource = 'manual' | 'evidence' | 'kb_link'
+export type ChangeProposalSource = 'manual' | 'representation_semantic' | 'block_regeneration' | 'evidence' | 'kb_link'
 
 export type ChangeProposalItemStatus = 'pending' | 'applied' | 'rejected'
 
@@ -43,6 +43,8 @@ export interface ChangeProposalItem {
 }
 
 export interface ChangeProposal {
+  change_kind?: 'course_authoring_change' | 'legacy_compatibility_change'
+  write_target?: 'base_course' | 'personal_overlay' | 'knowledge_review'
   proposal_id: string
   course_id: string
   scope: ChangeProposalScope

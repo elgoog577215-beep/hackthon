@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+from copy import deepcopy
 
+import course_evolution
 import learner_model_service
+from course_document import document_from_legacy_course
+from course_evolution import CourseEvolutionRepository
 from learner_model import (
     AGGREGATE_TRIGGER_THRESHOLD,
     SINGLE_STRONG_EVIDENCE_THRESHOLD,
@@ -75,113 +78,103 @@ def test_stale_evidence_is_discounted_by_recency():
     assert fresh["score"] > stale["score"]
 
 
-# --- evaluate_and_propose_change: evidence-driven pending proposal ---
+# --- evaluate_and_propose_change: compatibility entrypoint for personal adaptation ---
 
 
-class _FakeBlock:
-    def __init__(self, block_id: str, payload: dict) -> None:
-        self.block_id = block_id
-        self.payload = payload
+def _course_and_block() -> tuple[dict, str]:
+    course = {
+        "course_id": "course-1",
+        "course_name": "线性代数",
+        "nodes": [{
+            "node_id": "section-1",
+            "parent_node_id": "root",
+            "node_name": "向量",
+            "node_level": 2,
+            "learning_objective": "理解向量的方向与大小",
+            "objective_id": "objective-1",
+            "node_content": "向量同时具有大小和方向。",
+        }],
+    }
+    document = document_from_legacy_course(course)
+    course["course_document"] = document.model_dump(mode="json")
+    course["course_document_authoritative"] = True
+    return course, document.blocks[0].block_id
 
 
-class _FakeDocument:
-    def __init__(self, blocks: list[_FakeBlock]) -> None:
-        self.blocks = blocks
+def _install_personal_sources(monkeypatch, *, course: dict, events: list[dict]) -> None:
+    monkeypatch.setattr(learner_model_service.storage, "load_course", lambda _course_id: course)
+    monkeypatch.setattr(course_evolution, "load_learning_events", lambda **_kwargs: events)
+    monkeypatch.setattr(course_evolution.learning_record_repository, "list", lambda *_args: [])
+    monkeypatch.setattr(course_evolution.practice_attempt_repository, "list", lambda *_args: [])
 
 
-class _FakeCourseRepository:
-    def __init__(self, _storage_obj) -> None:
-        pass
-
-    def load_document(self, _course_id: str):
-        return _FakeDocument([_FakeBlock("block-1", {"markdown": "向量同时具有大小和方向。"})]), True
-
-
-def _install_fakes(monkeypatch, *, captured: list):
-    monkeypatch.setattr(learner_model_service, "CourseDocumentRepository", _FakeCourseRepository)
-
-    def _fake_create_proposal(_repo, course_id, **kwargs):
-        record = {"course_id": course_id, **kwargs}
-        captured.append(record)
-        return {
-            "proposal_id": "cps_fake",
-            "course_id": course_id,
-            "status": "pending",
-            "source": kwargs.get("source"),
-            "items": [{"item_id": "item-1", "status": "pending", **kwargs["items"][0]}],
-        }
-
-    monkeypatch.setattr(learner_model_service, "create_proposal", _fake_create_proposal)
-
-
-def test_evaluate_and_propose_change_triggers_pending_evidence_proposal(monkeypatch):
-    captured: list = []
-    _install_fakes(monkeypatch, captured=captured)
-    monkeypatch.setattr(
-        learner_model_service,
-        "load_learning_events",
-        lambda **kwargs: [_self_report("这段完全看不懂，公式推导跳步太多")],
+def test_evaluate_and_propose_change_creates_personal_adaptation_plan(tmp_path, monkeypatch):
+    course, block_id = _course_and_block()
+    base_course = deepcopy(course)
+    _install_personal_sources(
+        monkeypatch,
+        course=course,
+        events=[_self_report("这段完全看不懂，公式推导跳步太多") | {"node_id": "section-1"}],
     )
 
-    proposal = learner_model_service.evaluate_and_propose_change(
-        "course-1", "block-1", user_id="learner-1"
+    plan = learner_model_service.evaluate_and_propose_change(
+        "course-1",
+        block_id,
+        user_id="learner-1",
+        adaptation_repository=CourseEvolutionRepository(tmp_path),
     )
 
-    assert proposal is not None
-    assert proposal["source"] == "evidence"
-    assert len(captured) == 1
-    call = captured[0]
-    assert call["source"] == "evidence"
-    assert call["scope"] == "block"
-    assert call["target_block_ids"] == ["block-1"]
-    item = call["items"][0]
-    assert item["block_id"] == "block-1"
-    assert item["after"]["payload"]["markdown"] != "向量同时具有大小和方向。"
-    assert "AI 补充说明" in item["after"]["payload"]["markdown"]
-    assert item["before"] == {"markdown": "向量同时具有大小和方向。"}
+    assert plan is not None
+    assert plan["plan_kind"] == "personal_adaptation_plan"
+    assert plan["write_target"] == "personal_overlay"
+    assert plan["status"] == "pending"
+    assert plan["plan_id"] == plan["change_set_id"]
+    assert all(item["target_block_id"] == block_id for item in plan["operations"])
+    assert course == base_course
 
 
-def test_evaluate_and_propose_change_returns_none_below_threshold(monkeypatch):
-    captured: list = []
-    _install_fakes(monkeypatch, captured=captured)
-    monkeypatch.setattr(
-        learner_model_service,
-        "load_learning_events",
-        lambda **kwargs: [_self_report("能不能讲得更详细一点")],
+def test_evaluate_and_propose_change_returns_none_below_threshold(tmp_path, monkeypatch):
+    course, block_id = _course_and_block()
+    _install_personal_sources(
+        monkeypatch,
+        course=course,
+        events=[_self_report("能不能讲得更详细一点") | {"node_id": "section-1"}],
     )
 
-    proposal = learner_model_service.evaluate_and_propose_change(
-        "course-1", "block-1", user_id="learner-1"
+    plan = learner_model_service.evaluate_and_propose_change(
+        "course-1",
+        block_id,
+        user_id="learner-1",
+        adaptation_repository=CourseEvolutionRepository(tmp_path),
     )
 
-    assert proposal is None
-    assert captured == []
+    assert plan is None
 
 
-def test_evaluate_and_propose_change_returns_none_without_evidence(monkeypatch):
-    captured: list = []
-    _install_fakes(monkeypatch, captured=captured)
-    monkeypatch.setattr(learner_model_service, "load_learning_events", lambda **kwargs: [])
+def test_evaluate_and_propose_change_returns_none_without_evidence(tmp_path, monkeypatch):
+    course, block_id = _course_and_block()
+    _install_personal_sources(monkeypatch, course=course, events=[])
 
-    proposal = learner_model_service.evaluate_and_propose_change(
-        "course-1", "block-1", user_id="learner-1"
+    plan = learner_model_service.evaluate_and_propose_change(
+        "course-1",
+        block_id,
+        user_id="learner-1",
+        adaptation_repository=CourseEvolutionRepository(tmp_path),
     )
 
-    assert proposal is None
-    assert captured == []
+    assert plan is None
 
 
-def test_evaluate_and_propose_change_never_touches_learner_model_output(monkeypatch):
+def test_evaluate_and_propose_change_never_touches_learner_model_output(tmp_path, monkeypatch):
     """The evidence-driven proposal side channel MUST NOT leak into the
     read-only learner model: `ai_writable: False` must hold before and after
     a proposal is generated, and the learner-model builder itself must never
     be imported/called by evaluate_and_propose_change."""
-    captured: list = []
-    _install_fakes(monkeypatch, captured=captured)
-    monkeypatch.setattr(
-        learner_model_service,
-        "load_learning_events",
-        lambda **kwargs: [_self_report("这段完全看不懂，公式推导跳步太多")],
+    course, block_id = _course_and_block()
+    _install_personal_sources(
+        monkeypatch,
+        course=course,
+        events=[_self_report("这段完全看不懂，公式推导跳步太多") | {"node_id": "section-1"}],
     )
 
     from learner_model import build_learner_model
@@ -202,10 +195,13 @@ def test_evaluate_and_propose_change_never_touches_learner_model_output(monkeypa
     before = _minimal_model()
     assert before["model_policy"]["ai_writable"] is False
 
-    proposal = learner_model_service.evaluate_and_propose_change(
-        "course-1", "block-1", user_id="learner-1"
+    plan = learner_model_service.evaluate_and_propose_change(
+        "course-1",
+        block_id,
+        user_id="learner-1",
+        adaptation_repository=CourseEvolutionRepository(tmp_path),
     )
-    assert proposal is not None  # sanity: the trigger really fired
+    assert plan is not None  # sanity: the trigger really fired
 
     after = _minimal_model()
     assert after["model_policy"]["ai_writable"] is False

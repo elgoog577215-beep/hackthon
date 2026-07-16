@@ -10,6 +10,7 @@ from content_blocks import resolve_content_anchor
 from course_evolution import (
     course_evolution_repository,
     course_evolution_view,
+    personal_course_overlay,
     project_applied_adaptive_blocks,
 )
 from course_learning_availability import project_course_learning_availability
@@ -94,6 +95,7 @@ def build_learning_runtime(
     )
     revision_vector["learner_model_revision_id"] = learner_model["model_revision_id"]
     evolution_state = course_evolution_repository.load(user_id, course_id)
+    personal_overlay = personal_course_overlay(evolution_state)
     personal_adaptive_blocks = project_applied_adaptive_blocks(
         evolution_state,
         node_id=node_id,
@@ -133,6 +135,7 @@ def build_learning_runtime(
             node_id=str(current_objective.get("node_id") or node_id or "") or None,
         ),
         "course_evolution": course_evolution_view(evolution_state),
+        "personal_course_overlay": personal_overlay.model_dump(mode="json"),
         "adaptive_blocks": personal_adaptive_blocks + temporary_adaptive_blocks,
         "active_task": deepcopy((continuation.get("primary_action") or {}).get("task_ref")),
         "continuation": continuation,

@@ -1,4 +1,4 @@
-"""Multi-scope change proposal review endpoints."""
+"""Base-course authoring changes with a legacy route alias."""
 
 from __future__ import annotations
 
@@ -39,6 +39,10 @@ router = APIRouter(
     prefix="/courses/{course_id}/change_proposals",
     tags=["change-proposals"],
 )
+authoring_router = APIRouter(
+    prefix="/courses/{course_id}/authoring-changes",
+    tags=["course-authoring-changes"],
+)
 
 
 class RejectChangeProposalItemRequest(BaseModel):
@@ -65,17 +69,20 @@ def get_subject_library_repository() -> SubjectLibraryRepository:
 
 
 @router.get("")
+@authoring_router.get("")
 async def list_change_proposals(course_id: str, request: Request):
     require_user_id(request.headers.get("X-User-Id"))
     repository = get_change_proposal_repository()
     return [
         proposal
         for proposal in repository.list_for_course(course_id, status="pending")
-        if proposal.get("source") != "evidence"
+        if proposal.get("write_target", "base_course") == "base_course"
+        and proposal.get("source") != "evidence"
     ]
 
 
 @router.post("/{proposal_id}/items/{item_id}/apply")
+@authoring_router.post("/{proposal_id}/items/{item_id}/apply")
 async def apply_change_proposal_item(
     course_id: str,
     proposal_id: str,
@@ -146,6 +153,7 @@ async def apply_change_proposal_item(
 
 
 @router.post("/{proposal_id}/items/{item_id}/reject")
+@authoring_router.post("/{proposal_id}/items/{item_id}/reject")
 async def reject_change_proposal_item(
     course_id: str,
     proposal_id: str,
@@ -171,6 +179,7 @@ async def reject_change_proposal_item(
 
 
 @router.post("/{proposal_id}/items/{item_id}/regenerate")
+@authoring_router.post("/{proposal_id}/items/{item_id}/regenerate")
 async def regenerate_change_proposal_item(
     course_id: str,
     proposal_id: str,

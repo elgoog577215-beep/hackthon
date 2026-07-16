@@ -10,7 +10,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 
-from change_proposals import change_proposal_repository, create_proposal
+from change_proposals import change_proposal_repository, create_authoring_change
 from course_document import stable_hash
 from dependencies import get_course_document_repository, get_course_or_404
 from learner_context import require_user_id
@@ -280,7 +280,7 @@ async def apply_teaching_representation_edit(
         "field": body.field,
         "after": body.after,
     }, prefix="representation-edit-")
-    proposal = create_proposal(
+    authoring_change = create_authoring_change(
         change_proposal_repository,
         course_id,
         request_id=request_id,
@@ -292,7 +292,7 @@ async def apply_teaching_representation_edit(
             "after": {"payload": next_payload},
             "reason": "派生产物中的语义修改需要先回写课程真源，再同步所有相关教学表达。",
         }],
-        source="manual",
+        source="representation_semantic",
         generation_meta={
             "origin": "teaching_representation_edit",
             "representation_id": representation_id,
@@ -305,7 +305,9 @@ async def apply_teaching_representation_edit(
         "status": "course_change_proposed",
         "classification": "semantic",
         "impact": impact,
-        "proposal": proposal,
+        "authoring_change": authoring_change,
+        # Compatibility field for clients that still use the old name.
+        "proposal": authoring_change,
     }
 
 

@@ -62,7 +62,7 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
       this.courseId = courseId
       this.loading = true
       try {
-        const response = await http.get(`/api/courses/${courseId}/change_proposals`)
+        const response = await http.get(`/api/courses/${courseId}/authoring-changes`)
         const data = response.data
         this.proposals = Array.isArray(data) ? data : (data?.proposals || [])
       } catch (error) {
@@ -94,7 +94,7 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
       this.actingItemIds.add(itemId)
       try {
         await http.post(
-          `/api/courses/${this.courseId}/change_proposals/${proposalId}/items/${itemId}/apply`,
+          `/api/courses/${this.courseId}/authoring-changes/${proposalId}/items/${itemId}/apply`,
         )
         this.patchItem(proposalId, itemId, { status: 'applied' })
       } finally {
@@ -107,7 +107,7 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
       this.actingItemIds.add(itemId)
       try {
         await http.post(
-          `/api/courses/${this.courseId}/change_proposals/${proposalId}/items/${itemId}/reject`,
+          `/api/courses/${this.courseId}/authoring-changes/${proposalId}/items/${itemId}/reject`,
           reason ? { reason } : {},
         )
         this.patchItem(proposalId, itemId, { status: 'rejected' })
@@ -121,7 +121,7 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
       this.actingItemIds.add(itemId)
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/change_proposals/${proposalId}/items/${itemId}/regenerate`,
+          `/api/courses/${this.courseId}/authoring-changes/${proposalId}/items/${itemId}/regenerate`,
           extraInstruction ? { extra_instruction: extraInstruction } : {},
         )
         const updated = response.data as ChangeProposal | Partial<ChangeProposalItem> | undefined

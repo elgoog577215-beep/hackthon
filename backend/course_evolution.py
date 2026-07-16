@@ -1,4 +1,9 @@
-"""Evidence-driven, learner-isolated course evolution state and projections."""
+"""Evidence-driven personal adaptation plans and learner-isolated overlays.
+
+The persisted v1 schema and legacy function names remain readable. The
+canonical product boundary is explicit: accepted plans project a
+``PersonalCourseOverlay`` and never mutate the base ``CourseDocument``.
+"""
 
 from __future__ import annotations
 
@@ -75,7 +80,7 @@ class AdaptationHypothesis(BaseModel):
     updated_at: str
 
 
-class CourseEvolutionOperation(BaseModel):
+class PersonalAdaptationOperation(BaseModel):
     operation_id: str
     operation_type: Literal[
         "INSERT_PERSONAL_SUPPORT",
@@ -90,14 +95,16 @@ class CourseEvolutionOperation(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
-class CourseEvolutionChangeSet(BaseModel):
+class PersonalAdaptationPlan(BaseModel):
+    plan_kind: Literal["personal_adaptation_plan"] = "personal_adaptation_plan"
+    write_target: Literal["personal_overlay"] = "personal_overlay"
     change_set_id: str
     user_id: str
     course_id: str
     hypothesis_id: str
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
     evidence_ids: list[str] = Field(default_factory=list)
-    operations: list[CourseEvolutionOperation] = Field(default_factory=list)
+    operations: list[PersonalAdaptationOperation] = Field(default_factory=list)
     allowed_scopes: list[Literal["current", "current_and_next"]] = Field(default_factory=list)
     selected_scope: Literal["current", "current_and_next"] | None = None
     impact_summary: dict[str, Any] = Field(default_factory=dict)
@@ -116,9 +123,27 @@ class CourseEvolutionState(BaseModel):
     course_id: str
     evidence_items: list[EvidenceItem] = Field(default_factory=list)
     hypotheses: list[AdaptationHypothesis] = Field(default_factory=list)
-    change_sets: list[CourseEvolutionChangeSet] = Field(default_factory=list)
+    change_sets: list[PersonalAdaptationPlan] = Field(default_factory=list)
     revision: str = ""
     updated_at: str
+
+
+class PersonalCourseOverlay(BaseModel):
+    schema_version: Literal["personal_course_overlay_v1"] = "personal_course_overlay_v1"
+    overlay_id: str
+    user_id: str
+    course_id: str
+    base_revision_vector: dict[str, str] = Field(default_factory=dict)
+    active_plan_ids: list[str] = Field(default_factory=list)
+    operations: list[PersonalAdaptationOperation] = Field(default_factory=list)
+    revision: str
+    updated_at: str
+
+
+# Compatibility aliases for persisted v1 data and imports. New code should use
+# PersonalAdaptationPlan and PersonalAdaptationOperation.
+CourseEvolutionOperation = PersonalAdaptationOperation
+CourseEvolutionChangeSet = PersonalAdaptationPlan
 
 
 class CourseEvolutionRepository:
@@ -330,8 +355,56 @@ def project_applied_adaptive_blocks(
     return blocks
 
 
+def personal_course_overlay(state: CourseEvolutionState) -> PersonalCourseOverlay:
+    active_plans = [item for item in state.change_sets if item.status == "applied"]
+    operations = [
+        operation.model_copy(deep=True)
+        for plan in active_plans
+        for operation in plan.operations
+        if plan.selected_scope != "current" or operation.scope != "next"
+    ]
+    base_revision_vector: dict[str, str] = {}
+    for plan in active_plans:
+        base_revision_vector.update(plan.base_revision_vector)
+    updated_at = max(
+        [item.updated_at for item in active_plans] or [state.updated_at],
+    )
+    payload = {
+        "user_id": state.user_id,
+        "course_id": state.course_id,
+        "base_revision_vector": base_revision_vector,
+        "active_plan_ids": [item.change_set_id for item in active_plans],
+        "operations": [item.model_dump(mode="json") for item in operations],
+    }
+    return PersonalCourseOverlay(
+        overlay_id=stable_hash(
+            {"user_id": state.user_id, "course_id": state.course_id},
+            prefix="pco_",
+        ),
+        user_id=state.user_id,
+        course_id=state.course_id,
+        base_revision_vector=base_revision_vector,
+        active_plan_ids=payload["active_plan_ids"],
+        operations=operations,
+        revision=stable_hash(payload, prefix="pcr_"),
+        updated_at=updated_at,
+    )
+
+
 def course_evolution_view(state: CourseEvolutionState) -> dict[str, Any]:
     payload = state.model_dump(mode="json")
+    payload["view_schema_version"] = "personal_course_adaptation_v1"
+    payload["adaptation_plans"] = deepcopy(payload["change_sets"])
+    for plan in payload["adaptation_plans"]:
+        plan["plan_id"] = plan["change_set_id"]
+        plan["plan_kind"] = "personal_adaptation_plan"
+    payload["personal_course_overlay"] = personal_course_overlay(state).model_dump(mode="json")
+    payload["permissions"] = {
+        "write_target": "personal_overlay",
+        "can_modify_base_course": False,
+        "can_modify_other_learners": False,
+        "can_modify_course_knowledge_base": False,
+    }
     payload["summary"] = {
         "evidence_count": len(state.evidence_items),
         "actionable_hypothesis_count": sum(
@@ -515,13 +588,13 @@ def _build_change_set(
     hypothesis: AdaptationHypothesis,
     *,
     evidence_signature: str,
-) -> CourseEvolutionChangeSet:
+) -> PersonalAdaptationPlan:
     blocks = {item.block_id: item for item in document.blocks}
     sections = {item.section_id: item for item in document.sections}
     target = blocks[hypothesis.target_block_id]
     target_text = _block_text(target.payload)
     target_title = str(target.payload.get("title") or sections.get(target.section_id, {}).title if sections.get(target.section_id) else "当前内容")
-    operations: list[CourseEvolutionOperation] = []
+    operations: list[PersonalAdaptationOperation] = []
 
     def append_operation(operation_type: str, block_id: str, scope: str, reason: str, payload: dict[str, Any]) -> None:
         block = blocks[block_id]
@@ -532,7 +605,7 @@ def _build_change_set(
             "scope": scope,
             "payload": payload,
         }
-        operations.append(CourseEvolutionOperation(
+        operations.append(PersonalAdaptationOperation(
             operation_id=stable_hash(operation_payload, prefix="ceo_"),
             operation_type=operation_type,
             target_block_id=block_id,
@@ -609,7 +682,7 @@ def _build_change_set(
         item for item in state.evidence_items
         if item.evidence_id in hypothesis.support_evidence_ids
     ]
-    return CourseEvolutionChangeSet(
+    return PersonalAdaptationPlan(
         change_set_id=stable_hash({
             "user_id": state.user_id,
             "course_id": state.course_id,
@@ -813,7 +886,7 @@ def _compact(value: Any, *, limit: int = 180) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + "..."
 
 
-def _change_set(state: CourseEvolutionState, change_set_id: str) -> CourseEvolutionChangeSet:
+def _change_set(state: CourseEvolutionState, change_set_id: str) -> PersonalAdaptationPlan:
     item = next((value for value in state.change_sets if value.change_set_id == change_set_id), None)
     if item is None:
         raise KeyError(change_set_id)
@@ -831,10 +904,20 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Canonical names. Legacy names stay available for stored v1 data and callers.
+accept_adaptation_plan = accept_change_set
+reject_adaptation_plan = reject_change_set
+undo_adaptation_plan = undo_change_set
+
+
 course_evolution_repository = CourseEvolutionRepository()
 
 __all__ = [
+    "PersonalAdaptationOperation",
+    "PersonalAdaptationPlan",
+    "PersonalCourseOverlay",
     "AdaptationHypothesis",
+    "accept_adaptation_plan",
     "CourseEvolutionChangeSet",
     "CourseEvolutionRepository",
     "CourseEvolutionState",
@@ -843,7 +926,10 @@ __all__ = [
     "course_evolution_repository",
     "course_evolution_view",
     "project_applied_adaptive_blocks",
+    "personal_course_overlay",
     "reject_change_set",
+    "reject_adaptation_plan",
     "synchronize_and_evaluate_course_evolution",
     "undo_change_set",
+    "undo_adaptation_plan",
 ]

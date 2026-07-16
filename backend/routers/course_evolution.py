@@ -1,4 +1,4 @@
-"""Learner-isolated evidence, hypothesis, and course-growth endpoints."""
+"""Learner-isolated personal adaptation endpoints with a legacy alias."""
 
 from __future__ import annotations
 
@@ -19,6 +19,10 @@ from dependencies import get_course_or_404
 from learner_context import require_user_id
 
 router = APIRouter(prefix="/courses/{course_id}/evolution", tags=["course_evolution"])
+personal_router = APIRouter(
+    prefix="/courses/{course_id}/personal-adaptation",
+    tags=["personal-adaptation"],
+)
 
 
 class AcceptCourseEvolutionRequest(BaseModel):
@@ -45,8 +49,18 @@ async def get_course_evolution(course_id: str, request: Request) -> dict:
     return course_evolution_view(state)
 
 
+@personal_router.get("")
+async def get_personal_adaptation(course_id: str, request: Request) -> dict:
+    return await get_course_evolution(course_id, request)
+
+
 @router.post("/evaluate")
 async def evaluate_course_evolution(course_id: str, request: Request) -> dict:
+    return await get_course_evolution(course_id, request)
+
+
+@personal_router.post("/evaluate")
+async def evaluate_personal_adaptation(course_id: str, request: Request) -> dict:
     return await get_course_evolution(course_id, request)
 
 
@@ -77,6 +91,21 @@ async def accept_course_evolution_change_set(
     return course_evolution_view(state)
 
 
+@personal_router.post("/plans/{change_set_id}/accept")
+async def accept_personal_adaptation_plan(
+    course_id: str,
+    change_set_id: str,
+    body: AcceptCourseEvolutionRequest,
+    request: Request,
+) -> dict:
+    return await accept_course_evolution_change_set(
+        course_id,
+        change_set_id,
+        body,
+        request,
+    )
+
+
 @router.post("/change-sets/{change_set_id}/reject")
 async def reject_course_evolution_change_set(
     course_id: str,
@@ -104,6 +133,21 @@ async def reject_course_evolution_change_set(
     return course_evolution_view(state)
 
 
+@personal_router.post("/plans/{change_set_id}/reject")
+async def reject_personal_adaptation_plan(
+    course_id: str,
+    change_set_id: str,
+    body: RejectCourseEvolutionRequest,
+    request: Request,
+) -> dict:
+    return await reject_course_evolution_change_set(
+        course_id,
+        change_set_id,
+        body,
+        request,
+    )
+
+
 @router.post("/change-sets/{change_set_id}/undo")
 async def undo_course_evolution_change_set(
     course_id: str,
@@ -129,4 +173,13 @@ async def undo_course_evolution_change_set(
     return course_evolution_view(state)
 
 
-__all__ = ["router"]
+@personal_router.post("/plans/{change_set_id}/undo")
+async def undo_personal_adaptation_plan(
+    course_id: str,
+    change_set_id: str,
+    request: Request,
+) -> dict:
+    return await undo_course_evolution_change_set(course_id, change_set_id, request)
+
+
+__all__ = ["personal_router", "router"]

@@ -1,39 +1,39 @@
 <template>
-  <section v-if="visibleChangeSets.length" class="evolution-panel" aria-live="polite">
+  <section v-if="visiblePlans.length" class="evolution-panel" aria-live="polite">
     <header>
       <span><GitBranchPlus :size="14" /></span>
-      <div><small>{{ t('courseEvolution.eyebrow', '证据驱动') }}</small><strong>{{ t('courseEvolution.title', '个人课程生长建议') }}</strong></div>
+      <div><small>{{ t('courseEvolution.eyebrow', '证据驱动') }}</small><strong>{{ t('courseEvolution.title', '个人学习适配建议') }}</strong></div>
       <button type="button" :title="t('courseEvolution.refresh', '重新分析学习证据')" :aria-label="t('courseEvolution.refresh', '重新分析学习证据')" :disabled="store.loading" @click="store.evaluate(courseId)"><RefreshCw :size="14" :class="{ spinning: store.loading }" /></button>
     </header>
 
-    <article v-for="changeSet in visibleChangeSets" :key="changeSet.change_set_id" :data-status="changeSet.status">
-      <template v-if="changeSet.status === 'pending'">
-        <p class="evolution-effect">{{ changeSet.expected_effect }}</p>
+    <article v-for="plan in visiblePlans" :key="plan.change_set_id" :data-status="plan.status">
+      <template v-if="plan.status === 'pending'">
+        <p class="evolution-effect">{{ plan.expected_effect }}</p>
         <div class="evolution-evidence">
-          <span v-for="evidence in evidenceFor(changeSet)" :key="evidence.evidence_id" :data-source="evidence.source_type">
+          <span v-for="evidence in evidenceFor(plan)" :key="evidence.evidence_id" :data-source="evidence.source_type">
             <component :is="evidenceIcon(evidence.source_type)" :size="12" />{{ evidenceLabel(evidence.source_type) }}
           </span>
         </div>
-        <button type="button" class="evolution-details-toggle" @click="expandedId = expandedId === changeSet.change_set_id ? '' : changeSet.change_set_id">
-          <ChevronUp v-if="expandedId === changeSet.change_set_id" :size="13" /><ChevronDown v-else :size="13" />
-          {{ expandedId === changeSet.change_set_id ? t('courseEvolution.hideDetails', '收起依据与范围') : t('courseEvolution.showDetails', '查看依据与范围') }}
+        <button type="button" class="evolution-details-toggle" @click="expandedId = expandedId === plan.change_set_id ? '' : plan.change_set_id">
+          <ChevronUp v-if="expandedId === plan.change_set_id" :size="13" /><ChevronDown v-else :size="13" />
+          {{ expandedId === plan.change_set_id ? t('courseEvolution.hideDetails', '收起依据与范围') : t('courseEvolution.showDetails', '查看依据与范围') }}
         </button>
-        <div v-if="expandedId === changeSet.change_set_id" class="evolution-details">
-          <p v-for="evidence in evidenceFor(changeSet)" :key="evidence.evidence_id"><b>{{ evidenceLabel(evidence.source_type) }}</b>{{ evidence.summary }}</p>
-          <ul><li v-for="operation in changeSet.operations" :key="operation.operation_id"><span>{{ operationLabel(operation.operation_type) }}</span>{{ operation.reason }}</li></ul>
+        <div v-if="expandedId === plan.change_set_id" class="evolution-details">
+          <p v-for="evidence in evidenceFor(plan)" :key="evidence.evidence_id"><b>{{ evidenceLabel(evidence.source_type) }}</b>{{ evidence.summary }}</p>
+          <ul><li v-for="operation in plan.operations" :key="operation.operation_id"><span>{{ operationLabel(operation.operation_type) }}</span>{{ operation.reason }}</li></ul>
           <p class="protected"><ShieldCheck :size="13" />{{ t('courseEvolution.protected', '不会修改基础课程、其他学习者、历史作答和笔记原文') }}</p>
         </div>
-        <div class="scope-control" v-if="changeSet.allowed_scopes.length > 1">
-          <button type="button" :class="{ active: selectedScope[changeSet.change_set_id] !== 'current_and_next' }" @click="selectedScope[changeSet.change_set_id] = 'current'">{{ t('courseEvolution.currentOnly', '只应用本小节') }}</button>
-          <button type="button" :class="{ active: selectedScope[changeSet.change_set_id] === 'current_and_next' }" @click="selectedScope[changeSet.change_set_id] = 'current_and_next'">{{ t('courseEvolution.currentAndNext', '本小节及后续') }}</button>
+        <div class="scope-control" v-if="plan.allowed_scopes.length > 1">
+          <button type="button" :class="{ active: selectedScope[plan.change_set_id] !== 'current_and_next' }" @click="selectedScope[plan.change_set_id] = 'current'">{{ t('courseEvolution.currentOnly', '只应用本小节') }}</button>
+          <button type="button" :class="{ active: selectedScope[plan.change_set_id] === 'current_and_next' }" @click="selectedScope[plan.change_set_id] = 'current_and_next'">{{ t('courseEvolution.currentAndNext', '本小节及后续') }}</button>
         </div>
         <div class="evolution-actions">
-          <button type="button" class="primary" :disabled="store.actingId === changeSet.change_set_id" @click="accept(changeSet)"><LoaderCircle v-if="store.actingId === changeSet.change_set_id" :size="13" class="spinning" /><Check v-else :size="13" />{{ t('courseEvolution.accept', '应用到个人课程') }}</button>
-          <button type="button" :disabled="store.actingId === changeSet.change_set_id" @click="store.reject(changeSet.change_set_id)"><X :size="13" />{{ t('courseEvolution.reject', '暂不调整') }}</button>
+          <button type="button" class="primary" :disabled="store.actingId === plan.change_set_id" @click="accept(plan)"><LoaderCircle v-if="store.actingId === plan.change_set_id" :size="13" class="spinning" /><Check v-else :size="13" />{{ t('courseEvolution.accept', '应用到我的学习内容') }}</button>
+          <button type="button" :disabled="store.actingId === plan.change_set_id" @click="store.reject(plan.change_set_id)"><X :size="13" />{{ t('courseEvolution.reject', '暂不调整') }}</button>
         </div>
       </template>
       <template v-else>
-        <div class="applied-growth"><CheckCircle2 :size="15" /><span><strong>{{ t('courseEvolution.applied', '个人课程已应用调整') }}</strong><small>{{ effectLabel(changeSet.effect_evaluation?.status) }}</small></span><button type="button" @click="undo(changeSet)"><Undo2 :size="13" />{{ t('courseEvolution.undo', '撤销') }}</button></div>
+        <div class="applied-growth"><CheckCircle2 :size="15" /><span><strong>{{ t('courseEvolution.applied', '个人学习内容已调整') }}</strong><small>{{ effectLabel(plan.effect_evaluation?.status) }}</small></span><button type="button" @click="undo(plan)"><Undo2 :size="13" />{{ t('courseEvolution.undo', '撤销') }}</button></div>
       </template>
     </article>
   </section>
@@ -42,7 +42,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { BookOpenText, Check, CheckCircle2, ChevronDown, ChevronUp, FileQuestion, GitBranchPlus, LoaderCircle, NotebookTabs, RefreshCw, ShieldCheck, Undo2, X } from 'lucide-vue-next'
-import { useCourseEvolutionStore, type EvolutionChangeSet, type EvolutionEvidence } from '../stores/courseEvolution'
+import { useCourseEvolutionStore, type PersonalAdaptationPlan, type EvolutionEvidence } from '../stores/courseEvolution'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { t } from '../shared/i18n'
 
@@ -51,15 +51,15 @@ const store = useCourseEvolutionStore()
 const progressStore = useLearningProgressStore()
 const expandedId = ref('')
 const selectedScope = reactive<Record<string, 'current' | 'current_and_next'>>({})
-const visibleChangeSets = computed(() => [...store.pendingChangeSets, ...store.appliedChangeSets.slice(-1)])
+const visiblePlans = computed(() => [...store.pendingPlans, ...store.appliedPlans.slice(-1)])
 
-function evidenceFor(changeSet: EvolutionChangeSet) { return store.evidenceItems.filter(item => changeSet.evidence_ids.includes(item.evidence_id)) }
+function evidenceFor(plan: PersonalAdaptationPlan) { return store.evidenceItems.filter(item => plan.evidence_ids.includes(item.evidence_id)) }
 function evidenceLabel(source: EvolutionEvidence['source_type']) { return ({ learning_event: t('courseEvolution.sources.dialogue', '对话与反馈'), learning_record: t('courseEvolution.sources.record', '学习记录'), practice_attempt: t('courseEvolution.sources.practice', '正式练习') })[source] }
 function evidenceIcon(source: EvolutionEvidence['source_type']) { return ({ learning_event: FileQuestion, learning_record: NotebookTabs, practice_attempt: BookOpenText })[source] }
 function operationLabel(type: string) { return ({ INSERT_PERSONAL_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), ADD_TRANSITION_SUPPORT: t('courseEvolution.operations.transition', '后续承接'), ADD_CHECKPOINT: t('courseEvolution.operations.checkpoint', '理解检查'), ADD_ANIMATION: t('courseEvolution.operations.animation', '分步演示') } as Record<string, string>)[type] || type }
 function effectLabel(status?: string) { return ({ effective: t('courseEvolution.effects.effective', '后续证据显示有效'), ineffective: t('courseEvolution.effects.ineffective', '后续证据显示需要调整'), insufficient_evidence: t('courseEvolution.effects.insufficient', '等待后续正式证据') } as Record<string, string>)[status || ''] || t('courseEvolution.effects.insufficient', '等待后续正式证据') }
-async function accept(changeSet: EvolutionChangeSet) { await store.accept(changeSet.change_set_id, selectedScope[changeSet.change_set_id] || 'current'); await progressStore.loadRuntime(props.courseId) }
-async function undo(changeSet: EvolutionChangeSet) { await store.undo(changeSet.change_set_id); await progressStore.loadRuntime(props.courseId) }
+async function accept(plan: PersonalAdaptationPlan) { await store.accept(plan.change_set_id, selectedScope[plan.change_set_id] || 'current'); await progressStore.loadRuntime(props.courseId) }
+async function undo(plan: PersonalAdaptationPlan) { await store.undo(plan.change_set_id); await progressStore.loadRuntime(props.courseId) }
 async function load() {
   if (!props.courseId) return
   if (import.meta.env.MODE === 'test') return

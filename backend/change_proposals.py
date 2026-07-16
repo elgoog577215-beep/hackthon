@@ -1,10 +1,9 @@
-"""Multi-scope change proposals for canonical course documents.
+"""Teacher/author initiated changes for canonical base course documents.
 
-Generalizes the single-block candidate-first workflow in
-`block_regeneration.py` to arbitrary scopes (block / section / sections /
-chapters / book) and to change sets containing multiple items that can each
-be accepted or rejected independently. `block_regeneration.py` is left
-untouched and continues to work as a standalone single-block special case.
+The historical module/API name is kept as a compatibility surface. New code
+must treat records with ``write_target == "base_course"`` as
+``CourseAuthoringChange`` objects. Learner evidence belongs to the personal
+adaptation pipeline and is never allowed to reach ``CourseCommandService``.
 """
 
 from __future__ import annotations
@@ -24,11 +23,21 @@ from course_document import stable_hash
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 
 
-CHANGE_PROPOSAL_SCHEMA = "change_proposal_v1"
+COURSE_AUTHORING_CHANGE_SCHEMA = "course_authoring_change_v1"
+# Compatibility constant for existing imports. Newly persisted records use the
+# explicit authoring schema below.
+CHANGE_PROPOSAL_SCHEMA = COURSE_AUTHORING_CHANGE_SCHEMA
 _SAFE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 
 ChangeProposalScope = Literal["block", "section", "sections", "chapters", "book"]
-ChangeProposalSource = Literal["manual", "evidence", "kb_link"]
+ChangeProposalSource = Literal[
+    "manual",
+    "representation_semantic",
+    "block_regeneration",
+    "evidence",
+    "kb_link",
+]
+ChangeWriteTarget = Literal["base_course", "personal_overlay", "knowledge_review"]
 ChangeProposalStatus = Literal["pending", "resolved"]
 ChangeProposalItemStatus = Literal["pending", "applied", "rejected"]
 # Only allowed change: added to distinguish an item whose `block_id` actually
@@ -229,8 +238,17 @@ def create_proposal(
             "receipt": None,
         })
 
+    write_target: ChangeWriteTarget = (
+        "personal_overlay"
+        if source == "evidence"
+        else "knowledge_review"
+        if source == "kb_link"
+        else "base_course"
+    )
     placeholder = {
         "schema_version": CHANGE_PROPOSAL_SCHEMA,
+        "change_kind": "course_authoring_change" if write_target == "base_course" else "legacy_compatibility_change",
+        "write_target": write_target,
         "proposal_id": proposal_id,
         "request_id": request_id,
         "course_id": course_id,
@@ -245,6 +263,31 @@ def create_proposal(
     }
     proposal, _created = repository.create_once(placeholder)
     return proposal
+
+
+def create_authoring_change(
+    repository: ChangeProposalRepository,
+    course_id: str,
+    *,
+    request_id: str,
+    scope: ChangeProposalScope,
+    target_block_ids: list[str],
+    items: list[dict[str, Any]],
+    source: Literal["manual", "representation_semantic", "block_regeneration"] = "manual",
+    generation_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Create a base-course authoring change through the compatibility store."""
+
+    return create_proposal(
+        repository,
+        course_id,
+        request_id=request_id,
+        scope=scope,
+        target_block_ids=target_block_ids,
+        items=items,
+        source=source,
+        generation_meta=generation_meta,
+    )
 
 
 def _find_item(proposal: dict[str, Any], item_id: str) -> dict[str, Any]:
@@ -281,6 +324,16 @@ async def apply_item(
     raises ChangeProposalConflict instead of silently overwriting it.
     """
     proposal = repository.load(proposal_id)
+    if proposal.get("write_target") == "personal_overlay" or proposal.get("source") == "evidence":
+        raise ChangeProposalConflict(
+            "Personal adaptation cannot modify the base course document",
+            proposal=proposal,
+        )
+    if proposal.get("write_target") not in {None, "base_course"}:
+        raise ChangeProposalConflict(
+            "This change does not target the base course document",
+            proposal=proposal,
+        )
     item = _find_item(proposal, item_id)
     if item.get("status") != "pending":
         raise ChangeProposalConflict(
@@ -712,12 +765,14 @@ change_proposal_repository = ChangeProposalRepository()
 
 
 __all__ = [
+    "COURSE_AUTHORING_CHANGE_SCHEMA",
     "CHANGE_PROPOSAL_SCHEMA",
     "ChangeProposalConflict",
     "ChangeProposalNotFound",
     "ChangeProposalRepository",
     "apply_item",
     "change_proposal_repository",
+    "create_authoring_change",
     "create_proposal",
     "reject_item",
     "regenerate_item",

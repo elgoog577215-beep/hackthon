@@ -1,4 +1,4 @@
-# 设计：结构化同源、证据驱动的个人课程演化内核
+# 设计：知识坐标驱动、证据可解释的个人学习适配内核
 
 ## Context
 
@@ -9,36 +9,36 @@
 - `backend/learning_events.py`、正式领域对象与 `backend/learner_model_service.py` 提供可追溯学习事实和确定性模型。
 - `backend/learning_runtime.py` 装配当前学习现场，`backend/ai_teacher_context.py` 与 `backend/ai_teacher_actions.py` 承担统一 AI 上下文和动作协议。
 - 前端以 `CourseBlockStream.vue`、`InlineCourseBlockAI.vue`、`SideAIPanel.vue` 和 `KnowledgeLibrary.vue` 组成唯一学习现场。
-- 现有块候选已经证明“先持久化候选、再质量检查、确认后走课程命令、冲突时拒绝覆盖”的基本模式可行。
+- 现有个人适配块已经证明“先持久化方案、再确认投影、冲突时拒绝覆盖”的基本模式可行；正式块候选属于基础课程维护链，只复用修订与审计底座。
 
 新的产品目标跨越课程、知识、证据、AI、前端和恢复机制，不能以扩大一个 prompt 或继续增加临时 `adaptive_blocks` 完成。
 
 主要约束：
 
-1. 当前课程结构仍只有一个正式 `CourseDocument` 真源。
+1. 基础课程结构只有一个正式 `CourseDocument` 真源；个人变化只保存在 `PersonalCourseOverlay`，不得复制或改写该真源。
 2. `CourseKnowledgeBase` 必须独立完成当前课程的生成、发布和运行；跨课程知识设施只可作为可选参考，且不能被个人学习变化自动改写。
 3. 每条用户输入可以被记录为原始证据，但不能直接成为稳定画像或掌握事实。
-4. AI 可在候选层规划高权限变化，但用户确认与领域命令不可绕过。
-5. 现有课程、笔记、作答、锚点和历史证据必须在结构修改中继续可追溯。
+4. AI 可在方案层规划高权限个人变化，但学生确认、个人覆盖层仓库和权限门不可绕过。
+5. 现有课程、笔记、作答、锚点和历史证据必须在个人投影变化中继续可追溯。
 6. 当前存储仍以文件仓库为主，设计必须先通过仓库接口和事务日志成立，不能假定已经迁入数据库。
-7. 本次只实现灵知当前课程范围，不修改启智、公共课程发布、PPT 或视频生产。
+7. 本次只实现灵知当前学习者的个人覆盖层，不修改基础课程、课程知识库、启智、公共课程发布、PPT 或视频生产。
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- 建立课程、课程知识、证据、适应判断与候选修改之间的正式对象和修订链。
+- 建立基础课程/知识只读引用、证据、适应判断、个人方案与覆盖层之间的正式对象和修订链。
 - 支持单条强证据即时局部行动与多源证据广域行动，同时避免机械阈值。
-- 支持完整结构操作、未来章节预调、具体难度变化和双向知识联动。
-- 建立可跨会话恢复、可部分确认、可冲突检测、可撤销的统一候选层。
-- 复用现有课程文档、知识、学习事实、AI 老师和命令体系，删除被接管的旧状态机。
+- 支持个人覆盖层结构操作、未来章节预调和具体难度变化，并基于知识关系决定范围。
+- 建立可跨会话恢复、可部分确认、可冲突检测、可撤销的个人方案层。
+- 复用现有课程/知识引用、学习事实、AI 老师、任务和审计体系，删除被接管的旧个人适配状态机。
 - 为未来启智公共课程模板与灵知个人课程连接保留稳定课程来源和显式转换契约，但不提前共享跨课程运行时知识身份。
 
 **Non-Goals:**
 
 - 不把当前课程知识点自动发布到跨课程参考目录，也不要求不同课程共用知识 ID。
 - 不把 `AdaptationHypothesis` 合并进 `LearnerModel`。
-- 不建立第二个课程正文仓库、个人课程版本页面或学生拖拽工作室。
+- 不建立第二个基础课程正文仓库、个人课程版本页面或学生拖拽工作室。
 - 不使用浏览停留、滚动或一次错误独立触发广域修改。
 - 不实现跨课程个性化、班级聚合、教师审核、PPT 反向编辑或视频生成。
 
@@ -77,23 +77,24 @@ SubjectKnowledgeLibrary
 - **让课程知识点必须映射跨课程正式 ID**：会把参考目录变成发布门禁，并迫使不同目标、不同颗粒度的课程共享错误身份。
 - **完全删除跨课程参考能力**：会损失术语规范、别名和生成校准价值；因此保留为非阻塞内部参考。
 
-### 2. 正式课程加候选投影，不建立第二份“个人版本”正文
+### 2. 基础课程加个人覆盖投影，不建立第二份课程正文
 
 正式状态仍是一个 `CourseDocument`。页面渲染时通过投影器合成：
 
 ```text
 CourseDocument
-+ PendingChangeOverlay
++ PendingAdaptationOverlay
++ PersonalCourseOverlay
 + InlineLearningRecordProjection
 + EphemeralAIProjection
 = RenderedPersonalCourse
 ```
 
-`PendingChangeOverlay` 只保存结构操作和差异，不复制完整课程。接受后由课程命令修改正式文档，候选退出活动投影。
+`PendingAdaptationOverlay` 只保存未确认方案差异；接受后由个人覆盖层仓库写入稀疏 `PersonalCourseOverlay`，方案退出待确认投影。基础 `CourseDocument / CourseKnowledgeBase` 在确认前后均保持不变。
 
 原因：
 
-- 用户需要长期看到未确认变化，但确认前不能污染正式课程。
+- 用户需要长期看到未确认变化，但个人适配永远不能污染基础课程。
 - 复制完整个人版本会重新引入版本包、合并和双真源问题。
 - 操作投影可以精确表现行级、块级和未来章节差异。
 
@@ -101,7 +102,7 @@ CourseDocument
 
 - **候选只放 AI 聊天中**：无法原位阅读、跨章节定位和长期保留。
 - **每个候选复制整门课程**：存储和冲突成本高，局部原因与差异丢失。
-- **AI 自动写正式课程再提供撤销**：用户在确认前已被改变，违反治理边界。
+- **AI 自动写基础课程再提供撤销**：个人证据越权改变所有学习者的课程，违反治理边界。
 
 ### 3. 原始证据、适应假设和正式模型三层分离
 
@@ -153,67 +154,58 @@ invalidate_or_shrink_existing_hypothesis
 - 完全交给模型会导致相同证据不稳定、拒绝冷却失效和范围漂移。
 - 混合模式可测试硬边界，又保留语义理解能力。
 
-### 5. 使用操作代数表达所有课程和知识变化
+### 5. 使用个人适配操作代数表达学习现场变化
 
 核心操作分三组：
 
 ```text
-Course operations
-  INSERT_BLOCK / PATCH_SPAN / PATCH_BLOCK / REPLACE_BLOCK
-  SPLIT_BLOCK / MERGE_BLOCKS / RESEQUENCE_BLOCKS
-  REMOVE_BLOCK / RESTORE_BLOCK
-  ADD_CHECKPOINT / ADD_REMEDIATION_PATH / ADJUST_DIFFICULTY_CONTRACT
-
-Knowledge operations
-  ADD / PATCH / SPLIT / MERGE / MOVE KNOWLEDGE_POINT
-  ADD / PATCH CONCEPT_GROUP / SKILL_UNIT / MISCONCEPTION / MASTERY_CRITERION
-  ADD / REMOVE KNOWLEDGE_RELATION
-
-Mapping operations
-  MAP / UNMAP / REMAP COURSE_OBJECT
+Personal overlay operations
+  PATCH_PERSONAL_SPAN / INSERT_PERSONAL_BLOCK / REPLACE_PERSONAL_BLOCK
+  HIDE_PERSONAL_BLOCK / RESEQUENCE_PERSONAL_PATH
+  ADD_CHECKPOINT / ADD_REMEDIATION_PATH / ADJUST_PERSONAL_DIFFICULTY
 ```
 
-每个操作都带目标、预期修订、before 引用、after 载荷、差异、依赖和质量状态。`CourseChangeSet` 是有向无环操作图，而不是一段模型建议。
+每个操作都带基础目标引用、预期基础修订、before 引用、个人 after 载荷、差异、依赖和质量状态。`PersonalAdaptationPlan` 是有向无环操作图，而不是一段模型建议。知识节点和绑定只能作为读取范围；需要修改基础课程或知识库时，另行生成 `CourseAuthoringChange` 建议。
 
 原因：
 
-- 操作是影响分析、部分接受、幂等、撤销、审计和未来 PPT 反向编辑的共同语言。
+- 个人操作是影响分析、部分接受、幂等、撤销和效果评价的共同语言。
 - 对行级补写使用整块替换会制造无关 diff 并增加冲突。
 - 对拆分、合并和重排必须显式保存身份映射，不能让模型自由覆盖 JSON。
 
 备选方案：
 
-- **继续只支持 `replace_block`**：无法表达用户要求的行级补写与结构变化。
+- **继续只支持附加说明块**：无法表达行级个人补充、支架变化和未来路径预调。
 - **保存 JSON Patch 作为唯一协议**：通用但没有教学语义，难以做领域质量门和锚点迁移。
 - **每种 UI 单独建接口**：确认、冲突和历史会再次分裂。
 
-### 6. 双向联动使用单一变更集和因果令牌
+### 6. 知识库只提供坐标与影响，基础改进走独立维护链
 
-课程、知识和映射操作可以出现在同一个变更集。影响分析器为每个派生操作保存：
+个人适配从 `CourseKnowledgeBase / KnowledgeBinding` 读取知识点、能力点、易错点、掌握标准和依赖范围，但不得把知识操作放入个人方案。若分析发现基础课程或知识库本身存在缺陷，只生成独立的维护者建议：
 
 ```text
-cause_operation_id
-cause_domain
-effect_domain
+source_personal_plan_id
+evidence_summary
+suggested_course_or_knowledge_scope
 impact_reason
 analysis_revision
 ```
 
-分析器以 `(change_set_id, cause_operation_id, effect_signature)` 去重。同一因果链的派生操作不会反向生成相同起因。若任一基础修订改变，整个相关子图过期并重算。
+维护者接受建议后进入 `CourseAuthoringChange`，使用基础课程自己的权限、质量门和发布流程。基础修订改变时，个人方案只重新定位、标记冲突或重算，不反向自动写入。
 
 原因：
 
-- 双向联动若使用两个独立队列，会无限“课程补知识、知识再补课程”。
-- 单一因果图能同时支持用户整组审阅和技术去重。
+- 教学共性缺陷与个人学习困难可能相关，但它们的责任人、证据门槛和影响范围不同。
+- 通过建议接口连接两条链，既能利用个人证据，也不会让个人数据直接污染基础课程。
 
-### 7. 跨域应用使用预检加可恢复命令组
+### 7. 个人覆盖层应用使用预检加可恢复操作组
 
 当前文件仓库不具备数据库事务，因此采用：
 
 1. 读取并固定完整 `base_revision_vector`。
-2. 对课程、知识、映射和资产执行只读预检与质量门。
+2. 对基础课程/知识引用、个人范围和覆盖操作执行只读预检与质量门。
 3. 写入状态为 `prepared` 的命令组日志和各域预期结果摘要。
-4. 按确定顺序写入领域对象，每步记录完成状态和新修订。
+4. 按确定顺序写入个人覆盖层，每步记录完成状态和新修订；不写基础课程领域对象。
 5. 所有步骤完成后写入 `committed` 回执。
 6. 进程重启时对 `prepared/applying` 命令组对账：若可幂等完成则继续，否则执行补偿并恢复原修订引用。
 
@@ -221,15 +213,15 @@ analysis_revision
 
 原因：
 
-- 简单顺序写文件会产生知识已变、课程未变的半应用状态。
+- 简单顺序写文件会产生个人操作只应用一半的状态。
 - 复制整份仓库快照回滚会覆盖并发合法变化。
 - 可恢复命令组与现有生成任务、块候选恢复思想一致，可在当前存储架构上实施。
 
-未来迁移到事务数据库时，仓库接口和领域语义保持不变，可将命令组提交替换为数据库事务。
+未来迁移到事务数据库时，仓库接口和领域语义保持不变，可将个人操作组提交替换为数据库事务。
 
 ### 8. 难度使用差异向量，不保存新的单一“当前等级”
 
-变更集中的 `difficulty_delta` 只描述相对当前课程契约的变化：
+个人适配方案中的 `difficulty_delta` 只描述相对基础课程契约的个人变化：
 
 ```text
 knowledge_granularity
@@ -245,7 +237,7 @@ feedback_frequency
 mastery_independence
 ```
 
-规划器必须把 delta 编译为具体操作。接受后更新受影响节点或块的难度契约，而不是把整门课程粗暴切换为 `beginner/intermediate/advanced`。
+规划器必须把 delta 编译为个人覆盖操作。接受后只更新受影响位置的个人支架、例子、任务或节奏覆盖，不修改基础课程难度契约，也不把整门课程粗暴切换为 `beginner/intermediate/advanced`。
 
 原因：
 
@@ -260,11 +252,11 @@ mastery_independence
 backend/course_knowledge_base.py
 backend/learning_evidence_index.py
 backend/adaptation_hypotheses.py
-backend/course_change_sets.py
-backend/course_change_planner.py
-backend/course_change_impact.py
-backend/course_change_quality.py
-backend/course_change_transactions.py
+backend/personal_adaptation_plans.py
+backend/personal_adaptation_planner.py
+backend/personal_adaptation_impact.py
+backend/personal_adaptation_quality.py
+backend/personal_course_overlay.py
 backend/routers/course_evolution.py
 ```
 
@@ -273,7 +265,7 @@ backend/routers/course_evolution.py
 前端建议由唯一 `courseEvolution` Store 管理：
 
 ```text
-pending change sets
+pending adaptation plans
 operation decisions
 scope preview
 generation/recovery state
@@ -284,7 +276,7 @@ receipts and history
 
 原因：
 
-- 同一候选会在多个入口出现，分散 Store 会形成重复确认和状态漂移。
+- 同一个人方案会在多个入口出现，分散 Store 会形成重复确认和状态漂移。
 - 按课程隔离便于删除、导出、性能分页和未来账号迁移。
 
 ### 10. 候选交互以原位差异加统一摘要为主
@@ -295,7 +287,7 @@ receipts and history
 - 新块保持正文宽度并带候选边缘标记。
 - 左侧目录显示未来章节待处理数量。
 - AI 老师显示本次变更理由、范围和对话解释。
-- 多操作变更集使用统一摘要抽屉或覆盖层，不新增课程工作室。
+- 多操作个人方案使用统一摘要抽屉或覆盖层，不新增课程工作室。
 
 移动：
 
@@ -364,38 +356,38 @@ receipts and history
 → 相关 Hypothesis 增量更新
 → 确定性门禁与动态范围判断
 → AdaptationIssue actionable
-→ 规划 CourseChangeSet
+→ 规划 PersonalAdaptationPlan
 → 生成各操作载荷
 → 影响分析
 → 质量门
 → pending 候选
 ```
 
-### 候选到正式变化
+### 方案到个人覆盖层
 
 ```text
 用户调整范围或逐项决定
 → 重新计算操作依赖和影响
 → 最终预检
-→ prepared command group
-→ 课程 / 知识 / 映射领域命令
+→ prepared personal operation group
+→ PersonalCourseOverlay 仓库
 → committed ActionReceipt
-→ 重新读取 CourseDocument / CourseKnowledgeBase / LearningRuntime
+→ 重新读取 CourseDocument / CourseKnowledgeBase / PersonalCourseOverlay / LearningRuntime
 → 候选退出活动投影
 → 建立 effect_baseline
 ```
 
 ## Quality Gates
 
-每个变更集至少经过：
+每个个人适配方案至少经过：
 
 1. **结构门**：目标存在、操作合法、依赖无环、位置合法、ID 与修订完整。
-2. **知识门**：概念组与原子知识点结构、六类关系端点和语义、能力与掌握要求、颗粒度和引用完整。
+2. **知识门**：读取的知识、能力、易错、掌握标准和依赖关系存在且引用完整；个人方案不得包含知识库写操作。
 3. **教学门**：修改与证据问题匹配，避免重复、断层、错误前置和无意义扩写。
 4. **难度门**：delta 与真实内容一致，拒绝只增长度、术语或题量。
-5. **资产门**：题目、掌握标准、媒体和目标引用未被静默破坏。
+5. **资产门**：基础题目、掌握标准、媒体和目标引用未被静默覆盖；个人新增检查明确标记为个人内容。
 6. **锚点门**：学习记录与历史事实能够保留、迁移或明确进入待确认。
-7. **权限门**：当前用户、当前课程和作用范围合法，未跨课程共享知识身份，也未写入可选参考目录。
+7. **权限门**：当前用户、当前课程和作用范围合法，只写当前用户 `PersonalCourseOverlay`，未写基础课程、课程知识库、其他用户或可选参考目录。
 8. **差异门**：候选有实质变化，且没有覆盖范围外内容。
 
 硬错误不得被综合分数掩盖。模型质量检查失败时最多按明确修订指令重试，不能无限自循环。
@@ -405,8 +397,8 @@ receipts and history
 - **[风险] 每条输入都登记导致数据量快速增长** → 只保存源对象引用、内容指纹和必要索引；按课程分片，支持增量摘要和分页，不复制全文。
 - **[风险] AI 过度解释局部证据并频繁改课** → 动态范围门槛、反证、拒绝冷却、同义候选去重和广域更强证据门。
 - **[风险] 候选长期堆积使正文难读** → 同一目标与问题合并候选，目录显示数量，正文只显示当前位置差异，提供统一待处理摘要和批量处理。
-- **[风险] 双向知识联动无限循环** → 单一变更集、因果令牌、效果签名去重和修订重算。
-- **[风险] 文件仓库跨域半应用** → 预检、prepared 日志、逐步回执、启动对账和补偿，不使用整库快照覆盖。
+- **[风险] 个人问题被误当成基础课程缺陷** → 只形成维护者建议，不自动进入基础课程写链。
+- **[风险] 文件仓库个人操作半应用** → 预检、prepared 日志、逐步回执、启动对账和补偿，不使用整库快照覆盖。
 - **[风险] 拆分合并破坏笔记和历史作答** → 稳定 ID、墓碑、旧新映射、文本锚点重解析和歧义待确认。
 - **[风险] 候选中的练习污染掌握** → 所有候选交互绑定 candidate ID，只进入效果分析；正式任务需接受并通过资产质量门。
 - **[风险] 大课程全局影响分析过慢** → 依赖索引、按受影响子图计算、后台生成、流式状态和可取消任务；阅读主链不等待分析。
@@ -418,17 +410,17 @@ receipts and history
 
 ## Migration Plan
 
-### 1. 先增加只读与新对象，不改变现有正式写入
+### 1. 先增加只读引用与个人对象，不改变基础课程
 
-- 增加 `CourseKnowledgeBase`、证据索引、假设和变更集仓库接口。
+- 增加 `CourseKnowledgeBase` 只读消费、证据索引、假设、个人适配方案和覆盖层仓库接口。
 - 对现有课程从 `CourseDocument`、正文块、目标、学习资产和资料运行独立知识化任务；不能确认原子知识时标记 `degraded / needs_enrichment`，禁止用章节标题确定性伪造知识点。
 - 新增读取接口和内部影子评估，先验证不影响现有学习主链。
 
-### 2. 迁移旧块候选
+### 2. 分流旧状态
 
-- 将旧单块候选幂等映射为单个 `REPLACE_BLOCK` 操作的变更集。
-- 保留旧候选 ID 作为迁移引用，确认与恢复统一调用新服务。
-- 新前端消费者通过验收后，旧候选应用逻辑退出，只保留必要响应适配。
+- 旧单块正式正文候选保留在基础课程维护链，不迁入个人适配。
+- 旧 `adaptive_blocks` 和已接受个人补充幂等映射为 `PersonalAdaptationPlan / PersonalCourseOverlay`。
+- 保留旧个人适配 ID 作为迁移引用；新前端通过验收后，旧个人投影逻辑只保留读取适配。
 
 ### 3. 接入证据与局部候选
 
@@ -436,29 +428,29 @@ receipts and history
 - 只开启明确局部请求的动态候选，验证误触发、冷却和冲突。
 - 再接入多源假设、后续章节预调和广域范围推荐。
 
-### 4. 接入完整结构命令
+### 4. 接入完整个人覆盖操作
 
-- 按 `PATCH_SPAN / INSERT / SPLIT / MERGE / RESEQUENCE / REMOVE` 依次实现命令和锚点迁移。
+- 按 `PATCH_PERSONAL_SPAN / INSERT_PERSONAL_BLOCK / REPLACE_PERSONAL_BLOCK / HIDE_PERSONAL_BLOCK / RESEQUENCE_PERSONAL_PATH` 依次实现个人操作和锚点迁移。
 - 每接管一种操作就删除或拒绝对应旁路写入口。
-- 全部操作通过单一变更集协议后，再启用部分接受和批量事务。
+- 全部操作通过单一个人方案协议后，再启用部分接受和批量个人操作组。
 
-### 5. 接入知识双向联动
+### 5. 接入知识坐标与维护者建议
 
-- 先启用课程到知识的只读影响提示。
-- 再启用知识候选和知识到课程关联候选。
-- 最后启用跨域命令组、循环抑制和恢复对账。
+- 先让个人方案读取知识、能力、易错、掌握标准和依赖范围。
+- 再实现基础课程变化后的个人覆盖重定位和冲突提示。
+- 最后实现“重复个人问题 → 基础课程改进建议”，但建议只能进入独立 `CourseAuthoringChange` 维护流程。
 
 ### 6. 前端收束与旧状态退役
 
 - 建立唯一 `courseEvolution` Store。
 - 让正文、目录、知识库和 AI 老师消费同一候选状态。
-- 旧 `adaptive_blocks` 只保留即时临时解释语义；任何持久课程变化改走变更集。
+- 旧 `adaptive_blocks` 只保留即时临时解释语义；任何持久个人变化改走 `PersonalAdaptationPlan / PersonalCourseOverlay`。
 - 完成中英文、多视口、断网、刷新、重启和并发验收后删除旧平行状态。
 
 ### 回滚策略
 
 - 新对象和接口以功能开关分阶段启用；关闭时现有正式课程读取与学习主链继续工作。
-- 未确认候选可以停用投影而不影响正式课程。
+- 未确认方案可以停用投影而不影响基础课程；已确认覆盖也可独立撤销。
 - 已接受变化使用操作日志和补偿命令撤销，禁止恢复整门课程旧快照。
 - 迁移保留旧 ID 映射和迁移回执；重复运行必须幂等。
 
