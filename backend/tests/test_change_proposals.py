@@ -511,39 +511,31 @@ async def test_regenerate_route_generates_candidate_before_replacing_item(tmp_pa
 
 
 def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeypatch):
-    """Route-level: an item whose target_kind is "kg_node" must never reach
-    the course-block lookup (which would previously 404 with a misleading
-    "Course block not found"). When the course's subject resolves to a real
-    curated knowledge library, applying it now succeeds by recording an
-    operator review-acknowledgement on the catalog node (see
-    `change_proposals.apply_kg_node_item`), instead of the old unconditional
-    409."""
+    """Accepting a knowledge-node proposal records an immutable sidecar review."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    import shutil
-
     import routers.change_proposals as change_proposals_router
-    import storage as storage_module
-    import subject_knowledge
+    from subject_library_repository import SubjectLibraryRepository
+    from subject_ontology import build_subject_ontology
 
-    # Isolate the curated catalog directory so this test's write doesn't
-    # mutate the real production catalog file on disk.
-    catalog_copy = tmp_path / "catalogs"
-    catalog_copy.mkdir()
-    shutil.copy(
-        subject_knowledge.CATALOG_DIR / "debate-logic-v1.json",
-        catalog_copy / "debate-logic-v1.json",
+    course = legacy_course()
+    course["subject"] = "数据结构"
+    library_repository = SubjectLibraryRepository(tmp_path / "subject_libraries")
+    library = library_repository.save_revision(build_subject_ontology(course))
+    course["knowledge_library_binding"] = library_repository.binding_for(library)
+    knowledge_id = next(
+        node["knowledge_id"]
+        for node in library["nodes"]
+        if node["node_type"] == "knowledge_point"
     )
-    monkeypatch.setattr(subject_knowledge, "CATALOG_DIR", catalog_copy)
-    subject_knowledge.load_subject_library.cache_clear()
-    subject_knowledge.available_subject_libraries.cache_clear()
+    revision_before = library_repository.load_revision(
+        library["library_id"], library["revision_id"]
+    )
 
-    class _Storage:
-        def load_course(self, _course_id: str) -> dict:
-            return {"course_id": "course-1", "course_name": "辩论：逻辑构建与实战技巧"}
-
-    monkeypatch.setattr(storage_module, "storage", _Storage())
+    class _CourseRepository:
+        def load_course_view(self, _course_id: str) -> dict:
+            return deepcopy(course)
 
     proposals = ChangeProposalRepository(tmp_path / "change_proposals")
     proposal = create_proposal(
@@ -551,17 +543,17 @@ def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeyp
         "course-1",
         request_id="req-kg-node",
         scope="block",
-        target_block_ids=["debate.logic.argument.claim"],
+        target_block_ids=[knowledge_id],
         items=[
             {
-                "block_id": "debate.logic.argument.claim",
+                "block_id": knowledge_id,
                 "target_kind": "kg_node",
-                "before": {"name": "论点（Claim）"},
+                "before": {"name": "formal knowledge node"},
                 "after": {
-                    "note": "课程正文已变更，建议核对该知识节点定义是否需要同步更新。",
+                    "note": "Course content changed; review the formal definition.",
                     "source_block_id": "block-1",
                 },
-                "reason": "内容变更同步到知识库节点",
+                "reason": "Synchronize a reviewed content change",
             }
         ],
     )
@@ -573,6 +565,17 @@ def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeyp
         "get_change_proposal_repository",
         lambda: proposals,
     )
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_course_document_repository",
+        lambda: _CourseRepository(),
+    )
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_subject_library_repository",
+        lambda: library_repository,
+        raising=False,
+    )
 
     app = FastAPI()
     app.include_router(change_proposals_router.router, prefix="")
@@ -583,7 +586,6 @@ def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeyp
         headers={"X-User-Id": "user-1"},
     )
 
-    assert response.status_code != 404
     assert response.status_code == 200
 
     reloaded = proposals.load(proposal["proposal_id"])
@@ -591,31 +593,14 @@ def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeyp
     assert item["status"] == "applied"
     assert item["receipt"]["kind"] == "kg_node_review_acknowledged"
     assert item["receipt"]["reviewed_by"] == "user-1"
-
-    # The review note is preserved on the raw curated catalog file (an audit
-    # trail for the human maintainer), not surfaced through the normalized
-    # runtime view `load_subject_library` returns.
-    import json
-
-    raw = json.loads((catalog_copy / "debate-logic-v1.json").read_text(encoding="utf-8"))
-
-    def find_node(node: dict, knowledge_id: str) -> dict | None:
-        if node.get("knowledge_id") == knowledge_id:
-            return node
-        for child in node.get("children") or []:
-            found = find_node(child, knowledge_id)
-            if found:
-                return found
-        return None
-
-    raw_node = find_node(raw["tree"], "debate.logic.argument.claim")
-    assert raw_node["review_notes"][0]["source_block_id"] == "block-1"
-
-    # Clear caches while still pointed at the tmp catalog dir, so the next
-    # real lookup (once monkeypatch reverts CATALOG_DIR) re-reads the real,
-    # untouched production catalog instead of this test's cached copy.
-    subject_knowledge.load_subject_library.cache_clear()
-    subject_knowledge.available_subject_libraries.cache_clear()
+    reviews = library_repository.list_node_reviews(
+        library["library_id"], library["revision_id"], knowledge_id
+    )
+    assert reviews[0]["source_block_id"] == "block-1"
+    assert reviews[0]["proposal_id"] == proposal["proposal_id"]
+    assert library_repository.load_revision(
+        library["library_id"], library["revision_id"]
+    ) == revision_before
 
 
 def test_router_rejects_kg_node_item_apply_with_409_when_library_unresolvable(tmp_path, monkeypatch):
@@ -627,13 +612,12 @@ def test_router_rejects_kg_node_item_apply_with_409_when_library_unresolvable(tm
     from fastapi.testclient import TestClient
 
     import routers.change_proposals as change_proposals_router
-    import storage as storage_module
+    from subject_library_repository import SubjectLibraryRepository
 
-    class _Storage:
-        def load_course(self, _course_id: str) -> dict:
+    class _CourseRepository:
+        def load_course_view(self, _course_id: str) -> dict:
             return {"course_id": "course-1", "course_name": "一门无法匹配任何知识库的课程"}
 
-    monkeypatch.setattr(storage_module, "storage", _Storage())
     # The reject path records rejection evidence via `learning_events`, which
     # binds its own `storage` reference at import time (`from storage import
     # storage`) - patching `storage_module.storage` above does not affect it,
@@ -665,6 +649,17 @@ def test_router_rejects_kg_node_item_apply_with_409_when_library_unresolvable(tm
         change_proposals_router,
         "get_change_proposal_repository",
         lambda: proposals,
+    )
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_course_document_repository",
+        lambda: _CourseRepository(),
+    )
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_subject_library_repository",
+        lambda: SubjectLibraryRepository(tmp_path / "subject_libraries"),
+        raising=False,
     )
 
     app = FastAPI()
