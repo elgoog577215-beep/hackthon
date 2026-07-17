@@ -10,12 +10,13 @@ export type ChangeProposalItemStatus = 'pending' | 'applied' | 'rejected'
 export type ChangeProposalStatus = 'pending' | 'resolved'
 
 // 并行后端 agent 可能为 item 追加的可选字段，缺省按 course_block 处理。
-export type ChangeProposalItemTargetKind = 'course_block' | 'kg_node'
+export type ChangeProposalItemTargetKind = 'course_block' | 'course_objective' | 'kg_node'
 
 export interface ChangeProposalBlockPayload {
   markdown?: string
   summary?: string
   title?: string
+  learning_objective?: string
   [key: string]: unknown
 }
 

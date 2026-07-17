@@ -40,13 +40,11 @@ ChangeProposalSource = Literal[
 ChangeWriteTarget = Literal["base_course", "personal_overlay", "knowledge_review"]
 ChangeProposalStatus = Literal["pending", "resolved"]
 ChangeProposalItemStatus = Literal["pending", "applied", "rejected"]
-# Only allowed change: added to distinguish an item whose `block_id` actually
-# names a course content block (the pre-existing, only supported meaning) from
-# one where `block_id` names a knowledge-graph node id (used by the course<->KB
-# linkage feature in course_knowledge_map.py / subject_knowledge.py). Defaults
-# to "course_block" so every pre-existing caller/proposal is unaffected.
-ChangeProposalTargetKind = Literal["course_block", "kg_node"]
-_TARGET_KINDS = {"course_block", "kg_node"}
+# ``block_id`` is retained as the compatibility identifier field. Its actual
+# entity type is explicit so authoring changes never disguise a section
+# learning-objective update as a content-block replacement.
+ChangeProposalTargetKind = Literal["course_block", "course_objective", "kg_node"]
+_TARGET_KINDS = {"course_block", "course_objective", "kg_node"}
 
 
 class ChangeProposalNotFound(KeyError):
@@ -203,8 +201,8 @@ def create_proposal(
 
     Each entry in `items` MUST already contain: `block_id`, `before`, `after`,
     `reason`. `item_id` is assigned here if missing. `target_kind` is optional
-    and defaults to "course_block"; pass "kg_node" when `block_id` actually
-    names a knowledge-graph node id rather than a course content block.
+    and defaults to "course_block"; pass "course_objective" when `block_id`
+    names a section id, or "kg_node" when it names a knowledge-graph node id.
     """
     if not target_block_ids:
         raise ValueError("target_block_ids must explicitly list every affected node")
@@ -384,6 +382,88 @@ async def apply_item(
         return target.get("status") == "pending"
 
     updated, changed = repository.update_if(proposal_id, _predicate, _apply_updater)
+    if not changed:
+        latest_item = _find_item(updated, item_id)
+        raise ChangeProposalConflict(
+            f"Item cannot be applied from status {latest_item.get('status')}",
+            proposal=updated,
+        )
+    return updated
+
+
+async def apply_objective_item(
+    repository: ChangeProposalRepository,
+    command_service: CourseCommandService,
+    proposal_id: str,
+    item_id: str,
+    *,
+    expected_document_revision: str,
+    actor: str,
+) -> dict[str, Any]:
+    """Apply a section learning-objective authoring change to the course truth."""
+    proposal = repository.load(proposal_id)
+    if proposal.get("write_target") not in {None, "base_course"}:
+        raise ChangeProposalConflict(
+            "This change does not target the base course document",
+            proposal=proposal,
+        )
+    item = _find_item(proposal, item_id)
+    if (item.get("target_kind") or "course_block") != "course_objective":
+        raise ChangeProposalConflict(
+            "Change item does not target a course learning objective",
+            proposal=proposal,
+        )
+    if item.get("status") != "pending":
+        raise ChangeProposalConflict(
+            f"Item cannot be applied from status {item.get('status')}",
+            proposal=proposal,
+        )
+    before = item.get("before")
+    after = item.get("after")
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        raise ChangeProposalConflict(
+            "Course objective change requires structured before and after values",
+            proposal=proposal,
+        )
+    expected_objective_revision = str(before.get("objective_revision_id") or "")
+    next_objective = str(after.get("learning_objective") or "").strip()
+    if not expected_objective_revision or not next_objective:
+        raise ChangeProposalConflict(
+            "Course objective change is missing its revision or target value",
+            proposal=proposal,
+        )
+
+    try:
+        receipt = await command_service.update_section_objective(
+            proposal["course_id"],
+            command_id=f"change-proposal-{proposal_id}-{item_id}",
+            expected_document_revision=expected_document_revision,
+            expected_objective_revision=expected_objective_revision,
+            section_id=str(item["block_id"]),
+            learning_objective=next_objective,
+            reason=str(item.get("reason") or "课程目标变更应用"),
+            actor=actor,
+        )
+    except CourseDocumentConflict as exc:
+        raise ChangeProposalConflict(str(exc), proposal=proposal) from exc
+
+    def _apply_updater(current: dict[str, Any]) -> dict[str, Any]:
+        target = _find_item(current, item_id)
+        if target.get("status") != "pending":
+            raise ChangeProposalConflict(
+                f"Item cannot be applied from status {target.get('status')}",
+                proposal=current,
+            )
+        target["status"] = "applied"
+        target["resolved_at"] = _now()
+        target["receipt"] = receipt
+        return _recompute_status(current)
+
+    updated, changed = repository.update_if(
+        proposal_id,
+        lambda current: _find_item(current, item_id).get("status") == "pending",
+        _apply_updater,
+    )
     if not changed:
         latest_item = _find_item(updated, item_id)
         raise ChangeProposalConflict(

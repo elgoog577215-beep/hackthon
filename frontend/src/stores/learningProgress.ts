@@ -361,6 +361,24 @@ export const useLearningProgressStore = defineStore('learningProgress', {
       }
     },
 
+    async recordAdaptiveBlockInteraction(
+      courseId: string,
+      block: AdaptiveLearningBlock,
+      interaction: 'animation_played' | 'validation_started',
+    ) {
+      try {
+        await http.post(`/api/courses/${courseId}/learning-runtime/adaptive-blocks/interactions`, {
+          adaptive_block_id: block.adaptive_block_id,
+          node_id: block.anchor.node_id,
+          interaction,
+        })
+        return true
+      } catch (error) {
+        logger.warn('Adaptive block interaction deferred', error)
+        return false
+      }
+    },
+
     async deferRisk(courseId: string, riskId: string, nodeId?: string) {
       if (!this.continuation) return null
       const res = await http.post(`/api/courses/${courseId}/learning-continuation/risks/${riskId}/defer`, {

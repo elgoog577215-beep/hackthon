@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import CourseNavigatorNode from '@/components/CourseNavigatorNode.vue'
 import { useCourseStore } from '@/stores/course'
+import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import { useLearningProgressStore } from '@/stores/learningProgress'
 import type { Node } from '@/stores/types'
 
@@ -57,12 +58,13 @@ describe('course navigator personal adaptation markers', () => {
     expect(wrapper.findAll('.adaptation-marker')).toHaveLength(2)
   })
 
-  it('已应用方案不再占用待处理目录标记', () => {
+  it('已应用但未复验的方案显示蓝色应用状态', () => {
     useLearningProgressStore().runtime = {
       course_evolution: {
         adaptation_plans: [{
           change_set_id: 'plan-1',
           status: 'applied',
+          effect_evaluation: { status: 'insufficient_evidence' },
           impact_summary: { affected_section_ids: ['section-1'] },
           operations: [{ target_section_id: 'section-1' }],
         }],
@@ -73,6 +75,43 @@ describe('course navigator personal adaptation markers', () => {
       props: { node, depth: 0 },
     })
 
-    expect(wrapper.find('.adaptation-marker').exists()).toBe(false)
+    expect(wrapper.find('.adaptation-marker').text()).toContain('已应用')
+    expect(wrapper.find('.adaptation-marker').attributes('data-state')).toBe('active')
+  })
+
+  it('后续正式证据通过后保留绿色个人生长标记', () => {
+    const progressStore = useLearningProgressStore()
+    progressStore.courseId = 'course-1'
+    progressStore.runtime = {
+      course_evolution: {
+        adaptation_plans: [{
+          change_set_id: 'plan-1',
+          status: 'applied',
+          effect_evaluation: { status: 'insufficient_evidence' },
+          impact_summary: { affected_section_ids: ['section-1'] },
+          operations: [{ target_section_id: 'section-1' }],
+        }],
+      },
+    } as any
+    const evolutionStore = useCourseEvolutionStore()
+    evolutionStore.courseId = 'course-1'
+    evolutionStore.adaptationPlans = [{
+      change_set_id: 'plan-1',
+      hypothesis_id: 'hypothesis-1',
+      evidence_ids: ['evidence-1'],
+      operations: [{ operation_id: 'operation-1', operation_type: 'ADD_ANIMATION', target_block_id: 'block-1', target_section_id: 'section-1', scope: 'current', reason: '', payload: {} }],
+      allowed_scopes: ['current'],
+      impact_summary: { affected_section_ids: ['section-1'] },
+      expected_effect: '',
+      status: 'applied',
+      effect_evaluation: { status: 'effective' },
+    }]
+
+    const wrapper = mount(CourseNavigatorNode, {
+      props: { node, depth: 0 },
+    })
+
+    expect(wrapper.find('.adaptation-marker').text()).toContain('已生长')
+    expect(wrapper.find('.adaptation-marker').attributes('data-state')).toBe('validated')
   })
 })

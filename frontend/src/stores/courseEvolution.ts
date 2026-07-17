@@ -20,6 +20,15 @@ export interface EvolutionOperation {
   payload: Record<string, any>
 }
 
+export interface AdaptationHypothesis {
+  hypothesis_id: string
+  claim: string
+  confidence: number
+  confidence_reasons: string[]
+  validation_plan: string
+  status: string
+}
+
 export interface PersonalAdaptationPlan {
   plan_id?: string
   plan_kind?: 'personal_adaptation_plan'
@@ -42,7 +51,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
   state: () => ({
     courseId: '',
     evidenceItems: [] as EvolutionEvidence[],
-    hypotheses: [] as Array<Record<string, any>>,
+    hypotheses: [] as AdaptationHypothesis[],
     adaptationPlans: [] as PersonalAdaptationPlan[],
     personalCourseOverlay: null as Record<string, any> | null,
     permissions: null as Record<string, any> | null,

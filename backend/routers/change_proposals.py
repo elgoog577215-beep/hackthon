@@ -20,6 +20,7 @@ from change_proposals import (
     ChangeProposalRepository,
     apply_item,
     apply_kg_node_item,
+    apply_objective_item,
     change_proposal_repository,
     reject_item,
     regenerate_item,
@@ -139,43 +140,55 @@ async def apply_change_proposal_item(
                 break
         if block_id is None:
             raise ChangeProposalNotFound(item_id)
-        if target_kind != "course_block":
+        actor = require_user_id(request.headers.get("X-User-Id"))
+        if target_kind == "kg_node":
             return apply_kg_node_item(
                 repository,
                 proposal_id,
                 item_id,
-                actor=require_user_id(request.headers.get("X-User-Id")),
+                actor=actor,
                 course_data=course_repository.load_course_view(course_id),
                 library_repository=get_subject_library_repository(),
             )
         document, canonical = course_repository.load_document(course_id)
         if not canonical:
             raise HTTPException(status_code=409, detail="Course must be migrated before applying changes")
-        target = next((b for b in document.blocks if b.block_id == block_id), None)
-        if target is None:
-            raise HTTPException(status_code=404, detail="Course block not found")
-        result = await apply_item(
-            repository,
-            command_service,
-            proposal_id,
-            item_id,
-            expected_document_revision=document.document_revision,
-            expected_block_revision=target.internal_revision,
-            actor=require_user_id(request.headers.get("X-User-Id")),
-        )
-        # Content -> knowledge-base linkage trigger point: a block's content just
-        # became canonical via this change-proposal item. Best-effort and
-        # non-fatal, same reasoning as in routers/block_regeneration.py.
-        try:
-            course_view = course_repository.load_course_view(course_id)
-            propose_kb_linkage_from_block_change(
-                course_view,
-                str(block_id),
-                repository=repository,
-                request_id=f"kb-link-change-proposal-{proposal_id}-{item_id}",
+        if target_kind == "course_objective":
+            result = await apply_objective_item(
+                repository,
+                command_service,
+                proposal_id,
+                item_id,
+                expected_document_revision=document.document_revision,
+                actor=actor,
             )
-        except Exception:
-            pass
+        else:
+            target = next((b for b in document.blocks if b.block_id == block_id), None)
+            if target is None:
+                raise HTTPException(status_code=404, detail="Course block not found")
+            result = await apply_item(
+                repository,
+                command_service,
+                proposal_id,
+                item_id,
+                expected_document_revision=document.document_revision,
+                expected_block_revision=target.internal_revision,
+                actor=actor,
+            )
+            # Content -> knowledge-base linkage trigger point: a block's content
+            # just became canonical via this change-proposal item. Objective
+            # updates have their own revision source and must not masquerade as
+            # block-content edits.
+            try:
+                course_view = course_repository.load_course_view(course_id)
+                propose_kb_linkage_from_block_change(
+                    course_view,
+                    str(block_id),
+                    repository=repository,
+                    request_id=f"kb-link-change-proposal-{proposal_id}-{item_id}",
+                )
+            except Exception:
+                pass
         if proposal.get("write_target", "base_course") == "base_course":
             result["representation_sync"] = await run_in_threadpool(
                 synchronize_teaching_representations,

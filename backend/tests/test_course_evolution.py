@@ -161,6 +161,7 @@ def test_three_independent_evidence_sources_create_explainable_multi_scope_candi
     assert len(state.hypotheses) == 1
     hypothesis = state.hypotheses[0]
     assert hypothesis.status == "candidate_created"
+    assert hypothesis.claim == "学习者会执行计算，但尚未理解复合变换的先后顺序。"
     assert hypothesis.recommended_scope == "current_and_next"
     assert len(hypothesis.affected_block_ids) == 4
     change_set = state.change_sets[0]
@@ -295,6 +296,7 @@ def test_ai_question_is_anchored_to_course_knowledge_and_relations_drive_scope(
     )
 
     question = next(item for item in state.evidence_items if item.evidence_kind == "learner_question")
+    hypothesis = state.hypotheses[0]
     plan = state.change_sets[0]
     assert question.anchor.knowledge_node_ids
     assert question.anchor.ability_point_ids
@@ -302,6 +304,12 @@ def test_ai_question_is_anchored_to_course_knowledge_and_relations_drive_scope(
     assert plan.impact_summary["knowledge_labels"] == ["矩阵复合含义"]
     assert "解释复合顺序" in plan.impact_summary["ability_labels"]
     assert "把矩阵乘法只理解为行乘列" in plan.impact_summary["misconception_labels"]
+    assert hypothesis.claim == "学习者会执行计算，但尚未理解复合变换的先后顺序。"
+    assert plan.impact_summary["diagnosis"] == hypothesis.claim
+    assert plan.impact_summary["validation_plan"] == hypothesis.validation_plan
+    assert plan.impact_summary["evidence_source_types"] == [
+        "learning_event", "learning_record", "practice_attempt",
+    ]
     assert related.block_id in plan.impact_summary["dependent_block_ids"]
     assert plan.operations[3].target_block_id == related.block_id
     animation = next(item for item in plan.operations if item.operation_type == "ADD_ANIMATION")
@@ -428,16 +436,18 @@ def test_ineffective_adaptation_creates_reviewable_replacement_and_replaces_atom
     assert personal_course_overlay(applied).active_plan_ids == [replacement.change_set_id]
 
 
-@pytest.mark.parametrize(("feedback", "later_results", "expected", "action"), [
-    ("helpful", [True], "effective", "keep"),
-    ("not_helpful", [False, False], "harmful", "rollback"),
-    ("", [], "insufficient_evidence", "collect_more_evidence"),
+@pytest.mark.parametrize(("feedback", "later_results", "interaction", "expected", "action"), [
+    ("helpful", [True], False, "effective", "keep"),
+    ("", [True], True, "effective", "keep"),
+    ("not_helpful", [False, False], False, "harmful", "rollback"),
+    ("", [], False, "insufficient_evidence", "collect_more_evidence"),
 ])
 def test_effect_evaluation_uses_later_learning_evidence_not_acceptance(
     tmp_path,
     monkeypatch,
     feedback,
     later_results,
+    interaction,
     expected,
     action,
 ):
@@ -477,6 +487,16 @@ def test_effect_evaluation_uses_later_learning_evidence_not_acceptance(
             "metadata": {"adaptive_block_id": plan.operations[0].operation_id},
             "created_at": "2099-01-01T00:00:00+00:00",
         })
+    if interaction:
+        events.append({
+            "event_id": "interaction-animation",
+            "event_type": "adaptive_block_interaction",
+            "course_id": document.course_id,
+            "node_id": "section-1",
+            "result": {"interaction": "animation_played"},
+            "metadata": {"adaptive_block_id": plan.operations[1].operation_id},
+            "created_at": "2099-01-01T00:00:00+00:00",
+        })
     attempts = [{
         "attempt_id": "attempt-before",
         "status": "graded",
@@ -502,6 +522,8 @@ def test_effect_evaluation_uses_later_learning_evidence_not_acceptance(
     result = next(item for item in evaluated.change_sets if item.change_set_id == plan.change_set_id)
     assert result.effect_evaluation["status"] == expected
     assert result.effect_evaluation["recommended_action"] == action
+    if interaction:
+        assert result.effect_evaluation["interaction_event_ids"] == ["interaction-animation"]
     if expected == "harmful":
         assert result.effect_evaluation["follow_up_candidate"]["candidate_type"] == "rollback_personal_adaptation"
 

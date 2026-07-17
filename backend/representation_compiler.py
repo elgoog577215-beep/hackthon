@@ -38,12 +38,21 @@ def compile_core_representations(
     *,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] | None = None,
+    baseline_registry: Any | None = None,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     vector = revision_vector_for_document(document).revisions
+    baseline = baseline_registry or repository.load(document.course_id)
     existing_by_type = {
         item.representation_type: item
-        for item in repository.load(document.course_id).representations
+        for item in baseline.representations
+    }
+    existing_specs_by_type = {
+        item.representation_type: next(
+            (spec for spec in baseline.specs if spec.spec_id == item.spec_id),
+            None,
+        )
+        for item in baseline.representations
     }
     plan = RepresentationPlan(
         plan_id=stable_hash({
@@ -84,6 +93,18 @@ def compile_core_representations(
     }
     built: list[dict[str, Any]] = []
     for representation_type, payload in payloads.items():
+        existing = existing_by_type.get(representation_type)
+        existing_spec = existing_specs_by_type.get(representation_type)
+        payload, reused_unit_ids = _reuse_unchanged_units(
+            payload,
+            (existing_spec.payload.get("content") if existing_spec else None) or {},
+            stale_unit_ids=(
+                list(existing.stale_unit_ids)
+                if existing and existing.status == "stale"
+                else []
+            ),
+            reuse_all=bool(existing and existing.status == "ready"),
+        )
         unit_bindings = _unit_bindings_for_payload(document, payload)
         bindings = _dedupe_bindings([
             binding
@@ -171,10 +192,11 @@ def compile_core_representations(
             "status": representation_status,
             "unit_count": unit_count,
             "rebuilt_unit_ids": list(
-                (existing_by_type.get(representation_type).stale_unit_ids)
-                if existing_by_type.get(representation_type)
+                existing.stale_unit_ids
+                if existing
                 else []
             ),
+            "reused_unit_ids": reused_unit_ids,
         })
         if progress_callback and representation_type != "slide_deck":
             progress_callback({
@@ -221,6 +243,7 @@ def rebuild_core_representations_safely(
                 shadow,
                 progress_callback=progress_callback,
                 presentation_overrides=presentation_overrides,
+                baseline_registry=previous,
             )
             candidate = shadow.load(document.course_id)
             current_spec_ids = {item.spec_id for item in candidate.representations}
@@ -262,6 +285,14 @@ def rebuild_core_representations_safely(
                     }
                     for item in build["representations"]
                 ],
+                "rebuilt_unit_count": sum(
+                    len(stale_by_type.get(item["representation_type"], []))
+                    for item in build["representations"]
+                ),
+                "reused_unit_count": sum(
+                    len(item.get("reused_unit_ids") or [])
+                    for item in build["representations"]
+                ),
                 "registry_revision": committed.registry_revision,
             }
             if progress_callback:
@@ -337,6 +368,51 @@ def validate_compiled_representations(specs: list[TeachingRepresentationSpec]) -
     }
 
 
+def _reuse_unchanged_units(
+    candidate: dict[str, Any],
+    previous: dict[str, Any],
+    *,
+    stale_unit_ids: list[str],
+    reuse_all: bool,
+) -> tuple[dict[str, Any], list[str]]:
+    """Publish changed units while preserving byte-identical unaffected units.
+
+    A full candidate is still compiled and quality-checked in isolation. Reuse
+    is allowed only when the unit topology is unchanged, so structural edits
+    fall back to the complete candidate instead of hiding additions/removals.
+    """
+    candidate_key = next(
+        (key for key in ("units", "slides", "sections") if isinstance(candidate.get(key), list)),
+        "",
+    )
+    previous_key = next(
+        (key for key in ("units", "slides", "sections") if isinstance(previous.get(key), list)),
+        "",
+    )
+    if not candidate_key or candidate_key != previous_key:
+        return candidate, []
+    candidate_units = candidate[candidate_key]
+    previous_units = previous[previous_key]
+    candidate_ids = [str(item.get("unit_id") or "") for item in candidate_units]
+    previous_by_id = {
+        str(item.get("unit_id") or ""): item
+        for item in previous_units
+        if item.get("unit_id")
+    }
+    if not all(candidate_ids) or set(candidate_ids) != set(previous_by_id):
+        return candidate, []
+    stale = set(stale_unit_ids)
+    if not reuse_all and not stale:
+        return candidate, []
+    reusable = set(candidate_ids) if reuse_all else set(candidate_ids) - stale
+    merged = deepcopy(candidate)
+    merged[candidate_key] = [
+        deepcopy(previous_by_id[unit_id]) if unit_id in reusable else item
+        for unit_id, item in zip(candidate_ids, candidate_units, strict=True)
+    ]
+    return merged, sorted(reusable)
+
+
 def _outline_spec(document: CourseDocument) -> dict[str, Any]:
     blocks_by_section = _blocks_by_section(document)
     sections = []
@@ -352,6 +428,11 @@ def _outline_spec(document: CourseDocument) -> dict[str, Any]:
             "learning_objective": section.learning_objective,
             "objective_id": section.objective_id,
             "source_section_ids": [section.section_id],
+            "source_keys": (
+                [f"objective:{section.objective_id}"]
+                if section.objective_id
+                else []
+            ),
             "source_block_ids": [block.block_id for block in blocks],
             "block_roles": [block.role for block in blocks],
             "knowledge_refs": _knowledge_refs_for_blocks(blocks),
@@ -371,7 +452,13 @@ def _lesson_plan_spec(document: CourseDocument, course_data: dict[str, Any]) -> 
             "title": section.title,
             "learning_objective": section.learning_objective,
             "duration_minutes": minutes,
+            "source_section_ids": [section.section_id],
             "source_block_ids": [block.block_id for block in blocks],
+            "source_keys": (
+                [f"objective:{section.objective_id}"]
+                if section.objective_id
+                else []
+            ),
             "activities": [
                 {"phase": "导入", "minutes": max(2, minutes // 8), "prompt": f"从已有经验进入“{section.title}”"},
                 {"phase": "建构", "minutes": max(6, minutes // 2), "prompt": _section_summary(blocks)},
@@ -394,7 +481,13 @@ def _handout_spec(document: CourseDocument) -> dict[str, Any]:
             "section_id": section.section_id,
             "title": section.title,
             "learning_objective": section.learning_objective,
+            "source_section_ids": [section.section_id],
             "source_block_ids": [block.block_id for block in blocks],
+            "source_keys": (
+                [f"objective:{section.objective_id}"]
+                if section.objective_id
+                else []
+            ),
             "knowledge_refs": _knowledge_refs_for_blocks(blocks),
             "blocks": [
                 {
@@ -422,7 +515,13 @@ def _practice_sheet_spec(document: CourseDocument, course_data: dict[str, Any]) 
             "unit_id": f"practice:{question.get('revision_id') or question.get('question_id')}",
             "section_id": section_id,
             "section_title": section.title if section else section_id,
+            "source_section_ids": [section_id] if section else [],
             "source_block_ids": source_blocks,
+            "source_keys": (
+                [f"objective:{section.objective_id}"]
+                if section and section.objective_id
+                else []
+            ),
             "practice_task_id": question.get("question_id") or question.get("asset_id"),
             "practice_revision_id": question.get("revision_id"),
             "prompt": question.get("prompt"),
@@ -438,6 +537,31 @@ def _practice_sheet_spec(document: CourseDocument, course_data: dict[str, Any]) 
                 ],
             ]),
             "answer_policy": "separate_answer_key",
+        })
+    blocks_by_section = _blocks_by_section(document)
+    for section in _learning_sections(document):
+        if not section.learning_objective:
+            continue
+        blocks = blocks_by_section.get(section.section_id, [])
+        units.append({
+            "unit_id": f"practice:objective:{section.section_id}",
+            "section_id": section.section_id,
+            "section_title": section.title,
+            "source_section_ids": [section.section_id],
+            "source_block_ids": [block.block_id for block in blocks],
+            "source_keys": (
+                [f"objective:{section.objective_id}"]
+                if section.objective_id
+                else []
+            ),
+            "prompt": (
+                "请不用复述步骤，说明你将如何证明自己已经达到本节目标："
+                f"{section.learning_objective}"
+            ),
+            "practice_level": "objective_understanding_check",
+            "knowledge_refs": _knowledge_refs_for_blocks(blocks),
+            "answer_policy": "derived_understanding_check",
+            "derived_from_course_objective": True,
         })
     return {"title": f"{document.title} 练习", "units": units}
 

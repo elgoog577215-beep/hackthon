@@ -13,7 +13,7 @@
         <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
         <span>{{ generationLabel }}</span>
       </div>
-      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" />
+      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" :practice-available="hasFormalPractice" @verify="emit('startPractice', node)" />
     </template>
 
     <template v-else-if="node.node_level === 2">
@@ -53,7 +53,7 @@
         <span>{{ generationLabel }}</span>
       </div>
 
-      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" />
+      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" :practice-available="hasFormalPractice" @verify="emit('startPractice', node)" />
 
       <button
         v-if="hasFormalPractice && !generationPreview"
@@ -94,7 +94,7 @@
         <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
         <span>{{ generationLabel }}</span>
       </div>
-      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" />
+      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" :practice-available="hasFormalPractice" @verify="emit('startPractice', node)" />
     </template>
   </section>
 </template>

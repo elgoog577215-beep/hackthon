@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from course_document import CourseBlock, refresh_block_revision
+from course_document import CourseBlock, CourseSection, refresh_block_revision, stable_hash
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 
 
@@ -124,3 +124,76 @@ class CourseCommandService:
                 "actor": actor,
             },
         )
+
+    async def update_section_objective(
+        self,
+        course_id: str,
+        *,
+        command_id: str,
+        expected_document_revision: str,
+        expected_objective_revision: str,
+        section_id: str,
+        learning_objective: str,
+        reason: str = "",
+        actor: str = "system",
+    ) -> dict[str, Any]:
+        existing = self.repository.receipt_for_command(course_id, command_id)
+        if existing:
+            return existing
+        document, canonical = self.repository.load_document(course_id)
+        if not canonical:
+            raise CourseDocumentConflict("Course must be migrated before objective updates")
+        section = next(
+            (item for item in document.sections if item.section_id == section_id),
+            None,
+        )
+        if section is None:
+            raise CourseDocumentConflict("Course section not found")
+        if _objective_revision(section) != expected_objective_revision:
+            raise CourseDocumentConflict("Course learning objective revision changed")
+
+        next_objective = learning_objective.strip()
+        if not next_objective:
+            raise CourseDocumentConflict("Course learning objective cannot be empty")
+        if not section.objective_id:
+            section.objective_id = stable_hash(
+                {"course_id": course_id, "section_id": section_id},
+                prefix="obj_",
+            )
+        section.learning_objective = next_objective
+        section.objective_revision_id = stable_hash(
+            {
+                "objective_id": section.objective_id,
+                "learning_objective": section.learning_objective,
+                "section_id": section.section_id,
+            },
+            prefix="cor_",
+        )
+        affected_block_ids = [
+            block.block_id
+            for block in document.blocks
+            if block.section_id == section_id and block.status != "retired"
+        ]
+        return await self.repository.commit_document(
+            course_id,
+            document,
+            expected_revision=expected_document_revision,
+            operation={
+                "command_id": command_id,
+                "operation": "update_section_objective",
+                "affected_block_ids": affected_block_ids,
+                "reason": reason,
+                "actor": actor,
+            },
+        )
+
+
+def _objective_revision(section: CourseSection) -> str:
+    return section.objective_revision_id or stable_hash(
+        {
+            "objective_id": section.objective_id,
+            "learning_objective": section.learning_objective,
+            "section_id": section.section_id,
+        },
+        prefix="cor_",
+    )

@@ -176,6 +176,7 @@
 
               <div class="change-item-actions">
                 <button
+                  v-if="canApplyProposalItem(item)"
                   type="button"
                   class="primary-command"
                   :disabled="changeProposalsStore.isItemActing(item.item_id) || isAwaitingGeneration(item)"
@@ -843,10 +844,15 @@ function scopeLabel(scope: ChangeProposalScope) {
   } as Record<ChangeProposalScope, string>)[scope] || scope
 }
 
-// kg_node 条目的目标是知识库节点而非课程正文块；知识库目前是静态只读目录，
-// 没有任何写入路径，因此这类条目不能走"接受"自动应用流程，只能人工核对处理。
+// kg_node 的接受语义是记录待人工复核备注，不会直接改写正式知识节点。
 function isKgNodeItem(item: ChangeProposalItem) {
-  return (item.target_kind || 'course_block') !== 'course_block'
+  return item.target_kind === 'kg_node'
+}
+
+function canApplyProposalItem(item: ChangeProposalItem) {
+  return ['course_block', 'course_objective', 'kg_node'].includes(
+    item.target_kind || 'course_block',
+  )
 }
 
 // 后端契约：`after === null` 表示该条目的新内容尚未生成完成（例如刚点击过
@@ -877,7 +883,12 @@ function proposalItemContent(content: ChangeProposalContent): string {
     ? content.payload
     : content as ChangeProposalBlockPayload
 
-  return [blockPayload.markdown, blockPayload.summary, blockPayload.title]
+  return [
+    blockPayload.learning_objective,
+    blockPayload.markdown,
+    blockPayload.summary,
+    blockPayload.title,
+  ]
     .find(value => typeof value === 'string' && value.trim())
     ?.trim() || ''
 }

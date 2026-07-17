@@ -110,4 +110,34 @@ describe('AdaptiveLearningBlock', () => {
     expect(wrapper.find('.structured-animation__frame').text()).toContain('观察结果')
     expect(wrapper.find('.adaptive-block__fallback').text()).toContain('关键帧')
   })
+
+  it('理解检查可直接进入正式独立复验并记录实际使用证据', async () => {
+    const check: AdaptiveBlock = {
+      ...block,
+      adaptive_block_id: 'check-1',
+      kind: 'understanding_check',
+      role: 'accepted_personal_course_growth',
+      payload: {
+        ...block.payload,
+        body: '先用自己的话解释复合顺序。',
+        prompt: '为什么右侧变换先作用？',
+      },
+    }
+    const wrapper = mount(AdaptiveLearningBlock, {
+      props: { block: check, practiceAvailable: true },
+    })
+
+    await wrapper.get('.adaptive-block__verify').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('verify')).toHaveLength(1)
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/c1/learning-runtime/adaptive-blocks/interactions',
+      {
+        adaptive_block_id: 'check-1',
+        node_id: 'n1',
+        interaction: 'validation_started',
+      },
+    )
+  })
 })

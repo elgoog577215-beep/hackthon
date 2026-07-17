@@ -174,6 +174,7 @@ def _maybe_trigger_evidence_evaluation(event: dict[str, Any]) -> None:
         "learning_record_created",
         "learning_record_updated",
         "adaptive_block_feedback",
+        "adaptive_block_interaction",
     }:
         return
     course_id = event.get("course_id")

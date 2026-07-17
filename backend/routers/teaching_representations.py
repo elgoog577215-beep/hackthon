@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 
 from change_proposals import change_proposal_repository, create_authoring_change
 from course_document import stable_hash
+from course_revisions import revision_vector_for_document
 from dependencies import get_course_document_repository, get_course_or_404
 from learner_context import require_user_id
 from representation_compiler import (
@@ -233,6 +234,20 @@ def _representation_and_spec(course_id: str, representation_id: str):
     return registry, representation, spec
 
 
+def _representation_unit(spec: Any, unit_id: str) -> dict[str, Any] | None:
+    content = spec.payload.get("content") or {}
+    units = (
+        content.get("units")
+        or content.get("slides")
+        or content.get("sections")
+        or []
+    )
+    return next(
+        (item for item in units if str(item.get("unit_id") or "") == unit_id),
+        None,
+    )
+
+
 @router.post("/{representation_id}/edits/preview")
 async def preview_teaching_representation_edit(
     course_id: str,
@@ -313,53 +328,124 @@ async def apply_teaching_representation_edit(
         }
     if body.decision != "course_semantic":
         raise HTTPException(status_code=422, detail="Edit decision must be representation_only or course_semantic")
-    block_ids = impact.get("block_ids") or []
-    if not block_ids:
-        raise HTTPException(status_code=409, detail="This representation unit has no editable course block source")
     course_repository = get_course_document_repository()
     document, canonical = course_repository.load_document(course_id)
     if not canonical:
         raise HTTPException(status_code=409, detail="Course must be migrated before semantic edits")
-    block_id = str(block_ids[0])
-    block = next((item for item in document.blocks if item.block_id == block_id), None)
-    if block is None:
-        raise HTTPException(status_code=404, detail="Source course block not found")
-    content_key = "markdown" if "markdown" in block.payload else ("text" if "text" in block.payload else "content")
-    current_content = str(block.payload.get(content_key) or "")
     before_text = str(body.before or "").strip()
     after_text = str(body.after or "").strip()
-    next_content = (
-        current_content.replace(before_text, after_text, 1)
-        if before_text and before_text in current_content
-        else f"{current_content}\n\n{after_text}".strip()
+    if not after_text:
+        raise HTTPException(status_code=422, detail="Semantic course content cannot be empty")
+    unit = _representation_unit(spec, body.unit_id) or {}
+    source_keys = set(impact.get("source_keys") or [])
+    section_ids = impact.get("section_ids") or []
+    unit_section_id = str(unit.get("section_id") or (section_ids[0] if section_ids else ""))
+    source_section = next(
+        (item for item in document.sections if item.section_id == unit_section_id),
+        None,
     )
-    next_payload = deepcopy(block.payload)
-    next_payload[content_key] = next_content
+    is_objective_edit = (
+        body.field == "key_message"
+        and (
+            unit.get("slide_purpose") == "learning_objective"
+            or any(key.startswith("objective:") for key in source_keys)
+            or (
+                source_section is not None
+                and before_text == source_section.learning_objective.strip()
+            )
+        )
+    )
     request_id = stable_hash({
         "user_id": user_id,
         "representation_id": representation_id,
         "unit_id": body.unit_id,
         "field": body.field,
+        "before": body.before,
         "after": body.after,
+        "document_revision": document.document_revision,
     }, prefix="representation-edit-")
-    authoring_change = create_authoring_change(
-        change_proposal_repository,
-        course_id,
-        request_id=request_id,
-        scope="block",
-        target_block_ids=[block_id],
-        items=[{
+    if is_objective_edit:
+        section_id = unit_section_id
+        section = source_section
+        if section is None:
+            raise HTTPException(status_code=404, detail="Source course section not found")
+        vector = revision_vector_for_document(document).revisions
+        objective_revision = (
+            vector.get(f"objective:{section.objective_id}")
+            if section.objective_id
+            else None
+        ) or stable_hash(
+            {
+                "objective_id": section.objective_id,
+                "learning_objective": section.learning_objective,
+                "section_id": section.section_id,
+            },
+            prefix="cor_",
+        )
+        target_ids = [section_id]
+        scope = "section"
+        items = [{
+            "block_id": section_id,
+            "target_kind": "course_objective",
+            "before": {
+                "section_id": section_id,
+                "learning_objective": section.learning_objective,
+                "objective_id": section.objective_id,
+                "objective_revision_id": objective_revision,
+            },
+            "after": {
+                "section_id": section_id,
+                "learning_objective": after_text,
+                "objective_id": section.objective_id,
+            },
+            "reason": "PPT 学习目标承载正式教学意图，确认后回写课程目标真源并精准联动相关表达。",
+        }]
+    else:
+        block_ids = impact.get("block_ids") or []
+        if not block_ids:
+            raise HTTPException(
+                status_code=409,
+                detail="This representation unit has no editable course block source",
+            )
+        block_id = str(block_ids[0])
+        block = next((item for item in document.blocks if item.block_id == block_id), None)
+        if block is None:
+            raise HTTPException(status_code=404, detail="Source course block not found")
+        content_key = (
+            "markdown"
+            if "markdown" in block.payload
+            else ("text" if "text" in block.payload else "content")
+        )
+        current_content = str(block.payload.get(content_key) or "")
+        next_content = (
+            current_content.replace(before_text, after_text, 1)
+            if before_text and before_text in current_content
+            else f"{current_content}\n\n{after_text}".strip()
+        )
+        next_payload = deepcopy(block.payload)
+        next_payload[content_key] = next_content
+        target_ids = [block_id]
+        scope = "block"
+        items = [{
             "block_id": block_id,
             "before": deepcopy(block.payload),
             "after": {"payload": next_payload},
             "reason": "派生产物中的语义修改需要先回写课程真源，再同步所有相关教学表达。",
-        }],
+        }]
+    authoring_change = create_authoring_change(
+        change_proposal_repository,
+        course_id,
+        request_id=request_id,
+        scope=scope,
+        target_block_ids=target_ids,
+        items=items,
         source="representation_semantic",
         generation_meta={
             "origin": "teaching_representation_edit",
             "representation_id": representation_id,
             "unit_id": body.unit_id,
             "classification": "semantic",
+            "semantic_change": classification.get("semantic_change"),
             "impact": impact,
         },
     )

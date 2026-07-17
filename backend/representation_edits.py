@@ -18,6 +18,29 @@ from teaching_representations import (
 
 EditClassification = Literal["presentation", "equivalent_semantic", "semantic", "ambiguous"]
 
+_TEACHING_DIMENSIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "conceptual_understanding",
+        "概念理解",
+        ("理解", "解释", "为什么", "含义", "原理", "关系", "本质", "explain", "why", "meaning"),
+    ),
+    (
+        "procedural_fluency",
+        "计算技能",
+        ("计算", "规则", "步骤", "求解", "操作", "套用", "calculate", "procedure", "compute"),
+    ),
+    (
+        "transfer_application",
+        "迁移应用",
+        ("应用", "迁移", "建模", "解决实际", "新情境", "apply", "transfer", "model"),
+    ),
+    (
+        "evaluation_creation",
+        "评价创造",
+        ("评价", "比较方案", "设计", "证明", "创造", "evaluate", "design", "prove"),
+    ),
+)
+
 
 def classify_representation_edit(
     *,
@@ -28,12 +51,21 @@ def classify_representation_edit(
 ) -> dict[str, Any]:
     before_text = str(before or "").strip()
     after_text = str(after or "").strip()
+    semantic_change = _teaching_dimension_change(before_text, after_text)
     if before_text == after_text:
         return {"classification": "equivalent_semantic", "reason": "内容没有发生语义变化"}
     if field in {"theme", "layout", "color", "font_size", "animation_speed", "position"}:
         return {"classification": "presentation", "reason": "修改只涉及视觉或播放表现"}
     if semantic_intent is True:
-        return {"classification": "semantic", "reason": "用户明确要求改变课程含义"}
+        return {
+            "classification": "semantic",
+            "reason": (
+                semantic_change["summary"]
+                if semantic_change
+                else "用户明确要求改变课程含义"
+            ),
+            **({"semantic_change": semantic_change} if semantic_change else {}),
+        }
     if semantic_intent is False:
         return {"classification": "equivalent_semantic", "reason": "用户明确要求只调整当前表达"}
     normalized_before = _normalize(before_text)
@@ -42,6 +74,12 @@ def classify_representation_edit(
         return {"classification": "equivalent_semantic", "reason": "仅标点、空白或格式发生变化"}
     if field == "title" and _token_overlap(normalized_before, normalized_after) >= 0.72:
         return {"classification": "equivalent_semantic", "reason": "标题保持同一核心概念"}
+    if semantic_change:
+        return {
+            "classification": "semantic",
+            "reason": semantic_change["summary"],
+            "semantic_change": semantic_change,
+        }
     if field in {"bullets", "speaker_notes", "body", "example", "prompt", "title", "key_message", "subtitle"}:
         return {"classification": "ambiguous", "reason": "该字段承载教学含义，需要用户决定是否联动课程"}
     return {"classification": "ambiguous", "reason": "无法仅靠确定性规则确认语义边界"}
@@ -58,12 +96,15 @@ def representation_edit_impact(
     block_ids = sorted({binding.block_id for binding in bindings if binding.block_id})
     section_ids = sorted({binding.section_id for binding in bindings if binding.section_id})
     affected: list[dict[str, Any]] = []
+    total_unit_count = 0
     for representation in registry.representations:
         representation_spec = next((
             item for item in registry.specs if item.spec_id == representation.spec_id
         ), None)
         if representation_spec is None:
             continue
+        all_unit_ids = sorted(representation_spec.unit_bindings)
+        total_unit_count += len(all_unit_ids)
         unit_ids = sorted({
             candidate_unit_id
             for candidate_unit_id, candidate_bindings in representation_spec.unit_bindings.items()
@@ -77,12 +118,21 @@ def representation_edit_impact(
                 "representation_id": representation.representation_id,
                 "representation_type": representation.representation_type,
                 "unit_ids": unit_ids,
+                "unaffected_unit_ids": [
+                    candidate_unit_id
+                    for candidate_unit_id in all_unit_ids
+                    if candidate_unit_id not in unit_ids
+                ],
             })
+    affected_unit_count = sum(len(item["unit_ids"]) for item in affected)
     return {
         "source_keys": source_keys,
         "block_ids": block_ids,
         "section_ids": section_ids,
         "affected_representations": affected,
+        "affected_unit_count": affected_unit_count,
+        "unaffected_unit_count": max(0, total_unit_count - affected_unit_count),
+        "total_unit_count": total_unit_count,
         "protected": ["无来源关系的课程块", "其他课程", "历史作答", "个人笔记原文"],
     }
 
@@ -175,6 +225,32 @@ def apply_representation_only_edit(
 
 def _normalize(value: str) -> str:
     return re.sub(r"[^\w\u4e00-\u9fff]+", "", value).lower()
+
+
+def _teaching_dimension_change(before: str, after: str) -> dict[str, str] | None:
+    before_dimension = _teaching_dimension(before)
+    after_dimension = _teaching_dimension(after)
+    if before_dimension is None or after_dimension is None:
+        return None
+    if before_dimension[0] == after_dimension[0]:
+        return None
+    return {
+        "from_dimension": before_dimension[0],
+        "from_label": before_dimension[1],
+        "to_dimension": after_dimension[0],
+        "to_label": after_dimension[1],
+        "summary": f"教学目标从「{before_dimension[1]}」转向「{after_dimension[1]}」",
+    }
+
+
+def _teaching_dimension(value: str) -> tuple[str, str] | None:
+    normalized = value.lower()
+    scored = [
+        (sum(marker in normalized for marker in markers), key, label)
+        for key, label, markers in _TEACHING_DIMENSIONS
+    ]
+    score, key, label = max(scored, default=(0, "", ""))
+    return (key, label) if score else None
 
 
 def _token_overlap(before: str, after: str) -> float:

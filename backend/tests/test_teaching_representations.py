@@ -455,6 +455,14 @@ def test_representation_edits_classify_semantic_boundary_and_preserve_course_sou
     assert classify_representation_edit(
         field="example", before="旧例子", after="新例子", semantic_intent=True,
     )["classification"] == "semantic"
+    detected_goal_shift = classify_representation_edit(
+        field="key_message",
+        before="掌握向量加法的计算规则",
+        after="理解向量加法为什么表示位移的复合",
+    )
+    assert detected_goal_shift["classification"] == "semantic"
+    assert detected_goal_shift["semantic_change"]["from_label"] == "计算技能"
+    assert detected_goal_shift["semantic_change"]["to_label"] == "概念理解"
 
     impact = representation_edit_impact(registry, spec, unit_id="slide:section-a")
     assert document.blocks[0].block_id in impact["block_ids"]
@@ -552,6 +560,173 @@ def test_semantic_representation_edit_creates_authoring_change_without_writing_c
     assert change["write_target"] == "base_course"
     assert change["source"] == "representation_semantic"
     assert storage.course == before_course
+
+
+def test_objective_edit_updates_course_truth_and_reuses_unaffected_representation_units(
+    tmp_path,
+    monkeypatch,
+):
+    from change_proposals import ChangeProposalRepository
+    from routers import change_proposals as changes_router
+    from routers import teaching_representations as representation_router
+
+    course = legacy_course()
+    course["nodes"][0]["learning_objective"] = "掌握向量加法的计算规则"
+    document = document_from_legacy_course(course)
+    canonical = {
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_revision": document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+    }
+    storage = MemoryStorage(canonical)
+    course_repository = CourseDocumentRepository(storage)
+    representation_repository = TeachingRepresentationRepository(tmp_path / "representations")
+    compile_core_representations(
+        document,
+        course_data_with_practice(),
+        representation_repository,
+    )
+    proposal_repository = ChangeProposalRepository(tmp_path / "authoring_changes")
+    slides = next(
+        item for item in representation_repository.load("course-1").representations
+        if item.representation_type == "slide_deck"
+    )
+
+    monkeypatch.setattr(
+        representation_router,
+        "get_teaching_representation_repository",
+        lambda: representation_repository,
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "change_proposal_repository",
+        proposal_repository,
+    )
+    monkeypatch.setattr(
+        changes_router,
+        "get_change_proposal_repository",
+        lambda: proposal_repository,
+    )
+    monkeypatch.setattr(
+        changes_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        changes_router,
+        "teaching_representation_repository",
+        representation_repository,
+    )
+
+    async def existing_course(_course_id: str):
+        return course_repository.load_course_view("course-1")
+
+    monkeypatch.setattr(representation_router, "get_course_or_404", existing_course)
+    app = FastAPI()
+    app.include_router(representation_router.router, prefix="/api")
+    app.include_router(changes_router.authoring_router, prefix="/api")
+    client = TestClient(app)
+    after_objective = "理解向量加法为什么表示位移的复合，并能够解释运算顺序"
+
+    preview = client.post(
+        f"/api/courses/course-1/teaching-representations/{slides.representation_id}/edits/preview",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "unit_id": "slide:section-a",
+            "field": "key_message",
+            "before": "掌握向量加法的计算规则",
+            "after": after_objective,
+        },
+    )
+    assert preview.status_code == 200
+    assert preview.json()["classification"] == "semantic"
+    assert preview.json()["semantic_change"]["from_label"] == "计算技能"
+    assert preview.json()["semantic_change"]["to_label"] == "概念理解"
+    assert preview.json()["impact"]["affected_unit_count"] > 0
+    assert preview.json()["impact"]["unaffected_unit_count"] > 0
+
+    proposed = client.post(
+        f"/api/courses/course-1/teaching-representations/{slides.representation_id}/edits/apply",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "unit_id": "slide:section-a",
+            "field": "key_message",
+            "before": "掌握向量加法的计算规则",
+            "after": after_objective,
+            "semantic_intent": True,
+            "decision": "course_semantic",
+        },
+    )
+    assert proposed.status_code == 200
+    change = proposed.json()["authoring_change"]
+    item = change["items"][0]
+    assert change["scope"] == "section"
+    assert item["target_kind"] == "course_objective"
+    assert item["block_id"] == "section-a"
+    before_apply, _canonical = course_repository.load_document("course-1")
+    assert before_apply.sections[0].learning_objective == "掌握向量加法的计算规则"
+
+    applied = client.post(
+        f"/api/courses/course-1/authoring-changes/{change['proposal_id']}/items/{item['item_id']}/apply",
+        headers={"X-User-Id": "teacher-1"},
+    )
+    assert applied.status_code == 200
+    receipt = applied.json()["representation_sync"]
+    assert receipt["status"] == "synchronized"
+    assert receipt["rebuilt_unit_count"] > 0
+    assert receipt["reused_unit_count"] > 0
+    updated, _canonical = course_repository.load_document("course-1")
+    assert updated.sections[0].learning_objective == after_objective
+    assert updated.sections[1].learning_objective == "理解矩阵"
+    assert updated.blocks == document.blocks
+    revision_change = applied.json()["items"][0]["receipt"]["revision_change"]
+    assert "objective:objective-a" in revision_change["changed_source_keys"]
+
+    reverse = client.post(
+        f"/api/courses/course-1/teaching-representations/{slides.representation_id}/edits/apply",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "unit_id": "slide:section-a",
+            "field": "key_message",
+            "before": after_objective,
+            "after": "掌握向量加法的计算规则",
+            "semantic_intent": True,
+            "decision": "course_semantic",
+        },
+    )
+    assert reverse.status_code == 200
+    reverse_change = reverse.json()["authoring_change"]
+    reverse_item = reverse_change["items"][0]
+    reverse_applied = client.post(
+        f"/api/courses/course-1/authoring-changes/{reverse_change['proposal_id']}/items/{reverse_item['item_id']}/apply",
+        headers={"X-User-Id": "teacher-1"},
+    )
+    assert reverse_applied.status_code == 200
+
+    repeated_value_on_new_revision = client.post(
+        f"/api/courses/course-1/teaching-representations/{slides.representation_id}/edits/apply",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "unit_id": "slide:section-a",
+            "field": "key_message",
+            "before": "掌握向量加法的计算规则",
+            "after": after_objective,
+            "semantic_intent": True,
+            "decision": "course_semantic",
+        },
+    )
+    assert repeated_value_on_new_revision.status_code == 200
+    repeated_change = repeated_value_on_new_revision.json()["authoring_change"]
+    assert repeated_change["proposal_id"] != change["proposal_id"]
+    assert repeated_change["status"] == "pending"
 
 
 def test_safe_rebuild_publishes_only_after_quality_passes(tmp_path):

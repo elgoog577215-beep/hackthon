@@ -11,8 +11,8 @@
       <span v-if="isChapter" class="node-kind chapter-kind"><BookOpenText :size="14" /></span>
       <span v-else class="node-kind leaf-kind" :class="[{ active: activeId === node.node_id, learned: isLearned }, generationState]"></span>
       <span class="node-label">{{ node.node_name }}</span>
-      <span v-if="adaptationSuggestionCount" class="adaptation-marker" :title="t('courseEvolution.navigatorMarkerDetail', '该位置在个人适配方案的影响范围内')">
-        {{ t('courseEvolution.navigatorMarker', 'AI 建议') }}<b>{{ adaptationSuggestionCount }}</b>
+      <span v-if="adaptationMarker" class="adaptation-marker" :data-state="adaptationMarker.state" :title="adaptationMarker.title">
+        {{ adaptationMarker.label }}<b>{{ adaptationMarker.count }}</b>
       </span>
       <component v-if="isGenerationPreview && generationIcon" :is="generationIcon" :size="13" class="status generation" :class="[generationState, { spinning: generationState === 'generating' }]" />
       <CheckCircle2 v-else-if="progress?.mastery_status === 'mastered'" :size="13" class="status mastered" />
@@ -39,6 +39,7 @@ import { BookOpenText, CheckCircle2, ChevronRight, CircleDot, LoaderCircle, Tria
 import type { Node } from '../stores/types'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { useCourseStore } from '../stores/course'
+import { useCourseEvolutionStore } from '../stores/courseEvolution'
 import { t } from '../shared/i18n'
 
 defineOptions({ name: 'CourseNavigatorNode' })
@@ -46,26 +47,65 @@ const props = withDefaults(defineProps<{ node: Node; activeId?: string; query?: 
 const emit = defineEmits<{ (event: 'select', node: Node): void }>()
 const progressStore = useLearningProgressStore()
 const courseStore = useCourseStore()
+const evolutionStore = useCourseEvolutionStore()
 const expanded = ref(props.depth < 2)
 const hasChildren = computed(() => Boolean(props.node.children?.length))
 const progress = computed(() => progressStore.nodeProgress(props.node.node_id))
 const isChapter = computed(() => props.depth === 0 || props.node.node_level === 1)
 const isLearned = computed(() => progress.value?.reading_status === 'learned' || progress.value?.mastery_status === 'mastered')
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
-const adaptationSuggestionCount = computed(() => {
+const adaptationCounts = computed(() => {
   const ids = new Set<string>()
   const collect = (node: Node) => {
     ids.add(node.node_id)
     for (const child of node.children || []) collect(child)
   }
   collect(props.node)
-  const plans = progressStore.runtime?.course_evolution?.adaptation_plans || []
-  return plans.filter((plan: Record<string, any>) => {
-    if (plan.status !== 'pending') return false
+  const plans = evolutionStore.courseId && evolutionStore.courseId === progressStore.courseId
+    ? evolutionStore.adaptationPlans
+    : progressStore.runtime?.course_evolution?.adaptation_plans || []
+  const counts = { pending: 0, active: 0, validated: 0, review: 0 }
+  for (const plan of plans) {
     const affected = plan.impact_summary?.affected_section_ids || []
-    if (affected.some((sectionId: string) => ids.has(sectionId))) return true
-    return (plan.operations || []).some((operation: Record<string, any>) => ids.has(operation.target_section_id))
-  }).length
+    const applies = affected.some((sectionId: string) => ids.has(sectionId))
+      || (plan.operations || []).some((operation: Record<string, any>) => ids.has(operation.target_section_id))
+    if (!applies) continue
+    if (plan.status === 'pending') counts.pending += 1
+    if (plan.status !== 'applied') continue
+    const effect = String(plan.effect_evaluation?.status || 'insufficient_evidence')
+    if (effect === 'effective') counts.validated += 1
+    else if (effect === 'ineffective' || effect === 'harmful') counts.review += 1
+    else counts.active += 1
+  }
+  return counts
+})
+const adaptationMarker = computed(() => {
+  const value = adaptationCounts.value
+  if (value.pending) return {
+    state: 'pending',
+    count: value.pending,
+    label: t('courseEvolution.navigatorMarker', 'AI 建议'),
+    title: t('courseEvolution.navigatorMarkerDetail', '该位置在个人适配方案的待确认范围内'),
+  }
+  if (value.review) return {
+    state: 'review',
+    count: value.review,
+    label: t('courseEvolution.navigatorReview', '待复核'),
+    title: t('courseEvolution.navigatorReviewDetail', '后续证据表明这里的个人适配需要复核'),
+  }
+  if (value.active) return {
+    state: 'active',
+    count: value.active,
+    label: t('courseEvolution.navigatorApplied', '已应用'),
+    title: t('courseEvolution.navigatorAppliedDetail', '个人课程已调整，等待正式复验'),
+  }
+  if (value.validated) return {
+    state: 'validated',
+    count: value.validated,
+    label: t('courseEvolution.navigatorValidated', '已生长'),
+    title: t('courseEvolution.navigatorValidatedDetail', '个人课程调整已获得后续正式证据支持'),
+  }
+  return null
 })
 const generationState = computed(() => {
   if (!isGenerationPreview.value) return ''
@@ -118,6 +158,12 @@ watch(normalizedQuery, value => { if (value) expanded.value = true })
 .node-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; letter-spacing:0; }
 .adaptation-marker { display:inline-flex; align-items:center; gap:3px; padding:2px 5px; border:1px solid #c4b5fd; border-radius:5px; color:#6d28d9; background:#f5f3ff; font-size:8px; font-weight:700; white-space:nowrap; }
 .adaptation-marker b { min-width:12px; height:12px; display:grid; place-items:center; border-radius:50%; color:#fff; background:#8b5cf6; font-size:7px; }
+.adaptation-marker[data-state="active"] { border-color:#bfdbfe; color:#1d4ed8; background:#eff6ff; }
+.adaptation-marker[data-state="active"] b { background:#3b82f6; }
+.adaptation-marker[data-state="validated"] { border-color:#bbf7d0; color:#15803d; background:#f0fdf4; }
+.adaptation-marker[data-state="validated"] b { background:#16a34a; }
+.adaptation-marker[data-state="review"] { border-color:#fde68a; color:#b45309; background:#fffbeb; }
+.adaptation-marker[data-state="review"] b { background:#d97706; }
 .status { flex: 0 0 auto; }
 .status.mastered { color: var(--lz-success); }
 .status.current { color: var(--lz-brand); }

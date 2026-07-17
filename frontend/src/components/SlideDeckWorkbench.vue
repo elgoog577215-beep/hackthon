@@ -144,12 +144,46 @@
               </select>
               <textarea v-else v-model="editValue" :disabled="building" rows="4"></textarea>
             </label>
-            <div v-if="editPreview" class="slide-inspector__impact">
+            <div v-if="editPreview" class="slide-inspector__impact" data-state="affected">
               <strong>{{ classificationLabel(editPreview.classification) }}</strong>
-              <p>{{ editPreview.reason }}</p>
-              <small>{{ t('teachingRepresentations.editImpact', '将检查 {count} 类教学资源').replace('{count}', String(editPreview.impact?.affected_representations?.length || 0)) }}</small>
+              <p class="semantic-change">{{ editPreview.semantic_change?.summary || editPreview.reason }}</p>
+              <ul v-if="editPreview.impact?.affected_representations?.length">
+                <li v-for="item in editPreview.impact.affected_representations" :key="item.representation_id">
+                  <span>{{ representationLabel(item.representation_type) }}</span>
+                  <b>{{ t('teachingRepresentations.affectedUnits', '{count} 处需联动').replace('{count}', String(item.unit_ids?.length || 0)) }}</b>
+                </li>
+              </ul>
+              <small>{{ t('teachingRepresentations.preciseImpactSummary', '预计联动 {affected} 处，保持 {unaffected} 处不变')
+                .replace('{affected}', String(editPreview.impact?.affected_unit_count || 0))
+                .replace('{unaffected}', String(editPreview.impact?.unaffected_unit_count || 0)) }}</small>
+              <p class="protected"><ShieldCheck :size="12" />{{ t('teachingRepresentations.unrelatedProtected', '无来源关系的内容不会修改') }}</p>
             </div>
-            <div class="slide-inspector__edit-actions">
+            <div v-if="pendingInlineItem" class="slide-inspector__confirmation" data-state="pending">
+              <strong><Sparkles :size="13" />{{ t('teachingRepresentations.confirmCourseChange', '确认课程语义变化') }}</strong>
+              <div class="objective-diff">
+                <span>{{ proposalContent(pendingInlineItem.before) }}</span>
+                <i>→</i>
+                <b>{{ proposalContent(pendingInlineItem.after) }}</b>
+              </div>
+              <p>{{ pendingInlineItem.reason }}</p>
+              <div class="slide-inspector__edit-actions">
+                <button type="button" class="semantic" :disabled="editBusy" @click="confirmInlineChange"><CircleCheck :size="13" />{{ t('teachingRepresentations.confirmSync', '确认并同步相关内容') }}</button>
+                <button type="button" :disabled="editBusy" @click="rejectInlineChange"><X :size="13" />{{ t('teachingRepresentations.rejectChange', '不应用') }}</button>
+              </div>
+            </div>
+            <div v-if="syncReceipt" class="slide-inspector__receipt" :data-state="syncReceipt.status">
+              <CircleCheck v-if="syncReceipt.status === 'synchronized'" :size="15" />
+              <TriangleAlert v-else :size="15" />
+              <div>
+                <strong>{{ syncReceipt.status === 'synchronized'
+                  ? t('teachingRepresentations.syncComplete', '课程同源同步完成')
+                  : t('teachingRepresentations.syncFallback', '课程已更新，教学资源暂用上一版') }}</strong>
+                <p v-if="syncReceipt.status === 'synchronized'">{{ t('teachingRepresentations.syncCounts', '{rebuilt} 处已更新，{reused} 处确认无需修改')
+                  .replace('{rebuilt}', String(syncRebuiltCount))
+                  .replace('{reused}', String(syncReusedCount)) }}</p>
+              </div>
+            </div>
+            <div v-if="!pendingInlineItem" class="slide-inspector__edit-actions">
               <button v-if="!editPreview" type="button" :disabled="editBusy || building || !changed" @click="previewEdit"><ScanSearch :size="14" />{{ t('teachingRepresentations.previewEdit', '分析影响') }}</button>
               <template v-else>
                 <button type="button" :disabled="editBusy" @click="applyEdit('representation_only')">{{ t('teachingRepresentations.onlyThisPpt', '只改当前 PPT') }}</button>
@@ -170,11 +204,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { CircleCheck, ClipboardCheck, Download, LoaderCircle, Pencil, Presentation, ScanSearch, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { computed, nextTick, ref, watch } from 'vue'
+import { CircleCheck, ClipboardCheck, Download, LoaderCircle, Pencil, Presentation, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
+import type { ChangeProposal, ChangeProposalContent, ChangeProposalItem } from '../types/changeProposal'
 
 interface SlideBlock {
   block_id: string
@@ -234,6 +269,8 @@ const editValue = ref('')
 const editPreview = ref<Record<string, any> | null>(null)
 const editResult = ref('')
 const editBusy = ref(false)
+const inlineProposal = ref<ChangeProposal | null>(null)
+const syncReceipt = ref<Record<string, any> | null>(null)
 const layouts = ['cover', 'roadmap', 'chapter', 'objective', 'concept', 'comparison', 'process', 'code', 'misconception', 'practice', 'recap']
 
 const activeIndex = computed(() => Math.max(0, props.slides.findIndex(slide => slide.unit_id === activeUnitId.value)))
@@ -253,6 +290,23 @@ const sourceCount = computed(() => {
 })
 const changed = computed(() => Boolean(activeSlide.value) && editValue.value.trim() !== currentFieldValue.value.trim())
 const currentFieldValue = computed(() => String((activeSlide.value as Record<string, any> | null)?.[editField.value] || ''))
+const pendingInlineItem = computed<ChangeProposalItem | null>(() => (
+  inlineProposal.value?.items.find(item => item.status === 'pending') || null
+))
+const syncRebuiltCount = computed(() => (
+  Number(syncReceipt.value?.rebuilt_unit_count)
+  || (syncReceipt.value?.rebuilt || []).reduce(
+    (total: number, item: Record<string, any>) => total + (item.rebuilt_unit_ids?.length || 0),
+    0,
+  )
+))
+const syncReusedCount = computed(() => (
+  Number(syncReceipt.value?.reused_unit_count)
+  || (syncReceipt.value?.rebuilt || []).reduce(
+    (total: number, item: Record<string, any>) => total + (item.reused_unit_ids?.length || 0),
+    0,
+  )
+))
 const stageLabel = computed(() => ({
   planning: t('teachingRepresentations.slides.stages.planning', '正在准备课程结构'),
   slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划页面'),
@@ -281,6 +335,8 @@ function resetEdit() {
   editValue.value = currentFieldValue.value
   editPreview.value = null
   editResult.value = ''
+  inlineProposal.value = null
+  syncReceipt.value = null
 }
 
 async function previewEdit() {
@@ -304,7 +360,7 @@ async function applyEdit(decision: 'representation_only' | 'course_semantic') {
   if (!slide) return
   editBusy.value = true
   try {
-    await store.applyEdit(props.representationId, {
+    const result = await store.applyEdit(props.representationId, {
       unit_id: slide.unit_id,
       field: editField.value,
       before: currentFieldValue.value,
@@ -314,7 +370,10 @@ async function applyEdit(decision: 'representation_only' | 'course_semantic') {
     })
     if (decision === 'course_semantic') {
       await changeProposalsStore.fetchChangeProposals(props.courseId)
-      editResult.value = t('teachingRepresentations.courseCandidateReady', '已生成基础课程修改候选，请在 AI 老师中确认')
+      inlineProposal.value = changeProposalsStore.findProposal(result.authoring_change?.proposal_id)
+        || result.authoring_change
+        || null
+      editResult.value = t('teachingRepresentations.courseCandidateReady', '已生成课程修改候选，请确认影响范围')
     } else {
       editResult.value = t('teachingRepresentations.representationSaved', '当前 PPT 已更新，课程正文保持不变')
       editPreview.value = null
@@ -322,6 +381,60 @@ async function applyEdit(decision: 'representation_only' | 'course_semantic') {
   } finally {
     editBusy.value = false
   }
+}
+
+async function confirmInlineChange() {
+  const proposal = inlineProposal.value
+  const item = pendingInlineItem.value
+  if (!proposal || !item) return
+  editBusy.value = true
+  try {
+    const result = await changeProposalsStore.applyItem(proposal.proposal_id, item.item_id)
+    await store.load(props.courseId)
+    await store.select(props.representationId)
+    // Loading the rebuilt deck replaces the active slide object and schedules
+    // resetEdit(). Let that reset finish before exposing the durable sync receipt.
+    await nextTick()
+    inlineProposal.value = null
+    editPreview.value = null
+    syncReceipt.value = result?.representation_sync || null
+    editResult.value = t('teachingRepresentations.syncComplete', '课程同源同步完成')
+  } finally {
+    editBusy.value = false
+  }
+}
+
+async function rejectInlineChange() {
+  const proposal = inlineProposal.value
+  const item = pendingInlineItem.value
+  if (!proposal || !item) return
+  editBusy.value = true
+  try {
+    await changeProposalsStore.rejectItem(proposal.proposal_id, item.item_id)
+    inlineProposal.value = null
+    editResult.value = t('teachingRepresentations.changeRejected', '本次课程语义修改未应用')
+  } finally {
+    editBusy.value = false
+  }
+}
+
+function proposalContent(content: ChangeProposalContent) {
+  if (typeof content === 'string') return content
+  if (!content || typeof content !== 'object') return ''
+  const value = (
+    'payload' in content && content.payload ? content.payload : content
+  ) as Record<string, unknown>
+  return String(value.learning_objective || value.markdown || value.summary || value.title || '')
+}
+
+function representationLabel(value: string) {
+  return t(`teachingRepresentations.types.${value}`, ({
+    outline: '课程大纲',
+    lesson_plan: '教案',
+    handout: '讲义',
+    practice_sheet: '理解检查',
+    slide_deck: 'PPT',
+  } as Record<string, string>)[value] || value)
 }
 
 function askAi() {
@@ -381,7 +494,11 @@ function chapterNumber(title: string) {
 .slide-stage__empty { display:flex; flex-direction:column; align-items:center; gap:10px; color:var(--lz-text-muted); font-size:11px; }
 .slide-inspector { min-height:0; overflow:auto; padding:12px; border-left:1px solid var(--lz-border); background:#fff; }.slide-inspector section { padding:4px 0 14px; border-bottom:1px solid #edf0f5; }.slide-inspector section + section { padding-top:14px; }.slide-inspector section > header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; color:var(--lz-text-strong); font-size:10px; font-weight:750; }.slide-inspector section > header b { padding:3px 6px; border-radius:5px; color:var(--lz-text-muted); background:#f3f4f7; font-size:8px; }.slide-inspector section > header b[data-passed="true"] { color:#047857; background:#ecfdf5; }
 .slide-inspector dl { margin:0; }.slide-inspector dl div { display:flex; justify-content:space-between; gap:10px; padding:4px 0; font-size:9px; }.slide-inspector dt { color:var(--lz-text-muted); }.slide-inspector dd { margin:0; color:var(--lz-text-secondary); text-align:right; }.slide-inspector__refs { display:flex; flex-wrap:wrap; gap:4px; }.slide-inspector__refs span { max-width:100%; overflow:hidden; padding:4px 6px; border-radius:5px; color:#4f46e5; background:#eef2ff; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }.slide-inspector__refs span[data-kind="ability"] { color:#047857; background:#ecfdf5; }.slide-inspector__refs small { color:var(--lz-text-muted); font-size:8px; }.slide-inspector section > p { display:flex; align-items:center; gap:5px; margin:8px 0 0; color:var(--lz-text-secondary); font-size:8px; }
-.slide-inspector__edit label { display:block; margin-top:9px; }.slide-inspector__edit label > span { display:block; margin-bottom:5px; color:var(--lz-text-muted); font-size:8px; }.slide-inspector__edit select,.slide-inspector__edit textarea { width:100%; box-sizing:border-box; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text); background:#fff; font:9px/1.45 inherit; outline:none; }.slide-inspector__edit select { height:30px; padding:0 7px; }.slide-inspector__edit textarea { resize:vertical; min-height:72px; padding:7px; }.slide-inspector__edit select:focus,.slide-inspector__edit textarea:focus { border-color:#818cf8; }.slide-inspector__impact { margin-top:9px; padding:8px; border-left:3px solid #818cf8; background:#f7f7ff; }.slide-inspector__impact strong { color:#4f46e5; font-size:9px; }.slide-inspector__impact p { margin:4px 0; color:var(--lz-text-secondary); font-size:8px; line-height:1.45; }.slide-inspector__impact small { color:var(--lz-text-muted); font-size:8px; }.slide-inspector__edit-actions { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }.slide-inspector__edit-actions button { min-height:29px; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0 8px; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text-secondary); background:#fff; font-size:8px; cursor:pointer; }.slide-inspector__edit-actions button.semantic { color:#fff; border-color:#6366f1; background:#6366f1; }.slide-inspector__edit-actions button:disabled { opacity:.45; cursor:not-allowed; }.slide-inspector output { display:block; margin-top:8px; color:#047857; font-size:8px; }.slide-inspector details { padding:13px 0; color:var(--lz-text-secondary); font-size:9px; }.slide-inspector summary { color:var(--lz-text-strong); font-weight:700; cursor:pointer; }.slide-inspector details p { white-space:pre-line; line-height:1.55; }
+.slide-inspector__edit label { display:block; margin-top:9px; }.slide-inspector__edit label > span { display:block; margin-bottom:5px; color:var(--lz-text-muted); font-size:8px; }.slide-inspector__edit select,.slide-inspector__edit textarea { width:100%; box-sizing:border-box; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text); background:#fff; font:9px/1.45 inherit; outline:none; }.slide-inspector__edit select { height:30px; padding:0 7px; }.slide-inspector__edit textarea { resize:vertical; min-height:72px; padding:7px; }.slide-inspector__edit select:focus,.slide-inspector__edit textarea:focus { border-color:#818cf8; }
+.slide-inspector__impact { margin-top:9px; padding:9px; border-left:3px solid #eab308; background:#fffbea; }.slide-inspector__impact > strong { color:#854d0e; font-size:9px; }.slide-inspector__impact .semantic-change { margin:4px 0 7px; color:#713f12; font-size:9px; font-weight:700; line-height:1.45; }.slide-inspector__impact ul { display:grid; gap:3px; margin:0 0 7px; padding:0; list-style:none; }.slide-inspector__impact li { display:flex; align-items:center; justify-content:space-between; gap:6px; color:#475569; font-size:8px; }.slide-inspector__impact li b { color:#a16207; font-size:8px; }.slide-inspector__impact small { color:#78716c; font-size:8px; }.slide-inspector__impact .protected { display:flex; align-items:center; gap:4px; margin:6px 0 0; color:#64748b; font-size:8px; }
+.slide-inspector__confirmation { margin-top:9px; padding:9px; border-left:3px solid #8b5cf6; background:#f7f3ff; }.slide-inspector__confirmation > strong { display:flex; align-items:center; gap:5px; color:#6d28d9; font-size:9px; }.objective-diff { display:grid; grid-template-columns:minmax(0,1fr) 12px minmax(0,1fr); gap:4px; margin-top:7px; color:#64748b; font-size:8px; line-height:1.4; }.objective-diff i { color:#8b5cf6; font-style:normal; }.objective-diff b { color:#4c1d95; }.slide-inspector__confirmation > p { margin:6px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
+.slide-inspector__receipt { display:grid; grid-template-columns:18px minmax(0,1fr); gap:6px; margin-top:9px; padding:9px; border-left:3px solid #10b981; color:#047857; background:#ecfdf5; }.slide-inspector__receipt[data-state="failed_using_last_available"] { border-left-color:#f59e0b; color:#92400e; background:#fffbeb; }.slide-inspector__receipt strong { display:block; font-size:9px; }.slide-inspector__receipt p { margin:3px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
+.slide-inspector__edit-actions { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }.slide-inspector__edit-actions button { min-height:29px; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0 8px; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text-secondary); background:#fff; font-size:8px; cursor:pointer; }.slide-inspector__edit-actions button.semantic { color:#fff; border-color:#6366f1; background:#6366f1; }.slide-inspector__edit-actions button:disabled { opacity:.45; cursor:not-allowed; }.slide-inspector output { display:block; margin-top:8px; color:#047857; font-size:8px; }.slide-inspector details { padding:13px 0; color:var(--lz-text-secondary); font-size:9px; }.slide-inspector summary { color:var(--lz-text-strong); font-weight:700; cursor:pointer; }.slide-inspector details p { white-space:pre-line; line-height:1.55; }
 .spinning { animation:slide-spin .8s linear infinite; }@keyframes slide-spin { to { transform:rotate(360deg); } }
 @media (max-width:1100px) { .slide-workbench__body { grid-template-columns:148px minmax(400px,1fr) 210px; }.slide-stage { padding:16px; } }
 @media (max-width:840px) { .slide-workbench { grid-template-rows:auto minmax(0,1fr); }.slide-workbench__toolbar { min-height:58px; flex-wrap:wrap; padding:8px 10px; }.slide-workbench__commands button span { display:none; }.slide-workbench__body { grid-template-columns:1fr; grid-template-rows:96px minmax(260px,1fr) auto; }.slide-thumbnails { display:flex; overflow-x:auto; border-right:0; border-bottom:1px solid var(--lz-border); }.slide-thumbnails > button { width:130px; flex:none; }.slide-stage { padding:12px; }.slide-inspector { max-height:250px; border-top:1px solid var(--lz-border); border-left:0; }.slide-inspector section { padding-right:8px; padding-left:8px; } }

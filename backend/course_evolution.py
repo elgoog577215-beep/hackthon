@@ -668,12 +668,13 @@ def _evaluate_hypotheses_and_candidates(
                 user_id=state.user_id,
                 course_id=state.course_id,
                 problem_type="conceptual_gap",
-                claim="学习者可能会操作步骤，但尚未建立当前概念的原因、条件与后续推导之间的联系。",
+                claim=_diagnosis_claim(positive, knowledge_base),
                 target_block_id=block_id,
                 created_at=now,
                 updated_at=now,
             )
             state.hypotheses.append(hypothesis)
+        hypothesis.claim = _diagnosis_claim(positive, knowledge_base)
         hypothesis.support_evidence_ids = [item.evidence_id for item in positive]
         hypothesis.counterevidence_ids = [item.evidence_id for item in counter]
         hypothesis.confidence = round(score, 3)
@@ -841,6 +842,9 @@ def _build_change_set(
     misconception_ids = {
         value for item in linked_evidence for value in item.anchor.misconception_point_ids
     }
+    knowledge_labels = _knowledge_labels(knowledge_base, knowledge_ids)
+    ability_labels = _ability_labels(knowledge_base, ability_ids)
+    misconception_labels = _misconception_labels(knowledge_base, misconception_ids)
     return PersonalAdaptationPlan(
         change_set_id=stable_hash({
             "user_id": state.user_id,
@@ -867,9 +871,12 @@ def _build_change_set(
             "misconception_point_ids": sorted({
                 value for item in linked_evidence for value in item.anchor.misconception_point_ids
             }),
-            "knowledge_labels": _knowledge_labels(knowledge_base, knowledge_ids),
-            "ability_labels": _ability_labels(knowledge_base, ability_ids),
-            "misconception_labels": _misconception_labels(knowledge_base, misconception_ids),
+            "knowledge_labels": knowledge_labels,
+            "ability_labels": ability_labels,
+            "misconception_labels": misconception_labels,
+            "diagnosis": hypothesis.claim,
+            "validation_plan": hypothesis.validation_plan,
+            "evidence_source_types": sorted({item.source_type for item in linked_evidence}),
             "affected_section_ids": sorted(affected_section_ids),
             "protected": ["基础课程", "其他学习者课程", "历史作答", "笔记原文", "正式知识库"],
             "representation_impacts": ["个人讲义补充", "分步演示", "理解检查"],
@@ -987,6 +994,13 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
             and str((item.get("metadata") or {}).get("adaptive_block_id") or "")
             in {operation.operation_id for operation in change_set.operations}
         ]
+        interactions = [
+            item for item in events
+            if item.get("event_type") == "adaptive_block_interaction"
+            and str(item.get("created_at") or "") >= change_set.accepted_at
+            and str((item.get("metadata") or {}).get("adaptive_block_id") or "")
+            in {operation.operation_id for operation in change_set.operations}
+        ]
         later_attempts = [
             item for item in attempts
             if item.get("status") == "graded"
@@ -995,9 +1009,14 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
         ]
         helpful = any((item.get("result") or {}).get("feedback") == "helpful" for item in feedback)
         unhelpful = any((item.get("result") or {}).get("feedback") == "not_helpful" for item in feedback)
+        engaged = any(
+            (item.get("result") or {}).get("interaction")
+            in {"animation_played", "validation_started"}
+            for item in interactions
+        )
         passed = any((item.get("result") or {}).get("passed") is True for item in later_attempts)
         failed = sum((item.get("result") or {}).get("passed") is False for item in later_attempts)
-        if helpful and passed:
+        if (helpful or engaged) and passed:
             status = "effective"
         elif unhelpful and failed >= 2:
             status = "harmful"
@@ -1008,6 +1027,7 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
         change_set.effect_evaluation = {
             "status": status,
             "feedback_event_ids": [item.get("event_id") for item in feedback],
+            "interaction_event_ids": [item.get("event_id") for item in interactions],
             "attempt_ids": [item.get("attempt_id") for item in later_attempts],
             "recommended_action": (
                 "keep" if status == "effective"
@@ -1194,6 +1214,66 @@ def _confidence_reasons(
     if counter:
         reasons.append(f"同时保留 {len(counter)} 条反证并降低判断强度")
     return reasons
+
+
+def _diagnosis_claim(
+    evidence: list[EvidenceItem],
+    knowledge_base: dict[str, Any] | None,
+) -> str:
+    """Turn multiple evidence traces into one knowledge-grounded learner claim."""
+    summaries = " ".join(item.summary for item in evidence)
+    knowledge_ids = {
+        value for item in evidence for value in item.anchor.knowledge_node_ids
+    }
+    ability_ids = {
+        value for item in evidence for value in item.anchor.ability_point_ids
+    }
+    misconception_ids = {
+        value for item in evidence for value in item.anchor.misconception_point_ids
+    }
+    knowledge_labels = _knowledge_labels(knowledge_base, knowledge_ids)
+    ability_labels = _ability_labels(knowledge_base, ability_ids)
+    misconception_labels = _misconception_labels(knowledge_base, misconception_ids)
+    procedural_strength = any(marker in summaries for marker in (
+        "会计算", "会做", "能算", "步骤会", "计算会", "规则会",
+    ))
+    order_gap = any(marker in summaries for marker in (
+        "变换顺序", "乘法顺序", "复合顺序", "先做右边", "顺序总是理解反",
+    ))
+    ability_focus = _ability_focus(ability_labels[0]) if ability_labels else ""
+
+    if procedural_strength and order_gap:
+        return "学习者会执行计算，但尚未理解复合变换的先后顺序。"
+    if procedural_strength and ability_focus:
+        return f"学习者会执行计算，但尚未理解{ability_focus}。"
+    if procedural_strength and knowledge_labels:
+        return f"学习者会执行步骤，但尚未形成对「{_knowledge_focus(knowledge_labels[0])}」的概念理解。"
+    if ability_labels:
+        return f"多条学习证据共同指向「{ability_labels[0]}」这一能力缺口。"
+    if misconception_labels:
+        return f"多条学习证据共同命中易错点「{misconception_labels[0]}」。"
+    if knowledge_labels:
+        return f"多条学习证据共同指向「{_knowledge_focus(knowledge_labels[0])}」的理解缺口。"
+    return "多条学习证据共同指向当前概念的理解缺口，而不是单次作答波动。"
+
+
+def _ability_focus(label: str) -> str:
+    focus = re.sub(
+        r"^(能够|能|解释|理解|判断|应用|分析|说明|辨析|掌握|使用|完成)",
+        "",
+        str(label or "").strip(),
+    ).strip()
+    if "复合" in focus and "顺序" in focus:
+        return "复合变换的先后顺序"
+    return focus or str(label or "").strip()
+
+
+def _knowledge_focus(label: str) -> str:
+    return re.sub(
+        r"(的)?(含义|概念|原理|基础)$",
+        "",
+        str(label or "").strip(),
+    ).strip() or str(label or "").strip()
 
 
 def _affected_blocks(

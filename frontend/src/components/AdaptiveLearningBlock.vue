@@ -48,8 +48,19 @@
       </p>
       <div v-if="block.kind === 'understanding_check' && block.payload.prompt" class="adaptive-block__check">
         <CircleHelp :size="16" />
-        <span>{{ block.payload.prompt }}</span>
-        <small>{{ t('adaptiveBlocks.informal', '不计入掌握判断') }}</small>
+        <span>
+          {{ block.payload.prompt }}
+          <small>{{ t('adaptiveBlocks.informal', '先自查，不计入掌握判断') }}</small>
+        </span>
+        <button
+          v-if="practiceAvailable"
+          type="button"
+          class="adaptive-block__verify"
+          @click="startFormalValidation"
+        >
+          <ClipboardCheck :size="14" />
+          {{ t('adaptiveBlocks.startFormalValidation', '进行独立复验') }}
+        </button>
       </div>
       <footer>
         <span><ShieldCheck :size="14" />{{ t(`adaptiveBlocks.reasons.${block.reason_code}`, t('adaptiveBlocks.evidenceBased', '基于当前学习证据')) }}</span>
@@ -68,12 +79,16 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { ArrowRight, ChevronDown, ChevronUp, CircleHelp, Lightbulb, Pause, Play, ScanSearch, ShieldCheck, SquarePlay, ThumbsDown, ThumbsUp, X } from 'lucide-vue-next'
+import { ArrowRight, ChevronDown, ChevronUp, CircleHelp, ClipboardCheck, Lightbulb, Pause, Play, ScanSearch, ShieldCheck, SquarePlay, ThumbsDown, ThumbsUp, X } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore, type AdaptiveBlockFeedback, type AdaptiveLearningBlock } from '../stores/learningProgress'
 import { t } from '../shared/i18n'
 
-const props = defineProps<{ block: AdaptiveLearningBlock }>()
+const props = withDefaults(defineProps<{
+  block: AdaptiveLearningBlock
+  practiceAvailable?: boolean
+}>(), { practiceAvailable: false })
+const emit = defineEmits<{ (event: 'verify'): void }>()
 const courseStore = useCourseStore()
 const progressStore = useLearningProgressStore()
 const collapsed = ref(false)
@@ -125,11 +140,24 @@ const toggleAnimation = () => {
   if (frames.length < 2) return
   if (activeFrame.value >= frames.length - 1) activeFrame.value = 0
   isPlaying.value = true
+  void progressStore.recordAdaptiveBlockInteraction(
+    courseStore.currentCourseId,
+    props.block,
+    'animation_played',
+  )
   const duration = Math.max(500, frames[activeFrame.value]?.duration_ms || 1200)
   animationTimer = window.setInterval(() => {
     if (activeFrame.value >= frames.length - 1) return stopAnimation()
     activeFrame.value += 1
   }, duration)
+}
+const startFormalValidation = () => {
+  void progressStore.recordAdaptiveBlockInteraction(
+    courseStore.currentCourseId,
+    props.block,
+    'validation_started',
+  )
+  emit('verify')
 }
 onBeforeUnmount(stopAnimation)
 </script>
@@ -154,7 +182,10 @@ onBeforeUnmount(stopAnimation)
 .structured-animation { display:grid; gap:8px; margin-top:12px; padding:11px 12px; border:1px solid rgba(139,92,246,.25); border-radius:8px; background:rgba(255,255,255,.72); }.structured-animation__header { display:flex; align-items:center; justify-content:space-between; gap:8px; }.structured-animation__header > span { display:inline-flex; align-items:center; gap:5px; color:#6d28d9; font-size:9px; font-weight:800; }.structured-animation__header button { color:#6d28d9; background:#f5f3ff; }.structured-animation > strong { color:var(--lz-text-strong); font-size:12px; }.structured-animation__frame { min-height:72px; display:grid; grid-template-columns:auto minmax(0,1fr); align-content:center; gap:4px 8px; padding:10px; border-radius:6px; background:#f8fafc; }.structured-animation__frame small { grid-row:1 / 3; align-self:start; color:#7c3aed; font-size:9px; font-weight:800; }.structured-animation__frame b { color:var(--lz-text); font-size:11px; }.structured-animation__frame p { margin:0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }.structured-animation__timeline { display:flex; gap:5px; }.structured-animation__timeline button { width:24px; height:24px; border:1px solid #ddd6fe; border-radius:50%; color:#7c3aed; background:#fff; font-size:9px; }.structured-animation__timeline button.active { color:#fff; border-color:#7c3aed; background:#7c3aed; }
 .adaptive-block__fallback { margin-top:9px!important; color:#7c3aed!important; font-size:10px!important; }
 .adaptive-block__check { margin-top:11px; display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:8px; padding:9px 10px; border:1px solid rgba(165,180,252,.56); border-radius:8px; background:rgba(255,255,255,.7); color:var(--lz-text); font-size:12px; }
-.adaptive-block__check small { color:var(--lz-text-muted); font-size:9px; white-space:nowrap; }
+.adaptive-block__check > span { min-width:0; display:flex; flex-direction:column; gap:3px; line-height:1.5; }
+.adaptive-block__check small { color:var(--lz-text-muted); font-size:9px; white-space:normal; }
+.adaptive-block .adaptive-block__verify { width:auto; min-height:30px; display:inline-flex; grid-auto-flow:column; align-items:center; gap:5px; padding:0 9px; color:#fff; background:#4f46e5; font-size:9px; font-weight:750; white-space:nowrap; }
+.adaptive-block .adaptive-block__verify:hover { color:#fff; background:#4338ca; }
 .adaptive-block footer { margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .adaptive-block footer > span { display:inline-flex; align-items:center; gap:5px; color:var(--lz-text-muted); font-size:9px; }
 .adaptive-block footer > div { display:flex; gap:3px; }
@@ -162,6 +193,6 @@ onBeforeUnmount(stopAnimation)
   .adaptive-block { margin-top:20px; padding-left:13px; }
   .adaptive-block__body { padding:10px 4px 0 44px; }
   .adaptive-block__check { grid-template-columns:18px minmax(0,1fr); }
-  .adaptive-block__check small { grid-column:2; white-space:normal; }
+  .adaptive-block__verify { grid-column:2; justify-self:start; }
 }
 </style>

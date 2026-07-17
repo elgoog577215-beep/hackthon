@@ -219,3 +219,47 @@ def test_dismissed_adaptive_block_is_not_projected_again():
     assert learning_runtime._adaptive_blocks(
         course, attempts=[], workflow=workflow, events=events, requested_node_id="n1",
     ) == []
+
+
+def test_adaptive_block_interaction_is_recorded_as_effect_evidence(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers import learning_runtime as runtime_router
+
+    recorded = []
+
+    async def existing_course(_course_id: str):
+        return {"course_id": "c1", "current_course_version_id": "cv1"}
+
+    monkeypatch.setattr(runtime_router, "get_course_or_404", existing_course)
+    monkeypatch.setattr(runtime_router, "build_learning_runtime", lambda *_args, **_kwargs: {
+        "runtime_revision_id": "runtime-1",
+        "adaptive_blocks": [{
+            "adaptive_block_id": "block-1",
+            "kind": "animation",
+            "reason_code": "accepted_evidence_driven_growth",
+            "evidence_refs": ["e1", "e2", "e3"],
+        }],
+    })
+
+    def record(**payload):
+        recorded.append(payload)
+        return {"event_id": "event-interaction"}
+
+    monkeypatch.setattr(runtime_router, "record_learning_event", record)
+    app = FastAPI()
+    app.include_router(runtime_router.router, prefix="/api")
+    response = TestClient(app, headers={"X-User-Id": "student-a"}).post(
+        "/api/courses/c1/learning-runtime/adaptive-blocks/interactions",
+        json={
+            "adaptive_block_id": "block-1",
+            "node_id": "n1",
+            "interaction": "animation_played",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["interaction"] == "animation_played"
+    assert recorded[0]["event_type"] == "adaptive_block_interaction"
+    assert recorded[0]["result"] == {"interaction": "animation_played"}
+    assert recorded[0]["metadata"]["adaptive_block_id"] == "block-1"
