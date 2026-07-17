@@ -8,6 +8,7 @@ import re
 from typing import Any, Literal
 
 from course_document import stable_hash
+from slide_deck import validate_slide_deck
 from teaching_representations import (
     TeachingRepresentation,
     TeachingRepresentationRegistry,
@@ -41,7 +42,7 @@ def classify_representation_edit(
         return {"classification": "equivalent_semantic", "reason": "仅标点、空白或格式发生变化"}
     if field == "title" and _token_overlap(normalized_before, normalized_after) >= 0.72:
         return {"classification": "equivalent_semantic", "reason": "标题保持同一核心概念"}
-    if field in {"bullets", "speaker_notes", "body", "example", "prompt", "title"}:
+    if field in {"bullets", "speaker_notes", "body", "example", "prompt", "title", "key_message", "subtitle"}:
         return {"classification": "ambiguous", "reason": "该字段承载教学含义，需要用户决定是否联动课程"}
     return {"classification": "ambiguous", "reason": "无法仅靠确定性规则确认语义边界"}
 
@@ -104,7 +105,40 @@ def apply_representation_only_edit(
     unit = next((item for item in content[units_key] if str(item.get("unit_id") or "") == unit_id), None)
     if unit is None:
         raise KeyError(unit_id)
+    before = deepcopy(unit.get(field))
     unit[field] = deepcopy(after)
+    if spec.representation_type == "slide_deck":
+        overrides = content.setdefault("presentation_overrides", {})
+        unit_overrides = overrides.setdefault(unit_id, {})
+        existing = unit_overrides.get(field) if isinstance(unit_overrides.get(field), dict) else {}
+        base_value = existing.get("base_value", before)
+        if after == base_value:
+            unit_overrides.pop(field, None)
+            if not unit_overrides:
+                overrides.pop(unit_id, None)
+        else:
+            unit_overrides[field] = {
+                "value": deepcopy(after),
+                "base_value": deepcopy(base_value),
+                "source_revision_vector": {
+                    source_key: revision
+                    for binding in spec.unit_bindings.get(unit_id) or []
+                    for source_key, revision in binding.source_revisions.items()
+                },
+            }
+        quality = validate_slide_deck(content)
+        if not quality["passed"]:
+            codes = ", ".join(
+                issue["code"] for issue in quality["issues"]
+                if issue["severity"] == "critical"
+            )
+            raise ValueError(f"Slide edit violates the quality gate: {codes}")
+        content["quality_summary"] = {
+            "passed": quality["passed"],
+            "score": quality["score"],
+            "semantic_issue_count": len(quality["semantic"]["issues"]),
+            "visual_issue_count": len(quality["visual"]["issues"]),
+        }
     now = datetime.now(timezone.utc).isoformat()
     spec_revision = stable_hash(payload, prefix="tsr_")
     edited_spec = TeachingRepresentationSpec(
@@ -129,7 +163,7 @@ def apply_representation_only_edit(
     edited_representation.semantic_fingerprint = stable_hash(content, prefix="sem_")
     edited_representation.render_fingerprint = stable_hash({
         "spec_revision": spec_revision,
-        "renderer": "structured_json_v1",
+        "renderer": "structured_json_v2",
     }, prefix="rnd_")
     edited_representation.revision = stable_hash({
         "spec_revision": spec_revision,

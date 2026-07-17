@@ -106,6 +106,7 @@
         :course-id="courseStore.currentCourseId"
         @close="resourcesOpen = false"
         @knowledge-library="openKnowledgeLibrary"
+        @ask-ai="openAiForSlide"
       />
     </main>
 
@@ -419,6 +420,18 @@ function openAiForPractice(payload: { text: string; nodeId: string }) {
   aiPrefill.value = t('courseWorkspace.aiTeacher.quickExplainPrompt', '请解释当前内容的核心概念。')
   aiEntrypoint.value = 'practice'
   aiVisible.value = true
+}
+
+function openAiForSlide(payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }) {
+  resourcesOpen.value = false
+  aiBlockTarget.value = undefined
+  aiQuote.value = payload.text
+  aiNodeId.value = payload.nodeId || courseStore.currentNode?.node_id || ''
+  aiAnchor.value = payload.anchor
+  aiPrefill.value = payload.prefill
+  aiEntrypoint.value = 'selection'
+  aiVisible.value = true
+  if (isNarrow.value) navigatorOpen.value = false
 }
 
 function openRecords() {

@@ -54,6 +54,10 @@ def revision_vector_for_document(
         })
 
     for section in sorted(item.sections, key=lambda value: (value.position, value.section_id)):
+        revisions[f"section_structure:{section.section_id}"] = stable_hash(
+            section.model_dump(mode="json"),
+            prefix="cssr_",
+        )
         section_payload = {
             "section": section.model_dump(mode="json"),
             "blocks": blocks_by_section.get(section.section_id, []),

@@ -61,7 +61,25 @@ ambiguous
 
 表达构建复用现有可恢复任务能力和同一服务端活动状态原则。WebSocket 只提供增量，服务端工作区与检查点是真源。课程提交先完成，表达重建异步进行；最后一个可用表达在新版本质量通过前继续保留。
 
-## 7. 实施顺序
+课件构建对用户开放页级进度，但“看见正在生成的页面”不等于提前发布正式版本：编译器通过 SSE 发送临时 `slide_upsert`，前端使用同一 `SlideDeckSpec` 预览；只有完整规格通过质量门后，注册表才原子切换到新版本。中途失败时，临时页面丢弃，旧版本保持可用。
+
+## 7. 结构化演示文稿
+
+`SlideDeckSpec` 不是课程正文切片，而是对课程教学意图的页面级编译结果。每页必须声明：
+
+```text
+layout / slide_purpose
+title / key_message / structured blocks / speaker_notes
+section / block / revision source bindings
+knowledge / ability / misconception / mastery references
+practice task references
+```
+
+第一阶段注册封面、路线、章节、目标、概念、对比、过程、代码、易错、练习和小结版式。浏览器预览和 `.pptx` 导出读取同一份结构化规格；语义质量门检查课程来源、正式题目和知识绑定，视觉质量门检查版式容量、长段正文复制、Markdown 泄漏和未知版式。任何关键问题都阻止新版本发布与导出。
+
+页面标题、版式和讲者备注等表现修改保存在 `presentation_overrides`。基础课程变化后，编译器只在页面仍存在且基础字段兼容时重放表现修改；发生语义冲突时记录 `override_conflicts`，不得用旧表现修改覆盖新课程含义。
+
+## 8. 实施顺序
 
 1. P0：修订事件、来源绑定、表示注册表、派生依赖图和陈旧传播。
 2. R1：大纲、教案、讲义、题目投影和 `SlideDeckSpec` 最小编译闭环。
