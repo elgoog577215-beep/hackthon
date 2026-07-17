@@ -286,6 +286,43 @@ describe('Course knowledge library', () => {
     expect(wrapper.text()).toContain('当前课程还没有通过质量门的知识库')
   })
 
+  it('compacts technical quality failures and hides raw section identifiers', async () => {
+    const rawSectionId = '01787b5b-f521-4a1a-97d0-e0755676fda9'
+    const degraded = {
+      ...libraryView,
+      lifecycle_status: 'degraded',
+      status: 'unavailable',
+      nodes: [],
+      coverage: {
+        ...libraryView.coverage,
+        section_count: 68,
+        covered_section_count: 0,
+      },
+      quality_report: {
+        ...libraryView.quality_report,
+        passed: false,
+        issues: [
+          { code: 'knowledge_blueprint_missing', severity: 'critical', message: '知识库缺少有效的知识蓝图' },
+          { code: 'missing_section_bindings', severity: 'critical', message: `知识库未覆盖小节：['${rawSectionId}']` },
+          { code: 'invalid_concept_group_id', severity: 'critical', message: '概念组 ID 必须非空且唯一' },
+          { code: 'invalid_knowledge_id', severity: 'critical', message: '知识点 ID 必须非空且唯一' },
+          { code: 'invalid_skill_id', severity: 'critical', message: '能力点 ID 必须非空且唯一' },
+        ],
+      },
+    }
+    httpMock.get.mockResolvedValue({
+      data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [degraded] } },
+    })
+
+    const { wrapper } = await mountLibrary()
+    const issueList = wrapper.get('[data-testid="knowledge-quality-issues"]')
+
+    expect(issueList.findAll('li').length).toBeLessThanOrEqual(3)
+    expect(issueList.text()).not.toContain(rawSectionId)
+    expect(issueList.text()).toContain('68')
+    expect(wrapper.find('[data-testid="knowledge-quality-toggle"]').exists()).toBe(true)
+  })
+
   it('重新生成失败时显示后端结构化错误而不是对象字符串', async () => {
     const { wrapper } = await mountLibrary()
     httpMock.post.mockRejectedValueOnce({

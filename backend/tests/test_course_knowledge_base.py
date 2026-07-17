@@ -212,6 +212,42 @@ def test_course_knowledge_validator_rejects_missing_capability_parent():
     assert any(item["gate"] == "standards" for item in report["issues"])
 
 
+def test_empty_knowledge_blueprint_reports_compact_actionable_issues():
+    section_ids = [
+        "01787b5b-f521-4a1a-97d0-e0755676fda9",
+        "02c85c15-f7a5-43e8-bc00-70d9ce9d8900",
+    ]
+    course = {
+        "nodes": [
+            {"node_id": section_id, "node_level": 2, "node_name": f"Section {index}"}
+            for index, section_id in enumerate(section_ids, start=1)
+        ],
+    }
+    knowledge_base = {
+        "schema_version": "course_knowledge_base_v2",
+        "concept_groups": [],
+        "knowledge_points": [],
+        "skill_units": [],
+        "misconceptions": [],
+        "mastery_criteria": [],
+        "relations": [],
+        "bindings": [],
+        "generation_audit": {},
+    }
+
+    report = validate_course_knowledge_base(knowledge_base, course_data=course)
+    issue_codes = {item["code"] for item in report["issues"]}
+    messages = " ".join(item["message"] for item in report["issues"])
+
+    assert "knowledge_blueprint_missing" in issue_codes
+    assert not any(code.startswith("invalid_") for code in issue_codes)
+    assert "2" in next(
+        item["message"] for item in report["issues"]
+        if item["code"] == "missing_section_bindings"
+    )
+    assert not any(section_id in messages for section_id in section_ids)
+
+
 def test_title_only_legacy_course_is_degraded_instead_of_fabricating_knowledge():
     course = _course()
     section = course["nodes"][0]
