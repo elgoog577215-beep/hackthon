@@ -28,8 +28,8 @@ const ContentAreaStub = defineComponent({
 
 const TaskOverlayStub = defineComponent({
   props: ['courseId', 'nodeId', 'nodeLabel', 'originRect'],
-  emits: ['close', 'graded', 'askTeacher'],
-  template: '<div class="task-overlay-stub" :data-origin-top="originRect?.top"><span>{{ nodeLabel }}</span><button class="close-task" @click="$emit(\'close\')">close</button></div>',
+  emits: ['close', 'graded', 'askTeacher', 'records', 'stats'],
+  template: '<div class="task-overlay-stub" :data-origin-top="originRect?.top"><span>{{ nodeLabel }}</span><button class="task-records" @click="$emit(\'records\')">records</button><button class="task-stats" @click="$emit(\'stats\')">stats</button><button class="close-task" @click="$emit(\'close\')">close</button></div>',
 })
 
 describe('LearningView 正文任务覆盖层', () => {
@@ -118,7 +118,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it('在同一学习页内用三个底部域切换上部二级入口', async () => {
+  it('正文页只保留三个底部域，进入学习覆盖层后才显示二级入口', async () => {
     const wrapper = mount(LearningView, {
       attachTo: document.body,
       global: {
@@ -138,14 +138,17 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['学习', '资源', '智能助教'])
-    expect(wrapper.findAll('.learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['当前练习', '学习记录', '学习概况'])
+    expect(wrapper.find('.learning-main > .learning-context-tabs').exists()).toBe(false)
 
-    await wrapper.get('[data-domain="resources"]').trigger('click')
-    expect(wrapper.findAll('.learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['知识库', '教学资源'])
+    await wrapper.get('[data-domain="learning"]').trigger('click')
+    expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
+
+    await wrapper.get('.task-records').trigger('click')
+    expect(wrapper.find('.records-overlay').exists()).toBe(true)
+    expect(wrapper.findAll('.records-overlay .learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['当前练习', '学习记录', '学习概况'])
 
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.find('.ai-panel-stub').exists()).toBe(true)
-    expect(wrapper.find('.learning-context-tabs [role="tablist"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
