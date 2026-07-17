@@ -147,6 +147,15 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.find('.records-overlay').exists()).toBe(true)
     expect(wrapper.findAll('.records-overlay .learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['当前练习', '学习记录', '学习概况'])
 
+    await wrapper.get('[data-domain="resources"]').trigger('click')
+    const courseStore = useCourseStore()
+    expect(courseStore.showKnowledgeLibrary).toBe(true)
+
+    courseStore.showKnowledgeLibrary = false
+    courseStore.showTeachingResources = true
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' }).props('visible')).toBe(true)
+
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.find('.ai-panel-stub').exists()).toBe(true)
     wrapper.unmount()

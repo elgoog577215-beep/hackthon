@@ -323,6 +323,19 @@ describe('Course knowledge library', () => {
     expect(wrapper.find('[data-testid="knowledge-quality-toggle"]').exists()).toBe(true)
   })
 
+  it('进入资源覆盖层后在顶栏切换知识库和教学资源', async () => {
+    const { wrapper, courseStore } = await mountLibrary()
+
+    const tabs = wrapper.findAll('.knowledge-tree-header [role="tab"]')
+    expect(tabs.map(tab => tab.text())).toEqual(['知识库', '教学资源'])
+    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
+
+    await tabs[1]!.trigger('click')
+
+    expect(courseStore.showKnowledgeLibrary).toBe(false)
+    expect(courseStore.showTeachingResources).toBe(true)
+  })
+
   it('重新生成失败时显示后端结构化错误而不是对象字符串', async () => {
     const { wrapper } = await mountLibrary()
     httpMock.post.mockRejectedValueOnce({
