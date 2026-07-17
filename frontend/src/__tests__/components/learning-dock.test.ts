@@ -15,11 +15,11 @@ describe('LearningDock', () => {
     const domainButtons = wrapper.findAll('.learning-dock__domain')
     expect(domainButtons).toHaveLength(3)
     expect(domainButtons.map(button => button.text())).toEqual(['学习', '资源', '智能助教'])
-    expect(domainButtons[0].classes()).toContain('is-active')
+    expect(domainButtons[0]!.classes()).toContain('is-active')
 
-    await domainButtons[0].trigger('click')
-    await domainButtons[1].trigger('click')
-    await domainButtons[2].trigger('click')
+    await domainButtons[0]!.trigger('click')
+    await domainButtons[1]!.trigger('click')
+    await domainButtons[2]!.trigger('click')
 
     expect(wrapper.emitted('learning')).toHaveLength(1)
     expect(wrapper.emitted('resources')).toHaveLength(1)

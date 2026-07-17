@@ -15,11 +15,11 @@ describe('LearningContextTabs', () => {
 
     const tabs = wrapper.findAll('[role="tab"]')
     expect(tabs.map(tab => tab.text())).toEqual(['当前练习', '学习记录3', '学习概况'])
-    expect(tabs[0].attributes('aria-selected')).toBe('true')
+    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
 
-    await tabs[0].trigger('click')
-    await tabs[1].trigger('click')
-    await tabs[2].trigger('click')
+    await tabs[0]!.trigger('click')
+    await tabs[1]!.trigger('click')
+    await tabs[2]!.trigger('click')
 
     expect(wrapper.emitted('practice')).toHaveLength(1)
     expect(wrapper.emitted('records')).toHaveLength(1)
@@ -36,10 +36,10 @@ describe('LearningContextTabs', () => {
 
     const tabs = wrapper.findAll('[role="tab"]')
     expect(tabs.map(tab => tab.text())).toEqual(['知识库', '教学资源'])
-    expect(tabs[0].attributes('aria-selected')).toBe('true')
+    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
 
-    await tabs[0].trigger('click')
-    await tabs[1].trigger('click')
+    await tabs[0]!.trigger('click')
+    await tabs[1]!.trigger('click')
 
     expect(wrapper.emitted('knowledge-library')).toHaveLength(1)
     expect(wrapper.emitted('resources')).toHaveLength(1)
