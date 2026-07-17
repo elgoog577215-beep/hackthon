@@ -1,3 +1,55 @@
+# 2026-07-17 当前练习与学习记录统一 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-b993a736-f715-4cf6-a612-db54568adf65.png`
+- implementation screenshot path: `C:\Users\Lenovo\AppData\Local\Temp\design-qa-current-practice-unified.png`
+- viewport: `2128 × 1410`
+- state: 高级数据结构课程 `1.1 前置知识诊断测试`，当前练习已打开，第一题待作答
+- full-view comparison evidence: `C:\Users\Lenovo\AppData\Local\Temp\design-qa-practice-vs-records-composite.png`
+- focused region comparison evidence: 未单独裁切；全视图中顶部三级标签、关闭按钮、任务标题、作答区和外层工作区均可清晰辨认，已另外用 DOM 几何数据核对工具层边界
+
+**Findings**
+
+- 无可执行的 P0/P1/P2 差异。当前练习与学习记录使用相同的 `learning-tool-overlay` 外壳，并占用相同工作区矩形：`x=302.67, y=80.67, width=1814.67, height=1318.67`。
+- 字体与排版：沿用现有界面字族、字号、字重和层级；任务标题、状态与控件没有新增截断或异常换行。
+- 间距与布局：两种工具状态的边界、顶部标签带、关闭按钮位置和内容区留白一致；左侧章节目录继续保留。
+- 色彩与视觉令牌：沿用学习记录的白色工具层、淡色分隔线、紫色选中态和青绿色练习状态，不新增独立弹窗阴影或灰色遮罩。
+- 图片与资源：该状态无内容图片或插画；现有图标继续复用同一图标体系，没有用临时图形替代。
+- 文案与内容：保留当前练习、练习历史、待巩固及题目内容，不改变业务文案。
+
+**Open Questions**
+
+- 无。
+
+**Implementation Checklist**
+
+- [x] 移除居中 `MorphingDialog` 与全局背景遮罩。
+- [x] 当前练习复用学习工具全幅页内外壳。
+- [x] 当前练习、学习记录、学习概况继续在进入后的顶部标签切换。
+- [x] 验证当前练习 → 学习记录 → 当前练习双向切换。
+- [x] 验证 Escape/关闭按钮语义、`role="dialog"` 和 `aria-modal="true"`。
+
+**Comparison History**
+
+- 初始问题：当前练习是居中弹窗，尺寸、背景遮罩和空间层级均与学习记录不一致。
+- 修复：移除弹窗包装，新增共享 `learning-tool-overlay` 外壳，并让三个学习工具状态复用同一绝对定位与移动端规则。
+- 修复后视觉证据：`C:\Users\Lenovo\AppData\Local\Temp\design-qa-current-practice-unified.png`
+- 修复后结构证据：当前练习与学习记录边界数据完全一致；旧 `.morphing-dialog` 与遮罩数量均为 `0`。
+
+**Primary Interactions Tested**
+
+- 底部“学习”进入当前练习。
+- 顶部“学习记录”切换并返回“当前练习”。
+- 当前练习关闭按钮存在且唯一。
+- Console errors checked: `0`。
+
+**Follow-up Polish**
+
+- 无阻断性 P3 建议。
+
+final result: passed
+
+---
+
 # 课程块 AI 助手 Design QA
 
 ## 结论

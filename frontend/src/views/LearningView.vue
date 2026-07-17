@@ -73,7 +73,7 @@
         @stats="openStats"
       />
 
-      <section v-if="recordsOpen" class="records-overlay" role="dialog" aria-modal="true" :aria-label="t('learningNavigator.records', '学习记录')">
+      <section v-if="recordsOpen" class="learning-tool-overlay records-overlay" role="dialog" aria-modal="true" :aria-label="t('learningNavigator.records', '学习记录')">
         <button type="button" :title="t('learningShell.closeRecords', '关闭学习记录')" :aria-label="t('learningShell.closeRecords', '关闭学习记录')" @click="recordsOpen = false"><X :size="18" /></button>
         <LearningContextTabs
           domain="learning"
@@ -87,7 +87,7 @@
         <NotesPanel class="records-tool" @locate="locateRecord" @view-detail="locateRecord" @close="recordsOpen = false" />
       </section>
 
-      <section v-if="statsOpen" class="stats-overlay" role="dialog" aria-modal="true" :aria-label="t('learningDock.stats', '学习概况')">
+      <section v-if="statsOpen" class="learning-tool-overlay stats-overlay" role="dialog" aria-modal="true" :aria-label="t('learningDock.stats', '学习概况')">
         <button type="button" :title="t('learningDock.closeStats', '关闭学习概况')" :aria-label="t('learningDock.closeStats', '关闭学习概况')" @click="statsOpen = false"><X :size="18" /></button>
         <LearningContextTabs
           domain="learning"
@@ -602,7 +602,7 @@ function closeMobileSurfaces() {
 .generation-meter i { height:5px; overflow:hidden; border-radius:999px; background:#e8eaff; }
 .generation-meter b { height:100%; display:block; border-radius:inherit; background:#6366f1; transition:width .35s ease; }
 .learning-content { min-height: 0; flex: 1; }
-.records-overlay, .stats-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
+.learning-tool-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
 .records-overlay > button, .stats-overlay > button { position:absolute; top:11px; right:12px; z-index:2; width:32px; height:32px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-secondary); background:#fff; cursor:pointer; }
 .records-tool { flex: 1; min-width: 0; min-height: 0; }
 .stats-tool { flex:1; min-width:0; min-height:0; }
@@ -626,7 +626,7 @@ function closeMobileSurfaces() {
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
   .generation-meter { width:92px; grid-template-columns:auto minmax(44px,1fr); }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:56px 0 calc(52px + env(safe-area-inset-bottom, 0px)); }
-  .records-overlay, .stats-overlay { position:fixed; inset:56px 0 calc(52px + env(safe-area-inset-bottom, 0px)); z-index:105; }
+  .learning-tool-overlay { position:fixed; inset:56px 0 calc(52px + env(safe-area-inset-bottom, 0px)); z-index:105; }
   .mobile-resume-prompt { position:fixed; left:10px; right:10px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); z-index:119; min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #15803d; border-radius:11px; color:#fff; background:#15803d; box-shadow:0 8px 22px rgba(21,128,61,.2); font-size:12px; font-weight:750; }
   .mobile-resume-prompt:disabled { opacity:.6; }
   .mobile-resume-prompt__spin { animation:mobile-resume-spin .8s linear infinite; }
