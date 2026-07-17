@@ -1,3 +1,56 @@
+# 2026-07-17 当前练习内容密度 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-ed5086ed-f8ca-41c7-a8af-58ecc17efc47.png`
+- implementation screenshot path: `C:\Users\Lenovo\AppData\Local\Temp\design-qa-current-practice-expanded.png`
+- viewport: `2086 × 1225`
+- state: 高级数据结构课程 `1.1 前置知识诊断测试`，第一题待作答
+- full-view comparison evidence: `C:\Users\Lenovo\AppData\Local\Temp\design-qa-practice-density-composite.png`
+- focused region comparison evidence: 未单独裁切；对照图中的题目、输入框、操作区和底部余量均清晰可读，并用 DOM 几何数据精确核对尺寸
+
+**Findings**
+
+- 无可执行的 P0/P1/P2 差异。桌面作答区由 `920px` 扩大到 `1280px`，当前视口下输入框高度约 `662px`，操作区下方余量约 `82px`。
+- 字体与排版：题目层级、字号、字重和行高保持不变；加宽后长题目仍保持清晰阅读层级。
+- 间距与布局：练习标签、诊断带、题目、输入框及操作栏统一采用更宽的内容轨道；底部内边距由 `90px` 收紧到 `36px`。
+- 色彩与视觉令牌：未改变现有背景、边框、选中态、禁用态和提交按钮颜色。
+- 图片与资源：该界面无内容图片或插画，现有图标未替换。
+- 文案与内容：题目、占位提示和操作文案均保持不变。
+- 响应式：`1024 × 768` 和 `390 × 844` 均无页面级横向溢出；移动端继续使用 `180px` 输入框高度。
+
+**Open Questions**
+
+- 无。
+
+**Implementation Checklist**
+
+- [x] 桌面内容轨道扩大到 `1280px`。
+- [x] 作答输入框使用 `clamp(360px, 54vh, 680px)` 自适应高度。
+- [x] 收紧题目区底部留白。
+- [x] 保留移动端紧凑布局。
+- [x] 检查桌面、中等宽度和移动端溢出。
+
+**Comparison History**
+
+- 初始 P2：内容轨道仅 `920px`，输入框最小高度 `220px`，题目区底部预留 `90px`，在大屏形成明显空洞。
+- 修复：将主要练习轨道扩大到 `1280px`，输入框按视口增高，底部间距降至 `36px`。
+- 修复后视觉证据：`C:\Users\Lenovo\AppData\Local\Temp\design-qa-current-practice-expanded.png`
+- 修复后结构证据：当前视口下题目轨道 `1280px`、输入框约 `662px`，页面横向溢出为 `0`。
+
+**Primary Interactions Tested**
+
+- 当前练习待作答状态正常呈现。
+- 提示、问老师和提交按钮保持可见。
+- 桌面、中等宽度、移动端布局切换正常。
+- Console errors checked: `0`。
+
+**Follow-up Polish**
+
+- 无阻断性 P3 建议。
+
+final result: passed
+
+---
+
 # 2026-07-17 当前练习与学习记录统一 Design QA
 
 - source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-b993a736-f715-4cf6-a612-db54568adf65.png`
