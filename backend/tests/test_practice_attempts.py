@@ -279,6 +279,31 @@ def test_practice_api_resumes_submits_idempotently_and_projects_mastery(monkeypa
     assert all(item["attempt_id"] == attempt["attempt_id"] for item in events)
 
 
+def test_targeted_retry_attempt_preserves_origin_and_intent(monkeypatch, tmp_path):
+    repository = PracticeAttemptRepository(tmp_path)
+    monkeypatch.setattr(practice_router, "practice_attempt_repository", repository)
+
+    async def fake_course(_course_id):
+        return _course()
+
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    response = client.post("/api/courses/c1/practice/attempts", json={
+        "task_revision_id": "qr1",
+        "resume": False,
+        "origin_attempt_id": "failed-attempt-1",
+        "practice_intent": "targeted_retry",
+    })
+
+    assert response.status_code == 200
+    attempt = response.json()["attempt"]
+    assert attempt["origin_attempt_id"] == "failed-attempt-1"
+    assert attempt["practice_intent"] == "targeted_retry"
+
+
 def test_legacy_practice_migration_is_idempotent_and_historical_only(monkeypatch, tmp_path):
     storage = MemoryStorage()
     monkeypatch.setattr(learning_events, "storage", storage)

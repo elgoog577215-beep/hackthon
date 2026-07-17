@@ -186,6 +186,70 @@ describe('formal practice attempt store', () => {
     expect(httpMock.post).not.toHaveBeenCalled()
   })
 
+  it('针对未通过记录优先选择同易错点的另一道版本化练习并保留来源', async () => {
+    const sourceQuestion = {
+      ...question,
+      mistake_point_ids: ['mistake-1'],
+      skill_unit_ids: ['skill-1'],
+    }
+    const targetedQuestion = {
+      ...question,
+      asset_id: 'q2',
+      revision_id: 'qr2',
+      task_revision_id: 'qr2',
+      prompt: '换一种情境解释向量。',
+      mistake_point_ids: ['mistake-1'],
+      skill_unit_ids: ['skill-1'],
+    }
+    const unrelatedQuestion = {
+      ...question,
+      asset_id: 'q3',
+      revision_id: 'qr3',
+      task_revision_id: 'qr3',
+      node_id: 'n2',
+      mistake_point_ids: ['mistake-2'],
+      skill_unit_ids: ['skill-2'],
+    }
+    const failedAttempt = attempt({
+      status: 'graded',
+      result: { passed: false },
+      mistake_point_ids: ['mistake-1'],
+      skill_unit_ids: ['skill-1'],
+    })
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        status: 'created',
+        attempt: attempt({
+          attempt_id: 'pa2',
+          task_revision_id: 'qr2',
+          question_revision_id: 'qr2',
+          origin_attempt_id: 'pa1',
+          practice_intent: 'targeted_retry',
+        }),
+      },
+    })
+    const store = useCourseWorkspaceStore()
+    store.practice = {
+      course_id: 'c1',
+      course_version_id: 'cv1',
+      scope: 'node',
+      questions: [sourceQuestion, targetedQuestion, unrelatedQuestion],
+      active_attempts: [],
+      summary: {},
+    } as any
+
+    const result = await store.startTargetedRetry('c1', failedAttempt as any)
+
+    expect(result?.task_revision_id).toBe('qr2')
+    expect(store.currentQuestionIndex).toBe(1)
+    expect(httpMock.post).toHaveBeenCalledWith('/api/courses/c1/practice/attempts', expect.objectContaining({
+      task_revision_id: 'qr2',
+      resume: false,
+      origin_attempt_id: 'pa1',
+      practice_intent: 'targeted_retry',
+    }))
+  })
+
   it('查看完整解析后同步 Attempt 证据状态', async () => {
     httpMock.post.mockResolvedValue({ data: {
       attempt: attempt({ revision: 3, status: 'graded', solution_revealed: true }),
