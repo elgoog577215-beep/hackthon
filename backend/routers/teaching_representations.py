@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from copy import deepcopy
 from pathlib import Path
+from queue import Queue
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from change_proposals import change_proposal_repository, create_authoring_change
@@ -65,7 +69,11 @@ def _reconciled_registry(course_id: str) -> dict:
     return registry.model_dump(mode="json")
 
 
-def _compile_registry(course_id: str) -> dict:
+def _compile_registry(
+    course_id: str,
+    *,
+    progress_callback: Any | None = None,
+) -> dict:
     course_repository = get_course_document_repository()
     document, canonical = course_repository.load_document(course_id)
     if not canonical:
@@ -75,6 +83,7 @@ def _compile_registry(course_id: str) -> dict:
         document,
         course_repository.load_course_view(course_id),
         get_teaching_representation_repository(),
+        progress_callback=progress_callback,
     )
     registry = get_teaching_representation_repository().reconcile_course_operation_log(
         course_id,
@@ -144,6 +153,53 @@ async def build_teaching_representations(course_id: str, request: Request) -> di
             "message": str(exc),
         }) from exc
     return {"status": "success", **result}
+
+
+@router.post("/build/stream")
+async def stream_teaching_representation_build(course_id: str, request: Request) -> StreamingResponse:
+    """Stream page-level progress while preserving atomic final publication."""
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+
+    async def event_stream():
+        events: Queue[dict[str, Any] | None] = Queue()
+
+        def publish(payload: dict[str, Any]) -> None:
+            events.put(payload)
+
+        def worker() -> None:
+            try:
+                result = _compile_registry(course_id, progress_callback=publish)
+                publish({"event": "build_complete", "progress": 100, **result})
+            except Exception as exc:
+                publish({
+                    "event": "error",
+                    "progress": 100,
+                    "message": str(exc),
+                })
+            finally:
+                events.put(None)
+
+        task = asyncio.create_task(asyncio.to_thread(worker))
+        sequence = 0
+        while True:
+            payload = await asyncio.to_thread(events.get)
+            if payload is None:
+                break
+            sequence += 1
+            event_name = str(payload.get("event") or "message")
+            body = {**payload, "sequence": sequence}
+            yield f"id: {sequence}\nevent: {event_name}\ndata: {json.dumps(body, ensure_ascii=False)}\n\n"
+        await task
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/quality")
@@ -229,16 +285,22 @@ async def apply_teaching_representation_edit(
     )
     impact = representation_edit_impact(registry, spec, unit_id=body.unit_id)
     if body.decision == "representation_only":
-        updated = await run_in_threadpool(
-            apply_representation_only_edit,
-            get_teaching_representation_repository(),
-            registry,
-            representation,
-            spec,
-            unit_id=body.unit_id,
-            field=body.field,
-            after=body.after,
-        )
+        try:
+            updated = await run_in_threadpool(
+                apply_representation_only_edit,
+                get_teaching_representation_repository(),
+                registry,
+                representation,
+                spec,
+                unit_id=body.unit_id,
+                field=body.field,
+                after=body.after,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail={
+                "code": "representation_quality_blocked",
+                "message": str(exc),
+            }) from exc
         return {
             "status": "applied_to_representation",
             "classification": (
@@ -348,7 +410,13 @@ async def export_teaching_slide_deck(
 
     spec = TeachingRepresentationSpec.model_validate(payload["spec"])
     output_path = Path(DATA_DIR) / "teaching_exports" / f"{representation_id}-{spec.revision}.pptx"
-    await run_in_threadpool(export_slide_deck_pptx, spec, output_path)
+    try:
+        await run_in_threadpool(export_slide_deck_pptx, spec, output_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "slide_export_quality_blocked",
+            "message": str(exc),
+        }) from exc
     return FileResponse(
         output_path,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",

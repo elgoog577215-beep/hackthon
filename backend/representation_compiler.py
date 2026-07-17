@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import re
 import tempfile
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from course_document import CourseBlock, CourseDocument, stable_hash
 from course_revisions import revision_vector_for_document
+from slide_deck import (
+    SLIDE_DECK_COMPILER_VERSION,
+    compile_slide_deck,
+    validate_slide_deck,
+)
+from slide_deck_renderer import export_structured_slide_deck
 from teaching_representations import (
     RepresentationPlan,
     SourceBinding,
@@ -19,7 +27,7 @@ from teaching_representations import (
     source_binding_for_document,
 )
 
-REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v1"
+REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v2"
 CORE_TYPES = ("outline", "lesson_plan", "handout", "practice_sheet", "slide_deck")
 
 
@@ -27,6 +35,9 @@ def compile_core_representations(
     document: CourseDocument,
     course_data: dict[str, Any],
     repository: TeachingRepresentationRepository,
+    *,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    presentation_overrides: dict[str, dict[str, dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     vector = revision_vector_for_document(document).revisions
@@ -57,12 +68,19 @@ def compile_core_representations(
     )
     repository.register_plan(plan)
 
+    if progress_callback:
+        progress_callback({"event": "representation_stage", "progress": 2, "stage": "planning"})
     payloads = {
         "outline": _outline_spec(document),
         "lesson_plan": _lesson_plan_spec(document, course_data),
         "handout": _handout_spec(document),
         "practice_sheet": _practice_sheet_spec(document, course_data),
-        "slide_deck": _slide_deck_spec(document, course_data),
+        "slide_deck": compile_slide_deck(
+            document,
+            course_data,
+            progress_callback=progress_callback,
+            presentation_overrides=presentation_overrides,
+        ),
     }
     built: list[dict[str, Any]] = []
     for representation_type, payload in payloads.items():
@@ -85,7 +103,12 @@ def compile_core_representations(
         }, prefix="trs_")
         spec_revision = stable_hash(spec_payload, prefix="tsr_")
         unit_count = len(payload.get("units") or payload.get("slides") or payload.get("sections") or [])
-        representation_status = "ready" if unit_count else "failed"
+        payload_quality = (
+            validate_slide_deck(payload, course_data=course_data)
+            if representation_type == "slide_deck"
+            else {"passed": bool(unit_count), "issues": []}
+        )
+        representation_status = "ready" if unit_count and payload_quality["passed"] else "failed"
         spec = TeachingRepresentationSpec(
             spec_id=spec_id,
             course_id=document.course_id,
@@ -112,11 +135,15 @@ def compile_core_representations(
             semantic_fingerprint=stable_hash(payload, prefix="sem_"),
             render_fingerprint=stable_hash({
                 "spec_revision": spec_revision,
-                "renderer": "structured_json_v1",
+                "renderer": (
+                    f"pptx:{SLIDE_DECK_COMPILER_VERSION}"
+                    if representation_type == "slide_deck"
+                    else "structured_json_v2"
+                ),
             }, prefix="rnd_"),
             quality_report_id=stable_hash({
                 "spec_revision": spec_revision,
-                "quality": "passed" if unit_count else "failed_empty_representation",
+                "quality": payload_quality,
             }, prefix="rqr_"),
             revision=stable_hash({
                 "spec_revision": spec_revision,
@@ -124,7 +151,15 @@ def compile_core_representations(
             }, prefix="rpr_"),
             status=representation_status,
             stale_unit_ids=[],
-            stale_reasons=[] if unit_count else ["empty_representation"],
+            stale_reasons=(
+                []
+                if representation_status == "ready"
+                else [
+                    str(issue.get("code") or "representation_quality_failed")
+                    for issue in payload_quality.get("issues") or []
+                    if issue.get("severity") == "critical"
+                ] or ["empty_representation"]
+            ),
             created_at=now,
             updated_at=now,
         )
@@ -141,6 +176,12 @@ def compile_core_representations(
                 else []
             ),
         })
+        if progress_callback and representation_type != "slide_deck":
+            progress_callback({
+                "event": "representation_stage",
+                "progress": min(99, 94 + len(built)),
+                "stage": f"compiled:{representation_type}",
+            })
     return {"plan_id": plan.plan_id, "representations": built}
 
 
@@ -148,6 +189,8 @@ def rebuild_core_representations_safely(
     document: CourseDocument,
     course_data: dict[str, Any],
     repository: TeachingRepresentationRepository,
+    *,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Compile in isolation and publish only a complete, quality-passing set.
 
@@ -168,10 +211,17 @@ def rebuild_core_representations_safely(
         for item in previous.representations
         if item.status == "stale"
     ]
+    presentation_overrides = _current_slide_overrides(previous)
     try:
         with tempfile.TemporaryDirectory(prefix="lingzhi-representation-build-") as temp_dir:
             shadow = TeachingRepresentationRepository(temp_dir)
-            build = compile_core_representations(document, course_data, shadow)
+            build = compile_core_representations(
+                document,
+                course_data,
+                shadow,
+                progress_callback=progress_callback,
+                presentation_overrides=presentation_overrides,
+            )
             candidate = shadow.load(document.course_id)
             current_spec_ids = {item.spec_id for item in candidate.representations}
             current_specs = [
@@ -179,6 +229,8 @@ def rebuild_core_representations_safely(
             ]
             quality = validate_compiled_representations(current_specs)
             if not quality["passed"]:
+                if progress_callback:
+                    progress_callback({"event": "build_blocked", "progress": 100, "quality": quality})
                 return {
                     "status": "failed_using_last_available",
                     "quality": quality,
@@ -199,7 +251,7 @@ def rebuild_core_representations_safely(
                 item["representation_type"]: item["stale_unit_ids"]
                 for item in stale_before
             }
-            return {
+            result = {
                 "status": "synchronized",
                 "quality": quality,
                 "stale_before": stale_before,
@@ -212,7 +264,16 @@ def rebuild_core_representations_safely(
                 ],
                 "registry_revision": committed.registry_revision,
             }
+            if progress_callback:
+                progress_callback({"event": "build_published", "progress": 100, "quality": quality})
+            return result
     except Exception as exc:
+        if progress_callback:
+            progress_callback({
+                "event": "build_failed",
+                "progress": 100,
+                "message": str(exc),
+            })
         return {
             "status": "failed_using_last_available",
             "quality": {
@@ -239,36 +300,8 @@ def rebuild_core_representations_safely(
 def export_slide_deck_pptx(spec: TeachingRepresentationSpec, output_path: str | Path) -> Path:
     if spec.representation_type != "slide_deck":
         raise ValueError("Only slide deck specs can be exported to pptx")
-    from pptx import Presentation
-    from pptx.util import Inches, Pt
-
-    presentation = Presentation()
-    presentation.slide_width = Inches(13.333)
-    presentation.slide_height = Inches(7.5)
-    slides = ((spec.payload.get("content") or {}).get("slides") or [])
-    for unit in slides:
-        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-        title_box = slide.shapes.add_textbox(Inches(0.75), Inches(0.5), Inches(11.8), Inches(0.8))
-        title_frame = title_box.text_frame
-        title_frame.text = str(unit.get("title") or "")
-        title_frame.paragraphs[0].font.size = Pt(28)
-        title_frame.paragraphs[0].font.bold = True
-        body_box = slide.shapes.add_textbox(Inches(0.9), Inches(1.55), Inches(11.4), Inches(4.9))
-        frame = body_box.text_frame
-        frame.clear()
-        for index, bullet in enumerate(unit.get("bullets") or []):
-            paragraph = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
-            paragraph.text = str(bullet)
-            paragraph.level = 0
-            paragraph.font.size = Pt(20)
-            paragraph.space_after = Pt(10)
-        notes = str(unit.get("speaker_notes") or "")
-        if notes:
-            slide.notes_slide.notes_text_frame.text = notes
-    path = Path(output_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    presentation.save(path)
-    return path
+    content = spec.payload.get("content") or {}
+    return export_structured_slide_deck(content, output_path)
 
 
 def validate_compiled_representations(specs: list[TeachingRepresentationSpec]) -> dict[str, Any]:
@@ -294,6 +327,9 @@ def validate_compiled_representations(specs: list[TeachingRepresentationSpec]) -
                     "code": "missing_source_binding",
                     "target": unit_id or spec.representation_type,
                 })
+        if spec.representation_type == "slide_deck":
+            slide_report = validate_slide_deck(content)
+            issues.extend({**issue, "representation_type": "slide_deck"} for issue in slide_report["issues"])
     return {
         "passed": not any(issue["severity"] == "critical" for issue in issues),
         "issues": issues,
@@ -406,43 +442,6 @@ def _practice_sheet_spec(document: CourseDocument, course_data: dict[str, Any]) 
     return {"title": f"{document.title} 练习", "units": units}
 
 
-def _slide_deck_spec(document: CourseDocument, course_data: dict[str, Any]) -> dict[str, Any]:
-    blocks_by_section = _blocks_by_section(document)
-    slides = [{
-        "unit_id": "slide:title",
-        "slide_purpose": "orientation",
-        "title": document.title,
-        "bullets": ["课程目标与学习路径"],
-        "speaker_notes": "从课程目标和学习者已有经验开始。",
-        "source_keys": ["course_title"],
-        "source_block_ids": [],
-        "knowledge_refs": [],
-    }]
-    for section in _learning_sections(document):
-        blocks = blocks_by_section.get(section.section_id, [])
-        if not blocks:
-            continue
-        bullets = []
-        for block in blocks:
-            text = _plain_text(str(block.payload.get("markdown") or block.payload.get("text") or ""))
-            if text:
-                bullets.append(text[:110])
-            if len(bullets) == 4:
-                break
-        slides.append({
-            "unit_id": f"slide:{section.section_id}",
-            "slide_purpose": "concept_and_reasoning",
-            "section_id": section.section_id,
-            "title": section.title,
-            "bullets": bullets or [section.learning_objective or section.title],
-            "speaker_notes": f"本页目标：{section.learning_objective or section.title}",
-            "source_block_ids": [block.block_id for block in blocks],
-            "practice_task_ids": _section_question_ids(course_data, section.section_id)[:1],
-            "knowledge_refs": _knowledge_refs_for_blocks(blocks),
-        })
-    return {"title": document.title, "slides": slides, "theme": "lingzhi-light-v1"}
-
-
 def _unit_bindings_for_payload(
     document: CourseDocument,
     payload: dict[str, Any],
@@ -468,6 +467,17 @@ def _unit_bindings_for_payload(
                 document,
                 section_id=str(section_id),
                 knowledge_node_ids=_unique(unit.get("knowledge_refs") or []),
+            ))
+        practice_revisions = unit.get("practice_source_revisions") or {}
+        for practice_task_id, practice_revision_id in practice_revisions.items():
+            if not str(practice_task_id).strip() or not str(practice_revision_id).strip():
+                continue
+            bindings.append(SourceBinding(
+                course_id=document.course_id,
+                section_id=str(unit.get("section_id") or "") or None,
+                knowledge_node_ids=_unique(unit.get("knowledge_refs") or []),
+                practice_task_ids=[str(practice_task_id)],
+                source_revisions={f"practice:{practice_task_id}": str(practice_revision_id)},
             ))
         source_keys = [
             str(source_key) for source_key in unit.get("source_keys") or []
@@ -586,6 +596,21 @@ def _course_knowledge_refs(
         *[knowledge_id for block in document.blocks for knowledge_id in block.concept_refs],
         *asset_refs,
     ])
+
+
+def _current_slide_overrides(registry: Any) -> dict[str, dict[str, dict[str, Any]]]:
+    representation = next((
+        item for item in registry.representations
+        if item.representation_type == "slide_deck"
+    ), None)
+    if representation is None:
+        return {}
+    spec = next((item for item in registry.specs if item.spec_id == representation.spec_id), None)
+    if spec is None:
+        return {}
+    content = spec.payload.get("content") or {}
+    value = content.get("presentation_overrides") or {}
+    return deepcopy(value) if isinstance(value, dict) else {}
 
 
 def _unique(values: list[Any]) -> list[str]:

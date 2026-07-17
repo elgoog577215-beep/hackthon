@@ -10,7 +10,7 @@
           </div>
         </div>
         <div class="representations-actions">
-          <button type="button" :disabled="store.building" :title="t('teachingRepresentations.rebuild', '同步课程最新内容')" :aria-label="t('teachingRepresentations.rebuild', '同步课程最新内容')" @click="store.build(courseId)">
+          <button type="button" :disabled="store.building" :title="t('teachingRepresentations.rebuild', '同步课程最新内容')" :aria-label="t('teachingRepresentations.rebuild', '同步课程最新内容')" @click="rebuild">
             <RefreshCw :size="17" :class="{ spinning: store.building }" />
           </button>
           <button type="button" :title="t('teachingRepresentations.close', '关闭课程教学资源')" :aria-label="t('teachingRepresentations.close', '关闭课程教学资源')" @click="emit('close')"><X :size="18" /></button>
@@ -34,16 +34,28 @@
           </button>
         </nav>
 
-        <main v-if="selected && content" class="representation-preview">
+        <SlideDeckWorkbench
+          v-if="selected?.representation_type === 'slide_deck' && (content || store.liveSlides.length)"
+          :course-id="courseId"
+          :representation-id="selected.representation_id"
+          :deck-title="content?.title || typeLabel('slide_deck')"
+          :slides="displaySlides"
+          :stale-unit-ids="selected.stale_unit_ids"
+          :building="store.building"
+          :progress="store.buildProgress"
+          :stage="store.buildStage"
+          :error="store.buildError"
+          :quality="store.slideQuality"
+          @ask-ai="emit('ask-ai', $event)"
+        />
+
+        <main v-else-if="selected && content" class="representation-preview">
           <div class="preview-heading">
             <div>
               <small>{{ typeLabel(selected.representation_type) }}</small>
               <h3>{{ content.title || typeLabel(selected.representation_type) }}</h3>
               <p>{{ sourceSummary }}</p>
             </div>
-            <button v-if="selected.representation_type === 'slide_deck'" type="button" class="download-command" @click="store.downloadSlides(selected.representation_id)">
-              <Download :size="16" /><span>{{ t('teachingRepresentations.exportPptx', '导出 PPTX') }}</span>
-            </button>
           </div>
 
           <div v-if="selected.status === 'stale'" class="stale-notice">
@@ -55,28 +67,6 @@
             <article v-for="unit in content.sections || []" :key="unit.unit_id" :class="{ stale: isStale(unit.unit_id) }">
               <span>{{ String(unit.position + 1).padStart(2, '0') }}</span>
               <div><strong>{{ unit.title }}</strong><p>{{ unit.learning_objective }}</p></div>
-            </article>
-          </div>
-
-          <div v-else-if="selected.representation_type === 'slide_deck'" class="slides-preview">
-            <article v-for="(slide, index) in content.slides || []" :key="slide.unit_id" :class="{ stale: isStale(slide.unit_id) }">
-              <span>{{ index + 1 }}</span>
-              <div><strong>{{ slide.title }}</strong><ul><li v-for="bullet in slide.bullets || []" :key="bullet">{{ bullet }}</li></ul></div>
-              <button type="button" class="slide-edit-command" :title="t('teachingRepresentations.editSlide', '编辑此页标题')" :aria-label="t('teachingRepresentations.editSlide', '编辑此页标题')" @click="startSlideEdit(slide)"><Pencil :size="13" /></button>
-              <div v-if="editingUnitId === slide.unit_id" class="slide-edit-panel">
-                <input v-model="editValue" :aria-label="t('teachingRepresentations.editValue', '修改后的标题')" />
-                <p v-if="editPreview"><strong>{{ classificationLabel(editPreview.classification) }}</strong>{{ editPreview.reason }}</p>
-                <small v-if="editPreview">{{ t('teachingRepresentations.editImpact', '将检查 {count} 类教学资源').replace('{count}', String(editPreview.impact?.affected_representations?.length || 0)) }}</small>
-                <div>
-                  <button v-if="!editPreview" type="button" :disabled="editBusy" @click="previewSlideEdit(slide)"><ScanSearch :size="13" />{{ t('teachingRepresentations.previewEdit', '分析影响') }}</button>
-                  <template v-else>
-                    <button type="button" :disabled="editBusy" @click="applySlideEdit(slide, 'representation_only')">{{ t('teachingRepresentations.onlyThisPpt', '只改当前 PPT') }}</button>
-                    <button type="button" class="semantic-command" :disabled="editBusy" @click="applySlideEdit(slide, 'course_semantic')">{{ t('teachingRepresentations.changeCourseMeaning', '改变课程含义并联动') }}</button>
-                  </template>
-                  <button type="button" :disabled="editBusy" :title="t('teachingRepresentations.cancelEdit', '取消编辑')" @click="cancelSlideEdit"><X :size="13" /></button>
-                </div>
-                <em v-if="editResult">{{ editResult }}</em>
-              </div>
             </article>
           </div>
 
@@ -94,7 +84,7 @@
         <div v-else class="representations-empty">
           <Layers3 :size="28" />
           <strong>{{ t('teachingRepresentations.empty', '还没有可用的教学资源') }}</strong>
-          <button type="button" :disabled="store.building" @click="store.build(courseId)">{{ t('teachingRepresentations.build', '从当前课程生成') }}</button>
+          <button type="button" :disabled="store.building" @click="rebuild">{{ t('teachingRepresentations.build', '从当前课程生成') }}</button>
         </div>
       </div>
     </div>
@@ -102,26 +92,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { BookOpenText, ClipboardList, Clock3, Download, FileText, Layers3, ListTree, LoaderCircle, Pencil, Presentation, RefreshCw, ScanSearch, X } from 'lucide-vue-next'
-import { useChangeProposalsStore } from '../stores/changeProposals'
+import { computed, onMounted, watch } from 'vue'
+import { BookOpenText, ClipboardList, Clock3, FileText, Layers3, ListTree, LoaderCircle, Presentation, RefreshCw, X } from 'lucide-vue-next'
+import SlideDeckWorkbench from './SlideDeckWorkbench.vue'
 import { useTeachingRepresentationsStore, type RepresentationType, type TeachingRepresentation } from '../stores/teachingRepresentations'
 import { t } from '../shared/i18n'
 
 const props = defineProps<{ visible: boolean; courseId: string }>()
-const emit = defineEmits<{ (event: 'close'): void }>()
+const emit = defineEmits<{
+  (event: 'close'): void
+  (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
+}>()
 const store = useTeachingRepresentationsStore()
-const changeProposalsStore = useChangeProposalsStore()
-const editingUnitId = ref('')
-const editValue = ref('')
-const editBefore = ref('')
-const editPreview = ref<Record<string, any> | null>(null)
-const editResult = ref('')
-const editBusy = ref(false)
 const order: RepresentationType[] = ['outline', 'lesson_plan', 'handout', 'practice_sheet', 'slide_deck']
 const orderedRepresentations = computed(() => [...store.representations].sort((a, b) => order.indexOf(a.representation_type) - order.indexOf(b.representation_type)))
 const selected = computed(() => store.selectedRepresentation)
 const content = computed(() => store.selectedSpec?.payload?.content || null)
+const displaySlides = computed(() => (
+  store.building && store.liveSlides.length
+    ? store.liveSlides
+    : (content.value?.slides || [])
+))
 const sourceSummary = computed(() => {
   const count = Object.keys(store.selectedSpec?.unit_bindings || {}).length
   return t('teachingRepresentations.sourceSummary', '与当前课程同源 · {count} 个精确绑定').replace('{count}', String(count))
@@ -140,65 +131,7 @@ function statusLabel(item: TeachingRepresentation) {
   return t('teachingRepresentations.status.ready', '已同步')
 }
 function isStale(unitId: string) { return selected.value?.stale_unit_ids.includes(unitId) }
-function startSlideEdit(slide: Record<string, any>) {
-  editingUnitId.value = slide.unit_id
-  editBefore.value = String(slide.title || '')
-  editValue.value = editBefore.value
-  editPreview.value = null
-  editResult.value = ''
-}
-function cancelSlideEdit() {
-  editingUnitId.value = ''
-  editPreview.value = null
-  editResult.value = ''
-}
-async function previewSlideEdit(slide: Record<string, any>) {
-  if (!selected.value) return
-  editBusy.value = true
-  try {
-    editPreview.value = await store.previewEdit(selected.value.representation_id, {
-      unit_id: slide.unit_id,
-      field: 'title',
-      before: editBefore.value,
-      after: editValue.value,
-    })
-  } finally {
-    editBusy.value = false
-  }
-}
-async function applySlideEdit(slide: Record<string, any>, decision: 'representation_only' | 'course_semantic') {
-  if (!selected.value) return
-  editBusy.value = true
-  try {
-    const result = await store.applyEdit(selected.value.representation_id, {
-      unit_id: slide.unit_id,
-      field: 'title',
-      before: editBefore.value,
-      after: editValue.value,
-      decision,
-      semantic_intent: decision === 'course_semantic',
-    })
-    if (decision === 'course_semantic') {
-      await changeProposalsStore.fetchChangeProposals(props.courseId)
-      editResult.value = t('teachingRepresentations.courseCandidateReady', '已生成基础课程修改候选，请在 AI 老师中确认')
-    } else {
-      editResult.value = t('teachingRepresentations.representationSaved', '当前 PPT 已更新，课程正文保持不变')
-      editBefore.value = editValue.value
-      editPreview.value = null
-    }
-    return result
-  } finally {
-    editBusy.value = false
-  }
-}
-function classificationLabel(value: string) {
-  return ({
-    presentation: t('teachingRepresentations.classification.presentation', '表现修改'),
-    equivalent_semantic: t('teachingRepresentations.classification.equivalent', '等义修改'),
-    semantic: t('teachingRepresentations.classification.semantic', '语义修改'),
-    ambiguous: t('teachingRepresentations.classification.ambiguous', '需要确认'),
-  } as Record<string, string>)[value] || value
-}
+async function rebuild() { await store.buildProgressive(props.courseId).catch(() => undefined) }
 async function ensureLoaded() { if (props.visible && props.courseId) await store.ensure(props.courseId) }
 watch(() => [props.visible, props.courseId], ensureLoaded)
 onMounted(ensureLoaded)

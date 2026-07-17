@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+from zipfile import ZipFile
 
 import pytest
 from fastapi import FastAPI
@@ -23,6 +24,7 @@ from representation_edits import (
     classify_representation_edit,
     representation_edit_impact,
 )
+from slide_deck import validate_slide_deck
 from teaching_representations import (
     RepresentationConflict,
     SourceBinding,
@@ -369,9 +371,43 @@ def test_compiler_builds_five_bound_representations_and_exports_pptx(tmp_path):
     assert practice.payload["content"]["units"][0]["practice_task_id"] == "question-a"
 
     slides = next(spec for spec in specs if spec.representation_type == "slide_deck")
+    slide_content = slides.payload["content"]
+    assert slide_content["schema_version"] == "slide_deck_v2"
+    assert {item["layout"] for item in slide_content["slides"]} >= {"cover", "roadmap", "concept", "practice", "recap"}
+    assert all("blocks" in item and "bullets" not in item for item in slide_content["slides"])
+    practice_slides = [item for item in slide_content["slides"] if item["layout"] == "practice"]
+    assert any("question-a" in item["practice_task_ids"] for item in practice_slides)
     output = export_slide_deck_pptx(slides, tmp_path / "course.pptx")
     assert output.exists()
     assert output.stat().st_size > 0
+    with ZipFile(output) as archive:
+        first_slide_xml = archive.read("ppt/slides/slide1.xml")
+    assert b"<a:ea" in first_slide_xml
+    assert "Hiragino Sans GB".encode() in first_slide_xml
+
+
+def test_slide_quality_gate_rejects_raw_course_copy_and_markdown(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    course_data = course_data_with_practice()
+    result = compile_core_representations(document, course_data, repository)
+    registry = repository.load(document.course_id)
+    slides = next(
+        spec for spec in registry.specs
+        if spec.spec_id == next(
+            item.spec_id for item in registry.representations
+            if item.representation_type == "slide_deck"
+        )
+    )
+    content = deepcopy(slides.payload["content"])
+    target = next(item for item in content["slides"] if item.get("section_id"))
+    target["blocks"][0]["content"] = "# 未转译标题\n" + ("整段正文复制。" * 80)
+
+    report = validate_slide_deck(content, course_data=course_data)
+
+    assert report["passed"] is False
+    codes = {item["code"] for item in report["issues"] if item["severity"] == "critical"}
+    assert {"raw_markdown_leaked", "paragraph_copy_detected"} <= codes
 
 
 def test_compiled_representations_track_stale_units_instead_of_whole_course(tmp_path):
@@ -563,3 +599,95 @@ def test_safe_rebuild_failure_keeps_last_available_registry(tmp_path, monkeypatc
     assert result["status"] == "failed_using_last_available"
     assert result["quality"]["passed"] is False
     assert repository.load(document.course_id).model_dump(mode="json") == before
+
+
+def test_presentation_only_override_survives_compatible_course_rebuild(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    course_data = course_data_with_practice()
+    compile_core_representations(document, course_data, repository)
+    registry = repository.load(document.course_id)
+    slides = next(item for item in registry.representations if item.representation_type == "slide_deck")
+    spec = next(item for item in registry.specs if item.spec_id == slides.spec_id)
+
+    apply_representation_only_edit(
+        repository,
+        registry,
+        slides,
+        spec,
+        unit_id="slide:section-a",
+        field="title",
+        after="向量：大小、方向与表示",
+    )
+    changed = document.model_copy(deep=True)
+    changed.blocks[1].payload["markdown"] = "矩阵既是数字阵列，也可以表示线性映射。"
+    from course_document import refresh_document_revision
+
+    refresh_document_revision(changed)
+    repository.apply_revision_event(
+        document.course_id,
+        revision_event_for_documents(document, changed, command_id="edit-unrelated-section"),
+    )
+    result = rebuild_core_representations_safely(changed, course_data, repository)
+    current = repository.load(document.course_id)
+    current_slides = next(item for item in current.representations if item.representation_type == "slide_deck")
+    current_spec = next(item for item in current.specs if item.spec_id == current_slides.spec_id)
+    edited_slide = next(
+        item for item in current_spec.payload["content"]["slides"]
+        if item["unit_id"] == "slide:section-a"
+    )
+
+    assert result["status"] == "synchronized"
+    assert edited_slide["title"] == "向量：大小、方向与表示"
+    assert current_spec.payload["content"]["override_conflicts"] == []
+
+
+def test_progressive_build_streams_each_slide_before_atomic_completion(tmp_path, monkeypatch):
+    from routers import teaching_representations as representation_router
+
+    course = legacy_course()
+    document = document_from_legacy_course(course)
+    canonical = {
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+        "learning_assets": {"questions": [], "misconceptions": []},
+    }
+    course_repository = CourseDocumentRepository(MemoryStorage(canonical))
+    representation_repository = TeachingRepresentationRepository(tmp_path)
+    monkeypatch.setattr(
+        representation_router,
+        "get_teaching_representation_repository",
+        lambda: representation_repository,
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+
+    async def existing_course(_course_id: str):
+        return course_repository.load_course_view("course-1")
+
+    monkeypatch.setattr(representation_router, "get_course_or_404", existing_course)
+    app = FastAPI()
+    app.include_router(representation_router.router, prefix="/api")
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/api/courses/course-1/teaching-representations/build/stream",
+        headers={"X-User-Id": "teacher-1"},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: deck_plan" in body
+    assert "event: slide_upsert" in body
+    assert "event: slide_quality" in body
+    assert "event: build_complete" in body
+    assert body.index("event: slide_upsert") < body.index("event: build_complete")
+    registry = representation_repository.load("course-1")
+    assert all(item.status == "ready" for item in registry.representations)
