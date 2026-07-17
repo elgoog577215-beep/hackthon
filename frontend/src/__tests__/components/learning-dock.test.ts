@@ -3,22 +3,25 @@ import { describe, expect, it } from 'vitest'
 import LearningDock from '@/components/LearningDock.vue'
 
 describe('LearningDock', () => {
-  it('在正文底部聚合低频学习工具，并保留记录数量', async () => {
+  it('只展示学习、资源和智能助教三个一级入口', async () => {
     const wrapper = mount(LearningDock, {
-      props: { location: '第一章 · 当前目标', recordCount: 3, practiceAvailable: true },
+      props: {
+        location: '第一章 · 当前目标',
+        activeDomain: 'learning',
+      },
     })
 
     expect(wrapper.text()).toContain('第一章 · 当前目标')
-    expect(wrapper.find('.learning-dock__count').text()).toBe('3')
+    const domainButtons = wrapper.findAll('.learning-dock__domain')
+    expect(domainButtons).toHaveLength(3)
+    expect(domainButtons.map(button => button.text())).toEqual(['学习', '资源', '智能助教'])
+    expect(domainButtons[0].classes()).toContain('is-active')
 
-    const buttons = wrapper.findAll('button')
-    expect(buttons).toHaveLength(6)
-    for (const button of buttons) await button.trigger('click')
+    await domainButtons[0].trigger('click')
+    await domainButtons[1].trigger('click')
+    await domainButtons[2].trigger('click')
 
-    expect(wrapper.emitted('records')).toHaveLength(1)
-    expect(wrapper.emitted('practice')).toHaveLength(1)
-    expect(wrapper.emitted('stats')).toHaveLength(1)
-    expect(wrapper.emitted('knowledge-library')).toHaveLength(1)
+    expect(wrapper.emitted('learning')).toHaveLength(1)
     expect(wrapper.emitted('resources')).toHaveLength(1)
     expect(wrapper.emitted('ai')).toHaveLength(1)
   })
@@ -36,16 +39,5 @@ describe('LearningDock', () => {
     const resume = wrapper.find('.learning-dock__resume > button')
     await resume.trigger('click')
     expect(wrapper.emitted('resume')).toHaveLength(1)
-  })
-
-  it('当前章节没有正式题目时禁用练习入口', async () => {
-    const wrapper = mount(LearningDock, {
-      props: { location: '第一章 · 当前目标', practiceAvailable: false },
-    })
-
-    const practice = wrapper.find('.learning-dock__practice')
-    expect(practice.attributes('disabled')).toBeDefined()
-    await practice.trigger('click')
-    expect(wrapper.emitted('practice')).toBeUndefined()
   })
 })

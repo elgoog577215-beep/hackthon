@@ -118,4 +118,35 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
+  it('在同一学习页内用三个底部域切换上部二级入口', async () => {
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: { template: '<aside class="ai-panel-stub">AI 老师</aside>' },
+          TeachingRepresentationsOverlay: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['学习', '资源', '智能助教'])
+    expect(wrapper.findAll('.learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['当前练习', '学习记录', '学习概况'])
+
+    await wrapper.get('[data-domain="resources"]').trigger('click')
+    expect(wrapper.findAll('.learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['知识库', '教学资源'])
+
+    await wrapper.get('[data-domain="assistant"]').trigger('click')
+    expect(wrapper.find('.ai-panel-stub').exists()).toBe(true)
+    expect(wrapper.find('.learning-context-tabs [role="tablist"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
 })
