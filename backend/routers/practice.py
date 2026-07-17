@@ -42,6 +42,8 @@ class AttemptCreate(BaseModel):
     practice_run_id: str = ""
     attempt_id: str | None = None
     resume: bool = True
+    origin_attempt_id: str | None = Field(default=None, max_length=200)
+    practice_intent: Literal["standard", "targeted_retry"] = "standard"
 
 
 class DraftUpdate(BaseModel):
@@ -140,6 +142,20 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
     if not task:
         raise HTTPException(status_code=404, detail="Task revision not found in current course version")
     _require_current_workflow_task(course, task)
+    if payload.practice_intent == "targeted_retry":
+        if not payload.origin_attempt_id:
+            raise HTTPException(status_code=422, detail="origin_attempt_id is required for targeted retry")
+        try:
+            origin_attempt = await run_in_threadpool(
+                practice_attempt_repository.get,
+                user_id,
+                course_id,
+                payload.origin_attempt_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Origin attempt not found") from exc
+        if not _needs_review(origin_attempt):
+            raise HTTPException(status_code=409, detail="Origin attempt is not eligible for targeted retry")
     criterion = _criterion_for_task(course, task)
     data = {
         "attempt_id": payload.attempt_id,
@@ -163,6 +179,8 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
         "skill_unit_ids": task.get("skill_unit_ids") or [],
         "mistake_point_ids": task.get("mistake_point_ids") or [],
         "improvement_point_ids": task.get("improvement_point_ids") or [],
+        "origin_attempt_id": payload.origin_attempt_id,
+        "practice_intent": payload.practice_intent,
         "diagnostic_case_id": task.get("diagnostic_case_id"),
         "remediation_session_id": task.get("remediation_session_id"),
     }
@@ -643,6 +661,8 @@ def _record_attempt_event(
             "task_purpose": attempt.get("task_purpose"),
             "diagnostic_case_id": attempt.get("diagnostic_case_id"),
             "remediation_session_id": attempt.get("remediation_session_id"),
+            "origin_attempt_id": attempt.get("origin_attempt_id"),
+            "practice_intent": attempt.get("practice_intent") or "standard",
         },
     )
 

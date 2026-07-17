@@ -290,6 +290,23 @@ def test_targeted_retry_attempt_preserves_origin_and_intent(monkeypatch, tmp_pat
     app = FastAPI()
     app.include_router(practice_router.router, prefix="/api")
     client = TestClient(app, headers={"X-User-Id": "u1"})
+    origin, _ = repository.create_once("u1", "c1", _payload(attempt_id="failed-attempt-1"))
+    submitted, _ = repository.submit(
+        "u1",
+        "c1",
+        origin["attempt_id"],
+        expected_revision=origin["revision"],
+        request_id="failed-submit-1",
+        answer_payload={"text": "错误答案"},
+        active_seconds=5,
+    )
+    repository.apply_grade(
+        "u1",
+        "c1",
+        origin["attempt_id"],
+        expected_revision=submitted["revision"],
+        result={"status": "graded", "passed": False, "mastery_eligible": False},
+    )
 
     response = client.post("/api/courses/c1/practice/attempts", json={
         "task_revision_id": "qr1",

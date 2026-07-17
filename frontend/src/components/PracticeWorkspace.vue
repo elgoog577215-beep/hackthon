@@ -76,6 +76,15 @@
 
       <main v-else class="question-stage">
         <article class="question-content">
+          <section v-if="workspace.targetedRetryContext" class="targeted-retry-context">
+            <RotateCcw :size="17" aria-hidden="true" />
+            <div>
+              <strong>{{ t('courseWorkspace.targetedRetry.title', '针对错题再练') }}</strong>
+              <p>{{ workspace.targetedRetryContext.usedAlternateQuestion
+                ? t('courseWorkspace.targetedRetry.alternateHint', '已优先选择同一易错点或能力的另一道正式练习')
+                : t('courseWorkspace.targetedRetry.sameHint', '当前没有同能力的替代题，继续用原题巩固') }}</p>
+            </div>
+          </section>
           <section v-if="workflowPhase === 'remediation' && remediationUnit" class="remediation-context">
             <strong>{{ remediationUnit.remediation_objective }}</strong>
             <p>{{ remediationUnit.micro_explanation }}</p>
@@ -195,7 +204,20 @@
       <article v-for="attempt in historyAttempts" :key="attempt.attempt_id" class="history-row">
         <div>
           <strong>{{ attempt.node_name || t('courseWorkspace.practice.unknownNode', '课程练习') }}</strong>
-          <span>{{ statusLabel(attempt) }}</span>
+          <div class="history-row-actions">
+            <span>{{ statusLabel(attempt) }}</span>
+            <button
+              v-if="canTargetRetry(attempt)"
+              class="targeted-retry-command"
+              type="button"
+              :disabled="targetedRetryingId === attempt.attempt_id"
+              @click="startTargetedRetry(attempt)"
+            >
+              <LoaderCircle v-if="targetedRetryingId === attempt.attempt_id" :size="14" class="animate-spin" />
+              <RotateCcw v-else :size="14" />
+              {{ t('courseWorkspace.targetedRetry.action', '针对再练') }}
+            </button>
+          </div>
         </div>
         <small>{{ attempt.result?.feedback || t('courseWorkspace.practice.savedAttempt', '作答历史已保留') }}</small>
       </article>
@@ -235,6 +257,7 @@ const emit = defineEmits<{
 const workspace = useCourseWorkspaceStore()
 const practiceView = ref<'current' | 'history' | 'needs_review'>(workspace.practiceLandingView)
 const submitting = ref(false)
+const targetedRetryingId = ref('')
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 const questions = computed(() => workspace.practice?.questions || [])
@@ -444,6 +467,31 @@ async function openHistory(view: 'all' | 'needs_review') {
   await workspace.loadPracticeHistory(props.courseId, view, props.nodeId)
 }
 
+function canTargetRetry(attempt: any) {
+  return attempt?.status === 'graded' && attempt?.result?.passed === false
+}
+
+async function startTargetedRetry(attempt: any) {
+  targetedRetryingId.value = attempt.attempt_id
+  try {
+    const started = await workspace.startTargetedRetry(props.courseId, attempt)
+    if (!started) {
+      ElMessage.warning(t('courseWorkspace.targetedRetry.unavailable', '原题已不在当前课程版本中，无法发起针对练习'))
+      return
+    }
+    practiceView.value = 'current'
+    workspace.practiceLandingView = 'current'
+  } catch (error: any) {
+    const detail = error?.response?.data?.detail
+    ElMessage.error(
+      (typeof detail === 'string' ? detail : detail?.message)
+      || t('courseWorkspace.targetedRetry.failed', '针对练习启动失败，请稍后重试'),
+    )
+  } finally {
+    targetedRetryingId.value = ''
+  }
+}
+
 function selectView(view: 'current') {
   practiceView.value = view
   workspace.practiceLandingView = view
@@ -474,5 +522,6 @@ function statusLabel(attempt: any) {
 .practice-feedback { color:#9a3412; }.practice-feedback[data-passed="true"] { color:#047857; }.feedback-heading { display:flex; gap:9px; align-items:center; }.feedback-heading span { margin-left:auto; font-size:22px; font-weight:800; }.practice-feedback>p { color:#475569; }.rubric-list { display:grid; gap:7px; margin:12px 0; }.rubric-list>div { display:grid; grid-template-columns:18px minmax(120px,auto) 1fr; gap:7px; align-items:start; color:#334155; }.rubric-list small { color:#64748b; }
 .practice-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:#64748b; }.state-notice { display:flex; gap:9px; padding:12px; margin-bottom:14px; border:1px solid #fecaca; color:#b91c1c; background:#fef2f2; border-radius:6px; }
 .history-row { padding:16px 0; border-bottom:1px solid #dbe3ed; }.history-row>div { display:flex; justify-content:space-between; gap:20px; }.history-row span,.history-row small { color:#64748b; }.history-row.legacy { border-left:3px solid #94a3b8; padding-left:12px; }
+.history-row-actions { display:flex; align-items:center; gap:10px; }.targeted-retry-command { min-height:30px; display:inline-flex; align-items:center; gap:5px; padding:0 9px; border:1px solid #99f6e4; border-radius:6px; color:#0f766e; background:#f0fdfa; font-size:11px; font-weight:700; }.targeted-retry-command:disabled { opacity:.55; }.targeted-retry-context { display:flex; align-items:flex-start; gap:10px; margin-bottom:20px; padding:12px 14px; border:1px solid #99f6e4; border-radius:7px; color:#115e59; background:#f0fdfa; }.targeted-retry-context>div { min-width:0; }.targeted-retry-context strong { font-size:12px; }.targeted-retry-context p { margin:3px 0 0; color:#526174; font-size:11px; line-height:1.55; }
 @media (max-width:640px) { .practice-header { padding:12px 16px; align-items:flex-start; }.attempt-count { display:none; }.practice-tabs { margin-top:8px; padding:0 10px; overflow-x:auto; }.practice-tabs button { flex:0 0 auto; }.workflow-band { width:calc(100% - 28px); display:grid; gap:8px; }.workflow-band p { max-width:none; }.question-stage,.history-list { width:calc(100% - 28px); padding-top:18px; }.question-content h3 { font-size:17px; }.answer-editor { min-height:180px; }.practice-actions { padding-bottom:max(12px,env(safe-area-inset-bottom)); }.text-command { width:40px; padding:0; font-size:0; }.support-actions { gap:5px; }.icon-command { width:38px; }.primary-command { padding:0 11px; }.hint-result { grid-template-columns:1fr; gap:3px; } }
 </style>
