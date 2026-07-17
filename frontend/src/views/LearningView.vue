@@ -35,6 +35,19 @@
         </div>
       </div>
 
+      <LearningContextTabs
+        v-if="!isGenerationPreview"
+        :domain="activeDomain"
+        :active-item="activeContextItem"
+        :record-count="recordCount"
+        :practice-available="Boolean(currentPracticeNode)"
+        @practice="openCurrentPractice"
+        @records="openRecords"
+        @stats="openStats"
+        @knowledge-library="openKnowledgeLibrary"
+        @resources="openTeachingResources"
+      />
+
       <ContentArea
         ref="contentAreaRef"
         :side-ai-panel-visible="aiVisible"
@@ -52,11 +65,9 @@
         :resume-action-label="resumeActionLabel"
         :resume-action-available="resumableAction?.availability === 'available'"
         :resume-action-busy="continuityBusy"
-        @records="openRecords"
-        @practice="openCurrentPractice"
-        @stats="statsOpen = true"
-        @knowledge-library="openKnowledgeLibrary"
-        @resources="openTeachingResources"
+        :active-domain="activeDomain"
+        @learning="activateLearningDomain"
+        @resources="activateResourceDomain"
         @ai="openAi()"
         @resume="runResumeAction"
       />
@@ -99,7 +110,7 @@
         :prefill="aiPrefill"
         :entrypoint="aiEntrypoint"
         :block-target="aiBlockTarget"
-        @close="aiVisible = false"
+        @close="closeAi"
         @clear-block-target="clearBlockImprovement"
         @block-applied="handleBlockApplied"
       />
@@ -112,12 +123,9 @@
     </button>
 
     <nav v-if="!isGenerationPreview" class="mobile-learning-nav" :aria-label="t('learningShell.mobileNavigation', '学习导航')">
-      <button type="button" :class="{ active: navigatorOpen }" @click="toggleMobileSurface('navigator')"><ListTree :size="17" /><span>{{ t('learningShell.navigator', '目录') }}</span></button>
-      <button type="button" :disabled="!currentPracticeNode" @click="openCurrentPractice"><ClipboardCheck :size="17" /><span>{{ t('learningShell.practice', '练习') }}</span></button>
-      <button type="button" :class="{ active: recordsOpen }" @click="toggleMobileSurface('records')"><NotebookTabs :size="17" /><span>{{ t('learningShell.records', '记录') }}</span></button>
-      <button type="button" @click="openKnowledgeLibrary"><Library :size="17" /><span>{{ t('learningShell.knowledgeLibrary', '知识库') }}</span></button>
-      <button type="button" :class="{ active: resourcesOpen }" @click="openTeachingResources"><Layers3 :size="17" /><span>{{ t('learningShell.resources', '资源') }}</span></button>
-      <button type="button" :class="{ active: aiVisible }" @click="toggleMobileSurface('ai')"><MessageSquareText :size="17" /><span>{{ t('learningShell.ai', 'AI') }}</span></button>
+      <button type="button" :class="{ active: activeDomain === 'learning' }" @click="activateLearningDomain"><GraduationCap :size="17" /><span>{{ t('learningDock.learning', '学习') }}</span></button>
+      <button type="button" :class="{ active: activeDomain === 'resources' }" @click="activateResourceDomain"><Layers3 :size="17" /><span>{{ t('learningDock.resourceDomain', '资源') }}</span></button>
+      <button type="button" :class="{ active: activeDomain === 'assistant' }" @click="openAi()"><MessageSquareText :size="17" /><span>{{ t('learningDock.assistant', '智能助教') }}</span></button>
     </nav>
   </section>
 </template>
@@ -125,9 +133,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ClipboardCheck, History, Layers3, Library, ListTree, LoaderCircle, LocateFixed, MessageSquareText, NotebookTabs, PanelLeftOpen, X } from 'lucide-vue-next'
+import { GraduationCap, History, Layers3, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, X } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
+import LearningContextTabs from '../components/LearningContextTabs.vue'
 import LearningDock from '../components/LearningDock.vue'
 import LearningStats from '../components/LearningStats.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
@@ -178,6 +187,9 @@ const aiEntrypoint = ref<'global' | 'selection' | 'practice' | 'continuity' | 'r
 const aiBlockTarget = ref<CourseBlockEditTarget | undefined>(undefined)
 const autoFollowGeneration = ref(true)
 const loadedLearningCourseId = ref('')
+const activeDomain = ref<'learning' | 'resources' | 'assistant'>('learning')
+const activeLearningItem = ref<'practice' | 'records' | 'stats'>('practice')
+const activeResourceItem = ref<'knowledge-library' | 'teaching-resources'>('knowledge-library')
 
 const isNarrow = computed(() => windowWidth.value < 1024)
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
@@ -192,6 +204,11 @@ const generationStatusText = computed(() => (
 const navigatorVisible = computed(() => !courseStore.isFocusMode && (isNarrow.value ? navigatorOpen.value : navigatorOpen.value))
 const overlayVisible = computed(() => isNarrow.value && navigatorOpen.value && !taskOpen.value)
 const recordCount = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format').length)
+const activeContextItem = computed(() => {
+  if (activeDomain.value === 'resources') return activeResourceItem.value
+  if (activeDomain.value === 'assistant') return 'assistant'
+  return activeLearningItem.value
+})
 const currentParentLabel = computed(() => {
   const current = courseStore.currentNode
   if (!current) return t('learningShell.course', '当前课程')
@@ -230,6 +247,9 @@ watch(() => route.params.courseId, async value => {
   loadedLearningCourseId.value = loadedLearningCourseId.value === courseId ? loadedLearningCourseId.value : ''
   autoFollowGeneration.value = true
   aiVisible.value = false
+  activeDomain.value = 'learning'
+  activeLearningItem.value = 'practice'
+  activeResourceItem.value = 'knowledge-library'
   recordsOpen.value = false
   statsOpen.value = false
   resourcesOpen.value = false
@@ -337,7 +357,11 @@ function resumeGenerationFollow() {
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
   if (isGenerationPreview.value) return
+  activeDomain.value = 'assistant'
   resourcesOpen.value = false
+  recordsOpen.value = false
+  statsOpen.value = false
+  courseStore.showKnowledgeLibrary = false
   aiBlockTarget.value = undefined
   aiQuote.value = payload?.text || ''
   aiNodeId.value = payload?.nodeId || courseStore.currentNode?.node_id || ''
@@ -349,6 +373,7 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
 }
 
 function openBlockImprovement(target: CourseBlockEditTarget) {
+  activeDomain.value = 'assistant'
   aiBlockTarget.value = target
   aiQuote.value = ''
   aiNodeId.value = target.nodeId
@@ -373,6 +398,7 @@ async function handleBlockApplied(target: CourseBlockEditTarget) {
 }
 
 function openAiForPractice(payload: { text: string; nodeId: string }) {
+  activeDomain.value = 'assistant'
   aiBlockTarget.value = undefined
   aiQuote.value = payload.text
   aiNodeId.value = payload.nodeId
@@ -383,6 +409,8 @@ function openAiForPractice(payload: { text: string; nodeId: string }) {
 }
 
 function openRecords() {
+  activeDomain.value = 'learning'
+  activeLearningItem.value = 'records'
   recordsOpen.value = true
   statsOpen.value = false
   resourcesOpen.value = false
@@ -390,12 +418,16 @@ function openRecords() {
 }
 
 function openKnowledgeLibrary() {
+  activeDomain.value = 'resources'
+  activeResourceItem.value = 'knowledge-library'
   resourcesOpen.value = false
   courseStore.showKnowledgeLibrary = true
   if (isNarrow.value) navigatorOpen.value = false
 }
 
 function openTeachingResources() {
+  activeDomain.value = 'resources'
+  activeResourceItem.value = 'teaching-resources'
   resourcesOpen.value = true
   recordsOpen.value = false
   statsOpen.value = false
@@ -404,7 +436,38 @@ function openTeachingResources() {
 }
 
 function openCurrentPractice() {
+  activeDomain.value = 'learning'
+  activeLearningItem.value = 'practice'
   if (currentPracticeNode.value) openTask(currentPracticeNode.value)
+}
+
+function openStats() {
+  activeDomain.value = 'learning'
+  activeLearningItem.value = 'stats'
+  statsOpen.value = true
+  recordsOpen.value = false
+  resourcesOpen.value = false
+}
+
+function activateLearningDomain() {
+  activeDomain.value = 'learning'
+  aiVisible.value = false
+  resourcesOpen.value = false
+  courseStore.showKnowledgeLibrary = false
+}
+
+function activateResourceDomain() {
+  activeDomain.value = 'resources'
+  aiVisible.value = false
+  recordsOpen.value = false
+  statsOpen.value = false
+  resourcesOpen.value = false
+  courseStore.showKnowledgeLibrary = false
+}
+
+function closeAi() {
+  aiVisible.value = false
+  activeDomain.value = 'learning'
 }
 
 function locateRecord(record: any) {
@@ -460,7 +523,7 @@ async function handleContinuationAction(action: NextLearningAction) {
   continuityBusy.value = true
   try {
     if (action.action_type === 'view_chapter_result') {
-      statsOpen.value = true
+      openStats()
       return
     }
     const node = courseStore.nodes.find(item => item.node_id === action.node_id) || courseStore.currentNode
@@ -480,13 +543,6 @@ async function handleContinuationAction(action: NextLearningAction) {
 
 function runResumeAction() {
   if (resumableAction.value) void handleContinuationAction(resumableAction.value)
-}
-
-function toggleMobileSurface(surface: 'navigator' | 'records' | 'ai') {
-  resourcesOpen.value = false
-  if (surface === 'navigator') { navigatorOpen.value = !navigatorOpen.value; aiVisible.value = false; recordsOpen.value = false; statsOpen.value = false }
-  if (surface === 'records') { recordsOpen.value = !recordsOpen.value; navigatorOpen.value = false; aiVisible.value = false; statsOpen.value = false }
-  if (surface === 'ai') { aiVisible.value = !aiVisible.value; navigatorOpen.value = false; recordsOpen.value = false; statsOpen.value = false }
 }
 
 function closeMobileSurfaces() {
@@ -541,7 +597,7 @@ function closeMobileSurfaces() {
   .mobile-resume-prompt { position:fixed; left:10px; right:10px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); z-index:119; min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #15803d; border-radius:11px; color:#fff; background:#15803d; box-shadow:0 8px 22px rgba(21,128,61,.2); font-size:12px; font-weight:750; }
   .mobile-resume-prompt:disabled { opacity:.6; }
   .mobile-resume-prompt__spin { animation:mobile-resume-spin .8s linear infinite; }
-  .mobile-learning-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 120; height: calc(52px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(6, 1fr); padding-bottom: env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--lz-border); background: #fff; }
+  .mobile-learning-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 120; height: calc(52px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(3, 1fr); padding-bottom: env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--lz-border); background: #fff; }
   .mobile-learning-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; color: var(--lz-text-muted); background: transparent; font-size: 9px; }
   .mobile-learning-nav button.active { color: var(--lz-brand-strong); }
   .mobile-learning-nav button:disabled { color:#cbd5e1; }

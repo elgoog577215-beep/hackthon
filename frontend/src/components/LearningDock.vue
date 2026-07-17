@@ -19,54 +19,61 @@
       </button>
     </div>
 
-    <div class="learning-dock__actions">
-      <button type="button" :title="t('learningDock.recordsHint', '查看本课程的笔记、问答与待复习记录')" @click="emit('records')">
-        <NotebookTabs :size="15" />
-        <span>{{ t('learningDock.records', '学习记录') }}</span>
-        <strong v-if="recordCount" class="learning-dock__count">{{ recordCount }}</strong>
+    <nav class="learning-dock__actions" :aria-label="t('learningDock.primaryNavigation', '学习空间导航')">
+      <button
+        type="button"
+        class="learning-dock__domain"
+        data-domain="learning"
+        :class="{ 'is-active': activeDomain === 'learning' }"
+        :aria-current="activeDomain === 'learning' ? 'page' : undefined"
+        :title="t('learningDock.learningHint', '切换学习功能')"
+        @click="emit('learning')"
+      >
+        <GraduationCap :size="16" />
+        <span>{{ t('learningDock.learning', '学习') }}</span>
       </button>
       <button
         type="button"
-        class="learning-dock__practice"
-        :disabled="!practiceAvailable"
-        :title="practiceAvailable ? t('learningDock.practiceHint', '打开当前章节的正式练习') : t('learningDock.practiceUnavailable', '当前章节暂时没有正式练习')"
-        @click="emit('practice')"
+        class="learning-dock__domain"
+        data-domain="resources"
+        :class="{ 'is-active': activeDomain === 'resources' }"
+        :aria-current="activeDomain === 'resources' ? 'page' : undefined"
+        :title="t('learningDock.resourceDomainHint', '切换知识库和教学资源')"
+        @click="emit('resources')"
       >
-        <ClipboardCheck :size="15" />
-        <span>{{ t('learningDock.practice', '当前练习') }}</span>
+        <Layers3 :size="16" />
+        <span>{{ t('learningDock.resourceDomain', '资源') }}</span>
       </button>
-      <button type="button" :title="t('learningDock.statsHint', '查看学习进度与练习统计')" @click="emit('stats')">
-        <ChartNoAxesCombined :size="15" />
-        <span>{{ t('learningDock.stats', '学习概况') }}</span>
+      <button
+        type="button"
+        class="learning-dock__domain"
+        data-domain="assistant"
+        :class="{ 'is-active': activeDomain === 'assistant' }"
+        :aria-current="activeDomain === 'assistant' ? 'page' : undefined"
+        :title="t('learningDock.assistantHint', '在当前页面打开 AI 老师')"
+        @click="emit('ai')"
+      >
+        <MessageSquareText :size="16" />
+        <span>{{ t('learningDock.assistant', '智能助教') }}</span>
       </button>
-      <button type="button" :title="t('learningDock.knowledgeLibraryHint', '查看学科知识与本课覆盖')" @click="emit('knowledge-library')">
-        <Library :size="15" />
-        <span>{{ t('learningDock.knowledgeLibrary', '知识库') }}</span>
-      </button>
-      <button type="button" :title="t('learningDock.resourcesHint', '查看由当前课程同步生成的大纲、教案、讲义、练习册和演示文稿')" @click="emit('resources')">
-        <Layers3 :size="15" />
-        <span>{{ t('learningDock.resources', '教学资源') }}</span>
-      </button>
-      <button type="button" :title="t('learningDock.aiHint', '打开 AI 老师')" @click="emit('ai')">
-        <MessageSquareText :size="15" />
-        <span>{{ t('learningDock.ai', 'AI 老师') }}</span>
-      </button>
-    </div>
+    </nav>
   </footer>
 </template>
 
 <script setup lang="ts">
-import { ArrowRight, ChartNoAxesCombined, ClipboardCheck, Layers3, Library, LoaderCircle, MapPin, MessageSquareText, NotebookTabs } from 'lucide-vue-next'
+import { ArrowRight, GraduationCap, Layers3, LoaderCircle, MapPin, MessageSquareText } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 
 withDefaults(defineProps<{
   location: string
+  activeDomain?: 'learning' | 'resources' | 'assistant'
   recordCount?: number
   practiceAvailable?: boolean
   resumeActionLabel?: string
   resumeActionAvailable?: boolean
   resumeActionBusy?: boolean
 }>(), {
+  activeDomain: 'learning',
   recordCount: 0,
   practiceAvailable: false,
   resumeActionLabel: '',
@@ -75,7 +82,7 @@ withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  (event: 'records' | 'practice' | 'stats' | 'knowledge-library' | 'resources' | 'ai' | 'resume'): void
+  (event: 'learning' | 'resources' | 'ai' | 'resume'): void
 }>()
 </script>
 
@@ -90,26 +97,19 @@ const emit = defineEmits<{
 .learning-dock__resume > button:hover:not(:disabled) { color:#fff; border-color:#166534; background:#166534; }
 .learning-dock__resume > button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .learning-dock__spin { animation:learning-dock-spin .8s linear infinite; }
-.learning-dock__actions { flex:0 0 auto; display:flex; align-items:center; gap:3px; }
-.learning-dock button { position:relative; min-height:36px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 10px; border:1px solid transparent; border-radius:9px; color:var(--lz-text-secondary); background:transparent; font-size:11px; font-weight:600; cursor:pointer; transition:background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease; }
+.learning-dock__actions { flex:0 0 auto; display:flex; align-items:center; gap:4px; }
+.learning-dock button { position:relative; min-height:36px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border:1px solid transparent; border-radius:9px; color:var(--lz-text-secondary); background:transparent; font-size:11px; font-weight:650; cursor:pointer; transition:background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease; }
 .learning-dock button:hover:not(:disabled) { color:var(--lz-brand-strong); border-color:#e0e7ff; background:#f5f7ff; }
 .learning-dock button:focus-visible { outline:2px solid #818cf8; outline-offset:2px; }
 .learning-dock button:disabled { color:#cbd5e1; cursor:not-allowed; }
-.learning-dock button.learning-dock__practice { padding:0 13px; color:#fff; border-color:#6366f1; background:linear-gradient(135deg, #6366f1, #7c3aed); box-shadow:0 5px 12px rgba(99,102,241,.2); }
-.learning-dock button.learning-dock__practice:hover:not(:disabled) { color:#fff; border-color:#4f46e5; background:linear-gradient(135deg, #4f46e5, #6d28d9); box-shadow:0 7px 16px rgba(99,102,241,.25); }
-.learning-dock button.learning-dock__practice:disabled { color:#94a3b8; border-color:#e2e8f0; background:#f1f5f9; box-shadow:none; }
-.learning-dock.has-resume button.learning-dock__practice { color:var(--lz-text-secondary); border-color:transparent; background:transparent; box-shadow:none; }
-.learning-dock.has-resume button.learning-dock__practice:hover:not(:disabled) { color:var(--lz-brand-strong); border-color:#e0e7ff; background:#f5f7ff; box-shadow:none; }
-.learning-dock__count { min-width:17px; height:17px; display:grid; place-items:center; padding:0 4px; border-radius:9px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:9px; }
+.learning-dock__domain.is-active { color:var(--lz-brand-strong); border-color:#dfe4ff; background:linear-gradient(180deg,#f7f7ff,#eef0ff); box-shadow:0 3px 10px rgba(79,70,229,.09); }
 @container (max-width: 760px) {
   .learning-dock__location span { display:none; }
   .learning-dock__location strong { max-width:140px; }
   .learning-dock__resume > button { width:36px; padding:0; }
   .learning-dock__resume > button span { display:none; }
-  .learning-dock button { width:36px; padding:0; }
-  .learning-dock button span { display:none; }
-  .learning-dock button.learning-dock__practice { width:40px; padding:0; }
-  .learning-dock__count { position:absolute; top:0; right:0; min-width:14px; height:14px; font-size:8px; }
+  .learning-dock__domain { width:40px; padding:0; }
+  .learning-dock__domain span { display:none; }
 }
 @keyframes learning-dock-spin { to { transform:rotate(360deg); } }
 @media (max-width: 767px) { .learning-dock { display:none; } }
