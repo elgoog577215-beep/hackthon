@@ -8,6 +8,7 @@ from typing import Any
 
 from course_versioning import stable_hash
 from subject_knowledge import (
+    build_knowledge_library_view,
     knowledge_index,
     knowledge_library_slice,
     match_subject_knowledge,
@@ -339,11 +340,26 @@ def project_learning_assets_to_knowledge(
             asset["course_improvement_refs"] = []
             asset["course_knowledge_base_revision_id"] = course_knowledge_base.get("revision_id")
 
-    knowledge_view = build_course_knowledge_library_view(
-        course_knowledge_base,
-        course_map,
-        projected_assets,
-        projected_course,
+    subject_lifecycle = str(
+        library.get("lifecycle_status")
+        or ("accepted" if library.get("status") == "active" else "degraded")
+    )
+    subject_binding = projected_course.get("knowledge_library_binding") or {}
+    binding_matches_subject = bool(subject_binding) and (
+        str(subject_binding.get("revision_id") or "") == str(library.get("revision_id") or "")
+        or str(subject_binding.get("library_id") or "") == str(library.get("library_id") or "")
+    )
+    knowledge_view = (
+        build_knowledge_library_view(library, course_map, projected_assets)
+        if binding_matches_subject
+        and bool(library.get("nodes"))
+        and subject_lifecycle in {"accepted", "candidate"}
+        else build_course_knowledge_library_view(
+            course_knowledge_base,
+            course_map,
+            projected_assets,
+            projected_course,
+        )
     )
     projected_assets.pop("knowledge_graph", None)
     projected_assets.pop("subject_knowledge", None)
