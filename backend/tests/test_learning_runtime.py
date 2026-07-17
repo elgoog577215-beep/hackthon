@@ -268,6 +268,7 @@ def test_adaptive_block_interaction_is_recorded_as_effect_evidence(monkeypatch):
 def test_formal_course_evolution_block_interaction_remains_effect_evidence(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+    from course_document import CourseBlock, CourseDocument, CourseSection
     from routers import learning_runtime as runtime_router
 
     recorded = []
@@ -276,24 +277,39 @@ def test_formal_course_evolution_block_interaction_remains_effect_evidence(monke
         "current_course_version_id": "cv2",
         "nodes": [{
             "node_id": "n1",
-            "course_blocks": [{
-                "block_id": "course-growth-1",
-                "kind": "diagram",
-                "evidence_refs": ["e1", "e2", "e3"],
-                "payload": {
-                    "course_evolution": {
-                        "operation_id": "operation-1",
-                        "change_set_id": "plan-1",
-                    },
-                },
-            }],
+            "content_blocks": [],
         }],
     }
+    document = CourseDocument(
+        course_id="c1",
+        title="矩阵复合",
+        document_revision="cv2",
+        sections=[CourseSection(section_id="n1", title="复合顺序", position=0, level=2)],
+        blocks=[CourseBlock(
+            block_id="course-growth-1",
+            section_id="n1",
+            position=0,
+            kind="diagram",
+            role="reasoning",
+            evidence_refs=["e1", "e2", "e3"],
+            payload={
+                "course_evolution": {
+                    "operation_id": "operation-1",
+                    "change_set_id": "plan-1",
+                },
+            },
+        )],
+    )
+
+    class CanonicalRepository:
+        def load_document(self, _course_id: str):
+            return document, True
 
     async def existing_course(_course_id: str):
         return deepcopy(course)
 
     monkeypatch.setattr(runtime_router, "get_course_or_404", existing_course)
+    monkeypatch.setattr(runtime_router, "get_course_document_repository", lambda: CanonicalRepository())
     monkeypatch.setattr(runtime_router, "build_learning_runtime", lambda *_args, **_kwargs: {
         "runtime_revision_id": "runtime-2",
         "adaptive_blocks": [],

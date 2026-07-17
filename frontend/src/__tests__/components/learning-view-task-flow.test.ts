@@ -21,9 +21,12 @@ const node: Node = {
 const ContentAreaStub = defineComponent({
   emits: ['startPractice'],
   setup(_, { emit }) {
-    return { open: () => emit('startPractice', node) }
+    return {
+      open: () => emit('startPractice', node),
+      openTargeted: () => emit('startPractice', node, 'qr-targeted'),
+    }
   },
-  template: '<div id="content-scroll-container"><button id="practice-block-n1" class="open-practice" @click="open">open</button></div>',
+  template: '<div id="content-scroll-container"><button id="practice-block-n1" class="open-practice" @click="open">open</button><button class="open-targeted-practice" @click="openTargeted">targeted</button></div>',
 })
 
 const TaskOverlayStub = defineComponent({
@@ -159,6 +162,32 @@ describe('LearningView 正文任务覆盖层', () => {
 
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.find('.ai-panel-stub').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('课程生长块携带的独立复验题不会在跨组件转发时丢失', async () => {
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningDock: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('.open-targeted-practice').trigger('click')
+
+    expect(useCourseWorkspaceStore().requestedTaskRef?.task_revision_id).toBe('qr-targeted')
+    expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     wrapper.unmount()
   })
 

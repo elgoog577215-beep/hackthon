@@ -164,11 +164,12 @@ def _maybe_trigger_evidence_evaluation(event: dict[str, Any]) -> None:
     """Best-effort projection into the learner-isolated course-evolution chain.
 
     The event write remains the durable fact. Evolution evaluation only stores
-    evidence references, hypotheses, and pending personal-course change sets;
-    it never writes the shared ``CourseDocument`` from this hook.
+    evidence references, hypotheses, and pending course-evolution plans; it
+    never writes ``CourseDocument`` from this hook.
     """
     if event.get("event_type") not in {
         "learner_self_reported",
+        "assistant_question_submitted",
         "assistant_answer_feedback_submitted",
         "practice_attempt_graded",
         "learning_record_created",

@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from starlette.requests import Request
 
+import course_evolution
 import learning_events
 from course_versions import CourseVersionRepository
 from models import ReviewResult, SubmitReviewRequest
@@ -79,6 +80,28 @@ def test_concurrent_event_appends_do_not_lose_facts(monkeypatch):
     events = learning_events.load_learning_events(course_id="c1")
     assert len(events) == 40
     assert {event["record_id"] for event in events} == {f"lr_{index}" for index in range(40)}
+
+
+def test_ai_question_immediately_refreshes_course_evolution_projection(monkeypatch):
+    memory = MemoryDataStorage()
+    memory.load_course = lambda course_id: {"course_id": course_id, "nodes": []}
+    monkeypatch.setattr(learning_events, "storage", memory)
+    evaluated = []
+    monkeypatch.setattr(
+        course_evolution,
+        "synchronize_and_evaluate_course_evolution",
+        lambda course, *, user_id: evaluated.append((course["course_id"], user_id)),
+    )
+
+    learning_events.record_learning_event(
+        event_type="assistant_question_submitted",
+        course_id="c1",
+        user_id="student-a",
+        node_id="n1",
+        evidence={"question": "为什么是先做右边的变换？"},
+    )
+
+    assert evaluated == [("c1", "student-a")]
 
 
 def test_legacy_course_learning_state_migration_is_idempotent(monkeypatch):

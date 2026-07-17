@@ -783,7 +783,10 @@ def _evaluate_hypotheses_and_candidates(
         hypothesis.claim = _diagnosis_claim(positive, knowledge_base)
         hypothesis.support_evidence_ids = [item.evidence_id for item in positive]
         hypothesis.counterevidence_ids = [item.evidence_id for item in counter]
-        hypothesis.confidence = round(score, 3)
+        # The combined score is allowed to exceed 1 internally because it is also
+        # used by the actionability threshold. The public confidence remains a
+        # probability-like value and must never exceed 1.
+        hypothesis.confidence = round(min(1.0, max(0.0, score)), 3)
         hypothesis.confidence_reasons = _confidence_reasons(positive, counter, source_types)
         hypothesis.recommended_scope = scope
         hypothesis.affected_block_ids = affected
@@ -825,6 +828,20 @@ def _evaluate_hypotheses_and_candidates(
             knowledge_base=knowledge_base,
             learning_assets=learning_assets,
         )
+        for previous in state.change_sets:
+            if (
+                previous.hypothesis_id == hypothesis_id
+                and previous.status == "pending"
+                and previous.change_set_id != change_set.change_set_id
+            ):
+                previous.status = "stale"
+                previous.resolved_at = now
+                previous.updated_at = now
+                previous.effect_evaluation = {
+                    "status": "superseded",
+                    "reason": "新的学习证据改变了判断强度或影响范围，已由最新方案替代。",
+                    "replacement_change_set_id": change_set.change_set_id,
+                }
         state.change_sets.append(change_set)
         hypothesis.status = "candidate_created"
 
@@ -857,6 +874,16 @@ def _build_change_set(
             if item.evidence_id in hypothesis.support_evidence_ids
         ],
         learning_assets=learning_assets or {},
+    )
+    animation_spec = _animation_spec_for_block(
+        target,
+        title=target_title,
+        evidence_signature=evidence_signature,
+        knowledge_refs=target_binding["knowledge_ids"],
+        composition_order=(
+            "复合变换" in hypothesis.claim
+            or "先后顺序" in hypothesis.claim
+        ),
     )
     operations: list[CourseEvolutionOperation] = []
 
@@ -897,13 +924,14 @@ def _build_change_set(
         "空间或过程关系优先使用分步表达，而不是继续堆文字。",
         {
             "body": "分步演示：每一步只改变一个对象，并在变化后暂停检查。",
-            "animation_spec": _animation_spec_for_block(
-                target,
-                title=target_title,
-                evidence_signature=evidence_signature,
-                knowledge_refs=target_binding["knowledge_ids"],
-            ),
-            "steps": _animation_fallback_steps(),
+            "animation_spec": animation_spec,
+            "steps": [
+                {
+                    "index": frame.get("index"),
+                    "label": frame.get("label"),
+                }
+                for frame in animation_spec.get("fallback_frames") or []
+            ],
             "contrast": "若动态演示不可用，使用同样三步的静态分解图。",
         },
     )
@@ -918,7 +946,7 @@ def _build_change_set(
             "objective": "验证概念原因，而不是重复计算。",
             "practice_task_id": targeted_practice["revision_id"],
             "practice_asset_id": targeted_practice["asset_id"],
-            "practice_intent": "targeted_retry",
+            "practice_intent": "standard",
             "requires_confirmation": True,
             "knowledge_refs": target_binding["knowledge_ids"],
             "ability_refs": target_binding["skill_ids"],
@@ -926,19 +954,32 @@ def _build_change_set(
             "expected_effect": "能够解释当前操作的语义作用，并迁移到后续同能力任务。",
         },
     )
-    for block_id in hypothesis.affected_block_ids[1:]:
+    for index, block_id in enumerate(hypothesis.affected_block_ids[1:]):
         block = blocks[block_id]
         title = str(block.payload.get("title") or sections.get(block.section_id, {}).title if sections.get(block.section_id) else "后续内容")
-        append_operation(
-            "ADD_TRANSITION_SUPPORT",
-            block_id,
-            "next",
-            "当前概念是后续推导的前置，需要提前补一条承接而不是重写后文。",
-            {
-                "body": f"进入“{title}”前，先回看上一处概念在这里承担什么作用，再继续当前推导。",
-                "objective": "把当前理解迁移到后续节点。",
-            },
-        )
+        if index == 0:
+            append_operation(
+                "ADD_TRANSITION_SUPPORT",
+                block_id,
+                "next",
+                "当前概念是下一处学习内容的前置，需要补一条承接而不是重写后文。",
+                {
+                    "body": f"进入“{title}”前，先回看上一处概念在这里承担什么作用，再继续当前推导。",
+                    "objective": "把当前理解迁移到下一处学习内容。",
+                },
+            )
+        else:
+            append_operation(
+                "ADD_CHECKPOINT",
+                block_id,
+                "next",
+                "后续推导继续依赖当前概念，需要在关键位置检查先后关系是否仍被正确理解。",
+                {
+                    "body": f"继续“{title}”前，先确认每个操作的作用对象与执行顺序。",
+                    "prompt": "请指出这里应先执行哪一步，并用概念含义解释理由。",
+                    "objective": "在后续推导中独立判断操作顺序，而不是只复述计算步骤。",
+                },
+            )
     now = _now()
     affected_section_ids = {
         blocks[block_id].section_id
@@ -959,6 +1000,14 @@ def _build_change_set(
     misconception_ids = {
         value for item in linked_evidence for value in item.anchor.misconception_point_ids
     }
+    source_practice_task_ids = sorted({
+        item.anchor.practice_task_id
+        for item in linked_evidence
+        if item.anchor.practice_task_id
+    })
+    validation_task_ids = [
+        targeted_practice["revision_id"],
+    ] if targeted_practice["revision_id"] else []
     knowledge_labels = _knowledge_labels(knowledge_base, knowledge_ids)
     ability_labels = _ability_labels(knowledge_base, ability_ids)
     misconception_labels = _misconception_labels(knowledge_base, misconception_ids)
@@ -995,8 +1044,10 @@ def _build_change_set(
             "validation_plan": hypothesis.validation_plan,
             "evidence_source_types": sorted({item.source_type for item in linked_evidence}),
             "affected_section_ids": sorted(affected_section_ids),
+            "source_practice_task_ids": source_practice_task_ids,
+            "validation_task_ids": validation_task_ids,
             "protected": ["范围外课程内容", "其他课程", "历史作答", "笔记原文", "课程知识库"],
-            "representation_impacts": ["课程讲义补充", "分步演示", "理解检查"],
+            "representation_impacts": ["当前位置解释", "分步演示", "下一节承接", "后续顺序检查", "独立理解检查"],
         },
         expected_effect="减少同类概念求助，并提高后续独立解释与正式练习表现。",
         created_at=now,
@@ -1071,45 +1122,110 @@ def _animation_spec_for_block(
     title: str,
     evidence_signature: str,
     knowledge_refs: list[str],
+    composition_order: bool = False,
 ) -> dict[str, Any]:
     fallback = _animation_fallback_steps()
-    keyframes = [
-        AnimationKeyframe(
-            index=1,
-            label=fallback[0]["label"],
-            state={"focus": "input", "description": "标出起始对象和预期结果"},
-            transformations=["highlight_input", "highlight_goal"],
-        ),
-        AnimationKeyframe(
-            index=2,
-            label=fallback[1]["label"],
-            state={"focus": "transition", "description": "只执行一个变换并保留中间状态"},
-            transformations=["apply_single_transform", "hold_intermediate_state"],
-        ),
-        AnimationKeyframe(
-            index=3,
-            label=fallback[2]["label"],
-            state={"focus": "result", "description": "比较中间状态和最终结论"},
-            transformations=["connect_intermediate_to_result", "show_semantic_relation"],
-        ),
-    ]
+    if composition_order:
+        fallback = [
+            {"index": 1, "label": "从原始图形 v 开始"},
+            {"index": 2, "label": "先应用右侧变换 B"},
+            {"index": 3, "label": "再应用左侧变换 A"},
+        ]
+        keyframes = [
+            AnimationKeyframe(
+                index=1,
+                label=fallback[0]["label"],
+                state={
+                    "focus": "input",
+                    "description": "先固定同一个输入，暂不执行任何变换。",
+                    "formula": "v",
+                    "shape_points": "0,0 35,0 0,-25",
+                    "vector_x": "35",
+                    "vector_y": "0",
+                },
+                transformations=["show_input_shape", "highlight_formula_input"],
+            ),
+            AnimationKeyframe(
+                index=2,
+                label=fallback[1]["label"],
+                state={
+                    "focus": "right_transform",
+                    "description": "ABv 中 B 紧挨输入 v，因此先由 B 作用，得到中间状态 Bv。",
+                    "formula": "Bv",
+                    "shape_points": "0,0 0,-35 -25,0",
+                    "vector_x": "0",
+                    "vector_y": "-35",
+                },
+                transformations=["apply_right_matrix", "hold_intermediate_state"],
+            ),
+            AnimationKeyframe(
+                index=3,
+                label=fallback[2]["label"],
+                state={
+                    "focus": "left_transform",
+                    "description": "随后 A 作用在已经得到的 Bv 上，最终结果是 A(Bv)，不是 B(Av)。",
+                    "formula": "A(Bv)",
+                    "shape_points": "0,0 35,-35 -25,0",
+                    "vector_x": "35",
+                    "vector_y": "-35",
+                },
+                transformations=["apply_left_matrix", "compare_composition_order"],
+            ),
+        ]
+    else:
+        keyframes = [
+            AnimationKeyframe(
+                index=1,
+                label=fallback[0]["label"],
+                state={"focus": "input", "description": "标出起始对象和预期结果"},
+                transformations=["highlight_input", "highlight_goal"],
+            ),
+            AnimationKeyframe(
+                index=2,
+                label=fallback[1]["label"],
+                state={"focus": "transition", "description": "只执行一个变换并保留中间状态"},
+                transformations=["apply_single_transform", "hold_intermediate_state"],
+            ),
+            AnimationKeyframe(
+                index=3,
+                label=fallback[2]["label"],
+                state={"focus": "result", "description": "比较中间状态和最终结论"},
+                transformations=["connect_intermediate_to_result", "show_semantic_relation"],
+            ),
+        ]
     spec = AnimationSpec(
         animation_id=stable_hash({
             "block_id": block.block_id,
             "evidence_signature": evidence_signature,
             "kind": "course_state_transition",
         }, prefix="ans_"),
-        title=f"{title}：分步变换演示",
+        title=(
+            "复合变换顺序：为什么先做右边"
+            if composition_order
+            else f"{title}：分步变换演示"
+        ),
         scene={
-            "kind": "state_transition",
-            "renderer": "step_timeline_v1",
+            "kind": "linear_transform_composition" if composition_order else "state_transition",
+            "renderer": "linear_transform_composition_v1" if composition_order else "step_timeline_v1",
             "fallback": "static_keyframes",
+            **({
+                "left_operator": "A",
+                "right_operator": "B",
+                "composition": "ABv = A(Bv)",
+            } if composition_order else {}),
         },
-        object_bindings=[{
-            "object_id": f"course-block:{block.block_id}",
-            "object_type": "course_block",
-            "role": "semantic_source",
-        }],
+        object_bindings=[
+            {
+                "object_id": f"course-block:{block.block_id}",
+                "object_type": "course_block",
+                "role": "semantic_source",
+            },
+            *([
+                {"object_id": "matrix:B", "object_type": "linear_transform", "role": "first_applied"},
+                {"object_id": "matrix:A", "object_type": "linear_transform", "role": "second_applied"},
+                {"object_id": "shape:v", "object_type": "plane_shape", "role": "input"},
+            ] if composition_order else []),
+        ],
         knowledge_refs=_unique([*knowledge_refs, *block.concept_refs]),
         keyframes=keyframes,
         fallback_frames=[
@@ -1120,7 +1236,10 @@ def _animation_spec_for_block(
             for index, step in enumerate(fallback)
         ],
         accessibility_text=(
-            "动画依次展示输入与目标、单步变换及中间状态、最终结论之间的联系；"
+            "动画在二维坐标平面依次展示原始图形、先应用右侧变换 B、"
+            "再应用左侧变换 A，说明 ABv 等于 A(Bv)；每一帧均可暂停并阅读文字说明。"
+            if composition_order
+            else "动画依次展示输入与目标、单步变换及中间状态、最终结论之间的联系；"
             "每一帧均可暂停并以静态文字步骤阅读。"
         ),
     )
@@ -1235,6 +1354,16 @@ def _attempt_matches_change_set(
     change_set: CourseEvolutionPlan,
 ) -> bool:
     impact = change_set.impact_summary
+    task_id = str(
+        attempt.get("task_revision_id")
+        or attempt.get("question_revision_id")
+        or ""
+    )
+    if task_id and task_id in set(impact.get("source_practice_task_ids") or []):
+        return False
+    if task_id and task_id in set(impact.get("validation_task_ids") or []):
+        return True
+
     section_ids = set(impact.get("affected_section_ids") or [])
     node_id = str(attempt.get("node_id") or (attempt.get("context") or {}).get("node_id") or "")
     if node_id and node_id in section_ids:
@@ -1280,11 +1409,15 @@ def _event_signal(event: dict[str, Any]) -> tuple[str, float, bool]:
         return "learner_question", 0.84 if explicit else 0.48, False
     if event_type == "assistant_answer_feedback_submitted":
         return "assistant_feedback", 0.72 if feedback == "unclear" else 0.55, feedback in {"resolved", "helpful"}
-    if event_type == "practice_attempt_graded":
-        passed = (event.get("result") or {}).get("passed") is True
-        return "formal_success" if passed else "formal_failure", 0.88, passed
-    if event_type in {"learning_record_created", "learning_record_updated"}:
-        return "learning_record", 0.5, False
+    # These are audit events for durable records that are projected separately
+    # below. Counting both copies would turn one learner action into two pieces
+    # of evidence and inflate the adaptation confidence.
+    if event_type in {
+        "practice_attempt_graded",
+        "learning_record_created",
+        "learning_record_updated",
+    }:
+        return "", 0.0, False
     if event_type == "adaptive_block_feedback":
         return "support_feedback", 0.64, feedback == "helpful"
     return "", 0.0, False

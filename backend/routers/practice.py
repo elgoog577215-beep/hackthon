@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from assessment_tasks import resolve_assessment_task
+from assessment_tasks import project_assessment_task, resolve_assessment_task
 from course_knowledge_map import project_learning_assets_to_knowledge
 from course_learning_availability import (
     project_course_learning_availability,
@@ -22,6 +22,7 @@ from diagnostic_service import advance_workflow_after_grade, workflow_view
 from diagnostic_workflows import WorkflowConflict, diagnostic_workflow_repository
 from learner_context import require_user_id
 from learning_events import load_learning_events, record_learning_event, summarize_text
+from learning_asset_storage import learning_asset_repository
 from learning_progress import project_learning_objective_bindings
 from practice_attempts import (
     AttemptConflict,
@@ -553,6 +554,13 @@ def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> li
     if scope == "final":
         return list(assets.get("final_assessment") or [])
     questions = list(assets.get("questions") or [])
+    growth_task_ids = _course_evolution_practice_task_ids(course)
+    questions.extend(
+        item
+        for item in assets.get("validation_questions") or []
+        if str(item.get("revision_id") or item.get("task_revision_id") or "") in growth_task_ids
+    )
+    questions = _unique_revision_items(questions)
     if scope == "node" and node_id:
         questions = [item for item in questions if item.get("node_id") == node_id]
     return questions
@@ -567,8 +575,25 @@ def _find_question(course: dict[str, Any], revision_id: str) -> dict[str, Any] |
 
 
 def _resolve_task(course: dict[str, Any], user_id: str, revision_id: str) -> dict[str, Any] | None:
+    assets = _learning_assets(course)
+    if revision_id in _course_evolution_practice_task_ids(course):
+        growth_task = next((
+            item
+            for item in assets.get("validation_questions") or []
+            if str(item.get("revision_id") or item.get("task_revision_id") or "") == revision_id
+        ), None)
+        if growth_task:
+            return project_assessment_task(
+                growth_task,
+                purpose="course_practice",
+                source="course_evolution",
+            )
+    course_with_assets = {
+        **course,
+        "learning_assets": _raw_learning_assets(course),
+    }
     return resolve_assessment_task(
-        course,
+        course_with_assets,
         revision_id,
         extra_tasks=diagnostic_workflow_repository.all_tasks(user_id, str(course.get("course_id") or "")),
     )
@@ -606,8 +631,42 @@ def _criterion_for_question(course: dict[str, Any], revision_id: str) -> dict[st
 def _learning_assets(course: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     return project_learning_assets_to_knowledge(
         course,
-        course.get("learning_assets") or {},
+        _raw_learning_assets(course),
     )
+
+
+def _raw_learning_assets(course: dict[str, Any]) -> dict[str, Any]:
+    course_id = str(course.get("course_id") or "")
+    bundle = learning_asset_repository.load_bundle(course_id) if course_id else None
+    assets = bundle.get("assets") if isinstance(bundle, dict) else None
+    return assets if isinstance(assets, dict) else (course.get("learning_assets") or {})
+
+
+def _course_evolution_practice_task_ids(course: dict[str, Any]) -> set[str]:
+    document = course.get("course_document") or {}
+    task_ids: set[str] = set()
+    for block in document.get("blocks") or []:
+        if not isinstance(block, dict) or block.get("status") == "retired":
+            continue
+        payload = block.get("payload") or {}
+        if not isinstance(payload, dict) or not isinstance(payload.get("course_evolution"), dict):
+            continue
+        revision_id = str(payload.get("practice_task_id") or "")
+        if revision_id:
+            task_ids.add(revision_id)
+    return task_ids
+
+
+def _unique_revision_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        revision_id = str(item.get("revision_id") or item.get("task_revision_id") or "")
+        if not revision_id or revision_id in seen:
+            continue
+        seen.add(revision_id)
+        result.append(item)
+    return result
 
 
 def _node_name(course: dict[str, Any], node_id: Any) -> str:

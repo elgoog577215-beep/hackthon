@@ -8,7 +8,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
-from dependencies import get_course_or_404
+from dependencies import get_course_document_repository, get_course_or_404
+from course_repository import CourseDocumentNotFound
 from learner_context import require_user_id
 from learning_events import record_learning_event
 from learning_runtime import build_learning_runtime
@@ -176,6 +177,25 @@ def _find_learning_support_block(
                 "event_source": "learning_runtime.course_evolution_block",
                 "entity_type": "course_evolution_block",
             }
+
+    try:
+        document, _ = get_course_document_repository().load_document(str(course.get("course_id") or ""))
+    except CourseDocumentNotFound:
+        return None
+    for course_block in document.blocks:
+        if course_block.section_id != node_id or course_block.status == "retired":
+            continue
+        evolution = course_block.payload.get("course_evolution") or {}
+        if str(evolution.get("operation_id") or "") != adaptive_block_id:
+            continue
+        return {
+            "adaptive_block_id": adaptive_block_id,
+            "kind": course_block.kind,
+            "reason_code": "accepted_evidence_driven_growth",
+            "evidence_refs": list(course_block.evidence_refs),
+            "event_source": "learning_runtime.course_evolution_block",
+            "entity_type": "course_evolution_block",
+        }
     return None
 
 

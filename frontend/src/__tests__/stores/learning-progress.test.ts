@@ -13,6 +13,7 @@ import {
   type LearningContinuationProjection,
   type LearningProgressProjection,
 } from '@/stores/learningProgress'
+import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 
 const projection = (reading_status: 'not_started' | 'in_progress' | 'learned' = 'not_started'): LearningProgressProjection => ({
   schema_version: 'learning_progress_v1',
@@ -75,6 +76,7 @@ const runtime = (progress = projection(), next = continuation()) => ({
   records: { total: 0, by_type: {}, by_status: {}, open_issue_ids: [] },
   practice: { total: 0, active: [], pending_review_count: 0, needs_review_count: 0 },
   diagnostic: { phase: 'practice' },
+  course_evolution: undefined as Record<string, unknown> | undefined,
   active_task: null,
   continuation: next,
 })
@@ -168,6 +170,33 @@ describe('learning progress store', () => {
 
     expect(store.projection?.summary.completion_percentage).toBe(100)
     expect(store.continuation?.primary_action.action_type).toBe('start_next_chapter')
+  })
+
+  it('运行时刷新同步更新课程生长建议和目录所读的同一状态', async () => {
+    const nextRuntime = runtime()
+    nextRuntime.course_evolution = {
+      evidence_items: [{ evidence_id: 'e1', source_type: 'learning_event' }],
+      hypotheses: [],
+      course_evolution_plans: [{
+        change_set_id: 'plan-1',
+        hypothesis_id: 'hypothesis-1',
+        evidence_ids: ['e1'],
+        operations: [],
+        allowed_scopes: ['current'],
+        impact_summary: { affected_section_ids: ['n1'] },
+        expected_effect: '补充当前理解',
+        status: 'pending',
+        effect_evaluation: {},
+      }],
+    }
+    httpMock.get.mockResolvedValue({ data: nextRuntime })
+
+    await useLearningProgressStore().loadRuntime('c1', 'n1')
+
+    const evolution = useCourseEvolutionStore()
+    expect(evolution.courseId).toBe('c1')
+    expect(evolution.evidenceItems.map(item => item.evidence_id)).toEqual(['e1'])
+    expect(evolution.pendingPlans.map(item => item.change_set_id)).toEqual(['plan-1'])
   })
 
   it('确认版本变化时携带投影修订并采用服务端新运行时', async () => {

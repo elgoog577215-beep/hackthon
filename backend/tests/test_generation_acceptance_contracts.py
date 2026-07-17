@@ -131,8 +131,14 @@ def _generated_course():
 
 async def _manager(tmp_path, monkeypatch, course):
     import task_manager as task_manager_module
+    from teaching_representations import TeachingRepresentationRepository
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    monkeypatch.setattr(
+        task_manager_module,
+        "teaching_representation_repository",
+        TeachingRepresentationRepository(tmp_path / "representations"),
+    )
     versions = CourseVersionRepository(tmp_path / "versions")
     assets = LearningAssetRepository(tmp_path / "assets")
     workspaces = GenerationWorkspaceRepository(tmp_path / "workspaces")

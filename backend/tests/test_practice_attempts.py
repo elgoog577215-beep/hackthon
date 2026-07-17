@@ -281,7 +281,9 @@ def test_practice_api_resumes_submits_idempotently_and_projects_mastery(monkeypa
 
 def test_targeted_retry_attempt_preserves_origin_and_intent(monkeypatch, tmp_path):
     repository = PracticeAttemptRepository(tmp_path)
+    storage = MemoryStorage()
     monkeypatch.setattr(practice_router, "practice_attempt_repository", repository)
+    monkeypatch.setattr(learning_events, "storage", storage)
 
     async def fake_course(_course_id):
         return _course()
@@ -319,6 +321,81 @@ def test_targeted_retry_attempt_preserves_origin_and_intent(monkeypatch, tmp_pat
     attempt = response.json()["attempt"]
     assert attempt["origin_attempt_id"] == "failed-attempt-1"
     assert attempt["practice_intent"] == "targeted_retry"
+
+
+def test_accepted_course_growth_validation_task_uses_formal_asset_repository(monkeypatch, tmp_path):
+    repository = PracticeAttemptRepository(tmp_path)
+    storage = MemoryStorage()
+    monkeypatch.setattr(practice_router, "practice_attempt_repository", repository)
+    monkeypatch.setattr(learning_events, "storage", storage)
+    course = _course()
+    course["course_document"] = {
+        "blocks": [{
+            "block_id": "growth-practice",
+            "section_id": "n1",
+            "status": "final",
+            "payload": {
+                "practice_task_id": "rvtr-growth-1",
+                "course_evolution": {"change_set_id": "growth-plan-1"},
+            },
+        }],
+    }
+    validation_task = {
+        "asset_id": "growth-validation-1",
+        "revision_id": "rvtr-growth-1",
+        "node_id": "n1",
+        "objective_id": "lo-placeholder",
+        "objective_revision_id": "lor-placeholder",
+        "question_type": "short_answer",
+        "prompt": "解释为什么 ABv 等于 A(Bv)，并判断哪一个变换先发生。",
+        "answer_spec": {
+            "type": "rubric",
+            "criteria": ["说明 B 先作用", "解释复合顺序"],
+            "pass_score": 70,
+        },
+        "practice_level": "remediation_validation",
+        "quality_status": "passed",
+        "status": "active",
+        "validation_policy": {
+            "mastery_eligible": True,
+            "max_support_level_for_mastery": 0,
+        },
+    }
+    monkeypatch.setattr(
+        practice_router.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {
+            "assets": {
+                **course["learning_assets"],
+                "validation_questions": [validation_task],
+            },
+        },
+    )
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    practice = client.get("/api/courses/c1/practice", params={"node_id": "n1"})
+    assert practice.status_code == 200
+    assert "rvtr-growth-1" in {
+        item.get("revision_id") or item.get("task_revision_id")
+        for item in practice.json()["questions"]
+    }
+
+    created = client.post(
+        "/api/courses/c1/practice/attempts",
+        json={"task_revision_id": "rvtr-growth-1", "resume": False},
+    )
+    assert created.status_code == 200
+    attempt = created.json()["attempt"]
+    assert attempt["task_revision_id"] == "rvtr-growth-1"
+    assert attempt["task_purpose"] == "course_practice"
+    assert attempt["task_source"] == "course_evolution"
 
 
 def test_legacy_practice_migration_is_idempotent_and_historical_only(monkeypatch, tmp_path):

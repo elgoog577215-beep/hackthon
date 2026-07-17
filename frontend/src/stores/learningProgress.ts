@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import http from '../utils/http'
 import logger from '../utils/logger'
 import type { LearnerModelSummary } from './learnerModel'
+import { useCourseEvolutionStore } from './courseEvolution'
 
 export type ReadingProgressStatus = 'not_started' | 'in_progress' | 'learned'
 export type MasteryProgressStatus = 'not_checked' | 'evidence_insufficient' | 'partial' | 'mastered' | 'needs_review'
@@ -328,6 +329,9 @@ export const useLearningProgressStore = defineStore('learningProgress', {
         this.runtime = res.data
         this.projection = res.data.progress
         this.continuation = res.data.continuation
+        if (res.data.course_evolution) {
+          useCourseEvolutionStore().applyPayload(courseId, res.data.course_evolution)
+        }
         return this.runtime
       } finally {
         if (requestSeq === this.runtimeRequestSeq) this.runtimeLoading = false
@@ -407,6 +411,9 @@ export const useLearningProgressStore = defineStore('learningProgress', {
       this.runtime = runtime
       this.projection = runtime.progress
       this.continuation = runtime.continuation
+      if (runtime.course_evolution) {
+        useCourseEvolutionStore().applyPayload(courseId, runtime.course_evolution)
+      }
       return res.data
     },
 

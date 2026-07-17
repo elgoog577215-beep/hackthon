@@ -214,6 +214,14 @@
     "navigatorValidatedDetail": "当前课程变化已获得后续正式证据支持",
     "navigatorReview": "待复核",
     "navigatorReviewDetail": "后续证据表明这里的课程变化需要复核",
+    "growthTrail": {
+      "current": "当前位置解释",
+      "currentDetail": "解释与分步演示",
+      "transition": "下一处承接",
+      "transitionDetail": "补充概念过渡",
+      "checkpoint": "后续顺序检查",
+      "checkpointDetail": "在后续推导中复验"
+    },
     "dependentBlocks": "关联后续 {count} 个教学块",
     "formalEyebrow": "学习证据形成的课程版本",
     "formalEvidence": "依据可追踪，效果将由后续学习复验",

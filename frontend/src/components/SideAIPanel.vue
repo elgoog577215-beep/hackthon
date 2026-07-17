@@ -701,6 +701,12 @@ async function send() {
     contextRef: contextRef(),
     taskRef: progressStore.runtime?.active_task || {},
   })
+  await progressStore.loadRuntime(
+    courseStore.currentCourseId,
+    currentNode.value?.node_id,
+  ).catch(error => {
+    logger.warn('Course evolution refresh deferred after AI question', error)
+  })
   scrollToBottom()
 }
 

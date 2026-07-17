@@ -4,7 +4,7 @@
 
     <section v-if="isTargetedPractice" class="course-evolution-practice">
       <span><ClipboardCheck :size="15" />{{ t('courseEvolution.targetedPractice', '针对性练习') }}</span>
-      <button type="button" @click="emit('startPractice', practiceTaskId)">
+      <button type="button" @click="startPractice">
         {{ t('courseEvolution.startTargetedPractice', '开始练习') }}
         <ArrowRight :size="14" />
       </button>
@@ -26,10 +26,43 @@
         </button>
       </header>
       <strong>{{ animationSpec.title }}</strong>
-      <div class="course-evolution-animation__frame">
-        <small>{{ activeKeyframe.index }} / {{ animationSpec.keyframes.length }}</small>
-        <b>{{ activeKeyframe.label }}</b>
-        <p>{{ activeKeyframeDescription }}</p>
+      <div class="course-evolution-animation__frame" :class="{ 'is-composition': isLinearCompositionAnimation }">
+        <template v-if="isLinearCompositionAnimation">
+          <div class="composition-formula" aria-hidden="true">
+            <span :class="{ active: activeFrame === 0, reached: activeFrame > 0 }">v</span>
+            <ArrowRight :size="13" />
+            <span :class="{ active: activeFrame === 1, reached: activeFrame > 1 }">Bv</span>
+            <ArrowRight :size="13" />
+            <span :class="{ active: activeFrame === 2 }">A(Bv)</span>
+          </div>
+          <div class="composition-stage">
+            <svg viewBox="-52 -52 104 104" role="img" :aria-label="activeKeyframeDescription">
+              <g class="composition-grid">
+                <template v-for="line in gridLines" :key="`grid-${line}`">
+                  <line :x1="line" y1="-48" :x2="line" y2="48" />
+                  <line x1="-48" :y1="line" x2="48" :y2="line" />
+                </template>
+              </g>
+              <line class="composition-axis" x1="-48" y1="0" x2="48" y2="0" />
+              <line class="composition-axis" x1="0" y1="-48" x2="0" y2="48" />
+              <polygon class="composition-shape" :points="compositionShapePoints" />
+              <line class="composition-vector" x1="0" y1="0" :x2="compositionVector.x" :y2="compositionVector.y" />
+              <circle class="composition-vector-tip" :cx="compositionVector.x" :cy="compositionVector.y" r="2.8" />
+              <circle class="composition-origin" cx="0" cy="0" r="2" />
+            </svg>
+            <div class="composition-copy">
+              <small>{{ activeKeyframe.index }} / {{ animationSpec.keyframes.length }}</small>
+              <b>{{ activeKeyframe.state?.formula || activeKeyframe.label }}</b>
+              <strong>{{ activeKeyframe.label }}</strong>
+              <p>{{ activeKeyframeDescription }}</p>
+            </div>
+          </div>
+        </template>
+        <template v-else>
+          <small>{{ activeKeyframe.index }} / {{ animationSpec.keyframes.length }}</small>
+          <b>{{ activeKeyframe.label }}</b>
+          <p>{{ activeKeyframeDescription }}</p>
+        </template>
       </div>
       <div class="course-evolution-animation__timeline">
         <button
@@ -100,6 +133,7 @@ const progressStore = useLearningProgressStore()
 const activeFrame = ref(0)
 const isPlaying = ref(false)
 const feedback = ref<AdaptiveBlockFeedback>('unrated')
+const recordedInteractions = new Set<'animation_played' | 'validation_started'>()
 let animationTimer: number | undefined
 
 const evolutionSource = computed<Record<string, any> | null>(() => (
@@ -124,6 +158,17 @@ const activeKeyframe = computed(() => animationSpec.value?.keyframes[activeFrame
 const activeKeyframeDescription = computed(() => String(
   activeKeyframe.value?.state?.description || activeKeyframe.value?.description || '',
 ))
+const isLinearCompositionAnimation = computed(() => (
+  animationSpec.value?.scene?.renderer === 'linear_transform_composition_v1'
+))
+const gridLines = [-40, -20, 20, 40]
+const compositionShapePoints = computed(() => String(
+  activeKeyframe.value?.state?.shape_points || '0,0 35,0 0,-25',
+))
+const compositionVector = computed(() => ({
+  x: Number(activeKeyframe.value?.state?.vector_x || 35),
+  y: Number(activeKeyframe.value?.state?.vector_y || 0),
+}))
 const supportBlock = computed<AdaptiveLearningBlock | null>(() => {
   const source = evolutionSource.value
   const operationId = String(source?.operation_id || '')
@@ -168,9 +213,26 @@ function stopAnimation() {
   isPlaying.value = false
 }
 
+function recordInteraction(interaction: 'animation_played' | 'validation_started') {
+  const block = supportBlock.value
+  const courseId = courseStore.currentCourseId
+  if (!block || !courseId || recordedInteractions.has(interaction)) return
+  recordedInteractions.add(interaction)
+  void progressStore.recordAdaptiveBlockInteraction(courseId, block, interaction)
+    .then(recorded => {
+      if (!recorded) recordedInteractions.delete(interaction)
+    })
+}
+
 function selectFrame(index: number) {
   stopAnimation()
+  if (activeFrame.value !== index) recordInteraction('animation_played')
   activeFrame.value = index
+}
+
+function startPractice() {
+  recordInteraction('validation_started')
+  emit('startPractice', practiceTaskId.value)
 }
 
 function toggleAnimation() {
@@ -178,13 +240,7 @@ function toggleAnimation() {
   const frames = animationSpec.value?.keyframes || []
   if (frames.length < 2) return
   if (activeFrame.value >= frames.length - 1) activeFrame.value = 0
-  if (supportBlock.value && courseStore.currentCourseId) {
-    void progressStore.recordAdaptiveBlockInteraction(
-      courseStore.currentCourseId,
-      supportBlock.value,
-      'animation_played',
-    )
-  }
+  recordInteraction('animation_played')
   isPlaying.value = true
   const duration = Math.max(500, Number(frames[activeFrame.value]?.duration_ms || 1200))
   animationTimer = window.setInterval(() => {
@@ -211,6 +267,25 @@ onBeforeUnmount(stopAnimation)
 .course-evolution-animation__frame small { grid-row:1 / 3; color:#7c3aed; font-size:9px; font-weight:800; }
 .course-evolution-animation__frame b { color:var(--lz-text); font-size:12px; }
 .course-evolution-animation__frame p { margin:0; color:var(--lz-text-secondary); font-size:11px; line-height:1.55; }
+.course-evolution-animation__frame.is-composition { min-height:184px; display:grid; grid-template-columns:1fr; align-content:start; padding:10px; }
+.composition-formula { display:flex; align-items:center; justify-content:center; gap:7px; color:#94a3b8; }
+.composition-formula span { min-width:38px; padding:4px 7px; border:1px solid #e2e8f0; border-radius:6px; background:#fff; text-align:center; font-size:10px; font-weight:800; transition:color .18s ease,border-color .18s ease,background .18s ease; }
+.composition-formula span.active { color:#fff; border-color:#7c3aed; background:#7c3aed; }
+.composition-formula span.reached { color:#047857; border-color:#a7f3d0; background:#ecfdf5; }
+.composition-formula svg { flex:0 0 auto; }
+.composition-stage { min-width:0; display:grid; grid-template-columns:132px minmax(0,1fr); align-items:center; gap:12px; margin-top:8px; }
+.composition-stage > svg { width:132px; height:132px; overflow:visible; border:1px solid #e2e8f0; border-radius:7px; background:#fff; }
+.composition-grid line { stroke:#eef2f7; stroke-width:.8; }
+.composition-axis { stroke:#94a3b8; stroke-width:1.1; }
+.composition-shape { fill:rgba(20,184,166,.2); stroke:#0f766e; stroke-width:2; stroke-linejoin:round; transition:all .24s ease; }
+.composition-vector { stroke:#7c3aed; stroke-width:2.4; stroke-linecap:round; transition:all .24s ease; }
+.composition-vector-tip { fill:#7c3aed; transition:all .24s ease; }
+.composition-origin { fill:#334155; }
+.composition-copy { min-width:0; display:flex; flex-direction:column; align-items:flex-start; gap:4px; }
+.composition-copy small { color:#7c3aed; font-size:9px; font-weight:800; }
+.composition-copy b { padding:3px 6px; border-radius:5px; color:#0f766e; background:#ecfdf5; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; }
+.composition-copy strong { color:var(--lz-text); font-size:11px; }
+.composition-copy p { color:var(--lz-text-secondary); font-size:10px; line-height:1.55; }
 .course-evolution-animation__timeline { display:flex; gap:5px; }
 .course-evolution-animation__timeline button { width:25px; height:25px; border:1px solid #ddd6fe; border-radius:50%; background:#fff; font-size:9px; }
 .course-evolution-animation__timeline button.active { color:#fff; border-color:#7c3aed; background:#7c3aed; }
@@ -219,4 +294,8 @@ onBeforeUnmount(stopAnimation)
 .course-evolution-content footer b { color:#6d28d9; }
 .course-evolution-content footer > div { display:flex; gap:3px; }
 .course-evolution-content footer button.active { color:#fff; background:#7c3aed; }
+@media (max-width:560px) {
+  .composition-stage { grid-template-columns:1fr; }
+  .composition-stage > svg { width:min(100%,180px); height:auto; aspect-ratio:1; margin:0 auto; }
+}
 </style>

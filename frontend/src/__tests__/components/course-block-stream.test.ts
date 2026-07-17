@@ -1,7 +1,9 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
 import CourseBlockStream from '@/components/CourseBlockStream.vue'
+import { useCourseStore } from '@/stores/course'
+import { useLearningProgressStore } from '@/stores/learningProgress'
 import type { Node as CourseNode, Note } from '@/stores/types'
 
 const baseNode: CourseNode = {
@@ -15,8 +17,9 @@ const baseNode: CourseNode = {
   generated_chars: 0,
 }
 
+const pinia = createPinia()
 const global = {
-  plugins: [createPinia()],
+  plugins: [pinia],
   stubs: {
     MarkdownRenderer: {
       props: ['content'],
@@ -123,7 +126,12 @@ describe('CourseBlockStream', () => {
     expect(wrapper.find('.markdown-renderer').exists()).toBe(false)
   })
 
-  it('把证据驱动变化渲染为正式课程块，并保留可交互动画与复验依据', () => {
+  it('把复合顺序证据渲染为可逐步操作的二维变换，而不是文字轮播', async () => {
+    useCourseStore(pinia).currentCourseId = 'course-1'
+    const interactionSpy = vi.spyOn(
+      useLearningProgressStore(pinia),
+      'recordAdaptiveBlockInteraction',
+    ).mockResolvedValue(true)
     const node: CourseNode = {
       ...baseNode,
       course_blocks: [{
@@ -140,11 +148,38 @@ describe('CourseBlockStream', () => {
           animation_spec: {
             schema_version: 'animation_spec_v1',
             animation_id: 'animation-1',
-            title: '复合顺序',
-            accessibility_text: '分两步展示复合顺序。',
+            title: '复合变换顺序：为什么先做右边',
+            accessibility_text: '依次展示原始图形、右侧变换 B 和左侧变换 A。',
+            scene: {
+              kind: 'linear_transform_composition',
+              renderer: 'linear_transform_composition_v1',
+              composition: 'ABv = A(Bv)',
+            },
             keyframes: [
-              { index: 1, label: '初始状态', state: { description: '尚未执行变换。' }, duration_ms: 500 },
-              { index: 2, label: '完成复合', state: { description: '比较最终状态。' }, duration_ms: 500 },
+              {
+                index: 1,
+                label: '从原始图形 v 开始',
+                state: {
+                  description: '尚未执行变换。',
+                  formula: 'v',
+                  shape_points: '0,0 35,0 0,-25',
+                  vector_x: '35',
+                  vector_y: '0',
+                },
+                duration_ms: 500,
+              },
+              {
+                index: 2,
+                label: '先应用右侧变换 B',
+                state: {
+                  description: '先得到中间状态 Bv。',
+                  formula: 'Bv',
+                  shape_points: '0,0 0,-35 -25,0',
+                  vector_x: '0',
+                  vector_y: '-35',
+                },
+                duration_ms: 500,
+              },
             ],
           },
         },
@@ -156,12 +191,26 @@ describe('CourseBlockStream', () => {
     const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
 
     expect(wrapper.get('.course-evolution-content').text()).toContain('先观察对象')
-    expect(wrapper.get('.course-evolution-animation__frame').text()).toContain('初始状态')
+    expect(wrapper.find('.composition-stage').exists()).toBe(true)
+    expect(wrapper.get('.composition-shape').attributes('points')).toBe('0,0 35,0 0,-25')
+    await wrapper.findAll('.course-evolution-animation__timeline button')[1]!.trigger('click')
+    expect(wrapper.get('.composition-shape').attributes('points')).toBe('0,0 0,-35 -25,0')
+    expect(wrapper.get('.composition-copy').text()).toContain('先应用右侧变换 B')
+    expect(interactionSpy).toHaveBeenCalledWith(
+      'course-1',
+      expect.objectContaining({ adaptive_block_id: 'operation-1' }),
+      'animation_played',
+    )
     expect(wrapper.text()).toContain('学习证据形成的课程版本')
     expect(wrapper.get('.course-content-block').attributes('data-content-block-id')).toBe('growth-1')
   })
 
   it('确认后的针对性练习正文块打开后端指定的正式题目', async () => {
+    useCourseStore(pinia).currentCourseId = 'course-1'
+    const interactionSpy = vi.spyOn(
+      useLearningProgressStore(pinia),
+      'recordAdaptiveBlockInteraction',
+    ).mockResolvedValue(true)
     const node: CourseNode = {
       ...baseNode,
       course_blocks: [{
@@ -187,6 +236,11 @@ describe('CourseBlockStream', () => {
     expect(wrapper.get('.course-evolution-practice').text()).toContain('针对性练习')
     await wrapper.get('.course-evolution-practice button').trigger('click')
     expect(wrapper.emitted('startPractice')).toEqual([['question-revision-targeted']])
+    expect(interactionSpy).toHaveBeenCalledWith(
+      'course-1',
+      expect.objectContaining({ adaptive_block_id: 'operation-practice' }),
+      'validation_started',
+    )
   })
 
   it('为课程块提供原位 AI 协作入口并带出稳定块引用', async () => {

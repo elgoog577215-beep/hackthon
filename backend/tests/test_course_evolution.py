@@ -139,14 +139,33 @@ def _course_with_knowledge() -> dict:
 
 
 def _install_sources(monkeypatch, document) -> None:
-    monkeypatch.setattr(course_evolution, "load_learning_events", lambda **_kwargs: [{
-        "event_id": "event-dialogue",
-        "event_type": "learner_self_reported",
-        "course_id": document.course_id,
-        "node_id": "section-1",
-        "evidence": {"statement": "我会计算，但不理解为什么要这样乘，还是没懂"},
-        "created_at": "2026-07-16T09:00:00+00:00",
-    }])
+    monkeypatch.setattr(course_evolution, "load_learning_events", lambda **_kwargs: [
+        {
+            "event_id": "event-dialogue",
+            "event_type": "learner_self_reported",
+            "course_id": document.course_id,
+            "node_id": "section-1",
+            "evidence": {"statement": "我会计算，但不理解为什么要这样乘，还是没懂"},
+            "created_at": "2026-07-16T09:00:00+00:00",
+        },
+        {
+            "event_id": "event-record-audit",
+            "event_type": "learning_record_created",
+            "course_id": document.course_id,
+            "node_id": "section-1",
+            "evidence": {"record_id": "record-note"},
+            "created_at": "2026-07-16T09:02:00+00:00",
+        },
+        {
+            "event_id": "event-practice-audit",
+            "event_type": "practice_attempt_graded",
+            "course_id": document.course_id,
+            "node_id": "section-1",
+            "evidence": {"attempt_id": "attempt-failed"},
+            "result": {"passed": False, "feedback": "没有解释乘法顺序"},
+            "created_at": "2026-07-16T09:04:00+00:00",
+        },
+    ])
     monkeypatch.setattr(course_evolution.learning_record_repository, "list", lambda *_args: [{
         "record_id": "record-note",
         "record_type": "note",
@@ -193,8 +212,10 @@ def test_three_independent_evidence_sources_create_explainable_multi_scope_candi
     assert {item.source_type for item in state.evidence_items} == {
         "learning_event", "learning_record", "practice_attempt",
     }
+    assert len(state.evidence_items) == 3
     assert len(state.hypotheses) == 1
     hypothesis = state.hypotheses[0]
+    assert 0.0 <= hypothesis.confidence <= 1.0
     assert hypothesis.status == "candidate_created"
     assert hypothesis.claim == "学习者会执行计算，但尚未理解复合变换的先后顺序。"
     assert hypothesis.recommended_scope == "current_and_next"
@@ -208,12 +229,187 @@ def test_three_independent_evidence_sources_create_explainable_multi_scope_candi
     animation = next(item for item in change_set.operations if item.operation_type == "ADD_ANIMATION")
     practice = next(item for item in change_set.operations if item.operation_type == "ADD_TARGETED_PRACTICE")
     assert animation.payload["animation_spec"]["schema_version"] == "animation_spec_v1"
+    assert animation.payload["animation_spec"]["scene"]["renderer"] == "linear_transform_composition_v1"
+    assert animation.payload["animation_spec"]["scene"]["composition"] == "ABv = A(Bv)"
     assert len(animation.payload["animation_spec"]["keyframes"]) == 3
     assert len(animation.payload["animation_spec"]["fallback_frames"]) == 3
     assert practice.payload["practice_task_id"] == "question-revision-targeted"
-    assert practice.payload["practice_intent"] == "targeted_retry"
+    assert practice.payload["practice_intent"] == "standard"
     assert practice.payload["requires_confirmation"] is True
     assert "范围外课程内容" in change_set.impact_summary["protected"]
+
+
+def test_video_two_evidence_chain_replaces_old_candidate_and_requires_independent_validation(
+    tmp_path,
+    monkeypatch,
+):
+    course = _course_with_knowledge()
+    document = document_from_legacy_course(course)
+    target = next(item for item in document.blocks if item.section_id == "section-1")
+    events = [{
+        "event_id": "event-question",
+        "event_type": "assistant_question_submitted",
+        "course_id": document.course_id,
+        "node_id": "section-1",
+        "evidence": {"question": "为什么是先做右边的变换？"},
+        "metadata": {"context_ref": {"content_anchor": {"block_id": target.block_id}}},
+        "created_at": "2026-07-18T09:00:00+00:00",
+    }]
+    records = []
+    attempts = []
+    monkeypatch.setattr(course_evolution, "load_learning_events", lambda **_kwargs: deepcopy(events))
+    monkeypatch.setattr(course_evolution.learning_record_repository, "list", lambda *_args: deepcopy(records))
+    monkeypatch.setattr(course_evolution.practice_attempt_repository, "list", lambda *_args: deepcopy(attempts))
+    monkeypatch.setattr(course_evolution.learning_asset_repository, "load_bundle", lambda _course_id: {
+        "assets": {
+            "questions": [
+                {
+                    "asset_id": "question-original",
+                    "revision_id": "question-original-order",
+                    "node_id": "section-1",
+                    "status": "active",
+                    "prompt": "判断两个变换的执行顺序。",
+                },
+                {
+                    "asset_id": "question-independent",
+                    "revision_id": "question-independent-order",
+                    "node_id": "section-1",
+                    "status": "active",
+                    "prompt": "用一个新情境解释矩阵复合顺序。",
+                },
+            ],
+        },
+    })
+    repository = CourseEvolutionRepository(tmp_path / "evolution")
+    document_repository = _document_repository(course)
+
+    question_only = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    assert question_only.change_sets == []
+
+    records.append({
+        "record_id": "record-note",
+        "record_type": "note",
+        "status": "active",
+        "node_id": "section-1",
+        "content": "计算会做，但顺序总是理解反。",
+        "created_at": "2026-07-18T09:02:00+00:00",
+    })
+    two_sources = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    assert len([item for item in two_sources.change_sets if item.status == "pending"]) == 1
+    assert two_sources.change_sets[0].allowed_scopes == ["current"]
+
+    attempts.append({
+        "attempt_id": "attempt-original-failed",
+        "status": "graded",
+        "node_id": "section-1",
+        "task_revision_id": "question-original-order",
+        "result": {
+            "passed": False,
+            "grading_confidence": 0.96,
+            "feedback": "概念理解题中选择了错误的变换顺序。",
+        },
+        "graded_at": "2026-07-18T09:04:00+00:00",
+    })
+    three_sources = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    pending = [item for item in three_sources.change_sets if item.status == "pending"]
+    superseded = [item for item in three_sources.change_sets if item.status == "stale"]
+    assert len(pending) == 1
+    assert len(superseded) == 1
+    assert superseded[0].effect_evaluation["status"] == "superseded"
+    plan = pending[0]
+    assert len(plan.evidence_ids) == 3
+    assert plan.impact_summary["diagnosis"] == "学习者会执行计算，但尚未理解复合变换的先后顺序。"
+    assert plan.allowed_scopes == ["current", "current_and_next"]
+    assert plan.impact_summary["source_practice_task_ids"] == ["question-original-order"]
+    assert plan.impact_summary["validation_task_ids"] == ["question-independent-order"]
+    assert [item.operation_type for item in plan.operations].count("ADD_TRANSITION_SUPPORT") == 1
+    assert [item.operation_type for item in plan.operations].count("ADD_CHECKPOINT") >= 1
+    assert next(
+        item for item in plan.operations
+        if item.operation_type == "ADD_TARGETED_PRACTICE"
+    ).payload["practice_task_id"] == "question-independent-order"
+
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id=plan.change_set_id,
+        selected_scope="current_and_next",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    applied_plan = next(item for item in applied.change_sets if item.change_set_id == plan.change_set_id)
+    applied_document, _ = document_repository.load_document(course["course_id"])
+    untouched_section = next(item for item in document.sections if item.section_id == "section-5")
+    assert untouched_section.section_id not in applied_plan.impact_summary["affected_section_ids"]
+    assert all(
+        block.section_id != untouched_section.section_id
+        for block in applied_document.blocks
+        if block.block_id in applied_plan.applied_block_ids
+    )
+
+    events.append({
+        "event_id": "interaction-animation",
+        "event_type": "adaptive_block_interaction",
+        "course_id": document.course_id,
+        "node_id": "section-1",
+        "result": {"interaction": "animation_played"},
+        "metadata": {
+            "adaptive_block_id": next(
+                item.operation_id
+                for item in plan.operations
+                if item.operation_type == "ADD_ANIMATION"
+            ),
+        },
+        "created_at": "2099-01-01T00:00:00+00:00",
+    })
+    attempts.append({
+        "attempt_id": "attempt-original-retry",
+        "status": "graded",
+        "node_id": "section-1",
+        "task_revision_id": "question-original-order",
+        "result": {"passed": True, "grading_confidence": 0.98},
+        "graded_at": "2099-01-02T00:00:00+00:00",
+    })
+    original_retry = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    result = next(item for item in original_retry.change_sets if item.change_set_id == plan.change_set_id)
+    assert result.effect_evaluation["status"] == "insufficient_evidence"
+    assert result.effect_evaluation["attempt_ids"] == []
+
+    attempts.append({
+        "attempt_id": "attempt-independent-passed",
+        "status": "graded",
+        "node_id": "section-1",
+        "task_revision_id": "question-independent-order",
+        "result": {"passed": True, "grading_confidence": 0.98},
+        "graded_at": "2099-01-03T00:00:00+00:00",
+    })
+    independently_validated = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    result = next(
+        item for item in independently_validated.change_sets
+        if item.change_set_id == plan.change_set_id
+    )
+    assert result.effect_evaluation["status"] == "effective"
+    assert result.effect_evaluation["attempt_ids"] == ["attempt-independent-passed"]
 
 
 def test_acceptance_commits_current_course_revision_and_can_be_undone(
@@ -269,12 +465,12 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
         for block in applied_document.blocks
         if block.status != "retired"
     } >= set(plan.applied_block_ids)
-    targeted_practice = next(
+    independent_practice = next(
         block for block in applied_document.blocks
-        if block.payload.get("practice_intent") == "targeted_retry"
+        if block.payload.get("practice_intent") == "standard"
     )
-    assert targeted_practice.kind == "practice_ref"
-    assert targeted_practice.asset_refs == ["question-revision-targeted"]
+    assert independent_practice.kind == "practice_ref"
+    assert independent_practice.asset_refs == ["question-revision-targeted"]
     assert project_applied_adaptive_blocks(applied) == []
     assert overlay.active_plan_ids == []
     assert overlay.operations == []
@@ -389,7 +585,7 @@ def test_ai_question_is_anchored_to_course_knowledge_and_relations_drive_scope(
     ]
     assert related.block_id in plan.impact_summary["dependent_block_ids"]
     assert any(
-        operation.operation_type == "ADD_TRANSITION_SUPPORT"
+        operation.operation_type in {"ADD_TRANSITION_SUPPORT", "ADD_CHECKPOINT"}
         and operation.target_block_id == related.block_id
         for operation in plan.operations
     )

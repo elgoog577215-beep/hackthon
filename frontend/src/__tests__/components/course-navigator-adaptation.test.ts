@@ -45,7 +45,11 @@ describe('course navigator personal adaptation markers', () => {
           change_set_id: 'plan-1',
           status: 'pending',
           impact_summary: { affected_section_ids: ['section-1'] },
-          operations: [{ target_section_id: 'section-1' }],
+          operations: [
+            { operation_type: 'ADD_ANIMATION', target_section_id: 'section-1', scope: 'current' },
+            { operation_type: 'ADD_TRANSITION_SUPPORT', target_section_id: 'section-1', scope: 'next' },
+            { operation_type: 'ADD_CHECKPOINT', target_section_id: 'section-1', scope: 'next' },
+          ],
         }],
       },
     } as any
@@ -56,6 +60,11 @@ describe('course navigator personal adaptation markers', () => {
 
     expect(wrapper.find('.adaptation-marker').text()).toContain('AI 建议')
     expect(wrapper.findAll('.adaptation-marker')).toHaveLength(2)
+    expect(wrapper.findAll('.growth-trail li')).toHaveLength(3)
+    expect(wrapper.find('.growth-trail').text()).toContain('当前位置解释')
+    expect(wrapper.find('.growth-trail').text()).toContain('下一处承接')
+    expect(wrapper.find('.growth-trail').text()).toContain('后续顺序检查')
+    expect(wrapper.find('.growth-trail').attributes('data-state')).toBe('pending')
   })
 
   it('已应用但未复验的方案显示蓝色应用状态', () => {
@@ -66,7 +75,7 @@ describe('course navigator personal adaptation markers', () => {
           status: 'applied',
           effect_evaluation: { status: 'insufficient_evidence' },
           impact_summary: { affected_section_ids: ['section-1'] },
-          operations: [{ target_section_id: 'section-1' }],
+          operations: [{ operation_type: 'ADD_ANIMATION', target_section_id: 'section-1', scope: 'current' }],
         }],
       },
     } as any
@@ -77,6 +86,7 @@ describe('course navigator personal adaptation markers', () => {
 
     expect(wrapper.find('.adaptation-marker').text()).toContain('已应用')
     expect(wrapper.find('.adaptation-marker').attributes('data-state')).toBe('active')
+    expect(wrapper.find('.growth-trail').attributes('data-state')).toBe('active')
   })
 
   it('后续正式证据通过后保留绿色个人生长标记', () => {
@@ -113,5 +123,6 @@ describe('course navigator personal adaptation markers', () => {
 
     expect(wrapper.find('.adaptation-marker').text()).toContain('已生长')
     expect(wrapper.find('.adaptation-marker').attributes('data-state')).toBe('validated')
+    expect(wrapper.find('.growth-trail').attributes('data-state')).toBe('validated')
   })
 })

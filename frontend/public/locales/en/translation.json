@@ -214,6 +214,14 @@
     "navigatorValidatedDetail": "Later formal evidence supports this course change",
     "navigatorReview": "Review",
     "navigatorReviewDetail": "Later evidence indicates that this course change needs review",
+    "growthTrail": {
+      "current": "Current explanation",
+      "currentDetail": "Explanation and step animation",
+      "transition": "Next transition",
+      "transitionDetail": "Bridge the concept forward",
+      "checkpoint": "Later order check",
+      "checkpointDetail": "Validate in later reasoning"
+    },
     "dependentBlocks": "Links to {count} later teaching blocks",
     "formalEyebrow": "Course version shaped by learning evidence",
     "formalEvidence": "Its evidence is traceable and later learning will validate the effect",

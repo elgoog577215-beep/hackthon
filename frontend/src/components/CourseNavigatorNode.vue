@@ -19,6 +19,15 @@
       <CircleDot v-else-if="activeId === node.node_id" :size="13" class="status current" />
       <span v-else-if="progress?.reading_status === 'learned'" class="read-dot"></span>
     </button>
+    <ol v-if="growthTrail.length" class="growth-trail" :data-state="growthTrailState">
+      <li v-for="step in growthTrail" :key="step.key">
+        <span></span>
+        <div>
+          <b>{{ step.label }}</b>
+          <small>{{ step.detail }}</small>
+        </div>
+      </li>
+    </ol>
     <ul v-if="hasChildren && expanded">
       <CourseNavigatorNode
         v-for="child in node.children"
@@ -54,24 +63,29 @@ const progress = computed(() => progressStore.nodeProgress(props.node.node_id))
 const isChapter = computed(() => props.depth === 0 || props.node.node_level === 1)
 const isLearned = computed(() => progress.value?.reading_status === 'learned' || progress.value?.mastery_status === 'mastered')
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
-const adaptationCounts = computed(() => {
+const courseEvolutionPlans = computed(() => (
+  evolutionStore.courseId && evolutionStore.courseId === progressStore.courseId
+    ? evolutionStore.plans
+    : progressStore.runtime?.course_evolution?.course_evolution_plans
+      || progressStore.runtime?.course_evolution?.adaptation_plans
+      || []
+))
+const relevantPlans = computed(() => {
   const ids = new Set<string>()
   const collect = (node: Node) => {
     ids.add(node.node_id)
     for (const child of node.children || []) collect(child)
   }
   collect(props.node)
-  const plans = evolutionStore.courseId && evolutionStore.courseId === progressStore.courseId
-    ? evolutionStore.plans
-    : progressStore.runtime?.course_evolution?.course_evolution_plans
-      || progressStore.runtime?.course_evolution?.adaptation_plans
-      || []
-  const counts = { pending: 0, active: 0, validated: 0, review: 0 }
-  for (const plan of plans) {
+  return courseEvolutionPlans.value.filter((plan: Record<string, any>) => {
     const affected = plan.impact_summary?.affected_section_ids || []
-    const applies = affected.some((sectionId: string) => ids.has(sectionId))
+    return affected.some((sectionId: string) => ids.has(sectionId))
       || (plan.operations || []).some((operation: Record<string, any>) => ids.has(operation.target_section_id))
-    if (!applies) continue
+  })
+})
+const adaptationCounts = computed(() => {
+  const counts = { pending: 0, active: 0, validated: 0, review: 0 }
+  for (const plan of relevantPlans.value) {
     if (plan.status === 'pending') counts.pending += 1
     if (plan.status !== 'applied') continue
     const effect = String(plan.effect_evaluation?.status || 'insufficient_evidence')
@@ -108,6 +122,47 @@ const adaptationMarker = computed(() => {
     title: t('courseEvolution.navigatorValidatedDetail', '当前课程变化已获得后续正式证据支持'),
   }
   return null
+})
+const growthPlan = computed<Record<string, any> | null>(() => {
+  if (hasChildren.value) return null
+  return [...relevantPlans.value].reverse().find(plan => (
+    plan.status === 'pending' || plan.status === 'applied'
+  )) || null
+})
+const growthTrailState = computed(() => {
+  const plan = growthPlan.value
+  if (!plan) return ''
+  if (plan.status === 'pending') return 'pending'
+  const effect = String(plan.effect_evaluation?.status || 'insufficient_evidence')
+  if (effect === 'effective') return 'validated'
+  if (effect === 'ineffective' || effect === 'harmful') return 'review'
+  return 'active'
+})
+const growthTrail = computed(() => {
+  const operations = growthPlan.value?.operations || []
+  const steps: Array<{ key: string; label: string; detail: string }> = []
+  if (operations.some((item: Record<string, any>) => item.scope === 'current')) {
+    steps.push({
+      key: 'current',
+      label: t('courseEvolution.growthTrail.current', '当前位置解释'),
+      detail: t('courseEvolution.growthTrail.currentDetail', '解释与分步演示'),
+    })
+  }
+  if (operations.some((item: Record<string, any>) => item.operation_type === 'ADD_TRANSITION_SUPPORT')) {
+    steps.push({
+      key: 'transition',
+      label: t('courseEvolution.growthTrail.transition', '下一处承接'),
+      detail: t('courseEvolution.growthTrail.transitionDetail', '补充概念过渡'),
+    })
+  }
+  if (operations.some((item: Record<string, any>) => item.operation_type === 'ADD_CHECKPOINT')) {
+    steps.push({
+      key: 'checkpoint',
+      label: t('courseEvolution.growthTrail.checkpoint', '后续顺序检查'),
+      detail: t('courseEvolution.growthTrail.checkpointDetail', '在后续推导中复验'),
+    })
+  }
+  return steps
 })
 const generationState = computed(() => {
   if (!isGenerationPreview.value) return ''
@@ -166,6 +221,16 @@ watch(normalizedQuery, value => { if (value) expanded.value = true })
 .adaptation-marker[data-state="validated"] b { background:#16a34a; }
 .adaptation-marker[data-state="review"] { border-color:#fde68a; color:#b45309; background:#fffbeb; }
 .adaptation-marker[data-state="review"] b { background:#d97706; }
+.growth-trail { display:grid; gap:5px; margin:1px 8px 7px 56px; padding:4px 0 2px; list-style:none; }
+.growth-trail li { min-width:0; display:grid; grid-template-columns:8px minmax(0,1fr); align-items:start; gap:7px; color:#6d28d9; }
+.growth-trail li > span { width:7px; height:7px; margin-top:4px; border:2px solid currentColor; border-radius:50%; background:#fff; }
+.growth-trail li:not(:last-child) > span::after { content:""; display:block; width:1px; height:23px; margin:5px 0 0 1px; background:currentColor; opacity:.28; }
+.growth-trail li > div { min-width:0; display:flex; align-items:baseline; gap:6px; }
+.growth-trail b { flex:0 0 auto; font-size:9px; letter-spacing:0; }
+.growth-trail small { min-width:0; overflow:hidden; color:var(--lz-text-muted); text-overflow:ellipsis; white-space:nowrap; font-size:8px; letter-spacing:0; }
+.growth-trail[data-state="active"] li { color:#2563eb; }
+.growth-trail[data-state="validated"] li { color:#16a34a; }
+.growth-trail[data-state="review"] li { color:#d97706; }
 .status { flex: 0 0 auto; }
 .status.mastered { color: var(--lz-success); }
 .status.current { color: var(--lz-brand); }

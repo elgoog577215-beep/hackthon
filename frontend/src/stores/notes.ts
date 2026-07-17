@@ -100,7 +100,10 @@ export const useNoteStore = defineStore('notes', {
       try {
         const migrationKey = `learning_records_legacy_migrated_v1:${courseId}`
         if (!localStorage.getItem(migrationKey)) {
-          await http.post(`/api/courses/${courseId}/learning-records/migrate-legacy-annotations`)
+          await http.post(
+            `/api/courses/${courseId}/learning-records/migrate-legacy-annotations`,
+            { include_unowned: false },
+          )
           localStorage.setItem(migrationKey, new Date().toISOString())
         }
         const res = await http.get(`/api/courses/${courseId}/learning-records`)

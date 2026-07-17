@@ -138,6 +138,25 @@ describe('SideAIPanel', () => {
     expect(wrapper.find('.action-receipt').text()).toContain('已保存到当前章节')
   })
 
+  it('AI 提问写入事实后立即刷新统一课程生长状态', async () => {
+    const wrapper = mountPanel()
+    const aiStore = useAITeacherStore()
+    const progressStore = useLearningProgressStore()
+    vi.spyOn(aiStore, 'sendMessage').mockResolvedValue()
+    const refreshRuntime = vi.spyOn(progressStore, 'loadRuntime').mockResolvedValue(null)
+
+    await wrapper.get('textarea').setValue('为什么是先做右边的变换？')
+    await wrapper.get('.send-button').trigger('click')
+    await flushPromises()
+
+    expect(aiStore.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      courseId: 'course-1',
+      nodeId: 'node-1',
+      question: '为什么是先做右边的变换？',
+    }))
+    expect(refreshRuntime).toHaveBeenCalledWith('course-1', 'node-1')
+  })
+
   it('在移动视口使用同一 AI 工作区的覆盖形态', () => {
     Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true })
     const wrapper = mountPanel()
