@@ -762,6 +762,15 @@
     },
     "continuity": { "repairAssets": "等待课程资产修复", "requiredPracticeMissing": "标准课程缺少必需正式练习，已停止进入空的掌握检查。" }
   },
+  "quickNote": {
+    "title": "随手记",
+    "currentNode": "记录到当前章节",
+    "noNode": "请先选择一个课程章节",
+    "placeholder": "记下一个想法、疑问或待复习点…",
+    "shortcut": "Ctrl / ⌘ + Enter 保存",
+    "cancel": "取消",
+    "save": "保存笔记"
+  },
   "units": {
     "seconds": "秒",
     "minutes": "分钟",

@@ -762,6 +762,15 @@
     },
     "continuity": { "repairAssets": "Wait for course asset repair", "requiredPracticeMissing": "Required formal practice is missing, so the system stopped before opening an empty mastery check." }
   },
+  "quickNote": {
+    "title": "Quick note",
+    "currentNode": "Save to current section",
+    "noNode": "Select a course section first",
+    "placeholder": "Capture an idea, question, or review point…",
+    "shortcut": "Ctrl / ⌘ + Enter to save",
+    "cancel": "Cancel",
+    "save": "Save note"
+  },
   "units": {
     "seconds": " sec",
     "minutes": " min",
