@@ -145,6 +145,7 @@ describe('LearningView 正文任务覆盖层', () => {
 
     await wrapper.get('.task-records').trigger('click')
     expect(wrapper.find('.records-overlay').exists()).toBe(true)
+    expect(wrapper.get('.records-overlay').classes()).toContain('learning-tool-overlay')
     expect(wrapper.findAll('.records-overlay .learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['当前练习', '学习记录', '学习概况'])
 
     await wrapper.get('[data-domain="resources"]').trigger('click')
