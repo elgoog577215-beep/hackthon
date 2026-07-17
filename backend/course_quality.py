@@ -13,7 +13,7 @@ from course_coherence import evaluate_course_coherence
 from course_pedagogy import MODULES, coerce_persisted_profile
 
 
-QUALITY_CONTRACT_VERSION = "course_quality_v9"
+QUALITY_CONTRACT_VERSION = "course_quality_v10"
 
 
 MODULE_SIGNAL_RULES: dict[str, tuple[tuple[str, ...], str]] = {
@@ -182,6 +182,8 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
             node_id,
         ))
 
+    issues.extend(_feedback_structure_issues(text, node_id))
+
     if not _contains_any(text, ("练习", "任务", "请", "尝试", "思考", "完成", "写出", "计算", "实现", "分析", "表达")):
         issues.append(_issue("missing_learner_action", "major", "缺少学习者主动任务", "加入与学习目标一致的计算、实现、分析、表达或操作", node_id))
     if not _contains_any(text, ("答案", "检查", "标准", "提示", "验证", "参考", "自测", "反馈")):
@@ -220,6 +222,8 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
             "markdown_block_join",
             "duplicate_section_heading",
             "missing_module_headings",
+            "feedback_structure_flat",
+            "feedback_math_as_code",
         }
         for item in issues
     )
@@ -736,6 +740,67 @@ def build_final_course_quality_report(
 def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
     lowered = text.lower()
     return any(marker.lower() in lowered for marker in markers)
+
+
+def _feedback_structure_issues(text: str, node_id: str) -> list[dict[str, Any]]:
+    body = _feedback_module_body(text)
+    if not body:
+        return []
+
+    issues: list[dict[str, Any]] = []
+    task_numbers = {
+        match.group(1)
+        for match in re.finditer(
+            r"(?im)^(?:###\s+|\*\*)?任务\s*([0-9一二三四五六七八九十]+)",
+            body,
+        )
+    }
+    internal_headings = re.findall(r"(?m)^###\s+\S.+$", body)
+    required_heading_count = len(task_numbers) if len(task_numbers) >= 2 else 1
+    if (len(body) >= 700 or len(task_numbers) >= 2) and len(internal_headings) < required_heading_count:
+        issues.append(_issue(
+            "feedback_structure_flat",
+            "major",
+            "检查与反馈包含多个任务或长答案，但缺少任务级三级标题，渲染后会形成答案墙",
+            "按 `### 任务 N：名称` 拆分每个任务，并在任务内区分核对标准、参考结论、依据和典型错误",
+            node_id,
+        ))
+
+    inline_code = re.findall(r"(?<!`)`([^`\n]+)`(?!`)", body)
+    math_code_count = sum(1 for value in inline_code if _looks_like_math_code(value))
+    if math_code_count >= 4:
+        issues.append(_issue(
+            "feedback_math_as_code",
+            "major",
+            f"检查与反馈中有 {math_code_count} 处数学表达使用行内代码，公式语义和阅读排版会退化",
+            "将幂、上下标、分式、复杂度和数学关系改用 `$...$` 或 `$$...$$`，反引号只保留给程序代码",
+            node_id,
+        ))
+    return issues
+
+
+def _feedback_module_body(text: str) -> str:
+    matches = list(re.finditer(r"(?m)^##\s+(.+?)\s*$", text))
+    for index, match in enumerate(matches):
+        heading = _normalized_heading(match.group(1))
+        if not any(marker in heading for marker in ("检查与反馈", "答案与评价标准", "评价标准", "运行结果", "测试与质量")):
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        return text[match.end():end].strip()
+    return ""
+
+
+def _looks_like_math_code(value: str) -> bool:
+    text = str(value or "").strip()
+    return bool(re.search(
+        r"[ΘΩε≈≤≥∞]"
+        r"|[A-Za-z0-9)\]]\^[({A-Za-z0-9+\-]"
+        r"|(?:log|ln)_[A-Za-z0-9(]"
+        r"|\bN\s*/\s*log\b"
+        r"|(?:T|f)\s*\([^)]*\)\s*=",
+        text,
+        flags=re.IGNORECASE,
+    ))
 
 
 def _normalized_heading(value: str) -> str:

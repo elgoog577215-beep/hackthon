@@ -100,6 +100,25 @@ def test_generation_compiler_preserves_teaching_semantics_and_references():
     assert block.concept_refs == ["concept-1"]
 
 
+def test_feedback_blocks_compile_to_review_checkpoint_with_task_structure():
+    draft = legacy_course()
+    node = draft["nodes"][1]
+    node["content_blocks"] = [{
+        "block_id": "feedback-1",
+        "type": "feedback",
+        "title": "检查与反馈",
+        "content": "### 任务 1：判断\n\n写出核对标准。\n\n### 任务 2：验证\n\n给出参考结论。",
+    }]
+
+    document = document_from_generation_draft(draft)
+    block = document.blocks[0]
+
+    assert block.role == "feedback"
+    assert block.kind == "review_checkpoint"
+    assert block.payload["feedback_structure"]["schema_version"] == "course_feedback_v1"
+    assert len(block.payload["feedback_structure"]["sections"]) == 2
+
+
 def semantic_drift_document() -> CourseDocument:
     return refresh_document_revision(CourseDocument(
         course_id="course-1",

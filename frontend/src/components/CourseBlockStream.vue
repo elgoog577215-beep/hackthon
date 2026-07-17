@@ -7,6 +7,7 @@
         :data-content-block-id="item.block.block_id"
         :data-content-block-revision-id="item.block.block_revision_id"
         :data-content-block-type="item.block.type"
+        :data-content-block-kind="String(item.block.metadata?.kind || '')"
         :class="{ 'can-improve-formal': canImproveBlock(item.block.block_id) }"
       >
         <header v-if="item.block.title" class="block-heading">
@@ -24,7 +25,13 @@
           <PencilLine :size="13" />
           <span>{{ t('courseWorkspace.blockRegeneration.open', '改进正式正文') }}</span>
         </button>
-        <MarkdownRenderer :content="item.block.content || ''" :search-words="searchWords" />
+        <FeedbackReviewBlock
+          v-if="item.block.type === 'feedback'"
+          :content="item.block.content || ''"
+          :structure="item.block.metadata?.feedback_structure"
+          :search-words="searchWords"
+        />
+        <MarkdownRenderer v-else :content="item.block.content || ''" :search-words="searchWords" />
         <InlineCourseBlockAI
           :node="node"
           :block="item.block"
@@ -64,6 +71,7 @@ import { computed, ref } from 'vue'
 import { PencilLine } from 'lucide-vue-next'
 import InlineCourseBlockAI from './InlineCourseBlockAI.vue'
 import InlineLearningRecordBlock from './InlineLearningRecordBlock.vue'
+import FeedbackReviewBlock from './FeedbackReviewBlock.vue'
 import MarkdownDocumentEditor from './MarkdownDocumentEditor.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import type { ContentBlock, CourseBlockEditTarget, Node, Note } from '../stores/types'
@@ -92,7 +100,11 @@ const blocks = computed(() => (props.node.course_blocks?.length
       summary: String(block.payload.summary || ''),
       order: block.position,
       status: block.status === 'draft' ? 'draft' : 'final',
-      metadata: { kind: block.kind, role: block.role },
+      metadata: {
+        kind: block.kind,
+        role: block.role,
+        feedback_structure: block.payload.feedback_structure,
+      },
       block_revision_id: block.internal_revision,
     } as ContentBlock))
   : [...(props.node.content_blocks || [])])

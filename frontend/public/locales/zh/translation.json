@@ -384,7 +384,13 @@
     "counterexample": "辨析",
     "application": "应用",
     "activity": "行动",
-    "feedback": "反馈",
+    "feedback": "核对",
+    "feedbackReview": {
+      "title": "逐项核对",
+      "hint": "先完成任务，再展开参考结论和评价标准",
+      "expand": "展开参考",
+      "collapse": "收起参考"
+    },
     "exercise": "练习",
     "checkpoint": "检查",
     "misconception": "易错点",

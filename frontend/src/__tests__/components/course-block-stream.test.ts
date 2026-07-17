@@ -20,6 +20,11 @@ const global = {
       props: ['content'],
       template: '<div class="markdown-renderer">{{ content }}</div>',
     },
+    FeedbackReviewBlock: {
+      name: 'FeedbackReviewBlock',
+      props: ['content', 'structure', 'searchWords'],
+      template: '<div class="feedback-review-stub">{{ content }}</div>',
+    },
     MarkdownDocumentEditor: {
       props: ['content'],
       template: '<div class="legacy-markdown">{{ content }}</div>',
@@ -83,6 +88,37 @@ describe('CourseBlockStream', () => {
     expect(wrapper.text()).toContain('任务')
     expect(wrapper.text()).toContain('行动')
     expect(wrapper.text()).not.toContain('向量空间')
+  })
+
+  it('把正式反馈块交给核对视图，并透传后端编译结构', () => {
+    const feedbackStructure = {
+      schema_version: 'course_feedback_v1',
+      mode: 'static_reference',
+      sections: [{ section_id: 'task-1', title: '任务 1', markdown: '参考结论', collapsed_by_default: true }],
+    }
+    const node: CourseNode = {
+      ...baseNode,
+      course_blocks: [
+        {
+          block_id: 'feedback', section_id: 'node-1', position: 0, kind: 'review_checkpoint', role: 'feedback',
+          payload: { title: '检查与反馈', markdown: '参考正文', feedback_structure: feedbackStructure },
+          asset_refs: [], objective_refs: [], concept_refs: [], evidence_refs: [], visibility_rule: {},
+          internal_revision: 'cbr-feedback', status: 'final',
+        },
+      ],
+    }
+
+    const wrapper = mount(CourseBlockStream, {
+      props: { node, content: node.node_content, searchWords: ['结论'] },
+      global,
+    })
+    const review = wrapper.findComponent({ name: 'FeedbackReviewBlock' })
+
+    expect(wrapper.get('.course-content-block').attributes('data-content-block-kind')).toBe('review_checkpoint')
+    expect(review.props('content')).toBe('参考正文')
+    expect(review.props('structure')).toEqual(feedbackStructure)
+    expect(review.props('searchWords')).toEqual(['结论'])
+    expect(wrapper.find('.markdown-renderer').exists()).toBe(false)
   })
 
   it('为课程块提供原位 AI 协作入口并带出稳定块引用', async () => {

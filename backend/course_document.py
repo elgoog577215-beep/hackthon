@@ -16,6 +16,7 @@ from content_blocks import (
     heading_matches_section,
     normalize_blocks,
 )
+from course_feedback import default_block_kind_for_role, enrich_feedback_payload
 
 COURSE_DOCUMENT_SCHEMA = "course_document_v1"
 
@@ -184,12 +185,20 @@ def document_from_legacy_course(course_data: dict[str, Any]) -> CourseDocument:
         )
         for block_index, legacy_block in enumerate(legacy_blocks):
             metadata = legacy_block.get("metadata") if isinstance(legacy_block.get("metadata"), dict) else {}
-            kind = str(metadata.get("kind") or "rich_text")
-            if kind not in _KINDS:
-                kind = "rich_text"
             role = str(metadata.get("role") or _legacy_role(legacy_block))
             if role not in _ROLES:
                 role = "concept"
+            kind = str(metadata.get("kind") or default_block_kind_for_role(role))
+            if kind not in _KINDS:
+                kind = default_block_kind_for_role(role)
+            payload = {
+                "title": str(legacy_block.get("title") or ""),
+                "markdown": str(legacy_block.get("content") or ""),
+                "summary": str(legacy_block.get("summary") or ""),
+                "knowledge_binding_status": metadata.get("knowledge_binding_status"),
+            }
+            if role == "feedback":
+                payload = enrich_feedback_payload(payload)
             block = CourseBlock(
                 block_id=str(legacy_block.get("block_id") or f"{section_id}-block-{block_index + 1}"),
                 section_id=section_id,
@@ -197,12 +206,7 @@ def document_from_legacy_course(course_data: dict[str, Any]) -> CourseDocument:
                 position=block_index,
                 kind=kind,
                 role=role,
-                payload={
-                    "title": str(legacy_block.get("title") or ""),
-                    "markdown": str(legacy_block.get("content") or ""),
-                    "summary": str(legacy_block.get("summary") or ""),
-                    "knowledge_binding_status": metadata.get("knowledge_binding_status"),
-                },
+                payload=payload,
                 asset_refs=_unique_refs(metadata.get("asset_refs")),
                 objective_refs=_unique_refs(
                     metadata.get("objective_refs"),

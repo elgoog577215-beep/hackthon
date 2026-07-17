@@ -384,7 +384,13 @@
     "counterexample": "Contrast",
     "application": "Application",
     "activity": "Activity",
-    "feedback": "Feedback",
+    "feedback": "Review",
+    "feedbackReview": {
+      "title": "Review item by item",
+      "hint": "Complete the task first, then reveal the reference and criteria",
+      "expand": "Show reference",
+      "collapse": "Hide reference"
+    },
     "exercise": "Practice",
     "checkpoint": "Check",
     "misconception": "Pitfall",

@@ -200,10 +200,101 @@ watch(() => [props.content, props.searchWords], () => {
 .markdown-renderer {
     overflow-wrap: break-word;
     word-break: break-word;
+    color: inherit;
+    line-height: 1.78;
 }
-/* 继承父级的排版样式 */
+
+:deep(p) {
+    margin: 0 0 0.9em;
+}
+
 :deep(p:last-child) {
     margin-bottom: 0;
+}
+
+:deep(h2),
+:deep(h3),
+:deep(h4) {
+    margin: 1.45em 0 0.58em;
+    color: var(--lz-text-strong, #172033);
+    font-weight: 780;
+    line-height: 1.38;
+}
+
+:deep(h2:first-child),
+:deep(h3:first-child),
+:deep(h4:first-child) {
+    margin-top: 0;
+}
+
+:deep(h2) { font-size: 1.34em; }
+:deep(h3) { font-size: 1.18em; }
+:deep(h4) { font-size: 1.06em; }
+
+:deep(ul),
+:deep(ol) {
+    margin: 0.55em 0 1em;
+    padding-inline-start: 1.55em;
+}
+
+:deep(ul) { list-style: disc outside; }
+:deep(ol) { list-style: decimal outside; }
+:deep(ul ul) { list-style-type: circle; }
+:deep(ol ol) { list-style-type: lower-alpha; }
+
+:deep(li) {
+    margin: 0.34em 0;
+    padding-inline-start: 0.16em;
+}
+
+:deep(li::marker) {
+    color: color-mix(in srgb, currentColor 65%, #10b981);
+    font-weight: 720;
+}
+
+:deep(blockquote) {
+    margin: 1em 0;
+    padding: 0.65em 0.95em;
+    border-left: 3px solid #94a3b8;
+    border-radius: 0 7px 7px 0;
+    background: rgba(248, 250, 252, 0.9);
+    color: var(--lz-text-secondary, #475569);
+}
+
+:deep(code:not(pre code):not(.math-fallback)) {
+    border: 1px solid rgba(203, 213, 225, 0.66);
+    border-radius: 5px;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.88em;
+    padding: 0.08em 0.28em;
+}
+
+:deep(table) {
+    width: 100%;
+    margin: 1em 0;
+    border-collapse: collapse;
+    font-size: 0.94em;
+}
+
+:deep(th),
+:deep(td) {
+    padding: 0.58em 0.72em;
+    border: 1px solid rgba(203, 213, 225, 0.82);
+    text-align: left;
+    vertical-align: top;
+}
+
+:deep(th) {
+    background: #f8fafc;
+    color: var(--lz-text-strong, #172033);
+    font-weight: 750;
+}
+
+:deep(hr) {
+    margin: 1.4em 0;
+    border: 0;
+    border-top: 1px solid rgba(203, 213, 225, 0.82);
 }
 
 :deep(.math-fallback) {

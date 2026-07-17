@@ -114,3 +114,48 @@ def test_required_module_labels_must_be_stable_level_two_headings():
 
     assert any(item["code"] == "missing_module_headings" for item in report["issues"])
     assert report["passed"] is False
+
+
+def test_long_multi_task_feedback_requires_task_level_headings():
+    flat_feedback = "\n".join([
+        "**任务1 答案方向**：" + "写出判断依据和结果。" * 20,
+        "**任务2 答案方向**：" + "比较边界条件和不确定性。" * 20,
+        "**任务3 评价标准**：" + "说明验证方法和下一步行动。" * 20,
+    ])
+    report = evaluate_node_content(
+        _content().replace("检查是否说明依据、树高变化、边界和结果验证。", flat_feedback),
+        _node(),
+    )
+
+    assert any(item["code"] == "feedback_structure_flat" for item in report["issues"])
+    assert report["passed"] is False
+
+
+def test_feedback_rejects_math_notation_disguised_as_inline_code():
+    feedback = (
+        "### 任务 1：复杂度判断\n\n"
+        "`log_2(4)`、`N^2`、`Θ(N^2)`、`f(N)=N^3`、`N/log N` 都需要核对。"
+    )
+    report = evaluate_node_content(
+        _content().replace("检查是否说明依据、树高变化、边界和结果验证。", feedback),
+        _node(),
+    )
+
+    assert any(item["code"] == "feedback_math_as_code" for item in report["issues"])
+    assert report["passed"] is False
+
+
+def test_structured_feedback_with_latex_passes_presentation_checks():
+    feedback = (
+        "### 任务 1：复杂度判断\n\n"
+        "**核对标准**：比较 $N^2$ 与 $f(N)$。\n\n"
+        "**参考结论**：得到 $\\Theta(N^2 \\log N)$。\n\n"
+        "### 任务 2：实验验证\n\n"
+        "**核对标准**：说明比值、噪声和下一步行动。"
+    )
+    report = evaluate_node_content(
+        _content().replace("检查是否说明依据、树高变化、边界和结果验证。", feedback),
+        _node(),
+    )
+
+    assert not any(item["code"].startswith("feedback_") for item in report["issues"])

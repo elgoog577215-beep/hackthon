@@ -16,6 +16,7 @@ from course_document import (
     repair_document_block_semantics,
     refresh_document_revision,
 )
+from course_feedback import project_feedback_structures
 from course_revisions import revision_event_for_documents, revision_vector_for_document
 
 _GENERATED_METADATA_EXCLUDES = {
@@ -264,6 +265,7 @@ class CourseDocumentRepository:
             document = CourseDocument.model_validate(raw["course_document"])
         else:
             document = document_from_legacy_course(prepared_legacy_course or raw)
+        presentation_document = project_feedback_structures(document)
         return {
             "course_id": str(raw.get("course_id") or course_id),
             "course_name": str(raw.get("course_name") or document.title),
@@ -276,7 +278,7 @@ class CourseDocumentRepository:
                 "source_checksum": None if canonical else legacy_source_checksum(raw),
                 "migrated_at": (raw.get("course_document_migration") or {}).get("migrated_at"),
             },
-            "document": document.model_dump(mode="json"),
+            "document": presentation_document.model_dump(mode="json"),
             "revision_vector": revision_vector_for_document(document).model_dump(mode="json"),
         }
 

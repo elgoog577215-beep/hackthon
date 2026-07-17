@@ -134,7 +134,14 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "lesson_goal": _module("lesson_goal", "本节任务", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "给出可观察的本节学习目标", "开头直接说明本节要解决的问题和学会后的可验证行为"),
     "core_explanation": _module("core_explanation", "核心教学", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "讲清当前核心知识或方法", "围绕节点目标解释必要内容，不扩写无关百科背景"),
     "learner_action": _module("learner_action", "学习者行动", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求学习者完成主动加工任务", "安排计算、实现、分析、表达或操作，而不是只让学习者阅读"),
-    "feedback_check": _module("feedback_check", "检查与反馈", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提供验收标准、答案方向或反馈", "说明怎样判断任务是否完成以及典型错误意味着什么"),
+    "feedback_check": _module(
+        "feedback_check",
+        "检查与反馈",
+        ModuleScope.LESSON,
+        ModuleFrequency.LESSON_REQUIRED,
+        "按学习者任务分别提供核对标准、参考结论、推导依据和典型错误",
+        "静态课程块不是个性化反馈；每个任务使用三级标题，先说明核对标准，再给参考结论和依据",
+    ),
 
     # 通用课程
     "general_concept_map": _module("general_concept_map", "概念地图", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "连接核心概念和方法", "用清晰关系组织概念，避免百科式堆砌"),

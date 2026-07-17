@@ -1,0 +1,62 @@
+# course-feedback-presentation Specification
+
+## Purpose
+TBD - created by archiving change structure-course-feedback-rendering. Update Purpose after archive.
+## Requirements
+### Requirement: 静态课程检查不得冒充个性化反馈
+
+正式课程 `feedback` 块 MUST 只表达核对标准、参考结论、推导依据和常见错误。系统只有在获得正式作答或学习痕迹后，才 MAY 通过练习系统或 AI 老师生成面向当前学习者的反馈。
+
+#### Scenario: 学生尚未提交任务
+
+- **WHEN** 学习页展示正式课程中的检查块
+- **THEN** 页面 MUST 将其表达为可展开的检查与参考内容
+- **AND** MUST NOT 声称已经评价学生表现、掌握状态或个人错误
+
+### Requirement: 多任务反馈必须拥有任务级结构
+
+生成器 MUST 使用稳定的三级标题组织多个任务的参考内容。正式课程编译器 MUST 为 `feedback` 块生成版本化任务级结构，并保留原始 Markdown 为唯一可编辑正文真源。
+
+#### Scenario: 一个反馈块对应三个学习任务
+
+- **WHEN** 模型输出三个任务的答案方向、评价标准或常见错误
+- **THEN** 编译结果 MUST 包含三个可稳定定位的反馈小节
+- **AND** 每节 MUST 保存标题、类型、正文、摘要和默认展开策略
+- **AND** 新块 kind MUST 为 `review_checkpoint`
+
+#### Scenario: 读取旧课程加粗任务标题
+
+- **WHEN** 旧反馈正文使用“任务 1 答案方向”等行首加粗标题
+- **THEN** 学习页 MUST 能以只读兼容方式拆分任务
+- **AND** MUST NOT 改写原课程 Markdown 或修订 ID
+
+### Requirement: 数学表达与程序代码必须分开
+
+新生成课程中的数学公式 MUST 使用 LaTeX 数学分隔符，反引号 MUST 只用于代码标识、命令或程序片段。兼容呈现 MAY 将具有明确数学信号的旧行内代码转换为公式，但 MUST NOT 转换普通代码。
+
+#### Scenario: 复杂度反馈包含上下标与幂
+
+- **WHEN** 反馈说明包含 `log_2(4)`、`N^2` 或 `Θ(N log N)`
+- **THEN** 新生成内容 MUST 通过数学渲染呈现
+- **AND** MUST NOT 形成贯穿整段的等宽代码视觉
+
+### Requirement: 学习页必须按反馈角色呈现信息层级
+
+多任务检查块 MUST 默认避免同时展开全部参考答案，并 MUST 提供清晰的逐项标题、摘要、展开操作和键盘可用的原生交互。短小单一核对说明 MAY 直接展开。
+
+#### Scenario: 学生进入包含长答案的检查块
+
+- **WHEN** 页面首次渲染多任务反馈
+- **THEN** 每个任务 MUST 成为独立可展开区域
+- **AND** 页面首屏 MUST NOT 显示整块答案墙
+- **AND** 列表序号、缩进、段落和公式 MUST 保持可读
+
+### Requirement: 质量门必须拒绝可观察的反馈结构退化
+
+当反馈块包含多个任务或超过长度阈值时，质量门 MUST 检查任务级标题；当数学型行内代码超过允许阈值时，质量门 MUST 返回可修复的阻断问题。只检查是否出现任意 Markdown 符号 MUST NOT 视为结构通过。
+
+#### Scenario: 模型输出一段长答案墙
+
+- **WHEN** 检查块包含多个任务但没有三级标题
+- **THEN** 节点质量 MUST 失败并给出定向修复建议
+- **AND** 修复后 MUST 重新运行同一质量契约
