@@ -30,6 +30,13 @@
               </div>
             </div>
 
+            <LearningContextTabs
+              domain="resources"
+              active-item="knowledge-library"
+              @knowledge-library="courseStore.showKnowledgeLibrary = true"
+              @resources="openTeachingResources"
+            />
+
             <label class="knowledge-tree-search">
               <Search :size="16" aria-hidden="true" />
               <span class="sr-only">{{ t('knowledgeLibrary.search', '搜索知识点') }}</span>
@@ -420,6 +427,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
+import LearningContextTabs from './LearningContextTabs.vue'
 import { t } from '../shared/i18n'
 import http from '../utils/http'
 import logger from '../utils/logger'
@@ -827,6 +835,11 @@ function handleClose(): void {
   courseStore.showKnowledgeLibrary = false
 }
 
+function openTeachingResources(): void {
+  courseStore.showKnowledgeLibrary = false
+  courseStore.showTeachingResources = true
+}
+
 function handleKeydown(event: KeyboardEvent): void {
   if (!courseStore.showKnowledgeLibrary || event.key !== 'Escape') return
   if (mobileDetailOpen.value) mobileDetailOpen.value = false
@@ -899,7 +912,8 @@ watch(() => courseStore.currentCourseId, () => {
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .knowledge-tree-overlay { position:fixed; inset:0; z-index:120; display:grid; place-items:center; padding:24px; background:rgba(38,43,72,.32); backdrop-filter:blur(5px); }
 .knowledge-tree-dialog { width:min(1320px, calc(100vw - 48px)); height:min(850px, calc(100vh - 48px)); min-height:560px; display:flex; flex-direction:column; overflow:hidden; border:1px solid rgba(221,226,243,.95); border-radius:20px; background:#fff; box-shadow:0 28px 80px rgba(42,48,86,.22), 0 3px 14px rgba(42,48,86,.08); outline:none; }
-.knowledge-tree-header { min-height:72px; flex:0 0 auto; display:grid; grid-template-columns:minmax(260px,1fr) minmax(260px,420px) 38px; align-items:center; gap:20px; padding:12px 16px 12px 20px; border-bottom:1px solid #e8eaf4; background:rgba(255,255,255,.98); }
+.knowledge-tree-header { min-height:72px; flex:0 0 auto; display:grid; grid-template-columns:minmax(210px,1fr) auto minmax(220px,360px) 38px; align-items:center; gap:12px; padding:12px 16px 12px 20px; border-bottom:1px solid #e8eaf4; background:rgba(255,255,255,.98); }
+.knowledge-tree-header :deep(.learning-context-tabs) { min-height:44px; padding:4px; border:0; background:transparent; }
 .knowledge-tree-heading { min-width:0; display:flex; align-items:center; gap:12px; }
 .knowledge-tree-brand { width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; border:1px solid #ddd6fe; border-radius:11px; color:#6d4aff; background:#f4f1ff; box-shadow:0 4px 12px rgba(109,74,255,.12); }
 .knowledge-tree-heading h1 { margin:0; color:#252a43; font-size:16px; line-height:1.3; font-weight:760; letter-spacing:0; }
@@ -1034,7 +1048,7 @@ watch(() => courseStore.currentCourseId, () => {
 
 @media (max-width:900px) {
   .knowledge-tree-dialog { width:calc(100vw - 28px); height:calc(100vh - 28px); }
-  .knowledge-tree-header { grid-template-columns:minmax(210px,1fr) minmax(220px,340px) 38px; gap:12px; }
+  .knowledge-tree-header { grid-template-columns:minmax(170px,1fr) auto minmax(180px,260px) 38px; gap:8px; }
   .knowledge-tree-main { grid-template-columns:320px minmax(0,1fr); }
   .knowledge-tree-detail { padding-inline:28px; }
   .knowledge-tree-child-list { grid-template-columns:1fr; }
@@ -1044,7 +1058,7 @@ watch(() => courseStore.currentCourseId, () => {
 @media (max-width:700px) {
   .knowledge-tree-overlay { padding:0; background:#fff; }
   .knowledge-tree-dialog { width:100vw; height:100dvh; min-height:0; border:0; border-radius:0; box-shadow:none; }
-  .knowledge-tree-header { min-height:112px; grid-template-columns:minmax(0,1fr) 38px; grid-template-rows:48px 44px; gap:4px 10px; padding:8px 12px 10px; }
+  .knowledge-tree-header { min-height:156px; grid-template-columns:minmax(0,1fr) 38px; grid-template-rows:48px 44px 44px; gap:4px 10px; padding:8px 12px 10px; }
   .knowledge-tree-governance { align-items:flex-start; flex-direction:column; padding:9px 12px; }
   .knowledge-tree-governance-actions { width:100%; justify-content:flex-start; }
   .knowledge-tree-governance-actions input { width:100%; }
@@ -1053,7 +1067,8 @@ watch(() => courseStore.currentCourseId, () => {
   .knowledge-tree-heading h1 { font-size:14px; }
   .knowledge-tree-heading p { font-size:9.5px; }
   .knowledge-tree-close { grid-column:2; grid-row:1; }
-  .knowledge-tree-search { grid-column:1 / -1; grid-row:2; height:40px; }
+  .knowledge-tree-header :deep(.learning-context-tabs) { grid-column:1 / -1; grid-row:2; justify-content:center; }
+  .knowledge-tree-search { grid-column:1 / -1; grid-row:3; height:40px; }
   .knowledge-tree-main { display:block; }
   .knowledge-tree-pane, .knowledge-tree-detail { position:absolute; inset:0; border:0; }
   .knowledge-tree-pane { background:#fafbfe; }

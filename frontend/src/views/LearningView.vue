@@ -35,19 +35,6 @@
         </div>
       </div>
 
-      <LearningContextTabs
-        v-if="!isGenerationPreview"
-        :domain="activeDomain"
-        :active-item="activeContextItem"
-        :record-count="recordCount"
-        :practice-available="Boolean(currentPracticeNode)"
-        @practice="openCurrentPractice"
-        @records="openRecords"
-        @stats="openStats"
-        @knowledge-library="openKnowledgeLibrary"
-        @resources="openTeachingResources"
-      />
-
       <ContentArea
         ref="contentAreaRef"
         :side-ai-panel-visible="aiVisible"
@@ -78,18 +65,39 @@
         :node-id="taskNode?.node_id"
         :node-label="taskNode?.node_name"
         :origin-rect="taskOriginRect"
+        :record-count="recordCount"
         @close="closeTask"
         @ask-teacher="openAiForPractice"
         @graded="refreshRuntime"
+        @records="openRecords"
+        @stats="openStats"
       />
 
       <section v-if="recordsOpen" class="records-overlay" role="dialog" aria-modal="true" :aria-label="t('learningNavigator.records', '学习记录')">
         <button type="button" :title="t('learningShell.closeRecords', '关闭学习记录')" :aria-label="t('learningShell.closeRecords', '关闭学习记录')" @click="recordsOpen = false"><X :size="18" /></button>
+        <LearningContextTabs
+          domain="learning"
+          active-item="records"
+          :record-count="recordCount"
+          :practice-available="Boolean(currentPracticeNode)"
+          @practice="openCurrentPractice"
+          @records="openRecords"
+          @stats="openStats"
+        />
         <NotesPanel class="records-tool" @locate="locateRecord" @view-detail="locateRecord" @close="recordsOpen = false" />
       </section>
 
       <section v-if="statsOpen" class="stats-overlay" role="dialog" aria-modal="true" :aria-label="t('learningDock.stats', '学习概况')">
         <button type="button" :title="t('learningDock.closeStats', '关闭学习概况')" :aria-label="t('learningDock.closeStats', '关闭学习概况')" @click="statsOpen = false"><X :size="18" /></button>
+        <LearningContextTabs
+          domain="learning"
+          active-item="stats"
+          :record-count="recordCount"
+          :practice-available="Boolean(currentPracticeNode)"
+          @practice="openCurrentPractice"
+          @records="openRecords"
+          @stats="openStats"
+        />
         <LearningStats class="stats-tool" />
       </section>
 
@@ -97,6 +105,7 @@
         :visible="resourcesOpen"
         :course-id="courseStore.currentCourseId"
         @close="resourcesOpen = false"
+        @knowledge-library="openKnowledgeLibrary"
       />
     </main>
 
@@ -172,7 +181,10 @@ const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
 const recordsOpen = ref(false)
 const statsOpen = ref(false)
-const resourcesOpen = ref(false)
+const resourcesOpen = computed({
+  get: () => courseStore.showTeachingResources,
+  set: value => { courseStore.showTeachingResources = value },
+})
 const taskOpen = ref(false)
 const taskNode = ref<Node | null>(null)
 const taskReturnScroll = ref(0)
@@ -204,11 +216,6 @@ const generationStatusText = computed(() => (
 const navigatorVisible = computed(() => !courseStore.isFocusMode && (isNarrow.value ? navigatorOpen.value : navigatorOpen.value))
 const overlayVisible = computed(() => isNarrow.value && navigatorOpen.value && !taskOpen.value)
 const recordCount = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format').length)
-const activeContextItem = computed(() => {
-  if (activeDomain.value === 'resources') return activeResourceItem.value
-  if (activeDomain.value === 'assistant') return 'assistant'
-  return activeLearningItem.value
-})
 const currentParentLabel = computed(() => {
   const current = courseStore.currentNode
   if (!current) return t('learningShell.course', '当前课程')
@@ -264,6 +271,12 @@ watch(() => route.params.courseId, async value => {
   await loadPublishedLearningContext(courseId)
   selectInitialNode()
 }, { immediate: true })
+
+watch(() => courseStore.showTeachingResources, visible => {
+  if (!visible) return
+  activeDomain.value = 'resources'
+  activeResourceItem.value = 'teaching-resources'
+})
 
 async function loadPublishedLearningContext(courseId: string) {
   if (courseStore.currentCourseProjection !== 'published' || loadedLearningCourseId.value === courseId) return
@@ -413,6 +426,7 @@ function openRecords() {
   activeLearningItem.value = 'records'
   recordsOpen.value = true
   statsOpen.value = false
+  taskOpen.value = false
   resourcesOpen.value = false
   if (isNarrow.value) navigatorOpen.value = false
 }
@@ -438,6 +452,8 @@ function openTeachingResources() {
 function openCurrentPractice() {
   activeDomain.value = 'learning'
   activeLearningItem.value = 'practice'
+  recordsOpen.value = false
+  statsOpen.value = false
   if (currentPracticeNode.value) openTask(currentPracticeNode.value)
 }
 
@@ -446,6 +462,7 @@ function openStats() {
   activeLearningItem.value = 'stats'
   statsOpen.value = true
   recordsOpen.value = false
+  taskOpen.value = false
   resourcesOpen.value = false
 }
 
@@ -454,15 +471,31 @@ function activateLearningDomain() {
   aiVisible.value = false
   resourcesOpen.value = false
   courseStore.showKnowledgeLibrary = false
+  if (activeLearningItem.value === 'records') {
+    openRecords()
+    return
+  }
+  if (activeLearningItem.value === 'stats') {
+    openStats()
+    return
+  }
+  if (currentPracticeNode.value) {
+    openCurrentPractice()
+    return
+  }
+  openRecords()
 }
 
 function activateResourceDomain() {
-  activeDomain.value = 'resources'
   aiVisible.value = false
   recordsOpen.value = false
   statsOpen.value = false
-  resourcesOpen.value = false
-  courseStore.showKnowledgeLibrary = false
+  taskOpen.value = false
+  if (activeResourceItem.value === 'teaching-resources') {
+    openTeachingResources()
+    return
+  }
+  openKnowledgeLibrary()
 }
 
 function closeAi() {
@@ -569,10 +602,10 @@ function closeMobileSurfaces() {
 .generation-meter i { height:5px; overflow:hidden; border-radius:999px; background:#e8eaff; }
 .generation-meter b { height:100%; display:block; border-radius:inherit; background:#6366f1; transition:width .35s ease; }
 .learning-content { min-height: 0; flex: 1; }
-.records-overlay, .stats-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; background:#fff; box-shadow:var(--lz-shadow-overlay); }
+.records-overlay, .stats-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
 .records-overlay > button, .stats-overlay > button { position:absolute; top:11px; right:12px; z-index:2; width:32px; height:32px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-secondary); background:#fff; cursor:pointer; }
 .records-tool { flex: 1; min-width: 0; min-height: 0; }
-.stats-tool { flex:1; min-width:0; min-height:0; padding-top:46px; }
+.stats-tool { flex:1; min-width:0; min-height:0; }
 .surface-backdrop { display: none; }
 .mobile-learning-nav { display: none; }
 .focus-mode .learning-main { max-width: 1040px; margin: 0 auto; }

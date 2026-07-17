@@ -12,6 +12,14 @@
           <span>{{ t('taskOverlay.eyebrow', '当前课程任务') }}</span>
           <strong>{{ nodeLabel || t('taskOverlay.title', '学习任务') }}</strong>
         </div>
+        <LearningContextTabs
+          domain="learning"
+          active-item="practice"
+          :record-count="recordCount"
+          :practice-available="true"
+          @records="emit('records')"
+          @stats="emit('stats')"
+        />
         <button
           type="button"
           :title="t('taskOverlay.close', '关闭并返回正文')"
@@ -37,18 +45,22 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { X } from 'lucide-vue-next'
+import LearningContextTabs from './LearningContextTabs.vue'
 import MorphingDialog from './MorphingDialog.vue'
 import PracticeWorkspace from './PracticeWorkspace.vue'
 import { t } from '../shared/i18n'
 
-defineProps<{
+withDefaults(defineProps<{
   courseId: string
   nodeId?: string
   nodeLabel?: string
   originRect?: { top: number; left: number; width: number; height: number } | null
-}>()
+  recordCount?: number
+}>(), {
+  recordCount: 0,
+})
 const emit = defineEmits<{
-  (event: 'close' | 'graded'): void
+  (event: 'close' | 'graded' | 'records' | 'stats'): void
   (event: 'askTeacher', payload: { text: string; nodeId: string }): void
 }>()
 const dialogRef = ref<InstanceType<typeof MorphingDialog> | null>(null)
@@ -60,13 +72,14 @@ function closeDialog() {
 
 <style scoped>
 .task-overlay { width:100%; height:100%; min-width:0; min-height:0; display:grid; grid-template-rows:60px minmax(0,1fr); background:#fff; }
-.task-overlay > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 18px 0 22px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.96); }
+.task-overlay > header { display:grid; grid-template-columns:minmax(150px,1fr) auto minmax(34px,1fr); align-items:center; gap:12px; padding:0 18px 0 22px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.96); }
 .task-overlay header div { min-width: 0; display: flex; flex-direction: column; }
 .task-overlay header span { color: var(--lz-text-muted); font-size: 10px; }
 .task-overlay header strong { margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--lz-text-strong); font-size:14px; }
-.task-overlay header button { width:34px; height:34px; display:grid; place-items:center; border:0; border-radius:8px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
-.task-overlay header button:hover { color: var(--lz-text-strong); background: var(--lz-surface-muted); }
-.task-overlay header button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
+.task-overlay > header > button { justify-self:end; width:34px; height:34px; display:grid; place-items:center; border:0; border-radius:8px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
+.task-overlay > header > button:hover { color: var(--lz-text-strong); background: var(--lz-surface-muted); }
+.task-overlay > header > button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
+.task-overlay :deep(.learning-context-tabs) { min-height:44px; padding:4px; border:0; background:transparent; }
 .task-workspace { min-height: 0; }
 @media (max-width:767px) {
   .task-overlay { grid-template-rows:calc(58px + env(safe-area-inset-top, 0px)) minmax(0,1fr); }
