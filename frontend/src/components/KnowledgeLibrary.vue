@@ -87,14 +87,25 @@
               </div>
             </div>
             <ul
-              v-if="libraryView.quality_report?.issues?.length"
+              v-if="qualityIssues.length"
               data-testid="knowledge-quality-issues"
               class="knowledge-tree-quality-issues"
             >
-              <li v-for="issue in libraryView.quality_report.issues" :key="`${issue.code}:${issue.message}`">
-                {{ issue.message }}
+              <li v-for="(issue, index) in visibleQualityIssues" :key="`${issue.code}:${index}`">
+                {{ formatQualityIssue(issue) }}
               </li>
             </ul>
+            <button
+              v-if="qualityIssues.length > QUALITY_ISSUE_PREVIEW_LIMIT"
+              data-testid="knowledge-quality-toggle"
+              class="knowledge-tree-quality-toggle"
+              type="button"
+              @click="showAllQualityIssues = !showAllQualityIssues"
+            >
+              {{ showAllQualityIssues
+                ? t('knowledgeLibrary.collapseIssues', '收起技术详情')
+                : `${t('knowledgeLibrary.expandIssues', '查看全部问题')} (${qualityIssues.length})` }}
+            </button>
             <div class="knowledge-tree-governance-actions">
               <input
                 v-if="libraryView.lifecycle_status === 'candidate'"
@@ -444,6 +455,37 @@ const reviewSummary = ref<KnowledgeLibraryReview | null>(null)
 const reviewNote = ref('')
 const governanceActing = ref(false)
 const governanceError = ref('')
+const showAllQualityIssues = ref(false)
+const QUALITY_ISSUE_PREVIEW_LIMIT = 3
+
+type QualityIssue = { code: string; severity: string; message: string }
+
+const qualityIssues = computed<QualityIssue[]>(() => (
+  libraryView.value?.quality_report?.issues || []
+))
+
+const visibleQualityIssues = computed(() => (
+  showAllQualityIssues.value
+    ? qualityIssues.value
+    : qualityIssues.value.slice(0, QUALITY_ISSUE_PREVIEW_LIMIT)
+))
+
+function formatQualityIssue(issue: QualityIssue): string {
+  if (issue.code === 'missing_section_bindings') {
+    const coverage = libraryView.value?.coverage
+    const total = Number(coverage?.section_count || 0)
+    const covered = Number(coverage?.covered_section_count || 0)
+    const missing = Math.max(0, total - covered)
+    if (missing) return `还有 ${missing} 个课程小节尚未建立知识映射`
+  }
+  if (issue.code.startsWith('invalid_') && issue.code.endsWith('_id')) {
+    return '知识蓝图的标识信息不完整，请重新生成'
+  }
+  return String(issue.message || '').replace(
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi,
+    '技术标识',
+  )
+}
 
 const nodeById = computed(() => new Map(
   (libraryView.value?.nodes || []).map(node => [node.knowledge_id, node]),
@@ -687,6 +729,7 @@ async function loadLibrary(): Promise<void> {
       throw new Error(t('knowledgeLibrary.unsupported', '当前课程尚未接入课程知识库 v2'))
     }
     libraryView.value = view as KnowledgeLibraryView
+    showAllQualityIssues.value = false
     reviewSummary.value = null
     if (view.lifecycle_status === 'candidate') {
       try {
@@ -843,6 +886,7 @@ watch(() => courseStore.showKnowledgeLibrary, async show => {
     document.removeEventListener('keydown', handleKeydown)
     searchQuery.value = ''
     mobileDetailOpen.value = false
+    showAllQualityIssues.value = false
   }
 })
 
@@ -881,6 +925,8 @@ watch(() => courseStore.currentCourseId, () => {
 .knowledge-tree-quality strong { color:#3d435a; }
 .knowledge-tree-quality-issues { max-width:360px; margin:0; padding-left:16px; color:#a64242; font-size:10px; line-height:1.45; }
 .knowledge-tree-quality-issues li + li { margin-top:2px; }
+.knowledge-tree-quality-toggle { align-self:flex-start; padding:0; border:0; color:#8e4b4b; background:transparent; font-size:10px; cursor:pointer; }
+.knowledge-tree-quality-toggle:hover { color:#713838; text-decoration:underline; }
 .knowledge-tree-diff { padding-left:8px; border-left:1px solid #dcdeea; }
 .knowledge-tree-governance-actions { justify-content:flex-end; }
 .knowledge-tree-governance-actions input { width:190px; height:30px; padding:0 9px; border:1px solid #dddfea; border-radius:8px; outline:0; color:#42485d; background:#fff; font-size:10px; }

@@ -66,7 +66,7 @@ export interface KnowledgeLibraryView {
     ai_must_judge_independently: boolean
     allowed_fit: Array<'hit' | 'partial' | 'miss'>
     may_invent_formal_ids: boolean
-    identity_scope?: 'course_only'
+    identity_scope?: 'course_only' | 'subject_shared'
     personal_state_can_modify_library?: boolean
   }
   course_map_revision_id: string
@@ -76,6 +76,8 @@ export interface KnowledgeLibraryView {
     unmapped_count: number
     mapped_ratio: number
     status: string
+    section_count?: number
+    covered_section_count?: number
   }
   unresolved_mappings: unknown[]
   status: string

@@ -555,6 +555,14 @@ def validate_course_knowledge_base(
     relations = list(knowledge_base.get("relations") or [])
     bindings = list(knowledge_base.get("bindings") or [])
 
+    if not groups and not points:
+        issues.append(_issue(
+            "knowledge_blueprint_missing",
+            "structure",
+            "critical",
+            "知识库缺少有效的概念组和知识点，请重新生成",
+        ))
+
     _validate_unique_ids(groups, "concept_group_id", "概念组", issues)
     _validate_unique_ids(points, "knowledge_id", "知识点", issues)
     _validate_unique_ids(skills, "skill_id", "能力点", issues)
@@ -687,8 +695,14 @@ def validate_course_knowledge_base(
         for binding in bindings
         if binding.get("target_type") == "section" and binding.get("knowledge_ids")
     }
-    if section_ids - bound_sections:
-        issues.append(_issue("missing_section_bindings", "bindings", "critical", f"知识库未覆盖小节：{sorted(section_ids - bound_sections)}"))
+    missing_section_count = len(section_ids - bound_sections)
+    if missing_section_count:
+        issues.append(_issue(
+            "missing_section_bindings",
+            "bindings",
+            "critical",
+            f"还有 {missing_section_count} 个课程小节尚未建立知识映射",
+        ))
     for binding in bindings:
         if set(_unique(binding.get("knowledge_ids") or [])) - point_ids:
             issues.append(_issue("binding_missing_point", "bindings", "critical", "教学绑定引用了不存在的知识点"))
@@ -1726,7 +1740,7 @@ def _validate_unique_ids(
     label: str,
     issues: list[dict[str, Any]],
     *,
-    allow_empty: bool = False,
+    allow_empty: bool = True,
 ) -> None:
     ids = [str(item.get(key) or "") for item in items]
     if (not ids and not allow_empty) or (ids and (not all(ids) or len(ids) != len(set(ids)))):
