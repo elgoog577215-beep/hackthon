@@ -70,4 +70,19 @@ describe('teaching representation progressive build', () => {
     expect(store.registry).toEqual(registry)
     expect(httpMock.get).toHaveBeenCalledWith('/api/courses/course-1/teaching-representations/slides-1/spec')
   })
+
+  it('keeps a quality-blocked build unpublished and exposes a useful error state', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      { event: 'deck_plan', progress: 4 },
+      { event: 'slide_upsert', progress: 30, slide: { unit_id: 'slide:title', title: '数据结构', layout: 'cover' } },
+      { event: 'slide_quality', progress: 97, quality: { passed: false, issues: [{ code: 'slide_item_overflow' }] } },
+      { event: 'build_blocked', progress: 100, quality: { passed: false } },
+      { event: 'build_complete', progress: 100, build: { status: 'failed_using_last_available' }, registry: { representations: [] } },
+    ])))
+
+    const store = useTeachingRepresentationsStore()
+    await expect(store.buildProgressive('course-1')).rejects.toThrow('quality_gate_failed')
+    expect(store.buildError).toBe('quality_gate_failed')
+    expect(store.registry).toBeNull()
+  })
 })

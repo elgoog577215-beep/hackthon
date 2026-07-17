@@ -38,7 +38,7 @@
         data-domain="resources"
         :class="{ 'is-active': activeDomain === 'resources' }"
         :aria-current="activeDomain === 'resources' ? 'page' : undefined"
-        :title="t('learningDock.resourceDomainHint', '切换知识库和教学资源')"
+        :title="t('learningDock.resourceDomainHint', '切换知识库、大纲、教案、讲义与练习册')"
         @click="emit('resources')"
       >
         <Layers3 :size="16" />

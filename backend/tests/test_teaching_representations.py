@@ -7,6 +7,7 @@ from zipfile import ZipFile
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pptx import Presentation
 
 from course_commands import CourseCommandService
 from course_document import COURSE_DOCUMENT_SCHEMA, document_from_legacy_course
@@ -24,7 +25,7 @@ from representation_edits import (
     classify_representation_edit,
     representation_edit_impact,
 )
-from slide_deck import validate_slide_deck
+from slide_deck import LAYOUT_CAPACITY, SlideBlockSpec, _fit_blocks_for_layout, validate_slide_deck
 from teaching_representations import (
     RepresentationConflict,
     SourceBinding,
@@ -375,11 +376,33 @@ def test_compiler_builds_five_bound_representations_and_exports_pptx(tmp_path):
     assert slide_content["schema_version"] == "slide_deck_v2"
     assert {item["layout"] for item in slide_content["slides"]} >= {"cover", "roadmap", "concept", "practice", "recap"}
     assert all("blocks" in item and "bullets" not in item for item in slide_content["slides"])
+    assert len({item["unit_id"] for item in slide_content["slides"]}) == len(slide_content["slides"])
+    for section in document.sections:
+        section_slides = [
+            item for item in slide_content["slides"]
+            if item.get("section_id") == section.section_id
+        ]
+        assert {item["slide_purpose"] for item in section_slides} >= {
+            "learning_objective",
+            "concept_and_reasoning",
+            "mastery_check",
+        }
+        assert all(item["speaker_notes"].strip() for item in section_slides)
     practice_slides = [item for item in slide_content["slides"] if item["layout"] == "practice"]
     assert any("question-a" in item["practice_task_ids"] for item in practice_slides)
     output = export_slide_deck_pptx(slides, tmp_path / "course.pptx")
     assert output.exists()
     assert output.stat().st_size > 0
+    presentation = Presentation(output)
+    assert len(presentation.slides) == len(slide_content["slides"])
+    rendered_text = "\n".join(
+        shape.text
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if hasattr(shape, "text")
+    )
+    assert "线性代数" in rendered_text
+    assert "向量" in rendered_text
     with ZipFile(output) as archive:
         first_slide_xml = archive.read("ppt/slides/slide1.xml")
     assert b"<a:ea" in first_slide_xml
@@ -410,6 +433,29 @@ def test_slide_quality_gate_rejects_raw_course_copy_and_markdown(tmp_path):
     assert {"raw_markdown_leaked", "paragraph_copy_detected"} <= codes
 
 
+def test_layout_fitter_rechecks_item_budget_after_teaching_support_enrichment():
+    blocks = [
+        SlideBlockSpec(
+            block_id="source",
+            type="bullets",
+            title="错误分析",
+            items=[f"错误线索 {index}" for index in range(6)],
+        ),
+        SlideBlockSpec(
+            block_id="support",
+            type="bullets",
+            title="辨析边界",
+            items=[f"边界 {index}" for index in range(3)],
+        ),
+    ]
+
+    fitted = _fit_blocks_for_layout("misconception", blocks)
+
+    assert sum(len(block.items) for block in fitted) == LAYOUT_CAPACITY["misconception"]["items"]
+    assert fitted[0].items == [f"错误线索 {index}" for index in range(6)]
+    assert fitted[1].items == ["边界 0", "边界 1"]
+
+
 def test_compiled_representations_track_stale_units_instead_of_whole_course(tmp_path):
     before = document_from_legacy_course(legacy_course())
     repository = TeachingRepresentationRepository(tmp_path)
@@ -428,7 +474,11 @@ def test_compiled_representations_track_stale_units_instead_of_whole_course(tmp_
     by_type = {item.representation_type: item for item in updated.representations}
 
     assert by_type["slide_deck"].status == "stale"
-    assert by_type["slide_deck"].stale_unit_ids == ["slide:section-a"]
+    assert by_type["slide_deck"].stale_unit_ids == [
+        "slide:section-a",
+        "slide:section-a:check",
+        "slide:section-a:content:1",
+    ]
     assert "slide:title" not in by_type["slide_deck"].stale_unit_ids
     assert by_type["handout"].stale_unit_ids == ["handout:section-a"]
 
@@ -860,6 +910,8 @@ def test_progressive_build_streams_each_slide_before_atomic_completion(tmp_path,
 
     assert response.status_code == 200
     assert "event: deck_plan" in body
+    assert '"strategy": "plan_then_fill"' in body
+    assert '"estimated_slide_count":' in body
     assert "event: slide_upsert" in body
     assert "event: slide_quality" in body
     assert "event: build_complete" in body

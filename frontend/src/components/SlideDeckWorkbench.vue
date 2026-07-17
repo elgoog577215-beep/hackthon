@@ -1,22 +1,35 @@
 <template>
-  <section class="slide-workbench">
+  <section class="slide-workbench" :class="{ 'is-standalone': standalone }">
     <header class="slide-workbench__toolbar">
-      <div>
+      <div class="slide-workbench__identity">
+        <button v-if="standalone" type="button" class="slide-workbench__back" :title="t('pptWorkspace.backToCourse', '返回课程')" @click="emit('back')">
+          <ArrowLeft :size="18" />
+        </button>
+        <div>
+          <small>{{ t('pptWorkspace.eyebrow', 'PPT 工作台') }}</small>
+          <strong>{{ deckTitle }}</strong>
+        </div>
         <span class="slide-workbench__status" :data-state="error ? 'error' : building ? 'building' : qualityPassed ? 'ready' : 'warning'">
           <LoaderCircle v-if="building" :size="13" class="spinning" />
           <CircleCheck v-else-if="!error && qualityPassed" :size="13" />
           <TriangleAlert v-else :size="13" />
           {{ error ? t('teachingRepresentations.slides.buildFailed', '生成失败') : building ? stageLabel : qualityPassed ? t('teachingRepresentations.slides.qualityPassed', '质量检查通过') : t('teachingRepresentations.slides.qualityReview', '需要检查') }}
         </span>
-        <strong>{{ deckTitle }}</strong>
-        <small>{{ t('teachingRepresentations.slides.pageCount', '{count} 页').replace('{count}', String(slides.length)) }}</small>
+        <small class="slide-workbench__count">{{ t('teachingRepresentations.slides.pageCount', '{count} 页').replace('{count}', String(slides.length)) }}</small>
       </div>
       <div class="slide-workbench__commands">
+        <button v-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuild', '同步课程最新内容')" @click="emit('rebuild')">
+          <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ t('pptWorkspace.sync', '同步课程') }}</span>
+        </button>
         <button type="button" :disabled="!activeSlide || building" :title="t('teachingRepresentations.slides.askAi', '交给 AI 老师讨论')" @click="askAi">
           <Sparkles :size="16" /><span>{{ t('teachingRepresentations.slides.askAi', '交给 AI 老师') }}</span>
         </button>
-        <button type="button" :disabled="building" :title="t('teachingRepresentations.exportPptx', '导出 PPTX')" @click="store.downloadSlides(representationId)">
-          <Download :size="16" /><span>{{ t('teachingRepresentations.exportPptx', '导出 PPTX') }}</span>
+        <button type="button" :disabled="!activeSlide || building" :title="t('pptWorkspace.present', '全屏演示')" @click="openPresentation">
+          <Play :size="16" /><span>{{ t('pptWorkspace.present', '全屏演示') }}</span>
+        </button>
+        <button type="button" class="slide-workbench__export" :disabled="building || exportBusy || !representationId" :title="t('teachingRepresentations.exportPptx', '导出 PPTX')" @click="downloadSlides">
+          <LoaderCircle v-if="exportBusy" :size="16" class="spinning" />
+          <Download v-else :size="16" /><span>{{ t('teachingRepresentations.exportPptx', '导出 PPTX') }}</span>
         </button>
       </div>
       <div v-if="building" class="slide-workbench__progress" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">
@@ -47,56 +60,13 @@
       </aside>
 
       <main class="slide-stage">
-        <div v-if="activeSlide" class="slide-canvas" :data-layout="activeSlide.layout">
-          <template v-if="activeSlide.layout === 'cover'">
-            <i class="slide-canvas__rail"></i>
-            <div class="slide-cover__brand">{{ t('teachingRepresentations.slides.brand', '灵知') }}</div>
-            <div class="slide-cover__content">
-              <small>{{ activeSlide.eyebrow }}</small>
-              <h2>{{ activeSlide.title }}</h2>
-              <p>{{ activeSlide.subtitle }}</p>
-              <blockquote>{{ activeSlide.key_message }}</blockquote>
-            </div>
-          </template>
-
-          <template v-else-if="activeSlide.layout === 'chapter'">
-            <div class="slide-chapter__number">{{ chapterNumber(activeSlide.title) }}</div>
-            <div class="slide-chapter__content">
-              <small>{{ activeSlide.eyebrow }}</small>
-              <h2>{{ activeSlide.title }}</h2>
-              <blockquote>{{ activeSlide.key_message }}</blockquote>
-            </div>
-          </template>
-
-          <template v-else>
-            <header class="slide-canvas__heading">
-              <small>{{ activeSlide.eyebrow || layoutLabel(activeSlide.layout) }}</small>
-              <h2>{{ activeSlide.title }}</h2>
-              <i></i>
-            </header>
-            <blockquote v-if="activeSlide.key_message && !['objective', 'misconception', 'practice'].includes(activeSlide.layout)" class="slide-canvas__message">
-              {{ activeSlide.key_message }}
-            </blockquote>
-            <div class="slide-canvas__blocks" :data-layout="activeSlide.layout">
-              <article v-for="block in activeSlide.blocks" :key="block.block_id" :data-type="block.type">
-                <span v-if="block.title">{{ block.title }}</span>
-                <pre v-if="block.type === 'code'"><code>{{ block.content }}</code></pre>
-                <table v-else-if="block.type === 'comparison' && block.metadata?.rows?.length">
-                  <thead><tr><th v-for="header in block.metadata.headers || []" :key="header">{{ header }}</th></tr></thead>
-                  <tbody><tr v-for="(row, rowIndex) in block.metadata.rows" :key="rowIndex"><td v-for="cell in row" :key="cell">{{ cell }}</td></tr></tbody>
-                </table>
-                <ol v-else-if="block.type === 'process'">
-                  <li v-for="(item, itemIndex) in block.items" :key="item"><b>{{ itemIndex + 1 }}</b>{{ item }}</li>
-                </ol>
-                <ul v-else-if="block.items?.length">
-                  <li v-for="item in block.items" :key="item">{{ item }}</li>
-                </ul>
-                <p v-else>{{ block.content }}</p>
-              </article>
-            </div>
-            <footer><span>{{ activeIndex + 1 }} / {{ slides.length }}</span><span>{{ activeSlide.section_id || deckTitle }}</span></footer>
-          </template>
-        </div>
+        <SlideCanvas
+          v-if="activeSlide"
+          :slide="activeSlide"
+          :page-number="activeIndex + 1"
+          :page-count="slides.length"
+          :deck-title="deckTitle"
+        />
         <div v-else class="slide-stage__empty">
           <LoaderCircle v-if="building" :size="24" class="spinning" />
           <Presentation v-else :size="24" />
@@ -132,6 +102,7 @@
               <span>{{ t('teachingRepresentations.slides.editField', '修改内容') }}</span>
               <select v-model="editField" :disabled="building" @change="resetEdit">
                 <option value="title">{{ t('teachingRepresentations.slides.fields.title', '标题') }}</option>
+                <option value="subtitle">{{ t('teachingRepresentations.slides.fields.subtitle', '副标题') }}</option>
                 <option value="key_message">{{ t('teachingRepresentations.slides.fields.keyMessage', '核心信息') }}</option>
                 <option value="speaker_notes">{{ t('teachingRepresentations.slides.fields.notes', '讲者备注') }}</option>
                 <option value="layout">{{ t('teachingRepresentations.slides.fields.layout', '版式') }}</option>
@@ -146,13 +117,19 @@
             </label>
             <div v-if="editPreview" class="slide-inspector__impact" data-state="affected">
               <strong>{{ classificationLabel(editPreview.classification) }}</strong>
-              <p class="semantic-change">{{ editPreview.semantic_change?.summary || editPreview.reason }}</p>
-              <ul v-if="editPreview.impact?.affected_representations?.length">
-                <li v-for="item in editPreview.impact.affected_representations" :key="item.representation_id">
-                  <span>{{ representationLabel(item.representation_type) }}</span>
-                  <b>{{ t('teachingRepresentations.affectedUnits', '{count} 处需联动').replace('{count}', String(item.unit_ids?.length || 0)) }}</b>
-                </li>
-              </ul>
+              <div class="impact-flow">
+                <div class="impact-flow__origin">
+                  <small>{{ t('teachingRepresentations.impactOrigin', 'PPT 学习目标变化') }}</small>
+                  <b>{{ editPreview.semantic_change?.summary || editPreview.reason }}</b>
+                </div>
+                <i></i>
+                <div v-if="editPreview.impact?.affected_representations?.length" class="impact-flow__targets">
+                  <span v-for="item in editPreview.impact.affected_representations" :key="item.representation_id">
+                    <b>{{ representationLabel(item.representation_type) }}</b>
+                    <small>{{ t('teachingRepresentations.affectedUnits', '{count} 处需联动').replace('{count}', String(item.unit_ids?.length || 0)) }}</small>
+                  </span>
+                </div>
+              </div>
               <small>{{ t('teachingRepresentations.preciseImpactSummary', '预计联动 {affected} 处，保持 {unaffected} 处不变')
                 .replace('{affected}', String(editPreview.impact?.affected_unit_count || 0))
                 .replace('{unaffected}', String(editPreview.impact?.unaffected_unit_count || 0)) }}</small>
@@ -181,6 +158,12 @@
                 <p v-if="syncReceipt.status === 'synchronized'">{{ t('teachingRepresentations.syncCounts', '{rebuilt} 处已更新，{reused} 处确认无需修改')
                   .replace('{rebuilt}', String(syncRebuiltCount))
                   .replace('{reused}', String(syncReusedCount)) }}</p>
+                <ul v-if="syncReceipt.status === 'synchronized' && syncReceipt.rebuilt?.length">
+                  <li v-for="item in syncReceipt.rebuilt" :key="item.representation_type">
+                    <span>{{ representationLabel(item.representation_type) }}</span>
+                    <b>{{ item.rebuilt_unit_ids?.length || 0 }} / {{ (item.rebuilt_unit_ids?.length || 0) + (item.reused_unit_ids?.length || 0) }}</b>
+                  </li>
+                </ul>
               </div>
             </div>
             <div v-if="!pendingInlineItem" class="slide-inspector__edit-actions">
@@ -200,16 +183,47 @@
         </template>
       </aside>
     </div>
+
+    <Teleport to="body">
+      <div v-if="presentationOpen && activeSlide" ref="presentationSurface" class="deck-presentation" role="dialog" aria-modal="true" :aria-label="t('pptWorkspace.present', '全屏演示')">
+        <header>
+          <div><small>{{ t('pptWorkspace.presenting', '正在演示') }}</small><strong>{{ deckTitle }}</strong></div>
+          <div>
+            <button type="button" :class="{ active: notesVisible }" :title="t('pptWorkspace.toggleNotes', '显示或隐藏讲稿')" @click="notesVisible = !notesVisible"><NotebookText :size="17" /></button>
+            <button type="button" :title="t('pptWorkspace.exitPresentation', '退出演示')" @click="closePresentation"><X :size="18" /></button>
+          </div>
+        </header>
+        <main>
+          <SlideCanvas
+            :slide="activeSlide"
+            :page-number="activeIndex + 1"
+            :page-count="slides.length"
+            :deck-title="deckTitle"
+            presenting
+          />
+          <aside v-if="notesVisible">
+            <small>{{ t('teachingRepresentations.slides.speakerNotes', '讲者备注') }}</small>
+            <p>{{ activeSlide.speaker_notes || t('pptWorkspace.noNotes', '这一页还没有讲稿。') }}</p>
+          </aside>
+        </main>
+        <footer>
+          <button type="button" :disabled="activeIndex <= 0" @click="goToSlide(activeIndex - 1)"><ChevronLeft :size="20" /></button>
+          <span>{{ activeIndex + 1 }} <i>/</i> {{ slides.length }}</span>
+          <button type="button" :disabled="activeIndex >= slides.length - 1" @click="goToSlide(activeIndex + 1)"><ChevronRight :size="20" /></button>
+        </footer>
+      </div>
+    </Teleport>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { CircleCheck, ClipboardCheck, Download, LoaderCircle, Pencil, Presentation, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, LoaderCircle, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import type { ChangeProposal, ChangeProposalContent, ChangeProposalItem } from '../types/changeProposal'
+import SlideCanvas from './SlideCanvas.vue'
 
 interface SlideBlock {
   block_id: string
@@ -243,7 +257,7 @@ interface Slide {
   quality?: { passed?: boolean; character_count?: number; issues?: Array<Record<string, any>> }
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   courseId: string
   representationId: string
   deckTitle: string
@@ -254,10 +268,14 @@ const props = defineProps<{
   stage: string
   error: string
   quality?: Record<string, any> | null
-}>()
+  standalone?: boolean
+}>(), {
+  standalone: false,
+})
 
 const emit = defineEmits<{
   (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
+  (event: 'back' | 'rebuild'): void
 }>()
 
 const store = useTeachingRepresentationsStore()
@@ -269,8 +287,12 @@ const editValue = ref('')
 const editPreview = ref<Record<string, any> | null>(null)
 const editResult = ref('')
 const editBusy = ref(false)
+const exportBusy = ref(false)
 const inlineProposal = ref<ChangeProposal | null>(null)
 const syncReceipt = ref<Record<string, any> | null>(null)
+const presentationOpen = ref(false)
+const notesVisible = ref(false)
+const presentationSurface = ref<HTMLElement | null>(null)
 const layouts = ['cover', 'roadmap', 'chapter', 'objective', 'concept', 'comparison', 'process', 'code', 'misconception', 'practice', 'recap']
 
 const activeIndex = computed(() => Math.max(0, props.slides.findIndex(slide => slide.unit_id === activeUnitId.value)))
@@ -326,9 +348,55 @@ watch(() => props.slides.map(slide => slide.unit_id), unitIds => {
 
 watch(activeSlide, resetEdit, { immediate: true })
 
+onMounted(() => window.addEventListener('keydown', handlePresentationKey))
+onUnmounted(() => window.removeEventListener('keydown', handlePresentationKey))
+
 function selectSlide(unitId: string) {
   activeUnitId.value = unitId
   userSelected.value = true
+}
+
+function goToSlide(index: number) {
+  const slide = props.slides[Math.max(0, Math.min(index, props.slides.length - 1))]
+  if (slide) selectSlide(slide.unit_id)
+}
+
+async function openPresentation() {
+  if (!activeSlide.value) return
+  presentationOpen.value = true
+  notesVisible.value = false
+  await nextTick()
+  await presentationSurface.value?.requestFullscreen?.().catch(() => undefined)
+}
+
+async function closePresentation() {
+  presentationOpen.value = false
+  if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined)
+}
+
+function handlePresentationKey(event: KeyboardEvent) {
+  if (!presentationOpen.value) return
+  if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
+    event.preventDefault()
+    goToSlide(activeIndex.value + 1)
+  } else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+    event.preventDefault()
+    goToSlide(activeIndex.value - 1)
+  } else if (event.key === 'Escape') {
+    presentationOpen.value = false
+  } else if (event.key.toLowerCase() === 'n') {
+    notesVisible.value = !notesVisible.value
+  }
+}
+
+async function downloadSlides() {
+  if (!props.representationId || exportBusy.value) return
+  exportBusy.value = true
+  try {
+    await store.downloadSlides(props.representationId, props.deckTitle)
+  } finally {
+    exportBusy.value = false
+  }
 }
 
 function resetEdit() {
@@ -467,9 +535,6 @@ function classificationLabel(value: string) {
   } as Record<string, string>)[value] || value
 }
 
-function chapterNumber(title: string) {
-  return title.match(/\d+/)?.[0]?.padStart(2, '0') || '·'
-}
 </script>
 
 <style scoped>
@@ -496,10 +561,259 @@ function chapterNumber(title: string) {
 .slide-inspector dl { margin:0; }.slide-inspector dl div { display:flex; justify-content:space-between; gap:10px; padding:4px 0; font-size:9px; }.slide-inspector dt { color:var(--lz-text-muted); }.slide-inspector dd { margin:0; color:var(--lz-text-secondary); text-align:right; }.slide-inspector__refs { display:flex; flex-wrap:wrap; gap:4px; }.slide-inspector__refs span { max-width:100%; overflow:hidden; padding:4px 6px; border-radius:5px; color:#4f46e5; background:#eef2ff; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }.slide-inspector__refs span[data-kind="ability"] { color:#047857; background:#ecfdf5; }.slide-inspector__refs small { color:var(--lz-text-muted); font-size:8px; }.slide-inspector section > p { display:flex; align-items:center; gap:5px; margin:8px 0 0; color:var(--lz-text-secondary); font-size:8px; }
 .slide-inspector__edit label { display:block; margin-top:9px; }.slide-inspector__edit label > span { display:block; margin-bottom:5px; color:var(--lz-text-muted); font-size:8px; }.slide-inspector__edit select,.slide-inspector__edit textarea { width:100%; box-sizing:border-box; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text); background:#fff; font:9px/1.45 inherit; outline:none; }.slide-inspector__edit select { height:30px; padding:0 7px; }.slide-inspector__edit textarea { resize:vertical; min-height:72px; padding:7px; }.slide-inspector__edit select:focus,.slide-inspector__edit textarea:focus { border-color:#818cf8; }
 .slide-inspector__impact { margin-top:9px; padding:9px; border-left:3px solid #eab308; background:#fffbea; }.slide-inspector__impact > strong { color:#854d0e; font-size:9px; }.slide-inspector__impact .semantic-change { margin:4px 0 7px; color:#713f12; font-size:9px; font-weight:700; line-height:1.45; }.slide-inspector__impact ul { display:grid; gap:3px; margin:0 0 7px; padding:0; list-style:none; }.slide-inspector__impact li { display:flex; align-items:center; justify-content:space-between; gap:6px; color:#475569; font-size:8px; }.slide-inspector__impact li b { color:#a16207; font-size:8px; }.slide-inspector__impact small { color:#78716c; font-size:8px; }.slide-inspector__impact .protected { display:flex; align-items:center; gap:4px; margin:6px 0 0; color:#64748b; font-size:8px; }
+.impact-flow { display:grid; justify-items:center; gap:6px; margin:7px 0; }.impact-flow__origin { width:100%; padding:7px; border:1px solid #f0d576; border-radius:6px; background:#fff; }.impact-flow__origin small,.impact-flow__origin b { display:block; }.impact-flow__origin b { margin-top:3px; color:#713f12; font-size:8px; line-height:1.4; }.impact-flow > i { width:1px; height:10px; background:#d6a80a; }.impact-flow__targets { width:100%; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }.impact-flow__targets > span { min-width:0; padding:6px; border:1px solid #f1df9e; border-radius:5px; background:#fff; }.impact-flow__targets b,.impact-flow__targets small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.impact-flow__targets b { color:#475569; font-size:8px; }.impact-flow__targets small { margin-top:2px; color:#a16207; }
 .slide-inspector__confirmation { margin-top:9px; padding:9px; border-left:3px solid #8b5cf6; background:#f7f3ff; }.slide-inspector__confirmation > strong { display:flex; align-items:center; gap:5px; color:#6d28d9; font-size:9px; }.objective-diff { display:grid; grid-template-columns:minmax(0,1fr) 12px minmax(0,1fr); gap:4px; margin-top:7px; color:#64748b; font-size:8px; line-height:1.4; }.objective-diff i { color:#8b5cf6; font-style:normal; }.objective-diff b { color:#4c1d95; }.slide-inspector__confirmation > p { margin:6px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
 .slide-inspector__receipt { display:grid; grid-template-columns:18px minmax(0,1fr); gap:6px; margin-top:9px; padding:9px; border-left:3px solid #10b981; color:#047857; background:#ecfdf5; }.slide-inspector__receipt[data-state="failed_using_last_available"] { border-left-color:#f59e0b; color:#92400e; background:#fffbeb; }.slide-inspector__receipt strong { display:block; font-size:9px; }.slide-inspector__receipt p { margin:3px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
+.slide-inspector__receipt ul { display:grid; gap:3px; margin:7px 0 0; padding:0; list-style:none; }.slide-inspector__receipt li { display:flex; justify-content:space-between; gap:8px; color:#526174; font-size:8px; }.slide-inspector__receipt li b { color:#047857; }
 .slide-inspector__edit-actions { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }.slide-inspector__edit-actions button { min-height:29px; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0 8px; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text-secondary); background:#fff; font-size:8px; cursor:pointer; }.slide-inspector__edit-actions button.semantic { color:#fff; border-color:#6366f1; background:#6366f1; }.slide-inspector__edit-actions button:disabled { opacity:.45; cursor:not-allowed; }.slide-inspector output { display:block; margin-top:8px; color:#047857; font-size:8px; }.slide-inspector details { padding:13px 0; color:var(--lz-text-secondary); font-size:9px; }.slide-inspector summary { color:var(--lz-text-strong); font-weight:700; cursor:pointer; }.slide-inspector details p { white-space:pre-line; line-height:1.55; }
 .spinning { animation:slide-spin .8s linear infinite; }@keyframes slide-spin { to { transform:rotate(360deg); } }
 @media (max-width:1100px) { .slide-workbench__body { grid-template-columns:148px minmax(400px,1fr) 210px; }.slide-stage { padding:16px; } }
 @media (max-width:840px) { .slide-workbench { grid-template-rows:auto minmax(0,1fr); }.slide-workbench__toolbar { min-height:58px; flex-wrap:wrap; padding:8px 10px; }.slide-workbench__commands button span { display:none; }.slide-workbench__body { grid-template-columns:1fr; grid-template-rows:96px minmax(260px,1fr) auto; }.slide-thumbnails { display:flex; overflow-x:auto; border-right:0; border-bottom:1px solid var(--lz-border); }.slide-thumbnails > button { width:130px; flex:none; }.slide-stage { padding:12px; }.slide-inspector { max-height:250px; border-top:1px solid var(--lz-border); border-left:0; }.slide-inspector section { padding-right:8px; padding-left:8px; } }
+
+/* 独立 PPT 工作台：克制的编辑部风格，优先保证长时间备课与课堂投影的可读性。 */
+.slide-workbench.is-standalone {
+  height:100dvh;
+  grid-template-rows:74px minmax(0,1fr);
+  color:#17202c;
+  background:#e9edf3;
+  font-family:"Avenir Next","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+.is-standalone .slide-workbench__toolbar {
+  z-index:8;
+  padding:0 20px;
+  border-bottom:0;
+  color:#f7f9fc;
+  background:#17202c;
+  box-shadow:0 8px 24px rgba(16,25,38,.18);
+}
+.slide-workbench__identity { min-width:0; display:flex; align-items:center; gap:12px; }
+.slide-workbench__identity > div { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.slide-workbench__identity > div small { color:#8fa0b4; font-size:10px; font-weight:760; letter-spacing:.13em; }
+.slide-workbench__identity > div strong { max-width:min(34vw,520px); overflow:hidden; color:inherit; font-size:15px; font-weight:720; text-overflow:ellipsis; white-space:nowrap; }
+.slide-workbench__back {
+  width:38px;
+  height:38px;
+  flex:0 0 38px;
+  display:grid;
+  place-items:center;
+  padding:0;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:10px;
+  color:#d9e2ee;
+  background:rgba(255,255,255,.04);
+  cursor:pointer;
+}
+.slide-workbench__back:hover { color:#fff; background:rgba(255,255,255,.1); }
+.is-standalone .slide-workbench__status { min-height:26px; padding:0 9px; font-size:10px; }
+.is-standalone .slide-workbench__count { color:#8fa0b4; font-size:10px; }
+.is-standalone .slide-workbench__commands { gap:7px; }
+.is-standalone .slide-workbench__commands button {
+  min-height:38px;
+  padding:0 12px;
+  border-color:rgba(255,255,255,.13);
+  border-radius:9px;
+  color:#d9e2ee;
+  background:rgba(255,255,255,.045);
+  font-size:11px;
+  font-weight:650;
+}
+.is-standalone .slide-workbench__commands button:hover:not(:disabled) {
+  color:#fff;
+  border-color:rgba(255,255,255,.28);
+  background:rgba(255,255,255,.1);
+}
+.is-standalone .slide-workbench__commands .slide-workbench__export {
+  padding:0 15px;
+  color:#fff;
+  border-color:#2d66e8;
+  background:#2556d8;
+  box-shadow:0 7px 18px rgba(37,86,216,.28);
+}
+.is-standalone .slide-workbench__commands .slide-workbench__export:hover:not(:disabled) { border-color:#3973f1; background:#2d66e8; }
+.is-standalone .slide-workbench__progress { background:rgba(255,255,255,.08); }
+.is-standalone .slide-workbench__progress i { background:#53d4c8; }
+.is-standalone .slide-workbench__body { grid-template-columns:210px minmax(560px,1fr) 312px; }
+.is-standalone .slide-thumbnails {
+  padding:15px 12px 28px;
+  border-right:1px solid #d8dee7;
+  background:#f6f7f9;
+}
+.is-standalone .slide-thumbnails > button {
+  grid-template-columns:24px minmax(0,1fr);
+  gap:7px;
+  margin-bottom:9px;
+  padding:7px;
+  border-radius:9px;
+  font-size:10px;
+}
+.is-standalone .slide-thumbnails > button > span { padding-top:5px; color:#7f8a9a; font-size:9px; }
+.is-standalone .slide-thumbnails > button.active {
+  border-color:#2556d8;
+  color:#2556d8;
+  box-shadow:0 8px 20px rgba(32,61,115,.13);
+}
+.is-standalone .slide-thumbnail { padding:10px; border-color:#d9dfe8; border-radius:5px; }
+.is-standalone .slide-thumbnail i { background:#2556d8; }
+.is-standalone .slide-thumbnail strong { color:#263244; font-size:8px; }
+.is-standalone .slide-thumbnail small { font-size:7px; }
+.is-standalone .slide-thumbnail[data-layout="chapter"],
+.is-standalone .slide-thumbnail[data-layout="cover"] { background:linear-gradient(90deg,#dce7ff 0 32%,#fff 32%); }
+.is-standalone .slide-stage {
+  position:relative;
+  padding:clamp(22px,3vw,48px);
+  background-color:#e9edf3;
+  background-image:radial-gradient(circle at 1px 1px,rgba(76,91,113,.12) 1px,transparent 0);
+  background-size:22px 22px;
+}
+.is-standalone .slide-inspector {
+  padding:18px 16px 28px;
+  border-left:1px solid #d8dee7;
+  background:#fbfcfd;
+}
+.is-standalone .slide-inspector section { padding:4px 0 18px; }
+.is-standalone .slide-inspector section + section { padding-top:18px; }
+.is-standalone .slide-inspector section > header { margin-bottom:12px; font-size:12px; }
+.is-standalone .slide-inspector section > header b { padding:4px 7px; font-size:10px; }
+.is-standalone .slide-inspector dl div { padding:6px 0; font-size:11px; }
+.is-standalone .slide-inspector__refs { gap:6px; }
+.is-standalone .slide-inspector__refs span { padding:5px 7px; border-radius:6px; color:#214cae; background:#e8efff; font-size:10px; }
+.is-standalone .slide-inspector__refs small,.is-standalone .slide-inspector section > p { font-size:10px; }
+.is-standalone .slide-inspector__edit label { margin-top:12px; }
+.is-standalone .slide-inspector__edit label > span { margin-bottom:6px; font-size:10px; font-weight:650; }
+.is-standalone .slide-inspector__edit select,
+.is-standalone .slide-inspector__edit textarea {
+  border-color:#d4dae4;
+  border-radius:8px;
+  font-size:11px;
+  line-height:1.55;
+}
+.is-standalone .slide-inspector__edit select { height:36px; padding:0 10px; }
+.is-standalone .slide-inspector__edit textarea { min-height:96px; padding:10px; }
+.is-standalone .slide-inspector__edit select:focus,
+.is-standalone .slide-inspector__edit textarea:focus { border-color:#2556d8; box-shadow:0 0 0 3px rgba(37,86,216,.09); }
+.is-standalone .slide-inspector__impact,
+.is-standalone .slide-inspector__confirmation,
+.is-standalone .slide-inspector__receipt { margin-top:12px; padding:12px; border-radius:0 8px 8px 0; }
+.is-standalone .slide-inspector__impact > strong,
+.is-standalone .slide-inspector__confirmation > strong,
+.is-standalone .slide-inspector__receipt strong { font-size:11px; }
+.is-standalone .slide-inspector__impact .semantic-change,
+.is-standalone .slide-inspector__impact li,
+.is-standalone .slide-inspector__impact li b,
+.is-standalone .slide-inspector__impact small,
+.is-standalone .slide-inspector__impact .protected,
+.is-standalone .objective-diff,
+.is-standalone .slide-inspector__confirmation > p,
+.is-standalone .slide-inspector__receipt p { font-size:10px; }
+.is-standalone .impact-flow { gap:8px; margin:9px 0; }
+.is-standalone .impact-flow__origin { padding:9px; border-radius:8px; }
+.is-standalone .impact-flow__origin b,.is-standalone .impact-flow__targets b { font-size:10px; }
+.is-standalone .impact-flow__origin small,.is-standalone .impact-flow__targets small { font-size:9px; }
+.is-standalone .impact-flow__targets { gap:6px; }
+.is-standalone .impact-flow__targets > span { padding:8px; border-radius:7px; }
+.is-standalone .slide-inspector__receipt li,.is-standalone .slide-inspector__receipt li b { font-size:10px; }
+.is-standalone .slide-inspector__edit-actions { gap:7px; margin-top:12px; }
+.is-standalone .slide-inspector__edit-actions button {
+  min-height:34px;
+  padding:0 10px;
+  border-radius:8px;
+  font-size:10px;
+  font-weight:650;
+}
+.is-standalone .slide-inspector__edit-actions button.semantic { border-color:#2556d8; background:#2556d8; }
+.is-standalone .slide-inspector output { margin-top:10px; font-size:10px; line-height:1.5; }
+.is-standalone .slide-inspector details { padding:16px 0; font-size:11px; }
+
+.deck-presentation {
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  display:grid;
+  grid-template-rows:58px minmax(0,1fr) 58px;
+  color:#fff;
+  background:#080e17;
+  font-family:"Avenir Next","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+.deck-presentation > header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+  padding:0 22px;
+  border-bottom:1px solid rgba(255,255,255,.1);
+  background:rgba(8,14,23,.9);
+}
+.deck-presentation > header > div:first-child { min-width:0; display:flex; align-items:baseline; gap:12px; }
+.deck-presentation > header small { color:#7f91a9; font-size:10px; font-weight:750; letter-spacing:.13em; }
+.deck-presentation > header strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.deck-presentation > header > div:last-child { display:flex; gap:7px; }
+.deck-presentation button {
+  width:38px;
+  height:38px;
+  display:grid;
+  place-items:center;
+  border:1px solid rgba(255,255,255,.13);
+  border-radius:10px;
+  color:#cbd5e1;
+  background:rgba(255,255,255,.05);
+  cursor:pointer;
+}
+.deck-presentation button:hover:not(:disabled),.deck-presentation button.active { color:#fff; background:rgba(255,255,255,.13); }
+.deck-presentation button:disabled { opacity:.28; cursor:not-allowed; }
+.deck-presentation > main {
+  min-height:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:20px;
+  padding:20px;
+}
+.deck-presentation > main > aside {
+  width:min(310px,24vw);
+  max-height:74vh;
+  overflow:auto;
+  padding:18px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:12px;
+  color:#cbd5e1;
+  background:#121b28;
+}
+.deck-presentation > main > aside small { color:#54d4c8; }
+.deck-presentation > main > aside p { margin:10px 0 0; white-space:pre-line; font-size:13px; line-height:1.7; }
+.deck-presentation > footer {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:18px;
+  border-top:1px solid rgba(255,255,255,.08);
+}
+.deck-presentation > footer span { min-width:72px; text-align:center; font:700 12px/1 "Aptos Mono","SFMono-Regular",monospace; }
+.deck-presentation > footer i { color:#526176; font-style:normal; }
+
+@media (max-width:1180px) {
+  .is-standalone .slide-workbench__body { grid-template-columns:172px minmax(460px,1fr) 270px; }
+  .is-standalone .slide-workbench__commands button span { display:none; }
+  .is-standalone .slide-workbench__commands button { width:38px; padding:0; }
+  .is-standalone .slide-workbench__commands .slide-workbench__export { width:auto; padding:0 12px; }
+  .is-standalone .slide-workbench__commands .slide-workbench__export span { display:inline; }
+}
+@media (max-width:900px) {
+  .slide-workbench.is-standalone { grid-template-rows:auto minmax(0,1fr); }
+  .is-standalone .slide-workbench__toolbar { min-height:72px; padding:10px 12px; }
+  .is-standalone .slide-workbench__identity > div strong { max-width:42vw; }
+  .is-standalone .slide-workbench__status,.is-standalone .slide-workbench__count { display:none; }
+  .is-standalone .slide-workbench__body { grid-template-columns:1fr; grid-template-rows:108px minmax(300px,1fr) minmax(250px,38vh); }
+  .is-standalone .slide-thumbnails { display:flex; overflow-x:auto; padding:9px; border-right:0; border-bottom:1px solid #d8dee7; }
+  .is-standalone .slide-thumbnails > button { width:145px; flex:none; margin:0 6px 0 0; }
+  .is-standalone .slide-stage { padding:16px; }
+  .is-standalone .slide-inspector { max-height:none; border-top:1px solid #d8dee7; border-left:0; }
+}
+@media (max-width:620px) {
+  .is-standalone .slide-workbench__identity > div { display:none; }
+  .is-standalone .slide-workbench__commands { margin-left:auto; }
+  .is-standalone .slide-workbench__commands button:nth-child(1),
+  .is-standalone .slide-workbench__commands button:nth-child(2) { display:none; }
+  .deck-presentation > main { padding:8px; }
+  .deck-presentation > main > aside { position:absolute; inset:auto 8px 66px; width:auto; max-height:32vh; }
+}
 </style>

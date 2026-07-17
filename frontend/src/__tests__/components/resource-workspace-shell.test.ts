@@ -24,4 +24,17 @@ describe('resource workspace shell', () => {
     expect(workspaceStyles).toContain('min-height: 72px')
     expect(workspaceStyles).toContain('@media (max-width: 700px)')
   })
+
+  it('keeps PPT out of teaching resources and exposes a first-class workspace entry', () => {
+    const app = readSource('../../App.vue')
+    const teachingResources = readSource('../../components/TeachingRepresentationsOverlay.vue')
+    const pptWorkspace = readSource('../../views/PptWorkspaceView.vue')
+
+    expect(app).toContain('header-ppt-button')
+    expect(app).toContain("name: 'ppt-workspace'")
+    expect(teachingResources).toContain("item.representation_type !== 'slide_deck'")
+    expect(teachingResources).not.toContain('<SlideDeckWorkbench')
+    expect(pptWorkspace).toContain('standalone')
+    expect(pptWorkspace).toContain('<SideAIPanel')
+  })
 })

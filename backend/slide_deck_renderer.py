@@ -9,19 +9,19 @@ from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_sli
 
 THEMES: dict[str, dict[str, str]] = {
     "lingzhi-classroom-v2": {
-        "surface": "FFFFFF",
-        "canvas": "F6F7FC",
-        "ink": "172033",
+        "surface": "FCFCFA",
+        "canvas": "F3F5F8",
+        "ink": "17202C",
         "muted": "667085",
-        "accent": "6D5DFB",
-        "accent_soft": "EEEAFE",
-        "green": "14866D",
-        "green_soft": "E9F7F2",
-        "amber": "C36A26",
-        "amber_soft": "FFF2E5",
-        "red": "C34653",
-        "red_soft": "FDEDEF",
-        "code": "202536",
+        "accent": "2556D8",
+        "accent_soft": "E9EFFF",
+        "green": "087F74",
+        "green_soft": "E7F5F3",
+        "amber": "C56B20",
+        "amber_soft": "FFF6E8",
+        "red": "B54735",
+        "red_soft": "FFF1EE",
+        "code": "17202C",
     },
 }
 

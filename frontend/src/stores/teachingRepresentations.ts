@@ -32,6 +32,7 @@ export interface TeachingRepresentationBuildEvent {
   message?: string
   slide?: Record<string, any>
   quality?: Record<string, any>
+  build?: Record<string, any>
   registry?: Record<string, any>
   sequence?: number
 }
@@ -139,7 +140,14 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             this.buildStage = 'quality'
             this.slideQuality = event.quality
           }
+          if (event.event === 'build_blocked') this.buildError = 'quality_gate_failed'
           if (event.event === 'build_complete') completedRef.value = event
+          if (
+            event.event === 'build_complete'
+            && String(event.build?.status || '').startsWith('failed')
+          ) {
+            this.buildError = 'quality_gate_failed'
+          }
           if (event.event === 'error') this.buildError = event.message || 'Teaching representation build failed'
         })
         if (this.buildError) throw new Error(this.buildError)
@@ -193,7 +201,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       }
       return this.selectedSpec
     },
-    async downloadSlides(representationId: string) {
+    async downloadSlides(representationId: string, deckTitle?: string) {
       if (!this.courseId) return
       const response = await http.get(
         `/api/courses/${this.courseId}/teaching-representations/${representationId}/export.pptx`,
@@ -202,9 +210,14 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       const url = URL.createObjectURL(response.data)
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = `${this.courseId}-slides.pptx`
+      const safeTitle = String(deckTitle || this.courseId || '课程课件')
+        .replace(/[\\/:*?"<>|]/g, '_')
+        .trim()
+      anchor.download = `${safeTitle || '课程课件'}.pptx`
+      document.body.appendChild(anchor)
       anchor.click()
-      URL.revokeObjectURL(url)
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 100)
     },
     async previewEdit(
       representationId: string,

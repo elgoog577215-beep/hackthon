@@ -13,7 +13,7 @@ from course_document import CourseBlock, CourseDocument, CourseSection, stable_h
 
 SLIDE_DECK_SCHEMA = "slide_deck_v2"
 SLIDE_DECK_COMPILER_VERSION = "structured_slide_compiler_v2"
-SLIDES_PER_SECTION_MAX = 4
+SLIDES_PER_SECTION_MAX = 5
 
 SlideBlockType = Literal[
     "statement",
@@ -146,7 +146,14 @@ def compile_slide_deck(
             })
 
     if progress_callback:
-        progress_callback({"event": "deck_plan", "progress": 4, "title": document.title})
+        progress_callback({
+            "event": "deck_plan",
+            "progress": 4,
+            "title": document.title,
+            "section_count": len(learning_sections),
+            "estimated_slide_count": _estimated_slide_count(learning_sections),
+            "strategy": "plan_then_fill",
+        })
 
     append(SlideSpec(
         unit_id="slide:title",
@@ -198,17 +205,13 @@ def compile_slide_deck(
             knowledge_index.for_section(section.section_id, section),
             blocks,
         )
+        append(_objective_slide(section, blocks, context))
         if len(blocks) <= 2:
             append(_compact_section_slide(section, blocks, context))
-            assessment = _assessment_slide(section, blocks, context, course_data)
-            if assessment:
-                append(assessment)
-            continue
-
-        append(_objective_slide(section, blocks, context))
-        selected = _select_instructional_blocks(blocks)
-        for selected_index, block in enumerate(selected[:2]):
-            append(_slide_for_block(section, block, context, selected_index))
+        else:
+            selected = _select_instructional_blocks(blocks)
+            for selected_index, block in enumerate(selected[: SLIDES_PER_SECTION_MAX - 2]):
+                append(_slide_for_block(section, block, context, selected_index))
 
         assessment = _assessment_slide(section, blocks, context, course_data)
         if assessment:
@@ -416,8 +419,14 @@ def _objective_slide(
 ) -> SlideSpec:
     objective_block = next((block for block in blocks if block.role == "objective"), None)
     problem = _trim(_first_question(_block_markdown(objective_block)), 84) if objective_block else ""
-    knowledge = context["knowledge_labels"][:4]
-    abilities = context["ability_labels"][:3]
+    knowledge = context["knowledge_labels"][:4] or [
+        _trim(str(block.payload.get("title") or _block_key_message(block)), 42)
+        for block in blocks
+        if block.role in {"concept", "prerequisite", "reasoning"}
+    ][:4]
+    abilities = context["ability_labels"][:3] or (
+        [_trim(section.learning_objective, 62)] if section.learning_objective else []
+    )
     slide_blocks = [SlideBlockSpec(
         block_id=f"slide:{section.section_id}:objective",
         type="callout",
@@ -447,13 +456,23 @@ def _objective_slide(
         title=section.title,
         key_message=_trim(section.learning_objective or problem or section.title, 150),
         blocks=slide_blocks,
-        speaker_notes=f"本页只用于建立问题与验收标准，不在此展开正文。目标：{section.learning_objective}",
+        speaker_notes=_trim(
+            "先用一个真实问题唤起学生已有经验，再明确本节结束时需要做到什么。"
+            f"本节目标是：{section.learning_objective or section.title}。"
+            f"{'需要建立的知识坐标包括：' + '、'.join(knowledge) + '。' if knowledge else ''}"
+            "不要在目标页提前给出结论；请让学生知道后续每一页如何帮助他们完成这个目标。",
+            520,
+        ),
         section_id=section.section_id,
+        source_section_ids=[section.section_id],
         source_keys=[
             f"section_structure:{section.section_id}",
             *([f"objective:{section.objective_id}"] if section.objective_id else []),
         ],
-        source_block_ids=[objective_block.block_id] if objective_block else [],
+        # The objective page also displays the section's knowledge and ability
+        # coordinates. Bind the active section blocks so semantic edits can
+        # trace the full teaching impact instead of becoming an orphan page.
+        source_block_ids=[block.block_id for block in blocks if block.status != "retired"],
         learning_objective_ids=[section.objective_id] if section.objective_id else [],
         **_context_refs(context),
     )
@@ -471,7 +490,7 @@ def _compact_section_slide(
         [item for values in parsed for item in values][:4],
     )
     return SlideSpec(
-        unit_id=f"slide:{section.section_id}",
+        unit_id=f"slide:{section.section_id}:content:1",
         position=0,
         layout=layout,
         slide_purpose="concept_and_reasoning",
@@ -496,6 +515,11 @@ def _slide_for_block(
 ) -> SlideSpec:
     blocks = _block_to_slide_blocks(block)
     layout = _layout_for_block(block, blocks)
+    blocks = _fit_blocks_for_layout(layout, blocks)
+    blocks = _enrich_instructional_blocks(block, blocks, context)
+    # Enrichment happens after the first source-content fit. Re-run the layout
+    # fitter so the support card shares the page budget instead of pushing a
+    # valid source page past the quality gate.
     blocks = _fit_blocks_for_layout(layout, blocks)
     purpose_labels = {
         "concept": "概念建构",
@@ -530,15 +554,13 @@ def _assessment_slide(
     blocks: list[CourseBlock],
     context: dict[str, list[str]],
     course_data: dict[str, Any],
-) -> SlideSpec | None:
+) -> SlideSpec:
     questions = [
         item for item in _asset_records(course_data, "questions")
         if str(item.get("node_id") or "") == section.section_id
     ]
     misconceptions = context["misconception_labels"]
     action_block = next((block for block in blocks if block.role in {"activity", "checkpoint"}), None)
-    if not (questions or misconceptions or action_block):
-        return None
     slide_blocks: list[SlideBlockSpec] = []
     practice_ids: list[str] = []
     practice_revisions: dict[str, str] = {}
@@ -561,6 +583,27 @@ def _assessment_slide(
     elif action_block:
         source_blocks.append(action_block.block_id)
         slide_blocks.extend(_block_to_slide_blocks(action_block)[:1])
+    else:
+        source_blocks.extend([block.block_id for block in blocks[:2]])
+        slide_blocks.extend([
+            SlideBlockSpec(
+                block_id=f"slide:{section.section_id}:generated-check",
+                type="exercise",
+                title="先脱离课件解释",
+                content=_trim(
+                    f"请用不超过三句话解释“{_strip_section_prefix(section.title)}”，"
+                    f"并说明它如何帮助你做到：{section.learning_objective or section.title}。",
+                    220,
+                ),
+                metadata={"formal": False, "generated_from_objective": True},
+            ),
+            SlideBlockSpec(
+                block_id=f"slide:{section.section_id}:generated-rubric",
+                type="bullets",
+                title="自检标准",
+                items=["概念使用准确", "说出判断或推理依据", "能举例或辨析一个反例"],
+            ),
+        ])
     if misconceptions:
         slide_blocks.append(SlideBlockSpec(
             block_id=f"slide:{section.section_id}:misconceptions",
@@ -801,6 +844,58 @@ def _select_instructional_blocks(blocks: list[CourseBlock]) -> list[CourseBlock]
     return selected
 
 
+def _enrich_instructional_blocks(
+    source: CourseBlock,
+    blocks: list[SlideBlockSpec],
+    context: dict[str, list[str]],
+) -> list[SlideBlockSpec]:
+    """Add a compact teaching support card when a source block is visually sparse.
+
+    The source course remains authoritative. The support card is assembled only
+    from the same section's knowledge, ability, misconception, or mastery
+    bindings, so a slide becomes teachable without inventing new facts.
+    """
+    if len(blocks) >= 2 or any(block.type == "code" for block in blocks):
+        return blocks
+    visible = {
+        _normalize_visible(value)
+        for block in blocks
+        for value in [block.title, block.content, *block.items]
+        if value
+    }
+    if source.role in {"example", "application", "transfer"}:
+        title = "迁移检查"
+        candidates = context["ability_labels"] or context["mastery_labels"]
+    elif source.role in {"reasoning", "prerequisite"}:
+        title = "推理线索"
+        candidates = context["knowledge_labels"] or context["ability_labels"]
+    elif source.role in {"misconception", "counterexample"}:
+        title = "辨析边界"
+        candidates = context["misconception_labels"] or context["knowledge_labels"]
+    elif source.role in {"activity", "checkpoint", "feedback"}:
+        title = "判断标准"
+        candidates = context["mastery_labels"] or context["ability_labels"]
+    else:
+        title = "概念坐标"
+        candidates = context["knowledge_labels"] or context["ability_labels"]
+    items = [
+        _trim(value, 52)
+        for value in candidates
+        if _normalize_visible(value) not in visible
+    ][:3]
+    if not items:
+        return blocks
+    return [
+        *blocks,
+        SlideBlockSpec(
+            block_id=f"{source.block_id}:teaching-support",
+            type="bullets",
+            title=title,
+            items=items,
+        ),
+    ]
+
+
 def _layout_for_blocks(blocks: list[CourseBlock]) -> SlideLayout:
     parsed = [item for block in blocks for item in _block_to_slide_blocks(block)]
     if any(item.type == "code" for item in parsed):
@@ -860,7 +955,8 @@ def _fit_blocks_for_layout(
     blocks: list[SlideBlockSpec],
 ) -> list[SlideBlockSpec]:
     """Normalize visible content to the actual geometry of each renderer."""
-    result = [block.model_copy(deep=True) for block in blocks]
+    capacity = LAYOUT_CAPACITY[layout]
+    result = [block.model_copy(deep=True) for block in blocks[:capacity["blocks"]]]
     if layout == "code":
         code = next((block for block in result if block.type == "code"), None)
         insights = _unique([
@@ -891,9 +987,16 @@ def _fit_blocks_for_layout(
             elif block.type == "misconception":
                 block.content = _trim(block.content, 90)
                 block.items = [_trim(value, 38) for value in block.items[:3]]
+        elif layout == "misconception":
+            block.content = _trim(block.content, 120)
+            block.items = [_trim(value, 44) for value in block.items]
         elif layout == "objective":
             block.content = _trim(block.content, 110 if block.type != "callout" else 84)
             block.items = [_trim(value, 58) for value in block.items[:4]]
+    remaining_items = capacity["items"]
+    for block in result:
+        block.items = block.items[:remaining_items]
+        remaining_items -= len(block.items)
     return result
 
 
@@ -1009,7 +1112,7 @@ def _blocks_by_section(document: CourseDocument) -> dict[str, list[CourseBlock]]
 
 
 def _estimated_slide_count(sections: list[CourseSection]) -> int:
-    return max(4, 3 + len(sections) * 3)
+    return max(4, 3 + len(sections) * 4)
 
 
 def _course_subtitle(learning_sections: list[CourseSection], chapters: list[CourseSection]) -> str:
@@ -1146,6 +1249,10 @@ def _trim_code(value: str, limit: int) -> str:
 
 def _unique(values: list[Any]) -> list[str]:
     return list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
+
+
+def _normalize_visible(value: Any) -> str:
+    return re.sub(r"\s+", "", _plain_text(str(value or ""))).lower()
 
 
 __all__ = [

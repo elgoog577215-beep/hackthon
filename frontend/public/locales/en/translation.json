@@ -25,6 +25,24 @@
     "exportMarkdown": "Export Markdown",
     "exportJson": "Export JSON"
   },
+  "pptWorkspace": {
+    "open": "Open PPT workspace",
+    "shortTitle": "PPT workspace",
+    "eyebrow": "PPT workspace",
+    "backToCourse": "Back to course",
+    "sync": "Sync course",
+    "present": "Present",
+    "presenting": "Presenting",
+    "toggleNotes": "Show or hide speaker notes",
+    "exitPresentation": "Exit presentation",
+    "noNotes": "This slide does not have speaker notes yet.",
+    "loading": "Loading the same-source deck and slide structure",
+    "emptyEyebrow": "No classroom deck yet",
+    "emptyDescription": "Compile a classroom-ready PPT from the course goals, content, knowledge, and understanding checks.",
+    "qualityBlocked": "The deck did not pass the classroom-readiness check, so the system kept the problem version unpublished. Adjust the course content and try again.",
+    "build": "Generate full deck",
+    "untitledCourse": "Course presentation"
+  },
   "courseLibrary": {
     "eyebrow": "Course library",
     "title": "Choose a course and continue learning",
@@ -303,6 +321,7 @@
     "courseCandidateReady": "A course change is ready for impact review",
     "representationSaved": "The current PPT was updated and the course text stayed unchanged",
     "affectedUnits": "{count} linked units",
+    "impactOrigin": "PPT learning goal changed",
     "preciseImpactSummary": "{affected} units will update; {unaffected} will remain unchanged",
     "unrelatedProtected": "Content without a source dependency will not change",
     "confirmCourseChange": "Confirm course meaning change",
@@ -317,6 +336,9 @@
     "status": { "ready": "Synced", "stale": "Needs sync", "building": "Building", "failed": "Failed" },
     "slides": {
       "brand": "Lingzhi",
+      "courseDeck": "Classroom presentation",
+      "sameSourceDeck": "Same-source course deck",
+      "chapter": "CHAPTER",
       "page": "Slide",
       "pageCount": "{count} slides",
       "pageList": "Slide list",
@@ -341,7 +363,7 @@
       "noSlides": "No slides are available yet",
       "askAi": "Ask AI teacher",
       "aiPrompt": "Review this slide from its learning goal, knowledge evidence, and visual communication, then suggest concrete improvements.",
-      "fields": { "title": "Title", "keyMessage": "Key message", "notes": "Speaker notes", "layout": "Layout" },
+      "fields": { "title": "Title", "subtitle": "Subtitle", "keyMessage": "Key message", "notes": "Speaker notes", "layout": "Layout" },
       "stages": { "planning": "Preparing course structure", "slidePlan": "Planning slides", "slideBuild": "Generating slides", "quality": "Checking quality", "complete": "Build complete", "building": "Generating slide deck" },
       "layouts": { "cover": "Cover", "roadmap": "Roadmap", "chapter": "Chapter", "objective": "Objective", "concept": "Concept", "comparison": "Comparison", "process": "Process", "code": "Code", "misconception": "Misconception", "practice": "Practice", "recap": "Recap" },
       "purposes": { "teaching": "Teaching", "orientation": "Course orientation", "course_route": "Course roadmap", "chapter_transition": "Chapter transition", "learning_objective": "Learning objective", "concept": "Concept building", "example": "Worked example", "reasoning": "Reasoning process", "application": "Transfer", "activity": "Learning activity", "checkpoint": "Checkpoint", "mastery_check": "Mastery check", "course_recap": "Course recap" }

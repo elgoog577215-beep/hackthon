@@ -25,6 +25,24 @@
     "exportMarkdown": "导出 Markdown",
     "exportJson": "导出 JSON"
   },
+  "pptWorkspace": {
+    "open": "打开 PPT 工作台",
+    "shortTitle": "PPT 工作台",
+    "eyebrow": "PPT 工作台",
+    "backToCourse": "返回课程",
+    "sync": "同步课程",
+    "present": "全屏演示",
+    "presenting": "正在演示",
+    "toggleNotes": "显示或隐藏讲稿",
+    "exitPresentation": "退出演示",
+    "noNotes": "这一页还没有讲稿。",
+    "loading": "正在读取同源课件与页面结构",
+    "emptyEyebrow": "课堂课件尚未生成",
+    "emptyDescription": "从课程目标、正文、知识点与理解检查编译一套可直接上课的 PPT。",
+    "qualityBlocked": "课件未通过课堂可用性检查，系统没有发布问题版本。请调整课程内容后重试。",
+    "build": "生成完整课件",
+    "untitledCourse": "课程演示"
+  },
   "courseLibrary": {
     "eyebrow": "课程库",
     "title": "选择一门课程继续学习",
@@ -303,6 +321,7 @@
     "courseCandidateReady": "已生成课程修改候选，请确认影响范围",
     "representationSaved": "当前 PPT 已更新，课程正文保持不变",
     "affectedUnits": "{count} 处需联动",
+    "impactOrigin": "PPT 学习目标变化",
     "preciseImpactSummary": "预计联动 {affected} 处，保持 {unaffected} 处不变",
     "unrelatedProtected": "无来源关系的内容不会修改",
     "confirmCourseChange": "确认课程语义变化",
@@ -317,6 +336,9 @@
     "status": { "ready": "已同步", "stale": "待同步", "building": "正在生成", "failed": "生成失败" },
     "slides": {
       "brand": "灵知",
+      "courseDeck": "课堂演示",
+      "sameSourceDeck": "同源课程课件",
+      "chapter": "章节",
       "page": "幻灯片",
       "pageCount": "{count} 页",
       "pageList": "幻灯片页列表",
@@ -341,7 +363,7 @@
       "noSlides": "还没有可预览的页面",
       "askAi": "交给 AI 老师",
       "aiPrompt": "请从教学目标、知识依据和页面表达三个角度检查这一页，并给出可执行的改进建议。",
-      "fields": { "title": "标题", "keyMessage": "核心信息", "notes": "讲者备注", "layout": "版式" },
+      "fields": { "title": "标题", "subtitle": "副标题", "keyMessage": "核心信息", "notes": "讲者备注", "layout": "版式" },
       "stages": { "planning": "正在准备课程结构", "slidePlan": "正在规划页面", "slideBuild": "正在生成页面", "quality": "正在检查质量", "complete": "生成完成", "building": "正在生成课件" },
       "layouts": { "cover": "封面", "roadmap": "路线", "chapter": "章节", "objective": "目标", "concept": "概念", "comparison": "对比", "process": "过程", "code": "代码", "misconception": "易错", "practice": "练习", "recap": "小结" },
       "purposes": { "teaching": "教学讲解", "orientation": "课程定位", "course_route": "全课路线", "chapter_transition": "章节转场", "learning_objective": "学习目标", "concept": "概念建构", "example": "示例分析", "reasoning": "推理过程", "application": "迁移应用", "activity": "学习活动", "checkpoint": "过程检查", "mastery_check": "掌握检查", "course_recap": "课程小结" }

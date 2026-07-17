@@ -39,22 +39,7 @@
           </button>
         </nav>
 
-        <SlideDeckWorkbench
-          v-if="selected?.representation_type === 'slide_deck' && (content || store.liveSlides.length)"
-          :course-id="courseId"
-          :representation-id="selected.representation_id"
-          :deck-title="content?.title || typeLabel('slide_deck')"
-          :slides="displaySlides"
-          :stale-unit-ids="selected.stale_unit_ids"
-          :building="store.building"
-          :progress="store.buildProgress"
-          :stage="store.buildStage"
-          :error="store.buildError"
-          :quality="store.slideQuality"
-          @ask-ai="emit('ask-ai', $event)"
-        />
-
-        <main v-else-if="selected && content" class="representation-preview">
+        <main v-if="selected && content" class="representation-preview">
           <div class="preview-heading">
             <div>
               <small>{{ typeLabel(selected.representation_type) }}</small>
@@ -97,9 +82,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
-import { BookOpenText, ClipboardList, Clock3, FileText, Layers3, ListTree, LoaderCircle, Presentation, RefreshCw, X } from 'lucide-vue-next'
-import SlideDeckWorkbench from './SlideDeckWorkbench.vue'
+import { computed, onMounted, watch, type Component } from 'vue'
+import { BookOpenText, ClipboardList, Clock3, FileText, Layers3, ListTree, LoaderCircle, RefreshCw, X } from 'lucide-vue-next'
 import { useTeachingRepresentationsStore, type RepresentationType, type TeachingRepresentation } from '../stores/teachingRepresentations'
 import { t } from '../shared/i18n'
 import LearningContextTabs from './LearningContextTabs.vue'
@@ -107,18 +91,14 @@ import LearningContextTabs from './LearningContextTabs.vue'
 const props = defineProps<{ visible: boolean; courseId: string }>()
 const emit = defineEmits<{
   (event: 'close' | 'knowledge-library'): void
-  (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
 }>()
 const store = useTeachingRepresentationsStore()
-const order: RepresentationType[] = ['outline', 'lesson_plan', 'handout', 'practice_sheet', 'slide_deck']
-const orderedRepresentations = computed(() => [...store.representations].sort((a, b) => order.indexOf(a.representation_type) - order.indexOf(b.representation_type)))
+const order: RepresentationType[] = ['outline', 'lesson_plan', 'handout', 'practice_sheet']
+const orderedRepresentations = computed(() => store.representations
+  .filter(item => item.representation_type !== 'slide_deck')
+  .sort((a, b) => order.indexOf(a.representation_type) - order.indexOf(b.representation_type)))
 const selected = computed(() => store.selectedRepresentation)
 const content = computed(() => store.selectedSpec?.payload?.content || null)
-const displaySlides = computed(() => (
-  store.building && store.liveSlides.length
-    ? store.liveSlides
-    : (content.value?.slides || [])
-))
 const sourceSummary = computed(() => {
   const count = Object.keys(store.selectedSpec?.unit_bindings || {}).length
   return t('teachingRepresentations.sourceSummary', '与当前课程同源 · {count} 个精确绑定').replace('{count}', String(count))
@@ -128,7 +108,13 @@ function typeLabel(type: RepresentationType) {
   return t(`teachingRepresentations.types.${type}`, ({ outline: '大纲', lesson_plan: '教案', handout: '讲义', practice_sheet: '练习册', slide_deck: '演示文稿' } as Record<string, string>)[type])
 }
 function typeIcon(type: RepresentationType) {
-  return ({ outline: ListTree, lesson_plan: ClipboardList, handout: BookOpenText, practice_sheet: FileText, slide_deck: Presentation })[type]
+  const icons: Partial<Record<RepresentationType, Component>> = {
+    outline: ListTree,
+    lesson_plan: ClipboardList,
+    handout: BookOpenText,
+    practice_sheet: FileText,
+  }
+  return icons[type] || FileText
 }
 function statusLabel(item: TeachingRepresentation) {
   if (item.status === 'stale') return t('teachingRepresentations.status.stale', '待同步')
@@ -138,7 +124,14 @@ function statusLabel(item: TeachingRepresentation) {
 }
 function isStale(unitId: string) { return selected.value?.stale_unit_ids.includes(unitId) }
 async function rebuild() { await store.buildProgressive(props.courseId).catch(() => undefined) }
-async function ensureLoaded() { if (props.visible && props.courseId) await store.ensure(props.courseId) }
+async function ensureLoaded() {
+  if (!props.visible || !props.courseId) return
+  await store.ensure(props.courseId)
+  if (store.selectedRepresentation?.representation_type === 'slide_deck') {
+    const firstResource = orderedRepresentations.value[0]
+    if (firstResource) await store.select(firstResource.representation_id)
+  }
+}
 watch(() => [props.visible, props.courseId], ensureLoaded)
 onMounted(ensureLoaded)
 </script>

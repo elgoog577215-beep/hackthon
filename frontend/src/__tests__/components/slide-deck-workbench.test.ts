@@ -45,11 +45,11 @@ describe('SlideDeckWorkbench', () => {
     })
 
     expect(wrapper.findAll('.slide-thumbnails > button')).toHaveLength(2)
-    expect(wrapper.find('.slide-canvas').attributes('data-layout')).toBe('cover')
+    expect(wrapper.find('.deck-canvas').attributes('data-layout')).toBe('cover')
 
     await wrapper.findAll('.slide-thumbnails > button')[1]!.trigger('click')
-    expect(wrapper.find('.slide-canvas').attributes('data-layout')).toBe('concept')
-    expect(wrapper.find('.slide-canvas').text()).toContain('向量同时具有大小和方向')
+    expect(wrapper.find('.deck-canvas').attributes('data-layout')).toBe('concept')
+    expect(wrapper.find('.deck-canvas').text()).toContain('向量同时具有大小和方向')
     expect(wrapper.find('.slide-inspector__refs').text()).toContain('向量定义')
     expect(wrapper.find('.slide-inspector__refs').text()).toContain('识别向量')
 
@@ -57,6 +57,33 @@ describe('SlideDeckWorkbench', () => {
     const event = wrapper.emitted('ask-ai')?.[0]?.[0] as Record<string, any>
     expect(event.nodeId).toBe('section-a')
     expect(event.anchor.slide_unit_id).toBe('slide:section-a')
+  })
+
+  it('presents the same slide full screen and exports from the top command bar', async () => {
+    const store = useTeachingRepresentationsStore()
+    const download = vi.spyOn(store, 'downloadSlides').mockResolvedValue(undefined)
+    const wrapper = mount(SlideDeckWorkbench, {
+      attachTo: document.body,
+      props: {
+        courseId: 'course-1', representationId: 'slides-1', deckTitle: '数据结构', slides,
+        staleUnitIds: [], building: false, progress: 100, stage: 'complete', error: '',
+        quality: { passed: true, score: 1 }, standalone: true,
+      },
+    })
+
+    const present = wrapper.findAll('.slide-workbench__commands button')
+      .find(button => button.attributes('title') === '全屏演示')
+    await present!.trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('.deck-presentation')).not.toBeNull()
+    expect(document.body.querySelector('.deck-presentation .deck-canvas')?.getAttribute('data-layout')).toBe('cover')
+
+    const exportButton = wrapper.find('.slide-workbench__export')
+    await exportButton.trigger('click')
+    await flushPromises()
+    expect(download).toHaveBeenCalledWith('slides-1', '数据结构')
+
+    wrapper.unmount()
   })
 
   it('shows semantic impact, confirms in place, and reports changed versus reused units', async () => {
