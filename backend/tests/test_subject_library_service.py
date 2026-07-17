@@ -12,8 +12,8 @@ from subject_library_service import (
 )
 from subject_ontology import build_subject_ontology
 
-from test_subject_ontology_pipeline import _cpp_course, _cpp_proposal
-from test_subject_library_v3 import _data_structures_course
+from .test_subject_ontology_pipeline import _cpp_course, _cpp_proposal
+from .test_subject_library_v3 import _data_structures_course
 
 
 class _Storage:

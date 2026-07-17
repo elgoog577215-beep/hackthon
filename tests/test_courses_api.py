@@ -12,7 +12,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 
 from httpx import AsyncClient, ASGITransport
-from conftest import MockStorage, make_course
+from .conftest import MockStorage, make_course
 
 
 @pytest.fixture
