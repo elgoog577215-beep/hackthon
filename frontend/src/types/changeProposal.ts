@@ -45,7 +45,7 @@ export interface ChangeProposalItem {
 
 export interface ChangeProposal {
   change_kind?: 'course_authoring_change' | 'legacy_compatibility_change'
-  write_target?: 'base_course' | 'personal_overlay' | 'knowledge_review'
+  write_target?: 'base_course' | 'knowledge_review'
   proposal_id: string
   course_id: string
   scope: ChangeProposalScope

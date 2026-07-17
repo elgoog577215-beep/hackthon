@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
-from course_knowledge_map import compile_course_knowledge_map
+from course_knowledge_map import compile_legacy_subject_course_map
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 from course_versioning import stable_hash
 from subject_library_repository import (
@@ -261,7 +261,10 @@ class SubjectLibraryService:
             })
             stored_curated = self.library_repository.save_revision(curated)
             curated_maps = _compile_course_maps(mapping_courses, stored_curated)
-            curated_map = compile_course_knowledge_map(deepcopy(course), stored_curated)
+            curated_map = compile_legacy_subject_course_map(
+                deepcopy(course),
+                stored_curated,
+            )
             if prefer_curated or _minimum_mapped_ratio(curated_maps) >= 0.85:
                 binding = self.library_repository.binding_for(stored_curated)
                 return {
@@ -275,7 +278,10 @@ class SubjectLibraryService:
         accepted = self.library_repository.load_accepted(identity["subject_id"])
         if accepted and not force:
             accepted_maps = _compile_course_maps(mapping_courses, accepted)
-            accepted_map = compile_course_knowledge_map(deepcopy(course), accepted)
+            accepted_map = compile_legacy_subject_course_map(
+                deepcopy(course),
+                accepted,
+            )
             if _minimum_mapped_ratio(accepted_maps) >= 0.85:
                 binding = self.library_repository.binding_for(accepted)
                 return {
@@ -654,7 +660,10 @@ def _compile_course_maps(
     library: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     return {
-        str(course.get("course_id") or index): compile_course_knowledge_map(deepcopy(course), library)
+        str(course.get("course_id") or index): compile_legacy_subject_course_map(
+            deepcopy(course),
+            library,
+        )
         for index, course in enumerate(courses)
     }
 
@@ -673,7 +682,10 @@ def _evaluate_for_courses(
     generation_course: dict[str, Any],
     mapping_courses: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]], dict[str, Any]]:
-    generation_map = compile_course_knowledge_map(deepcopy(generation_course), library)
+    generation_map = compile_legacy_subject_course_map(
+        deepcopy(generation_course),
+        library,
+    )
     course_maps = _compile_course_maps(mapping_courses, library)
     quality = evaluate_subject_ontology_quality(library, generation_course, generation_map)
     minimum_ratio = _minimum_mapped_ratio(course_maps)

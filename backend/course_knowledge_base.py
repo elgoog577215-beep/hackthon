@@ -7,7 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from content_blocks import set_node_content_blocks
-from course_knowledge_map import compile_course_knowledge_map, normalize_knowledge_structure
+from course_knowledge_map import normalize_knowledge_structure
 from course_versioning import stable_hash
 
 COURSE_KNOWLEDGE_BASE_SCHEMA = "course_knowledge_base_v2"
@@ -51,6 +51,10 @@ def compile_course_knowledge_base(
     assets: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Compile one course's knowledge blueprint into the v2 product contract."""
+    # Kept in the signature for persisted callers, but intentionally ignored:
+    # knowledge identity never crosses a course boundary, and the compatibility
+    # map is a downstream projection rather than an input to the knowledge base.
+    del library, course_map
     for section in _sections(course_data):
         if (
             not section.get("content_blocks")
@@ -61,12 +65,6 @@ def compile_course_knowledge_base(
     if isinstance(existing, dict):
         apply_persisted_course_knowledge_base(course_data, existing)
     course_id = str(course_data.get("course_id") or "")
-    reference_library = deepcopy(library) if library is not None else {}
-    reference_map = deepcopy(course_map) if course_map is not None else compile_course_knowledge_map(
-        course_data,
-        reference_library,
-    )
-    mappings_by_section = _mappings_by_section(reference_map)
     sections = _sections(course_data)
     section_by_id = {str(item.get("node_id") or ""): item for item in sections}
     practice_by_section = _practice_refs_by_section(assets or {})
@@ -150,11 +148,6 @@ def compile_course_knowledge_base(
                     continue
 
                 point_id = _local_id(course_id, group_id, "knowledge_point", name, "ckp_")
-                point_mappings = _matching_mappings(
-                    mappings_by_section.get(section_id, []),
-                    "knowledge_point",
-                    name,
-                )
                 point = {
                     "knowledge_id": point_id,
                     "course_id": course_id,
@@ -177,7 +170,7 @@ def compile_course_knowledge_base(
                     "course_block_refs": [],
                     "declared_block_refs": _unique(raw_point.get("content_block_refs") or []),
                     "practice_refs": practice_refs,
-                    "reference_suggestions": _reference_suggestions(point_mappings),
+                    "reference_suggestions": [],
                     "granularity_status": "atomic" if _point_has_required_content(raw_point) else "needs_review",
                     "order": point_order,
                     "status": "active",
@@ -323,9 +316,9 @@ def compile_course_knowledge_base(
             (course_data.get("course_blueprint") or {}).get("revision_id"),
         ]),
         "reference_catalog": {
-            "library_id": reference_library.get("library_id"),
-            "revision_id": reference_library.get("revision_id"),
-            "role": "optional_terminology_reference",
+            "library_id": None,
+            "revision_id": None,
+            "role": "disabled_cross_course_reference",
             "required": False,
         },
         "generation_audit": {
@@ -346,7 +339,7 @@ def compile_course_knowledge_base(
     }
     _attach_compatibility_projection(payload, section_point_ids, group_point_ids)
     payload["revision_id"] = _revision_id(payload, "ckbr_")
-    quality = validate_course_knowledge_base(payload, course_data=course_data, library=reference_library)
+    quality = validate_course_knowledge_base(payload, course_data=course_data, library={})
     payload["quality_report"] = quality
     payload["lifecycle_status"] = "active" if quality["strict_passed"] else "degraded"
     payload["status"] = payload["lifecycle_status"]
@@ -801,19 +794,57 @@ def bind_course_knowledge_base_to_map(
         }
     }
     enriched["section_course_knowledge_ids"] = section_ids
+    enriched["section_knowledge_ids"] = deepcopy(section_ids)
     enriched["knowledge_bindings"] = deepcopy(knowledge_base.get("bindings") or [])
+    points_by_id = {
+        str(item.get("knowledge_id") or ""): item
+        for item in knowledge_base.get("knowledge_points") or []
+    }
     for mapping in enriched.get("mappings") or []:
         section_id = str(mapping.get("section_id") or "")
-        mapping["course_knowledge_node_ids"] = section_ids.get(section_id, [])
+        available_ids = section_ids.get(section_id, [])
+        exact_ids = [
+            point_id
+            for point_id in available_ids
+            if point_id in points_by_id
+            and _normalize_name(points_by_id[point_id].get("name"))
+            == _normalize_name(mapping.get("local_name"))
+        ]
+        bound_ids = exact_ids or available_ids
+        mapping["course_knowledge_node_ids"] = bound_ids
+        mapping["anchor_knowledge_id"] = bound_ids[0] if bound_ids else None
+        mapping["knowledge_ids"] = list(bound_ids)
+        mapping["match_status"] = "course_local" if bound_ids else "awaiting_course_binding"
+        mapping["confidence"] = 1.0 if exact_ids else 0.8 if bound_ids else 0.0
+        mapping["suggestions"] = []
         mapping["revision_id"] = _revision_id(mapping, "ckmr_")
     coverage = dict(enriched.get("coverage") or {})
+    knowledge_mappings = [
+        item for item in enriched.get("mappings") or []
+        if item.get("mapping_scope") == "knowledge"
+    ]
+    mapped = [item for item in knowledge_mappings if item.get("knowledge_ids")]
     coverage.update({
+        "mapped_count": len(mapped),
+        "unmapped_count": len(knowledge_mappings) - len(mapped),
+        "formal_knowledge_count": len(points_by_id),
+        "formal_knowledge_ids": list(points_by_id),
+        "mapped_ratio": round(len(mapped) / len(knowledge_mappings), 4) if knowledge_mappings else 0.0,
+        "status": "mapped" if knowledge_mappings and len(mapped) == len(knowledge_mappings) else "partial",
         "course_local_node_count": len(knowledge_base.get("knowledge_points") or []),
         "course_local_knowledge_point_count": len(knowledge_base.get("knowledge_points") or []),
         "course_local_coverage_status": "covered" if section_ids and all(section_ids.values()) else "missing",
         "binding_count": len(knowledge_base.get("bindings") or []),
     })
     enriched["coverage"] = coverage
+    enriched["unresolved_candidates"] = [
+        deepcopy(item) for item in knowledge_mappings if not item.get("knowledge_ids")
+    ]
+    enriched["knowledge_library_id"] = knowledge_base.get("knowledge_base_id")
+    enriched["knowledge_library_version"] = knowledge_base.get("revision_id")
+    enriched["knowledge_library_revision_id"] = knowledge_base.get("revision_id")
+    enriched["binding_revision_id"] = knowledge_base.get("revision_id")
+    enriched["library_lifecycle_status"] = knowledge_base.get("lifecycle_status", "degraded")
     enriched["status"] = "active"
     enriched["revision_id"] = _revision_id(enriched, "ckmvr_")
     return enriched
@@ -1078,6 +1109,7 @@ def build_course_knowledge_library_view(
     } for item in knowledge_base.get("misconceptions") or []]
 
     quality = deepcopy(knowledge_base.get("quality_report") or {})
+    public_quality = _public_quality_summary(quality)
     publishable = knowledge_base.get("lifecycle_status") == "active"
     lifecycle = "accepted" if publishable else "degraded"
     published_nodes = view_nodes if publishable else []
@@ -1123,12 +1155,7 @@ def build_course_knowledge_library_view(
         "status": "active" if publishable and published_nodes else "unavailable",
         "lifecycle_status": lifecycle,
         "origin": "course_and_domain_generated",
-        "quality_report": {
-            **quality,
-            "metrics": deepcopy(quality.get("metrics") or {}),
-            "issues": deepcopy(quality.get("issues") or []),
-            "blocking_issues": deepcopy(quality.get("blocking_issues") or []),
-        },
+        "quality_report": public_quality,
         "generation_audit": deepcopy(knowledge_base.get("generation_audit") or {}),
         "source_summary": {"course_source": published_point_count},
     }
@@ -1138,6 +1165,27 @@ def build_course_knowledge_library_view(
     )
     payload["revision_id"] = _revision_id(payload, "ckvr_")
     return payload
+
+
+def _public_quality_summary(quality: dict[str, Any]) -> dict[str, Any]:
+    """Keep governance diagnostics out of the student knowledge read model."""
+    issues = list(quality.get("issues") or [])
+    blocking = list(quality.get("blocking_issues") or [])
+    return {
+        "schema_version": quality.get("schema_version"),
+        "passed": bool(quality.get("passed")),
+        "strict_passed": bool(quality.get("strict_passed")),
+        "score": quality.get("score"),
+        "critical_count": int(quality.get("critical_count") or len(blocking)),
+        "major_count": int(quality.get("major_count") or 0),
+        "issue_count": len(issues),
+        "blocking_issue_count": len(blocking),
+        "metrics": deepcopy(quality.get("metrics") or {}),
+        "coverage": deepcopy(quality.get("coverage") or {}),
+        # Preserve the read-model shape without exposing internal rule messages.
+        "issues": [],
+        "blocking_issues": [],
+    }
 
 
 def _compile_skills(
@@ -1354,8 +1402,7 @@ def _compile_course_object_bindings(
             matched = explicit or semantic_matches
             method = "knowledge_blueprint_anchor" if explicit else "semantic_name_match"
             if not matched:
-                matched = candidate_ids[:1]
-                method = "primary_point_fallback"
+                continue
             _append_binding(
                 bindings,
                 course_id=course_id,
@@ -1575,16 +1622,6 @@ def _standard(value: Any) -> dict[str, Any]:
     }
 
 
-def _reference_suggestions(mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [{
-        "reference_knowledge_ids": _unique(item.get("knowledge_ids") or []),
-        "anchor_knowledge_id": item.get("anchor_knowledge_id"),
-        "confidence": float(item.get("confidence") or 0.0),
-        "match_status": item.get("match_status"),
-        "role": "optional_terminology_reference",
-    } for item in mappings if item.get("knowledge_ids")]
-
-
 def _sections(course_data: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         item for item in course_data.get("nodes") or []
@@ -1594,26 +1631,6 @@ def _sections(course_data: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _section_title(section: dict[str, Any]) -> str:
     return str(section.get("node_name") or section.get("title") or "").strip()
-
-
-def _mappings_by_section(course_map: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    result: dict[str, list[dict[str, Any]]] = {}
-    for mapping in course_map.get("mappings") or []:
-        result.setdefault(str(mapping.get("section_id") or ""), []).append(mapping)
-    return result
-
-
-def _matching_mappings(
-    mappings: list[dict[str, Any]],
-    local_kind: str,
-    name: str,
-) -> list[dict[str, Any]]:
-    normalized = _normalize_name(name)
-    return [
-        item for item in mappings
-        if item.get("local_kind") == local_kind
-        and _normalize_name(item.get("local_name")) == normalized
-    ]
 
 
 def _practice_refs_by_section(assets: dict[str, list[dict[str, Any]]]) -> dict[str, list[str]]:

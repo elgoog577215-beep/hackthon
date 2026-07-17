@@ -13,16 +13,10 @@ from course_difficulty import (
 from course_knowledge_base import (
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
-    knowledge_binding_for_section,
 )
 from course_pedagogy import MODULES, TEMPLATES, SubjectPedagogyProfile, module_block_role
-from subject_knowledge import (
-    knowledge_index,
-    knowledge_library_prompt_context,
-    resolve_subject_library,
-)
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v10"
+PROMPT_CONTRACT_VERSION = "course_prompt_v11"
 
 
 class CoursePromptComposer:
@@ -87,7 +81,6 @@ class CoursePromptComposer:
         ]
         primary = TEMPLATES[profile.primary_mode]
         guardrails = "\n".join(f"- {item}" for item in primary.quality_guardrails)
-        subject_knowledge_context = knowledge_library_prompt_context(subject)
         return f"""## 输出契约
 你负责生成课程蓝图，不生成正文。只输出有效 JSON，不输出寒暄、计划或 Markdown 代码围栏。
 
@@ -119,8 +112,9 @@ class CoursePromptComposer:
 ## 资料上下文
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
 
-## 可选术语参照
-{subject_knowledge_context}
+## 知识身份边界
+知识库只属于当前课程。只从本次课程要求、上传资料和当前蓝图生成知识点，
+不得读取、复用或输出其他课程的知识 ID。
 
 ## 蓝图要求
 1. 用户明确指定章数或小节总数时必须精确满足；未指定时才由知识和能力依赖决定。不要为了凑数重复主题，也不要用节数表示难度。
@@ -133,7 +127,7 @@ class CoursePromptComposer:
 8. 每个概念组包含 2-5 个可单独解释、练习和诊断的原子知识点。每个知识点必须写出独立 `statement`、`knowledge_type`、成立 `conditions` 或适用 `boundaries`；不得把定义、公式、图像和应用打包成一个粗节点。
 9. 每个原子知识点至少包含一个可观察 `capability_points` 和一个可验证 `mastery_criteria`。`misconceptions` 只有存在具体错误表现、判别方法和修复策略时才生成，允许为空，禁止模板填充。
 10. `ImprovementPoint` 已退出知识库。稳定提升目标写成能力，具体训练进入练习，个性化建议留给学习阶段 AI，不得在蓝图中生成 `improvement_points`。
-11. 同一知识在全课只能有一个名称身份；后续小节再次使用时不得在 `knowledge_structure` 重建，必须把前序规范名称写入该小节的 `reused_knowledge_names`，由绑定表示巩固或应用。外部术语参照只帮助命名，缺失或冲突时以当前课程目标和资料为准，不得输出外部知识 ID。
+11. 同一知识在本课程内只能有一个名称身份；后续小节再次使用时不得在 `knowledge_structure` 重建，必须把前序规范名称写入该小节的 `reused_knowledge_names`，由绑定表示巩固或应用。不得从其他课程借用知识身份。
 12. 不编造论文、链接、书目、年份或未上传资料。
 13. 从整门课程角度分配小节责任：相邻小节的学习目标不得只是换句话重复；需要承接的前置必须写入 `prerequisite_node_ids`，只需上下文衔接但可并行生成的内容不要伪造成硬依赖。
 14. 每节只完整展开自己的知识与能力产出。允许简短回顾前置，但不得复制前节实质讲解；后续小节的核心知识只能提示方向，不能在当前小节提前讲完。
@@ -331,10 +325,10 @@ class CoursePromptComposer:
 - 验收标准：{'；'.join(node.get('assessment', []))}
 - 范围边界：{node.get('scope_boundary', '')}
 
-## 可选术语参照
+## 当前课程知识身份边界
 {knowledge_context}
 
-## 可选参照中的教学提示
+## 当前课程教学边界
 {teaching_context}
 
 ## 当前课程知识库契约
@@ -378,34 +372,11 @@ class CoursePromptComposer:
             course_data
         )
         local_context = course_knowledge_base_prompt_context(course_knowledge_base, node_id)
-        library = resolve_subject_library(course_data)
-        if not library.get("nodes"):
-            return (
-                "当前没有可用术语参考；这不会影响课程知识库生成和使用。",
-                "能力、易错和掌握标准只以当前课程知识库为准。",
-                local_context,
-            )
-        selected_ids = set(
-            knowledge_binding_for_section(course_knowledge_base, node_id)["course_knowledge_refs"]
+        return (
+            "只允许使用当前课程知识点 ID；禁止读取或映射其他课程知识。",
+            "能力、易错与掌握标准均以当前课程知识库为唯一依据。",
+            local_context,
         )
-        reference_ids = {
-            str(reference_id)
-            for point in course_knowledge_base.get("knowledge_points") or []
-            if point.get("knowledge_id") in selected_ids
-            for suggestion in point.get("reference_suggestions") or []
-            for reference_id in suggestion.get("reference_knowledge_ids") or []
-        }
-        by_id = knowledge_index(library)
-        rows = [
-            " / ".join(by_id[item].get("path_names") or [])
-            for item in reference_ids
-            if item in by_id
-        ]
-        knowledge_context = "\n".join(
-            ["以下术语路径只用于命名校准，不替代当前课程知识身份：", *[f"- {row}" for row in rows]]
-        ) if rows else "术语参考没有匹配项；继续使用当前课程知识命题，不得强行映射。"
-        teaching_context = "外部参考不提供当前课程的能力、易错或掌握结论。"
-        return knowledge_context, teaching_context, local_context
 
     def build_repair_prompt(
         self,

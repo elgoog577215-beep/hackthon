@@ -336,6 +336,32 @@ describe('formal practice attempt store', () => {
     expect(httpMock.post).not.toHaveBeenCalled()
   })
 
+  it('课程生长插入的针对性练习按后端题目修订精确定位', async () => {
+    const alternateQuestion = {
+      ...question,
+      asset_id: 'q-targeted',
+      revision_id: 'qr-targeted',
+      task_revision_id: 'qr-targeted',
+      prompt: '解释复合顺序。',
+    }
+    httpMock.get
+      .mockResolvedValueOnce({ data: {
+        course_id: 'c1', course_version_id: 'cv1', scope: 'node',
+        questions: [question, alternateQuestion], active_attempts: [], summary: {},
+      } })
+      .mockResolvedValueOnce({ data: { phase: 'practice', case: null, session: null, current_task: null } })
+      .mockResolvedValue({ data: runtimeResponse })
+    const store = useCourseWorkspaceStore()
+    store.preparePracticeTask('c1', 'n1', 'qr-targeted')
+
+    await store.loadPractice('c1', 'n1')
+
+    expect(store.currentQuestionIndex).toBe(1)
+    expect(store.currentPracticeQuestion?.task_revision_id).toBe('qr-targeted')
+    expect(store.currentAttempt).toBeNull()
+    expect(store.taskResumeError).toBe('')
+  })
+
   it('目标 Attempt 与题目修订不一致时不打开其他活动题目', async () => {
     const otherAttempt = attempt({ attempt_id: 'pa-other', task_revision_id: 'qr1', question_revision_id: 'qr1' })
     httpMock.get

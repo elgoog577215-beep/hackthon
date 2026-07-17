@@ -116,7 +116,13 @@ def test_course_knowledge_base_keeps_local_hierarchy_without_formal_subject_pack
     knowledge_base = compile_course_knowledge_base(course, course_map=course_map)
     course_map = bind_course_knowledge_base_to_map(course_map, knowledge_base)
 
-    assert course_map["coverage"]["mapped_count"] == 0
+    knowledge_mappings = [
+        item
+        for item in course_map["mappings"]
+        if item.get("mapping_scope") == "knowledge"
+    ]
+    assert course_map["coverage"]["mapped_count"] == len(knowledge_mappings)
+    assert course_map["coverage"]["mapped_ratio"] == 1.0
     assert course_map["coverage"]["course_local_knowledge_point_count"] == 2
     assert course_map["section_course_knowledge_ids"]["L2-1-1"]
     assert all(item["course_knowledge_node_ids"] for item in course_map["mappings"])

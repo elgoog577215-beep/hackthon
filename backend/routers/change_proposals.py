@@ -32,10 +32,6 @@ from course_repository import CourseDocumentConflict, CourseDocumentNotFound
 from dependencies import get_course_document_repository
 from learner_context import require_user_id
 from representation_compiler import rebuild_core_representations_safely
-from subject_library_repository import (
-    SubjectLibraryRepository,
-    subject_library_repository,
-)
 from teaching_representations import teaching_representation_repository
 
 
@@ -66,10 +62,6 @@ def get_change_proposal_regeneration_service() -> BlockRegenerationService:
         get_course_document_repository(),
         block_regeneration_candidate_repository,
     )
-
-
-def get_subject_library_repository() -> SubjectLibraryRepository:
-    return subject_library_repository
 
 
 def synchronize_teaching_representations(course_id: str) -> dict[str, Any]:
@@ -148,7 +140,6 @@ async def apply_change_proposal_item(
                 item_id,
                 actor=actor,
                 course_data=course_repository.load_course_view(course_id),
-                library_repository=get_subject_library_repository(),
             )
         document, canonical = course_repository.load_document(course_id)
         if not canonical:

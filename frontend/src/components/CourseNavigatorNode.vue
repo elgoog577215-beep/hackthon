@@ -62,8 +62,10 @@ const adaptationCounts = computed(() => {
   }
   collect(props.node)
   const plans = evolutionStore.courseId && evolutionStore.courseId === progressStore.courseId
-    ? evolutionStore.adaptationPlans
-    : progressStore.runtime?.course_evolution?.adaptation_plans || []
+    ? evolutionStore.plans
+    : progressStore.runtime?.course_evolution?.course_evolution_plans
+      || progressStore.runtime?.course_evolution?.adaptation_plans
+      || []
   const counts = { pending: 0, active: 0, validated: 0, review: 0 }
   for (const plan of plans) {
     const affected = plan.impact_summary?.affected_section_ids || []
@@ -85,25 +87,25 @@ const adaptationMarker = computed(() => {
     state: 'pending',
     count: value.pending,
     label: t('courseEvolution.navigatorMarker', 'AI 建议'),
-    title: t('courseEvolution.navigatorMarkerDetail', '该位置在个人适配方案的待确认范围内'),
+    title: t('courseEvolution.navigatorMarkerDetail', '该位置在待确认的课程调整范围内'),
   }
   if (value.review) return {
     state: 'review',
     count: value.review,
     label: t('courseEvolution.navigatorReview', '待复核'),
-    title: t('courseEvolution.navigatorReviewDetail', '后续证据表明这里的个人适配需要复核'),
+    title: t('courseEvolution.navigatorReviewDetail', '后续证据表明这里的课程变化需要复核'),
   }
   if (value.active) return {
     state: 'active',
     count: value.active,
     label: t('courseEvolution.navigatorApplied', '已应用'),
-    title: t('courseEvolution.navigatorAppliedDetail', '个人课程已调整，等待正式复验'),
+    title: t('courseEvolution.navigatorAppliedDetail', '当前课程已更新，等待正式复验'),
   }
   if (value.validated) return {
     state: 'validated',
     count: value.validated,
     label: t('courseEvolution.navigatorValidated', '已生长'),
-    title: t('courseEvolution.navigatorValidatedDetail', '个人课程调整已获得后续正式证据支持'),
+    title: t('courseEvolution.navigatorValidatedDetail', '当前课程变化已获得后续正式证据支持'),
   }
   return null
 })

@@ -41,7 +41,7 @@ describe('course navigator personal adaptation markers', () => {
   it('在受影响章节和小节显示轻量 AI 建议标记', () => {
     useLearningProgressStore().runtime = {
       course_evolution: {
-        adaptation_plans: [{
+        course_evolution_plans: [{
           change_set_id: 'plan-1',
           status: 'pending',
           impact_summary: { affected_section_ids: ['section-1'] },
@@ -61,7 +61,7 @@ describe('course navigator personal adaptation markers', () => {
   it('已应用但未复验的方案显示蓝色应用状态', () => {
     useLearningProgressStore().runtime = {
       course_evolution: {
-        adaptation_plans: [{
+        course_evolution_plans: [{
           change_set_id: 'plan-1',
           status: 'applied',
           effect_evaluation: { status: 'insufficient_evidence' },
@@ -84,7 +84,7 @@ describe('course navigator personal adaptation markers', () => {
     progressStore.courseId = 'course-1'
     progressStore.runtime = {
       course_evolution: {
-        adaptation_plans: [{
+        course_evolution_plans: [{
           change_set_id: 'plan-1',
           status: 'applied',
           effect_evaluation: { status: 'insufficient_evidence' },
@@ -95,7 +95,7 @@ describe('course navigator personal adaptation markers', () => {
     } as any
     const evolutionStore = useCourseEvolutionStore()
     evolutionStore.courseId = 'course-1'
-    evolutionStore.adaptationPlans = [{
+    evolutionStore.plans = [{
       change_set_id: 'plan-1',
       hypothesis_id: 'hypothesis-1',
       evidence_ids: ['evidence-1'],

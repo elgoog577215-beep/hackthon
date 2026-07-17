@@ -10,29 +10,35 @@
 - **THEN** 系统 MUST 仍能生成、审查和发布完整 `CourseKnowledgeBase`
 - **AND** 正文、题目、AI 和个人状态 MUST 能正常引用当前课程知识 ID
 
-### Requirement: 跨课程知识设施只能作为可选参考
+### Requirement: 新链不得读取或维护跨课程知识设施
 
-现有 `SubjectKnowledgeLibrary` MAY 提供规范术语、别名、覆盖检查或生成校准候选，但 MUST NOT 成为当前课程知识生成、发布、读取、AI 使用或掌握投影的必选前置。参考匹配 MUST NOT 创建或替换当前课程知识身份。
+新课程生成、课程知识维护、AI 使用、练习分析、证据索引和掌握投影 MUST
+只读取请求中 `course_id` 对应的 `CourseKnowledgeBase`。现有
+`SubjectKnowledgeLibrary` MUST NOT 作为术语参考、生成校准、覆盖检查或关系来源
+进入新链；它只 MAY 在显式历史迁移中被读取，并且迁移结果 MUST 创建当前课程内
+的新身份。
 
-#### Scenario: 参考目录存在精确术语
+#### Scenario: 其他课程存在同名知识
 
-- **WHEN** 一个课程知识候选与参考目录中的术语或别名匹配
-- **THEN** 系统 MAY 保存可追溯的参考建议
-- **AND** 当前课程知识点 MUST 保留自己的 `course_id`、`knowledge_id`、颗粒度和掌握标准
+- **WHEN** 当前课程生成或维护一个与其他课程同名的知识点
+- **THEN** 系统 MUST 只依据当前课程目标、资料和质量门决定其边界
+- **AND** MUST NOT 查询、复用或修改其他课程的知识 ID、关系或掌握标准
 
-#### Scenario: 参考目录缺失或冲突
+#### Scenario: 迁移旧跨课程知识
 
-- **WHEN** 外部参考缺失、版本落后、只有部分覆盖或与当前课程边界冲突
-- **THEN** 系统 MUST 以当前课程目标、资料和知识质量门完成审查
-- **AND** MUST NOT 清空、降级、重编号或阻断当前课程知识库
+- **WHEN** 维护者显式启动历史知识迁移
+- **THEN** 系统 MAY 读取旧 `SubjectKnowledgeLibrary` 条目作为迁移输入
+- **AND** MUST 为目标课程创建新的 `course_id` 范围内身份和来源记录
+- **AND** 新运行链 MUST NOT 保留对旧条目的运行时依赖
 
-### Requirement: 课程知识维护不得反向写入跨课程参考
+### Requirement: 课程知识维护必须具有独立当前课程维护面
 
-经课程维护者确认的知识新增、细化、关系、能力、易错、掌握标准和绑定变化 MUST 只作用于当前 `CourseKnowledgeBase`。个人适配只能读取这些对象；任何跨课程参考目录更新 MUST 属于独立治理工作流，MUST NOT 由个人证据或本变更自动执行。
+知识新增、细化、拆分、合并、关系、能力、易错、掌握标准和绑定变化 MUST
+进入课程知识维护面，显示影响并由有权限的维护者确认。该维护面 MUST 固定一个
+`course_id`，MUST NOT 提供跨课程发布、同步或扩散操作。
 
 #### Scenario: 当前课程形成高质量新知识点
 
 - **WHEN** 一个当前课程知识候选通过质量门并被课程维护者接受
-- **THEN** 它 MAY 成为当前课程活动知识点
-- **AND** 其他课程 MUST NOT 自动读取该知识点
-- **AND** 系统 MUST NOT 自动创建或修改跨课程参考条目
+- **THEN** 它 MUST 只成为当前课程活动知识点
+- **AND** 其他课程 MUST 保持不变

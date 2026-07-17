@@ -142,6 +142,39 @@ function response() {
   }
 }
 
+function degradedResponse() {
+  const degraded = {
+    ...libraryView,
+    lifecycle_status: 'degraded',
+    origin: 'course_index',
+    status: 'unavailable',
+    nodes: [],
+    relations: [],
+    skill_units: [],
+    mistake_points: [],
+    mastery_criteria: [],
+    quality_report: {
+      ...libraryView.quality_report,
+      passed: false,
+      strict_passed: false,
+      score: 0,
+      issue_count: 477,
+      blocking_issue_count: 456,
+      coverage: {
+        section_count: 22,
+        knowledge_point_count: 81,
+        skill_unit_count: 81,
+        relation_count: 3,
+      },
+      issues: [],
+      blocking_issues: [],
+    },
+  }
+  return {
+    data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [degraded] } },
+  }
+}
+
 async function mountLibrary() {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -231,62 +264,52 @@ describe('Course knowledge library', () => {
     expect(wrapper.text()).not.toContain('knowledgeLibrary.')
   })
 
-  it('展示课程知识库状态、质量摘要和课程来源', async () => {
+  it('正式知识库直接服务学习，不在学生端展示治理信息', async () => {
     const { wrapper } = await mountLibrary()
 
-    expect(wrapper.get('[data-testid="knowledge-lifecycle"]').text()).toContain('课程知识库')
-    expect(wrapper.get('[data-testid="knowledge-quality"]').text()).toContain('92')
-    expect(wrapper.get('[data-testid="knowledge-quality"]').text()).toContain('路径覆盖 100%')
-    expect(wrapper.get('[data-testid="knowledge-source-summary"]').text()).toContain('当前课程知识库 2')
-    expect(wrapper.find('[data-testid="knowledge-diff"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('本课覆盖 2 / 2')
+    expect(wrapper.find('[data-testid="knowledge-lifecycle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-quality"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-source-summary"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('质量 92')
   })
 
-  it('课程知识库只提供重新生成，不走学科库接受或退回链路', async () => {
+  it('学生端不承担知识库治理，只有不可用时提供升级入口', async () => {
     const { wrapper } = await mountLibrary()
     expect(wrapper.find('[data-testid="knowledge-review-note"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="knowledge-accept"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="knowledge-reject"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="knowledge-rebuild"]').exists()).toBe(false)
 
-    await wrapper.get('[data-testid="knowledge-rebuild"]').trigger('click')
+    httpMock.get.mockResolvedValue(degradedResponse())
+    const degraded = await mountLibrary()
+    await degraded.wrapper.get('[data-testid="knowledge-rebuild"]').trigger('click')
     await flushPromises()
-    expect(httpMock.post).toHaveBeenCalledWith('/api/courses/course-1/knowledge-library/rebuild', { force: true })
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/knowledge-library/rebuild',
+      { force: true },
+      { timeout: 900000 },
+    )
   })
 
-  it('降级库不把章节索引伪装成知识点，并明确要求重建', async () => {
-    const degraded = {
-      ...libraryView,
-      lifecycle_status: 'degraded',
-      origin: 'course_index',
-      status: 'unavailable',
-      nodes: [],
-      relations: [],
-      skill_units: [],
-      mistake_points: [],
-      mastery_criteria: [],
-      quality_report: {
-        ...libraryView.quality_report,
-        passed: false,
-        score: 35,
-        issues: [{ code: 'course_outline_mirror', severity: 'critical', message: '结构仍与章节一一对应' }],
-        blocking_issues: [{ code: 'course_outline_mirror', severity: 'critical', message: '结构仍与章节一一对应' }],
-      },
-    }
-    httpMock.get.mockResolvedValue({
-      data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [degraded] } },
-    })
+  it('降级库不伪装成正式知识点，也不向学生倾倒内部诊断', async () => {
+    httpMock.get.mockResolvedValue(degradedResponse())
 
     const { wrapper } = await mountLibrary()
 
-    expect(wrapper.get('[data-testid="knowledge-lifecycle"]').text()).toContain('未通过质量门')
+    expect(wrapper.get('[data-testid="knowledge-lifecycle"]').text()).toContain('旧版知识结构')
     expect(wrapper.find('[data-testid="knowledge-accept"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="knowledge-reject"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="knowledge-rebuild"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="knowledge-quality-issues"]').text()).toContain('结构仍与章节一一对应')
+    expect(wrapper.find('[data-testid="knowledge-quality-issues"]').exists()).toBe(false)
     expect(wrapper.findAll('.knowledge-tree-row')).toHaveLength(0)
-    expect(wrapper.text()).toContain('当前课程还没有通过质量门的知识库')
+    expect(wrapper.text()).toContain('这门课的知识库需要升级')
+    expect(wrapper.text()).toContain('22 个小节')
+    expect(wrapper.text()).toContain('81 个知识点')
+    expect(wrapper.text()).not.toContain('结构仍与章节一一对应')
   })
 
-  it('compacts technical quality failures and hides raw section identifiers', async () => {
+  it('keeps technical quality failures out of the student view', async () => {
     const rawSectionId = '01787b5b-f521-4a1a-97d0-e0755676fda9'
     const degraded = {
       ...libraryView,
@@ -315,12 +338,11 @@ describe('Course knowledge library', () => {
     })
 
     const { wrapper } = await mountLibrary()
-    const issueList = wrapper.get('[data-testid="knowledge-quality-issues"]')
 
-    expect(issueList.findAll('li').length).toBeLessThanOrEqual(3)
-    expect(issueList.text()).not.toContain(rawSectionId)
-    expect(issueList.text()).toContain('68')
-    expect(wrapper.find('[data-testid="knowledge-quality-toggle"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="knowledge-quality-issues"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain(rawSectionId)
+    expect(wrapper.text()).not.toContain('知识库未覆盖小节')
+    expect(wrapper.text()).toContain('这门课的知识库需要升级')
   })
 
   it('进入资源覆盖层后在顶栏切换知识库和教学资源', async () => {
@@ -378,16 +400,18 @@ describe('Course knowledge library', () => {
     expect(wrapper.get('.knowledge-tree-detail h2').text()).toBe('线性组合的形式定义')
   })
 
-  it('重新生成失败时显示后端结构化错误而不是对象字符串', async () => {
+  it('知识库升级失败时保留原版本且不泄露后端诊断', async () => {
+    httpMock.get.mockResolvedValue(degradedResponse())
     const { wrapper } = await mountLibrary()
+    const internalMessage = '知识点 L2-raw-id 未通过原子性门禁'
     httpMock.post.mockRejectedValueOnce({
-      response: { data: { detail: { code: 'knowledge_quality_failed', message: '课程知识结构仍不完整，原版本保持不变', retryable: true } } },
+      response: { data: { detail: { code: 'knowledge_quality_failed', message: internalMessage, retryable: true } } },
     })
 
     await wrapper.get('[data-testid="knowledge-rebuild"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('.knowledge-tree-governance-error').text()).toContain('课程知识结构仍不完整')
-    expect(wrapper.get('.knowledge-tree-governance-error').text()).not.toContain('[object Object]')
+    expect(wrapper.get('.knowledge-tree-governance-error').text()).toContain('原课程与旧知识结构保持不变')
+    expect(wrapper.get('.knowledge-tree-governance-error').text()).not.toContain(internalMessage)
   })
 })

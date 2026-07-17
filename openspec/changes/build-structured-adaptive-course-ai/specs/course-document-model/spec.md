@@ -1,29 +1,30 @@
 ## ADDED Requirements
 
-### Requirement: 个人适配不得进入正式课程命令
+### Requirement: 课程生长必须进入正式课程命令
 
-正式单块重新生成和教师课程编辑 MUST 继续归基础课程维护链，并通过 `CourseAuthoringChange` 与课程领域命令修改 `CourseDocument`。`PersonalAdaptationPlan` MUST NOT 调用这些写命令；确认后的个人变化 MUST 写入稀疏 `PersonalCourseOverlay`，且 MUST NOT 复制完整课程正文。
+正式单块重新生成、教师课程编辑和经确认的学习证据驱动调整 MUST 统一通过课程领域命令修改当前 `CourseDocument`。`CourseEvolutionPlan` MUST 固定当前课程修订、证据、范围和受影响对象，并在接受后形成新的正式课程修订。系统 MUST NOT 建立第二份长期课程正文或 `PersonalCourseOverlay` 真源。
 
 #### Scenario: 旧单块候选分流
 
 - **WHEN** 系统读取一个尚未处理的旧块候选
-- **THEN** 正式正文候选 MUST 迁入或保留在基础课程维护链
-- **AND** 只有旧个人适配块 MAY 迁入 `PersonalCourseOverlay`
-- **AND** 两类对象 MUST NOT 共用写入目标或确认状态
+- **THEN** 正式正文候选与旧个人适配块 MUST 迁入统一课程变化协议
+- **AND** 原学习证据、用户、范围和旧修订引用 MUST 保留
+- **AND** 不应长期保留平行课程写入目标
 
-### Requirement: 个人方案与覆盖层不得改变基础课程修订
+### Requirement: 接受课程生长方案必须产生新课程修订
 
-学习页面 MAY 在基础课程之上叠加待确认个人差异和已确认个人覆盖，但目录基础结构、基础课程读取和领域修订 MUST 继续以 `CourseDocument` 为准。学生确认个人方案 MUST NOT 改变基础课程修订。
+学习页面 MAY 在当前课程之上预览待确认差异，但接受后的正式内容、目录读取和领域修订 MUST 统一以新的 `CourseDocument` 为准。应用 MUST 返回包含前后修订、受影响块和命令 ID 的持久回执。
 
 #### Scenario: 页面显示多个待确认修改
 
 - **WHEN** 当前课程存在行级、块级和未来章节候选
 - **THEN** 页面 MAY 同时投影这些候选
-- **AND** 基础课程修订 MUST 与个人方案创建前一致
+- **AND** 未接受候选 MUST NOT 改变当前课程修订
+- **AND** 接受的操作组 MUST 原子产生一个新课程修订
 
-### Requirement: 基础课程变化后必须重新定位个人锚点并保留历史
+### Requirement: 课程变化后必须重新定位学习锚点并保留历史
 
-基础课程维护链发生移动、拆分、合并或移除时 MUST 保存稳定 ID、旧新映射或墓碑。个人覆盖、学习位置、笔记、问题和书签只有在可唯一映射时才能迁移，歧义必须显式等待确认；历史作答保留发生时引用。
+课程维护链发生移动、拆分、合并或移除时 MUST 保存稳定 ID、旧新映射或墓碑。学习位置、笔记、问题和书签只有在可唯一映射时才能迁移，歧义必须显式等待确认；历史作答保留发生时引用。
 
 #### Scenario: 被笔记引用的块被拆分
 

@@ -254,6 +254,10 @@ export const useNoteStore = defineStore('notes', {
       anchor?: Record<string, unknown>
       conversationId: string
       messageId: string
+      prompt?: string
+      action?: string
+      title?: string
+      summary?: string
     }) {
       const stableSource = `${payload.nodeId}|${payload.quote}|${JSON.stringify(payload.anchor?.text_position || {})}`
       let hash = 2166136261
@@ -266,16 +270,18 @@ export const useNoteStore = defineStore('notes', {
         ai_conversation_id: payload.conversationId,
         ai_message_ids: [payload.messageId],
         record_subtype: 'anchored_ai_qa',
+        ai_prompt: payload.prompt || '',
+        inline_ai_action: payload.action || 'ask',
       }
       const current = this.notes.find(item => item.id === recordId)
       if (!current?.revision) {
-        return this.createNote({
+        const created = await this.createNote({
           id: recordId,
           nodeId: payload.nodeId,
           highlightId: `hl-${recordId}`,
           quote: payload.quote,
-          title: payload.content.split(/[。！？\n]/)[0]?.slice(0, 80) || 'AI 问答',
-          summary: payload.content.split(/[。！？\n]/)[0]?.slice(0, 80) || '',
+          title: payload.title || payload.summary || 'AI 问答',
+          summary: payload.summary || payload.title || 'AI 问答',
           content: payload.content,
           color: 'purple',
           createdAt: Date.now(),
@@ -287,9 +293,11 @@ export const useNoteStore = defineStore('notes', {
           anchor: payload.anchor,
           metadata,
         })
+        return created || this.notes.find(item => item.id === recordId) || null
       }
       current.content = payload.content
-      current.summary = payload.content.split(/[。！？\n]/)[0]?.slice(0, 80) || current.summary
+      current.title = payload.title || current.title
+      current.summary = payload.summary || payload.title || current.summary
       current.metadata = {
         ...(current.metadata || {}),
         ...metadata,
@@ -302,7 +310,7 @@ export const useNoteStore = defineStore('notes', {
       try {
         const response = await http.patch(`/api/courses/${this.courseId}/learning-records/${recordId}`, {
           expected_revision: current.revision,
-          title: current.summary || '',
+          title: current.title || current.summary || '',
           content: current.content,
           anchor: payload.anchor,
           metadata: current.metadata,
@@ -314,7 +322,7 @@ export const useNoteStore = defineStore('notes', {
       } catch (error) {
         logger.error('Failed to upsert anchored AI note', error)
         current.syncState = 'local_only'
-        return null
+        return current
       }
     },
 

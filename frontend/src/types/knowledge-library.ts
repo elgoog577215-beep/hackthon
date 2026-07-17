@@ -108,12 +108,29 @@ export interface KnowledgeLibraryView {
 
 export interface SubjectOntologyQualityReport {
   passed: boolean
+  strict_passed?: boolean
   score: number
+  critical_count?: number
+  major_count?: number
+  issue_count?: number
+  blocking_issue_count?: number
   metrics: {
     mapped_ratio?: number
     relation_coverage?: number
     cross_skill_ratio?: number
     [key: string]: number | boolean | undefined
+  }
+  coverage?: {
+    section_count?: number
+    covered_section_count?: number
+    concept_group_count?: number
+    knowledge_point_count?: number
+    skill_unit_count?: number
+    misconception_count?: number
+    mastery_criterion_count?: number
+    relation_count?: number
+    relation_coverage?: number
+    binding_count?: number
   }
   issues: Array<{ code: string; severity: string; message: string }>
   blocking_issues: Array<{ code: string; severity: string; message: string }>

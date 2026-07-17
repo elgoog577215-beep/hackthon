@@ -56,14 +56,15 @@ def test_accepted_block_change_proposes_pending_kb_linkage(tmp_path):
     item = proposal["items"][0]
     assert item["status"] == "pending"
     assert item["target_kind"] == "kg_node"
-    assert item["block_id"] == "math.la.system.gaussian_elimination"
+    assert item["block_id"].startswith("ckp_")
     assert proposal["generation_meta"]["linkage_direction"] == "content_to_kb"
+    assert proposal["generation_meta"]["knowledge_scope"] == "current_course_only"
 
     reloaded = repository.load(proposal["proposal_id"])
     assert reloaded == proposal
 
 
-def test_no_linkage_proposed_for_block_without_formal_knowledge_binding(tmp_path):
+def test_no_linkage_proposed_for_block_without_course_knowledge_binding(tmp_path):
     course = _course()
     course["nodes"][0]["content_blocks"][0]["content"] = "这段内容和任何正式知识节点都不相关。"
     course["nodes"][0]["content_blocks"][0]["title"] = "闲聊"
@@ -79,7 +80,7 @@ def test_no_linkage_proposed_for_block_without_formal_knowledge_binding(tmp_path
     assert proposal is None
 
 
-def test_kb_node_update_proposes_pending_content_sync(tmp_path):
+def test_legacy_subject_node_update_cannot_modify_course_content(tmp_path):
     course = _course()
     repository = ChangeProposalRepository(tmp_path / "change_proposals")
 
@@ -91,16 +92,7 @@ def test_kb_node_update_proposes_pending_content_sync(tmp_path):
         request_id="req-kb-to-content-1",
     )
 
-    assert proposal is not None
-    assert proposal["source"] == "kb_link"
-    assert proposal["status"] == "pending"
-    assert len(proposal["items"]) == 1
-    item = proposal["items"][0]
-    assert item["status"] == "pending"
-    assert item["target_kind"] == "course_block"
-    assert item["block_id"] == "block-1"
-    assert "更新后的正式定义" in item["reason"]
-    assert proposal["generation_meta"]["linkage_direction"] == "kb_to_content"
+    assert proposal is None
 
 
 def test_kb_node_without_course_binding_proposes_nothing(tmp_path):
@@ -132,25 +124,17 @@ def test_both_linkage_directions_never_auto_modify_target_content(tmp_path):
         repository=repository,
         request_id="req-guard-1",
     )
-    kb_to_content = propose_content_linkage_from_kb_change(
-        course,
-        "math.la.system.gaussian_elimination",
-        {"name": "高斯消元法", "description": "改写后的定义草案"},
-        repository=repository,
-        request_id="req-guard-2",
-    )
 
     # The course dict passed in (representing both "course content" and the
     # source of the knowledge-map projection) must be untouched.
     assert course == original_course
 
     # Both proposals sit pending - nothing was auto-applied.
-    for proposal in (content_to_kb, kb_to_content):
-        assert proposal is not None
-        assert proposal["status"] == "pending"
-        for item in proposal["items"]:
-            assert item["status"] == "pending"
-            assert item["receipt"] is None
+    assert content_to_kb is not None
+    assert content_to_kb["status"] == "pending"
+    for item in content_to_kb["items"]:
+        assert item["status"] == "pending"
+        assert item["receipt"] is None
 
     pending = repository.list_for_course(course["course_id"], status="pending")
-    assert len(pending) == 2
+    assert len(pending) == 1

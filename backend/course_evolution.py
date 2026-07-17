@@ -1,12 +1,12 @@
-"""Evidence-driven personal adaptation plans and learner-isolated overlays.
+"""Evidence-driven plans that grow the current canonical course.
 
-The persisted v1 schema and legacy function names remain readable. The
-canonical product boundary is explicit: accepted plans project a
-``PersonalCourseOverlay`` and never mutate the base ``CourseDocument``.
+Persisted v1 personal-overlay data remains readable for migration. New plans
+write versioned ``CourseDocument`` revisions through canonical domain commands.
 """
 
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -20,14 +20,17 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from course_document import CourseDocument, stable_hash
+from course_commands import CourseCommandService
+from course_document import CourseBlock, CourseDocument, stable_hash
 from course_knowledge_base import compile_course_knowledge_base, knowledge_binding_for_section
+from course_repository import CourseDocumentConflict, CourseDocumentRepository
 from course_revisions import revision_vector_for_document
 from learning_events import load_learning_events
+from learning_asset_storage import learning_asset_repository
 from learning_records import learning_record_repository
 from practice_attempts import practice_attempt_repository
 
-COURSE_EVOLUTION_SCHEMA = "course_evolution_v1"
+COURSE_EVOLUTION_SCHEMA = "course_evolution_v2"
 HypothesisStatus = Literal[
     "observing", "actionable", "candidate_created", "accepted", "rejected",
     "evaluating", "effective", "ineffective", "harmful", "expired",
@@ -81,12 +84,14 @@ class AdaptationHypothesis(BaseModel):
     updated_at: str
 
 
-class PersonalAdaptationOperation(BaseModel):
+class CourseEvolutionOperation(BaseModel):
     operation_id: str
     operation_type: Literal[
+        "INSERT_COURSE_SUPPORT",
         "INSERT_PERSONAL_SUPPORT",
         "ADD_TRANSITION_SUPPORT",
         "ADD_CHECKPOINT",
+        "ADD_TARGETED_PRACTICE",
         "ADD_ANIMATION",
     ]
     target_block_id: str
@@ -117,9 +122,9 @@ class AnimationSpec(BaseModel):
     accessibility_text: str = ""
 
 
-class PersonalAdaptationPlan(BaseModel):
-    plan_kind: Literal["personal_adaptation_plan"] = "personal_adaptation_plan"
-    write_target: Literal["personal_overlay"] = "personal_overlay"
+class CourseEvolutionPlan(BaseModel):
+    plan_kind: Literal["course_evolution_plan", "personal_adaptation_plan"] = "course_evolution_plan"
+    write_target: Literal["course_document", "personal_overlay"] = "course_document"
     change_set_id: str
     user_id: str
     course_id: str
@@ -127,7 +132,7 @@ class PersonalAdaptationPlan(BaseModel):
     replaces_change_set_id: str = ""
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
     evidence_ids: list[str] = Field(default_factory=list)
-    operations: list[PersonalAdaptationOperation] = Field(default_factory=list)
+    operations: list[CourseEvolutionOperation] = Field(default_factory=list)
     allowed_scopes: list[Literal["current", "current_and_next"]] = Field(default_factory=list)
     selected_scope: Literal["current", "current_and_next"] | None = None
     impact_summary: dict[str, Any] = Field(default_factory=dict)
@@ -137,16 +142,19 @@ class PersonalAdaptationPlan(BaseModel):
     updated_at: str
     accepted_at: str | None = None
     resolved_at: str | None = None
+    applied_block_ids: list[str] = Field(default_factory=list)
+    application_receipt: dict[str, Any] = Field(default_factory=dict)
+    undo_receipt: dict[str, Any] = Field(default_factory=dict)
     effect_evaluation: dict[str, Any] = Field(default_factory=dict)
 
 
 class CourseEvolutionState(BaseModel):
-    schema_version: Literal["course_evolution_v1"] = COURSE_EVOLUTION_SCHEMA
+    schema_version: Literal["course_evolution_v1", "course_evolution_v2"] = COURSE_EVOLUTION_SCHEMA
     user_id: str
     course_id: str
     evidence_items: list[EvidenceItem] = Field(default_factory=list)
     hypotheses: list[AdaptationHypothesis] = Field(default_factory=list)
-    change_sets: list[PersonalAdaptationPlan] = Field(default_factory=list)
+    change_sets: list[CourseEvolutionPlan] = Field(default_factory=list)
     revision: str = ""
     updated_at: str
 
@@ -158,15 +166,16 @@ class PersonalCourseOverlay(BaseModel):
     course_id: str
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
     active_plan_ids: list[str] = Field(default_factory=list)
-    operations: list[PersonalAdaptationOperation] = Field(default_factory=list)
+    operations: list[CourseEvolutionOperation] = Field(default_factory=list)
     revision: str
     updated_at: str
+    deprecated: bool = True
 
 
-# Compatibility aliases for persisted v1 data and imports. New code should use
-# PersonalAdaptationPlan and PersonalAdaptationOperation.
-CourseEvolutionOperation = PersonalAdaptationOperation
-CourseEvolutionChangeSet = PersonalAdaptationPlan
+# Compatibility aliases for persisted v1 imports.
+PersonalAdaptationOperation = CourseEvolutionOperation
+PersonalAdaptationPlan = CourseEvolutionPlan
+CourseEvolutionChangeSet = CourseEvolutionPlan
 
 
 class CourseEvolutionRepository:
@@ -223,6 +232,7 @@ class CourseEvolutionRepository:
 
     @staticmethod
     def _refresh(state: CourseEvolutionState) -> CourseEvolutionState:
+        state.schema_version = COURSE_EVOLUTION_SCHEMA
         state.updated_at = _now()
         payload = state.model_dump(mode="json", exclude={"revision", "updated_at"})
         state.revision = stable_hash(payload, prefix="cev_")
@@ -243,6 +253,8 @@ def synchronize_and_evaluate_course_evolution(
     # Knowledge compilation normalizes legacy fields in-place. Personal
     # adaptation is a read-only consumer, so compile from an isolated snapshot.
     knowledge_base = compile_course_knowledge_base(deepcopy(course_data))
+    asset_bundle = learning_asset_repository.load_bundle(course_id) or {}
+    learning_assets = asset_bundle.get("assets") if isinstance(asset_bundle, dict) else {}
     state = repository.load(user_id, course_id)
     state.evidence_items = _collect_evidence(
         course_data,
@@ -254,6 +266,7 @@ def synchronize_and_evaluate_course_evolution(
         state,
         document,
         knowledge_base=knowledge_base,
+        learning_assets=learning_assets if isinstance(learning_assets, dict) else {},
     )
     _evaluate_applied_effects(state, user_id=user_id)
     return repository.save(state)
@@ -266,10 +279,17 @@ def accept_change_set(
     change_set_id: str,
     selected_scope: Literal["current", "current_and_next"],
     repository: CourseEvolutionRepository | None = None,
+    document_repository: CourseDocumentRepository | None = None,
 ) -> CourseEvolutionState:
     repository = repository or course_evolution_repository
-    document = _course_document(course_data)
-    state = repository.load(user_id, document.course_id)
+    course_id = str(course_data.get("course_id") or "")
+    if not course_id:
+        raise ValueError("Course identifier is required")
+    document_repository = document_repository or _default_document_repository()
+    document, canonical = document_repository.load_document(course_id)
+    if not canonical:
+        raise ValueError("Course must be migrated before course growth can be applied")
+    state = repository.load(user_id, course_id)
     change_set = _change_set(state, change_set_id)
     if change_set.status == "applied" and change_set.selected_scope == selected_scope:
         return state
@@ -284,18 +304,59 @@ def accept_change_set(
             change_set.updated_at = _now()
             repository.save(state)
             raise ValueError("Course changed after this candidate was generated")
-    change_set.selected_scope = selected_scope
-    change_set.status = "applied"
-    change_set.accepted_at = _now()
-    change_set.resolved_at = change_set.accepted_at
-    change_set.updated_at = change_set.accepted_at
+
+    replaced: CourseEvolutionPlan | None = None
+    retire_block_ids: list[str] = []
     if change_set.replaces_change_set_id:
         replaced = _change_set(state, change_set.replaces_change_set_id)
         if replaced.status != "applied":
-            raise ValueError("Replaced personal adaptation is no longer active")
+            raise ValueError("Replaced course evolution plan is no longer active")
+        retire_block_ids = list(replaced.applied_block_ids)
+
+    insertions = _course_block_insertions(
+        change_set,
+        document,
+        selected_scope=selected_scope,
+    )
+    command_id = f"course-evolution-apply:{user_id}:{change_set.change_set_id}"
+    try:
+        receipt = asyncio.run(CourseCommandService(document_repository).apply_block_operation_group(
+            course_id,
+            command_id=command_id,
+            expected_document_revision=document.document_revision,
+            insertions=insertions,
+            retire_block_ids=retire_block_ids,
+            reason=f"学习证据驱动课程生长：{change_set.hypothesis_id}",
+            actor=f"learner:{user_id}",
+        ))
+    except CourseDocumentConflict as exc:
+        change_set.status = "stale"
+        change_set.updated_at = _now()
+        repository.save(state)
+        raise ValueError(str(exc)) from exc
+
+    change_set.selected_scope = selected_scope
+    change_set.status = "applied"
+    change_set.plan_kind = "course_evolution_plan"
+    change_set.write_target = "course_document"
+    change_set.accepted_at = _now()
+    change_set.resolved_at = change_set.accepted_at
+    change_set.updated_at = change_set.accepted_at
+    change_set.applied_block_ids = [
+        item["block"].block_id
+        for item in insertions
+    ]
+    change_set.application_receipt = deepcopy(receipt)
+    if replaced is not None:
         replaced.status = "undone"
         replaced.resolved_at = change_set.accepted_at
         replaced.updated_at = change_set.accepted_at
+        replaced.undo_receipt = {
+            "operation": "replaced_by_course_evolution_plan",
+            "replacement_change_set_id": change_set.change_set_id,
+            "retired_block_ids": retire_block_ids,
+            "document_revision": receipt.get("document_revision"),
+        }
         replaced.effect_evaluation = {
             **replaced.effect_evaluation,
             "resolution": "replaced_by_adjustment",
@@ -313,6 +374,7 @@ def create_adjustment_plan(
     course_id: str,
     change_set_id: str,
     repository: CourseEvolutionRepository | None = None,
+    document_repository: CourseDocumentRepository | None = None,
 ) -> CourseEvolutionState:
     """Create a reviewable replacement after an applied plan proves ineffective."""
     repository = repository or course_evolution_repository
@@ -328,15 +390,15 @@ def create_adjustment_plan(
     if existing:
         return state
 
-    operations: list[PersonalAdaptationOperation] = []
+    operations: list[CourseEvolutionOperation] = []
     for operation in source.operations:
         payload = deepcopy(operation.payload)
-        if operation.operation_type == "INSERT_PERSONAL_SUPPORT":
+        if operation.operation_type in {"INSERT_COURSE_SUPPORT", "INSERT_PERSONAL_SUPPORT"}:
             payload["body"] = (
                 "改用具体状态对照：先指出变化前的对象，再逐步说明每次操作改变了什么，"
                 "最后让学习者用自己的话连接操作与结论。"
             )
-            payload["contrast"] = "替换上一版抽象解释；基础课程正文保持不变。"
+            payload["contrast"] = "替换上一版抽象解释；范围外课程正文保持不变。"
         elif operation.operation_type == "ADD_ANIMATION":
             payload["animation_spec"] = _adjusted_animation_spec(
                 payload.get("animation_spec") or {},
@@ -346,7 +408,7 @@ def create_adjustment_plan(
                 {"index": frame.get("index"), "label": frame.get("label")}
                 for frame in payload["animation_spec"].get("fallback_frames") or []
             ]
-        elif operation.operation_type == "ADD_CHECKPOINT":
+        elif operation.operation_type in {"ADD_CHECKPOINT", "ADD_TARGETED_PRACTICE"}:
             payload["body"] = "比较两个具体状态，指出哪一步改变了对象之间的关系。"
             payload["prompt"] = "请先指认变化，再解释原因；不要只复述计算步骤。"
         operations.append(operation.model_copy(update={
@@ -359,7 +421,11 @@ def create_adjustment_plan(
         }, deep=True))
 
     now = _now()
-    replacement = PersonalAdaptationPlan(
+    document_repository = document_repository or _default_document_repository()
+    document, canonical = document_repository.load_document(course_id)
+    if not canonical:
+        raise ValueError("Course must be migrated before an adjustment can be generated")
+    replacement = CourseEvolutionPlan(
         change_set_id=stable_hash({
             "source_change_set_id": source.change_set_id,
             "effect_evaluation": source.effect_evaluation,
@@ -369,7 +435,13 @@ def create_adjustment_plan(
         course_id=course_id,
         hypothesis_id=source.hypothesis_id,
         replaces_change_set_id=source.change_set_id,
-        base_revision_vector=deepcopy(source.base_revision_vector),
+        base_revision_vector=_bound_revision_vector(
+            document,
+            [
+                operation.target_block_id
+                for operation in operations
+            ],
+        ),
         evidence_ids=list(source.evidence_ids),
         operations=operations,
         allowed_scopes=list(source.allowed_scopes),
@@ -419,12 +491,34 @@ def undo_change_set(
     course_id: str,
     change_set_id: str,
     repository: CourseEvolutionRepository | None = None,
+    document_repository: CourseDocumentRepository | None = None,
 ) -> CourseEvolutionState:
     repository = repository or course_evolution_repository
     state = repository.load(user_id, course_id)
     change_set = _change_set(state, change_set_id)
     if change_set.status != "applied":
         raise ValueError(f"Course change set cannot be undone from {change_set.status}")
+    if change_set.write_target == "course_document":
+        if not change_set.applied_block_ids:
+            raise ValueError("Applied course evolution plan has no recorded course blocks")
+        document_repository = document_repository or _default_document_repository()
+        document, canonical = document_repository.load_document(course_id)
+        if not canonical:
+            raise ValueError("Course must be migrated before course growth can be undone")
+        command_id = f"course-evolution-undo:{user_id}:{change_set.change_set_id}"
+        try:
+            receipt = asyncio.run(CourseCommandService(document_repository).apply_block_operation_group(
+                course_id,
+                command_id=command_id,
+                expected_document_revision=document.document_revision,
+                insertions=[],
+                retire_block_ids=change_set.applied_block_ids,
+                reason=f"撤销学习证据驱动课程生长：{change_set.hypothesis_id}",
+                actor=f"learner:{user_id}",
+            ))
+        except CourseDocumentConflict as exc:
+            raise ValueError(str(exc)) from exc
+        change_set.undo_receipt = deepcopy(receipt)
     change_set.status = "undone"
     change_set.resolved_at = _now()
     change_set.updated_at = change_set.resolved_at
@@ -441,7 +535,7 @@ def project_applied_adaptive_blocks(
 ) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
     for change_set in state.change_sets:
-        if change_set.status != "applied":
+        if change_set.status != "applied" or change_set.write_target != "personal_overlay":
             continue
         for operation in change_set.operations:
             if change_set.selected_scope == "current" and operation.scope == "next":
@@ -450,9 +544,11 @@ def project_applied_adaptive_blocks(
             if node_id and target_node_id != node_id:
                 continue
             kind = {
+                "INSERT_COURSE_SUPPORT": "explanation",
                 "INSERT_PERSONAL_SUPPORT": "explanation",
                 "ADD_TRANSITION_SUPPORT": "transition",
                 "ADD_CHECKPOINT": "understanding_check",
+                "ADD_TARGETED_PRACTICE": "understanding_check",
                 "ADD_ANIMATION": "animation",
             }[operation.operation_type]
             blocks.append({
@@ -474,6 +570,9 @@ def project_applied_adaptive_blocks(
                     "animation_spec": deepcopy(operation.payload.get("animation_spec") or {}),
                     "knowledge_refs": list(operation.payload.get("knowledge_refs") or []),
                     "ability_refs": list(operation.payload.get("ability_refs") or []),
+                    "misconception_refs": list(operation.payload.get("misconception_refs") or []),
+                    "practice_task_id": str(operation.payload.get("practice_task_id") or ""),
+                    "practice_intent": str(operation.payload.get("practice_intent") or ""),
                     "expected_effect": str(operation.payload.get("expected_effect") or ""),
                 },
                 "reason_code": "accepted_evidence_driven_growth",
@@ -486,7 +585,10 @@ def project_applied_adaptive_blocks(
 
 
 def personal_course_overlay(state: CourseEvolutionState) -> PersonalCourseOverlay:
-    active_plans = [item for item in state.change_sets if item.status == "applied"]
+    active_plans = [
+        item for item in state.change_sets
+        if item.status == "applied" and item.write_target == "personal_overlay"
+    ]
     operations = [
         operation.model_copy(deep=True)
         for plan in active_plans
@@ -523,15 +625,18 @@ def personal_course_overlay(state: CourseEvolutionState) -> PersonalCourseOverla
 
 def course_evolution_view(state: CourseEvolutionState) -> dict[str, Any]:
     payload = state.model_dump(mode="json")
-    payload["view_schema_version"] = "personal_course_adaptation_v1"
+    payload["view_schema_version"] = "course_evolution_v2"
+    payload["course_evolution_plans"] = deepcopy(payload["change_sets"])
     payload["adaptation_plans"] = deepcopy(payload["change_sets"])
     for plan in payload["adaptation_plans"]:
         plan["plan_id"] = plan["change_set_id"]
-        plan["plan_kind"] = "personal_adaptation_plan"
+    for plan in payload["course_evolution_plans"]:
+        plan["plan_id"] = plan["change_set_id"]
     payload["personal_course_overlay"] = personal_course_overlay(state).model_dump(mode="json")
     payload["permissions"] = {
-        "write_target": "personal_overlay",
-        "can_modify_base_course": False,
+        "write_target": "course_document",
+        "can_modify_current_course": True,
+        "can_modify_other_courses": False,
         "can_modify_other_learners": False,
         "can_modify_course_knowledge_base": False,
     }
@@ -629,6 +734,7 @@ def _evaluate_hypotheses_and_candidates(
     document: CourseDocument,
     *,
     knowledge_base: dict[str, Any] | None = None,
+    learning_assets: dict[str, Any] | None = None,
 ) -> None:
     grouped: dict[str, list[EvidenceItem]] = {}
     for item in state.evidence_items:
@@ -717,6 +823,7 @@ def _evaluate_hypotheses_and_candidates(
             hypothesis,
             evidence_signature=evidence_signature,
             knowledge_base=knowledge_base,
+            learning_assets=learning_assets,
         )
         state.change_sets.append(change_set)
         hypothesis.status = "candidate_created"
@@ -729,7 +836,8 @@ def _build_change_set(
     *,
     evidence_signature: str,
     knowledge_base: dict[str, Any] | None = None,
-) -> PersonalAdaptationPlan:
+    learning_assets: dict[str, Any] | None = None,
+) -> CourseEvolutionPlan:
     blocks = {item.block_id: item for item in document.blocks}
     sections = {item.section_id: item for item in document.sections}
     target = blocks[hypothesis.target_block_id]
@@ -740,7 +848,17 @@ def _build_change_set(
         section_id=target.section_id,
         block_id=target.block_id,
     )
-    operations: list[PersonalAdaptationOperation] = []
+    targeted_practice = _targeted_practice_for(
+        section_id=target.section_id,
+        binding=target_binding,
+        evidence=[
+            item
+            for item in state.evidence_items
+            if item.evidence_id in hypothesis.support_evidence_ids
+        ],
+        learning_assets=learning_assets or {},
+    )
+    operations: list[CourseEvolutionOperation] = []
 
     def append_operation(operation_type: str, block_id: str, scope: str, reason: str, payload: dict[str, Any]) -> None:
         block = blocks[block_id]
@@ -751,7 +869,7 @@ def _build_change_set(
             "scope": scope,
             "payload": payload,
         }
-        operations.append(PersonalAdaptationOperation(
+        operations.append(CourseEvolutionOperation(
             operation_id=stable_hash(operation_payload, prefix="ceo_"),
             operation_type=operation_type,
             target_block_id=block_id,
@@ -762,13 +880,13 @@ def _build_change_set(
         ))
 
     append_operation(
-        "INSERT_PERSONAL_SUPPORT",
+        "INSERT_COURSE_SUPPORT",
         target.block_id,
         "current",
         "当前证据指向概念原因与计算步骤之间的断裂。",
         {
             "body": f"先不要只记步骤。围绕“{target_title}”，把它看成一次关系或过程：先说明为什么需要这一步，再说明每一步改变了什么，最后回到原结论。",
-            "contrast": f"原内容保留不变；这段个人补充只负责连接“怎么做”和“为什么”。原段核心：{target_text[:120]}",
+            "contrast": f"原内容保留不变；这段课程补充只负责连接“怎么做”和“为什么”。原段核心：{target_text[:120]}",
             "objective": "能够解释步骤背后的原因，并把原因迁移到下一处推导。",
         },
     )
@@ -790,16 +908,21 @@ def _build_change_set(
         },
     )
     append_operation(
-        "ADD_CHECKPOINT",
+        "ADD_TARGETED_PRACTICE",
         target.block_id,
         "current",
-        "需要用一次低风险检查确认新增解释是否真的建立了联系。",
+        "当前课程中存在与能力点和易错点匹配的正式题目；确认后插入本节，用于验证新增解释是否有效。",
         {
-            "body": "用自己的话说明：这一步为什么必要？如果省略，会在哪个后续结论上出错？",
-            "prompt": "请不用复述公式，只解释这一步的作用与后果。",
+            "body": "完成一项与当前能力缺口直接对应的独立检查；这不是追加题量，而是验证刚才的理解是否真正建立。",
+            "prompt": targeted_practice["prompt"],
             "objective": "验证概念原因，而不是重复计算。",
+            "practice_task_id": targeted_practice["revision_id"],
+            "practice_asset_id": targeted_practice["asset_id"],
+            "practice_intent": "targeted_retry",
+            "requires_confirmation": True,
             "knowledge_refs": target_binding["knowledge_ids"],
             "ability_refs": target_binding["skill_ids"],
+            "misconception_refs": target_binding["misconception_ids"],
             "expected_effect": "能够解释当前操作的语义作用，并迁移到后续同能力任务。",
         },
     )
@@ -817,18 +940,12 @@ def _build_change_set(
             },
         )
     now = _now()
-    vector = revision_vector_for_document(document).revisions
     affected_section_ids = {
         blocks[block_id].section_id
         for block_id in hypothesis.affected_block_ids
         if block_id in blocks
     }
-    bound_keys = {
-        key: value
-        for key, value in vector.items()
-        if key in {f"block:{block_id}" for block_id in hypothesis.affected_block_ids}
-        or key in {f"section:{section_id}" for section_id in affected_section_ids}
-    }
+    bound_keys = _bound_revision_vector(document, hypothesis.affected_block_ids)
     linked_evidence = [
         item for item in state.evidence_items
         if item.evidence_id in hypothesis.support_evidence_ids
@@ -845,7 +962,7 @@ def _build_change_set(
     knowledge_labels = _knowledge_labels(knowledge_base, knowledge_ids)
     ability_labels = _ability_labels(knowledge_base, ability_ids)
     misconception_labels = _misconception_labels(knowledge_base, misconception_ids)
-    return PersonalAdaptationPlan(
+    return CourseEvolutionPlan(
         change_set_id=stable_hash({
             "user_id": state.user_id,
             "course_id": state.course_id,
@@ -878,13 +995,66 @@ def _build_change_set(
             "validation_plan": hypothesis.validation_plan,
             "evidence_source_types": sorted({item.source_type for item in linked_evidence}),
             "affected_section_ids": sorted(affected_section_ids),
-            "protected": ["基础课程", "其他学习者课程", "历史作答", "笔记原文", "正式知识库"],
-            "representation_impacts": ["个人讲义补充", "分步演示", "理解检查"],
+            "protected": ["范围外课程内容", "其他课程", "历史作答", "笔记原文", "课程知识库"],
+            "representation_impacts": ["课程讲义补充", "分步演示", "理解检查"],
         },
         expected_effect="减少同类概念求助，并提高后续独立解释与正式练习表现。",
         created_at=now,
         updated_at=now,
     )
+
+
+def _targeted_practice_for(
+    *,
+    section_id: str,
+    binding: dict[str, list[str]],
+    evidence: list[EvidenceItem],
+    learning_assets: dict[str, Any],
+) -> dict[str, str]:
+    """Choose a current-course formal task; never borrow from another course."""
+    candidates = [
+        item
+        for key in ("validation_questions", "questions")
+        for item in learning_assets.get(key) or []
+        if isinstance(item, dict)
+        and str(item.get("status") or "active") == "active"
+        and str(item.get("revision_id") or item.get("task_revision_id") or "")
+    ]
+    failed_task_ids = {
+        item.anchor.practice_task_id
+        for item in evidence
+        if item.anchor.practice_task_id
+    }
+    knowledge_ids = set(binding.get("knowledge_ids") or [])
+    skill_ids = set(binding.get("skill_ids") or [])
+    misconception_ids = set(binding.get("misconception_ids") or [])
+
+    def score(item: dict[str, Any]) -> tuple[int, str]:
+        revision_id = str(item.get("revision_id") or item.get("task_revision_id") or "")
+        value = 0
+        if str(item.get("node_id") or "") == section_id:
+            value += 30
+        value += len(knowledge_ids & set(item.get("course_knowledge_refs") or item.get("concept_ids") or [])) * 5
+        value += len(skill_ids & set(item.get("course_skill_refs") or item.get("skill_unit_ids") or [])) * 9
+        value += len(misconception_ids & set(item.get("course_misconception_refs") or item.get("misconception_ids") or [])) * 13
+        if item in (learning_assets.get("validation_questions") or []):
+            value += 4
+        if revision_id in failed_task_ids:
+            value -= 100
+        return value, revision_id
+
+    selected = max(candidates, key=score, default=None)
+    if selected is not None and score(selected)[0] > 0:
+        return {
+            "asset_id": str(selected.get("asset_id") or selected.get("question_id") or ""),
+            "revision_id": str(selected.get("revision_id") or selected.get("task_revision_id") or ""),
+            "prompt": str(selected.get("prompt") or "完成这道针对性练习，并解释你的判断依据。"),
+        }
+    return {
+        "asset_id": "",
+        "revision_id": "",
+        "prompt": "用自己的话说明：这一步为什么必要？如果省略，会在哪个后续结论上出错？",
+    }
 
 
 def _animation_fallback_steps() -> list[dict[str, Any]]:
@@ -927,7 +1097,7 @@ def _animation_spec_for_block(
         animation_id=stable_hash({
             "block_id": block.block_id,
             "evidence_signature": evidence_signature,
-            "kind": "personal_state_transition",
+            "kind": "course_state_transition",
         }, prefix="ans_"),
         title=f"{title}：分步变换演示",
         scene={
@@ -1037,14 +1207,14 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
             ),
             "follow_up_candidate": (
                 {
-                    "candidate_type": "rollback_personal_adaptation",
+                    "candidate_type": "rollback_course_evolution",
                     "status": "pending_confirmation",
                     "source_change_set_id": change_set.change_set_id,
-                    "reason": "负面反馈与重复失败同时出现，建议撤销当前个人适配。",
+                    "reason": "负面反馈与重复失败同时出现，建议撤销当前课程变化。",
                 }
                 if status == "harmful"
                 else {
-                    "candidate_type": "adjust_personal_adaptation",
+                    "candidate_type": "adjust_course_evolution",
                     "status": "available",
                     "source_change_set_id": change_set.change_set_id,
                     "reason": "当前支持没有改善后续表现，可生成另一种解释与检查方案。",
@@ -1062,7 +1232,7 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
 
 def _attempt_matches_change_set(
     attempt: dict[str, Any],
-    change_set: PersonalAdaptationPlan,
+    change_set: CourseEvolutionPlan,
 ) -> bool:
     impact = change_set.impact_summary
     section_ids = set(impact.get("affected_section_ids") or [])
@@ -1409,6 +1579,142 @@ def _unique(values: list[Any]) -> list[str]:
     return list(dict.fromkeys(str(value) for value in values if str(value).strip()))
 
 
+def _default_document_repository() -> CourseDocumentRepository:
+    from storage import storage
+
+    return CourseDocumentRepository(storage)
+
+
+def _bound_revision_vector(
+    document: CourseDocument,
+    block_ids: list[str],
+) -> dict[str, str]:
+    vector = revision_vector_for_document(document).revisions
+    blocks = {block.block_id: block for block in document.blocks}
+    section_ids = {
+        blocks[block_id].section_id
+        for block_id in block_ids
+        if block_id in blocks
+    }
+    allowed = {
+        *(f"block:{block_id}" for block_id in block_ids),
+        *(f"section:{section_id}" for section_id in section_ids),
+    }
+    return {key: value for key, value in vector.items() if key in allowed}
+
+
+def _course_block_insertions(
+    change_set: CourseEvolutionPlan,
+    document: CourseDocument,
+    *,
+    selected_scope: Literal["current", "current_and_next"],
+) -> list[dict[str, Any]]:
+    if change_set.course_id != document.course_id:
+        raise ValueError("Course evolution plan belongs to another course")
+    blocks = {block.block_id: block for block in document.blocks}
+    kind_by_operation = {
+        "INSERT_COURSE_SUPPORT": "callout",
+        "INSERT_PERSONAL_SUPPORT": "callout",
+        "ADD_TRANSITION_SUPPORT": "callout",
+        "ADD_CHECKPOINT": "callout",
+        "ADD_TARGETED_PRACTICE": "practice_ref",
+        "ADD_ANIMATION": "diagram",
+    }
+    role_by_operation = {
+        "INSERT_COURSE_SUPPORT": "remediation",
+        "INSERT_PERSONAL_SUPPORT": "remediation",
+        "ADD_TRANSITION_SUPPORT": "transfer",
+        "ADD_CHECKPOINT": "checkpoint",
+        "ADD_TARGETED_PRACTICE": "checkpoint",
+        "ADD_ANIMATION": "reasoning",
+    }
+    title_by_operation = {
+        "INSERT_COURSE_SUPPORT": "针对当前理解的补充",
+        "INSERT_PERSONAL_SUPPORT": "针对当前理解的补充",
+        "ADD_TRANSITION_SUPPORT": "进入后续内容前",
+        "ADD_CHECKPOINT": "理解检查",
+        "ADD_TARGETED_PRACTICE": "针对性练习",
+        "ADD_ANIMATION": "分步演示",
+    }
+    insertions: list[dict[str, Any]] = []
+    for operation in change_set.operations:
+        if selected_scope == "current" and operation.scope == "next":
+            continue
+        target = blocks.get(operation.target_block_id)
+        if target is None or target.status == "retired":
+            raise ValueError("Course evolution target block is unavailable")
+        if operation.target_section_id and operation.target_section_id != target.section_id:
+            raise ValueError("Course evolution target section does not match its block")
+        block_id = stable_hash({
+            "course_id": document.course_id,
+            "change_set_id": change_set.change_set_id,
+            "operation_id": operation.operation_id,
+        }, prefix="ceb_")
+        payload = deepcopy(operation.payload)
+        payload.update({
+            "title": title_by_operation[operation.operation_type],
+            "markdown": _course_evolution_markdown(operation),
+            "course_evolution": {
+                "schema_version": "course_evolution_block_v1",
+                "change_set_id": change_set.change_set_id,
+                "operation_id": operation.operation_id,
+                "hypothesis_id": change_set.hypothesis_id,
+                "evidence_ids": list(change_set.evidence_ids),
+                "reason": operation.reason,
+                "expected_effect": change_set.expected_effect,
+            },
+        })
+        knowledge_refs = [
+            str(value)
+            for value in payload.get("knowledge_refs") or target.concept_refs
+            if value
+        ]
+        insertions.append({
+            "after_block_id": target.block_id,
+            "block": CourseBlock(
+                block_id=block_id,
+                section_id=target.section_id,
+                position=target.position + 1,
+                kind=kind_by_operation[operation.operation_type],
+                role=role_by_operation[operation.operation_type],
+                payload=payload,
+                asset_refs=[
+                    str(payload.get("practice_task_id"))
+                ] if payload.get("practice_task_id") else [],
+                objective_refs=list(target.objective_refs),
+                concept_refs=knowledge_refs,
+                evidence_refs=list(change_set.evidence_ids),
+                status="final",
+            ),
+        })
+    if not insertions:
+        raise ValueError("Course evolution plan contains no operations in the selected scope")
+    return insertions
+
+
+def _course_evolution_markdown(operation: CourseEvolutionOperation) -> str:
+    payload = operation.payload
+    parts = [str(payload.get("body") or "").strip()]
+    if payload.get("contrast"):
+        parts.append(f"> {str(payload['contrast']).strip()}")
+    if payload.get("prompt"):
+        prompt_label = "请完成" if operation.operation_type == "ADD_TARGETED_PRACTICE" else "请思考"
+        parts.append(f"**{prompt_label}：** {str(payload['prompt']).strip()}")
+    if payload.get("objective"):
+        parts.append(f"**完成标准：** {str(payload['objective']).strip()}")
+    steps = [
+        str(item.get("label") or "").strip()
+        for item in payload.get("steps") or []
+        if isinstance(item, dict) and str(item.get("label") or "").strip()
+    ]
+    if steps:
+        parts.append("\n".join(
+            f"{index}. {label}"
+            for index, label in enumerate(steps, start=1)
+        ))
+    return "\n\n".join(part for part in parts if part)
+
+
 def _course_document(course_data: dict[str, Any]) -> CourseDocument:
     raw = course_data.get("course_document")
     if not isinstance(raw, dict):
@@ -1428,7 +1734,7 @@ def _compact(value: Any, *, limit: int = 180) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + "..."
 
 
-def _change_set(state: CourseEvolutionState, change_set_id: str) -> PersonalAdaptationPlan:
+def _change_set(state: CourseEvolutionState, change_set_id: str) -> CourseEvolutionPlan:
     item = next((value for value in state.change_sets if value.change_set_id == change_set_id), None)
     if item is None:
         raise KeyError(change_set_id)
@@ -1455,6 +1761,8 @@ undo_adaptation_plan = undo_change_set
 course_evolution_repository = CourseEvolutionRepository()
 
 __all__ = [
+    "CourseEvolutionOperation",
+    "CourseEvolutionPlan",
     "PersonalAdaptationOperation",
     "PersonalAdaptationPlan",
     "PersonalCourseOverlay",

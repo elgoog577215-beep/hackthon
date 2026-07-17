@@ -9,15 +9,9 @@ from typing import Any
 
 from content_blocks import project_course_content_blocks
 from course_knowledge_base import compile_course_knowledge_base, knowledge_binding_for_section
-from course_knowledge_map import compile_course_knowledge_map, knowledge_ids_for_section
 from learner_model import is_model_item_current
 from learning_runtime import build_learning_runtime
 from practice_attempts import practice_attempt_repository
-from subject_knowledge import (
-    knowledge_index,
-    knowledge_library_slice,
-    resolve_subject_library,
-)
 
 MAX_SOURCES = 5
 MAX_EVIDENCE = 5
@@ -313,53 +307,6 @@ def _knowledge_context(course: dict[str, Any], node_id: str) -> dict[str, Any]:
                 "identity_scope": "current_course_only",
                 "may_invent_formal_ids": False,
                 "reference_catalog_required": False,
-            },
-        }
-
-    subject_library = resolve_subject_library(course)
-    lifecycle_status = str(subject_library.get("lifecycle_status") or "degraded")
-    if lifecycle_status in {"accepted", "candidate"} and subject_library.get("nodes"):
-        course_map = compile_course_knowledge_map(course, subject_library)
-        selected_ids = knowledge_ids_for_section(course_map, node_id)
-        by_id = knowledge_index(subject_library)
-        nodes = [
-            {
-                "knowledge_id": knowledge_id,
-                "name": by_id[knowledge_id].get("name"),
-                "node_type": by_id[knowledge_id].get("node_type"),
-                "path_names": deepcopy(by_id[knowledge_id].get("path_names") or []),
-                "learning_actions": deepcopy((by_id[knowledge_id].get("learning_actions") or [])[:3]),
-            }
-            for knowledge_id in selected_ids[:16]
-            if knowledge_id in by_id
-        ]
-        library_slice = knowledge_library_slice(subject_library, selected_ids)
-        selected_set = set(selected_ids)
-        relations = [
-            deepcopy(item)
-            for item in subject_library.get("relations") or []
-            if item.get("source_knowledge_id") in selected_set
-            or item.get("target_knowledge_id") in selected_set
-        ][:16]
-        return {
-            "schema_version": "ai_knowledge_context_v3",
-            "knowledge_library_id": subject_library.get("library_id"),
-            "knowledge_library_version": subject_library.get("version"),
-            "knowledge_library_revision_id": subject_library.get("revision_id"),
-            "course_map_revision_id": course_map.get("revision_id"),
-            "node_id": node_id,
-            "knowledge_nodes": nodes,
-            "relations": relations,
-            "skill_units": deepcopy((library_slice.get("skill_units") or [])[:8]),
-            "mistake_points": deepcopy((library_slice.get("mistake_points") or [])[:8]),
-            "mastery_criteria": [],
-            "improvement_points": deepcopy((library_slice.get("improvement_points") or [])[:5]),
-            "mapping_status": "mapped" if nodes else "unmapped",
-            "usage_policy": {
-                **deepcopy(library_slice.get("usage_policy") or {}),
-                "role": "provisional_reference" if lifecycle_status == "candidate" else "reference_only",
-                "identity_scope": "subject_shared",
-                "may_invent_formal_ids": False,
             },
         }
 

@@ -1,4 +1,4 @@
-"""Resumable migration jobs for pinning every current course to a V3 library."""
+"""Resumable migration jobs for rebuilding each course's private knowledge base."""
 
 from __future__ import annotations
 
@@ -11,14 +11,16 @@ from pathlib import Path
 import threading
 from typing import Any
 
+from course_knowledge_rebuild import (
+    CourseKnowledgeRebuildError,
+    CourseKnowledgeRebuildService,
+)
 from course_repository import CourseDocumentRepository
 from course_versioning import stable_hash
 from storage import DATA_DIR
-from subject_library_service import SubjectLibraryService
-from subject_ontology import resolve_subject_identity
 
 
-MIGRATION_VERSION = 3
+MIGRATION_VERSION = 4
 
 
 class KnowledgeLibraryMigrationRepository:
@@ -51,24 +53,31 @@ class KnowledgeLibraryMigrationRepository:
 
 
 class KnowledgeLibraryMigrationService:
+    """Migrate courses independently; no job groups courses by subject."""
+
     def __init__(
         self,
         course_repository: CourseDocumentRepository,
-        library_service: SubjectLibraryService,
+        rebuild_service: CourseKnowledgeRebuildService | None = None,
         repository: KnowledgeLibraryMigrationRepository | None = None,
     ) -> None:
         self.course_repository = course_repository
-        self.library_service = library_service
+        self.rebuild_service = rebuild_service or CourseKnowledgeRebuildService(course_repository)
         self.repository = repository or KnowledgeLibraryMigrationRepository()
         self._threads: dict[str, threading.Thread] = {}
 
     def create_job(self) -> dict[str, Any]:
         courses = self.course_repository.storage.list_courses()
-        prioritized = sorted(
-            [str(item.get("course_id") or "") for item in courses if item.get("course_id")],
-            key=lambda course_id: (course_id != "4215dc17-7c34-48ad-91c8-a1b780c0366d", course_id),
+        course_ids = sorted(
+            str(item.get("course_id") or "")
+            for item in courses
+            if item.get("course_id")
         )
-        signature = stable_hash({"migration_version": MIGRATION_VERSION, "course_ids": prioritized})
+        signature = stable_hash({
+            "migration_version": MIGRATION_VERSION,
+            "knowledge_scope": "current_course_only",
+            "course_ids": course_ids,
+        })
         job_id = f"klm_{signature}"
         try:
             existing = self.repository.load(job_id)
@@ -76,36 +85,20 @@ class KnowledgeLibraryMigrationService:
                 return existing
         except KeyError:
             pass
-        subject_groups: list[dict[str, Any]] = []
-        groups_by_subject: dict[str, dict[str, Any]] = {}
-        for course_id in prioritized:
-            try:
-                course = self.course_repository.load_course_view(course_id)
-                subject_id = resolve_subject_identity(course)["subject_id"]
-            except Exception:
-                subject_id = f"unresolved.{course_id}"
-            group = groups_by_subject.get(subject_id)
-            if group is None:
-                group = {"subject_id": subject_id, "course_ids": []}
-                groups_by_subject[subject_id] = group
-                subject_groups.append(group)
-            group["course_ids"].append(course_id)
         job = {
             "job_id": job_id,
-            "schema_version": "knowledge_library_migration_job_v1",
+            "schema_version": "knowledge_library_migration_job_v2",
             "migration_version": MIGRATION_VERSION,
+            "knowledge_scope": "current_course_only",
             "status": "pending",
-            "course_ids": prioritized,
-            "subject_groups": subject_groups,
+            "course_ids": course_ids,
             "completed_count": 0,
             "failed_count": 0,
             "results": [],
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         self.repository.save(job)
-        thread = threading.Thread(target=self._run_thread, args=(job_id,), daemon=True)
-        self._threads[job_id] = thread
-        thread.start()
+        self._start(job_id)
         return job
 
     def load_job(self, job_id: str) -> dict[str, Any]:
@@ -123,10 +116,13 @@ class KnowledgeLibraryMigrationService:
         if job.get("status") == "paused":
             job["status"] = "pending"
             self.repository.save(job)
-            thread = threading.Thread(target=self._run_thread, args=(job_id,), daemon=True)
-            self._threads[job_id] = thread
-            thread.start()
+            self._start(job_id)
         return job
+
+    def _start(self, job_id: str) -> None:
+        thread = threading.Thread(target=self._run_thread, args=(job_id,), daemon=True)
+        self._threads[job_id] = thread
+        thread.start()
 
     def _run_thread(self, job_id: str) -> None:
         asyncio.run(self._run(job_id))
@@ -135,106 +131,68 @@ class KnowledgeLibraryMigrationService:
         job = self.repository.load(job_id)
         job["status"] = "running"
         self.repository.save(job)
-        completed_ids = {str(item.get("course_id")) for item in job.get("results") or []}
+        processed_ids = {
+            str(item.get("course_id") or "")
+            for item in job.get("results") or []
+        }
         semaphore = asyncio.Semaphore(2)
 
-        async def migrate_group(group: dict[str, Any]) -> list[dict[str, Any]]:
-            course_ids = [
-                str(course_id)
-                for course_id in group.get("course_ids") or []
-                if str(course_id) not in completed_ids
-            ]
-            if not course_ids:
-                return []
+        async def migrate_course(course_id: str) -> dict[str, Any]:
             async with semaphore:
                 try:
-                    if hasattr(self.library_service, "rebuild_courses"):
-                        rebuilt = await self.library_service.rebuild_courses(
-                            course_ids,
-                            prefer_curated=True,
-                        )
-                    else:
-                        rebuilt = [
-                            {"course_id": course_id, **(await self.library_service.rebuild_course(course_id))}
-                            for course_id in course_ids
-                        ]
-                    by_course = {
-                        str(item.get("course_id") or course_id): item
-                        for course_id, item in zip(course_ids, rebuilt)
+                    rebuilt = await self.rebuild_service.rebuild_course(course_id)
+                    knowledge_base = rebuilt.get("course_knowledge_base") or {}
+                    return {
+                        "course_id": course_id,
+                        "status": "completed",
+                        "knowledge_base_id": knowledge_base.get("knowledge_base_id"),
+                        "revision_id": knowledge_base.get("revision_id"),
+                        "lifecycle_status": knowledge_base.get("lifecycle_status"),
+                        "reused": bool(rebuilt.get("reused")),
                     }
-                    return [
-                        {
-                            "course_id": course_id,
-                            "subject_id": group.get("subject_id"),
-                            "status": "completed",
-                            "library_id": by_course[course_id]["library"].get("library_id"),
-                            "revision_id": by_course[course_id]["library"].get("revision_id"),
-                            "lifecycle_status": by_course[course_id]["library"].get("lifecycle_status"),
-                        }
-                        for course_id in course_ids
-                    ]
+                except CourseKnowledgeRebuildError as exc:
+                    return {
+                        "course_id": course_id,
+                        "status": "failed",
+                        "error": exc.message,
+                        "error_code": exc.code,
+                        "retryable": exc.retryable,
+                    }
                 except Exception as exc:
-                    recovered = []
-                    for course_id in course_ids:
-                        try:
-                            try:
-                                rebuilt_one = await self.library_service.rebuild_course(
-                                    course_id,
-                                    force=True,
-                                    strict_provider=False,
-                                )
-                            except TypeError:
-                                rebuilt_one = await self.library_service.rebuild_course(course_id)
-                            recovered.append({
-                                "course_id": course_id,
-                                "subject_id": group.get("subject_id"),
-                                "status": "completed",
-                                "library_id": rebuilt_one["library"].get("library_id"),
-                                "revision_id": rebuilt_one["library"].get("revision_id"),
-                                "lifecycle_status": rebuilt_one["library"].get("lifecycle_status"),
-                            })
-                        except Exception as individual_exc:
-                            degraded = None
-                            if hasattr(self.library_service, "degrade_course_index"):
-                                degraded = await self.library_service.degrade_course_index(
-                                    course_id,
-                                    reason=str(individual_exc or exc),
-                                )
-                            recovered.append({
-                                "course_id": course_id,
-                                "subject_id": group.get("subject_id"),
-                                "status": "failed",
-                                "error": str(individual_exc or exc),
-                                "library_id": (degraded or {}).get("library", {}).get("library_id"),
-                                "revision_id": (degraded or {}).get("library", {}).get("revision_id"),
-                                "lifecycle_status": (degraded or {}).get("library", {}).get("lifecycle_status"),
-                            })
-                    return recovered
+                    return {
+                        "course_id": course_id,
+                        "status": "failed",
+                        "error": str(exc),
+                        "error_code": "unexpected_migration_error",
+                        "retryable": True,
+                    }
 
-        groups = job.get("subject_groups") or [
-            {"subject_id": f"legacy.{course_id}", "course_ids": [course_id]}
+        pending_ids = [
+            course_id
             for course_id in job.get("course_ids") or []
+            if str(course_id) not in processed_ids
         ]
-        pending_groups = [
-            group for group in groups
-            if any(str(course_id) not in completed_ids for course_id in group.get("course_ids") or [])
-        ]
-        for offset in range(0, len(pending_groups), 2):
+        for offset in range(0, len(pending_ids), 2):
             current = self.repository.load(job_id)
             if current.get("status") == "paused":
                 return
-            grouped_results = await asyncio.gather(*(
-                migrate_group(group) for group in pending_groups[offset:offset + 2]
+            results = await asyncio.gather(*(
+                migrate_course(str(course_id))
+                for course_id in pending_ids[offset:offset + 2]
             ))
-            results = [item for group_results in grouped_results for item in group_results]
             current["results"] = [*(current.get("results") or []), *results]
-            current["completed_count"] = sum(item.get("status") == "completed" for item in current["results"])
-            current["failed_count"] = sum(item.get("status") == "failed" for item in current["results"])
+            current["completed_count"] = sum(
+                item.get("status") == "completed" for item in current["results"]
+            )
+            current["failed_count"] = sum(
+                item.get("status") == "failed" for item in current["results"]
+            )
             self.repository.save(current)
-        job = self.repository.load(job_id)
-        job["status"] = "completed"
-        job["completed_at"] = datetime.now(timezone.utc).isoformat()
-        self.repository.save(job)
+
+        completed = self.repository.load(job_id)
+        completed["status"] = "completed"
+        completed["completed_at"] = datetime.now(timezone.utc).isoformat()
+        self.repository.save(completed)
 
 
 __all__ = ["KnowledgeLibraryMigrationRepository", "KnowledgeLibraryMigrationService"]

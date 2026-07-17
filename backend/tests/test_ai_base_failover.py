@@ -186,6 +186,15 @@ async def test_call_llm_raise_on_failure_surfaces_error_after_all_candidates(mon
     assert completions.calls == ["model-a"]
 
 
+@pytest.mark.asyncio
+async def test_call_llm_strict_mode_reports_missing_provider(monkeypatch):
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    service = AIBase()
+
+    with pytest.raises(AIProviderUnavailable, match="not_configured"):
+        await service._call_llm("hi", raise_on_failure=True)
+
+
 def test_is_authentication_error_recognizes_403_and_forbidden():
     assert AIBase._is_authentication_error(_make_status_error(403, "forbidden"))
     assert AIBase._is_authentication_error(RuntimeError("403 Forbidden"))

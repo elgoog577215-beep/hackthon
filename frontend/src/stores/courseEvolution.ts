@@ -29,10 +29,10 @@ export interface AdaptationHypothesis {
   status: string
 }
 
-export interface PersonalAdaptationPlan {
+export interface CourseEvolutionPlan {
   plan_id?: string
-  plan_kind?: 'personal_adaptation_plan'
-  write_target?: 'personal_overlay'
+  plan_kind?: 'course_evolution_plan'
+  write_target?: 'course_document'
   change_set_id: string
   hypothesis_id: string
   evidence_ids: string[]
@@ -42,41 +42,42 @@ export interface PersonalAdaptationPlan {
   impact_summary: Record<string, any>
   expected_effect: string
   status: 'pending' | 'applied' | 'rejected' | 'stale' | 'undone'
+  applied_block_ids?: string[]
+  application_receipt?: Record<string, any>
+  undo_receipt?: Record<string, any>
   effect_evaluation: Record<string, any>
 }
 
-export type EvolutionChangeSet = PersonalAdaptationPlan
+export type EvolutionChangeSet = CourseEvolutionPlan
 
 export const useCourseEvolutionStore = defineStore('courseEvolution', {
   state: () => ({
     courseId: '',
     evidenceItems: [] as EvolutionEvidence[],
     hypotheses: [] as AdaptationHypothesis[],
-    adaptationPlans: [] as PersonalAdaptationPlan[],
-    personalCourseOverlay: null as Record<string, any> | null,
+    plans: [] as CourseEvolutionPlan[],
     permissions: null as Record<string, any> | null,
     summary: {} as Record<string, number>,
     loading: false,
     actingId: '',
   }),
   getters: {
-    pendingPlans: state => state.adaptationPlans.filter(item => item.status === 'pending'),
-    appliedPlans: state => state.adaptationPlans.filter(item => item.status === 'applied'),
+    pendingPlans: state => state.plans.filter(item => item.status === 'pending'),
+    appliedPlans: state => state.plans.filter(item => item.status === 'applied'),
   },
   actions: {
     applyPayload(courseId: string, payload: Record<string, any>) {
       this.courseId = courseId
       this.evidenceItems = payload.evidence_items || []
       this.hypotheses = payload.hypotheses || []
-      this.adaptationPlans = payload.adaptation_plans || payload.change_sets || []
-      this.personalCourseOverlay = payload.personal_course_overlay || null
+      this.plans = payload.course_evolution_plans || payload.change_sets || payload.adaptation_plans || []
       this.permissions = payload.permissions || null
       this.summary = payload.summary || {}
     },
     async load(courseId: string) {
       this.loading = true
       try {
-        const response = await http.get(`/api/courses/${courseId}/personal-adaptation`)
+        const response = await http.get(`/api/courses/${courseId}/evolution`)
         this.applyPayload(courseId, response.data)
         return response.data
       } finally {
@@ -86,7 +87,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     async evaluate(courseId: string) {
       this.loading = true
       try {
-        const response = await http.post(`/api/courses/${courseId}/personal-adaptation/evaluate`)
+        const response = await http.post(`/api/courses/${courseId}/evolution/evaluate`)
         this.applyPayload(courseId, response.data)
         return response.data
       } finally {
@@ -97,7 +98,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       this.actingId = planId
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/personal-adaptation/plans/${planId}/accept`,
+          `/api/courses/${this.courseId}/evolution/change-sets/${planId}/accept`,
           { selected_scope: selectedScope },
         )
         this.applyPayload(this.courseId, response.data)
@@ -110,7 +111,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       this.actingId = planId
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/personal-adaptation/plans/${planId}/reject`,
+          `/api/courses/${this.courseId}/evolution/change-sets/${planId}/reject`,
           { reason },
         )
         this.applyPayload(this.courseId, response.data)
@@ -123,7 +124,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       this.actingId = planId
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/personal-adaptation/plans/${planId}/undo`,
+          `/api/courses/${this.courseId}/evolution/change-sets/${planId}/undo`,
         )
         this.applyPayload(this.courseId, response.data)
         return response.data
@@ -135,7 +136,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       this.actingId = planId
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/personal-adaptation/plans/${planId}/adjust`,
+          `/api/courses/${this.courseId}/evolution/change-sets/${planId}/adjust`,
         )
         this.applyPayload(this.courseId, response.data)
         return response.data

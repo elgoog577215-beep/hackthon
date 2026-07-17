@@ -5,6 +5,7 @@ from copy import deepcopy
 import course_evolution
 import pytest
 from course_document import document_from_legacy_course
+from course_repository import CourseDocumentRepository
 from course_evolution import (
     CourseEvolutionRepository,
     accept_change_set,
@@ -15,6 +16,21 @@ from course_evolution import (
     synchronize_and_evaluate_course_evolution,
     undo_change_set,
 )
+
+
+class _MemoryCourseStorage:
+    def __init__(self, *courses: dict) -> None:
+        self.courses = {
+            str(course["course_id"]): deepcopy(course)
+            for course in courses
+        }
+
+    def load_course(self, course_id: str) -> dict | None:
+        value = self.courses.get(course_id)
+        return deepcopy(value) if value else None
+
+    async def save_course(self, course_id: str, course: dict) -> None:
+        self.courses[course_id] = deepcopy(course)
 
 
 def _course() -> dict:
@@ -42,8 +58,16 @@ def _course() -> dict:
     }
     document = document_from_legacy_course(course)
     course["course_document"] = document.model_dump(mode="json")
+    course["course_schema_version"] = "course_document_v1"
+    course["course_document_revision"] = document.document_revision
     course["course_document_authoritative"] = True
+    course["current_course_version_id"] = document.document_revision
+    course["course_operation_log"] = []
     return course
+
+
+def _document_repository(course: dict) -> CourseDocumentRepository:
+    return CourseDocumentRepository(_MemoryCourseStorage(course))
 
 
 def _course_with_knowledge() -> dict:
@@ -147,6 +171,17 @@ def test_three_independent_evidence_sources_create_explainable_multi_scope_candi
     course = _course()
     document = document_from_legacy_course(course)
     _install_sources(monkeypatch, document)
+    monkeypatch.setattr(course_evolution.learning_asset_repository, "load_bundle", lambda _course_id: {
+        "assets": {
+            "questions": [{
+                "asset_id": "question-targeted",
+                "revision_id": "question-revision-targeted",
+                "node_id": "section-1",
+                "status": "active",
+                "prompt": "解释矩阵复合顺序，并判断交换顺序是否改变结果。",
+            }],
+        },
+    })
     repository = CourseEvolutionRepository(tmp_path)
 
     state = synchronize_and_evaluate_course_evolution(
@@ -168,24 +203,40 @@ def test_three_independent_evidence_sources_create_explainable_multi_scope_candi
     assert change_set.status == "pending"
     assert change_set.allowed_scopes == ["current", "current_and_next"]
     assert {item.operation_type for item in change_set.operations} >= {
-        "INSERT_PERSONAL_SUPPORT", "ADD_ANIMATION", "ADD_CHECKPOINT", "ADD_TRANSITION_SUPPORT",
+        "INSERT_COURSE_SUPPORT", "ADD_ANIMATION", "ADD_TARGETED_PRACTICE", "ADD_TRANSITION_SUPPORT",
     }
     animation = next(item for item in change_set.operations if item.operation_type == "ADD_ANIMATION")
+    practice = next(item for item in change_set.operations if item.operation_type == "ADD_TARGETED_PRACTICE")
     assert animation.payload["animation_spec"]["schema_version"] == "animation_spec_v1"
     assert len(animation.payload["animation_spec"]["keyframes"]) == 3
     assert len(animation.payload["animation_spec"]["fallback_frames"]) == 3
-    assert "基础课程" in change_set.impact_summary["protected"]
+    assert practice.payload["practice_task_id"] == "question-revision-targeted"
+    assert practice.payload["practice_intent"] == "targeted_retry"
+    assert practice.payload["requires_confirmation"] is True
+    assert "范围外课程内容" in change_set.impact_summary["protected"]
 
 
-def test_acceptance_grows_only_the_selected_learner_course_and_can_be_undone(
+def test_acceptance_commits_current_course_revision_and_can_be_undone(
     tmp_path,
     monkeypatch,
 ):
     course = _course()
-    base_course = deepcopy(course)
     document = document_from_legacy_course(course)
     _install_sources(monkeypatch, document)
+    monkeypatch.setattr(course_evolution.learning_asset_repository, "load_bundle", lambda _course_id: {
+        "assets": {
+            "questions": [{
+                "asset_id": "question-targeted",
+                "revision_id": "question-revision-targeted",
+                "node_id": "section-1",
+                "status": "active",
+                "prompt": "解释矩阵复合顺序。",
+            }],
+        },
+    })
     repository = CourseEvolutionRepository(tmp_path)
+    document_repository = _document_repository(course)
+    before_document, _ = document_repository.load_document(course["course_id"])
     student_a = synchronize_and_evaluate_course_evolution(
         course,
         user_id="student-a",
@@ -199,33 +250,59 @@ def test_acceptance_grows_only_the_selected_learner_course_and_can_be_undone(
         change_set_id=change_set_id,
         selected_scope="current_and_next",
         repository=repository,
+        document_repository=document_repository,
     )
-    student_a_blocks = project_applied_adaptive_blocks(applied)
+    applied_document, _ = document_repository.load_document(course["course_id"])
     overlay = personal_course_overlay(applied)
     view = course_evolution_view(applied)
     student_b = repository.load("student-b", course["course_id"])
+    plan = applied.change_sets[0]
 
-    assert len(student_a_blocks) > 3
-    assert overlay.active_plan_ids == [change_set_id]
-    assert overlay.operations
-    assert view["adaptation_plans"][0]["plan_kind"] == "personal_adaptation_plan"
-    assert view["personal_course_overlay"]["overlay_id"] == overlay.overlay_id
+    assert applied_document.document_revision != before_document.document_revision
+    assert len(applied_document.blocks) > len(before_document.blocks)
+    assert plan.plan_kind == "course_evolution_plan"
+    assert plan.write_target == "course_document"
+    assert plan.applied_block_ids
+    assert plan.application_receipt["document_revision"] == applied_document.document_revision
+    assert {
+        block.block_id
+        for block in applied_document.blocks
+        if block.status != "retired"
+    } >= set(plan.applied_block_ids)
+    targeted_practice = next(
+        block for block in applied_document.blocks
+        if block.payload.get("practice_intent") == "targeted_retry"
+    )
+    assert targeted_practice.kind == "practice_ref"
+    assert targeted_practice.asset_refs == ["question-revision-targeted"]
+    assert project_applied_adaptive_blocks(applied) == []
+    assert overlay.active_plan_ids == []
+    assert overlay.operations == []
+    assert view["course_evolution_plans"][0]["plan_kind"] == "course_evolution_plan"
     assert view["permissions"] == {
-        "write_target": "personal_overlay",
-        "can_modify_base_course": False,
+        "write_target": "course_document",
+        "can_modify_current_course": True,
+        "can_modify_other_courses": False,
         "can_modify_other_learners": False,
         "can_modify_course_knowledge_base": False,
     }
     assert project_applied_adaptive_blocks(student_b) == []
-    assert course == base_course
 
     undone = undo_change_set(
         user_id="student-a",
         course_id=course["course_id"],
         change_set_id=change_set_id,
         repository=repository,
+        document_repository=document_repository,
     )
+    undone_document, _ = document_repository.load_document(course["course_id"])
     assert project_applied_adaptive_blocks(undone) == []
+    assert undone_document.document_revision != applied_document.document_revision
+    assert all(
+        block.status == "retired"
+        for block in undone_document.blocks
+        if block.block_id in plan.applied_block_ids
+    )
 
 
 def test_single_explicit_evidence_stays_local_instead_of_expanding_by_count(
@@ -311,15 +388,19 @@ def test_ai_question_is_anchored_to_course_knowledge_and_relations_drive_scope(
         "learning_event", "learning_record", "practice_attempt",
     ]
     assert related.block_id in plan.impact_summary["dependent_block_ids"]
-    assert plan.operations[3].target_block_id == related.block_id
+    assert any(
+        operation.operation_type == "ADD_TRANSITION_SUPPORT"
+        and operation.target_block_id == related.block_id
+        for operation in plan.operations
+    )
     animation = next(item for item in plan.operations if item.operation_type == "ADD_ANIMATION")
-    checkpoint = next(item for item in plan.operations if item.operation_type == "ADD_CHECKPOINT")
+    checkpoint = next(item for item in plan.operations if item.operation_type == "ADD_TARGETED_PRACTICE")
     assert animation.payload["animation_spec"]["knowledge_refs"] == plan.impact_summary["knowledge_node_ids"]
     assert checkpoint.payload["ability_refs"] == plan.impact_summary["ability_point_ids"]
     assert checkpoint.payload["expected_effect"]
 
 
-def test_personal_adaptation_api_uses_overlay_without_mutating_base_course(
+def test_course_evolution_api_commits_the_reviewed_course_revision(
     tmp_path,
     monkeypatch,
 ):
@@ -328,38 +409,46 @@ def test_personal_adaptation_api_uses_overlay_without_mutating_base_course(
     from routers import course_evolution as evolution_router
 
     course = _course()
-    base_course = deepcopy(course)
     document = document_from_legacy_course(course)
     _install_sources(monkeypatch, document)
     repository = CourseEvolutionRepository(tmp_path)
+    document_repository = _document_repository(course)
     monkeypatch.setattr(course_evolution, "course_evolution_repository", repository)
+    monkeypatch.setattr(
+        evolution_router,
+        "get_course_document_repository",
+        lambda: document_repository,
+    )
 
     async def existing_course(_course_id: str):
-        return course
+        return document_repository.load_course_view(_course_id)
 
     monkeypatch.setattr(evolution_router, "get_course_or_404", existing_course)
     app = FastAPI()
-    app.include_router(evolution_router.personal_router, prefix="/api")
+    app.include_router(evolution_router.router, prefix="/api")
     client = TestClient(app)
+    before, _ = document_repository.load_document(course["course_id"])
 
     loaded = client.get(
-        "/api/courses/course-growth/personal-adaptation",
+        "/api/courses/course-growth/evolution",
         headers={"X-User-Id": "student-a"},
     )
     assert loaded.status_code == 200
-    plan_id = loaded.json()["adaptation_plans"][0]["plan_id"]
+    plan_id = loaded.json()["course_evolution_plans"][0]["plan_id"]
 
     accepted = client.post(
-        f"/api/courses/course-growth/personal-adaptation/plans/{plan_id}/accept",
+        f"/api/courses/course-growth/evolution/change-sets/{plan_id}/accept",
         headers={"X-User-Id": "student-a"},
         json={"selected_scope": "current_and_next"},
     )
 
     assert accepted.status_code == 200
     payload = accepted.json()
-    assert payload["personal_course_overlay"]["active_plan_ids"] == [plan_id]
-    assert payload["permissions"]["can_modify_base_course"] is False
-    assert course == base_course
+    after, _ = document_repository.load_document(course["course_id"])
+    assert after.document_revision != before.document_revision
+    assert payload["course_evolution_plans"][0]["write_target"] == "course_document"
+    assert payload["permissions"]["can_modify_current_course"] is True
+    assert payload["permissions"]["can_modify_other_courses"] is False
 
 
 def test_ineffective_adaptation_creates_reviewable_replacement_and_replaces_atomically(
@@ -370,6 +459,7 @@ def test_ineffective_adaptation_creates_reviewable_replacement_and_replaces_atom
     document = document_from_legacy_course(course)
     _install_sources(monkeypatch, document)
     repository = CourseEvolutionRepository(tmp_path)
+    document_repository = _document_repository(course)
     initial = synchronize_and_evaluate_course_evolution(
         course,
         user_id="student-a",
@@ -382,6 +472,7 @@ def test_ineffective_adaptation_creates_reviewable_replacement_and_replaces_atom
         change_set_id=source_id,
         selected_scope="current_and_next",
         repository=repository,
+        document_repository=document_repository,
     )
 
     monkeypatch.setattr(course_evolution, "load_learning_events", lambda **_kwargs: [
@@ -412,13 +503,14 @@ def test_ineffective_adaptation_creates_reviewable_replacement_and_replaces_atom
     )
     source = next(item for item in evaluated.change_sets if item.change_set_id == source_id)
     assert source.effect_evaluation["status"] == "ineffective"
-    assert source.effect_evaluation["follow_up_candidate"]["candidate_type"] == "adjust_personal_adaptation"
+    assert source.effect_evaluation["follow_up_candidate"]["candidate_type"] == "adjust_course_evolution"
 
     adjusted = create_adjustment_plan(
         user_id="student-a",
         course_id=course["course_id"],
         change_set_id=source_id,
         repository=repository,
+        document_repository=document_repository,
     )
     replacement = next(item for item in adjusted.change_sets if item.replaces_change_set_id == source_id)
     assert replacement.status == "pending"
@@ -430,10 +522,24 @@ def test_ineffective_adaptation_creates_reviewable_replacement_and_replaces_atom
         change_set_id=replacement.change_set_id,
         selected_scope="current_and_next",
         repository=repository,
+        document_repository=document_repository,
     )
     assert next(item for item in applied.change_sets if item.change_set_id == source_id).status == "undone"
     assert next(item for item in applied.change_sets if item.change_set_id == replacement.change_set_id).status == "applied"
-    assert personal_course_overlay(applied).active_plan_ids == [replacement.change_set_id]
+    assert personal_course_overlay(applied).active_plan_ids == []
+    source_plan = next(item for item in applied.change_sets if item.change_set_id == source_id)
+    replacement_plan = next(item for item in applied.change_sets if item.change_set_id == replacement.change_set_id)
+    updated_document, _ = document_repository.load_document(course["course_id"])
+    assert all(
+        block.status == "retired"
+        for block in updated_document.blocks
+        if block.block_id in source_plan.applied_block_ids
+    )
+    assert set(replacement_plan.applied_block_ids) <= {
+        block.block_id
+        for block in updated_document.blocks
+        if block.status != "retired"
+    }
 
 
 @pytest.mark.parametrize(("feedback", "later_results", "interaction", "expected", "action"), [
@@ -455,6 +561,7 @@ def test_effect_evaluation_uses_later_learning_evidence_not_acceptance(
     document = document_from_legacy_course(course)
     _install_sources(monkeypatch, document)
     repository = CourseEvolutionRepository(tmp_path / expected)
+    document_repository = _document_repository(course)
     initial = synchronize_and_evaluate_course_evolution(
         course,
         user_id="student-a",
@@ -467,6 +574,7 @@ def test_effect_evaluation_uses_later_learning_evidence_not_acceptance(
         change_set_id=plan.change_set_id,
         selected_scope="current_and_next",
         repository=repository,
+        document_repository=document_repository,
     )
 
     events = [{
@@ -525,7 +633,7 @@ def test_effect_evaluation_uses_later_learning_evidence_not_acceptance(
     if interaction:
         assert result.effect_evaluation["interaction_event_ids"] == ["interaction-animation"]
     if expected == "harmful":
-        assert result.effect_evaluation["follow_up_candidate"]["candidate_type"] == "rollback_personal_adaptation"
+        assert result.effect_evaluation["follow_up_candidate"]["candidate_type"] == "rollback_course_evolution"
 
 
 def test_unrelated_later_success_cannot_prove_personal_adaptation_effective(
@@ -536,6 +644,7 @@ def test_unrelated_later_success_cannot_prove_personal_adaptation_effective(
     document = document_from_legacy_course(course)
     _install_sources(monkeypatch, document)
     repository = CourseEvolutionRepository(tmp_path)
+    document_repository = _document_repository(course)
     initial = synchronize_and_evaluate_course_evolution(
         course,
         user_id="student-a",
@@ -548,6 +657,7 @@ def test_unrelated_later_success_cannot_prove_personal_adaptation_effective(
         change_set_id=plan.change_set_id,
         selected_scope="current_and_next",
         repository=repository,
+        document_repository=document_repository,
     )
     monkeypatch.setattr(course_evolution, "load_learning_events", lambda **_kwargs: [
         {

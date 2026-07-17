@@ -25,8 +25,18 @@
           <PencilLine :size="13" />
           <span>{{ t('courseWorkspace.blockRegeneration.open', '改进正式正文') }}</span>
         </button>
+        <CourseEvolutionContentBlock
+          v-if="item.block.metadata?.course_evolution"
+          :block-id="item.block.block_id"
+          :node-id="node.node_id"
+          :kind="String(item.block.metadata?.kind || '')"
+          :content="item.block.content || ''"
+          :metadata="item.block.metadata"
+          :search-words="searchWords"
+          @start-practice="emit('startPractice', $event)"
+        />
         <FeedbackReviewBlock
-          v-if="item.block.type === 'feedback'"
+          v-else-if="item.block.type === 'feedback'"
           :content="item.block.content || ''"
           :structure="item.block.metadata?.feedback_structure"
           :search-words="searchWords"
@@ -36,7 +46,10 @@
           :node="node"
           :block="item.block"
           :active="activeBlockId === item.block.block_id"
+          :regeneration-request="regenerationRequests[item.block.block_id]"
           @activate="activeBlockId = $event"
+          @record-persisted="liveRecordIds.add($event)"
+          @record-released="liveRecordIds.delete($event)"
         />
       </article>
       <InlineLearningRecordBlock
@@ -44,6 +57,8 @@
         :key="record.id"
         :note="record"
         @open="emit('openRecord', $event)"
+        @regenerate="regenerateAiRecord"
+        @delete="deleteAiRecord"
       />
     </template>
     <span v-if="isStreaming" class="stream-cursor"></span>
@@ -61,20 +76,24 @@
         :key="record.id"
         :note="record"
         @open="emit('openRecord', $event)"
+        @regenerate="regenerateAiRecord"
+        @delete="deleteAiRecord"
       />
     </div>
   </template>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { PencilLine } from 'lucide-vue-next'
 import InlineCourseBlockAI from './InlineCourseBlockAI.vue'
 import InlineLearningRecordBlock from './InlineLearningRecordBlock.vue'
+import CourseEvolutionContentBlock from './CourseEvolutionContentBlock.vue'
 import FeedbackReviewBlock from './FeedbackReviewBlock.vue'
 import MarkdownDocumentEditor from './MarkdownDocumentEditor.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import type { ContentBlock, CourseBlockEditTarget, Node, Note } from '../stores/types'
+import { useNoteStore } from '../stores/notes'
 import { t } from '../shared/i18n'
 
 const props = withDefaults(defineProps<{
@@ -88,8 +107,12 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   openRecord: [payload: { note: Note; x: number; y: number }]
   improveBlock: [payload: CourseBlockEditTarget]
+  startPractice: [taskRevisionId: string]
 }>()
 const activeBlockId = ref('')
+const noteStore = useNoteStore()
+const liveRecordIds = reactive(new Set<string>())
+const regenerationRequests = reactive<Record<string, { token: number; prompt: string; action?: 'explain' | 'example' | 'simplify' | 'ask' }>>({})
 const blocks = computed(() => (props.node.course_blocks?.length
   ? props.node.course_blocks.map(block => ({
       block_id: block.block_id,
@@ -104,6 +127,10 @@ const blocks = computed(() => (props.node.course_blocks?.length
         kind: block.kind,
         role: block.role,
         feedback_structure: block.payload.feedback_structure,
+        course_evolution: block.payload.course_evolution,
+        animation_spec: block.payload.animation_spec,
+        practice_task_id: block.payload.practice_task_id,
+        practice_intent: block.payload.practice_intent,
       },
       block_revision_id: block.internal_revision,
     } as ContentBlock))
@@ -115,6 +142,7 @@ const projectableRecords = computed(() => props.records.filter(record => (
   && record.sourceType !== 'wrong'
   && record.migrationStatus !== 'needs_confirmation'
   && record.migrationStatus !== 'orphaned'
+  && !liveRecordIds.has(record.id)
 )))
 const streamItems = computed(() => {
   const items = blocks.value.map(block => ({ block, records: [] as Note[] }))
@@ -152,6 +180,26 @@ function requestBlockImprovement(blockId: string) {
     nodeName: props.node.node_name,
     block,
   })
+}
+
+function regenerateAiRecord(note: Note) {
+  const blockId = String(note.anchor?.block_id || '')
+  const prompt = String(note.metadata?.ai_prompt || '').trim()
+  if (!blockId || !prompt) return
+  const action = String(note.metadata?.inline_ai_action || 'ask')
+  regenerationRequests[blockId] = {
+    token: (regenerationRequests[blockId]?.token || 0) + 1,
+    prompt,
+    action: ['explain', 'example', 'simplify', 'ask'].includes(action)
+      ? action as 'explain' | 'example' | 'simplify' | 'ask'
+      : 'ask',
+  }
+  activeBlockId.value = blockId
+}
+
+async function deleteAiRecord(note: Note) {
+  liveRecordIds.delete(note.id)
+  await noteStore.deleteNote(note.id)
 }
 </script>
 

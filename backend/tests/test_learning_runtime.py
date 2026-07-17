@@ -263,3 +263,59 @@ def test_adaptive_block_interaction_is_recorded_as_effect_evidence(monkeypatch):
     assert recorded[0]["event_type"] == "adaptive_block_interaction"
     assert recorded[0]["result"] == {"interaction": "animation_played"}
     assert recorded[0]["metadata"]["adaptive_block_id"] == "block-1"
+
+
+def test_formal_course_evolution_block_interaction_remains_effect_evidence(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers import learning_runtime as runtime_router
+
+    recorded = []
+    course = {
+        "course_id": "c1",
+        "current_course_version_id": "cv2",
+        "nodes": [{
+            "node_id": "n1",
+            "course_blocks": [{
+                "block_id": "course-growth-1",
+                "kind": "diagram",
+                "evidence_refs": ["e1", "e2", "e3"],
+                "payload": {
+                    "course_evolution": {
+                        "operation_id": "operation-1",
+                        "change_set_id": "plan-1",
+                    },
+                },
+            }],
+        }],
+    }
+
+    async def existing_course(_course_id: str):
+        return deepcopy(course)
+
+    monkeypatch.setattr(runtime_router, "get_course_or_404", existing_course)
+    monkeypatch.setattr(runtime_router, "build_learning_runtime", lambda *_args, **_kwargs: {
+        "runtime_revision_id": "runtime-2",
+        "adaptive_blocks": [],
+    })
+
+    def record(**payload):
+        recorded.append(payload)
+        return {"event_id": "event-formal-interaction"}
+
+    monkeypatch.setattr(runtime_router, "record_learning_event", record)
+    app = FastAPI()
+    app.include_router(runtime_router.router, prefix="/api")
+    response = TestClient(app, headers={"X-User-Id": "student-a"}).post(
+        "/api/courses/c1/learning-runtime/adaptive-blocks/interactions",
+        json={
+            "adaptive_block_id": "operation-1",
+            "node_id": "n1",
+            "interaction": "animation_played",
+        },
+    )
+
+    assert response.status_code == 200
+    assert recorded[0]["source"] == "learning_runtime.course_evolution_block"
+    assert recorded[0]["entity_type"] == "course_evolution_block"
+    assert recorded[0]["evidence"] == {"evidence_refs": ["e1", "e2", "e3"]}

@@ -498,90 +498,13 @@ def propose_content_linkage_from_kb_change(
     request_id: str,
     library: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Knowledge-base -> content linkage.
+    """Retired compatibility entry point.
 
-    Sibling, additive branch next to `suggest_subject_knowledge`: that function
-    "never promotes a mapping" for the course->library direction; this one
-    keeps the same non-binding contract for the opposite direction. Call this
-    after a knowledge-library node's definition has been updated (there is
-    currently no route in this repo that mutates the curated catalogs under
-    `backend/catalogs/subject_knowledge/` - this function is the integration
-    seam a future knowledge-editing command/route should call with the
-    node's freshly-updated definition).
-
-    Finds every course content block already bound to `kg_node_id` (reusing
-    `course_knowledge_map.compile_course_knowledge_map`'s block<->node
-    association) and, if any exist, emits one pending `source="kb_link"`,
-    `target_kind="course_block"` change-proposal item per block suggesting the
-    course text be synchronized. Never edits course content directly - only
-    produces a pending proposal via `change_proposals.create_proposal`; a
-    human/operator must still review and apply it.
+    A legacy cross-course subject node can never drive current-course content.
+    Knowledge changes must originate from the current course maintenance
+    surface and use current-course IDs.
     """
-    from change_proposals import create_proposal
-    from course_knowledge_map import compile_course_knowledge_map
-
-    subject_library = library if library is not None else resolve_subject_library(course_data)
-    course_map = compile_course_knowledge_map(deepcopy(course_data), subject_library)
-
-    block_ids: list[str] = []
-    for mapping in course_map.get("mappings") or []:
-        refs = {
-            str(mapping.get("anchor_knowledge_id") or ""),
-            *(str(item) for item in mapping.get("knowledge_ids") or []),
-        }
-        if kg_node_id in refs:
-            block_ids.extend(str(item) for item in mapping.get("block_ids") or [])
-    block_ids = list(dict.fromkeys(bid for bid in block_ids if bid))
-    if not block_ids:
-        return None
-
-    node_name = str(updated_definition.get("name") or kg_node_id)
-    new_description = str(updated_definition.get("description") or "")
-    items: list[dict[str, Any]] = []
-    for block_id in block_ids:
-        block = _find_legacy_block(course_data, block_id)
-        if block is None:
-            continue
-        current = {
-            "title": block.get("title"),
-            "content": block.get("content"),
-        }
-        note = f"\n\n[知识库同步建议] 知识节点「{node_name}」定义已更新为：{new_description}"
-        suggested = dict(current)
-        suggested["content"] = f"{suggested.get('content') or ''}{note}".strip()
-        items.append({
-            "block_id": block_id,
-            "target_kind": "course_block",
-            "before": current,
-            "after": {"payload": suggested},
-            "reason": (
-                f"知识库节点「{node_name}」（{kg_node_id}）已更新为「{new_description}」，"
-                f"建议同步课程正文块 {block_id}。"
-            ),
-        })
-    if not items:
-        return None
-
-    return create_proposal(
-        repository,
-        str(course_data.get("course_id") or ""),
-        request_id=request_id,
-        scope="block" if len(block_ids) == 1 else "sections",
-        target_block_ids=block_ids,
-        items=items,
-        source="kb_link",
-        generation_meta={
-            "linkage_direction": "kb_to_content",
-            "trigger_kg_node_id": kg_node_id,
-        },
-    )
-
-
-def _find_legacy_block(course_data: dict[str, Any], block_id: str) -> dict[str, Any] | None:
-    for node in course_data.get("nodes") or []:
-        for block in node.get("content_blocks") or []:
-            if str(block.get("block_id") or "") == block_id:
-                return block
+    del course_data, kg_node_id, updated_definition, repository, request_id, library
     return None
 
 

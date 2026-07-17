@@ -21,7 +21,6 @@ from course_pedagogy import coerce_persisted_profile
 from course_versioning import stable_hash
 from learning_progress import learning_objective_identity
 from practice_contracts import enrich_question_contract
-from subject_knowledge import build_knowledge_library_view, resolve_subject_library
 
 ASSET_SCHEMA = "learning_assets_v2"
 QUALITY_SCHEMA = "asset_quality_v1"
@@ -119,21 +118,14 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
         objective = learning_objective_identity(course_id, node)
         node["objective_id"] = objective["objective_id"]
         node["objective_revision_id"] = objective["objective_revision_id"]
-    # Cross-course catalogs are optional naming references only.  Product
-    # identity and all downstream bindings come from this course's own CKB.
-    subject_library = resolve_subject_library(course_data)
-    course_map = compile_course_knowledge_map(course_data, subject_library)
+    # The knowledge identity boundary is the current course.  No shared subject
+    # catalog may participate in generation, binding, display, or validation.
+    course_map = compile_course_knowledge_map(course_data)
     course_knowledge_base = compile_course_knowledge_base(
         course_data,
-        library=subject_library,
         course_map=course_map,
     )
     course_map = bind_course_knowledge_base_to_map(course_map, course_knowledge_base)
-    course_knowledge_base = compile_course_knowledge_base(
-        course_data,
-        library=subject_library,
-        course_map=course_map,
-    )
     point_by_id = {
         str(item.get("knowledge_id") or ""): item
         for item in course_knowledge_base.get("knowledge_points") or []
@@ -369,7 +361,6 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
     }
     course_knowledge_base = compile_course_knowledge_base(
         course_data,
-        library=subject_library,
         course_map=course_map,
         assets=assets,
     )
@@ -377,29 +368,11 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
     _attach_course_knowledge_refs(assets, course_knowledge_base)
     if "course_knowledge_base" in enabled:
         assets["course_knowledge_base"] = [course_knowledge_base]
-    subject_lifecycle = str(
-        subject_library.get("lifecycle_status")
-        or ("accepted" if subject_library.get("status") == "active" else "degraded")
-    )
-    subject_binding = course_data.get("knowledge_library_binding") or {}
-    binding_matches_subject = bool(subject_binding) and (
-        str(subject_binding.get("revision_id") or "") == str(subject_library.get("revision_id") or "")
-        or str(subject_binding.get("library_id") or "") == str(subject_library.get("library_id") or "")
-    )
-    has_governed_subject_library = (
-        binding_matches_subject
-        and bool(subject_library.get("nodes"))
-        and subject_lifecycle in {"accepted", "candidate"}
-    )
-    knowledge_view = (
-        build_knowledge_library_view(subject_library, course_map, assets)
-        if has_governed_subject_library
-        else build_course_knowledge_library_view(
-            course_knowledge_base,
-            course_map,
-            assets,
-            course_data,
-        )
+    knowledge_view = build_course_knowledge_library_view(
+        course_knowledge_base,
+        course_map,
+        assets,
+        course_data,
     )
     if "knowledge_library" in enabled:
         assets["knowledge_library"] = [knowledge_view]
@@ -449,7 +422,7 @@ def evaluate_learning_asset_quality(
         knowledge_report = validate_course_knowledge_base(
             course_knowledge_base,
             course_data=course_data,
-            library=resolve_subject_library(course_data),
+            library={},
         )
         for issue in knowledge_report.get("issues") or []:
             issues.append(_asset_issue(

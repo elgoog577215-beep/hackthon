@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import { createPinia } from 'pinia'
 import CourseBlockStream from '@/components/CourseBlockStream.vue'
 import type { Node as CourseNode, Note } from '@/stores/types'
 
@@ -15,6 +16,7 @@ const baseNode: CourseNode = {
 }
 
 const global = {
+  plugins: [createPinia()],
   stubs: {
     MarkdownRenderer: {
       props: ['content'],
@@ -31,9 +33,9 @@ const global = {
     },
     InlineCourseBlockAI: {
       name: 'InlineCourseBlockAI',
-      props: ['node', 'block', 'active'],
-      emits: ['activate'],
-      template: '<div><button class="inline-block-ai-stub" :data-block-id="block.block_id" @click="$emit(\'activate\', block.block_id)">AI</button></div>',
+      props: ['node', 'block', 'active', 'regenerationRequest'],
+      emits: ['activate', 'recordPersisted', 'recordReleased'],
+      template: '<div><button class="inline-block-ai-stub" :data-block-id="block.block_id" @click="$emit(\'activate\', block.block_id)">AI</button><button class="persist-record-stub" @click="$emit(\'recordPersisted\', \'ai-note-1\')">persist</button><button class="release-record-stub" @click="$emit(\'recordReleased\', \'ai-note-1\')">release</button></div>',
     },
   },
 }
@@ -121,6 +123,72 @@ describe('CourseBlockStream', () => {
     expect(wrapper.find('.markdown-renderer').exists()).toBe(false)
   })
 
+  it('把证据驱动变化渲染为正式课程块，并保留可交互动画与复验依据', () => {
+    const node: CourseNode = {
+      ...baseNode,
+      course_blocks: [{
+        block_id: 'growth-1', section_id: 'node-1', position: 0, kind: 'diagram', role: 'reasoning',
+        payload: {
+          title: '分步演示',
+          markdown: '先观察对象，再比较变换前后的状态。',
+          course_evolution: {
+            schema_version: 'course_evolution_block_v1',
+            change_set_id: 'plan-1',
+            operation_id: 'operation-1',
+            evidence_ids: ['evidence-1'],
+          },
+          animation_spec: {
+            schema_version: 'animation_spec_v1',
+            animation_id: 'animation-1',
+            title: '复合顺序',
+            accessibility_text: '分两步展示复合顺序。',
+            keyframes: [
+              { index: 1, label: '初始状态', state: { description: '尚未执行变换。' }, duration_ms: 500 },
+              { index: 2, label: '完成复合', state: { description: '比较最终状态。' }, duration_ms: 500 },
+            ],
+          },
+        },
+        asset_refs: [], objective_refs: [], concept_refs: [], evidence_refs: ['evidence-1'],
+        visibility_rule: {}, internal_revision: 'cbr-growth', status: 'final',
+      }],
+    }
+
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+
+    expect(wrapper.get('.course-evolution-content').text()).toContain('先观察对象')
+    expect(wrapper.get('.course-evolution-animation__frame').text()).toContain('初始状态')
+    expect(wrapper.text()).toContain('学习证据形成的课程版本')
+    expect(wrapper.get('.course-content-block').attributes('data-content-block-id')).toBe('growth-1')
+  })
+
+  it('确认后的针对性练习正文块打开后端指定的正式题目', async () => {
+    const node: CourseNode = {
+      ...baseNode,
+      course_blocks: [{
+        block_id: 'targeted-practice-1', section_id: 'node-1', position: 0, kind: 'practice_ref', role: 'checkpoint',
+        payload: {
+          title: '针对性练习',
+          markdown: '完成与当前能力缺口对应的独立检查。',
+          practice_task_id: 'question-revision-targeted',
+          practice_intent: 'targeted_retry',
+          course_evolution: {
+            schema_version: 'course_evolution_block_v1',
+            change_set_id: 'plan-1',
+            operation_id: 'operation-practice',
+            evidence_ids: ['evidence-1'],
+          },
+        },
+        asset_refs: ['question-revision-targeted'], objective_refs: [], concept_refs: [],
+        evidence_refs: ['evidence-1'], visibility_rule: {}, internal_revision: 'cbr-practice', status: 'final',
+      }],
+    }
+
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+    expect(wrapper.get('.course-evolution-practice').text()).toContain('针对性练习')
+    await wrapper.get('.course-evolution-practice button').trigger('click')
+    expect(wrapper.emitted('startPractice')).toEqual([['question-revision-targeted']])
+  })
+
   it('为课程块提供原位 AI 协作入口并带出稳定块引用', async () => {
     const block = {
       block_id: 'canonical', section_id: 'node-1', position: 0, kind: 'rich_text' as const, role: 'concept' as const,
@@ -204,5 +272,36 @@ describe('CourseBlockStream', () => {
     expect(children[1]?.classList.contains('inline-learning-record')).toBe(true)
     expect(children[1]?.textContent).toContain('这里要区分集合和运算。')
     expect(children[2]?.getAttribute('data-content-block-id')).toBe('b2')
+  })
+
+  it('已沉淀的 AI 讲解可从正文原位重做，展开结果时不重复投影旧记录', async () => {
+    const node: CourseNode = {
+      ...baseNode,
+      content_blocks: [
+        { block_id: 'b1', block_revision_id: 'r1', type: 'concept', title: '定义', content: '向量空间的定义', order: 1 },
+      ],
+    }
+    const record: Note = {
+      id: 'ai-note-1', nodeId: 'node-1', highlightId: 'hl-ai-note-1', quote: '向量空间的定义',
+      content: '### 问题 / 请求\n为什么？\n\n### AI 讲解\n因为它满足封闭性。',
+      color: 'purple', createdAt: Date.now(), sourceType: 'ai', recordType: 'note', status: 'active',
+      anchor: { block_id: 'b1', block_revision_id: 'r1' }, migrationStatus: 'current', syncState: 'saved',
+      metadata: { record_subtype: 'anchored_ai_qa', ai_prompt: '为什么？', inline_ai_action: 'ask' },
+    }
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content, records: [record] }, global })
+
+    await wrapper.get('.record-actions button').trigger('click')
+    const blockAi = wrapper.findComponent({ name: 'InlineCourseBlockAI' })
+    expect(blockAi.props('active')).toBe(true)
+    expect(blockAi.props('regenerationRequest')).toEqual(expect.objectContaining({
+      token: 1,
+      prompt: '为什么？',
+      action: 'ask',
+    }))
+
+    await wrapper.get('.persist-record-stub').trigger('click')
+    expect(wrapper.find('.inline-learning-record').exists()).toBe(false)
+    await wrapper.get('.release-record-stub').trigger('click')
+    expect(wrapper.find('.inline-learning-record').exists()).toBe(true)
   })
 })

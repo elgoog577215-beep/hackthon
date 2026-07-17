@@ -6,7 +6,6 @@ from course_repository import CourseDocumentRepository
 from course_versioning import build_blueprint_draft
 from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
-from subject_ontology import build_subject_ontology
 from task_manager import TaskManager
 
 
@@ -94,42 +93,12 @@ class BlueprintService:
         return course
 
 
-class PinnedSubjectLibraryService:
-    def __init__(self):
-        self.prepare_calls = 0
-        self.library = None
-
-    async def prepare_course(self, course, **_kwargs):
-        self.prepare_calls += 1
-        library = build_subject_ontology(course)
-        self.library = library
-        return {
-            "library": library,
-            "binding": {
-                "subject_id": library["subject_id"],
-                "library_id": library["library_id"],
-                "revision_id": library["revision_id"],
-                "lifecycle_status": library["lifecycle_status"],
-                "binding_status": "pinned",
-            },
-            "quality_report": {
-                "passed": True,
-                "issues": [],
-                "blocking_issues": [],
-            },
-        }
-
-    def resolve_course_library(self, _course):
-        return self.library
-
-
 @pytest.mark.asyncio
 async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     import task_manager as task_manager_module
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()
     workspaces = GenerationWorkspaceRepository(tmp_path / "workspaces")
-    subject_libraries = PinnedSubjectLibraryService()
     manager = TaskManager(
         storage,
         BlueprintService(),
@@ -137,7 +106,6 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
         version_repository=CourseVersionRepository(tmp_path / "versions"),
         workspace_repository=workspaces,
         document_repository=CourseDocumentRepository(storage),
-        subject_library_service=subject_libraries,
     )
     job = await manager.create_generation_job({
         "subject": "概念课",
@@ -159,8 +127,10 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert knowledge_base["schema_version"] == "course_knowledge_base_v2"
     assert knowledge_base["lifecycle_status"] == "active"
     assert knowledge_base["reference_catalog"]["required"] is False
-    assert workspace_course["course_knowledge_map"]["binding_revision_id"] is None
-    assert subject_libraries.prepare_calls == 0
+    assert (
+        workspace_course["course_knowledge_map"]["binding_revision_id"]
+        == knowledge_base["revision_id"]
+    )
     preview = manager.get_generation_preview(job["course_id"])
     assert preview is not None
     assert preview["projection"] == "generation_workspace"
@@ -209,7 +179,6 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
         item["knowledge_id"] for item in knowledge_base["knowledge_points"]
     }
     assert confirmed_knowledge["lifecycle_status"] == "active"
-    assert subject_libraries.prepare_calls == 0
     assert await manager._task_queue.get() == job["job_id"]
     workspaces.set_status(job["job_id"], "published")
     assert manager.get_generation_preview(job["course_id"]) is None

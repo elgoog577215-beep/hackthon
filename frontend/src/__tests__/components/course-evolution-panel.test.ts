@@ -73,7 +73,7 @@ describe('CourseEvolutionPanel', () => {
         validation_plan: plan.impact_summary.validation_plan,
         status: 'candidate_created',
       }],
-      adaptation_plans: [plan],
+      course_evolution_plans: [plan],
     })
 
     const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
@@ -88,7 +88,7 @@ describe('CourseEvolutionPanel', () => {
     useCourseEvolutionStore().applyPayload('course-1', {
       evidence_items: evidence,
       hypotheses: [],
-      adaptation_plans: [{
+      course_evolution_plans: [{
         ...plan,
         status: 'applied',
         effect_evaluation: {
@@ -102,7 +102,7 @@ describe('CourseEvolutionPanel', () => {
     const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
 
     expect(wrapper.get('article').attributes('data-effect')).toBe('effective')
-    expect(wrapper.text()).toContain('个人课程生长已验证')
+    expect(wrapper.text()).toContain('课程变化已验证')
     expect(wrapper.text()).toContain('原判断获得新证据支持')
   })
 })

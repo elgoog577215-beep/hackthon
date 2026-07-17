@@ -13,18 +13,14 @@ const payload = (status: 'pending' | 'applied' = 'pending') => ({
     anchor: { section_id: 'section-1', block_id: 'block-1', resolution_status: 'unresolved' },
   }],
   hypotheses: [],
-  adaptation_plans: [{
-    plan_id: 'plan-1', plan_kind: 'personal_adaptation_plan', write_target: 'personal_overlay', change_set_id: 'plan-1',
+  course_evolution_plans: [{
+    plan_id: 'plan-1', plan_kind: 'course_evolution_plan', write_target: 'course_document', change_set_id: 'plan-1',
     hypothesis_id: 'hypothesis-1', evidence_ids: ['evidence-1'], operations: [],
-    allowed_scopes: ['current'], impact_summary: {}, expected_effect: '补充个人解释',
+    allowed_scopes: ['current'], impact_summary: {}, expected_effect: '补充课程解释',
     status, effect_evaluation: {},
   }],
-  personal_course_overlay: {
-    schema_version: 'personal_course_overlay_v1', overlay_id: 'overlay-1',
-    active_plan_ids: status === 'applied' ? ['plan-1'] : [], operations: [],
-  },
   permissions: {
-    write_target: 'personal_overlay', can_modify_base_course: false,
+    write_target: 'course_document', can_modify_current_course: true, can_modify_other_courses: false,
     can_modify_other_learners: false, can_modify_course_knowledge_base: false,
   },
   summary: {},
@@ -36,20 +32,20 @@ beforeEach(() => {
   httpMock.post.mockReset()
 })
 
-describe('personal adaptation store', () => {
-  it('loads plans and explicit personal-overlay permissions from the canonical API', async () => {
+describe('course evolution store', () => {
+  it('loads plans and explicit current-course permissions from the canonical API', async () => {
     httpMock.get.mockResolvedValue({ data: payload() })
     const store = useCourseEvolutionStore()
 
     await store.load('course-1')
 
-    expect(httpMock.get).toHaveBeenCalledWith('/api/courses/course-1/personal-adaptation')
+    expect(httpMock.get).toHaveBeenCalledWith('/api/courses/course-1/evolution')
     expect(store.pendingPlans).toHaveLength(1)
-    expect(store.permissions?.can_modify_base_course).toBe(false)
-    expect(store.personalCourseOverlay?.overlay_id).toBe('overlay-1')
+    expect(store.permissions?.can_modify_current_course).toBe(true)
+    expect(store.permissions?.can_modify_other_courses).toBe(false)
   })
 
-  it('accepts a plan through the personal endpoint instead of a course write endpoint', async () => {
+  it('accepts a reviewed plan through the canonical course-evolution endpoint', async () => {
     httpMock.get.mockResolvedValue({ data: payload() })
     httpMock.post.mockResolvedValue({ data: payload('applied') })
     const store = useCourseEvolutionStore()
@@ -58,11 +54,11 @@ describe('personal adaptation store', () => {
     await store.accept('plan-1', 'current')
 
     expect(httpMock.post).toHaveBeenCalledWith(
-      '/api/courses/course-1/personal-adaptation/plans/plan-1/accept',
+      '/api/courses/course-1/evolution/change-sets/plan-1/accept',
       { selected_scope: 'current' },
     )
     expect(store.appliedPlans).toHaveLength(1)
-    expect(store.personalCourseOverlay?.active_plan_ids).toEqual(['plan-1'])
+    expect(store.plans[0]?.write_target).toBe('course_document')
   })
 
   it('requests a reviewable replacement after an ineffective adaptation', async () => {
@@ -74,7 +70,7 @@ describe('personal adaptation store', () => {
     await store.adjust('plan-1')
 
     expect(httpMock.post).toHaveBeenCalledWith(
-      '/api/courses/course-1/personal-adaptation/plans/plan-1/adjust',
+      '/api/courses/course-1/evolution/change-sets/plan-1/adjust',
     )
     expect(store.pendingPlans).toHaveLength(1)
   })

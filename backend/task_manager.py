@@ -72,8 +72,6 @@ from models import (
     TaskLogEntry,
 )
 from representation_compiler import compile_core_representations
-from subject_knowledge import resolve_subject_library
-from subject_library_service import SubjectLibraryService
 from teaching_representations import teaching_representation_repository
 
 logger = logging.getLogger(__name__)
@@ -171,7 +169,6 @@ class TaskManager:
         asset_repository: LearningAssetRepository | None = None,
         workspace_repository: GenerationWorkspaceRepository | None = None,
         document_repository: CourseDocumentRepository | None = None,
-        subject_library_service: SubjectLibraryService | None = None,
     ) -> None:
         self.storage = storage
         self.course_service = course_service
@@ -181,7 +178,6 @@ class TaskManager:
         self._learning_asset_repository = asset_repository or learning_asset_repository
         self._generation_workspace_repository = workspace_repository or generation_workspace_repository
         self._course_document_repository = document_repository or CourseDocumentRepository(storage)
-        self._subject_library_service = subject_library_service
         self.max_concurrency = max_concurrency
         self.max_course_concurrency = max_course_concurrency
 
@@ -1686,9 +1682,8 @@ class TaskManager:
     ) -> dict[str, Any]:
         """Compile the course-owned knowledge blueprint before content generation.
 
-        The historical method name is retained for checkpoint compatibility.  A
-        subject catalog may contribute terminology suggestions, but it is never a
-        generation or publication prerequisite.
+        The historical method name is retained for checkpoint compatibility.
+        Knowledge identity is compiled only from this course.
         """
         working = deepcopy(course_data)
         await self._update_phase(
@@ -1698,23 +1693,15 @@ class TaskManager:
             "正在生成当前课程的概念组、原子知识点与能力包",
             phase_progress=35,
         )
-        reference_library = resolve_subject_library(working)
-        course_map = compile_course_knowledge_map(working, reference_library)
+        course_map = compile_course_knowledge_map(working)
         course_knowledge_base = compile_course_knowledge_base(
             working,
-            library=reference_library,
             course_map=course_map,
             assets=working.get("learning_assets") or {},
         )
         course_map = bind_course_knowledge_base_to_map(
             course_map,
             course_knowledge_base,
-        )
-        course_knowledge_base = compile_course_knowledge_base(
-            working,
-            library=reference_library,
-            course_map=course_map,
-            assets=working.get("learning_assets") or {},
         )
         working["course_knowledge_map"] = course_map
         working["course_knowledge_base"] = course_knowledge_base
@@ -1723,7 +1710,7 @@ class TaskManager:
         )
         blueprint = working.get("course_blueprint")
         if isinstance(blueprint, dict):
-            blueprint["reference_catalog_revision_id"] = reference_library.get("revision_id")
+            blueprint.pop("reference_catalog_revision_id", None)
             blueprint["course_knowledge_base_revision_id"] = course_knowledge_base.get(
                 "revision_id"
             )
@@ -1740,6 +1727,7 @@ class TaskManager:
                 "lifecycle_status": course_knowledge_base.get("lifecycle_status"),
                 "quality_report": course_knowledge_base.get("quality_report"),
                 "reference_catalog_required": False,
+                "knowledge_identity_scope": "current_course_only",
             },
         )
         return working

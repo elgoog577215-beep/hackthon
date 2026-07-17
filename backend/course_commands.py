@@ -88,6 +88,96 @@ class CourseCommandService:
             },
         )
 
+    async def apply_block_operation_group(
+        self,
+        course_id: str,
+        *,
+        command_id: str,
+        expected_document_revision: str,
+        insertions: list[dict[str, Any]],
+        retire_block_ids: list[str] | None = None,
+        reason: str = "",
+        actor: str = "system",
+    ) -> dict[str, Any]:
+        """Apply a reviewed multi-block course change in one document commit."""
+        existing = self.repository.receipt_for_command(course_id, command_id)
+        if existing:
+            return existing
+
+        document, canonical = self.repository.load_document(course_id)
+        if not canonical:
+            raise CourseDocumentConflict("Course must be migrated before grouped course changes")
+        if document.document_revision != expected_document_revision:
+            raise CourseDocumentConflict("Course document revision changed")
+
+        blocks_by_id = {block.block_id: block for block in document.blocks}
+        normalized_insertions: list[tuple[CourseBlock, str]] = []
+        new_ids: set[str] = set()
+        for item in insertions:
+            block = item.get("block")
+            block = block if isinstance(block, CourseBlock) else CourseBlock.model_validate(block)
+            after_block_id = str(item.get("after_block_id") or "")
+            anchor = blocks_by_id.get(after_block_id)
+            if anchor is None or anchor.status == "retired":
+                raise CourseDocumentConflict("Course insertion anchor not found")
+            if block.section_id != anchor.section_id:
+                raise CourseDocumentConflict("Inserted block must stay in its anchor section")
+            if block.block_id in blocks_by_id or block.block_id in new_ids:
+                raise CourseDocumentConflict("Course block ID already exists")
+            if not any(section.section_id == block.section_id for section in document.sections):
+                raise CourseDocumentConflict("Course section not found")
+            new_ids.add(block.block_id)
+            normalized_insertions.append((deepcopy(block), after_block_id))
+
+        retired_ids = {
+            str(block_id)
+            for block_id in retire_block_ids or []
+            if str(block_id)
+        }
+        for block_id in retired_ids:
+            target = blocks_by_id.get(block_id)
+            if target is None:
+                raise CourseDocumentConflict("Course block to retire not found")
+            if target.status != "retired":
+                target.status = "retired"
+
+        additions_by_anchor: dict[str, list[CourseBlock]] = {}
+        for block, anchor_id in normalized_insertions:
+            additions_by_anchor.setdefault(anchor_id, []).append(block)
+
+        reordered: list[CourseBlock] = []
+        for section in sorted(document.sections, key=lambda item: (item.position, item.section_id)):
+            section_blocks = sorted(
+                (block for block in document.blocks if block.section_id == section.section_id),
+                key=lambda item: (item.position, item.block_id),
+            )
+            next_position = 0
+            for block in section_blocks:
+                block.position = next_position
+                reordered.append(refresh_block_revision(block))
+                next_position += 1
+                for insertion in additions_by_anchor.get(block.block_id, []):
+                    insertion.position = next_position
+                    reordered.append(refresh_block_revision(insertion))
+                    next_position += 1
+
+        if len(reordered) != len(document.blocks) + len(normalized_insertions):
+            raise CourseDocumentConflict("Grouped course change contains an unresolved insertion")
+        document.blocks = reordered
+        affected_block_ids = sorted(new_ids | retired_ids)
+        return await self.repository.commit_document(
+            course_id,
+            document,
+            expected_revision=expected_document_revision,
+            operation={
+                "command_id": command_id,
+                "operation": "apply_course_evolution_plan",
+                "affected_block_ids": affected_block_ids,
+                "reason": reason,
+                "actor": actor,
+            },
+        )
+
     async def delete_block(
         self,
         course_id: str,

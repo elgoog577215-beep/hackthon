@@ -1,9 +1,11 @@
-"""Teacher/author initiated changes for canonical base course documents.
+"""Teacher/author initiated changes for canonical course documents.
 
 The historical module/API name is kept as a compatibility surface. New code
 must treat records with ``write_target == "base_course"`` as
-``CourseAuthoringChange`` objects. Learner evidence belongs to the personal
-adaptation pipeline and is never allowed to reach ``CourseCommandService``.
+``CourseAuthoringChange`` objects. Learner evidence belongs to
+``course_evolution``; reviewed plans there reach the same canonical
+``CourseDocument`` through a grouped command instead of creating a second
+proposal or overlay circuit here.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ ChangeProposalSource = Literal[
     "evidence",
     "kb_link",
 ]
-ChangeWriteTarget = Literal["base_course", "personal_overlay", "knowledge_review"]
+ChangeWriteTarget = Literal["base_course", "knowledge_review"]
 ChangeProposalStatus = Literal["pending", "resolved"]
 ChangeProposalItemStatus = Literal["pending", "applied", "rejected"]
 # ``block_id`` is retained as the compatibility identifier field. Its actual
@@ -204,6 +206,11 @@ def create_proposal(
     and defaults to "course_block"; pass "course_objective" when `block_id`
     names a section id, or "kg_node" when it names a knowledge-graph node id.
     """
+    if source == "evidence":
+        raise ValueError(
+            "Learning evidence must create a reviewed course evolution plan, "
+            "not a legacy change proposal"
+        )
     if not target_block_ids:
         raise ValueError("target_block_ids must explicitly list every affected node")
     if not items:
@@ -237,11 +244,7 @@ def create_proposal(
         })
 
     write_target: ChangeWriteTarget = (
-        "personal_overlay"
-        if source == "evidence"
-        else "knowledge_review"
-        if source == "kb_link"
-        else "base_course"
+        "knowledge_review" if source == "kb_link" else "base_course"
     )
     placeholder = {
         "schema_version": CHANGE_PROPOSAL_SCHEMA,
@@ -480,17 +483,14 @@ def apply_kg_node_item(
     *,
     actor: str,
     course_data: dict[str, Any],
-    library_repository: Any,
 ) -> dict[str, Any]:
     """Accept a pending `target_kind == "kg_node"` item.
 
     Unlike `apply_item` (which replaces a course block's canonical content),
-    a kg_node item's `after` payload only ever carries a review note (see
-    `course_knowledge_map.propose_kb_linkage_from_block_change`) - there is
-    no proposed replacement text to write. "Accepting" it means recording an
-    operator review acknowledgement in a mutable sidecar owned by the pinned
-    library revision and marks the proposal item resolved. The formal revision
-    remains immutable.
+    A kg_node item's ``after`` payload carries a review note, not replacement
+    knowledge text. Accepting it records a course-local acknowledgement on the
+    proposal itself. Any actual knowledge rewrite remains a separate action in
+    the course knowledge maintenance surface.
     """
     proposal = repository.load(proposal_id)
     item = _find_item(proposal, item_id)
@@ -509,26 +509,28 @@ def apply_kg_node_item(
     if not isinstance(after, dict):
         raise ChangeProposalConflict("Item 'after' payload is invalid", proposal=proposal)
 
-    binding = course_data.get("knowledge_library_binding") or {}
-    library_id = str(binding.get("library_id") or "")
-    revision_id = str(binding.get("revision_id") or "")
     knowledge_id = str(item.get("block_id") or "")
-    if not library_id or not revision_id:
-        raise ChangeProposalConflict("未能定位该知识节点所属的知识库", proposal=proposal)
+    if not knowledge_id:
+        raise ChangeProposalConflict("未能定位当前课程知识节点", proposal=proposal)
+    from course_knowledge_base import compile_course_knowledge_base
 
-    try:
-        entry = library_repository.record_node_review(
-            library_id,
-            revision_id,
-            knowledge_id,
-            note=str(after.get("note") or ""),
-            source_block_id=str(after.get("source_block_id") or ""),
-            proposal_id=proposal_id,
-            item_id=item_id,
-            reviewed_by=actor,
-        )
-    except KeyError as exc:
-        raise ChangeProposalConflict(str(exc), proposal=proposal) from exc
+    knowledge_base = course_data.get("course_knowledge_base") or compile_course_knowledge_base(
+        deepcopy(course_data)
+    )
+    valid_ids = {
+        str(point.get("knowledge_id") or "")
+        for point in knowledge_base.get("knowledge_points") or []
+    }
+    if knowledge_id not in valid_ids:
+        raise ChangeProposalConflict("该知识节点不属于当前课程", proposal=proposal)
+    entry = {
+        "knowledge_scope": "current_course_only",
+        "knowledge_id": knowledge_id,
+        "note": str(after.get("note") or ""),
+        "source_block_id": str(after.get("source_block_id") or ""),
+        "reviewed_by": actor,
+        "reviewed_at": _now(),
+    }
 
     def _apply_updater(current: dict[str, Any]) -> dict[str, Any]:
         target = _find_item(current, item_id)
@@ -539,7 +541,7 @@ def apply_kg_node_item(
             )
         target["status"] = "applied"
         target["resolved_at"] = _now()
-        target["receipt"] = {"kind": "kg_node_review_acknowledged", **entry}
+        target["receipt"] = {"kind": "course_knowledge_review_acknowledged", **entry}
         return _recompute_status(current)
 
     def _predicate(current: dict[str, Any]) -> bool:

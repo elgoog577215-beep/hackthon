@@ -523,9 +523,12 @@ function locateRecord(record: any) {
   window.setTimeout(() => courseStore.scrollToNote(record.id), 160)
 }
 
-function openTask(node?: Node | null) {
+function openTask(node?: Node | null, taskRevisionId = '') {
   const source = node || courseStore.currentNode
   if (!source) return
+  if (taskRevisionId && courseStore.currentCourseId) {
+    workspaceStore.preparePracticeTask(courseStore.currentCourseId, source.node_id, taskRevisionId)
+  }
   const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
   const sourceBlock = document.getElementById(`practice-block-${source.node_id}`)
   const openedFromSourceBlock = Boolean(sourceBlock && (trigger === sourceBlock || sourceBlock.contains(trigger)))

@@ -193,6 +193,23 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.practiceLandingView = 'current'
       this.practiceScope = 'node'
     },
+    preparePracticeTask(courseId: string, nodeId: string, taskRevisionId: string) {
+      if (!taskRevisionId) return
+      this.requestedTaskRef = {
+        kind: 'practice',
+        object_id: '',
+        task_revision_id: taskRevisionId,
+        status: 'available',
+        context: {
+          course_id: courseId,
+          node_id: nodeId,
+        },
+        return_node_id: nodeId,
+      }
+      this.taskResumeError = ''
+      this.practiceLandingView = 'current'
+      this.practiceScope = 'node'
+    },
     applyRequestedTask(courseId: string) {
       const requested = this.requestedTaskRef
       if (!requested) return

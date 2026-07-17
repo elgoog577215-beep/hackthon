@@ -558,7 +558,7 @@ class AIBase:
         retry_count: int = 3,
         enable_thinking: bool = False,
         raise_on_failure: bool = False,
-    ) -> str:
+    ) -> Optional[str]:
         """
         通用 LLM 调用函数。
         
@@ -574,6 +574,7 @@ class AIBase:
             use_fast_model: 是否使用轻量/快速模型
             retry_count: 最大重试次数
             enable_thinking: 是否为高价值环节启用模型思考能力
+            raise_on_failure: 失败时是否抛出统一的提供方异常，而不是返回 None
             
         Returns:
             LLM 完整响应文本，失败返回 None
@@ -588,7 +589,6 @@ class AIBase:
             return None
 
         last_error: Exception | None = None
-
         for model_id in self._models_for(use_fast_model):
             for attempt in range(retry_count):
                 try:
@@ -650,9 +650,7 @@ class AIBase:
                     if attempt < retry_count - 1:
                         await asyncio.sleep(2 ** attempt)  # Exponential backoff
                     else:
-                        if raise_on_failure:
-                            raise AIProviderRequestError(str(e)) from e
-                        return None
+                        break
 
         if raise_on_failure:
             if last_error is not None:

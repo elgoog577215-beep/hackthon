@@ -3,8 +3,8 @@ from copy import deepcopy
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from course_knowledge_rebuild import CourseKnowledgeRebuildError
 from routers import knowledge_libraries
-from subject_library_service import SubjectLibraryVersionConflict, SubjectOntologyGenerationError
 
 
 def _course():
@@ -73,6 +73,12 @@ def _course():
 class _CourseRepository:
     def __init__(self, course=None):
         self.course = deepcopy(course or _course())
+        self.course["course_knowledge_base"] = {
+            "knowledge_base_id": "ckb_course_1",
+            "revision_id": "ckbr_1",
+            "lifecycle_status": "active",
+            "quality_report": {"strict_passed": True},
+        }
 
     def load_course_view(self, _course_id):
         return deepcopy(self.course)
@@ -80,25 +86,6 @@ class _CourseRepository:
     async def update_metadata(self, _course_id, metadata):
         self.course.update(deepcopy(metadata))
         return deepcopy(self.course)
-
-
-class _LibraryService:
-    async def rebuild_course(self, course_id, *, force=False):
-        return {
-            "library": {"revision_id": "sklr_1", "lifecycle_status": "candidate"},
-            "quality_report": {"passed": True},
-            "binding": {"revision_id": "sklr_1"},
-            "course_map": {"coverage": {"mapped_ratio": 1.0}},
-            "reused_accepted": False,
-        }
-
-    def get_review(self, course_id):
-        return {"library": {"revision_id": "sklr_1"}, "diff": {"added": 3, "modified": 1, "removed": 0}}
-
-    async def review_course_library(self, course_id, *, revision_id, decision, note=""):
-        if revision_id == "stale":
-            raise SubjectLibraryVersionConflict("stale")
-        return {"library": {"revision_id": revision_id, "lifecycle_status": "accepted"}}
 
 
 class _RebuildService:
@@ -127,11 +114,12 @@ class _MigrationService:
 
 
 def _client():
+    course_repository = _CourseRepository()
     app = FastAPI()
     app.include_router(knowledge_libraries.router, prefix="/api")
     app.dependency_overrides[knowledge_libraries.get_course_knowledge_rebuild_service] = lambda: _RebuildService()
-    app.dependency_overrides[knowledge_libraries.get_subject_library_service] = lambda: _LibraryService()
-    app.dependency_overrides[knowledge_libraries.get_subject_library_migration_service] = lambda: _MigrationService()
+    app.dependency_overrides[knowledge_libraries.get_course_document_repository] = lambda: course_repository
+    app.dependency_overrides[knowledge_libraries.get_course_library_migration_service] = lambda: _MigrationService()
     return TestClient(app)
 
 
@@ -142,7 +130,7 @@ def test_rebuild_review_and_accept_contracts():
     review = client.get("/api/courses/course-1/knowledge-library/review")
     accepted = client.post(
         "/api/courses/course-1/knowledge-library/review",
-        json={"revision_id": "sklr_1", "decision": "accept", "note": "通过"},
+        json={"revision_id": "ckbr_1", "decision": "accept", "note": "通过"},
     )
     stale = client.post(
         "/api/courses/course-1/knowledge-library/review",
@@ -150,11 +138,12 @@ def test_rebuild_review_and_accept_contracts():
     )
 
     assert rebuilt.status_code == 200
-    assert rebuilt.json()["library"]["lifecycle_status"] == "candidate"
-    assert rebuilt.json()["binding"]["revision_id"] == "sklr_1"
-    assert "course_knowledge_base" not in rebuilt.json()
-    assert review.json()["diff"]["added"] == 3
-    assert accepted.json()["library"]["lifecycle_status"] == "accepted"
+    assert rebuilt.json()["library"]["identity_scope"] == "course_local"
+    assert rebuilt.json()["course_knowledge_base"]["schema_version"] == "course_knowledge_base_v2"
+    assert review.json()["knowledge_scope"] == "current_course_only"
+    assert review.json()["revision_id"] == "ckbr_1"
+    assert accepted.json()["decision"] == "accept"
+    assert accepted.json()["governance"]["knowledge_scope"] == "current_course_only"
     assert stale.status_code == 409
 
 
@@ -174,19 +163,19 @@ def test_migration_job_contracts():
     }
 
 
-def test_rebuild_exposes_subject_provider_failure_without_replacing_the_library():
+def test_rebuild_exposes_course_provider_failure_without_replacing_the_library():
     class _FailingRebuildService:
         async def rebuild_course(self, course_id, *, force=False):
-            raise SubjectOntologyGenerationError(
+            raise CourseKnowledgeRebuildError(
                 code="provider_request_failed",
-                message="学科知识库生成失败，原版本保持不变",
+                message="课程知识库生成失败，原版本保持不变",
                 retryable=True,
                 status_code=503,
             )
 
     app = FastAPI()
     app.include_router(knowledge_libraries.router, prefix="/api")
-    app.dependency_overrides[knowledge_libraries.get_subject_library_service] = (
+    app.dependency_overrides[knowledge_libraries.get_course_knowledge_rebuild_service] = (
         lambda: _FailingRebuildService()
     )
     client = TestClient(app)
@@ -197,3 +186,33 @@ def test_rebuild_exposes_subject_provider_failure_without_replacing_the_library(
     assert response.json()["detail"]["code"] == "provider_request_failed"
     assert response.json()["detail"]["retryable"] is True
     assert "message" in response.json()["detail"]
+
+
+def test_rebuild_keeps_quality_diagnostics_inside_the_backend():
+    internal_message = "知识点 L2-raw-id 未通过原子性门禁"
+
+    class _FailingRebuildService:
+        async def rebuild_course(self, course_id, *, force=False):
+            raise CourseKnowledgeRebuildError(
+                code="knowledge_quality_failed",
+                message=internal_message,
+                retryable=True,
+                quality_report={
+                    "blocking_issues": [{"message": internal_message}],
+                },
+            )
+
+    app = FastAPI()
+    app.include_router(knowledge_libraries.router, prefix="/api")
+    app.dependency_overrides[knowledge_libraries.get_course_knowledge_rebuild_service] = (
+        lambda: _FailingRebuildService()
+    )
+    client = TestClient(app)
+
+    response = client.post("/api/courses/course-1/knowledge-library/rebuild", json={"force": True})
+
+    detail = response.json()["detail"]
+    assert response.status_code == 422
+    assert detail["message"] == "知识库升级暂未完成，原课程与旧知识结构保持不变。请稍后重试。"
+    assert internal_message not in response.text
+    assert "quality_report" not in detail

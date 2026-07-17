@@ -158,7 +158,7 @@ export interface AdaptiveLearningBlock {
     placement: 'after_block' | 'after_node'
   }
   kind: AdaptiveBlockKind
-  role: 'low_risk_support' | 'accepted_personal_course_growth'
+  role: 'low_risk_support' | 'accepted_personal_course_growth' | 'course_evolution_block'
   payload: {
     body: string
     contrast: string

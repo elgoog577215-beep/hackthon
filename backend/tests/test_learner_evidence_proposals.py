@@ -108,7 +108,7 @@ def _install_personal_sources(monkeypatch, *, course: dict, events: list[dict]) 
     monkeypatch.setattr(course_evolution.practice_attempt_repository, "list", lambda *_args: [])
 
 
-def test_evaluate_and_propose_change_creates_personal_adaptation_plan(tmp_path, monkeypatch):
+def test_evaluate_and_propose_change_creates_course_evolution_plan(tmp_path, monkeypatch):
     course, block_id = _course_and_block()
     base_course = deepcopy(course)
     _install_personal_sources(
@@ -125,8 +125,8 @@ def test_evaluate_and_propose_change_creates_personal_adaptation_plan(tmp_path, 
     )
 
     assert plan is not None
-    assert plan["plan_kind"] == "personal_adaptation_plan"
-    assert plan["write_target"] == "personal_overlay"
+    assert plan["plan_kind"] == "course_evolution_plan"
+    assert plan["write_target"] == "course_document"
     assert plan["status"] == "pending"
     assert plan["plan_id"] == plan["change_set_id"]
     assert all(item["target_block_id"] == block_id for item in plan["operations"])

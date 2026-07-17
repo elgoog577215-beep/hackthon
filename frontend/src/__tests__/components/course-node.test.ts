@@ -101,6 +101,23 @@ describe('CourseNode 正式练习入口', () => {
     expect(wrapper.emitted('startPractice')?.[0]?.[0]).toMatchObject({ node_id: node.node_id })
   })
 
+  it('正文中的针对性练习把指定题目修订一并交给练习弹窗', async () => {
+    const wrapper = mount(CourseNode, {
+      props: { node, index: 0, fontSize: 16, fontFamily: 'sans', lineHeight: 1.8 },
+      global: {
+        stubs: {
+          CourseBlockStream: {
+            emits: ['startPractice'],
+            template: '<button class="targeted-practice" @click="$emit(\'startPractice\', \'qr-targeted\')">开始练习</button>',
+          },
+        },
+      },
+    })
+
+    await wrapper.get('.targeted-practice').trigger('click')
+    expect(wrapper.emitted('startPractice')?.[0]).toEqual([node, 'qr-targeted'])
+  })
+
   it('章节正文会应用阅读字号、字体和行高', () => {
     const wrapper = mount(CourseNode, {
       props: { node, index: 0, fontSize: 21, fontFamily: 'serif', lineHeight: 1.9 },

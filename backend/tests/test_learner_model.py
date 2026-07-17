@@ -104,7 +104,7 @@ def test_model_keeps_formal_mastery_and_support_evidence_explainable():
     assert model["model_policy"]["ai_writable"] is False
 
 
-def test_model_projects_objective_evidence_to_formal_knowledge_without_rewriting_library():
+def test_model_does_not_borrow_retired_subject_identity_for_degraded_course():
     course = {
         "course_id": "course-1",
         "course_name": "线性代数",
@@ -138,20 +138,15 @@ def test_model_projects_objective_evidence_to_formal_knowledge_without_rewriting
         source_revision_vector={"attempts_revision": "knowledge-a1"},
     )
 
-    assert "math.la.system.gaussian_elimination.forward" in model["objectives"][0]["knowledge_ids"]
-    state = next(
-        item for item in model["knowledge_states"]
-        if item["knowledge_id"] == "math.la.system.gaussian_elimination.forward"
-    )
-    assert state["status"] == "mastered"
-    assert state["evidence_refs"][0]["source_id"] == "attempt-knowledge"
+    assert model["objectives"][0]["knowledge_ids"] == []
+    assert model["knowledge_states"] == []
     skill_state = next(
         item for item in model["skill_states"]
         if item["skill_unit_id"] == "skill.la.system.augmented.elimination"
     )
     assert skill_state["status"] == "mastered"
     assert model["mistake_signals"] == []
-    assert model["knowledge_coordinate"]["knowledge_library_id"] == "math.linear_algebra.v1"
+    assert model["knowledge_coordinate"]["knowledge_library_id"] is None
     assert model["model_policy"]["personal_state_can_modify_library"] is False
 
 

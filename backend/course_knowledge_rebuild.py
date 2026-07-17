@@ -48,6 +48,20 @@ class CourseKnowledgeRebuildError(RuntimeError):
             payload["quality_report"] = self.quality_report
         return payload
 
+    def public_detail(self) -> dict[str, Any]:
+        message = self.message
+        if self.code in {
+            "knowledge_generation_failed",
+            "knowledge_compile_failed",
+            "knowledge_quality_failed",
+        }:
+            message = "知识库升级暂未完成，原课程与旧知识结构保持不变。请稍后重试。"
+        return {
+            "code": self.code,
+            "message": message,
+            "retryable": self.retryable,
+        }
+
 
 class CourseKnowledgeRebuildModel(AIBase):
     async def generate_batch(

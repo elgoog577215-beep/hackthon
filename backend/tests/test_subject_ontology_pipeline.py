@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from course_knowledge_map import compile_course_knowledge_map
+from course_knowledge_map import compile_legacy_subject_course_map
 from subject_ontology import (
     build_subject_ontology,
     build_subject_ontology_from_proposal,
@@ -134,7 +134,7 @@ def _cpp_proposal() -> dict:
 def test_full_model_proposal_builds_subject_ontology_instead_of_outline_mirror():
     course = _cpp_course()
     library = build_subject_ontology_from_proposal(course, _cpp_proposal())
-    course_map = compile_course_knowledge_map(deepcopy(course), library)
+    course_map = compile_legacy_subject_course_map(deepcopy(course), library)
     report = evaluate_subject_ontology_quality(library, course, course_map)
 
     assert {node["node_type"] for node in library["nodes"]} == {
@@ -176,7 +176,7 @@ def test_quality_gate_detects_outline_mirror_even_when_relations_exist():
         "source_type": "model_inferred",
         "confidence": 0.5,
     }]
-    course_map = compile_course_knowledge_map(deepcopy(course), library)
+    course_map = compile_legacy_subject_course_map(deepcopy(course), library)
 
     report = evaluate_subject_ontology_quality(library, course, course_map)
 
@@ -200,7 +200,7 @@ def test_quality_gate_detects_prerequisite_relation_cycles():
             "confidence": 0.5,
         },
     ])
-    course_map = compile_course_knowledge_map(deepcopy(course), library)
+    course_map = compile_legacy_subject_course_map(deepcopy(course), library)
 
     report = evaluate_subject_ontology_quality(library, course, course_map)
 
@@ -230,7 +230,7 @@ def test_quality_gate_detects_renamed_copies_of_the_same_mistake_template():
         }
         for index in range(5)
     ]
-    course_map = compile_course_knowledge_map(deepcopy(course), library)
+    course_map = compile_legacy_subject_course_map(deepcopy(course), library)
 
     report = evaluate_subject_ontology_quality(library, course, course_map)
 
@@ -241,7 +241,7 @@ def test_quality_gate_rejects_relations_without_governance_metadata():
     course = _cpp_course()
     library = build_subject_ontology_from_proposal(course, _cpp_proposal())
     library["relations"][0].update({"reason": "", "source_type": "", "confidence": None, "status": ""})
-    course_map = compile_course_knowledge_map(deepcopy(course), library)
+    course_map = compile_legacy_subject_course_map(deepcopy(course), library)
 
     report = evaluate_subject_ontology_quality(library, course, course_map)
 
@@ -273,7 +273,7 @@ def test_model_course_mappings_become_formal_aliases_for_reworded_concepts():
     ]
 
     library = build_subject_ontology_from_proposal(course, proposal)
-    course_map = compile_course_knowledge_map(deepcopy(course), library)
+    course_map = compile_legacy_subject_course_map(deepcopy(course), library)
 
     mapping = next(item for item in course_map["mappings"] if item["local_name"] == "编译型语言")
     assert mapping["match_status"] == "exact_alias"

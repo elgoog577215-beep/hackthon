@@ -5,7 +5,7 @@ import InlineCourseBlockAI from '@/components/InlineCourseBlockAI.vue'
 import { useAITeacherStore, type AIMessage, type SendAIMessagePayload } from '@/stores/aiTeacher'
 import { useCourseStore } from '@/stores/course'
 import { useNoteStore } from '@/stores/notes'
-import type { ContentBlock, Node } from '@/stores/types'
+import type { ContentBlock, Node, Note } from '@/stores/types'
 
 const node: Node = {
   node_id: 'node-1',
@@ -35,6 +35,26 @@ function mountBlockAI(attachToDocument = false, props: { active?: boolean } = {}
   courseStore.currentCourseVersionId = 'course-version-1'
   const aiStore = useAITeacherStore()
   const noteStore = useNoteStore()
+  const persistedNote: Note = {
+    id: 'ai-qa-block-1',
+    nodeId: 'node-1',
+    highlightId: 'hl-ai-qa-block-1',
+    quote: '向量的定义\n\n向量同时具有大小和方向。',
+    title: '解释 · 向量的定义',
+    summary: '回答摘要',
+    content: '回答正文',
+    color: 'purple',
+    createdAt: Date.now(),
+    sourceType: 'ai',
+    recordType: 'note',
+    status: 'active',
+    origin: 'assistant_inline_qa',
+    syncState: 'saved',
+    anchor: { block_id: 'block-1', block_revision_id: 'block-revision-1' },
+    metadata: { record_subtype: 'anchored_ai_qa' },
+  }
+  vi.spyOn(noteStore, 'upsertAnchoredAiNote').mockResolvedValue(persistedNote)
+  vi.spyOn(noteStore, 'deleteNote').mockResolvedValue()
 
   vi.spyOn(aiStore, 'sendMessage').mockImplementation(async (payload: SendAIMessagePayload) => {
     const message: AIMessage = {
@@ -115,7 +135,7 @@ describe('InlineCourseBlockAI', () => {
   })
 
   it('解释动作使用稳定块上下文并在原位显示结果', async () => {
-    const { wrapper, aiStore } = mountBlockAI()
+    const { wrapper, aiStore, noteStore } = mountBlockAI()
 
     await wrapper.findAll('.block-ai-menu button')[0]!.trigger('click')
     await flushPromises()
@@ -132,6 +152,14 @@ describe('InlineCourseBlockAI', () => {
     expect(wrapper.findAll('.inline-ai-result')).toHaveLength(1)
     expect(wrapper.get('.markdown-stub').text()).toContain('回答：')
     expect(wrapper.get('.inline-ai-result__header').text()).toContain('来源：向量的定义')
+    expect(noteStore.upsertAnchoredAiNote).toHaveBeenCalledWith(expect.objectContaining({
+      nodeId: 'node-1',
+      prompt: '请只基于当前课程内容块，用更容易理解的方式解释它。',
+      content: expect.stringContaining('### AI 讲解'),
+      anchor: expect.objectContaining({ block_id: 'block-1', block_revision_id: 'block-revision-1' }),
+    }))
+    expect(wrapper.emitted('recordPersisted')).toEqual([['ai-qa-block-1']])
+    expect(wrapper.text()).toContain('已沉淀到正文')
   })
 
   it('完整回答只收集显式效果反馈，不自动触发下一步或额外问答', async () => {
@@ -211,28 +239,26 @@ describe('InlineCourseBlockAI', () => {
     expect(wrapper.find('.inline-ai-result').exists()).toBe(false)
   })
 
-  it('只有明确保留时才写入个人内容，移除只清理临时表达', async () => {
+  it('回答自动进入正文，重做更新同一条记录，删除同时归档记录', async () => {
     const { wrapper, aiStore, noteStore } = mountBlockAI()
-    vi.spyOn(aiStore, 'proposeForMessage').mockResolvedValue({ proposal_id: 'proposal-1' } as any)
-    vi.spyOn(aiStore, 'confirmProposal').mockResolvedValue({ status: 'succeeded' } as any)
-    vi.spyOn(noteStore, 'loadCourseRecords').mockResolvedValue([])
-
     await wrapper.findAll('.block-ai-menu button')[1]!.trigger('click')
     await flushPromises()
-    const actionButtons = wrapper.findAll('.inline-ai-result__actions button')
-    await actionButtons[1]!.trigger('click')
-    await flushPromises()
+    expect(noteStore.upsertAnchoredAiNote).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('已沉淀到正文')
 
-    expect(aiStore.proposeForMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ role: 'assistant' }),
-      'create_note',
-      expect.objectContaining({ anchor: expect.objectContaining({ block_id: 'block-1' }) }),
-      expect.objectContaining({ node_id: 'node-1' }),
-    )
-    expect(noteStore.loadCourseRecords).toHaveBeenCalledWith('course-1')
-    expect(wrapper.text()).toContain('已保留到个人内容')
+    await wrapper.findAll('.inline-ai-result__actions button')[1]!.trigger('click')
+    await flushPromises()
+    expect(aiStore.sendMessage).toHaveBeenCalledTimes(2)
+    expect(noteStore.upsertAnchoredAiNote).toHaveBeenCalledTimes(2)
+    expect(noteStore.upsertAnchoredAiNote).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'example',
+      anchor: expect.objectContaining({ block_id: 'block-1' }),
+    }))
 
     await wrapper.findAll('.inline-ai-result__actions button').at(-1)!.trigger('click')
+    await flushPromises()
+    expect(noteStore.deleteNote).toHaveBeenCalledWith('ai-qa-block-1')
+    expect(wrapper.emitted('recordReleased')).toContainEqual(['ai-qa-block-1'])
     expect(wrapper.find('.inline-ai-result').exists()).toBe(false)
   })
 })

@@ -215,12 +215,12 @@ def evaluate_and_propose_change(
     request_id: str | None = None,
     adaptation_repository: Any | None = None,
 ) -> dict[str, Any] | None:
-    """Compatibility entrypoint that now returns a personal adaptation plan.
+    """Compatibility entrypoint that now returns a course evolution plan.
 
     ``request_id`` remains accepted for old callers but no longer creates a
-    record in the base-course authoring repository. Evidence collection,
+    second authoring proposal or personal overlay. Evidence collection,
     thresholding, deduplication and persistence are owned by
-    ``course_evolution`` until its module name is migrated.
+    ``course_evolution``; accepted plans commit a new canonical course version.
     """
     if not course_id or not block_id:
         return None

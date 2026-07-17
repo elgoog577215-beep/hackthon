@@ -2,7 +2,7 @@
   <section v-if="visiblePlans.length" class="evolution-panel" aria-live="polite">
     <header>
       <span><GitBranchPlus :size="14" /></span>
-      <div><small>{{ t('courseEvolution.eyebrow', '证据驱动') }}</small><strong>{{ t('courseEvolution.title', '个人课程生长') }}</strong></div>
+      <div><small>{{ t('courseEvolution.eyebrow', '证据驱动') }}</small><strong>{{ t('courseEvolution.title', '课程调整建议') }}</strong></div>
       <button type="button" :title="t('courseEvolution.refresh', '重新分析学习证据')" :aria-label="t('courseEvolution.refresh', '重新分析学习证据')" :disabled="store.loading" @click="store.evaluate(courseId)"><RefreshCw :size="14" :class="{ spinning: store.loading }" /></button>
     </header>
 
@@ -35,14 +35,14 @@
           <p v-for="evidence in evidenceFor(plan)" :key="evidence.evidence_id"><b>{{ evidenceLabel(evidence.source_type) }}</b>{{ evidence.summary }}</p>
           <ul><li v-for="operation in plan.operations" :key="operation.operation_id"><span>{{ operationLabel(operation.operation_type) }}</span>{{ operation.reason }}</li></ul>
           <p class="validation-plan"><ScanSearch :size="13" /><b>{{ t('courseEvolution.validation', '效果复验') }}</b>{{ validationFor(plan) }}</p>
-          <p class="protected"><ShieldCheck :size="13" />{{ t('courseEvolution.protected', '不会修改基础课程、其他学习者、历史作答和笔记原文') }}</p>
+          <p class="protected"><ShieldCheck :size="13" />{{ t('courseEvolution.protected', '只修改当前课程所选范围；不修改其他课程、其他学习者、历史作答和笔记原文') }}</p>
         </div>
         <div class="scope-control" v-if="plan.allowed_scopes.length > 1">
           <button type="button" :class="{ active: selectedScope[plan.change_set_id] !== 'current_and_next' }" @click="selectedScope[plan.change_set_id] = 'current'">{{ t('courseEvolution.currentOnly', '只应用本小节') }}</button>
           <button type="button" :class="{ active: selectedScope[plan.change_set_id] === 'current_and_next' }" @click="selectedScope[plan.change_set_id] = 'current_and_next'">{{ t('courseEvolution.currentAndNext', '本小节及后续') }}</button>
         </div>
         <div class="evolution-actions">
-          <button type="button" class="primary" :disabled="store.actingId === plan.change_set_id" @click="accept(plan)"><LoaderCircle v-if="store.actingId === plan.change_set_id" :size="13" class="spinning" /><Check v-else :size="13" />{{ t('courseEvolution.accept', '应用到我的学习内容') }}</button>
+          <button type="button" class="primary" :disabled="store.actingId === plan.change_set_id" @click="accept(plan)"><LoaderCircle v-if="store.actingId === plan.change_set_id" :size="13" class="spinning" /><Check v-else :size="13" />{{ t('courseEvolution.accept', '确认并更新课程') }}</button>
           <button type="button" :disabled="store.actingId === plan.change_set_id" @click="store.reject(plan.change_set_id)"><X :size="13" />{{ t('courseEvolution.reject', '暂不调整') }}</button>
         </div>
       </template>
@@ -65,32 +65,38 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowRight, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, LoaderCircle, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
-import { useCourseEvolutionStore, type PersonalAdaptationPlan, type EvolutionEvidence } from '../stores/courseEvolution'
+import { useCourseEvolutionStore, type CourseEvolutionPlan, type EvolutionEvidence } from '../stores/courseEvolution'
+import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { t } from '../shared/i18n'
 
 const props = defineProps<{ courseId: string }>()
 const store = useCourseEvolutionStore()
+const courseStore = useCourseStore()
 const progressStore = useLearningProgressStore()
 const expandedId = ref('')
 const selectedScope = reactive<Record<string, 'current' | 'current_and_next'>>({})
 const visiblePlans = computed(() => [...store.pendingPlans, ...store.appliedPlans.slice(-1)])
 
-function evidenceFor(plan: PersonalAdaptationPlan) { return store.evidenceItems.filter(item => plan.evidence_ids.includes(item.evidence_id)) }
-function hypothesisFor(plan: PersonalAdaptationPlan) { return store.hypotheses.find(item => item.hypothesis_id === plan.hypothesis_id) }
-function diagnosisFor(plan: PersonalAdaptationPlan) { return String(plan.impact_summary?.diagnosis || hypothesisFor(plan)?.claim || t('courseEvolution.diagnosisFallback', '多条证据共同指向当前理解缺口')) }
-function validationFor(plan: PersonalAdaptationPlan) { return String(plan.impact_summary?.validation_plan || hypothesisFor(plan)?.validation_plan || t('courseEvolution.validationFallback', '用后续同能力正式题检验调整是否有效')) }
+function evidenceFor(plan: CourseEvolutionPlan) { return store.evidenceItems.filter(item => plan.evidence_ids.includes(item.evidence_id)) }
+function hypothesisFor(plan: CourseEvolutionPlan) { return store.hypotheses.find(item => item.hypothesis_id === plan.hypothesis_id) }
+function diagnosisFor(plan: CourseEvolutionPlan) { return String(plan.impact_summary?.diagnosis || hypothesisFor(plan)?.claim || t('courseEvolution.diagnosisFallback', '多条证据共同指向当前理解缺口')) }
+function validationFor(plan: CourseEvolutionPlan) { return String(plan.impact_summary?.validation_plan || hypothesisFor(plan)?.validation_plan || t('courseEvolution.validationFallback', '用后续同能力正式题检验调整是否有效')) }
 function evidenceLabel(source: EvolutionEvidence['source_type']) { return ({ learning_event: t('courseEvolution.sources.dialogue', '对话与反馈'), learning_record: t('courseEvolution.sources.record', '学习记录'), practice_attempt: t('courseEvolution.sources.practice', '正式练习') })[source] }
 function evidenceIcon(source: EvolutionEvidence['source_type']) { return ({ learning_event: FileQuestion, learning_record: NotebookTabs, practice_attempt: BookOpenText })[source] }
-function operationLabel(type: string) { return ({ INSERT_PERSONAL_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), ADD_TRANSITION_SUPPORT: t('courseEvolution.operations.transition', '后续承接'), ADD_CHECKPOINT: t('courseEvolution.operations.checkpoint', '理解检查'), ADD_ANIMATION: t('courseEvolution.operations.animation', '分步演示') } as Record<string, string>)[type] || type }
-function impactLabels(plan: PersonalAdaptationPlan) { return [...(plan.impact_summary?.knowledge_labels || []), ...(plan.impact_summary?.ability_labels || []), ...(plan.impact_summary?.misconception_labels || [])].slice(0, 4) }
-function planEffectState(plan: PersonalAdaptationPlan) { return plan.status === 'pending' ? 'pending' : String(plan.effect_evaluation?.status || 'insufficient_evidence') }
-function effectIcon(plan: PersonalAdaptationPlan) { return plan.effect_evaluation?.status === 'effective' ? CheckCircle2 : plan.effect_evaluation?.status === 'ineffective' || plan.effect_evaluation?.status === 'harmful' ? TriangleAlert : CircleDot }
-function effectTitle(plan: PersonalAdaptationPlan) { return plan.effect_evaluation?.status === 'effective' ? t('courseEvolution.validated', '个人课程生长已验证') : plan.effect_evaluation?.status === 'ineffective' || plan.effect_evaluation?.status === 'harmful' ? t('courseEvolution.needsReview', '当前适配需要复核') : t('courseEvolution.applied', '个人学习内容已应用') }
+function operationLabel(type: string) { return ({ INSERT_COURSE_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), INSERT_PERSONAL_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), ADD_TRANSITION_SUPPORT: t('courseEvolution.operations.transition', '后续承接'), ADD_CHECKPOINT: t('courseEvolution.operations.checkpoint', '理解检查'), ADD_TARGETED_PRACTICE: t('courseEvolution.operations.targetedPractice', '针对性练习'), ADD_ANIMATION: t('courseEvolution.operations.animation', '分步演示') } as Record<string, string>)[type] || type }
+function impactLabels(plan: CourseEvolutionPlan) { return [...(plan.impact_summary?.knowledge_labels || []), ...(plan.impact_summary?.ability_labels || []), ...(plan.impact_summary?.misconception_labels || [])].slice(0, 4) }
+function planEffectState(plan: CourseEvolutionPlan) { return plan.status === 'pending' ? 'pending' : String(plan.effect_evaluation?.status || 'insufficient_evidence') }
+function effectIcon(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.status === 'effective' ? CheckCircle2 : plan.effect_evaluation?.status === 'ineffective' || plan.effect_evaluation?.status === 'harmful' ? TriangleAlert : CircleDot }
+function effectTitle(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.status === 'effective' ? t('courseEvolution.validated', '课程变化已验证') : plan.effect_evaluation?.status === 'ineffective' || plan.effect_evaluation?.status === 'harmful' ? t('courseEvolution.needsReview', '当前课程变化需要复核') : t('courseEvolution.applied', '课程新版本已应用') }
 function effectLabel(status?: string) { return ({ effective: t('courseEvolution.effects.effective', '后续独立复验通过，原判断获得新证据支持'), ineffective: t('courseEvolution.effects.ineffective', '后续证据显示需要调整'), harmful: t('courseEvolution.effects.harmful', '后续证据显示有副作用，建议回退'), insufficient_evidence: t('courseEvolution.effects.insufficient', '等待后续同能力正式题复验') } as Record<string, string>)[status || ''] || t('courseEvolution.effects.insufficient', '等待后续同能力正式题复验') }
-async function accept(plan: PersonalAdaptationPlan) { await store.accept(plan.change_set_id, selectedScope[plan.change_set_id] || 'current'); await progressStore.loadRuntime(props.courseId) }
-async function undo(plan: PersonalAdaptationPlan) { await store.undo(plan.change_set_id); await progressStore.loadRuntime(props.courseId) }
-async function adjust(plan: PersonalAdaptationPlan) { await store.adjust(plan.change_set_id) }
+async function refreshCourseAndRuntime() {
+  await courseStore.refreshCourseData(props.courseId)
+  await progressStore.loadRuntime(props.courseId)
+}
+async function accept(plan: CourseEvolutionPlan) { await store.accept(plan.change_set_id, selectedScope[plan.change_set_id] || 'current'); await refreshCourseAndRuntime() }
+async function undo(plan: CourseEvolutionPlan) { await store.undo(plan.change_set_id); await refreshCourseAndRuntime() }
+async function adjust(plan: CourseEvolutionPlan) { await store.adjust(plan.change_set_id) }
 async function load() {
   if (!props.courseId) return
   if (import.meta.env.MODE === 'test') return

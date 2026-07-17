@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from course_knowledge_map import compile_course_knowledge_map
+from course_knowledge_map import compile_legacy_subject_course_map
 from subject_library_repository import (
     SubjectLibraryConflict,
     SubjectLibraryRepository,
@@ -94,7 +94,7 @@ def test_subject_aliases_share_a_canonical_identity(first_title, second_title, e
 def test_generated_ontology_is_not_a_course_outline_mirror():
     course = _data_structures_course()
     library = build_subject_ontology(course)
-    course_map = compile_course_knowledge_map(deepcopy(course), library)
+    course_map = compile_legacy_subject_course_map(deepcopy(course), library)
     report = evaluate_subject_ontology_quality(library, course, course_map)
 
     assert library["schema_version"] == "knowledge_library_v3"

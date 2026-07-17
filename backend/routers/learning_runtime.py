@@ -62,17 +62,19 @@ async def record_adaptive_block_feedback(
         user_id=user_id,
         node_id=payload.node_id,
     )
-    block = next((
-        item for item in runtime.get("adaptive_blocks") or []
-        if item.get("adaptive_block_id") == payload.adaptive_block_id
-    ), None)
+    block = _find_learning_support_block(
+        runtime,
+        course,
+        adaptive_block_id=payload.adaptive_block_id,
+        node_id=payload.node_id,
+    )
     if not block:
         raise HTTPException(status_code=404, detail="Adaptive block not found or expired")
     event = await run_in_threadpool(
         record_learning_event,
         event_type="adaptive_block_feedback",
         actor="user",
-        source="learning_runtime.adaptive_block",
+        source=str(block.get("event_source") or "learning_runtime.adaptive_block"),
         user_id=user_id,
         course_id=course_id,
         course_version_id=course.get("current_course_version_id"),
@@ -81,7 +83,7 @@ async def record_adaptive_block_feedback(
         result={"feedback": payload.feedback},
         operation_id=f"adaptive-feedback:{payload.adaptive_block_id}:{payload.feedback}",
         idempotency_key=f"{payload.adaptive_block_id}:{payload.feedback}",
-        entity_type="adaptive_learning_block",
+        entity_type=str(block.get("entity_type") or "adaptive_learning_block"),
         entity_id=payload.adaptive_block_id,
         entity_revision=runtime.get("runtime_revision_id"),
         metadata={
@@ -107,17 +109,19 @@ async def record_adaptive_block_interaction(
         user_id=user_id,
         node_id=payload.node_id,
     )
-    block = next((
-        item for item in runtime.get("adaptive_blocks") or []
-        if item.get("adaptive_block_id") == payload.adaptive_block_id
-    ), None)
+    block = _find_learning_support_block(
+        runtime,
+        course,
+        adaptive_block_id=payload.adaptive_block_id,
+        node_id=payload.node_id,
+    )
     if not block:
         raise HTTPException(status_code=404, detail="Adaptive block not found or expired")
     event = await run_in_threadpool(
         record_learning_event,
         event_type="adaptive_block_interaction",
         actor="user",
-        source="learning_runtime.adaptive_block",
+        source=str(block.get("event_source") or "learning_runtime.adaptive_block"),
         user_id=user_id,
         course_id=course_id,
         course_version_id=course.get("current_course_version_id"),
@@ -126,7 +130,7 @@ async def record_adaptive_block_interaction(
         result={"interaction": payload.interaction},
         operation_id=f"adaptive-interaction:{payload.adaptive_block_id}:{payload.interaction}",
         idempotency_key=f"{payload.adaptive_block_id}:{payload.interaction}",
-        entity_type="adaptive_learning_block",
+        entity_type=str(block.get("entity_type") or "adaptive_learning_block"),
         entity_id=payload.adaptive_block_id,
         entity_revision=runtime.get("runtime_revision_id"),
         metadata={
@@ -140,6 +144,39 @@ async def record_adaptive_block_interaction(
         "event_id": event["event_id"],
         "interaction": payload.interaction,
     }
+
+
+def _find_learning_support_block(
+    runtime: dict[str, Any],
+    course: dict[str, Any],
+    *,
+    adaptive_block_id: str,
+    node_id: str,
+) -> dict[str, Any] | None:
+    runtime_block = next((
+        item for item in runtime.get("adaptive_blocks") or []
+        if item.get("adaptive_block_id") == adaptive_block_id
+    ), None)
+    if runtime_block:
+        return runtime_block
+
+    for node in course.get("nodes") or []:
+        if str(node.get("node_id") or "") != node_id:
+            continue
+        for course_block in node.get("course_blocks") or []:
+            payload = course_block.get("payload") or {}
+            evolution = payload.get("course_evolution") or {}
+            if str(evolution.get("operation_id") or "") != adaptive_block_id:
+                continue
+            return {
+                "adaptive_block_id": adaptive_block_id,
+                "kind": str(course_block.get("kind") or ""),
+                "reason_code": "accepted_evidence_driven_growth",
+                "evidence_refs": list(course_block.get("evidence_refs") or []),
+                "event_source": "learning_runtime.course_evolution_block",
+                "entity_type": "course_evolution_block",
+            }
+    return None
 
 
 __all__ = ["router"]

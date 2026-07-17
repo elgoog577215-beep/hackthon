@@ -45,7 +45,7 @@
         <span class="inline-ai-result__mark"><Sparkles :size="15" /></span>
         <div>
           <small>
-            {{ t('courseWorkspace.inlineAi.temporary', '临时个人内容') }}
+            {{ autoSaveLabel }}
             <span aria-hidden="true"> · </span>
             {{ t('courseWorkspace.inlineAi.source', '来源：') }}{{ sourceLabel }}
           </small>
@@ -129,11 +129,15 @@
           <MessageCircleMore :size="14" />
           {{ t('courseWorkspace.inlineAi.followUp', '继续追问') }}
         </button>
-        <button v-if="assistantMessage.content" type="button" :disabled="saveState === 'saving' || saveState === 'saved' || assistantMessage.status !== 'complete'" @click="saveAsPersonalContent">
+        <button
+          v-if="assistantMessage.content"
+          type="button"
+          :disabled="saveState === 'saving' || isCurrentMessageLoading || !lastPrompt"
+          @click="redoAnswer"
+        >
           <LoaderCircle v-if="saveState === 'saving'" class="spin" :size="14" />
-          <Check v-else-if="saveState === 'saved'" :size="14" />
-          <BookmarkPlus v-else :size="14" />
-          {{ saveLabel }}
+          <RotateCcw v-else :size="14" />
+          {{ t('courseWorkspace.inlineAi.redo', '重做') }}
         </button>
         <button type="button" class="remove-action" :class="{ 'is-stop': isCurrentMessageLoading }" @click="removeResult">
           <CircleStop v-if="isCurrentMessageLoading" :size="14" />
@@ -142,7 +146,7 @@
         </button>
       </footer>
       <p v-if="saveState === 'failed'" class="inline-ai-result__save-error">
-        {{ t('courseWorkspace.inlineAi.saveFailed', '暂时无法保留，请稍后重试。') }}
+        {{ t('courseWorkspace.inlineAi.saveFailed', '正文记录暂时未同步，请重试。') }}
       </p>
     </section>
   </div>
@@ -152,8 +156,6 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   AlignLeft,
-  BookmarkPlus,
-  Check,
   CheckCircle2,
   CircleHelp,
   CircleStop,
@@ -161,6 +163,7 @@ import {
   LoaderCircle,
   MessageCircleMore,
   MessageSquareText,
+  RotateCcw,
   SendHorizontal,
   Sparkles,
   Trash2,
@@ -174,16 +177,24 @@ import type { ContentBlock, Node as CourseNode } from '../stores/types'
 import { t } from '../shared/i18n'
 
 type InlineAIAction = 'explain' | 'example' | 'simplify' | 'ask'
-type SaveState = 'idle' | 'saving' | 'saved' | 'failed'
+type SaveState = 'idle' | 'saving' | 'saved' | 'local_only' | 'failed'
 type FeedbackState = 'idle' | 'saving' | 'saved' | 'failed'
+type RegenerationRequest = {
+  token: number
+  prompt: string
+  action?: InlineAIAction
+}
 
 const props = withDefaults(defineProps<{
   node: CourseNode
   block: ContentBlock
   active?: boolean
-}>(), { active: false })
+  regenerationRequest?: RegenerationRequest
+}>(), { active: false, regenerationRequest: undefined })
 const emit = defineEmits<{
   activate: [blockId: string]
+  recordPersisted: [recordId: string]
+  recordReleased: [recordId: string]
 }>()
 
 const aiStore = useAITeacherStore()
@@ -200,6 +211,8 @@ const composerOpen = ref(false)
 const composer = ref<HTMLTextAreaElement | null>(null)
 const question = ref('')
 const saveState = ref<SaveState>('idle')
+const savedRecordId = ref('')
+const lastPrompt = ref('')
 const answerFeedback = ref<AIAnswerFeedback | null>(null)
 const feedbackState = ref<FeedbackState>('idle')
 
@@ -212,14 +225,18 @@ const actions = computed(() => [
 const actionLabel = computed(() => actions.value.find(item => item.key === activeAction.value)?.label || t('courseWorkspace.inlineAi.ask', '提问'))
 const resultTitle = computed(() => `${t('courseWorkspace.inlineAi.aiPrefix', 'AI')} · ${actionLabel.value}`)
 const isCurrentMessageLoading = computed(() => assistantMessage.value?.status === 'streaming')
-const saveLabel = computed(() => {
-  if (saveState.value === 'saving') return t('courseWorkspace.inlineAi.saving', '正在保留')
-  if (saveState.value === 'saved') return t('courseWorkspace.inlineAi.saved', '已保留到个人内容')
-  return t('courseWorkspace.inlineAi.save', '保留为个人内容')
+const autoSaveLabel = computed(() => {
+  if (saveState.value === 'saving') return t('courseWorkspace.inlineAi.autoSaving', '正在沉淀到正文')
+  if (saveState.value === 'saved') return t('courseWorkspace.inlineAi.autoSaved', '已沉淀到正文')
+  if (saveState.value === 'local_only') return t('courseWorkspace.inlineAi.autoLocal', '已放入正文，等待同步')
+  if (saveState.value === 'failed') return t('courseWorkspace.inlineAi.autoLocal', '已放入正文，等待同步')
+  return t('courseWorkspace.inlineAi.automatic', '自动沉淀到正文')
 })
 const removeLabel = computed(() => isCurrentMessageLoading.value
   ? t('courseWorkspace.inlineAi.stop', '停止生成')
-  : t('courseWorkspace.inlineAi.remove', '移除'))
+  : savedRecordId.value
+    ? t('courseWorkspace.inlineAi.delete', '删除')
+    : t('courseWorkspace.inlineAi.remove', '移除'))
 const sourceText = computed(() => [props.block.title, props.block.content].filter(Boolean).join('\n\n'))
 const sourceLabel = computed(() => props.block.title || props.node.node_name)
 const canCollectFeedback = computed(() => Boolean(
@@ -236,7 +253,22 @@ watch(() => props.active, async active => {
   focusMenuItem(0)
 }, { immediate: true })
 
-onBeforeUnmount(() => document.removeEventListener('pointerdown', handleOutsidePointerDown))
+watch(() => props.regenerationRequest?.token, async token => {
+  const request = props.regenerationRequest
+  if (!token || !request?.prompt?.trim()) return
+  activeAction.value = request.action || 'ask'
+  resultVisible.value = true
+  composerOpen.value = false
+  assistantMessage.value = null
+  answerFeedback.value = null
+  feedbackState.value = 'idle'
+  await sendQuestion(request.prompt)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleOutsidePointerDown)
+  releasePersistedRecord()
+})
 
 function toggleMenu() {
   emit('activate', props.active ? '' : props.block.block_id)
@@ -328,6 +360,7 @@ function contextRef() {
 
 async function sendQuestion(prompt: string) {
   if (!prompt.trim() || !courseStore.currentCourseId || aiStore.loading) return
+  lastPrompt.value = prompt.trim()
   saveState.value = 'idle'
   answerFeedback.value = null
   feedbackState.value = 'idle'
@@ -342,6 +375,7 @@ async function sendQuestion(prompt: string) {
     contextRef: contextRef(),
     onAssistantMessage: message => { assistantMessage.value = message },
   })
+  await persistAssistantMessage(lastPrompt.value)
 }
 
 async function submitFeedback(feedback: AIAnswerFeedback) {
@@ -393,41 +427,69 @@ async function cancelComposer() {
   resultRegion.value?.querySelector<HTMLButtonElement>('.inline-ai-result__actions button')?.focus()
 }
 
-async function saveAsPersonalContent() {
+function persistedContent(prompt: string, answer: string) {
+  return [
+    `### ${t('courseWorkspace.inlineAi.persistedQuestion', '问题 / 请求')}`,
+    prompt,
+    '',
+    `### ${t('courseWorkspace.inlineAi.persistedAnswer', 'AI 讲解')}`,
+    answer,
+  ].join('\n\n')
+}
+
+async function persistAssistantMessage(prompt: string) {
   const message = assistantMessage.value
-  if (!message || message.status !== 'complete' || saveState.value === 'saving' || saveState.value === 'saved') return
+  if (!message?.content || message.status !== 'complete' || saveState.value === 'saving') return
   saveState.value = 'saving'
   const target = contextRef()
   try {
-    const proposal = await aiStore.proposeForMessage(message, 'create_note', {
-      node_id: props.node.node_id,
-      title: `${actionLabel.value} · ${props.block.title || props.node.node_name}`.slice(0, 80),
-      content: message.content,
+    const note = await noteStore.upsertAnchoredAiNote({
+      nodeId: props.node.node_id,
       quote: sourceText.value.slice(0, 500),
+      content: persistedContent(prompt, message.content),
+      title: `${actionLabel.value} · ${props.block.title || props.node.node_name}`.slice(0, 80),
+      summary: message.content.replace(/\s+/g, ' ').slice(0, 80),
       anchor: target.content_anchor,
-      metadata: {
-        ai_conversation_id: aiStore.currentConversationId,
-        ai_message_ids: [message.message_id],
-        record_subtype: 'assistant_saved_note',
-        inline_ai_action: activeAction.value,
-      },
-    }, target)
-    const receipt = await aiStore.confirmProposal(message, proposal)
-    if (receipt?.status !== 'succeeded') throw new Error('save_failed')
-    await noteStore.loadCourseRecords(courseStore.currentCourseId)
-    saveState.value = 'saved'
+      conversationId: aiStore.currentConversationId,
+      messageId: message.message_id,
+      prompt,
+      action: activeAction.value || 'ask',
+    })
+    if (!note) throw new Error('save_failed')
+    if (savedRecordId.value && savedRecordId.value !== note.id) emit('recordReleased', savedRecordId.value)
+    savedRecordId.value = note.id
+    emit('recordPersisted', note.id)
+    saveState.value = note.syncState === 'local_only' ? 'local_only' : 'saved'
   } catch {
     saveState.value = 'failed'
   }
 }
 
-function removeResult() {
+async function redoAnswer() {
+  if (!lastPrompt.value || isCurrentMessageLoading.value || saveState.value === 'saving') return
+  await sendQuestion(lastPrompt.value)
+}
+
+function releasePersistedRecord() {
+  if (!savedRecordId.value) return
+  emit('recordReleased', savedRecordId.value)
+  savedRecordId.value = ''
+}
+
+async function removeResult() {
   if (isCurrentMessageLoading.value) aiStore.cancel()
+  if (savedRecordId.value && !isCurrentMessageLoading.value) {
+    const recordId = savedRecordId.value
+    await noteStore.deleteNote(recordId)
+    emit('recordReleased', recordId)
+    savedRecordId.value = ''
+  }
   resultVisible.value = false
   composerOpen.value = false
   assistantMessage.value = null
   activeAction.value = null
   question.value = ''
+  lastPrompt.value = ''
   saveState.value = 'idle'
   answerFeedback.value = null
   feedbackState.value = 'idle'

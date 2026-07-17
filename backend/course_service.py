@@ -85,7 +85,6 @@ from material_evidence import attach_evidence_to_plan, extract_grounding_annotat
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialRepository, material_repository
 from models import NodeGenerationConfig
-from subject_knowledge import knowledge_library_prompt_context
 
 logger = logging.getLogger(__name__)
 
@@ -544,10 +543,6 @@ class CourseService(AIBase):
         course_knowledge_map = bind_course_knowledge_base_to_map(
             course_knowledge_map,
             course_knowledge_base,
-        )
-        course_knowledge_base = compile_course_knowledge_base(
-            course_data,
-            course_map=course_knowledge_map,
         )
         course_data["course_knowledge_map"] = course_knowledge_map
         course_data["course_knowledge_base"] = course_knowledge_base
@@ -1889,8 +1884,6 @@ class CourseService(AIBase):
                     "node_level": node_level,
                 },
             )
-        subject_knowledge_context = knowledge_library_prompt_context(course_name or node_name)
-
         prompt = f"""## 任务
 为「{node_name}」设计小节结构。
 
@@ -1902,13 +1895,13 @@ class CourseService(AIBase):
 ## 课程难度能力契约
 {format_difficulty_profile(difficulty_profile.to_dict())}
 
-## 可选术语参照
-{subject_knowledge_context}
+## 知识身份边界
+本次生成只建立当前课程自己的知识蓝图，不读取、复用或输出其他课程的知识 ID。
 
 ## 知识边界
 1. `knowledge_structure` 是当前课程自己的知识蓝图，不是小节标题索引。
 2. 每个概念组至少拆出两个原子知识点；知识点必须有独立命题、条件或边界、可观察能力和掌握标准。
-3. 可选术语参照只帮助命名，缺失或冲突时不得阻断当前课程，也不得输出外部知识 ID。
+3. 所有知识名称与关系只在当前课程内去重和复用，不得跨课程继承身份。
 4. 不生成提升点；易错点没有可靠内容时允许为空，禁止模板填充。
 
 ## 输出格式

@@ -7,7 +7,7 @@
         <p v-if="node.learning_objective">{{ node.learning_objective }}</p>
       </header>
       <div v-if="node.node_content" class="opening-content" :style="contentStyle">
-        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" />
+        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
       </div>
       <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
         <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
@@ -45,7 +45,7 @@
       </header>
 
       <div v-if="node.node_content" class="chapter-content" :style="contentStyle">
-        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" />
+        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
       </div>
 
       <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
@@ -88,7 +88,7 @@
         </small>
       </header>
       <div v-if="node.node_content" class="section-content" :style="contentStyle">
-        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" />
+        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
       </div>
       <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
         <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
@@ -122,7 +122,7 @@ const props = defineProps<{
   generationPreview?: boolean
 }>()
 const emit = defineEmits<{
-  (event: 'startPractice', node: Node): void
+  (event: 'startPractice', node: Node, taskRevisionId?: string): void
   (event: 'openRecord', payload: { note: Note; x: number; y: number }): void
   (event: 'improveBlock', payload: CourseBlockEditTarget): void
 }>()

@@ -1,5 +1,9 @@
 from copy import deepcopy
 
+from course_knowledge_base import (
+    bind_course_knowledge_base_to_map,
+    compile_course_knowledge_base,
+)
 from course_knowledge_map import (
     compile_course_knowledge_map,
     project_learning_assets_to_knowledge,
@@ -106,7 +110,7 @@ def test_uncovered_course_does_not_generate_a_library_during_read():
     assert library["library_id"] == "unresolved"
     assert library["nodes"] == []
     assert library["status"] == "unavailable"
-    assert course_map["status"] == "library_unavailable"
+    assert course_map["status"] == "awaiting_course_binding"
     assert course_map["coverage"]["mapped_count"] == 0
 
 
@@ -118,7 +122,7 @@ def test_subject_hint_without_course_structure_remains_unavailable():
     assert library["status"] == "unavailable"
 
 
-def test_explicit_subject_alias_maps_legacy_section_without_inventing_course_points():
+def test_subject_alias_cannot_invent_course_points_for_legacy_section():
     course = {
         "course_id": "legacy-linear",
         "course_name": "Legacy linear algebra",
@@ -138,11 +142,10 @@ def test_explicit_subject_alias_maps_legacy_section_without_inventing_course_poi
 
     course_map = compile_course_knowledge_map(course, library)
 
-    assert course_map["coverage"]["mapping_count"] == 1
-    assert course_map["coverage"]["mapped_count"] == 1
-    assert course_map["coverage"]["mapped_ratio"] == 1.0
-    assert course_map["mappings"][0]["match_status"] == "exact_alias"
-    assert course_map["mappings"][0]["anchor_knowledge_id"] == "math.la.matrix.row_reduction"
+    assert course_map["coverage"]["mapping_count"] == 0
+    assert course_map["coverage"]["mapped_count"] == 0
+    assert course_map["coverage"]["mapped_ratio"] == 0.0
+    assert course_map["mappings"] == []
     assert course["nodes"][0]["knowledge_structure"] == []
     assert course["nodes"][0]["knowledge_structure_status"] == "needs_enrichment"
 
@@ -171,36 +174,47 @@ def test_pedagogical_project_scaffolding_is_excluded_from_mapping_denominator():
     )
 
 
-def test_two_courses_share_formal_knowledge_but_keep_separate_mappings():
-    first = compile_course_knowledge_map(_course("course-a"))
-    second = compile_course_knowledge_map(_course("course-b"))
+def test_two_courses_with_same_wording_keep_separate_knowledge_identity():
+    first_course = _course("course-a")
+    second_course = _course("course-b")
+    first = bind_course_knowledge_base_to_map(
+        compile_course_knowledge_map(first_course),
+        compile_course_knowledge_base(first_course),
+    )
+    second = bind_course_knowledge_base_to_map(
+        compile_course_knowledge_map(second_course),
+        compile_course_knowledge_base(second_course),
+    )
     first_mapping = next(item for item in first["mappings"] if item["local_name"] == "高斯消元法步骤与行简化阶梯形")
     second_mapping = next(item for item in second["mappings"] if item["local_name"] == "高斯消元法步骤与行简化阶梯形")
 
-    assert first_mapping["anchor_knowledge_id"] == "math.la.system.gaussian_elimination"
-    assert first_mapping["knowledge_ids"] == second_mapping["knowledge_ids"]
+    assert first_mapping["anchor_knowledge_id"].startswith("ckp_")
+    assert second_mapping["anchor_knowledge_id"].startswith("ckp_")
+    assert first_mapping["knowledge_ids"] != second_mapping["knowledge_ids"]
     assert first_mapping["mapping_id"] != second_mapping["mapping_id"]
     assert first["sequence_relations"] == []
 
 
-def test_course_map_keeps_unknown_local_wording_unresolved_without_fake_id():
+def test_course_map_assigns_custom_wording_a_course_local_id():
     course = _course()
     course["nodes"][0]["knowledge_structure"][0]["knowledge_points"].append({
         "name": "老师自定义的三步观察法",
         "description": "课程局部讲法",
         "capability": "完成局部观察",
     })
-    course_map = compile_course_knowledge_map(course)
-    unresolved = next(
+    course_map = bind_course_knowledge_base_to_map(
+        compile_course_knowledge_map(course),
+        compile_course_knowledge_base(course),
+    )
+    custom = next(
         item for item in course_map["mappings"]
         if item["local_name"] == "老师自定义的三步观察法"
     )
 
-    assert unresolved["match_status"] == "unmapped"
-    assert unresolved["anchor_knowledge_id"] is None
-    assert unresolved["knowledge_ids"] == []
-    assert course_map["coverage"]["status"] == "partial"
-    assert any(item["severity"] == "major" for item in validate_course_knowledge_map(course_map, course))
+    assert custom["match_status"] == "course_local"
+    assert custom["anchor_knowledge_id"].startswith("ckp_")
+    assert custom["knowledge_ids"] == [custom["anchor_knowledge_id"]]
+    assert course_map["coverage"]["status"] == "mapped"
 
 
 def test_legacy_graph_is_only_migration_input_and_is_not_returned():
@@ -228,15 +242,16 @@ def test_legacy_graph_is_only_migration_input_and_is_not_returned():
     assert projected["knowledge_library"][0]["schema_version"] == "knowledge_library_view_v3"
     assert "subject_knowledge" not in projected
     assert "teaching_standards" not in projected
-    assert projected["questions"][0]["concept_ids"] == ["math.la.system.gaussian_elimination"]
-    assert projected["questions"][0]["skill_unit_ids"]
-    assert projected["questions"][0]["mistake_point_ids"]
-    assert "improvement_point_ids" in projected["questions"][0]
-    assert projected["questions"][0]["knowledge_identity_status"] == "compatibility_projection"
+    assert projected["questions"][0]["concept_ids"] == ["legacy-gaussian"]
+    assert not any(
+        str(item).startswith("math.")
+        for item in projected["questions"][0]["concept_ids"]
+    )
+    assert projected["knowledge_library"][0]["identity_scope"] == "course_local"
     assert legacy_assets == before
 
 
-def test_read_projection_keeps_a_pinned_subject_library_as_the_primary_view():
+def test_read_projection_ignores_a_legacy_pinned_subject_library():
     library = load_subject_library("math.linear_algebra.v1")
     course = _course()
     course["knowledge_library_binding"] = {
@@ -248,8 +263,9 @@ def test_read_projection_keeps_a_pinned_subject_library_as_the_primary_view():
     projected = project_learning_assets_to_knowledge(course, {})
 
     assert projected["course_knowledge_base"][0]["schema_version"] == "course_knowledge_base_v2"
-    assert projected["knowledge_library"][0]["library_id"] == library["library_id"]
-    assert projected["knowledge_library"][0]["identity_scope"] == "subject_shared"
+    assert projected["knowledge_library"][0]["library_id"].startswith("ckb_")
+    assert projected["knowledge_library"][0]["library_id"] != library["library_id"]
+    assert projected["knowledge_library"][0]["identity_scope"] == "course_local"
 
 
 def test_course_map_validator_rejects_unknown_formal_asset_reference():
@@ -261,7 +277,7 @@ def test_course_map_validator_rejects_unknown_formal_asset_reference():
         {"questions": [{"concept_ids": ["missing-formal-knowledge"]}]},
     )
 
-    assert any(item["severity"] == "critical" and "不存在的正式知识" in item["message"] for item in issues)
+    assert any(item["severity"] == "critical" and "不存在的正式知识或课程知识" in item["message"] for item in issues)
 
 
 def test_unified_library_nests_skills_mistakes_and_improvements():
