@@ -7,14 +7,12 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from course_knowledge_rebuild import (
-    CourseKnowledgeRebuildError,
-    CourseKnowledgeRebuildService,
-)
+from course_knowledge_rebuild import CourseKnowledgeRebuildService
 from course_repository import CourseDocumentRepository
 from dependencies import get_course_document_repository
 from knowledge_library_migrations import KnowledgeLibraryMigrationService
 from subject_library_service import (
+    SubjectOntologyGenerationError,
     SubjectLibraryService,
     SubjectLibraryVersionConflict,
 )
@@ -55,12 +53,21 @@ def get_course_knowledge_rebuild_service(
 async def rebuild_course_library(
     course_id: str,
     body: RebuildRequest,
-    service: CourseKnowledgeRebuildService = Depends(get_course_knowledge_rebuild_service),
+    service: SubjectLibraryService = Depends(get_subject_library_service),
 ) -> dict:
     try:
         return await service.rebuild_course(course_id, force=body.force)
-    except CourseKnowledgeRebuildError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+    except SubjectOntologyGenerationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "code": exc.code,
+                "message": exc.message,
+                "retryable": exc.retryable,
+            },
+        ) from exc
+    except SubjectLibraryVersionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

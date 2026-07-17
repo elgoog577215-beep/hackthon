@@ -3,9 +3,8 @@ from copy import deepcopy
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from course_knowledge_rebuild import CourseKnowledgeRebuildError
 from routers import knowledge_libraries
-from subject_library_service import SubjectLibraryVersionConflict
+from subject_library_service import SubjectLibraryVersionConflict, SubjectOntologyGenerationError
 
 
 def _course():
@@ -175,26 +174,26 @@ def test_migration_job_contracts():
     }
 
 
-def test_rebuild_exposes_degraded_course_quality_without_calling_subject_provider():
+def test_rebuild_exposes_subject_provider_failure_without_replacing_the_library():
     class _FailingRebuildService:
         async def rebuild_course(self, course_id, *, force=False):
-            raise CourseKnowledgeRebuildError(
-                code="knowledge_quality_failed",
-                message="课程知识化结果未通过质量门，原课程保持不变",
+            raise SubjectOntologyGenerationError(
+                code="provider_request_failed",
+                message="学科知识库生成失败，原版本保持不变",
                 retryable=True,
-                quality_report={"strict_passed": False, "blocking_issues": [{"message": "知识点只有名称"}]},
+                status_code=503,
             )
 
     app = FastAPI()
     app.include_router(knowledge_libraries.router, prefix="/api")
-    app.dependency_overrides[knowledge_libraries.get_course_knowledge_rebuild_service] = (
+    app.dependency_overrides[knowledge_libraries.get_subject_library_service] = (
         lambda: _FailingRebuildService()
     )
     client = TestClient(app)
 
     response = client.post("/api/courses/course-1/knowledge-library/rebuild", json={"force": True})
 
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "knowledge_quality_failed"
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "provider_request_failed"
     assert response.json()["detail"]["retryable"] is True
-    assert response.json()["detail"]["quality_report"]["blocking_issues"]
+    assert "message" in response.json()["detail"]

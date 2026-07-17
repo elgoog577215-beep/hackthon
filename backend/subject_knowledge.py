@@ -838,6 +838,7 @@ def build_knowledge_library_view(
         "schema_version": SUBJECT_VIEW_SCHEMA,
         "library_id": library.get("library_id"),
         "subject_id": library.get("subject_id"),
+        "identity_scope": "subject_shared",
         "library_version": library.get("version"),
         "binding_revision_id": course_map.get("binding_revision_id") or library.get("revision_id"),
         "lifecycle_status": library.get("lifecycle_status", "accepted" if library.get("status") == "active" else "degraded"),

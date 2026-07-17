@@ -21,7 +21,7 @@ from course_pedagogy import coerce_persisted_profile
 from course_versioning import stable_hash
 from learning_progress import learning_objective_identity
 from practice_contracts import enrich_question_contract
-from subject_knowledge import resolve_subject_library
+from subject_knowledge import build_knowledge_library_view, resolve_subject_library
 
 ASSET_SCHEMA = "learning_assets_v2"
 QUALITY_SCHEMA = "asset_quality_v1"
@@ -377,11 +377,29 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
     _attach_course_knowledge_refs(assets, course_knowledge_base)
     if "course_knowledge_base" in enabled:
         assets["course_knowledge_base"] = [course_knowledge_base]
-    knowledge_view = build_course_knowledge_library_view(
-        course_knowledge_base,
-        course_map,
-        assets,
-        course_data,
+    subject_lifecycle = str(
+        subject_library.get("lifecycle_status")
+        or ("accepted" if subject_library.get("status") == "active" else "degraded")
+    )
+    subject_binding = course_data.get("knowledge_library_binding") or {}
+    binding_matches_subject = bool(subject_binding) and (
+        str(subject_binding.get("revision_id") or "") == str(subject_library.get("revision_id") or "")
+        or str(subject_binding.get("library_id") or "") == str(subject_library.get("library_id") or "")
+    )
+    has_governed_subject_library = (
+        binding_matches_subject
+        and bool(subject_library.get("nodes"))
+        and subject_lifecycle in {"accepted", "candidate"}
+    )
+    knowledge_view = (
+        build_knowledge_library_view(subject_library, course_map, assets)
+        if has_governed_subject_library
+        else build_course_knowledge_library_view(
+            course_knowledge_base,
+            course_map,
+            assets,
+            course_data,
+        )
     )
     if "knowledge_library" in enabled:
         assets["knowledge_library"] = [knowledge_view]

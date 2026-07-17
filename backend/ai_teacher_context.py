@@ -9,9 +9,15 @@ from typing import Any
 
 from content_blocks import project_course_content_blocks
 from course_knowledge_base import compile_course_knowledge_base, knowledge_binding_for_section
+from course_knowledge_map import compile_course_knowledge_map, knowledge_ids_for_section
 from learner_model import is_model_item_current
 from learning_runtime import build_learning_runtime
 from practice_attempts import practice_attempt_repository
+from subject_knowledge import (
+    knowledge_index,
+    knowledge_library_slice,
+    resolve_subject_library,
+)
 
 MAX_SOURCES = 5
 MAX_EVIDENCE = 5
@@ -250,7 +256,44 @@ def _scene(
 
 def _knowledge_context(course: dict[str, Any], node_id: str) -> dict[str, Any]:
     knowledge_base = course.get("course_knowledge_base") or compile_course_knowledge_base(course)
-    if knowledge_base.get("lifecycle_status") != "active":
+    if knowledge_base.get("lifecycle_status") == "active":
+        section_binding = knowledge_binding_for_section(knowledge_base, node_id)
+        selected_ids = set(section_binding["course_knowledge_refs"])
+        relations = [
+            deepcopy(item)
+            for item in knowledge_base.get("relations") or []
+            if item.get("source_knowledge_id") in selected_ids
+            or item.get("target_knowledge_id") in selected_ids
+        ][:16]
+        context_ids = set(selected_ids)
+        for relation in relations:
+            context_ids.add(str(relation.get("source_knowledge_id") or ""))
+            context_ids.add(str(relation.get("target_knowledge_id") or ""))
+        points = {
+            str(item.get("knowledge_id") or ""): item
+            for item in knowledge_base.get("knowledge_points") or []
+        }
+        nodes = [{
+            "knowledge_id": point_id,
+            "name": points[point_id].get("name"),
+            "node_type": "knowledge_point",
+            "statement": points[point_id].get("statement"),
+            "conditions": deepcopy(points[point_id].get("conditions") or []),
+            "boundaries": deepcopy(points[point_id].get("boundaries") or []),
+            "is_current_section": point_id in selected_ids,
+        } for point_id in list(context_ids)[:16] if point_id in points]
+        skill_units = [
+            deepcopy(item) for item in knowledge_base.get("skill_units") or []
+            if item.get("primary_knowledge_id") in context_ids
+        ][:12]
+        misconceptions = [
+            deepcopy(item) for item in knowledge_base.get("misconceptions") or []
+            if item.get("primary_knowledge_id") in context_ids
+        ][:8]
+        mastery_criteria = [
+            deepcopy(item) for item in knowledge_base.get("mastery_criteria") or []
+            if set(item.get("knowledge_ids") or []) & context_ids
+        ][:8]
         return {
             "schema_version": "ai_knowledge_context_v3",
             "knowledge_library_id": knowledge_base.get("knowledge_base_id"),
@@ -258,57 +301,68 @@ def _knowledge_context(course: dict[str, Any], node_id: str) -> dict[str, Any]:
             "knowledge_library_revision_id": knowledge_base.get("revision_id"),
             "course_map_revision_id": (course.get("course_knowledge_map") or {}).get("revision_id"),
             "node_id": node_id,
-            "knowledge_nodes": [],
-            "relations": [],
-            "skill_units": [],
-            "mistake_points": [],
-            "mastery_criteria": [],
+            "knowledge_nodes": nodes,
+            "relations": relations,
+            "skill_units": skill_units,
+            "mistake_points": misconceptions,
+            "mastery_criteria": mastery_criteria,
             "improvement_points": [],
-            "mapping_status": "degraded",
+            "mapping_status": knowledge_base.get("lifecycle_status", "degraded"),
             "usage_policy": {
-                "role": "unavailable_until_quality_passed",
+                "role": "course_runtime_truth",
                 "identity_scope": "current_course_only",
                 "may_invent_formal_ids": False,
                 "reference_catalog_required": False,
             },
         }
-    section_binding = knowledge_binding_for_section(knowledge_base, node_id)
-    selected_ids = set(section_binding["course_knowledge_refs"])
-    relations = [
-        deepcopy(item)
-        for item in knowledge_base.get("relations") or []
-        if item.get("source_knowledge_id") in selected_ids
-        or item.get("target_knowledge_id") in selected_ids
-    ][:16]
-    context_ids = set(selected_ids)
-    for relation in relations:
-        context_ids.add(str(relation.get("source_knowledge_id") or ""))
-        context_ids.add(str(relation.get("target_knowledge_id") or ""))
-    points = {
-        str(item.get("knowledge_id") or ""): item
-        for item in knowledge_base.get("knowledge_points") or []
-    }
-    nodes = [{
-        "knowledge_id": point_id,
-        "name": points[point_id].get("name"),
-        "node_type": "knowledge_point",
-        "statement": points[point_id].get("statement"),
-        "conditions": deepcopy(points[point_id].get("conditions") or []),
-        "boundaries": deepcopy(points[point_id].get("boundaries") or []),
-        "is_current_section": point_id in selected_ids,
-    } for point_id in list(context_ids)[:16] if point_id in points]
-    skill_units = [
-        deepcopy(item) for item in knowledge_base.get("skill_units") or []
-        if item.get("primary_knowledge_id") in context_ids
-    ][:12]
-    misconceptions = [
-        deepcopy(item) for item in knowledge_base.get("misconceptions") or []
-        if item.get("primary_knowledge_id") in context_ids
-    ][:8]
-    mastery_criteria = [
-        deepcopy(item) for item in knowledge_base.get("mastery_criteria") or []
-        if set(item.get("knowledge_ids") or []) & context_ids
-    ][:8]
+
+    subject_library = resolve_subject_library(course)
+    lifecycle_status = str(subject_library.get("lifecycle_status") or "degraded")
+    if lifecycle_status in {"accepted", "candidate"} and subject_library.get("nodes"):
+        course_map = compile_course_knowledge_map(course, subject_library)
+        selected_ids = knowledge_ids_for_section(course_map, node_id)
+        by_id = knowledge_index(subject_library)
+        nodes = [
+            {
+                "knowledge_id": knowledge_id,
+                "name": by_id[knowledge_id].get("name"),
+                "node_type": by_id[knowledge_id].get("node_type"),
+                "path_names": deepcopy(by_id[knowledge_id].get("path_names") or []),
+                "learning_actions": deepcopy((by_id[knowledge_id].get("learning_actions") or [])[:3]),
+            }
+            for knowledge_id in selected_ids[:16]
+            if knowledge_id in by_id
+        ]
+        library_slice = knowledge_library_slice(subject_library, selected_ids)
+        selected_set = set(selected_ids)
+        relations = [
+            deepcopy(item)
+            for item in subject_library.get("relations") or []
+            if item.get("source_knowledge_id") in selected_set
+            or item.get("target_knowledge_id") in selected_set
+        ][:16]
+        return {
+            "schema_version": "ai_knowledge_context_v3",
+            "knowledge_library_id": subject_library.get("library_id"),
+            "knowledge_library_version": subject_library.get("version"),
+            "knowledge_library_revision_id": subject_library.get("revision_id"),
+            "course_map_revision_id": course_map.get("revision_id"),
+            "node_id": node_id,
+            "knowledge_nodes": nodes,
+            "relations": relations,
+            "skill_units": deepcopy((library_slice.get("skill_units") or [])[:8]),
+            "mistake_points": deepcopy((library_slice.get("mistake_points") or [])[:8]),
+            "mastery_criteria": [],
+            "improvement_points": deepcopy((library_slice.get("improvement_points") or [])[:5]),
+            "mapping_status": "mapped" if nodes else "unmapped",
+            "usage_policy": {
+                **deepcopy(library_slice.get("usage_policy") or {}),
+                "role": "provisional_reference" if lifecycle_status == "candidate" else "reference_only",
+                "identity_scope": "subject_shared",
+                "may_invent_formal_ids": False,
+            },
+        }
+
     return {
         "schema_version": "ai_knowledge_context_v3",
         "knowledge_library_id": knowledge_base.get("knowledge_base_id"),
@@ -316,15 +370,15 @@ def _knowledge_context(course: dict[str, Any], node_id: str) -> dict[str, Any]:
         "knowledge_library_revision_id": knowledge_base.get("revision_id"),
         "course_map_revision_id": (course.get("course_knowledge_map") or {}).get("revision_id"),
         "node_id": node_id,
-        "knowledge_nodes": nodes,
-        "relations": relations,
-        "skill_units": skill_units,
-        "mistake_points": misconceptions,
-        "mastery_criteria": mastery_criteria,
+        "knowledge_nodes": [],
+        "relations": [],
+        "skill_units": [],
+        "mistake_points": [],
+        "mastery_criteria": [],
         "improvement_points": [],
-        "mapping_status": knowledge_base.get("lifecycle_status", "degraded"),
+        "mapping_status": "degraded",
         "usage_policy": {
-            "role": "course_runtime_truth",
+            "role": "unavailable_until_quality_passed",
             "identity_scope": "current_course_only",
             "may_invent_formal_ids": False,
             "reference_catalog_required": False,

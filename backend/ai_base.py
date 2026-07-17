@@ -557,6 +557,7 @@ class AIBase:
         use_fast_model: bool = False,
         retry_count: int = 3,
         enable_thinking: bool = False,
+        raise_on_failure: bool = False,
     ) -> str:
         """
         通用 LLM 调用函数。
@@ -578,10 +579,16 @@ class AIBase:
             LLM 完整响应文本，失败返回 None
         """
         if not self.api_key:
+            if raise_on_failure:
+                raise AIProviderUnavailable("not_configured")
             return None
         if self._provider_failure:
+            if raise_on_failure:
+                raise AIProviderUnavailable(self._provider_failure)
             return None
-        
+
+        last_error: Exception | None = None
+
         for model_id in self._models_for(use_fast_model):
             for attempt in range(retry_count):
                 try:
@@ -631,17 +638,26 @@ class AIBase:
                     return full_content
 
                 except Exception as e:
+                    last_error = e
                     logger.error(f"AI API Call Error (Model: {model_id}, Attempt {attempt+1}/{retry_count}): {e}")
                     if self._is_authentication_error(e):
                         self._block_provider("authentication_failed")
+                        if raise_on_failure:
+                            raise AIProviderUnavailable("authentication_failed") from e
                         return None
                     if self._should_try_next_model(e):
                         break
                     if attempt < retry_count - 1:
                         await asyncio.sleep(2 ** attempt)  # Exponential backoff
                     else:
+                        if raise_on_failure:
+                            raise AIProviderRequestError(str(e)) from e
                         return None
-        
+
+        if raise_on_failure:
+            if last_error is not None:
+                raise AIProviderRequestError(str(last_error)) from last_error
+            raise AIProviderRequestError("empty_response")
         return None
 
     async def _stream_llm(

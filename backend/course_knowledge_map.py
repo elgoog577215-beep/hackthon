@@ -129,6 +129,21 @@ def compile_course_knowledge_map(
         structures = normalize_knowledge_structure(section)
         section_mappings: list[dict[str, Any]] = []
         local_entries = _local_entries(structures)
+        # Legacy courses may predate structured knowledge fields.  In that case
+        # we may bridge an explicit section title to an existing subject term,
+        # but must never promote an arbitrary chapter title into a formal node.
+        if not local_entries:
+            section_name = str(section.get("node_name") or section.get("title") or "").strip()
+            explicit_match = match_subject_knowledge(subject_library, section_name)
+            if explicit_match and explicit_match.get("match_status") in {"exact_name", "exact_alias"}:
+                local_entries = [{
+                    "local_kind": "concept",
+                    "local_topic": section_name,
+                    "local_name": section_name,
+                    "local_description": "",
+                    "local_capability": "",
+                    "detail_status": "subject_alias_bridge",
+                }]
         for local_order, entry in enumerate(local_entries):
             mapping_scope = _mapping_scope(section, entry)
             match = match_subject_knowledge(subject_library, entry["local_name"])

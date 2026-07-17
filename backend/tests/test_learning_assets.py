@@ -153,8 +153,14 @@ def test_assets_have_stable_revisions_and_five_passing_gates():
 def test_pinned_subject_library_is_the_primary_visible_view(monkeypatch):
     library = load_subject_library("math.linear_algebra.v1")
     monkeypatch.setattr("learning_assets.resolve_subject_library", lambda _course: library)
+    course = _course()
+    course["knowledge_library_binding"] = {
+        "library_id": library["library_id"],
+        "revision_id": library["revision_id"],
+        "binding_status": "pinned",
+    }
 
-    bundle = compile_learning_assets(_course())
+    bundle = compile_learning_assets(course)
 
     assert bundle["assets"]["course_knowledge_base"][0]["schema_version"] == "course_knowledge_base_v2"
     assert bundle["assets"]["knowledge_library"][0]["library_id"] == "math.linear_algebra.v1"
