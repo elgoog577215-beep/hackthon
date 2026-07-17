@@ -336,6 +336,48 @@ describe('Course knowledge library', () => {
     expect(courseStore.showTeachingResources).toBe(true)
   })
 
+  it('在知识库页面上部切换知识树和只读关系图，并仅展示已启用关系', async () => {
+    const candidateRelation = {
+      ...libraryView.relations[0],
+      relation_id: 'relation-candidate',
+      relation_type: 'contrasts_with',
+      status: 'candidate',
+      reason: '这条候选关系尚未通过当前版本审核',
+    }
+    httpMock.get.mockResolvedValue({
+      data: {
+        ...response().data,
+        assets: {
+          ...response().data.assets,
+          knowledge_library: [{
+            ...libraryView,
+            relations: [...libraryView.relations, candidateRelation],
+          }],
+        },
+      },
+    })
+    const { wrapper } = await mountLibrary()
+
+    const viewTabs = wrapper.findAll('[data-testid="knowledge-view-mode"] [role="tab"]')
+    expect(viewTabs.map(tab => tab.text())).toEqual(['知识树', '关系图'])
+    expect(viewTabs[0]!.attributes('aria-selected')).toBe('true')
+
+    await viewTabs[1]!.trigger('click')
+
+    expect(wrapper.get('[data-testid="knowledge-relation-graph"]').exists()).toBe(true)
+    const edges = wrapper.findAll('[data-testid="knowledge-graph-edge"]')
+    expect(edges).toHaveLength(1)
+    expect(edges[0]!.attributes('data-relation-id')).toBe('relation-1')
+    expect(wrapper.text()).not.toContain('这条候选关系尚未通过当前版本审核')
+
+    const targetNode = wrapper.get('[data-knowledge-id="linear-combination-definition"]')
+    await targetNode.trigger('click')
+    expect(targetNode.attributes('aria-pressed')).toBe('true')
+
+    await viewTabs[0]!.trigger('click')
+    expect(wrapper.get('.knowledge-tree-detail h2').text()).toBe('线性组合的形式定义')
+  })
+
   it('重新生成失败时显示后端结构化错误而不是对象字符串', async () => {
     const { wrapper } = await mountLibrary()
     httpMock.post.mockRejectedValueOnce({
