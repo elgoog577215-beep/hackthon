@@ -5,6 +5,7 @@ from learning_assets import (
     compile_learning_assets,
     evaluate_learning_asset_quality,
 )
+from subject_knowledge import load_subject_library
 
 
 def _course(mode="programming_engineering"):
@@ -147,6 +148,17 @@ def test_assets_have_stable_revisions_and_five_passing_gates():
     assert progression["chapter_id"] == "L2-1-1"
     assert progression["required_objective_ids"] == [criterion["objective_id"]]
     assert progression["revision_id"].startswith("cpcr_")
+
+
+def test_pinned_subject_library_is_the_primary_visible_view(monkeypatch):
+    library = load_subject_library("math.linear_algebra.v1")
+    monkeypatch.setattr("learning_assets.resolve_subject_library", lambda _course: library)
+
+    bundle = compile_learning_assets(_course())
+
+    assert bundle["assets"]["course_knowledge_base"][0]["schema_version"] == "course_knowledge_base_v2"
+    assert bundle["assets"]["knowledge_library"][0]["library_id"] == "math.linear_algebra.v1"
+    assert bundle["assets"]["knowledge_library"][0]["identity_scope"] != "course_local"
 
 
 def test_legacy_linear_algebra_outline_is_degraded_without_borrowing_subject_identity():

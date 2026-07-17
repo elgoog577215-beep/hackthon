@@ -151,9 +151,9 @@ def test_rebuild_review_and_accept_contracts():
     )
 
     assert rebuilt.status_code == 200
-    assert rebuilt.json()["library"]["lifecycle_status"] == "accepted"
-    assert rebuilt.json()["library"]["identity_scope"] == "course_local"
-    assert rebuilt.json()["reference_catalog_required"] is False
+    assert rebuilt.json()["library"]["lifecycle_status"] == "candidate"
+    assert rebuilt.json()["binding"]["revision_id"] == "sklr_1"
+    assert "course_knowledge_base" not in rebuilt.json()
     assert review.json()["diff"]["added"] == 3
     assert accepted.json()["library"]["lifecycle_status"] == "accepted"
     assert stale.status_code == 409

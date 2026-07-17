@@ -118,6 +118,35 @@ def test_subject_hint_without_course_structure_remains_unavailable():
     assert library["status"] == "unavailable"
 
 
+def test_explicit_subject_alias_maps_legacy_section_without_inventing_course_points():
+    course = {
+        "course_id": "legacy-linear",
+        "course_name": "Legacy linear algebra",
+        "nodes": [{
+            "node_id": "section-row-reduction",
+            "node_level": 2,
+            "node_name": "Legacy row-reduction wording",
+            "node_content": "A complete explanation of row reduction.",
+        }],
+    }
+    library = deepcopy(load_subject_library("math.linear_algebra.v1"))
+    concept = next(
+        item for item in library["nodes"]
+        if item["knowledge_id"] == "math.la.matrix.row_reduction"
+    )
+    concept["aliases"] = [*concept.get("aliases", []), "Legacy row-reduction wording"]
+
+    course_map = compile_course_knowledge_map(course, library)
+
+    assert course_map["coverage"]["mapping_count"] == 1
+    assert course_map["coverage"]["mapped_count"] == 1
+    assert course_map["coverage"]["mapped_ratio"] == 1.0
+    assert course_map["mappings"][0]["match_status"] == "exact_alias"
+    assert course_map["mappings"][0]["anchor_knowledge_id"] == "math.la.matrix.row_reduction"
+    assert course["nodes"][0]["knowledge_structure"] == []
+    assert course["nodes"][0]["knowledge_structure_status"] == "needs_enrichment"
+
+
 def test_pedagogical_project_scaffolding_is_excluded_from_mapping_denominator():
     course = _uncovered_course()
     course["nodes"].append({

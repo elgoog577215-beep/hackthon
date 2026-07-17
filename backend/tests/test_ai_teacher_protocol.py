@@ -247,6 +247,69 @@ def test_ai_teacher_does_not_treat_degraded_course_index_as_runtime_truth(monkey
     assert context["usage_policy"]["role"] == "unavailable_until_quality_passed"
 
 
+def test_ai_teacher_uses_source_course_candidate_subject_library_as_provisional_fallback(monkeypatch):
+    monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
+    monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])
+    course = _course()
+    section_name = str(course["nodes"][0]["node_name"])
+    course["nodes"][0].pop("knowledge_structure", None)
+    course["nodes"][0]["key_points"] = []
+    library = {
+        "schema_version": "knowledge_library_v3",
+        "library_id": "subject.variables",
+        "subject_id": "computer_science.variables",
+        "version": "1.0.0-candidate",
+        "revision_id": "sklr_variables",
+        "lifecycle_status": "candidate",
+        "source_course_ids": [course["course_id"]],
+        "nodes": [{
+            "knowledge_id": "subject.variables.root",
+            "parent_id": None,
+            "node_type": "subject",
+            "name": "Variables",
+            "aliases": [],
+            "path_ids": ["subject.variables.root"],
+            "path_names": ["Variables"],
+        }, {
+            "knowledge_id": "subject.variables.binding",
+            "parent_id": "subject.variables.root",
+            "node_type": "knowledge_point",
+            "name": "Variable binding",
+            "aliases": [section_name],
+            "path_ids": ["subject.variables.root", "subject.variables.binding"],
+            "path_names": ["Variables", "Variable binding"],
+            "learning_actions": ["Trace a binding update"],
+        }],
+        "relations": [],
+        "skill_units": [{
+            "skill_unit_id": "skill.variables.trace",
+            "name": "Trace variable bindings",
+            "primary_knowledge_id": "subject.variables.binding",
+            "knowledge_ids": ["subject.variables.binding"],
+        }],
+        "mistake_points": [],
+        "improvement_points": [],
+        "skill_relations": [],
+        "usage_policy": {"may_invent_formal_ids": False},
+    }
+    monkeypatch.setattr(ai_teacher_context, "resolve_subject_library", lambda _course: library, raising=False)
+
+    package = build_ai_teacher_context(
+        course,
+        user_id="u1",
+        question="Explain the binding",
+        node_id="node-1",
+        entrypoint="selection",
+    )
+    context = package["knowledge_context"]
+
+    assert context["knowledge_library_id"] == "subject.variables"
+    assert [item["knowledge_id"] for item in context["knowledge_nodes"]] == ["subject.variables.binding"]
+    assert context["skill_units"][0]["skill_unit_id"] == "skill.variables.trace"
+    assert context["mapping_status"] == "mapped"
+    assert context["usage_policy"]["role"] == "provisional_reference"
+
+
 def test_explanation_context_does_not_load_unrelated_model_details(monkeypatch):
     monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
     monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])
