@@ -39,7 +39,16 @@ export interface KnowledgeRelation {
   relation_id: string
   source_knowledge_id: string
   target_knowledge_id: string
-  relation_type: 'prerequisite' | 'derives' | 'equivalent_to' | 'contrasts_with' | 'applies_to' | 'generalizes'
+  relation_type:
+    | 'prerequisite'
+    | 'derives'
+    | 'equivalent_to'
+    | 'contrasts_with'
+    | 'applies_to'
+    | 'generalizes'
+    | 'related'
+    | 'application'
+    | 'confusable'
   source_status: string
   status: 'accepted' | 'candidate' | 'rejected' | string
   reason: string

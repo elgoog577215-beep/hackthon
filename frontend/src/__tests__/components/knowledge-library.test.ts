@@ -364,7 +364,7 @@ describe('Course knowledge library', () => {
 
     await viewTabs[1]!.trigger('click')
 
-    expect(wrapper.get('[data-testid="knowledge-relation-graph"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="knowledge-relation-graph"]').exists()).toBe(true)
     const edges = wrapper.findAll('[data-testid="knowledge-graph-edge"]')
     expect(edges).toHaveLength(1)
     expect(edges[0]!.attributes('data-relation-id')).toBe('relation-1')

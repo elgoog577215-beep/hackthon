@@ -146,7 +146,42 @@
             </div>
           </section>
 
-          <main class="knowledge-tree-main" :class="{ 'is-detail-open': mobileDetailOpen }">
+          <nav
+            v-if="libraryView?.nodes.length"
+            class="knowledge-library-viewbar"
+            :aria-label="t('knowledgeLibrary.viewMode', '知识库视图')"
+          >
+            <div data-testid="knowledge-view-mode" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="viewMode === 'tree'"
+                :class="{ active: viewMode === 'tree' }"
+                @click="viewMode = 'tree'"
+              >
+                <ListTree :size="14" aria-hidden="true" />
+                {{ t('knowledgeLibrary.treeView', '知识树') }}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="viewMode === 'graph'"
+                :class="{ active: viewMode === 'graph' }"
+                @click="viewMode = 'graph'"
+              >
+                <Network :size="14" aria-hidden="true" />
+                {{ t('knowledgeLibrary.graphView', '关系图') }}
+              </button>
+            </div>
+            <span>{{ viewMode === 'tree'
+              ? t('knowledgeLibrary.treeViewHint', '按课程路径查看层级与详情')
+              : t('knowledgeLibrary.graphViewHint', '查看当前版本已启用的知识关系') }}</span>
+          </nav>
+
+          <main
+            class="knowledge-tree-main"
+            :class="{ 'is-detail-open': mobileDetailOpen, 'is-graph': viewMode === 'graph' }"
+          >
             <div v-if="loading" class="knowledge-tree-state" role="status">
               <LoaderCircle :size="24" class="knowledge-tree-spinner" />
               <strong>{{ t('knowledgeLibrary.loading', '正在读取知识库') }}</strong>
@@ -169,7 +204,16 @@
             </div>
 
             <template v-else>
-              <aside class="knowledge-tree-pane" :aria-label="t('knowledgeLibrary.outline', '课程知识路径')">
+              <KnowledgeRelationGraph
+                v-if="viewMode === 'graph'"
+                :nodes="libraryView.nodes"
+                :relations="acceptedRelations"
+                :selected-id="selectedNode?.knowledge_id"
+                @select="selectNode"
+              />
+
+              <template v-else>
+                <aside class="knowledge-tree-pane" :aria-label="t('knowledgeLibrary.outline', '课程知识路径')">
                 <div class="knowledge-tree-pane-head">
                   <div>
                     <ListTree :size="15" />
@@ -390,7 +434,8 @@
                   <CircleDot :size="24" />
                   <strong>{{ t('knowledgeLibrary.selectPoint', '选择一个知识点查看详情') }}</strong>
                 </div>
-              </article>
+                </article>
+              </template>
             </template>
           </main>
         </section>
@@ -428,6 +473,7 @@ import {
 } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
 import LearningContextTabs from './LearningContextTabs.vue'
+import KnowledgeRelationGraph from './KnowledgeRelationGraph.vue'
 import { t } from '../shared/i18n'
 import http from '../utils/http'
 import logger from '../utils/logger'
@@ -452,6 +498,7 @@ const loading = ref(false)
 const loadError = ref('')
 const searchQuery = ref('')
 const coverageMode = ref<'course' | 'all'>('course')
+const viewMode = ref<'tree' | 'graph'>('tree')
 const libraryView = ref<KnowledgeLibraryView | null>(null)
 const selectedNode = ref<KnowledgeNode | null>(null)
 const expandedIds = ref<Set<string>>(new Set())
@@ -526,6 +573,10 @@ const activeRelations = computed(() => (
     relation.status === 'accepted'
     || (libraryView.value?.lifecycle_status === 'candidate' && relation.status === 'candidate')
   )) || []
+))
+
+const acceptedRelations = computed(() => (
+  libraryView.value?.relations.filter(relation => relation.status === 'accepted') || []
 ))
 
 const candidateRelationCount = computed(() => (
@@ -757,6 +808,7 @@ async function loadLibrary(): Promise<void> {
     )
     selectedNode.value = view.nodes.find((node: KnowledgeNode) => node.knowledge_id === view.root_node_id) || view.nodes[0] || null
     mobileDetailOpen.value = false
+    viewMode.value = 'tree'
   } catch (error: any) {
     logger.error(error)
     loadError.value = errorMessage(error, t('knowledgeLibrary.loadFailed', '知识库暂时无法读取'))
@@ -857,13 +909,14 @@ function nodeIcon(type: KnowledgeNodeType) {
 }
 
 function nodeTypeLabel(type: KnowledgeNodeType): string {
-  return {
+  const labels: Record<string, string> = {
     course: t('knowledgeLibrary.typeCourse', '课程'),
     chapter: t('knowledgeLibrary.typeChapter', '章节'),
     section: t('knowledgeLibrary.typeSection', '小节'),
     concept_group: t('knowledgeLibrary.typeConceptGroup', '概念组'),
     knowledge_point: t('knowledgeLibrary.typePoint', '原子知识点'),
-  }[type]
+  }
+  return labels[type] || t('knowledgeLibrary.typeConcept', '知识概念')
 }
 
 function descriptionFallback(_node: KnowledgeNode): string {
@@ -885,6 +938,9 @@ function relationLabel(relation: KnowledgeRelation, direction: 'incoming' | 'out
     contrasts_with: t('knowledgeLibrary.contrasts', '对比辨析'),
     applies_to: t('knowledgeLibrary.applies', '应用关系'),
     generalizes: t('knowledgeLibrary.generalizes', '一般化关系'),
+    related: t('knowledgeLibrary.related', '相关知识'),
+    application: t('knowledgeLibrary.applies', '应用关系'),
+    confusable: t('knowledgeLibrary.confusable', '易混淆'),
   }
   return labels[relation.relation_type] || relation.relation_type
 }
@@ -899,6 +955,7 @@ watch(() => courseStore.showKnowledgeLibrary, async show => {
     document.removeEventListener('keydown', handleKeydown)
     searchQuery.value = ''
     mobileDetailOpen.value = false
+    viewMode.value = 'tree'
     showAllQualityIssues.value = false
   }
 })
@@ -948,7 +1005,14 @@ watch(() => courseStore.currentCourseId, () => {
 .knowledge-tree-governance-actions button:hover:not(:disabled) { color:#593fda; border-color:#bfb7f6; background:#f7f5ff; }
 .knowledge-tree-governance-actions button:disabled { opacity:.55; cursor:not-allowed; }
 .knowledge-tree-governance-error { color:#b14242; font-size:10px; }
+.knowledge-library-viewbar { min-height:42px; flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:5px 16px 5px 20px; border-bottom:1px solid #e7e9f2; background:#fff; }
+.knowledge-library-viewbar > div { display:flex; align-items:center; gap:3px; padding:3px; border:1px solid #e1e3ed; border-radius:9px; background:#f4f5f9; }
+.knowledge-library-viewbar button { min-height:28px; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:0; border-radius:7px; color:#747b91; background:transparent; font-size:10.5px; font-weight:700; cursor:pointer; }
+.knowledge-library-viewbar button:hover { color:#5d46d7; }
+.knowledge-library-viewbar button.active { color:#5b43d7; background:#fff; box-shadow:0 1px 5px rgba(67,60,116,.14); }
+.knowledge-library-viewbar > span { color:#969bad; font-size:10px; }
 .knowledge-tree-main { min-height:0; flex:1; position:relative; display:grid; grid-template-columns:370px minmax(0,1fr); overflow:hidden; background:#fff; }
+.knowledge-tree-main.is-graph { display:flex; }
 .knowledge-tree-pane { min-width:0; display:flex; flex-direction:column; overflow:hidden; border-right:1px solid #e7e9f2; background:#fafbfe; }
 .knowledge-tree-pane-head { min-height:45px; flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 14px 0 18px; border-bottom:1px solid #eceef5; color:#70778f; }
 .knowledge-tree-pane-head > div { display:flex; align-items:center; gap:7px; }
@@ -1056,6 +1120,8 @@ watch(() => courseStore.currentCourseId, () => {
 @media (max-width:700px) {
   .knowledge-tree-header { min-height:156px; grid-template-columns:minmax(0,1fr) 38px; grid-template-rows:48px 44px 44px; gap:4px 10px; padding:8px 12px 10px; }
   .knowledge-tree-governance { align-items:flex-start; flex-direction:column; padding:9px 12px; }
+  .knowledge-library-viewbar { padding-inline:12px; }
+  .knowledge-library-viewbar > span { display:none; }
   .knowledge-tree-governance-actions { width:100%; justify-content:flex-start; }
   .knowledge-tree-governance-actions input { width:100%; }
   .knowledge-tree-heading { grid-column:1; grid-row:1; }
