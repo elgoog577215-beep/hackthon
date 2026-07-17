@@ -236,6 +236,22 @@ def test_legacy_graph_is_only_migration_input_and_is_not_returned():
     assert legacy_assets == before
 
 
+def test_read_projection_keeps_a_pinned_subject_library_as_the_primary_view():
+    library = load_subject_library("math.linear_algebra.v1")
+    course = _course()
+    course["knowledge_library_binding"] = {
+        "library_id": library["library_id"],
+        "revision_id": library["revision_id"],
+        "binding_status": "pinned",
+    }
+
+    projected = project_learning_assets_to_knowledge(course, {})
+
+    assert projected["course_knowledge_base"][0]["schema_version"] == "course_knowledge_base_v2"
+    assert projected["knowledge_library"][0]["library_id"] == library["library_id"]
+    assert projected["knowledge_library"][0]["identity_scope"] == "subject_shared"
+
+
 def test_course_map_validator_rejects_unknown_formal_asset_reference():
     course = _course()
     course_map = compile_course_knowledge_map(course)
