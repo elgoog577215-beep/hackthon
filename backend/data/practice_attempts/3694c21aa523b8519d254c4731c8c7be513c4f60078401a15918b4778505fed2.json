@@ -386,5 +386,49 @@
     "started_at": "2026-07-18T08:47:27.752132+00:00",
     "created_at": "2026-07-18T08:47:27.752132+00:00",
     "updated_at": "2026-07-18T08:49:08.005383+00:00"
+  },
+  {
+    "practice_run_id": "1253b346-aaa5-43a4-acbe-04341c9dd681",
+    "practice_level": "concept_check",
+    "task_revision_id": "qr_41cdb9ec4942c933",
+    "task_purpose": "course_practice",
+    "task_source": "course_asset",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-3-3",
+    "node_name": "3.3 AVL树实现与测试",
+    "objective_id": "lo_dc01977ecf52e879",
+    "question_revision_id": "qr_41cdb9ec4942c933",
+    "question_type": "worked_solution",
+    "input_contract": {
+      "mode": "structured_text",
+      "required": true,
+      "supports_attachments": false
+    },
+    "concept_ids": [
+      "ckp_36f0ca1ec91df5e4",
+      "ckp_5a39ee486c057ada"
+    ],
+    "skill_unit_ids": [
+      "cks_956a6f8f4bfed7ac",
+      "cks_6f74bf2d41edd8ac"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "practice_intent": "standard",
+    "attempt_id": "pa_bf348bb0c3634fbbacd817493b9a3b23",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "status": "in_progress",
+    "attempt_number": 1,
+    "answer_payload": {},
+    "revealed_hint_levels": [],
+    "solution_revealed": false,
+    "ai_support_level": 0,
+    "active_seconds": 0,
+    "revision": 1,
+    "schema_version": 2,
+    "started_at": "2026-07-18T10:21:54.641792+00:00",
+    "created_at": "2026-07-18T10:21:54.641792+00:00",
+    "updated_at": "2026-07-18T10:21:54.641792+00:00"
   }
 ]
