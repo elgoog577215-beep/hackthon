@@ -13327,5 +13327,133 @@
     },
     "created_at": "2026-07-18T18:22:37.541040",
     "schema_version": 8
+  },
+  {
+    "event_id": "evt_42b99b1cf4ce47aa8977e8d3db6d8a81",
+    "event_type": "practice_attempt_graded",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "system",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-3-3",
+    "node_name": "3.3 AVL树实现与测试",
+    "objective_id": "lo_dc01977ecf52e879",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_36f0ca1ec91df5e4",
+      "ckp_5a39ee486c057ada"
+    ],
+    "skill_unit_ids": [
+      "cks_956a6f8f4bfed7ac",
+      "cks_6f74bf2d41edd8ac"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_41cdb9ec4942c933",
+    "task_revision_id": "qr_41cdb9ec4942c933",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_bf348bb0c3634fbbacd817493b9a3b23",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_bf348bb0c3634fbbacd817493b9a3b23:7:practice_attempt_graded",
+    "idempotency_key": "practice_attempt_graded:pa_bf348bb0c3634fbbacd817493b9a3b23:7",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_bf348bb0c3634fbbacd817493b9a3b23",
+    "entity_revision": 7,
+    "evidence": {},
+    "result": {
+      "status": "graded",
+      "score": 0,
+      "passed": false,
+      "rubric_results": [
+        {
+          "criterion": "失衡节点和旋转类型判断正确",
+          "met": false,
+          "score": 0,
+          "feedback": "未提供任何判断"
+        },
+        {
+          "criterion": "最终先序和中序遍历正确",
+          "met": false,
+          "score": 0,
+          "feedback": "未提供任何遍历序列"
+        },
+        {
+          "criterion": "所有节点平衡因子绝对值不超过1",
+          "met": false,
+          "score": 0,
+          "feedback": "未提供任何信息"
+        }
+      ],
+      "feedback": "学生答案仅作答'不知道'，未给出任何有效内容，因此无法得分。",
+      "grading_confidence": 1.0,
+      "grading_method": "rubric_ai",
+      "evidence_strength": "scaffolded",
+      "support_level": 3,
+      "mastery_eligible": false
+    },
+    "metadata": {
+      "practice_level": "concept_check",
+      "attempt_number": 1,
+      "task_revision_id": "qr_41cdb9ec4942c933",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T18:22:40.850321",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_67684cb549064874a06712a7f616ffd3",
+    "event_type": "practice_solution_revealed",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-3-3",
+    "node_name": "3.3 AVL树实现与测试",
+    "objective_id": "lo_dc01977ecf52e879",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_36f0ca1ec91df5e4",
+      "ckp_5a39ee486c057ada"
+    ],
+    "skill_unit_ids": [
+      "cks_956a6f8f4bfed7ac",
+      "cks_6f74bf2d41edd8ac"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_41cdb9ec4942c933",
+    "task_revision_id": "qr_41cdb9ec4942c933",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_bf348bb0c3634fbbacd817493b9a3b23",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_bf348bb0c3634fbbacd817493b9a3b23:8:practice_solution_revealed",
+    "idempotency_key": "practice_solution_revealed:pa_bf348bb0c3634fbbacd817493b9a3b23:8",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_bf348bb0c3634fbbacd817493b9a3b23",
+    "entity_revision": 8,
+    "evidence": {},
+    "result": {},
+    "metadata": {
+      "practice_level": "concept_check",
+      "attempt_number": 1,
+      "task_revision_id": "qr_41cdb9ec4942c933",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T18:23:10.422969",
+    "schema_version": 8
   }
 ]

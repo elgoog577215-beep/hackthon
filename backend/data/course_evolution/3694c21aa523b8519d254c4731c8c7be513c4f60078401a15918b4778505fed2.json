@@ -62,6 +62,35 @@
       "created_at": "2026-07-18T08:46:21.201718+00:00"
     },
     {
+      "evidence_id": "evi_31e143d22854190b2b14e18f",
+      "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+      "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+      "source_type": "practice_attempt",
+      "source_id": "pa_bf348bb0c3634fbbacd817493b9a3b23",
+      "evidence_kind": "formal_failure",
+      "summary": "学生答案仅作答'不知道'，未给出任何有效内容，因此无法得分。",
+      "strength": 0.95,
+      "is_counterevidence": false,
+      "anchor": {
+        "section_id": "L2-3-3",
+        "block_id": "L2-3-3-1-intro",
+        "span": {},
+        "knowledge_node_ids": [
+          "ckp_36f0ca1ec91df5e4",
+          "ckp_5a39ee486c057ada"
+        ],
+        "ability_point_ids": [
+          "cks_956a6f8f4bfed7ac",
+          "cks_6f74bf2d41edd8ac"
+        ],
+        "misconception_point_ids": [],
+        "practice_task_id": "qr_41cdb9ec4942c933",
+        "source_revision": "cbr_94999f6a6e341690ec1a6b22",
+        "resolution_status": "resolved"
+      },
+      "created_at": "2026-07-18T10:22:40.847308+00:00"
+    },
+    {
       "evidence_id": "evi_8c642546327ca22566e57522",
       "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
       "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
@@ -130,7 +159,47 @@
       "validation_plan": "观察后续同能力正式题、求助次数和对新增支持的反馈。",
       "status": "rejected",
       "created_at": "2026-07-18T08:45:33.452706+00:00",
-      "updated_at": "2026-07-18T08:46:37.546998+00:00"
+      "updated_at": "2026-07-18T10:22:41.212676+00:00"
+    },
+    {
+      "hypothesis_id": "ahp_80c058a506e927e3f91d6a6f",
+      "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+      "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+      "problem_type": "conceptual_gap",
+      "claim": "多条学习证据共同指向当前概念的理解缺口，而不是单次作答波动。",
+      "target_block_id": "L2-3-3-1-intro",
+      "support_evidence_ids": [
+        "evi_31e143d22854190b2b14e18f"
+      ],
+      "counterevidence_ids": [],
+      "confidence": 1.0,
+      "confidence_reasons": [
+        "1 条支持证据，来自 1 类独立来源",
+        "包含正式练习结果"
+      ],
+      "evidence_assessment": {
+        "evidence_count": 1,
+        "independent_source_count": 1,
+        "source_types": [
+          "practice_attempt"
+        ],
+        "formal_failure_count": 1,
+        "counterevidence_count": 0,
+        "has_explicit_statement": false,
+        "has_formal_evidence": true,
+        "actionable": false,
+        "maturity": "observing",
+        "gate_reason": "尚缺正式证据或重复独立信号，继续观察"
+      },
+      "recommended_scope": "current",
+      "affected_block_ids": [
+        "L2-3-3-1-intro"
+      ],
+      "temporary_support": "先在当前位置补充原因解释、分步演示和一次不计入掌握的理解检查。",
+      "validation_plan": "观察后续同能力正式题、求助次数和对新增支持的反馈。",
+      "status": "observing",
+      "created_at": "2026-07-18T10:22:41.213677+00:00",
+      "updated_at": "2026-07-18T10:22:41.213677+00:00"
     }
   ],
   "change_sets": [
@@ -717,6 +786,6 @@
       }
     }
   ],
-  "revision": "cev_56cb0cab9df4c56d792b170b",
-  "updated_at": "2026-07-18T08:46:37.546998+00:00"
+  "revision": "cev_de435c03b55a10597ddb06c3",
+  "updated_at": "2026-07-18T10:22:41.220183+00:00"
 }

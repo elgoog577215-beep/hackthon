@@ -17,16 +17,14 @@
     "started_at": "2026-07-16T02:14:09.803Z"
   },
   "task_state": {
-    "kind": "practice",
-    "object_id": "pa_bf348bb0c3634fbbacd817493b9a3b23",
-    "task_revision_id": "qr_41cdb9ec4942c933",
-    "status": "in_progress",
+    "kind": "reading",
+    "object_id": "L2-3-3",
+    "task_revision_id": "",
+    "status": "active",
     "context": {
       "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
-      "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
-      "node_id": "L2-3-3",
-      "objective_id": "lo_dc01977ecf52e879",
-      "objective_revision_id": ""
+      "course_version_id": "cdr_6ae2a47ca2c7a9cd4a1faef1",
+      "node_id": "L2-3-3"
     },
     "return_node_id": "L2-3-3",
     "draft_revision": 0,
@@ -38,13 +36,13 @@
     "remediation_session_id": ""
   },
   "fallback_scroll_top": 700,
-  "activity_at": "2026-07-18T10:22:31.761Z",
+  "activity_at": "2026-07-18T10:23:10.541Z",
   "source": "offline_recovery",
   "snapshot_id": "ls_3694c21aa523b8519d254c47",
   "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
   "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
-  "revision": 40,
+  "revision": 42,
   "schema_version": 2,
   "created_at": "2026-07-18T08:02:26.143641+00:00",
-  "updated_at": "2026-07-18T10:22:31.820398+00:00"
+  "updated_at": "2026-07-18T10:23:10.899012+00:00"
 }
