@@ -2036,6 +2036,98 @@ class CourseService(AIBase):
         )
         return updated
 
+    async def analyze_section_growth_scenario(
+        self,
+        *,
+        course_id: str,
+        document_title: str,
+        section: dict[str, Any],
+        active_blocks: list[dict[str, Any]],
+        instruction: str,
+        knowledge_context: str,
+        evidence_context: list[dict[str, Any]],
+        available_sources: list[dict[str, Any]],
+        user_id: str = DEFAULT_USER_ID,
+    ) -> dict[str, Any] | None:
+        """Understand a learner's growth request without choosing or mutating blocks."""
+        del course_id, user_id
+        system_prompt = f"""你是课程生长 Workflow 里的一个轻量场景判断节点，不是自主执行 Agent。
+
+你的唯一职责，是理解学习者希望当前小节怎样生长。你不能决定 block_id、INSERT/REPLACE、
+应用范围、版本、确认结果，也不能直接生成或修改课程正文；这些由后续确定性流程完成。
+
+## 当前课程位置
+- 课程：{document_title}
+- 小节：{section.get('title') or section.get('section_id') or '未命名'}
+- 学习目标：{section.get('learning_objective') or '未单独声明'}
+
+## 当前真实教学块
+{active_blocks}
+
+## 本节知识契约
+{knowledge_context}
+
+## 当前学习证据
+{evidence_context or '无额外学习证据'}
+
+## 已绑定且可作为事实依据的资料
+{available_sources or '无已绑定资料'}
+
+## 学习者要求
+{instruction}
+
+只输出一个 JSON 对象，字段必须完整：
+{{
+  "scene_summary": "用一句人话说明学习者真正想改变什么",
+  "rationale": "说明为什么判断为这些教学作用和难度变化",
+  "requested_roles": ["reasoning|application|example|checkpoint|concept"],
+  "growth_direction": "challenge|remediation|author_directed",
+  "difficulty_delta": {{
+    "reasoning_depth": -2到2整数,
+    "transfer_distance": -2到2整数,
+    "task_complexity": -2到2整数,
+    "learner_support": -2到2整数
+  }},
+  "source_requirement": "course_only|verified_materials|verified_current_sources",
+  "source_reason": "说明资料要求"
+}}
+
+判断规则：
+1. 只选真正需要变化的教学作用，不要输出未知 role。
+2. “最新、前沿、近期、当前行业、真实行业现状”等时效事实必须选择 verified_current_sources。
+3. 需要引用用户资料但不要求时效时选择 verified_materials；仅在本节知识契约内调整则选择 course_only。
+4. 不得输出任何 block_id、动作类型、范围、确认或写入指令。"""
+        response = await self._call_llm(
+            "判断这次小节生长请求的场景，并返回结构化 JSON。",
+            system_prompt,
+            use_fast_model=True,
+            retry_count=1,
+            enable_thinking=False,
+            raise_on_failure=False,
+        )
+        parsed = self._extract_json(str(response or ""))
+        return parsed if isinstance(parsed, dict) else None
+
+    @staticmethod
+    def _section_growth_scene_context(scene_analysis: dict[str, Any] | None) -> str:
+        if not scene_analysis:
+            return "未提供额外场景判断；按用户原始要求和课程契约生成。"
+        source_requirement = str(scene_analysis.get("source_requirement") or "course_only")
+        source_status = str(scene_analysis.get("source_status") or "course_grounded")
+        source_guard = (
+            "当前没有完成时效资料核验。不得把模型记忆写成最新、前沿或当前行业事实；"
+            "只能生成不依赖时效事实的教学框架，并明确资料边界。"
+            if source_status == "verification_required"
+            else "只能使用当前课程知识契约和已绑定资料中的事实。"
+        )
+        return (
+            f"- 场景理解：{scene_analysis.get('scene_summary') or '按用户要求调整'}\n"
+            f"- 判断理由：{scene_analysis.get('rationale') or '无额外说明'}\n"
+            f"- 生长方向：{scene_analysis.get('growth_direction') or 'author_directed'}\n"
+            f"- 资料要求：{source_requirement}（{source_status}）\n"
+            f"- 资料边界：{source_guard}"
+        )
+
     async def generate_course_block_candidate(
         self,
         *,
@@ -2047,6 +2139,7 @@ class CourseService(AIBase):
         next_block: dict[str, Any] | None,
         instruction: str,
         action_type: str = "rewrite",
+        scene_analysis: dict[str, Any] | None = None,
         quality_feedback: list[str] | None = None,
         user_id: str = DEFAULT_USER_ID,
     ) -> str:
@@ -2116,6 +2209,9 @@ class CourseService(AIBase):
 ## 用户要求
 {instruction}
 
+## 场景判断与资料边界
+{self._section_growth_scene_context(scene_analysis)}
+
 ## 动作类型
 {action_type}: {action_instruction}
 
@@ -2164,6 +2260,7 @@ class CourseService(AIBase):
         next_block: dict[str, Any] | None,
         knowledge_context: str,
         difficulty_delta: dict[str, Any],
+        scene_analysis: dict[str, Any] | None = None,
         quality_feedback: list[str] | None = None,
         user_id: str = DEFAULT_USER_ID,
     ) -> str:
@@ -2225,6 +2322,9 @@ class CourseService(AIBase):
 
 ## 用户要求
 {instruction}
+
+## 场景判断与资料边界
+{self._section_growth_scene_context(scene_analysis)}
 
 ## 本次难度变化
 {difficulty_delta}

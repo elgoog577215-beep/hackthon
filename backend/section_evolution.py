@@ -35,16 +35,30 @@ ROLE_TITLES = {
 }
 ROLE_PATTERNS = {
     "reasoning": re.compile(r"理论|推导|原理|证明|机制|为什么"),
-    "application": re.compile(r"实战|实践|项目|工程|应用|落地"),
+    "application": re.compile(r"实战|实践|项目|工程|应用|落地|行业"),
     "example": re.compile(r"例子|举例|示例|案例"),
     "checkpoint": re.compile(r"练习|题目|训练|自测|检查"),
     "concept": re.compile(r"概念|定义|基础解释"),
 }
 CHALLENGE_PATTERN = re.compile(r"太简单|加强|强化|深入|提高难度|高级|复杂|挑战")
 REMEDIATION_PATTERN = re.compile(r"太难|没懂|不理解|讲清楚|简化|基础|补充解释")
+CURRENT_SOURCE_PATTERN = re.compile(r"前沿|最新|近期|当下|当前行业|真实行业|行业现状|20\d{2}")
+ALLOWED_GROWTH_DIRECTIONS = {"challenge", "remediation", "author_directed"}
+ALLOWED_SOURCE_REQUIREMENTS = {
+    "course_only",
+    "verified_materials",
+    "verified_current_sources",
+}
+DIFFICULTY_KEYS = {
+    "reasoning_depth",
+    "transfer_distance",
+    "task_complexity",
+    "learner_support",
+}
 
 
 def analyze_section_request(instruction: str) -> dict[str, Any]:
+    """Deterministic fallback when semantic scene analysis is unavailable."""
     text = str(instruction or "").strip()
     roles = [
         role
@@ -70,12 +84,131 @@ def analyze_section_request(instruction: str) -> dict[str, Any]:
         "task_complexity": 1 if "checkpoint" in roles or direction == "challenge" else 0,
         "learner_support": -1 if direction == "challenge" else 1 if direction == "remediation" else 0,
     }
+    normalized_roles = list(dict.fromkeys(roles))
+    source_requirement = (
+        "verified_current_sources"
+        if CURRENT_SOURCE_PATTERN.search(text)
+        else "course_only"
+    )
     return {
         "instruction": text or "调整本小节，使内容更完整、更适合当前学习需要。",
-        "roles": list(dict.fromkeys(roles)),
+        "roles": normalized_roles,
         "growth_direction": direction,
         "difficulty_delta": difficulty_delta,
+        "schema_version": "section_growth_scene_v1",
+        "analysis_source": "deterministic_fallback",
+        "scene_summary": _fallback_scene_summary(direction, normalized_roles),
+        "rationale": "根据用户明确提到的教学作用、难度和理解信号进行规则判断。",
+        "source_requirement": source_requirement,
+        "source_reason": (
+            "用户要求涉及最新、前沿或当前行业事实，需要另行提供并核验可信资料。"
+            if source_requirement == "verified_current_sources"
+            else "本次调整可在当前课程知识契约内完成。"
+        ),
+        "confidence": "fallback",
+        "fallback_reason": "",
     }
+
+
+def _normalize_scene_analysis(
+    candidate: Any,
+    fallback: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(candidate, dict):
+        return {**fallback, "fallback_reason": "analyzer_returned_invalid_payload"}
+
+    raw_roles = candidate.get("requested_roles")
+    roles = [
+        str(role)
+        for role in raw_roles
+        if str(role) in ROLE_TITLES
+    ] if isinstance(raw_roles, list) else []
+    roles = list(dict.fromkeys(roles))
+    direction = str(candidate.get("growth_direction") or "")
+    source_requirement = str(candidate.get("source_requirement") or "")
+    raw_delta = candidate.get("difficulty_delta")
+    difficulty_delta: dict[str, int] = {}
+    invalid_fields: list[str] = []
+    if isinstance(raw_delta, dict):
+        for key in DIFFICULTY_KEYS:
+            value = raw_delta.get(key)
+            if isinstance(value, bool):
+                invalid_fields.append(key)
+                continue
+            try:
+                difficulty_delta[key] = max(-2, min(2, int(value)))
+            except (TypeError, ValueError):
+                invalid_fields.append(key)
+
+    required_fields_valid = (
+        bool(roles)
+        and direction in ALLOWED_GROWTH_DIRECTIONS
+        and source_requirement in ALLOWED_SOURCE_REQUIREMENTS
+        and set(difficulty_delta) == DIFFICULTY_KEYS
+    )
+    if not required_fields_valid:
+        return {
+            **fallback,
+            "fallback_reason": "analyzer_output_failed_contract",
+            "invalid_fields": invalid_fields,
+        }
+
+    return {
+        **fallback,
+        "analysis_source": "ai_semantic",
+        "scene_summary": _clip_scene_text(
+            candidate.get("scene_summary"),
+            fallback["scene_summary"],
+        ),
+        "rationale": _clip_scene_text(
+            candidate.get("rationale"),
+            fallback["rationale"],
+        ),
+        "roles": roles,
+        "growth_direction": direction,
+        "difficulty_delta": difficulty_delta,
+        "source_requirement": source_requirement,
+        "source_reason": _clip_scene_text(
+            candidate.get("source_reason"),
+            fallback["source_reason"],
+        ),
+        "confidence": "semantic",
+        "fallback_reason": "",
+    }
+
+
+async def _resolve_scene_analysis(
+    generator: Any,
+    *,
+    fallback: dict[str, Any],
+    course_id: str,
+    document_title: str,
+    section: dict[str, Any],
+    active_blocks: list[dict[str, Any]],
+    instruction: str,
+    knowledge_context: str,
+    evidence_context: list[dict[str, Any]],
+    available_sources: list[dict[str, Any]],
+    user_id: str,
+) -> dict[str, Any]:
+    analyzer = getattr(generator, "analyze_section_growth_scenario", None)
+    if not callable(analyzer):
+        return {**fallback, "fallback_reason": "analyzer_unavailable"}
+    try:
+        candidate = await analyzer(
+            course_id=course_id,
+            document_title=document_title,
+            section=section,
+            active_blocks=active_blocks,
+            instruction=instruction,
+            knowledge_context=knowledge_context,
+            evidence_context=evidence_context,
+            available_sources=available_sources,
+            user_id=user_id,
+        )
+    except Exception:
+        return {**fallback, "fallback_reason": "analyzer_failed"}
+    return _normalize_scene_analysis(candidate, fallback)
 
 
 async def generate_section_evolution_plan(
@@ -108,7 +241,6 @@ async def generate_section_evolution_plan(
     if not active_blocks:
         raise ValueError("Course section has no content anchor")
 
-    analysis = analyze_section_request(instruction)
     knowledge_base = compile_course_knowledge_base(deepcopy(course_data))
     binding = knowledge_binding_for_section(knowledge_base, section_id)
     knowledge_refs = list(binding["course_knowledge_refs"])
@@ -118,7 +250,13 @@ async def generate_section_evolution_plan(
     state = repository.load(user_id, course_id)
     now = _now()
 
-    plan = None
+    if generator is None:
+        from course_service import get_course_service
+
+        generator = get_course_service()
+
+    plan: CourseEvolutionPlan | None = None
+    effective_instruction = instruction
     if existing_change_set_id:
         plan = next(
             (item for item in state.change_sets if item.change_set_id == existing_change_set_id),
@@ -128,10 +266,68 @@ async def generate_section_evolution_plan(
             raise KeyError(existing_change_set_id)
         if plan.status != "pending" or plan.generation_status not in {"suggested", "failed"}:
             raise ValueError("Course section plan cannot be generated from its current status")
-        analysis = analyze_section_request(plan.request_text or instruction)
+        effective_instruction = plan.request_text or instruction
+
+    fallback = analyze_section_request(effective_instruction)
+    evidence_context = [
+        {
+            "evidence_kind": item.evidence_kind,
+            "summary": item.summary,
+            "strength": item.strength,
+        }
+        for item in state.evidence_items
+        if item.anchor.section_id == section_id
+    ][:12]
+    available_sources = [
+        {
+            "evidence_id": str(item.get("evidence_id") or ""),
+            "kind": str(item.get("kind") or ""),
+            "summary": str(item.get("summary") or ""),
+            "authority": str(item.get("authority") or ""),
+            "confidence": str(item.get("confidence") or ""),
+        }
+        for item in (
+            course_data.get("evidence_catalog")
+            or course_data.get("evidence_index")
+            or []
+        )
+        if isinstance(item, dict) and item.get("factual_allowed", True)
+    ][:24]
+    analysis = await _resolve_scene_analysis(
+        generator,
+        fallback=fallback,
+        course_id=course_id,
+        document_title=document.title,
+        section=section.model_dump(mode="json"),
+        active_blocks=[
+            {
+                "role": block.role,
+                "kind": block.kind,
+                "title": str(block.payload.get("title") or ""),
+                "summary": str(
+                    block.payload.get("summary")
+                    or summarize_text(str(block.payload.get("markdown") or ""))
+                ),
+            }
+            for block in active_blocks
+        ],
+        instruction=fallback["instruction"],
+        knowledge_context=knowledge_context,
+        evidence_context=evidence_context,
+        available_sources=available_sources,
+        user_id=user_id,
+    )
+    analysis["source_status"] = _source_status(
+        analysis["source_requirement"],
+        available_sources,
+    )
+    analysis["available_source_count"] = len(available_sources)
+
+    if plan is not None:
         plan.request_text = analysis["instruction"]
         plan.requested_roles = analysis["roles"]
         plan.growth_direction = analysis["growth_direction"]
+        plan.expected_effect = _expected_effect(analysis["growth_direction"])
         plan.operations = []
     else:
         change_set_id = stable_hash(
@@ -222,6 +418,11 @@ async def generate_section_evolution_plan(
             "课程知识定义",
         ],
         "difficulty_delta": analysis["difficulty_delta"],
+        "scene_analysis": {
+            key: deepcopy(value)
+            for key, value in analysis.items()
+            if key != "instruction"
+        },
         "knowledge_node_ids": knowledge_refs,
         "ability_point_ids": list(binding["course_skill_refs"]),
         "misconception_point_ids": list(binding["course_misconception_refs"]),
@@ -257,11 +458,6 @@ async def generate_section_evolution_plan(
     plan.operations = [difficulty_operation]
     repository.save(state)
 
-    if generator is None:
-        from course_service import get_course_service
-
-        generator = get_course_service()
-
     try:
         generated_contents: list[str] = []
         for role in plan.requested_roles:
@@ -289,6 +485,7 @@ async def generate_section_evolution_plan(
                         next_block=next_block,
                         instruction=analysis["instruction"],
                         action_type="expand" if plan.growth_direction == "challenge" else "rewrite",
+                        scene_analysis=analysis,
                         quality_feedback=feedback,
                         user_id=user_id,
                     )
@@ -305,6 +502,7 @@ async def generate_section_evolution_plan(
                         next_block=next_block,
                         knowledge_context=knowledge_context,
                         difficulty_delta=analysis["difficulty_delta"],
+                        scene_analysis=analysis,
                         quality_feedback=feedback,
                         user_id=user_id,
                     )
@@ -723,6 +921,33 @@ def _plan_diagnosis(section_title: str, analysis: dict[str, Any]) -> str:
     labels = "、".join(ROLE_TITLES.get(role, role) for role in analysis["roles"])
     action = "提高挑战" if analysis["growth_direction"] == "challenge" else "按要求调整"
     return f"本次只在“{section_title}”中{action}：{labels}；其余内容保持不变。"
+
+
+def _fallback_scene_summary(direction: str, roles: list[str]) -> str:
+    labels = "、".join(ROLE_TITLES.get(role, role) for role in roles)
+    if direction == "challenge":
+        return f"学习者希望保留当前知识范围，同时提高{labels}的深度和迁移要求。"
+    if direction == "remediation":
+        return f"学习者当前存在理解阻力，需要通过{labels}降低断点。"
+    return f"学习者明确希望调整本节的{labels}。"
+
+
+def _clip_scene_text(value: Any, fallback: str, limit: int = 240) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    return text[:limit] if text else fallback
+
+
+def _source_status(
+    source_requirement: str,
+    available_sources: list[dict[str, Any]],
+) -> str:
+    if source_requirement == "course_only":
+        return "course_grounded"
+    if source_requirement == "verified_materials" and available_sources:
+        return "available_materials"
+    # “Current/frontier” needs an explicit recency verification contract. A
+    # generic bound material is not silently upgraded into current evidence.
+    return "verification_required"
 
 
 def _expected_effect(direction: str) -> str:

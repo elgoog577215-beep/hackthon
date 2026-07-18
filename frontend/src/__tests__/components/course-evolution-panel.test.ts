@@ -187,6 +187,13 @@ describe('CourseEvolutionPanel', () => {
           ...plan.impact_summary,
           affected_section_ids: ['s1'],
           quality_report: { passed: true },
+          scene_analysis: {
+            analysis_source: 'ai_semantic',
+            scene_summary: '学习者已经掌握基础，希望升级理论推导并加入真实行业决策。',
+            rationale: '当前要求同时涉及解释深度和跨情境应用。',
+            source_requirement: 'verified_current_sources',
+            source_status: 'verification_required',
+          },
         },
       }],
     })
@@ -196,6 +203,9 @@ describe('CourseEvolutionPanel', () => {
     })
 
     expect(wrapper.findAll('.growth-steps li')).toHaveLength(6)
+    expect(wrapper.get('.evolution-diagnosis').text()).toContain('AI 场景理解')
+    expect(wrapper.get('.evolution-diagnosis').text()).toContain('升级理论推导并加入真实行业决策')
+    expect(wrapper.get('.source-requirement').text()).toContain('不会把模型记忆当成行业证据')
     await wrapper.get('.evolution-details-toggle').trigger('click')
     expect(wrapper.text()).toContain('升级')
     expect(wrapper.text()).toContain('新增')
@@ -229,5 +239,36 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.get('.challenge-suggestion').text()).toContain('旧难度掌握记录会保留')
     expect(wrapper.get('.challenge-suggestion button').text()).toContain('生成升级方案')
     expect(wrapper.find('.evolution-actions').exists()).toBe(false)
+  })
+
+  it('AI 场景判断不可用时明确显示规则保底，而不是让流程卡住', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        target_section_id: 's1',
+        generation_status: 'ready',
+        impact_summary: {
+          ...plan.impact_summary,
+          affected_section_ids: ['s1'],
+          scene_analysis: {
+            analysis_source: 'deterministic_fallback',
+            scene_summary: '学习者当前存在理解阻力，需要通过例子讲解降低断点。',
+            rationale: '根据用户明确提到的理解信号进行规则判断。',
+            source_requirement: 'course_only',
+            source_status: 'course_grounded',
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1' },
+    })
+
+    expect(wrapper.get('.evolution-diagnosis').text()).toContain('规则保底判断')
+    expect(wrapper.get('.evolution-diagnosis').text()).toContain('通过例子讲解降低断点')
+    expect(wrapper.find('.source-requirement').exists()).toBe(false)
   })
 })

@@ -71,9 +71,17 @@
           </span>
         </div>
         <div class="evolution-diagnosis">
-          <span><BrainCircuit :size="14" />{{ t('courseEvolution.diagnosis', 'AI 学习判断') }}</span>
-          <strong>{{ diagnosisFor(plan) }}</strong>
+          <span><BrainCircuit :size="14" />{{ sceneLabelFor(plan) }}</span>
+          <strong>{{ sceneSummaryFor(plan) }}</strong>
+          <small v-if="sceneRationaleFor(plan)">{{ sceneRationaleFor(plan) }}</small>
         </div>
+        <p
+          v-if="sourceMessageFor(plan)"
+          class="source-requirement"
+          :data-status="sceneAnalysisFor(plan).source_status || 'verification_required'"
+        >
+          <TriangleAlert :size="13" />{{ sourceMessageFor(plan) }}
+        </p>
         <div v-if="impactLabels(plan).length" class="evolution-impact">
           <span v-for="label in impactLabels(plan)" :key="label">{{ label }}</span>
           <small v-if="plan.impact_summary?.dependent_block_ids?.length">
@@ -210,6 +218,25 @@ const currentGrowthStep = computed(() => {
 function evidenceFor(plan: CourseEvolutionPlan) { return store.evidenceItems.filter(item => plan.evidence_ids.includes(item.evidence_id)) }
 function hypothesisFor(plan: CourseEvolutionPlan) { return store.hypotheses.find(item => item.hypothesis_id === plan.hypothesis_id) }
 function diagnosisFor(plan: CourseEvolutionPlan) { return String(plan.impact_summary?.diagnosis || hypothesisFor(plan)?.claim || t('courseEvolution.diagnosisFallback', '多条证据共同指向当前理解缺口')) }
+function sceneAnalysisFor(plan: CourseEvolutionPlan) { return (plan.impact_summary?.scene_analysis || {}) as Record<string, any> }
+function sceneLabelFor(plan: CourseEvolutionPlan) {
+  const source = sceneAnalysisFor(plan).analysis_source
+  if (source === 'ai_semantic') return t('courseEvolution.sectionGrowth.aiScene', 'AI 场景理解')
+  if (source === 'deterministic_fallback') return t('courseEvolution.sectionGrowth.ruleFallback', '规则保底判断')
+  return t('courseEvolution.diagnosis', 'AI 学习判断')
+}
+function sceneSummaryFor(plan: CourseEvolutionPlan) { return String(sceneAnalysisFor(plan).scene_summary || diagnosisFor(plan)) }
+function sceneRationaleFor(plan: CourseEvolutionPlan) { return String(sceneAnalysisFor(plan).rationale || '') }
+function sourceMessageFor(plan: CourseEvolutionPlan) {
+  const scene = sceneAnalysisFor(plan)
+  if (!scene.source_requirement || scene.source_requirement === 'course_only') return ''
+  if (scene.source_status === 'available_materials') {
+    return t('courseEvolution.sectionGrowth.boundMaterialsOnly', '这次生成只会使用当前课程已绑定并允许引用的资料。')
+  }
+  return scene.source_requirement === 'verified_current_sources'
+    ? t('courseEvolution.sectionGrowth.currentSourcesRequired', '这个要求涉及最新、前沿或当前行业事实，目前需要可信时效资料；候选不会把模型记忆当成行业证据。')
+    : t('courseEvolution.sectionGrowth.materialsRequired', '这个要求需要可信资料；在资料完成绑定前，候选只生成不依赖外部事实的教学框架。')
+}
 function validationFor(plan: CourseEvolutionPlan) { return String(plan.impact_summary?.validation_plan || hypothesisFor(plan)?.validation_plan || t('courseEvolution.validationFallback', '用后续同能力正式题检验调整是否有效')) }
 function evidenceLabel(source: EvolutionEvidence['source_type']) { return ({ learning_event: t('courseEvolution.sources.dialogue', '对话与反馈'), learning_record: t('courseEvolution.sources.record', '学习记录'), practice_attempt: t('courseEvolution.sources.practice', '正式练习') })[source] }
 function evidenceIcon(source: EvolutionEvidence['source_type']) { return ({ learning_event: FileQuestion, learning_record: NotebookTabs, practice_attempt: BookOpenText })[source] }
@@ -327,6 +354,10 @@ onMounted(load)
 .evolution-diagnosis { display:grid; gap:4px; margin-top:8px; padding:8px 9px; border:1px solid #ddd6fe; border-radius:7px; background:#faf5ff; }
 .evolution-diagnosis span { display:inline-flex; align-items:center; gap:5px; color:#7c3aed; font-size:8px; font-weight:800; }
 .evolution-diagnosis strong { color:#2e1065; font-size:11px; line-height:1.55; }
+.evolution-diagnosis small { color:#6b7280; font-size:8px; line-height:1.5; }
+.source-requirement { display:flex; align-items:flex-start; gap:5px; margin:6px 0 0; padding:7px 8px; border:1px solid #fed7aa; border-radius:6px; color:#9a3412; background:#fff7ed; font-size:8px; line-height:1.5; }
+.source-requirement svg { flex:0 0 auto; margin-top:1px; }
+.source-requirement[data-status="available_materials"] { color:#1d4ed8; border-color:#bfdbfe; background:#eff6ff; }
 .evolution-impact { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin-top:7px; }
 .evolution-impact span { max-width:100%; overflow:hidden; padding:3px 6px; border:1px solid #dbeafe; border-radius:5px; color:#1d4ed8; background:#eff6ff; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
 .evolution-impact small { color:#64748b; font-size:8px; }

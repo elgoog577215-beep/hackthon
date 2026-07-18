@@ -95,6 +95,40 @@ class _FailingSectionGenerator:
         return "太短"
 
 
+class _SemanticSectionGenerator(_SectionGenerator):
+    async def analyze_section_growth_scenario(self, **_kwargs) -> dict:
+        return {
+            "scene_summary": "学习者已经掌握基础，希望把本节升级为能解释原理并处理真实行业决策的版本。",
+            "rationale": "要求同时涉及解释决策依据和跨情境应用，因此需要升级理论推导并补充实战应用。",
+            "requested_roles": ["reasoning", "application"],
+            "growth_direction": "challenge",
+            "difficulty_delta": {
+                "reasoning_depth": 2,
+                "transfer_distance": 2,
+                "task_complexity": 1,
+                "learner_support": -1,
+            },
+            "source_requirement": "verified_current_sources",
+            "source_reason": "真实行业决策涉及当前事实，必须使用经过核验的时效资料。",
+        }
+
+
+class _BrokenSemanticSectionGenerator(_SectionGenerator):
+    async def analyze_section_growth_scenario(self, **_kwargs) -> dict:
+        return {
+            "scene_summary": "越权选择具体内容块。",
+            "requested_roles": ["unknown_role"],
+            "growth_direction": "自由发挥",
+            "difficulty_delta": {"reasoning_depth": 99},
+            "source_requirement": "model_memory",
+        }
+
+
+class _FailingSemanticAnalysisGenerator(_SectionGenerator):
+    async def analyze_section_growth_scenario(self, **_kwargs) -> dict:
+        raise TimeoutError("scene analyzer timed out")
+
+
 def _section_growth_course() -> dict:
     course = _course_with_knowledge()
     document = course_evolution._course_document(course)
@@ -195,6 +229,76 @@ async def test_section_request_upgrades_existing_role_and_inserts_missing_role_a
     assert reasoning_restored.payload == reasoning_before.payload
     assert inserted_restored.status == "retired"
     assert undone.change_sets[0].status == "undone"
+
+
+@pytest.mark.asyncio
+async def test_semantic_scene_analysis_guides_roles_but_system_decides_block_actions(tmp_path):
+    course = _section_growth_course()
+    document_repository = CourseDocumentRepository(_MemoryCourseStorage(course))
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+
+    state = await generate_section_evolution_plan(
+        course,
+        user_id="student-semantic",
+        section_id="section-1",
+        instruction="我已经掌握了，想把这节换成更贴近真实行业决策的讲法",
+        request_id="request-semantic",
+        repository=evolution_repository,
+        document_repository=document_repository,
+        generator=_SemanticSectionGenerator(),
+    )
+
+    plan = state.change_sets[0]
+    scene = plan.impact_summary["scene_analysis"]
+    assert scene["analysis_source"] == "ai_semantic"
+    assert scene["scene_summary"].startswith("学习者已经掌握基础")
+    assert scene["source_requirement"] == "verified_current_sources"
+    assert scene["source_status"] == "verification_required"
+    assert plan.requested_roles == ["reasoning", "application"]
+    content_operations = [
+        item for item in plan.operations
+        if item.operation_type != "ADJUST_COURSE_DIFFICULTY"
+    ]
+    assert [item.payload["action"] for item in content_operations] == ["REPLACE", "INSERT"]
+    assert content_operations[0].payload["desired_role"] == "reasoning"
+    assert content_operations[1].payload["desired_role"] == "application"
+
+
+@pytest.mark.parametrize(
+    ("generator", "fallback_reason"),
+    [
+        (_BrokenSemanticSectionGenerator(), "analyzer_output_failed_contract"),
+        (_FailingSemanticAnalysisGenerator(), "analyzer_failed"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_semantic_analysis_falls_back_without_blocking_workflow(
+    tmp_path,
+    generator,
+    fallback_reason,
+):
+    course = _section_growth_course()
+    document_repository = CourseDocumentRepository(_MemoryCourseStorage(course))
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+
+    state = await generate_section_evolution_plan(
+        course,
+        user_id="student-fallback",
+        section_id="section-1",
+        instruction="太难了，请补充一个例子讲清楚",
+        request_id="request-fallback",
+        repository=evolution_repository,
+        document_repository=document_repository,
+        generator=generator,
+    )
+
+    plan = state.change_sets[0]
+    scene = plan.impact_summary["scene_analysis"]
+    assert plan.generation_status == "ready"
+    assert scene["analysis_source"] == "deterministic_fallback"
+    assert scene["fallback_reason"] == fallback_reason
+    assert plan.growth_direction == "remediation"
+    assert plan.requested_roles == ["example"]
 
 
 @pytest.mark.asyncio
