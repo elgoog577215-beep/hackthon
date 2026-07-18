@@ -134,6 +134,13 @@
                 .replace('{affected}', String(editPreview.impact?.affected_unit_count || 0))
                 .replace('{unaffected}', String(editPreview.impact?.unaffected_unit_count || 0)) }}</small>
               <p class="protected"><ShieldCheck :size="12" />{{ t('teachingRepresentations.unrelatedProtected', '无来源关系的内容不会修改') }}</p>
+              <button type="button" class="impact-open" @click="impactDialogOpen = true">
+                <GitBranch :size="13" />{{ t('teachingRepresentations.impactDialog.open', '展开完整影响图') }}
+              </button>
+            </div>
+            <div v-else-if="analysisQueued || (editBusy && changed)" class="slide-inspector__analyzing">
+              <LoaderCircle :size="14" class="spinning" />
+              <span>{{ t('teachingRepresentations.impactDialog.analyzing', '正在理解这次修改改变了什么教学目标…') }}</span>
             </div>
             <div v-if="pendingInlineItem" class="slide-inspector__confirmation" data-state="pending">
               <strong><Sparkles :size="13" />{{ t('teachingRepresentations.confirmCourseChange', '确认课程语义变化') }}</strong>
@@ -155,10 +162,22 @@
                 <strong>{{ syncReceipt.status === 'synchronized'
                   ? t('teachingRepresentations.syncComplete', '课程同源同步完成')
                   : t('teachingRepresentations.syncFallback', '课程已更新，教学资源暂用上一版') }}</strong>
-                <p v-if="syncReceipt.status === 'synchronized'">{{ t('teachingRepresentations.syncCounts', '{rebuilt} 处已更新，{reused} 处确认无需修改')
+                <p v-if="syncReceipt.status === 'synchronized' && hasDetailedSyncReceipt">{{ t('teachingRepresentations.syncDetailedCounts', '{changed} 项实际更新，{verified} 项仅校验，{reused} 项确认无需处理')
+                  .replace('{changed}', String(syncChangedCount))
+                  .replace('{verified}', String(syncVerifiedCount))
+                  .replace('{reused}', String(syncReusedCount)) }}</p>
+                <p v-else-if="syncReceipt.status === 'synchronized'">{{ t('teachingRepresentations.syncCounts', '{rebuilt} 处已更新，{reused} 处确认无需修改')
                   .replace('{rebuilt}', String(syncRebuiltCount))
                   .replace('{reused}', String(syncReusedCount)) }}</p>
-                <ul v-if="syncReceipt.status === 'synchronized' && syncReceipt.rebuilt?.length">
+                <ul v-if="syncReceipt.status === 'synchronized' && hasDetailedSyncReceipt">
+                  <li v-for="item in syncReceipt.changes" :key="item.representation_type">
+                    <span>{{ representationLabel(item.representation_type) }}</span>
+                    <b>{{ t('teachingRepresentations.syncGroupCounts', '{changed} 改 · {verified} 验')
+                      .replace('{changed}', String(syncGroupCount(item, 'content_changed')))
+                      .replace('{verified}', String(syncGroupCount(item, 'source_verified'))) }}</b>
+                  </li>
+                </ul>
+                <ul v-else-if="syncReceipt.status === 'synchronized' && syncReceipt.rebuilt?.length">
                   <li v-for="item in syncReceipt.rebuilt" :key="item.representation_type">
                     <span>{{ representationLabel(item.representation_type) }}</span>
                     <b>{{ item.rebuilt_unit_ids?.length || 0 }} / {{ (item.rebuilt_unit_ids?.length || 0) + (item.reused_unit_ids?.length || 0) }}</b>
@@ -167,7 +186,7 @@
               </div>
             </div>
             <div v-if="!pendingInlineItem" class="slide-inspector__edit-actions">
-              <button v-if="!editPreview" type="button" :disabled="editBusy || building || !changed" @click="previewEdit"><ScanSearch :size="14" />{{ t('teachingRepresentations.previewEdit', '分析影响') }}</button>
+              <button v-if="!editPreview" type="button" :disabled="editBusy || building || !changed" @click="previewEdit(true)"><ScanSearch :size="14" />{{ t('teachingRepresentations.previewEdit', '分析影响') }}</button>
               <template v-else>
                 <button type="button" :disabled="editBusy" @click="applyEdit('representation_only')">{{ t('teachingRepresentations.onlyThisPpt', '只改当前 PPT') }}</button>
                 <button type="button" class="semantic" :disabled="editBusy || editField === 'layout' || editField === 'speaker_notes'" @click="applyEdit('course_semantic')">{{ t('teachingRepresentations.changeCourseMeaning', '改变课程含义并联动') }}</button>
@@ -184,16 +203,33 @@
       </aside>
     </div>
 
+    <TeachingImpactDialog
+      :open="impactDialogOpen"
+      :preview="impactPreview"
+      :proposal-item="pendingInlineItem"
+      :receipt="syncReceipt"
+      :before-text="impactBeforeText || currentFieldValue"
+      :after-text="impactAfterText || editValue"
+      :busy="editBusy"
+      :syncing="syncing"
+      @close="closeImpactDialog"
+      @choose-local="applyEdit('representation_only')"
+      @propose="applyEdit('course_semantic')"
+      @confirm="confirmInlineChange"
+      @reject="rejectInlineChange"
+    />
+
     <Teleport to="body">
       <div v-if="presentationOpen && activeSlide" ref="presentationSurface" class="deck-presentation" role="dialog" aria-modal="true" :aria-label="t('pptWorkspace.present', '全屏演示')">
         <header>
           <div><small>{{ t('pptWorkspace.presenting', '正在演示') }}</small><strong>{{ deckTitle }}</strong></div>
           <div>
+            <button type="button" :class="{ active: presentationBlank }" :title="t('pptWorkspace.toggleBlank', '临时黑屏')" @click="presentationBlank = !presentationBlank"><Moon :size="17" /></button>
             <button type="button" :class="{ active: notesVisible }" :title="t('pptWorkspace.toggleNotes', '显示或隐藏讲稿')" @click="notesVisible = !notesVisible"><NotebookText :size="17" /></button>
             <button type="button" :title="t('pptWorkspace.exitPresentation', '退出演示')" @click="closePresentation"><X :size="18" /></button>
           </div>
         </header>
-        <main>
+        <main v-if="!presentationBlank">
           <SlideCanvas
             :slide="activeSlide"
             :page-number="activeIndex + 1"
@@ -206,10 +242,16 @@
             <p>{{ activeSlide.speaker_notes || t('pptWorkspace.noNotes', '这一页还没有讲稿。') }}</p>
           </aside>
         </main>
+        <main v-else class="deck-presentation__blank" @click="presentationBlank = false">
+          <Moon :size="28" />
+          <span>{{ t('pptWorkspace.blankHint', '已临时黑屏 · 按 B 或点击恢复') }}</span>
+        </main>
         <footer>
           <button type="button" :disabled="activeIndex <= 0" @click="goToSlide(activeIndex - 1)"><ChevronLeft :size="20" /></button>
           <span>{{ activeIndex + 1 }} <i>/</i> {{ slides.length }}</span>
           <button type="button" :disabled="activeIndex >= slides.length - 1" @click="goToSlide(activeIndex + 1)"><ChevronRight :size="20" /></button>
+          <small>{{ t('pptWorkspace.shortcuts', '← → 翻页 · N 讲稿 · B 黑屏 · Esc 退出') }}</small>
+          <i class="deck-presentation__progress"><b :style="{ width: `${((activeIndex + 1) / Math.max(1, slides.length)) * 100}%` }"></b></i>
         </footer>
       </div>
     </Teleport>
@@ -218,12 +260,13 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, LoaderCircle, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import type { ChangeProposal, ChangeProposalContent, ChangeProposalItem } from '../types/changeProposal'
 import SlideCanvas from './SlideCanvas.vue'
+import TeachingImpactDialog from './TeachingImpactDialog.vue'
 
 interface SlideBlock {
   block_id: string
@@ -285,15 +328,23 @@ const userSelected = ref(false)
 const editField = ref('title')
 const editValue = ref('')
 const editPreview = ref<Record<string, any> | null>(null)
+const impactPreview = ref<Record<string, any> | null>(null)
+const impactBeforeText = ref('')
+const impactAfterText = ref('')
 const editResult = ref('')
 const editBusy = ref(false)
 const exportBusy = ref(false)
 const inlineProposal = ref<ChangeProposal | null>(null)
 const syncReceipt = ref<Record<string, any> | null>(null)
+const impactDialogOpen = ref(false)
+const analysisQueued = ref(false)
+const syncing = ref(false)
 const presentationOpen = ref(false)
 const notesVisible = ref(false)
+const presentationBlank = ref(false)
 const presentationSurface = ref<HTMLElement | null>(null)
 const layouts = ['cover', 'roadmap', 'chapter', 'objective', 'concept', 'comparison', 'process', 'code', 'misconception', 'practice', 'recap']
+let autoPreviewTimer: number | undefined
 
 const activeIndex = computed(() => Math.max(0, props.slides.findIndex(slide => slide.unit_id === activeUnitId.value)))
 const activeSlide = computed(() => props.slides[activeIndex.value] || null)
@@ -329,6 +380,23 @@ const syncReusedCount = computed(() => (
     0,
   )
 ))
+const syncChangedCount = computed(() => (
+  Number(syncReceipt.value?.changed_unit_count)
+  || (syncReceipt.value?.changes || []).reduce(
+    (total: number, item: Record<string, any>) => total + syncGroupCount(item, 'content_changed'),
+    0,
+  )
+))
+const syncVerifiedCount = computed(() => (
+  Number(syncReceipt.value?.verified_unit_count)
+  || (syncReceipt.value?.changes || []).reduce(
+    (total: number, item: Record<string, any>) => total + syncGroupCount(item, 'source_verified'),
+    0,
+  )
+))
+const hasDetailedSyncReceipt = computed(() => (
+  Array.isArray(syncReceipt.value?.changes) && syncReceipt.value.changes.length > 0
+))
 const stageLabel = computed(() => ({
   planning: t('teachingRepresentations.slides.stages.planning', '正在准备课程结构'),
   slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划页面'),
@@ -346,10 +414,14 @@ watch(() => props.slides.map(slide => slide.unit_id), unitIds => {
   if (props.building && !userSelected.value) activeUnitId.value = unitIds[unitIds.length - 1] || ''
 }, { immediate: true })
 
-watch(activeSlide, resetEdit, { immediate: true })
+watch(activeSlide, initializeEdit, { immediate: true })
+watch(editValue, scheduleAutomaticPreview)
 
 onMounted(() => window.addEventListener('keydown', handlePresentationKey))
-onUnmounted(() => window.removeEventListener('keydown', handlePresentationKey))
+onUnmounted(() => {
+  window.removeEventListener('keydown', handlePresentationKey)
+  if (autoPreviewTimer) window.clearTimeout(autoPreviewTimer)
+})
 
 function selectSlide(unitId: string) {
   activeUnitId.value = unitId
@@ -365,12 +437,14 @@ async function openPresentation() {
   if (!activeSlide.value) return
   presentationOpen.value = true
   notesVisible.value = false
+  presentationBlank.value = false
   await nextTick()
   await presentationSurface.value?.requestFullscreen?.().catch(() => undefined)
 }
 
 async function closePresentation() {
   presentationOpen.value = false
+  presentationBlank.value = false
   if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined)
 }
 
@@ -386,6 +460,8 @@ function handlePresentationKey(event: KeyboardEvent) {
     presentationOpen.value = false
   } else if (event.key.toLowerCase() === 'n') {
     notesVisible.value = !notesVisible.value
+  } else if (event.key.toLowerCase() === 'b') {
+    presentationBlank.value = !presentationBlank.value
   }
 }
 
@@ -400,24 +476,75 @@ async function downloadSlides() {
 }
 
 function resetEdit() {
+  if (autoPreviewTimer) window.clearTimeout(autoPreviewTimer)
+  analysisQueued.value = false
   editValue.value = currentFieldValue.value
+  if (syncing.value) return
   editPreview.value = null
+  impactPreview.value = null
+  impactBeforeText.value = ''
+  impactAfterText.value = ''
   editResult.value = ''
   inlineProposal.value = null
   syncReceipt.value = null
+  impactDialogOpen.value = false
 }
 
-async function previewEdit() {
+function initializeEdit() {
+  editField.value = (
+    activeSlide.value?.slide_purpose === 'learning_objective'
+      ? 'key_message'
+      : 'title'
+  )
+  resetEdit()
+}
+
+function scheduleAutomaticPreview() {
+  if (autoPreviewTimer) window.clearTimeout(autoPreviewTimer)
+  analysisQueued.value = false
+  if (changed.value && !syncing.value) {
+    editPreview.value = null
+    impactPreview.value = null
+    impactBeforeText.value = ''
+    impactAfterText.value = ''
+    editResult.value = ''
+    inlineProposal.value = null
+    syncReceipt.value = null
+    impactDialogOpen.value = false
+  }
+  if (
+    !props.standalone
+    || activeSlide.value?.slide_purpose !== 'learning_objective'
+    || editField.value !== 'key_message'
+    || !changed.value
+    || editValue.value.trim().length < 8
+  ) return
+  analysisQueued.value = true
+  autoPreviewTimer = window.setTimeout(() => {
+    void previewEdit(true)
+  }, 900)
+}
+
+async function previewEdit(openDialog = true) {
   const slide = activeSlide.value
   if (!slide) return
+  if (autoPreviewTimer) window.clearTimeout(autoPreviewTimer)
+  analysisQueued.value = false
+  const requestedAfter = editValue.value
   editBusy.value = true
   try {
-    editPreview.value = await store.previewEdit(props.representationId, {
+    const result = await store.previewEdit(props.representationId, {
       unit_id: slide.unit_id,
       field: editField.value,
       before: currentFieldValue.value,
-      after: editValue.value,
+      after: requestedAfter,
     })
+    if (requestedAfter !== editValue.value) return
+    editPreview.value = result
+    impactPreview.value = result
+    impactBeforeText.value = currentFieldValue.value
+    impactAfterText.value = requestedAfter
+    if (openDialog && result?.classification === 'semantic') impactDialogOpen.value = true
   } finally {
     editBusy.value = false
   }
@@ -442,9 +569,12 @@ async function applyEdit(decision: 'representation_only' | 'course_semantic') {
         || result.authoring_change
         || null
       editResult.value = t('teachingRepresentations.courseCandidateReady', '已生成课程修改候选，请确认影响范围')
+      impactDialogOpen.value = true
     } else {
       editResult.value = t('teachingRepresentations.representationSaved', '当前 PPT 已更新，课程正文保持不变')
       editPreview.value = null
+      impactPreview.value = null
+      impactDialogOpen.value = false
     }
   } finally {
     editBusy.value = false
@@ -456,6 +586,7 @@ async function confirmInlineChange() {
   const item = pendingInlineItem.value
   if (!proposal || !item) return
   editBusy.value = true
+  syncing.value = true
   try {
     const result = await changeProposalsStore.applyItem(proposal.proposal_id, item.item_id)
     await store.load(props.courseId)
@@ -467,7 +598,9 @@ async function confirmInlineChange() {
     editPreview.value = null
     syncReceipt.value = result?.representation_sync || null
     editResult.value = t('teachingRepresentations.syncComplete', '课程同源同步完成')
+    impactDialogOpen.value = true
   } finally {
+    syncing.value = false
     editBusy.value = false
   }
 }
@@ -481,9 +614,14 @@ async function rejectInlineChange() {
     await changeProposalsStore.rejectItem(proposal.proposal_id, item.item_id)
     inlineProposal.value = null
     editResult.value = t('teachingRepresentations.changeRejected', '本次课程语义修改未应用')
+    impactDialogOpen.value = false
   } finally {
     editBusy.value = false
   }
+}
+
+function closeImpactDialog() {
+  if (!syncing.value) impactDialogOpen.value = false
 }
 
 function proposalContent(content: ChangeProposalContent) {
@@ -503,6 +641,10 @@ function representationLabel(value: string) {
     practice_sheet: '理解检查',
     slide_deck: 'PPT',
   } as Record<string, string>)[value] || value)
+}
+
+function syncGroupCount(item: Record<string, any>, changeKind: string) {
+  return (item.units || []).filter((unit: Record<string, any>) => unit.change_kind === changeKind).length
 }
 
 function askAi() {
@@ -562,6 +704,9 @@ function classificationLabel(value: string) {
 .slide-inspector__edit label { display:block; margin-top:9px; }.slide-inspector__edit label > span { display:block; margin-bottom:5px; color:var(--lz-text-muted); font-size:8px; }.slide-inspector__edit select,.slide-inspector__edit textarea { width:100%; box-sizing:border-box; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text); background:#fff; font:9px/1.45 inherit; outline:none; }.slide-inspector__edit select { height:30px; padding:0 7px; }.slide-inspector__edit textarea { resize:vertical; min-height:72px; padding:7px; }.slide-inspector__edit select:focus,.slide-inspector__edit textarea:focus { border-color:#818cf8; }
 .slide-inspector__impact { margin-top:9px; padding:9px; border-left:3px solid #eab308; background:#fffbea; }.slide-inspector__impact > strong { color:#854d0e; font-size:9px; }.slide-inspector__impact .semantic-change { margin:4px 0 7px; color:#713f12; font-size:9px; font-weight:700; line-height:1.45; }.slide-inspector__impact ul { display:grid; gap:3px; margin:0 0 7px; padding:0; list-style:none; }.slide-inspector__impact li { display:flex; align-items:center; justify-content:space-between; gap:6px; color:#475569; font-size:8px; }.slide-inspector__impact li b { color:#a16207; font-size:8px; }.slide-inspector__impact small { color:#78716c; font-size:8px; }.slide-inspector__impact .protected { display:flex; align-items:center; gap:4px; margin:6px 0 0; color:#64748b; font-size:8px; }
 .impact-flow { display:grid; justify-items:center; gap:6px; margin:7px 0; }.impact-flow__origin { width:100%; padding:7px; border:1px solid #f0d576; border-radius:6px; background:#fff; }.impact-flow__origin small,.impact-flow__origin b { display:block; }.impact-flow__origin b { margin-top:3px; color:#713f12; font-size:8px; line-height:1.4; }.impact-flow > i { width:1px; height:10px; background:#d6a80a; }.impact-flow__targets { width:100%; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }.impact-flow__targets > span { min-width:0; padding:6px; border:1px solid #f1df9e; border-radius:5px; background:#fff; }.impact-flow__targets b,.impact-flow__targets small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.impact-flow__targets b { color:#475569; font-size:8px; }.impact-flow__targets small { margin-top:2px; color:#a16207; }
+.slide-inspector__impact .impact-open { width:100%; min-height:29px; display:flex; align-items:center; justify-content:center; gap:5px; margin-top:8px; border:1px solid #dfc564; border-radius:6px; color:#713f12; background:#fff; font-size:8px; font-weight:700; cursor:pointer; }
+.slide-inspector__impact .impact-open:hover { border-color:#c99b09; background:#fffdf5; }
+.slide-inspector__analyzing { display:flex; align-items:center; gap:7px; margin-top:9px; padding:9px; border-left:3px solid #2556d8; color:#315486; background:#eef4ff; font-size:8px; line-height:1.45; }
 .slide-inspector__confirmation { margin-top:9px; padding:9px; border-left:3px solid #8b5cf6; background:#f7f3ff; }.slide-inspector__confirmation > strong { display:flex; align-items:center; gap:5px; color:#6d28d9; font-size:9px; }.objective-diff { display:grid; grid-template-columns:minmax(0,1fr) 12px minmax(0,1fr); gap:4px; margin-top:7px; color:#64748b; font-size:8px; line-height:1.4; }.objective-diff i { color:#8b5cf6; font-style:normal; }.objective-diff b { color:#4c1d95; }.slide-inspector__confirmation > p { margin:6px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
 .slide-inspector__receipt { display:grid; grid-template-columns:18px minmax(0,1fr); gap:6px; margin-top:9px; padding:9px; border-left:3px solid #10b981; color:#047857; background:#ecfdf5; }.slide-inspector__receipt[data-state="failed_using_last_available"] { border-left-color:#f59e0b; color:#92400e; background:#fffbeb; }.slide-inspector__receipt strong { display:block; font-size:9px; }.slide-inspector__receipt p { margin:3px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
 .slide-inspector__receipt ul { display:grid; gap:3px; margin:7px 0 0; padding:0; list-style:none; }.slide-inspector__receipt li { display:flex; justify-content:space-between; gap:8px; color:#526174; font-size:8px; }.slide-inspector__receipt li b { color:#047857; }
@@ -711,6 +856,8 @@ function classificationLabel(value: string) {
 .is-standalone .impact-flow__origin small,.is-standalone .impact-flow__targets small { font-size:9px; }
 .is-standalone .impact-flow__targets { gap:6px; }
 .is-standalone .impact-flow__targets > span { padding:8px; border-radius:7px; }
+.is-standalone .slide-inspector__impact .impact-open { min-height:34px; border-radius:8px; font-size:10px; }
+.is-standalone .slide-inspector__analyzing { margin-top:12px; padding:12px; border-radius:0 8px 8px 0; font-size:10px; }
 .is-standalone .slide-inspector__receipt li,.is-standalone .slide-inspector__receipt li b { font-size:10px; }
 .is-standalone .slide-inspector__edit-actions { gap:7px; margin-top:12px; }
 .is-standalone .slide-inspector__edit-actions button {
@@ -781,6 +928,7 @@ function classificationLabel(value: string) {
 .deck-presentation > main > aside small { color:#54d4c8; }
 .deck-presentation > main > aside p { margin:10px 0 0; white-space:pre-line; font-size:13px; line-height:1.7; }
 .deck-presentation > footer {
+  position:relative;
   display:flex;
   align-items:center;
   justify-content:center;
@@ -789,6 +937,11 @@ function classificationLabel(value: string) {
 }
 .deck-presentation > footer span { min-width:72px; text-align:center; font:700 12px/1 "Aptos Mono","SFMono-Regular",monospace; }
 .deck-presentation > footer i { color:#526176; font-style:normal; }
+.deck-presentation > footer small { position:absolute; right:22px; color:#66758a; font-size:9px; letter-spacing:.02em; }
+.deck-presentation__progress { position:absolute; inset:auto 0 0; height:2px; display:block; background:rgba(255,255,255,.08); }
+.deck-presentation__progress b { height:100%; display:block; background:#54d4c8; transition:width .28s ease; }
+.deck-presentation__blank { display:grid !important; place-items:center; align-content:center; gap:13px !important; color:#657489; background:#020407; cursor:pointer; }
+.deck-presentation__blank span { font-size:11px; letter-spacing:.08em; }
 
 @media (max-width:1180px) {
   .is-standalone .slide-workbench__body { grid-template-columns:172px minmax(460px,1fr) 270px; }
@@ -815,5 +968,6 @@ function classificationLabel(value: string) {
   .is-standalone .slide-workbench__commands button:nth-child(2) { display:none; }
   .deck-presentation > main { padding:8px; }
   .deck-presentation > main > aside { position:absolute; inset:auto 8px 66px; width:auto; max-height:32vh; }
+  .deck-presentation > footer small { display:none; }
 }
 </style>

@@ -96,6 +96,8 @@ def representation_edit_impact(
     block_ids = sorted({binding.block_id for binding in bindings if binding.block_id})
     section_ids = sorted({binding.section_id for binding in bindings if binding.section_id})
     affected: list[dict[str, Any]] = []
+    change_items: list[dict[str, Any]] = []
+    protected_items: list[dict[str, Any]] = []
     total_unit_count = 0
     for representation in registry.representations:
         representation_spec = next((
@@ -103,6 +105,12 @@ def representation_edit_impact(
         ), None)
         if representation_spec is None:
             continue
+        units = _representation_units(representation_spec)
+        units_by_id = {
+            str(item.get("unit_id") or ""): item
+            for item in units
+            if item.get("unit_id")
+        }
         all_unit_ids = sorted(representation_spec.unit_bindings)
         total_unit_count += len(all_unit_ids)
         unit_ids = sorted({
@@ -114,15 +122,44 @@ def representation_edit_impact(
             )
         })
         if unit_ids:
+            unit_summaries = [
+                _impact_unit_summary(
+                    representation.representation_type,
+                    units_by_id.get(candidate_unit_id) or {},
+                    candidate_unit_id,
+                    origin=(
+                        representation.representation_id
+                        == next((
+                            item.representation_id
+                            for item in registry.representations
+                            if item.spec_id == spec.spec_id
+                        ), "")
+                        and candidate_unit_id == unit_id
+                    ),
+                )
+                for candidate_unit_id in unit_ids
+            ]
+            change_items.extend(unit_summaries)
             affected.append({
                 "representation_id": representation.representation_id,
                 "representation_type": representation.representation_type,
                 "unit_ids": unit_ids,
+                "units": unit_summaries,
                 "unaffected_unit_ids": [
                     candidate_unit_id
                     for candidate_unit_id in all_unit_ids
                     if candidate_unit_id not in unit_ids
                 ],
+            })
+        for candidate_unit_id in all_unit_ids:
+            if candidate_unit_id in unit_ids or len(protected_items) >= 6:
+                continue
+            candidate = units_by_id.get(candidate_unit_id) or {}
+            protected_items.append({
+                "representation_type": representation.representation_type,
+                "unit_id": candidate_unit_id,
+                "label": _unit_label(representation.representation_type, candidate, candidate_unit_id),
+                "reason": "与本次修改没有共同来源依赖，保持当前版本",
             })
     affected_unit_count = sum(len(item["unit_ids"]) for item in affected)
     return {
@@ -130,11 +167,91 @@ def representation_edit_impact(
         "block_ids": block_ids,
         "section_ids": section_ids,
         "affected_representations": affected,
+        "change_items": change_items,
+        "protected_items": protected_items,
         "affected_unit_count": affected_unit_count,
         "unaffected_unit_count": max(0, total_unit_count - affected_unit_count),
         "total_unit_count": total_unit_count,
         "protected": ["无来源关系的课程块", "其他课程", "历史作答", "个人笔记原文"],
     }
+
+
+def _representation_units(spec: TeachingRepresentationSpec) -> list[dict[str, Any]]:
+    content = spec.payload.get("content") or {}
+    value = content.get("units") or content.get("slides") or content.get("sections") or []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _impact_unit_summary(
+    representation_type: str,
+    unit: dict[str, Any],
+    unit_id: str,
+    *,
+    origin: bool,
+) -> dict[str, Any]:
+    purpose = str(unit.get("slide_purpose") or "")
+    layout = str(unit.get("layout") or "")
+    role, reason = _impact_role(representation_type, purpose=purpose, layout=layout)
+    return {
+        "representation_type": representation_type,
+        "unit_id": unit_id,
+        "label": _unit_label(representation_type, unit, unit_id),
+        "role": role,
+        "reason": reason,
+        "section_id": str(unit.get("section_id") or ""),
+        "origin": origin,
+    }
+
+
+def _impact_role(
+    representation_type: str,
+    *,
+    purpose: str,
+    layout: str,
+) -> tuple[str, str]:
+    if representation_type == "outline":
+        return "目标定位", "课程大纲中的本节目标需要更新"
+    if representation_type == "lesson_plan":
+        return "教案重点", "课堂重点、建构活动与检查方式需要对齐新目标"
+    if representation_type == "handout":
+        return "讲义解释", "学习引导需要从完成步骤转向说明概念与依据"
+    if representation_type == "practice_sheet":
+        return "理解检查", "检查任务需要验证是否能解释，而不只判断答案"
+    if representation_type == "slide_deck":
+        if purpose == "learning_objective" or layout == "objective":
+            return "PPT 学习目标", "当前目标页是本次语义修改的起点"
+        if purpose in {"example", "application", "transfer"}:
+            return "例题与迁移", "例题需要补充为什么这样做以及如何迁移"
+        if purpose in {"mastery_check", "activity", "checkpoint"} or layout == "practice":
+            return "课堂理解检查", "课堂检查需要观察解释与推理，而不只计算结果"
+        if purpose in {"reasoning", "concept_and_reasoning"} or layout in {"process", "comparison"}:
+            return "推理与图解", "推理过程需要突出关系、依据和运算顺序"
+        if purpose in {"misconception", "counterexample"} or layout == "misconception":
+            return "易错辨析", "错误分析需要指向概念混淆及其纠正依据"
+        return "概念讲解", "核心页面需要增加与新教学目标的对齐提示"
+    return "相关内容", "该内容与本次修改共享同一课程来源"
+
+
+def _unit_label(
+    representation_type: str,
+    unit: dict[str, Any],
+    unit_id: str,
+) -> str:
+    title = str(
+        unit.get("title")
+        or unit.get("section_title")
+        or unit.get("learning_objective")
+        or unit.get("prompt")
+        or ""
+    ).strip()
+    prefix = {
+        "outline": "大纲",
+        "lesson_plan": "教案",
+        "handout": "讲义",
+        "practice_sheet": "检查",
+        "slide_deck": "PPT",
+    }.get(representation_type, representation_type)
+    return f"{prefix} · {title[:34]}" if title else f"{prefix} · {unit_id}"
 
 
 def apply_representation_only_edit(
@@ -227,19 +344,51 @@ def _normalize(value: str) -> str:
     return re.sub(r"[^\w\u4e00-\u9fff]+", "", value).lower()
 
 
-def _teaching_dimension_change(before: str, after: str) -> dict[str, str] | None:
+def _teaching_dimension_change(before: str, after: str) -> dict[str, Any] | None:
     before_dimension = _teaching_dimension(before)
     after_dimension = _teaching_dimension(after)
     if before_dimension is None or after_dimension is None:
         return None
     if before_dimension[0] == after_dimension[0]:
         return None
+    implications = {
+        "conceptual_understanding": [
+            "讲解增加概念含义、关系与成立依据",
+            "例题不仅给步骤，还要解释为什么这样做",
+            "理解检查加入说明、辨析与运算顺序",
+        ],
+        "procedural_fluency": [
+            "讲解明确规则、步骤与关键检查点",
+            "例题突出稳定执行方法",
+            "理解检查加入独立计算与过程校验",
+        ],
+        "transfer_application": [
+            "讲解补充适用条件与情境判断",
+            "例题加入新情境迁移",
+            "理解检查要求选择并解释方法",
+        ],
+        "evaluation_creation": [
+            "讲解呈现多种方案与判断标准",
+            "例题加入比较、证明或设计",
+            "理解检查要求形成并捍卫自己的方案",
+        ],
+    }.get(after_dimension[0], [])
+    interpretation = (
+        "这不只是措辞调整：课堂重心从正确执行步骤，升级为解释概念关系、"
+        "成立依据与运算顺序。"
+        if before_dimension[0] == "procedural_fluency"
+        and after_dimension[0] == "conceptual_understanding"
+        else f"这次修改改变了教学证据：课堂需要证明学生已经达到「{after_dimension[1]}」，"
+        f"而不再只满足「{before_dimension[1]}」。"
+    )
     return {
         "from_dimension": before_dimension[0],
         "from_label": before_dimension[1],
         "to_dimension": after_dimension[0],
         "to_label": after_dimension[1],
         "summary": f"教学目标从「{before_dimension[1]}」转向「{after_dimension[1]}」",
+        "interpretation": interpretation,
+        "instructional_implications": implications,
     }
 
 

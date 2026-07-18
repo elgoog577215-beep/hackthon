@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 
 SLIDE_DECK_SCHEMA = "slide_deck_v2"
-SLIDE_DECK_COMPILER_VERSION = "structured_slide_compiler_v2"
+SLIDE_DECK_COMPILER_VERSION = "structured_slide_compiler_v8"
 SLIDES_PER_SECTION_MAX = 5
 
 SlideBlockType = Literal[
@@ -281,6 +281,16 @@ def validate_slide_deck(
         if slide.layout not in LAYOUT_CAPACITY:
             visual_issues.append(_issue("critical", "unknown_slide_layout", "幻灯片使用了未知版式。", slide.unit_id))
             continue
+        if slide.layout == "recap" and any(
+            not block.content.strip() and not any(item.strip() for item in block.items)
+            for block in slide.blocks
+        ):
+            semantic_issues.append(_issue(
+                "critical",
+                "recap_evidence_missing",
+                "课程收束页存在空卡片，无法帮助教师回扣知识与能力。",
+                slide.unit_id,
+            ))
         visual_issues.extend(_capacity_issues(slide))
         visual_issues.extend(_layout_content_issues(slide))
         visible_text = _slide_visible_text(slide)
@@ -289,6 +299,20 @@ def validate_slide_deck(
                 "critical",
                 "raw_markdown_leaked",
                 "页面仍包含 Markdown 表格或标题符号，说明正文没有被转译为演示结构。",
+                slide.unit_id,
+            ))
+        if _looks_like_raw_latex(_slide_non_code_visible_text(slide)):
+            visual_issues.append(_issue(
+                "critical",
+                "raw_latex_leaked",
+                "页面仍包含 LaTeX 源码，应先转换为可直接展示的数学文本。",
+                slide.unit_id,
+            ))
+        if _looks_like_mojibake(visible_text):
+            visual_issues.append(_issue(
+                "critical",
+                "text_encoding_corrupted",
+                "页面包含替换字符或常见错误解码片段，不能导出为课堂课件。",
                 slide.unit_id,
             ))
         if any(len(block.content) > 360 and block.type != "code" for block in slide.blocks):
@@ -487,7 +511,10 @@ def _compact_section_slide(
     layout = _layout_for_blocks(blocks)
     slide_blocks = _fit_blocks_for_layout(
         layout,
-        [item for values in parsed for item in values][:4],
+        [
+            *[item for values in parsed for item in values][:4],
+            _objective_alignment_block(section, "concept_and_reasoning"),
+        ],
     )
     return SlideSpec(
         unit_id=f"slide:{section.section_id}:content:1",
@@ -517,6 +544,7 @@ def _slide_for_block(
     layout = _layout_for_block(block, blocks)
     blocks = _fit_blocks_for_layout(layout, blocks)
     blocks = _enrich_instructional_blocks(block, blocks, context)
+    blocks.append(_objective_alignment_block(section, block.role, source_id=block.block_id))
     # Enrichment happens after the first source-content fit. Re-run the layout
     # fitter so the support card shares the page budget instead of pushing a
     # valid source page past the quality gate.
@@ -531,7 +559,7 @@ def _slide_for_block(
         "misconception": "误区辨析",
         "summary": "本节小结",
     }
-    title = str(block.payload.get("title") or section.title).strip()
+    title = _clean_slide_title(str(block.payload.get("title") or section.title))
     return SlideSpec(
         unit_id=f"slide:{section.section_id}:{block.role}:{index + 1}",
         position=0,
@@ -539,12 +567,18 @@ def _slide_for_block(
         slide_purpose=block.role,
         eyebrow=purpose_labels.get(block.role, "核心教学"),
         title=_trim(title, 48),
-        key_message=_trim(_block_key_message(block), 150),
+        key_message=_trim(
+            f"{_objective_focus_label(section.learning_objective)}｜{_block_key_message(block)}",
+            150,
+        ),
         blocks=blocks,
         speaker_notes=_speaker_notes(block, section),
         section_id=section.section_id,
         source_block_ids=[block.block_id],
-        learning_objective_ids=list(block.objective_refs),
+        learning_objective_ids=_unique([
+            *block.objective_refs,
+            *([section.objective_id] if section.objective_id else []),
+        ]),
         **_context_refs(context),
     )
 
@@ -580,6 +614,17 @@ def _assessment_slide(
             content=_trim(_plain_text(prompt), 220),
             metadata={"formal": True, "practice_task_id": practice_id},
         ))
+        if _objective_dimension(section.learning_objective) != "procedural":
+            slide_blocks.append(SlideBlockSpec(
+                block_id=f"slide:{section.section_id}:objective-follow-up",
+                type="callout",
+                title="解释追问",
+                content=_trim(
+                    _objective_alignment_prompt(section, "mastery_check"),
+                    150,
+                ),
+                metadata={"generated_from_objective": True},
+            ))
     elif action_block:
         source_blocks.append(action_block.block_id)
         slide_blocks.extend(_block_to_slide_blocks(action_block)[:1])
@@ -644,6 +689,32 @@ def _recap_slide(
         labels.extend(context["knowledge_labels"])
         abilities.extend(context["ability_labels"])
         refs.extend(context["knowledge_refs"])
+    if not _unique(labels):
+        labels.extend(
+            _clean_slide_title(str(block.payload.get("title") or ""))
+            for block in document.blocks
+            if block.status != "retired"
+            and block.role in {"concept", "reasoning", "example", "application"}
+            and str(block.payload.get("title") or "").strip()
+        )
+    if not _unique(abilities):
+        abilities.extend(
+            _trim(section.learning_objective, 68)
+            for section in learning_sections
+            if section.learning_objective.strip()
+        )
+    if not _unique(labels):
+        labels.extend(
+            _strip_section_prefix(section.title)
+            for section in learning_sections
+            if section.title.strip()
+        )
+    if not _unique(abilities):
+        abilities.extend(
+            f"能解释并应用{_strip_section_prefix(section.title)}"
+            for section in learning_sections
+            if section.title.strip()
+        )
     return SlideSpec(
         unit_id="slide:recap",
         position=0,
@@ -768,7 +839,7 @@ def _block_to_slide_blocks(block: CourseBlock) -> list[SlideBlockSpec]:
     bullets = _markdown_bullets(markdown)
     paragraphs = _paragraphs(markdown)
     result: list[SlideBlockSpec] = []
-    title = str(block.payload.get("title") or "").strip()
+    title = _clean_slide_title(str(block.payload.get("title") or "").strip())
 
     if table:
         result.append(SlideBlockSpec(
@@ -894,6 +965,63 @@ def _enrich_instructional_blocks(
             items=items,
         ),
     ]
+
+
+def _objective_dimension(value: str) -> str:
+    normalized = str(value or "").lower()
+    if any(marker in normalized for marker in ("理解", "解释", "为什么", "含义", "原理", "关系", "本质", "explain", "why")):
+        return "conceptual"
+    if any(marker in normalized for marker in ("应用", "迁移", "建模", "新情境", "apply", "transfer", "model")):
+        return "transfer"
+    if any(marker in normalized for marker in ("评价", "比较方案", "设计", "证明", "创造", "evaluate", "design", "prove")):
+        return "evaluation"
+    return "procedural"
+
+
+def _objective_alignment_prompt(section: CourseSection, role: str) -> str:
+    dimension = _objective_dimension(section.learning_objective)
+    if dimension == "conceptual":
+        if role in {"reasoning", "concept_and_reasoning"}:
+            return "请说明每一步为什么成立，以及对象之间的关系如何决定运算顺序。"
+        if role in {"example", "application", "transfer"}:
+            return "完成例题后，再解释这个过程如何体现概念关系，而不只报告结果。"
+        if role in {"misconception", "counterexample"}:
+            return "指出错误背后的概念混淆，并用成立依据完成纠正。"
+        if role in {"mastery_check", "activity", "checkpoint"}:
+            return "请脱离计算步骤，用自己的话解释概念含义、关系与运算顺序。"
+        return "学习本页时持续追问：它表示什么、为什么成立、与哪些概念相连？"
+    if dimension == "transfer":
+        return "请判断本页方法的适用条件，并尝试把它迁移到一个新情境。"
+    if dimension == "evaluation":
+        return "请比较可能的方案，用明确标准说明为什么选择这一种。"
+    return "请独立完成关键步骤，并说明怎样检查顺序、规则和结果是否正确。"
+
+
+def _objective_focus_label(objective: str) -> str:
+    return {
+        "conceptual": "解释为什么",
+        "transfer": "迁移到新情境",
+        "evaluation": "比较并论证",
+        "procedural": "掌握步骤",
+    }[_objective_dimension(objective)]
+
+
+def _objective_alignment_block(
+    section: CourseSection,
+    role: str,
+    *,
+    source_id: str | None = None,
+) -> SlideBlockSpec:
+    return SlideBlockSpec(
+        block_id=f"{source_id or section.section_id}:objective-alignment",
+        type="callout",
+        title="目标对齐",
+        content=_trim(_objective_alignment_prompt(section, role), 150),
+        metadata={
+            "generated_from_objective": True,
+            "objective_id": section.objective_id,
+        },
+    )
 
 
 def _layout_for_blocks(blocks: list[CourseBlock]) -> SlideLayout:
@@ -1086,8 +1214,35 @@ def _looks_like_raw_markdown(text: str) -> bool:
     return len(table_lines) >= 2 or any(re.match(r"^#{1,6}\s+", line) for line in lines)
 
 
+def _looks_like_raw_latex(text: str) -> bool:
+    return bool(
+        "$" in text
+        or re.search(
+            r"\\(?:begin|end|mathbf|mathrm|mathbb|mathcal|text|operatorname|"
+            r"frac|sqrt|times|cdot|left|right|to|in|notin|neq|leq|geq|"
+            r"approx|equiv|sum|prod|int|lim|alpha|beta|gamma|delta|theta|"
+            r"lambda|mu|pi|rho|sigma|phi|omega)\b",
+            text,
+        )
+        or re.search(r"\b(?:begin|end)\s*\{(?:bmatrix|pmatrix|matrix|cases)\}", text)
+        or re.search(r"\b(?:begin|end)(?:bmatrix|pmatrix|matrix|cases)\b", text)
+    )
+
+
+def _looks_like_mojibake(text: str) -> bool:
+    return bool(
+        "\ufffd" in text
+        or re.search(r"(?:Ã.|Â.|â[\u0080-\u00bf]|ï¿½)", text)
+    )
+
+
 def _block_key_message(block: CourseBlock) -> str:
-    summary = _plain_text(str(block.payload.get("summary") or ""))
+    raw_summary = str(block.payload.get("summary") or "")
+    summary = _plain_text(
+        _block_markdown(block)
+        if _looks_like_raw_latex(raw_summary)
+        else raw_summary
+    )
     if summary and not summary.startswith("|"):
         return _first_sentence(summary)
     paragraphs = _paragraphs(_block_markdown(block))
@@ -1181,9 +1336,126 @@ def _plain_text(markdown: str) -> str:
     text = re.sub(r"!\[[^]]*]\([^)]*\)", "", markdown)
     text = re.sub(r"\[([^]]+)]\([^)]*\)", r"\1", text)
     text = re.sub(r"<[^>]+>", " ", text)
+    text = _plain_math_text(text)
     text = re.sub(r"[`*_#>]", "", text)
     text = re.sub(r"\s*---+\s*", " ", text)
     return " ".join(text.split()).strip()
+
+
+def _plain_math_text(value: str) -> str:
+    text = str(value or "")
+    replacements = {
+        "\\times": "×",
+        "\\cdot": "·",
+        "\\rightarrow": "→",
+        "\\leftarrow": "←",
+        "\\to": "→",
+        "\\in": "∈",
+        "\\neq": "≠",
+        "\\leq": "≤",
+        "\\geq": "≥",
+        "\\ldots": "…",
+        "\\dots": "…",
+        "\\pm": "±",
+        "\\notin": "∉",
+        "\\approx": "≈",
+        "\\equiv": "≡",
+        "\\propto": "∝",
+        "\\infty": "∞",
+        "\\partial": "∂",
+        "\\nabla": "∇",
+        "\\forall": "∀",
+        "\\exists": "∃",
+        "\\subset": "⊂",
+        "\\subseteq": "⊆",
+        "\\supset": "⊃",
+        "\\supseteq": "⊇",
+        "\\cap": "∩",
+        "\\cup": "∪",
+        "\\perp": "⟂",
+        "\\angle": "∠",
+        "\\sum": "∑",
+        "\\prod": "∏",
+        "\\int": "∫",
+        "\\alpha": "α",
+        "\\beta": "β",
+        "\\gamma": "γ",
+        "\\delta": "δ",
+        "\\epsilon": "ε",
+        "\\theta": "θ",
+        "\\lambda": "λ",
+        "\\mu": "μ",
+        "\\pi": "π",
+        "\\rho": "ρ",
+        "\\sigma": "σ",
+        "\\phi": "φ",
+        "\\omega": "ω",
+        "\\Delta": "Δ",
+        "\\Theta": "Θ",
+        "\\Lambda": "Λ",
+        "\\Pi": "Π",
+        "\\Sigma": "Σ",
+        "\\Phi": "Φ",
+        "\\Omega": "Ω",
+    }
+    for source, target in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
+        text = text.replace(source, target)
+    subscript_map = str.maketrans("0123456789nijk", "₀₁₂₃₄₅₆₇₈₉ₙᵢⱼₖ")
+    superscript_map = str.maketrans("0123456789nT+-", "⁰¹²³⁴⁵⁶⁷⁸⁹ⁿᵀ⁺⁻")
+    text = re.sub(
+        r"_\{?([0-9nijk]+)\}?",
+        lambda match: match.group(1).translate(subscript_map),
+        text,
+    )
+    text = re.sub(
+        r"\^\{?([0-9nT+-]+)\}?",
+        lambda match: match.group(1).translate(superscript_map),
+        text,
+    )
+    text = re.sub(r"\\mathbb\s*\{R\}", "ℝ", text)
+    text = re.sub(r"\\mathbb\s*\{([A-Za-z])\}", r"\1", text)
+    text = re.sub(
+        r"\\(?:mathbf|mathrm|text|operatorname)\s*\{([^{}]*)\}",
+        r"\1",
+        text,
+    )
+    text = re.sub(
+        r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}",
+        r"\1/\2",
+        text,
+    )
+    text = re.sub(r"\\sqrt\s*\{([^{}]+)\}", r"√(\1)", text)
+    text = re.sub(
+        r"\\(?:overline|underline|vec|hat|bar)\s*\{([^{}]*)\}",
+        r"\1",
+        text,
+    )
+    text = re.sub(r"(?:\\)?begin\s*\{(?:bmatrix|pmatrix|matrix|cases)\}", "[", text)
+    text = re.sub(r"(?:\\)?end\s*\{(?:bmatrix|pmatrix|matrix|cases)\}", "]", text)
+    text = text.replace("\\\\", "；").replace("&", ", ")
+    text = text.replace("\\left", "").replace("\\right", "")
+    text = re.sub(r"\\([A-Za-z]+)", r"\1", text)
+    return (
+        text.replace("\\[", "")
+        .replace("\\]", "")
+        .replace("\\(", "")
+        .replace("\\)", "")
+        .replace("$", "")
+        .replace("{", "")
+        .replace("}", "")
+    )
+
+
+def _clean_slide_title(value: str) -> str:
+    return _plain_text(
+        str(value or "")
+        .replace("\\times", "×")
+        .replace("\\cdot", "·")
+        .replace("\\to", "→")
+        .replace("$", "")
+        .replace("{", "")
+        .replace("}", "")
+    )
 
 
 def _first_question(markdown: str) -> str:

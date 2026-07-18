@@ -25,7 +25,13 @@ from representation_edits import (
     classify_representation_edit,
     representation_edit_impact,
 )
-from slide_deck import LAYOUT_CAPACITY, SlideBlockSpec, _fit_blocks_for_layout, validate_slide_deck
+from slide_deck import (
+    LAYOUT_CAPACITY,
+    SlideBlockSpec,
+    _fit_blocks_for_layout,
+    _plain_text,
+    validate_slide_deck,
+)
 from teaching_representations import (
     RepresentationConflict,
     SourceBinding,
@@ -377,6 +383,8 @@ def test_compiler_builds_five_bound_representations_and_exports_pptx(tmp_path):
     assert {item["layout"] for item in slide_content["slides"]} >= {"cover", "roadmap", "concept", "practice", "recap"}
     assert all("blocks" in item and "bullets" not in item for item in slide_content["slides"])
     assert len({item["unit_id"] for item in slide_content["slides"]}) == len(slide_content["slides"])
+    recap = next(item for item in slide_content["slides"] if item["layout"] == "recap")
+    assert all(block["items"] for block in recap["blocks"])
     for section in document.sections:
         section_slides = [
             item for item in slide_content["slides"]
@@ -424,13 +432,80 @@ def test_slide_quality_gate_rejects_raw_course_copy_and_markdown(tmp_path):
     )
     content = deepcopy(slides.payload["content"])
     target = next(item for item in content["slides"] if item.get("section_id"))
-    target["blocks"][0]["content"] = "# 未转译标题\n" + ("整段正文复制。" * 80)
+    target["blocks"][0]["content"] = "# 未转译标题\n$A \\times B$\n" + ("整段正文复制。" * 80)
 
     report = validate_slide_deck(content, course_data=course_data)
 
     assert report["passed"] is False
     codes = {item["code"] for item in report["issues"] if item["severity"] == "critical"}
-    assert {"raw_markdown_leaked", "paragraph_copy_detected"} <= codes
+    assert {"raw_markdown_leaked", "raw_latex_leaked", "paragraph_copy_detected"} <= codes
+
+
+def test_plain_text_converts_common_latex_into_classroom_readable_math():
+    converted = _plain_text(
+        r"$3 \times 3$；$\mathbf{x} \in \mathbb{R}^3$；"
+        r"\begin{bmatrix}1 & 2 \\ 3 & 4\end{bmatrix}；"
+        r"begin{cases}x_1=1 \\ x_2=2end{cases}；"
+        r"\alpha+\beta\approx\sqrt{x^{-1}}"
+    )
+
+    assert "3 × 3" in converted
+    assert "x ∈ ℝ³" in converted
+    assert "[1 , 2 ； 3 , 4]" in converted
+    assert "[x₁=1 ； x₂=2]" in converted
+    assert "α+β≈√(x⁻¹)" in converted
+    assert "$" not in converted
+    assert "\\" not in converted
+
+
+def test_slide_quality_gate_rejects_text_encoding_corruption(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    course_data = course_data_with_practice()
+    compile_core_representations(document, course_data, repository)
+    registry = repository.load(document.course_id)
+    slides = next(
+        spec for spec in registry.specs
+        if spec.spec_id == next(
+            item.spec_id for item in registry.representations
+            if item.representation_type == "slide_deck"
+        )
+    )
+    content = deepcopy(slides.payload["content"])
+    target = next(item for item in content["slides"] if item.get("section_id"))
+    target["key_message"] = "矩阵乘法�表示线性变换复合"
+
+    report = validate_slide_deck(content, course_data=course_data)
+
+    assert report["passed"] is False
+    assert "text_encoding_corrupted" in {
+        item["code"] for item in report["issues"] if item["severity"] == "critical"
+    }
+
+
+def test_slide_quality_gate_rejects_empty_recap_cards(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    course_data = course_data_with_practice()
+    compile_core_representations(document, course_data, repository)
+    registry = repository.load(document.course_id)
+    slides = next(
+        spec for spec in registry.specs
+        if spec.spec_id == next(
+            item.spec_id for item in registry.representations
+            if item.representation_type == "slide_deck"
+        )
+    )
+    content = deepcopy(slides.payload["content"])
+    recap = next(item for item in content["slides"] if item["layout"] == "recap")
+    recap["blocks"][0]["items"] = []
+
+    report = validate_slide_deck(content, course_data=course_data)
+
+    assert report["passed"] is False
+    assert "recap_evidence_missing" in {
+        item["code"] for item in report["issues"] if item["severity"] == "critical"
+    }
 
 
 def test_layout_fitter_rechecks_item_budget_after_teaching_support_enrichment():
@@ -513,12 +588,17 @@ def test_representation_edits_classify_semantic_boundary_and_preserve_course_sou
     assert detected_goal_shift["classification"] == "semantic"
     assert detected_goal_shift["semantic_change"]["from_label"] == "计算技能"
     assert detected_goal_shift["semantic_change"]["to_label"] == "概念理解"
+    assert "不只是措辞调整" in detected_goal_shift["semantic_change"]["interpretation"]
+    assert len(detected_goal_shift["semantic_change"]["instructional_implications"]) == 3
 
     impact = representation_edit_impact(registry, spec, unit_id="slide:section-a")
     assert document.blocks[0].block_id in impact["block_ids"]
     assert {item["representation_type"] for item in impact["affected_representations"]} >= {
         "outline", "lesson_plan", "handout", "slide_deck",
     }
+    assert any(item["origin"] for item in impact["change_items"])
+    assert any(item["role"] == "教案重点" for item in impact["change_items"])
+    assert impact["protected_items"]
 
     updated = apply_representation_only_edit(
         repository,
@@ -702,6 +782,10 @@ def test_objective_edit_updates_course_truth_and_reuses_unaffected_representatio
     assert preview.json()["semantic_change"]["to_label"] == "概念理解"
     assert preview.json()["impact"]["affected_unit_count"] > 0
     assert preview.json()["impact"]["unaffected_unit_count"] > 0
+    assert any(
+        item["role"] == "课堂理解检查"
+        for item in preview.json()["impact"]["change_items"]
+    )
 
     proposed = client.post(
         f"/api/courses/course-1/teaching-representations/{slides.representation_id}/edits/apply",
@@ -733,6 +817,22 @@ def test_objective_edit_updates_course_truth_and_reuses_unaffected_representatio
     assert receipt["status"] == "synchronized"
     assert receipt["rebuilt_unit_count"] > 0
     assert receipt["reused_unit_count"] > 0
+    assert receipt["changed_unit_count"] >= 4
+    changed_types = {
+        item["representation_type"]
+        for item in receipt["changes"]
+        if any(unit["change_kind"] == "content_changed" for unit in item["units"])
+    }
+    assert {"outline", "lesson_plan", "handout", "practice_sheet", "slide_deck"} <= changed_types
+    lesson_change = next(
+        unit
+        for item in receipt["changes"]
+        if item["representation_type"] == "lesson_plan"
+        for unit in item["units"]
+        if unit["change_kind"] == "content_changed"
+    )
+    assert "规则、步骤" in lesson_change["before"]
+    assert "概念含义、关系" in lesson_change["after"]
     updated, _canonical = course_repository.load_document("course-1")
     assert updated.sections[0].learning_objective == after_objective
     assert updated.sections[1].learning_objective == "理解矩阵"
@@ -865,6 +965,33 @@ def test_presentation_only_override_survives_compatible_course_rebuild(tmp_path)
     assert result["status"] == "synchronized"
     assert edited_slide["title"] == "向量：大小、方向与表示"
     assert current_spec.payload["content"]["override_conflicts"] == []
+
+
+def test_compiler_upgrade_rebuilds_ready_units_instead_of_reusing_old_payload(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    course_data = course_data_with_practice()
+    compile_core_representations(document, course_data, repository)
+    registry = repository.load(document.course_id)
+    slides = next(item for item in registry.representations if item.representation_type == "slide_deck")
+    spec = next(item for item in registry.specs if item.spec_id == slides.spec_id)
+    original_title = spec.payload["content"]["slides"][0]["title"]
+    spec.payload["compiler_version"] = "same_source_compiler_v2:structured_slide_compiler_v2"
+    spec.payload["content"]["slides"][0]["title"] = "旧生成器残留标题"
+    repository.save(registry)
+
+    result = compile_core_representations(document, course_data, repository)
+    current = repository.load(document.course_id)
+    current_slides = next(item for item in current.representations if item.representation_type == "slide_deck")
+    current_spec = next(item for item in current.specs if item.spec_id == current_slides.spec_id)
+    slide_build = next(
+        item for item in result["representations"]
+        if item["representation_type"] == "slide_deck"
+    )
+
+    assert current_spec.payload["content"]["slides"][0]["title"] == original_title
+    assert current_spec.payload["compiler_version"].endswith("structured_slide_compiler_v8")
+    assert slide_build["reused_unit_ids"] == []
 
 
 def test_progressive_build_streams_each_slide_before_atomic_completion(tmp_path, monkeypatch):

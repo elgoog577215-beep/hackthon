@@ -27,7 +27,7 @@ from teaching_representations import (
     source_binding_for_document,
 )
 
-REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v2"
+REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v3"
 CORE_TYPES = ("outline", "lesson_plan", "handout", "practice_sheet", "slide_deck")
 
 
@@ -95,6 +95,7 @@ def compile_core_representations(
     for representation_type, payload in payloads.items():
         existing = existing_by_type.get(representation_type)
         existing_spec = existing_specs_by_type.get(representation_type)
+        compiler_version = _compiler_version_for(representation_type)
         payload, reused_unit_ids = _reuse_unchanged_units(
             payload,
             (existing_spec.payload.get("content") if existing_spec else None) or {},
@@ -103,7 +104,12 @@ def compile_core_representations(
                 if existing and existing.status == "stale"
                 else []
             ),
-            reuse_all=bool(existing and existing.status == "ready"),
+            reuse_all=bool(
+                existing
+                and existing.status == "ready"
+                and existing_spec
+                and existing_spec.payload.get("compiler_version") == compiler_version
+            ),
         )
         unit_bindings = _unit_bindings_for_payload(document, payload)
         bindings = _dedupe_bindings([
@@ -112,7 +118,7 @@ def compile_core_representations(
             for binding in values
         ])
         spec_payload = {
-            "compiler_version": REPRESENTATION_COMPILER_VERSION,
+            "compiler_version": compiler_version,
             "representation_type": representation_type,
             "content": payload,
         }
@@ -207,6 +213,12 @@ def compile_core_representations(
     return {"plan_id": plan.plan_id, "representations": built}
 
 
+def _compiler_version_for(representation_type: str) -> str:
+    if representation_type == "slide_deck":
+        return f"{REPRESENTATION_COMPILER_VERSION}:{SLIDE_DECK_COMPILER_VERSION}"
+    return REPRESENTATION_COMPILER_VERSION
+
+
 def rebuild_core_representations_safely(
     document: CourseDocument,
     course_data: dict[str, Any],
@@ -274,6 +286,11 @@ def rebuild_core_representations_safely(
                 item["representation_type"]: item["stale_unit_ids"]
                 for item in stale_before
             }
+            changes = _describe_representation_changes(
+                previous,
+                candidate,
+                stale_by_type,
+            )
             result = {
                 "status": "synchronized",
                 "quality": quality,
@@ -292,6 +309,19 @@ def rebuild_core_representations_safely(
                 "reused_unit_count": sum(
                     len(item.get("reused_unit_ids") or [])
                     for item in build["representations"]
+                ),
+                "changes": changes,
+                "changed_unit_count": sum(
+                    1
+                    for item in changes
+                    for unit in item["units"]
+                    if unit["change_kind"] == "content_changed"
+                ),
+                "verified_unit_count": sum(
+                    1
+                    for item in changes
+                    for unit in item["units"]
+                    if unit["change_kind"] == "source_verified"
                 ),
                 "registry_revision": committed.registry_revision,
             }
@@ -413,6 +443,148 @@ def _reuse_unchanged_units(
     return merged, sorted(reusable)
 
 
+def _describe_representation_changes(
+    previous: Any,
+    candidate: Any,
+    stale_by_type: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    previous_specs = _active_specs_by_type(previous)
+    candidate_specs = _active_specs_by_type(candidate)
+    changes: list[dict[str, Any]] = []
+    for representation_type, stale_unit_ids in stale_by_type.items():
+        if not stale_unit_ids:
+            continue
+        before_units = _spec_units_by_id(previous_specs.get(representation_type))
+        after_units = _spec_units_by_id(candidate_specs.get(representation_type))
+        unit_changes = []
+        for unit_id in stale_unit_ids:
+            before = before_units.get(unit_id) or {}
+            after = after_units.get(unit_id) or {}
+            field, before_text, after_text = _first_visible_unit_change(
+                representation_type,
+                before,
+                after,
+            )
+            unit_changes.append({
+                "unit_id": unit_id,
+                "section_id": str(after.get("section_id") or before.get("section_id") or ""),
+                "label": _change_unit_label(representation_type, after or before, unit_id),
+                "field": field,
+                "before": before_text,
+                "after": after_text,
+                "change_kind": (
+                    "content_changed"
+                    if before_text != after_text
+                    else "source_verified"
+                ),
+            })
+        changes.append({
+            "representation_type": representation_type,
+            "units": unit_changes,
+        })
+    return changes
+
+
+def _active_specs_by_type(registry: Any) -> dict[str, Any]:
+    specs_by_id = {item.spec_id: item for item in registry.specs}
+    return {
+        item.representation_type: specs_by_id.get(item.spec_id)
+        for item in registry.representations
+        if specs_by_id.get(item.spec_id) is not None
+    }
+
+
+def _spec_units_by_id(spec: Any | None) -> dict[str, dict[str, Any]]:
+    if spec is None:
+        return {}
+    content = spec.payload.get("content") or {}
+    units = content.get("units") or content.get("slides") or content.get("sections") or []
+    return {
+        str(item.get("unit_id") or ""): item
+        for item in units
+        if isinstance(item, dict) and item.get("unit_id")
+    }
+
+
+def _first_visible_unit_change(
+    representation_type: str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> tuple[str, str, str]:
+    fields_by_type = {
+        "outline": ("learning_objective", "title"),
+        "lesson_plan": ("teaching_focus", "learning_objective", "activities"),
+        "handout": ("learning_prompt", "learning_objective"),
+        "practice_sheet": ("prompt",),
+        "slide_deck": ("key_message", "speaker_notes", "blocks"),
+    }
+    for field in fields_by_type.get(representation_type, ("title", "content")):
+        before_text = _visible_change_text(before.get(field))
+        after_text = _visible_change_text(after.get(field))
+        if before_text != after_text:
+            return field, _trim_change_text(before_text), _trim_change_text(after_text)
+    fallback = _visible_change_text(after.get("title") or before.get("title"))
+    return "source_revision", _trim_change_text(fallback), _trim_change_text(fallback)
+
+
+def _visible_change_text(value: Any) -> str:
+    if isinstance(value, str):
+        return " ".join(value.split())
+    if isinstance(value, list):
+        values = []
+        for item in value:
+            if isinstance(item, dict):
+                values.extend(
+                    str(item.get(key) or "").strip()
+                    for key in ("phase", "prompt", "title", "content")
+                    if item.get(key)
+                )
+                values.extend(str(entry).strip() for entry in item.get("items") or [])
+            elif str(item).strip():
+                values.append(str(item).strip())
+        return " · ".join(values)
+    if isinstance(value, dict):
+        return " · ".join(
+            str(value.get(key) or "").strip()
+            for key in ("title", "content", "summary")
+            if value.get(key)
+        )
+    return str(value or "").strip()
+
+
+def _trim_change_text(value: str, limit: int = 150) -> str:
+    value = " ".join(str(value or "").split())
+    return value if len(value) <= limit else f"{value[: limit - 1].rstrip()}…"
+
+
+def _change_unit_label(
+    representation_type: str,
+    unit: dict[str, Any],
+    unit_id: str,
+) -> str:
+    prefix = {
+        "outline": "课程大纲",
+        "lesson_plan": "教案重点",
+        "handout": "讲义解释",
+        "practice_sheet": "理解检查",
+        "slide_deck": {
+            "learning_objective": "PPT 学习目标",
+            "concept_and_reasoning": "PPT 核心讲解",
+            "mastery_check": "PPT 理解检查",
+            "example": "PPT 例题",
+            "application": "PPT 应用",
+            "reasoning": "PPT 推理",
+        }.get(str(unit.get("slide_purpose") or ""), "PPT 页面"),
+    }.get(representation_type, representation_type)
+    title = str(
+        unit.get("title")
+        or unit.get("section_title")
+        or unit.get("learning_objective")
+        or unit_id
+    ).strip()
+    return f"{prefix} · {title[:34]}"
+
+
 def _outline_spec(document: CourseDocument) -> dict[str, Any]:
     blocks_by_section = _blocks_by_section(document)
     sections = []
@@ -452,6 +624,7 @@ def _lesson_plan_spec(document: CourseDocument, course_data: dict[str, Any]) -> 
             "title": section.title,
             "learning_objective": section.learning_objective,
             "duration_minutes": minutes,
+            "teaching_focus": _objective_teaching_focus(section.learning_objective),
             "source_section_ids": [section.section_id],
             "source_block_ids": [block.block_id for block in blocks],
             "source_keys": (
@@ -461,8 +634,21 @@ def _lesson_plan_spec(document: CourseDocument, course_data: dict[str, Any]) -> 
             ),
             "activities": [
                 {"phase": "导入", "minutes": max(2, minutes // 8), "prompt": f"从已有经验进入“{section.title}”"},
-                {"phase": "建构", "minutes": max(6, minutes // 2), "prompt": _section_summary(blocks)},
-                {"phase": "检查", "minutes": max(4, minutes // 4), "prompt": f"检查是否达到：{section.learning_objective or section.title}"},
+                {
+                    "phase": "建构",
+                    "minutes": max(6, minutes // 2),
+                    "prompt": (
+                        f"{_objective_teaching_focus(section.learning_objective)}："
+                        f"{_section_summary(blocks)}"
+                    ),
+                },
+                {
+                    "phase": "检查",
+                    "minutes": max(4, minutes // 4),
+                    "prompt": _objective_check_prompt(
+                        section.learning_objective or section.title,
+                    ),
+                },
             ],
             "misconceptions": _section_misconceptions(course_data, section.section_id),
             "practice_task_ids": _section_question_ids(course_data, section.section_id),
@@ -481,6 +667,9 @@ def _handout_spec(document: CourseDocument) -> dict[str, Any]:
             "section_id": section.section_id,
             "title": section.title,
             "learning_objective": section.learning_objective,
+            "learning_prompt": _objective_learning_prompt(
+                section.learning_objective or section.title,
+            ),
             "source_section_ids": [section.section_id],
             "source_block_ids": [block.block_id for block in blocks],
             "source_keys": (
@@ -579,18 +768,26 @@ def _unit_bindings_for_payload(
         if not unit_id:
             continue
         bindings: list[SourceBinding] = []
+        objective_ids = _unique(unit.get("learning_objective_ids") or [])
         for block_id in unit.get("source_block_ids") or []:
             block = blocks_by_id.get(str(block_id))
             bindings.append(source_binding_for_document(
                 document,
                 block_id=str(block_id),
                 knowledge_node_ids=list(block.concept_refs) if block else [],
+                learning_objective_ids=objective_ids,
             ))
         for section_id in unit.get("source_section_ids") or []:
             bindings.append(source_binding_for_document(
                 document,
                 section_id=str(section_id),
                 knowledge_node_ids=_unique(unit.get("knowledge_refs") or []),
+                learning_objective_ids=objective_ids,
+            ))
+        if objective_ids and not bindings:
+            bindings.append(source_binding_for_document(
+                document,
+                learning_objective_ids=objective_ids,
             ))
         practice_revisions = unit.get("practice_source_revisions") or {}
         for practice_task_id, practice_revision_id in practice_revisions.items():
@@ -678,6 +875,48 @@ def _section_summary(blocks: list[CourseBlock]) -> str:
         if text:
             return text[:180]
     return "围绕本节目标进行概念建构、推导和应用。"
+
+
+def _objective_dimension(value: str) -> str:
+    normalized = str(value or "").lower()
+    if any(marker in normalized for marker in ("理解", "解释", "为什么", "含义", "原理", "关系", "本质", "explain", "why")):
+        return "conceptual"
+    if any(marker in normalized for marker in ("应用", "迁移", "建模", "新情境", "apply", "transfer", "model")):
+        return "transfer"
+    if any(marker in normalized for marker in ("评价", "比较方案", "设计", "证明", "创造", "evaluate", "design", "prove")):
+        return "evaluation"
+    return "procedural"
+
+
+def _objective_teaching_focus(objective: str) -> str:
+    return {
+        "conceptual": "教学重点放在概念含义、关系与为什么成立",
+        "transfer": "教学重点放在适用条件、情境判断与迁移",
+        "evaluation": "教学重点放在方案比较、论证与创造",
+        "procedural": "教学重点放在规则、步骤与过程校验",
+    }[_objective_dimension(objective)]
+
+
+def _objective_check_prompt(objective: str) -> str:
+    dimension = _objective_dimension(objective)
+    if dimension == "conceptual":
+        return f"让学生脱离步骤说明为什么，并用依据解释：{objective}"
+    if dimension == "transfer":
+        return f"提供一个新情境，让学生选择方法并解释适用性：{objective}"
+    if dimension == "evaluation":
+        return f"让学生比较或设计方案，并说明判断标准：{objective}"
+    return f"让学生独立完成并校验关键步骤：{objective}"
+
+
+def _objective_learning_prompt(objective: str) -> str:
+    dimension = _objective_dimension(objective)
+    if dimension == "conceptual":
+        return "阅读时持续追问：它表示什么、为什么成立、与哪些概念相连？"
+    if dimension == "transfer":
+        return "阅读时持续判断：它适用于什么情境，换一个条件还能否成立？"
+    if dimension == "evaluation":
+        return "阅读时持续比较：还有哪些方案，判断优劣需要什么标准？"
+    return "阅读时持续检查：规则是什么、步骤为何这样排列、怎样验证结果？"
 
 
 def _section_question_ids(course_data: dict[str, Any], section_id: str) -> list[str]:

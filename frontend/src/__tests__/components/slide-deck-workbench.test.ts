@@ -77,6 +77,10 @@ describe('SlideDeckWorkbench', () => {
     await flushPromises()
     expect(document.body.querySelector('.deck-presentation')).not.toBeNull()
     expect(document.body.querySelector('.deck-presentation .deck-canvas')?.getAttribute('data-layout')).toBe('cover')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }))
+    await flushPromises()
+    expect(document.body.querySelector('.deck-presentation__blank')?.textContent).toContain('临时黑屏')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }))
 
     const exportButton = wrapper.find('.slide-workbench__export')
     await exportButton.trigger('click')
@@ -110,10 +114,24 @@ describe('SlideDeckWorkbench', () => {
         return Promise.resolve({ data: {
           classification: 'semantic',
           reason: '教学目标发生变化',
-          semantic_change: { summary: '教学目标从「计算技能」转向「概念理解」' },
+          semantic_change: {
+            summary: '教学目标从「计算技能」转向「概念理解」',
+            from_label: '计算技能',
+            to_label: '概念理解',
+            interpretation: '课堂重心从正确执行步骤升级为解释概念关系与运算顺序。',
+            instructional_implications: ['讲解增加为什么', '例题解释理由', '检查加入概念说明'],
+          },
           impact: {
             affected_unit_count: 5,
             unaffected_unit_count: 12,
+            change_items: [
+              { representation_type: 'slide_deck', unit_id: 'slide:section-a', label: 'PPT · 学习目标', role: 'PPT 学习目标', reason: '修改起点', origin: true },
+              { representation_type: 'lesson_plan', unit_id: 'lesson:section-a', label: '教案 · 向量加法', role: '教案重点', reason: '课堂重点需要对齐', origin: false },
+              { representation_type: 'handout', unit_id: 'handout:section-a', label: '讲义 · 向量加法', role: '讲义解释', reason: '讲义引导需要更新', origin: false },
+            ],
+            protected_items: [
+              { representation_type: 'lesson_plan', unit_id: 'lesson:section-b', label: '教案 · 矩阵导论' },
+            ],
             affected_representations: [
               { representation_id: 'lesson', representation_type: 'lesson_plan', unit_ids: ['lesson:section-a'] },
               { representation_id: 'slides', representation_type: 'slide_deck', unit_ids: ['slide:section-a'] },
@@ -130,6 +148,30 @@ describe('SlideDeckWorkbench', () => {
             status: 'synchronized',
             rebuilt_unit_count: 5,
             reused_unit_count: 12,
+            changed_unit_count: 2,
+            verified_unit_count: 1,
+            changes: [
+              {
+                representation_type: 'lesson_plan',
+                units: [{
+                  unit_id: 'lesson:section-a',
+                  label: '教案重点 · 向量加法',
+                  change_kind: 'content_changed',
+                  before: '教学重点放在规则与步骤',
+                  after: '教学重点放在概念关系与为什么成立',
+                }],
+              },
+              {
+                representation_type: 'slide_deck',
+                units: [{
+                  unit_id: 'slide:section-a:content:1',
+                  label: 'PPT 核心讲解 · 向量加法',
+                  change_kind: 'source_verified',
+                  before: '向量加法',
+                  after: '向量加法',
+                }],
+              },
+            ],
             rebuilt: [],
           },
         } })
@@ -173,6 +215,7 @@ describe('SlideDeckWorkbench', () => {
       },
     ]
     const wrapper = mount(SlideDeckWorkbench, {
+      attachTo: document.body,
       props: {
         courseId: 'course-1', representationId: 'slides-1', deckTitle: '数据结构', slides: objectiveSlides,
         staleUnitIds: [], building: false, progress: 100, stage: 'complete', error: '',
@@ -188,16 +231,35 @@ describe('SlideDeckWorkbench', () => {
 
     expect(wrapper.find('.slide-inspector__impact').text()).toContain('计算技能')
     expect(wrapper.find('.slide-inspector__impact').text()).toContain('保持 12 处不变')
+    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('系统理解了这次教学修改')
+    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('教案重点')
+    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('矩阵导论')
 
-    const semanticButton = wrapper.findAll('.slide-inspector__edit-actions button')
-      .find(button => button.text().includes('改变课程含义'))
-    await semanticButton!.trigger('click')
+    ;(document.body.querySelector('.impact-dialog__actions .primary') as HTMLButtonElement).click()
     await flushPromises()
     expect(wrapper.find('.slide-inspector__confirmation').text()).toContain('回写课程目标真源')
+    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('等待教师确认')
 
-    await wrapper.find('.slide-inspector__confirmation button.semantic').trigger('click')
+    ;(document.body.querySelector('.impact-dialog__actions .primary') as HTMLButtonElement).click()
     await flushPromises()
-    expect(wrapper.find('.slide-inspector__receipt').text()).toContain('5 处已更新')
-    expect(wrapper.find('.slide-inspector__receipt').text()).toContain('12 处确认无需修改')
+    expect(wrapper.find('.slide-inspector__receipt').text()).toContain('2 项实际更新')
+    expect(wrapper.find('.slide-inspector__receipt').text()).toContain('1 项仅校验')
+    expect(wrapper.find('.slide-inspector__receipt').text()).toContain('12 项确认无需处理')
+    expect(wrapper.find('.slide-inspector__receipt').text()).toContain('1 改 · 0 验')
+    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('相关内容已精准同步')
+    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('教学重点放在概念关系与为什么成立')
+    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('来源版本已重新校验')
+
+    ;(document.body.querySelector('.impact-dialog__actions .primary') as HTMLButtonElement).click()
+    await wrapper.find('.slide-inspector__edit textarea').setValue('理解向量加法为什么表示位移复合，并能解释顺序')
+    await flushPromises()
+    expect(wrapper.find('.slide-inspector__receipt').exists()).toBe(false)
+    expect(document.body.querySelector('.impact-dialog')).toBeNull()
+
+    await wrapper.find('.slide-inspector__edit-actions button').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('系统理解了这次教学修改')
+    expect(document.body.querySelector('.impact-dialog')?.textContent).not.toContain('相关内容已精准同步')
+    wrapper.unmount()
   })
 })
