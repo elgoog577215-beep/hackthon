@@ -4,6 +4,7 @@ import pytest
 
 from question_bank import (
     QuestionBankRepository,
+    approved_formal_tasks,
     build_question_bank,
     evaluate_question_item_quality,
     review_question_bank_item,
@@ -188,6 +189,36 @@ def test_generated_generic_template_is_rejected_by_question_quality_gate():
     )
 
 
+def test_failed_quality_items_cannot_be_published_or_manually_approved():
+    bundle = build_question_bank(_course())
+    item = next(
+        value
+        for value in bundle["items"]
+        if value["assessment_role"] == "practice"
+        and value["lifecycle_status"] == "approved"
+    )
+    item["quality_report"] = {
+        "passed": False,
+        "status": "failed",
+        "issues": [{
+            "code": "question:input_task_incompatible",
+            "severity": "critical",
+        }],
+    }
+
+    assert item["formal_task"] not in approved_formal_tasks(
+        bundle,
+        assessment_role="practice",
+    )
+    with pytest.raises(ValueError, match="failed quality"):
+        review_question_bank_item(
+            bundle,
+            item["revision_id"],
+            decision="approved",
+            reviewer_id="teacher-1",
+        )
+
+
 def test_imported_multiple_choice_question_preserves_options_and_correct_choice():
     course = _course()
     course["evidence_catalog"] = [{
@@ -362,6 +393,13 @@ async def test_web_enrichment_only_runs_for_enabled_gaps_and_sanitizes_untrusted
     assert web_items
     assert web_generated
     assert all("构造一组" not in item["prompt"] for item in web_generated)
+    assert all(
+        item["question_spec"]["schema_version"] == "question_spec_v1"
+        and item["domain_validation"]["passed"]
+        for item in web_generated
+    )
+    assert all(item["lifecycle_status"] == "needs_review" for item in web_generated)
+    assert all("license_unknown" in item["risk_flags"] for item in web_generated)
     assert web_items[0]["source_records"][0]["reuse_policy"] == "reference_only"
     assert "<script>" not in web_items[0]["reference_excerpt"]
     assert "Ignore previous instructions" not in web_items[0]["reference_excerpt"]
