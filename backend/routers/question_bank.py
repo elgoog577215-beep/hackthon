@@ -24,6 +24,8 @@ from question_bank import (
     filter_question_bank_items,
     question_bank_repository,
     reconcile_question_bank,
+    reconcile_scoped_question_bank,
+    recalculate_question_bank_coverage,
     review_question_bank_item,
     revise_question_bank_item,
 )
@@ -404,7 +406,23 @@ async def _execute_question_bank_rebuild(
         stage_id="quality_validation",
         message="正在执行质量门与风险分级",
     )
-    bundle = reconcile_question_bank(previous, bundle)
+    if payload.scope == "nodes":
+        bundle = reconcile_scoped_question_bank(
+            previous,
+            bundle,
+            node_ids=payload.node_ids,
+            preserve_reviewed=payload.mode == "incremental",
+        )
+    else:
+        bundle = reconcile_question_bank(
+            previous,
+            bundle,
+            preserve_reviewed=payload.mode == "incremental",
+        )
+    bundle = recalculate_question_bank_coverage(
+        course_for_bank,
+        bundle,
+    )
     compiled_assets = compile_learning_assets(
         course_for_bank,
         question_bank_bundle=bundle,

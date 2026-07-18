@@ -387,6 +387,8 @@ def refresh_question_bank_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
 def reconcile_question_bank(
     previous: dict[str, Any] | None,
     rebuilt: dict[str, Any],
+    *,
+    preserve_reviewed: bool = True,
 ) -> dict[str, Any]:
     """Carry reviewed/edited revisions forward and tombstone removed items."""
     if not previous:
@@ -405,7 +407,7 @@ def reconcile_question_bank(
         item_id = str(fresh_item.get("item_id") or "")
         present_ids.add(item_id)
         old_item = old_by_item.get(item_id)
-        if old_item and (
+        if preserve_reviewed and old_item and (
             old_item.get("review_history")
             or old_item.get("edited_by")
             or (
@@ -446,6 +448,146 @@ def reconcile_question_bank(
             or previous_solutions.get(solution_id)
         )
     }
+    return refresh_question_bank_bundle(result)
+
+
+def reconcile_scoped_question_bank(
+    previous: dict[str, Any] | None,
+    rebuilt: dict[str, Any],
+    *,
+    node_ids: Iterable[str],
+    preserve_reviewed: bool = True,
+) -> dict[str, Any]:
+    """Replace only selected nodes while preserving other active revisions."""
+    if not previous:
+        return refresh_question_bank_bundle(rebuilt)
+    if str(previous.get("course_id") or "") != str(
+        rebuilt.get("course_id") or ""
+    ):
+        raise ValueError(
+            "cannot reconcile question banks from different course scopes"
+        )
+    selected = {
+        str(node_id).strip()
+        for node_id in node_ids
+        if str(node_id).strip()
+    }
+    if not selected:
+        raise ValueError("node_ids are required for scoped reconciliation")
+
+    def in_scope(item: dict[str, Any]) -> bool:
+        item_nodes = {
+            str(value)
+            for value in (
+                item.get("node_ids")
+                or [item.get("node_id")]
+            )
+            if value
+        }
+        return bool(item_nodes & selected)
+
+    previous_items = list(previous.get("items") or [])
+    rebuilt_items = list(rebuilt.get("items") or [])
+    previous_slice = {
+        **deepcopy(previous),
+        "items": [
+            deepcopy(item)
+            for item in previous_items
+            if in_scope(item)
+        ],
+    }
+    rebuilt_slice = {
+        **deepcopy(rebuilt),
+        "items": [
+            deepcopy(item)
+            for item in rebuilt_items
+            if in_scope(item)
+        ],
+    }
+    reconciled_slice = reconcile_question_bank(
+        previous_slice,
+        rebuilt_slice,
+        preserve_reviewed=preserve_reviewed,
+    )
+    merged_items = [
+        *deepcopy(reconciled_slice.get("items") or []),
+        *[
+            deepcopy(item)
+            for item in previous_items
+            if not in_scope(item)
+        ],
+    ]
+
+    old_objectives = list(
+        previous.get("assessment_objectives") or []
+    )
+    fresh_objectives = list(
+        rebuilt.get("assessment_objectives") or []
+    )
+    merged_objectives = [
+        deepcopy(objective)
+        for objective in fresh_objectives
+        if str(objective.get("node_id") or "") in selected
+    ]
+    merged_objectives.extend(
+        deepcopy(objective)
+        for objective in old_objectives
+        if str(objective.get("node_id") or "") not in selected
+    )
+
+    previous_solutions = previous.get("solution_envelopes") or {}
+    rebuilt_solutions = rebuilt.get("solution_envelopes") or {}
+    referenced_solution_ids = {
+        str(item.get("solution_revision_id") or "")
+        for item in merged_items
+        if item.get("solution_revision_id")
+    }
+    result = {
+        **deepcopy(rebuilt),
+        "items": merged_items,
+        "assessment_objectives": merged_objectives,
+        "solution_envelopes": {
+            solution_id: deepcopy(
+                rebuilt_solutions.get(solution_id)
+                or previous_solutions.get(solution_id)
+            )
+            for solution_id in referenced_solution_ids
+            if (
+                rebuilt_solutions.get(solution_id)
+                or previous_solutions.get(solution_id)
+            )
+        },
+    }
+    return refresh_question_bank_bundle(result)
+
+
+def recalculate_question_bank_coverage(
+    course_data: dict[str, Any],
+    bundle: dict[str, Any],
+) -> dict[str, Any]:
+    """Refresh coverage and review state after scoped reconciliation."""
+    result = deepcopy(bundle)
+    nodes = [
+        deepcopy(node)
+        for node in course_data.get("nodes") or []
+        if int(node.get("node_level") or 1) == 2
+    ]
+    items = list(result.get("items") or [])
+    imported = [
+        item
+        for item in items
+        if item.get("source_type") in {
+            "imported",
+            "legacy_compiled",
+        }
+    ]
+    result["coverage"] = _coverage_report(
+        course_data,
+        nodes,
+        items,
+        imported,
+    )
+    result["review_queue"] = _review_queue(items)
     return refresh_question_bank_bundle(result)
 
 

@@ -72,12 +72,14 @@ def _course() -> dict:
                 "node_id": "node-a",
                 "node_level": 2,
                 "node_name": "A",
+                "objective_id": "objective:node-a",
                 "learning_objective": "objective:node-a",
             },
             {
                 "node_id": "node-b",
                 "node_level": 2,
                 "node_name": "B",
+                "objective_id": "objective:node-b",
                 "learning_objective": "objective:node-b",
             },
         ],
@@ -155,7 +157,7 @@ def test_scoped_rebuild_recalculates_coverage_from_merged_publication_state():
         {
             "node_id": "node-b",
             "objective": "objective:node-b",
-            "knowledge_points": [],
-            "difficulty": "medium",
+            "knowledge_points": ["B"],
+            "difficulty": "intermediate",
         }
     ]
