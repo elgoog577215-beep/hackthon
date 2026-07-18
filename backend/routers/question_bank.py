@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from course_document import COURSE_DOCUMENT_SCHEMA
 from course_repository import CourseDocumentRepository
+from course_versioning import stable_hash
 from course_versions import course_version_repository
 from dependencies import get_course_or_404
 from learning_asset_storage import learning_asset_repository
@@ -153,6 +154,11 @@ async def rebuild_question_bank(
         question_bank_bundle=bundle,
     )
     compiled_assets.pop("question_bank_bundle", None)
+    compiled_assets = _select_publishable_asset_bundle(
+        previous_assets,
+        compiled_assets,
+        bundle,
+    )
     stored = question_bank_repository.save_bundle(
         course_id,
         bundle,
@@ -225,10 +231,98 @@ def _rebuild_response(
         "course_version_id": course.get(
             "current_course_version_id"
         ),
+        "publication_mode": asset_bundle.get(
+            "publication_mode",
+            "full_recompile",
+        ),
         "coverage": question_bank_bundle["coverage"],
         "review_queue": question_bank_bundle["review_queue"],
         "web_enrichment": question_bank_bundle["web_enrichment"],
     }
+
+
+def _select_publishable_asset_bundle(
+    previous_assets: dict[str, Any] | None,
+    compiled_assets: dict[str, Any],
+    question_bank_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    if (compiled_assets.get("quality_report") or {}).get("passed"):
+        selected = deepcopy(compiled_assets)
+        selected["publication_mode"] = "full_recompile"
+        return selected
+    if not (
+        previous_assets
+        and (previous_assets.get("quality_report") or {}).get("passed")
+    ):
+        selected = deepcopy(compiled_assets)
+        selected["publication_mode"] = "full_recompile"
+        return selected
+
+    approved_items = [
+        item
+        for item in question_bank_bundle.get("items") or []
+        if item.get("lifecycle_status") == "approved"
+        and item.get("assessment_role") in {
+            "practice",
+            "imported_practice",
+            "web_enriched_practice",
+        }
+    ]
+    publication_quality = {
+        "schema_version": "question_bank_publication_quality_v1",
+        "passed": bool(approved_items)
+        and all(
+            (item.get("quality_report") or {}).get("passed")
+            for item in approved_items
+        )
+        and float(
+            (question_bank_bundle.get("coverage") or {}).get(
+                "coverage_ratio"
+            )
+            or 0
+        )
+        == 1,
+        "approved_task_count": len(approved_items),
+        "coverage_ratio": (
+            question_bank_bundle.get("coverage") or {}
+        ).get("coverage_ratio"),
+    }
+    if not publication_quality["passed"]:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "question_bank_publication_quality_failed",
+                "quality_report": publication_quality,
+            },
+        )
+
+    binding = {
+        "schema_version": "question_bank_publication_v1",
+        "course_id": question_bank_bundle.get("course_id"),
+        "question_bank_bundle_revision_id": question_bank_bundle.get(
+            "bundle_revision_id"
+        ),
+        "formal_task_revision_ids": [
+            item.get("formal_task_revision_id")
+            for item in approved_items
+            if item.get("formal_task_revision_id")
+        ],
+        "quality_report": publication_quality,
+        "compatibility_policy": (
+            "preserve_passing_legacy_assets_and_overlay_approved_bank_tasks"
+        ),
+    }
+    binding["revision_id"] = stable_hash(
+        binding,
+        prefix="qbpr_",
+    )
+    selected = deepcopy(previous_assets)
+    selected.pop("bundle_revision_id", None)
+    selected["assets"] = deepcopy(selected.get("assets") or {})
+    selected["assets"]["question_bank_publications"] = [binding]
+    selected["publication_mode"] = "question_bank_overlay"
+    selected["question_bank_publication_quality"] = publication_quality
+    return selected
 
 
 async def _publish_rebuilt_course(
