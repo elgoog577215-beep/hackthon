@@ -128,6 +128,30 @@ def test_question_bank_list_review_revision_and_conflict(monkeypatch, tmp_path):
     assert oversized.status_code == 422
 
 
+def test_question_bank_review_rejects_failed_quality_item(monkeypatch, tmp_path):
+    client, repository = _client(monkeypatch, tmp_path)
+    bundle = build_question_bank(_course())
+    pending = next(item for item in bundle["items"] if item["review_required"])
+    pending["quality_report"] = {
+        "schema_version": "question_item_quality_v1",
+        "passed": False,
+        "status": "failed",
+        "issues": [{"code": "question:answer_not_executable", "severity": "critical"}],
+    }
+    stored = repository.save_bundle("course-api", bundle)
+
+    response = client.post(
+        f"/api/courses/course-api/question-bank/items/{pending['revision_id']}/reviews",
+        json={
+            "decision": "approved",
+            "expected_bundle_revision_id": stored["bundle_revision_id"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "failed quality" in response.json()["detail"]
+
+
 def test_question_bank_rebuild_is_idempotent_and_returns_coverage(monkeypatch, tmp_path):
     client, repository = _client(monkeypatch, tmp_path)
 

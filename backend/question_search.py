@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 import httpx
 
 from course_versioning import stable_hash
+from question_generation import generate_question_contract, validate_question_spec
 from question_bank import (
     QUESTION_ITEM_SCHEMA,
     evaluate_question_item_quality,
@@ -339,21 +340,38 @@ def _web_generated_item(
     node_id = str(gap.get("node_id") or "")
     objective = str(gap.get("objective") or "完成当前目标")
     knowledge = [str(value) for value in gap.get("knowledge_points") or [] if str(value).strip()]
-    source_title = str(reference.get("title") or "可信公开资料")
-    scenario = _original_web_scenario(reference, knowledge)
-    prompt = (
-        f"联网情境变式｜{objective}\n"
-        f"输入材料：{scenario}\n"
-        f"任务：独立完成分析或求解，说明方法依据与关键过程，并执行结果检查。\n"
-        f"限制条件：不得复制网页原文；至少改变一个有效条件和一种结果表征。"
+    node = {
+        "node_id": node_id,
+        "node_level": 2,
+        "node_name": objective,
+        "learning_objective": objective,
+        "key_points": knowledge,
+        "assessment": [objective],
+        "difficulty_contract": {
+            "target_level": str(
+                gap.get("difficulty")
+                or course_data.get("difficulty")
+                or "intermediate"
+            )
+        },
+    }
+    variant_index = int(
+        str(reference.get("content_hash") or "0" * 8)[:6],
+        16,
+    ) % 3
+    contract = generate_question_contract(
+        course_data,
+        node,
+        "objective_practice",
+        variant_index,
     )
+    prompt = str(contract["prompt"])
     source_excerpt = str(reference.get("reference_text") or "")
     similarity = SequenceMatcher(
         None,
         _similarity_text(prompt),
         _similarity_text(source_excerpt),
     ).ratio()
-    risk_flags = ["web_similarity_high"] if similarity >= 0.65 else []
     source_record = {
         "source_type": "web",
         "url": reference.get("url"),
@@ -364,6 +382,27 @@ def _web_generated_item(
         "rights_basis": "open_license" if reference.get("open_license") else "license_unknown",
         "reuse_policy": "reference_only",
     }
+    question_spec = deepcopy(contract["question_spec"])
+    question_spec["provenance"] = {
+        "course_id": course_id,
+        "source_priority": "trusted_web_reference",
+        "source_refs": [
+            *deepcopy(contract.get("source_records") or []),
+            deepcopy(source_record),
+        ],
+    }
+    domain_validation = validate_question_spec(question_spec)
+    risk_flags = list(contract.get("risk_flags") or [])
+    if similarity >= 0.65:
+        risk_flags.append("web_similarity_high")
+    if not reference.get("open_license"):
+        risk_flags.append("license_unknown")
+    risk_flags = list(dict.fromkeys(risk_flags))
+    review_required = bool(
+        risk_flags
+        or contract.get("review_required")
+        or domain_validation.get("status") != "passed"
+    )
     item = {
         "schema_version": QUESTION_ITEM_SCHEMA,
         "course_id": course_id,
@@ -378,22 +417,11 @@ def _web_generated_item(
         "prompt": prompt,
         "subquestions": [],
         "options": [],
-        "answer_spec": {
-            "type": "rubric",
-            "criteria": [
-                "根据新输入材料选择方法并说明依据",
-                "给出可复核的分析、计算或推理过程",
-                "检查结果并说明条件或局限",
-                "题目与联网原文不存在违规复用",
-            ],
-            "expected_keywords": knowledge,
-            "max_score": 100,
-            "pass_score": 70,
-        },
+        "answer_spec": deepcopy(contract["answer_spec"]),
         "explanation": "",
         "score": 100,
-        "estimated_minutes": 15,
-        "question_type": "short_answer",
+        "estimated_minutes": contract["estimated_minutes"],
+        "question_type": contract["question_type"],
         "difficulty": str(gap.get("difficulty") or course_data.get("difficulty") or "intermediate"),
         "practice_levels": ["objective_practice"],
         "assessment_role": "web_enriched_practice",
@@ -408,19 +436,27 @@ def _web_generated_item(
         "course_misconception_refs": [],
         "course_mastery_refs": [],
         "source_type": "variant",
-        "source_records": [source_record],
+        "source_records": deepcopy(question_spec["provenance"]["source_refs"]),
         "parse_confidence": "high",
         "risk_flags": risk_flags,
-        "review_required": bool(risk_flags),
-        "lifecycle_status": "needs_review" if risk_flags else "approved",
-        "review_status": "needs_review" if risk_flags else "approved",
+        "review_required": review_required,
+        "lifecycle_status": "needs_review" if review_required else "approved",
+        "review_status": "needs_review" if review_required else "approved",
         "review_history": [],
         "formal_task_revision_id": None,
-        "deliverable": "一份包含依据、过程与结果检查的原创解答",
-        "input_materials": [scenario, f"参考领域：{source_title}"],
-        "constraints": ["不得复制网页原文", "改变有效条件", "改变结果表征"],
+        "deliverable": contract["deliverable"],
+        "input_materials": deepcopy(contract["input_materials"]),
+        "constraints": [
+            *contract["constraints"],
+            "不得复制联网原文",
+        ],
         "reference_concepts": knowledge,
-        "result_checks": ["语义与目标一致", "结果可复核", "与网页原文相似度低于阈值"],
+        "result_checks": [
+            *contract["result_checks"],
+            "与联网原文相似度低于阈值",
+        ],
+        "question_spec": question_spec,
+        "domain_validation": domain_validation,
         "web_source_similarity": round(similarity, 4),
         "created_at": _now(),
         "hint_contract": {

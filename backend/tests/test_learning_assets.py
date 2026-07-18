@@ -275,6 +275,37 @@ def test_questions_compile_formal_practice_contracts():
     )
 
 
+def test_all_generated_learning_tasks_preserve_valid_subject_contracts():
+    assets = compile_learning_assets(_course())["assets"]
+    generated_tasks = [
+        *assets["questions"],
+        *assets["diagnostic_templates"],
+        *(unit["guided_task"] for unit in assets["remediation_units"]),
+        *assets["validation_questions"],
+    ]
+
+    assert all(
+        task["question_spec"]["schema_version"] == "question_spec_v1"
+        and task["domain_validation"]["passed"]
+        for task in generated_tasks
+    )
+    assert all(
+        task["question_spec"]["adapter_id"].startswith("programming.")
+        for task in generated_tasks
+    )
+    assert all(task["input_materials"] and task["result_checks"] for task in generated_tasks)
+    validation_stimuli = {
+        task["question_spec"]["stimulus"]["rendered_text"]
+        for task in assets["validation_questions"]
+    }
+    shown_stimuli = {
+        task["question_spec"]["stimulus"]["rendered_text"]
+        for task in assets["questions"]
+    }
+    assert len(validation_stimuli) == 2
+    assert validation_stimuli.isdisjoint(shown_stimuli)
+
+
 def test_compilation_uses_the_reviewed_question_bank_revision_as_source_of_truth():
     course = _course()
     initial = compile_learning_assets(course)

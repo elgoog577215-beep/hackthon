@@ -138,6 +138,12 @@ def review_question_bank_item(
 
     result = deepcopy(bundle)
     item = _find_item(result, revision_id)
+    if decision == "approved" and not (
+        item.get("quality_report") or {}
+    ).get("passed"):
+        raise ValueError(
+            "question with failed quality must be revised before approval"
+        )
     item["lifecycle_status"] = decision
     item["review_status"] = decision
     item["review_required"] = False if decision == "approved" else bool(item.get("review_required"))
@@ -243,6 +249,8 @@ def approved_formal_tasks(
     tasks: list[dict[str, Any]] = []
     for item in bundle.get("items") or []:
         if item.get("lifecycle_status") != "approved":
+            continue
+        if not (item.get("quality_report") or {}).get("passed"):
             continue
         if assessment_role and item.get("assessment_role") != assessment_role:
             continue
@@ -815,22 +823,40 @@ def _comprehensive_items(
             generated_contract=generated_contract,
         ))
 
-    if len(assessment_nodes) >= 2:
-        cross_contract = generate_cross_chapter_contract(
-            course_data,
-            assessment_nodes,
-        )
-        items.append(_final_item(
-            course_data,
-            assessment_nodes,
-            index=desired_count,
-            role="cross_chapter_transfer",
-            prompt=cross_contract["prompt"],
-            deliverable=cross_contract["deliverable"],
-            input_materials=cross_contract["input_materials"],
-            constraints=cross_contract["constraints"],
-            generated_contract=cross_contract,
-        ))
+    integration_nodes = assessment_nodes
+    if len(integration_nodes) == 1:
+        source_node = integration_nodes[0]
+        integration_targets = _unique([
+            *_node_key_points(source_node),
+            *_assessment_items(source_node),
+        ])[:2]
+        if len(integration_targets) < 2:
+            integration_targets = [
+                str(source_node.get("learning_objective") or "理解课程概念"),
+                f"验证{source_node.get('node_name') or '课程任务'}的应用边界",
+            ]
+        integration_nodes = []
+        for target in integration_targets:
+            component = deepcopy(source_node)
+            component["learning_objective"] = target
+            component["key_points"] = [target]
+            component["assessment"] = [f"围绕{target}形成可检查结果"]
+            integration_nodes.append(component)
+    cross_contract = generate_cross_chapter_contract(
+        course_data,
+        integration_nodes,
+    )
+    items.append(_final_item(
+        course_data,
+        integration_nodes,
+        index=desired_count,
+        role="cross_chapter_transfer",
+        prompt=cross_contract["prompt"],
+        deliverable=cross_contract["deliverable"],
+        input_materials=cross_contract["input_materials"],
+        constraints=cross_contract["constraints"],
+        generated_contract=cross_contract,
+    ))
     _apply_assessment_distribution(course_data, items, imported, purpose)
     return items
 

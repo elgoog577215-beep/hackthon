@@ -528,6 +528,8 @@ async def review_question(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     stored = question_bank_repository.save_bundle(course_id, updated)
     return _mutation_response(stored, revision_id)
 

@@ -794,55 +794,109 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
 
 def _build_programming_spec(context: AdapterContext) -> dict[str, Any]:
     seed = context.variant_index + 2
-    records = [seed, seed + 2, seed + 2, None, seed + 4, seed]
-    limit = 3 + context.variant_index
-    canonical_output = _normalize_records(records, limit)
-    input_text = (
-        f"输入 records={records}，limit={limit}。实现 normalize_records："
-        "忽略null，按首次出现顺序去重，并返回前limit项；limit小于0时抛出ValueError。"
+    focus = context.key_points[0]
+    assessments = "；".join(context.assessments)
+    output_topic = any(
+        marker in context.topic_text.lower()
+        for marker in ("print", "标准输出", "输出副作用", "返回值")
+    )
+    if output_topic:
+        value = seed + 2
+        code = (
+            f"value = {value}\n"
+            "result = print(f\"value:{value}\")\n"
+            "print(result is None)"
+        )
+        data = {
+            "case_kind": "stdout_trace",
+            "language": "python",
+            "code": code,
+            "expected_stdout": [f"value:{value}", "True"],
+            "expected_return_value": None,
+        }
+        input_text = (
+            "在 Python 中运行以下代码，并分别记录标准输出与 print 调用的返回值：\n"
+            f"{code}"
+        )
+        canonical_answer: dict[str, Any] | None = {
+            "stdout": list(data["expected_stdout"]),
+            "print_return_value": None,
+        }
+        action = "execute_explain_and_modify"
+        deliverable = "运行结果、标准输出与返回值的区别，以及一处可运行修改"
+    else:
+        sample_id = f"CASE-{seed:02d}"
+        data = {
+            "case_kind": "topic_implementation",
+            "topic_focus": focus,
+            "sample_input": {
+                "case_id": sample_id,
+                "value": seed * 3,
+                "enabled": context.variant_index % 2 == 0,
+            },
+            "requirements": list(context.assessments),
+        }
+        input_text = (
+            f"围绕“{focus}”处理输入 {data['sample_input']}。"
+            f"必须完成课程要求：{assessments}；并为正常、边界和异常输入各设计一个测试。"
+        )
+        canonical_answer = None
+        action = "implement_explain_and_test"
+        deliverable = "可运行实现、给定输入的结果、关键过程说明和三类测试"
+    level_action = {
+        "concept_check": "准确辨析",
+        "objective_practice": "准确应用",
+        "mastery_check": "独立运用",
+    }.get(context.practice_level, "准确运用")
+    criteria = [
+        f"{level_action}“{focus}”完成给定任务",
+        "说明实现方法与选择依据",
+        "展示可复核的运行过程",
+        "检查结果、边界与异常处理",
+    ]
+    task_text = (
+        f"完成目标任务：{assessments}。"
+        f"评分检查点：{'；'.join(criteria)}"
     )
     return {
-        "archetype_id": "data_normalization_function",
+        "archetype_id": (
+            "stdout_and_return_value_trace"
+            if output_topic
+            else "topic_aligned_implementation"
+        ),
         "stimulus": {
             "kind": "programming_case",
-            "data": {
-                "function_name": "normalize_records",
-                "records": records,
-                "limit": limit,
-                "rules": ["ignore_null", "stable_unique", "take_limit"],
-            },
+            "data": data,
             "rendered_text": input_text,
         },
         "task": {
-            "action": "implement_and_test",
-            "rendered_text": (
-                "编写函数，给出该输入的输出，并补充空列表、全为null和非法limit测试"
-            ),
-            "deliverable": "可运行函数、给定输入输出和至少三个边界测试",
+            "action": action,
+            "rendered_text": task_text,
+            "deliverable": deliverable,
         },
-        "constraints": ["不得改变输入列表", "去重后保持首次出现顺序"],
+        "constraints": [
+            "必须使用题目给定的输入",
+            "不得省略运行结果",
+            "至少包含一个边界或反例检查",
+        ],
         "response_contract": {
             "format": "code_and_test",
             "required_parts": ["implementation", "observed_output", "tests", "explanation"],
         },
         "answer_spec": _base_answer_spec(
             context,
-            [
-                "给定输入输出正确",
-                "空值和重复值处理符合规则",
-                "边界测试覆盖完整",
-                "实现不修改原输入",
-            ],
-            validation_mode="test_case_solver",
-            canonical_answer={
-                "output": canonical_output,
-                "required_error": {"limit": -1, "type": "ValueError"},
-            },
+            criteria,
+            validation_mode=(
+                "deterministic_code_trace"
+                if output_topic
+                else "executable_test_rubric"
+            ),
+            canonical_answer=canonical_answer,
         ),
         "result_checks": [
-            f"给定输入输出为{canonical_output}",
-            "原输入列表保持不变",
-            "非法limit触发ValueError",
+            "运行结果与给定输入一致",
+            f"结果能够证明“{focus}”已被正确使用",
+            "边界或异常测试得到预期结果",
         ],
     }
 
@@ -1340,6 +1394,24 @@ def _validate_tree_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
 
 def _validate_programming_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
     data = (spec.get("stimulus") or {}).get("data") or {}
+    case_kind = str(data.get("case_kind") or "")
+    if case_kind == "stdout_trace":
+        canonical = (spec.get("answer_spec") or {}).get("canonical_answer") or {}
+        if (
+            not str(data.get("code") or "").strip()
+            or canonical.get("stdout") != data.get("expected_stdout")
+            or "print_return_value" not in canonical
+        ):
+            return [_issue("question:canonical_answer_mismatch", "critical")]
+        return []
+    if case_kind == "topic_implementation":
+        if (
+            not str(data.get("topic_focus") or "").strip()
+            or not data.get("sample_input")
+            or not data.get("requirements")
+        ):
+            return [_issue("question:input_material_missing", "critical")]
+        return _validate_rubric_spec(spec)
     if "records" not in data or "limit" not in data:
         return [_issue("question:input_material_missing", "critical")]
     expected = _normalize_records(data["records"], int(data["limit"]))

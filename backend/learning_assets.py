@@ -22,6 +22,7 @@ from course_versioning import stable_hash
 from learning_progress import learning_objective_identity
 from practice_contracts import enrich_question_contract
 from question_bank import build_question_bank, is_generic_generated_prompt
+from question_generation import generate_question_contract
 
 ASSET_SCHEMA = "learning_assets_v2"
 QUALITY_SCHEMA = "asset_quality_v1"
@@ -275,6 +276,20 @@ def compile_learning_assets(
             }
             if bank_item:
                 question["hint_contract"] = deepcopy(bank_item.get("hint_contract") or {})
+                question.update({
+                    "deliverable": str(bank_item.get("deliverable") or ""),
+                    "input_materials": deepcopy(bank_item.get("input_materials") or []),
+                    "constraints": deepcopy(bank_item.get("constraints") or []),
+                    "result_checks": deepcopy(bank_item.get("result_checks") or []),
+                    "question_spec": deepcopy(bank_item.get("question_spec") or {}),
+                    "domain_validation": deepcopy(bank_item.get("domain_validation") or {}),
+                    "quality_report": deepcopy(bank_item.get("quality_report") or {}),
+                    "quality_status": str(
+                        (bank_item.get("quality_report") or {}).get("status")
+                        or bank_item.get("quality_status")
+                        or ""
+                    ),
+                })
             question = enrich_question_contract(question, practice_level=practice_level)
             question["revision_id"] = _revision_id(question, "qr_")
             node_questions.append(question)
@@ -283,16 +298,16 @@ def compile_learning_assets(
         mastery_question = node_questions[-1]
 
         diagnostic_templates.append(_build_diagnostic_template(
-            course_id, node, objective, key_points, concept_ids, skill_unit_ids,
+            course_data, course_id, node, objective, key_points, concept_ids, skill_unit_ids,
             candidate_mistake_ids, question_type,
         ))
         remediation_units.append(_build_remediation_unit(
-            course_id, node, objective, key_points, concept_ids, skill_unit_ids,
+            course_data, course_id, node, objective, key_points, concept_ids, skill_unit_ids,
             candidate_mistake_ids, improvement_point_ids,
         ))
         validation_questions.extend([
             _build_validation_question(
-                course_id, node, objective, key_points, concept_ids, skill_unit_ids,
+                course_data, course_id, node, objective, key_points, concept_ids, skill_unit_ids,
                 candidate_mistake_ids, question_type, variant=index,
             )
             for index in (1, 2)
@@ -919,6 +934,7 @@ def _build_final_assessment(
 
 
 def _build_diagnostic_template(
+    course_data: dict[str, Any],
     course_id: str,
     node: dict[str, Any],
     objective: dict[str, Any],
@@ -928,7 +944,12 @@ def _build_diagnostic_template(
     mistake_point_ids: list[str],
     question_type: str,
 ) -> dict[str, Any]:
-    focus = key_points[0] if key_points else str(node.get("node_name") or "当前概念")
+    contract = generate_question_contract(
+        course_data,
+        node,
+        "concept_check",
+        6,
+    )
     item = {
         "asset_id": stable_hash({"course": course_id, "node": node.get("node_id"), "kind": "diagnostic_template"}, prefix="dt_"),
         "node_id": node.get("node_id"),
@@ -938,16 +959,19 @@ def _build_diagnostic_template(
         "concept_ids": concept_ids,
         "skill_unit_ids": skill_unit_ids,
         "mistake_point_ids": mistake_point_ids,
-        "question_type": "short_answer" if question_type != "implementation_task" else question_type,
-        "prompt": f"只检查“{focus}”：说明核心规则、成立条件，并给出一个最小例子或反例。",
-        "answer_spec": {
-            "type": "rubric",
-            "expected_keywords": key_points[:4],
-            "criteria": [f"准确说明“{focus}”", "指出成立条件或边界", "给出可检查的最小例子或反例"],
-            "pass_score": 70,
-        },
+        "question_type": contract["question_type"],
+        "prompt": contract["prompt"],
+        "answer_spec": deepcopy(contract["answer_spec"]),
         "practice_level": "diagnostic_probe",
         "source_status": "course_structure",
+        "source_type": "generated",
+        "source_records": deepcopy(contract.get("source_records") or []),
+        "deliverable": contract["deliverable"],
+        "input_materials": deepcopy(contract["input_materials"]),
+        "constraints": deepcopy(contract["constraints"]),
+        "result_checks": deepcopy(contract["result_checks"]),
+        "question_spec": deepcopy(contract["question_spec"]),
+        "domain_validation": deepcopy(contract["domain_validation"]),
     }
     item = enrich_question_contract(item, practice_level="diagnostic_probe")
     item["quality_report"] = _evaluate_generated_task_quality(item)
@@ -957,6 +981,7 @@ def _build_diagnostic_template(
 
 
 def _build_remediation_unit(
+    course_data: dict[str, Any],
     course_id: str,
     node: dict[str, Any],
     objective: dict[str, Any],
@@ -968,6 +993,12 @@ def _build_remediation_unit(
 ) -> dict[str, Any]:
     focus = key_points[0] if key_points else str(node.get("node_name") or "当前概念")
     misconception = next(iter(node.get("misconceptions") or []), "混淆适用条件或关键步骤")
+    contract = generate_question_contract(
+        course_data,
+        node,
+        "objective_practice",
+        7,
+    )
     guided = {
         "node_id": node.get("node_id"),
         "learning_objective": objective["statement"],
@@ -977,15 +1008,18 @@ def _build_remediation_unit(
         "skill_unit_ids": skill_unit_ids,
         "mistake_point_ids": mistake_point_ids,
         "improvement_point_ids": improvement_point_ids,
-        "question_type": "short_answer",
-        "prompt": f"针对“{focus}”完成局部修复：先写必要条件，再用一个正例和一个反例说明区别。",
-        "answer_spec": {
-            "type": "rubric",
-            "expected_keywords": key_points[:4],
-            "criteria": ["写出必要条件", "完成正反例对比", "解释关键差异"],
-            "pass_score": 70,
-        },
+        "question_type": contract["question_type"],
+        "prompt": contract["prompt"],
+        "answer_spec": deepcopy(contract["answer_spec"]),
         "practice_level": "remediation_guided",
+        "source_type": "generated",
+        "source_records": deepcopy(contract.get("source_records") or []),
+        "deliverable": contract["deliverable"],
+        "input_materials": deepcopy(contract["input_materials"]),
+        "constraints": deepcopy(contract["constraints"]),
+        "result_checks": deepcopy(contract["result_checks"]),
+        "question_spec": deepcopy(contract["question_spec"]),
+        "domain_validation": deepcopy(contract["domain_validation"]),
     }
     guided = enrich_question_contract(guided, practice_level="remediation_guided")
     guided["revision_id"] = _revision_id(guided, "rgtr_")
@@ -1011,6 +1045,7 @@ def _build_remediation_unit(
 
 
 def _build_validation_question(
+    course_data: dict[str, Any],
     course_id: str,
     node: dict[str, Any],
     objective: dict[str, Any],
@@ -1022,11 +1057,12 @@ def _build_validation_question(
     *,
     variant: int,
 ) -> dict[str, Any]:
-    task = _assessment_items(node)[0]
-    contexts = {
-        1: "换用一个与正文不同的数据、材料或情境",
-        2: "换用另一种表征或约束条件",
-    }
+    contract = generate_question_contract(
+        course_data,
+        node,
+        "mastery_check",
+        10 + variant,
+    )
     item = {
         "asset_id": stable_hash({"course": course_id, "node": node.get("node_id"), "kind": "validation", "variant": variant}, prefix="rvq_"),
         "node_id": node.get("node_id"),
@@ -1036,17 +1072,20 @@ def _build_validation_question(
         "concept_ids": concept_ids,
         "skill_unit_ids": skill_unit_ids,
         "mistake_point_ids": mistake_point_ids,
-        "question_type": question_type,
-        "prompt": f"{contexts[variant]}，独立完成等价任务并说明依据、过程和结果检查。目标任务：{task}",
-        "answer_spec": {
-            "type": "rubric",
-            "expected_keywords": key_points[:6],
-            "criteria": [task, "说明方法或论点依据", "给出可检查过程", "验证结果并说明边界"],
-            "pass_score": 70,
-        },
+        "question_type": contract["question_type"],
+        "prompt": contract["prompt"],
+        "answer_spec": deepcopy(contract["answer_spec"]),
         "practice_level": "remediation_validation",
         "validation_variant": variant,
         "source_status": "course_structure",
+        "source_type": "generated",
+        "source_records": deepcopy(contract.get("source_records") or []),
+        "deliverable": contract["deliverable"],
+        "input_materials": deepcopy(contract["input_materials"]),
+        "constraints": deepcopy(contract["constraints"]),
+        "result_checks": deepcopy(contract["result_checks"]),
+        "question_spec": deepcopy(contract["question_spec"]),
+        "domain_validation": deepcopy(contract["domain_validation"]),
         "validation_policy": {
             "mastery_eligible": True,
             "max_support_level_for_mastery": 0,
@@ -1153,6 +1192,13 @@ def _evaluate_generated_task_quality(
         and is_generic_generated_prompt(prompt)
     ):
         issues.append({"code": "task:generic_prompt", "severity": "critical"})
+    if task.get("source_type") in {"generated", "variant"}:
+        question_spec = task.get("question_spec") or {}
+        domain_validation = task.get("domain_validation") or {}
+        if question_spec.get("schema_version") != "question_spec_v1":
+            issues.append({"code": "task:question_spec_missing", "severity": "critical"})
+        if not domain_validation.get("passed"):
+            issues.append({"code": "task:domain_validation_failed", "severity": "critical"})
     critical = [item for item in issues if item["severity"] == "critical"]
     return {
         "schema_version": "generated_task_quality_v1",
