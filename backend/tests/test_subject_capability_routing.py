@@ -73,6 +73,25 @@ def test_legacy_calculus_routes_to_a_solvable_derivative_capability():
     )
 
 
+def test_course_title_does_not_override_the_node_level_calculus_capability():
+    course = _legacy_course(
+        course_id="legacy-calculus-limit",
+        course_name="微积分：理论与应用",
+        node_name="1.3 函数极限的运算法则",
+        node_content="使用极限运算法则计算多项式在给定点的极限。",
+    )
+
+    generated = _practice_items(course)
+
+    assert generated
+    assert all(
+        item["question_spec"]["capability_id"] == "calculus.limit"
+        and item["question_spec"]["stimulus"]["data"]["case_kind"]
+        == "polynomial_limit"
+        for item in generated
+    )
+
+
 def test_legacy_thermodynamics_routes_to_first_law_energy_balance():
     course = _legacy_course(
         course_id="legacy-thermodynamics",
