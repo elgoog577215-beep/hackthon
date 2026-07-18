@@ -45,8 +45,11 @@ export interface CourseEvolutionPlan {
   requested_roles?: string[]
   evidence_ids: string[]
   operations: EvolutionOperation[]
+  scope_selection?: 'current_section' | 'whole_course'
   allowed_scopes: Array<'current' | 'current_and_next'>
   selected_scope?: 'current' | 'current_and_next'
+  selected_operation_ids?: string[]
+  excluded_operation_ids?: string[]
   impact_summary: Record<string, any>
   expected_effect: string
   status: 'pending' | 'applied' | 'rejected' | 'stale' | 'undone'
@@ -104,7 +107,11 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         this.loading = false
       }
     },
-    async createSectionPlan(sectionId: string, instruction: string) {
+    async createSectionPlan(
+      sectionId: string,
+      instruction: string,
+      scopeSelection: 'current_section' | 'whole_course' = 'current_section',
+    ) {
       this.generating = true
       this.generationError = ''
       try {
@@ -113,6 +120,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
           {
             request_id: globalThis.crypto?.randomUUID?.() || `section-${Date.now()}`,
             instruction,
+            scope_selection: scopeSelection,
           },
         )
         this.applyPayload(this.courseId, response.data)
@@ -150,12 +158,20 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         this.actingId = ''
       }
     },
-    async accept(planId: string, selectedScope: 'current' | 'current_and_next') {
+    async accept(
+      planId: string,
+      selectedScope: 'current' | 'current_and_next',
+      selectedOperationIds?: string[],
+    ) {
       this.actingId = planId
       try {
+        const payload: Record<string, any> = { selected_scope: selectedScope }
+        if (selectedOperationIds !== undefined) {
+          payload.selected_operation_ids = selectedOperationIds
+        }
         const response = await http.post(
           `/api/courses/${this.courseId}/evolution/change-sets/${planId}/accept`,
-          { selected_scope: selectedScope },
+          payload,
         )
         this.applyPayload(this.courseId, response.data)
         return response.data

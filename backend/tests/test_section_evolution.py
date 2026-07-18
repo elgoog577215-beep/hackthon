@@ -87,6 +87,15 @@ class _SectionGenerator:
         )
 
 
+class _WholeCourseSectionGenerator(_SectionGenerator):
+    async def generate_course_block_candidate(self, **kwargs) -> str:
+        section_title = str(kwargs["section"].get("title") or "当前小节")
+        return (
+            f"在“{section_title}”中，先用一个具体输入展示对象如何变化，"
+            "再逐步解释每一步为什么成立，最后增加一个相似情境供学习者自行判断。"
+        )
+
+
 class _FailingSectionGenerator:
     async def generate_course_block_candidate(self, **_kwargs) -> str:
         return "太短"
@@ -139,6 +148,60 @@ def _section_growth_course() -> dict:
     course["course_document"] = document.model_dump(mode="json")
     course["course_document_revision"] = document.document_revision
     course["current_course_version_id"] = document.document_revision
+    return course
+
+
+def _whole_course_growth_course() -> dict:
+    course = {
+        "course_id": "course-whole-growth",
+        "course_name": "线性代数例子课",
+        "nodes": [
+            {
+                "node_id": f"section-{index}",
+                "parent_node_id": "root",
+                "node_name": title,
+                "node_level": 2,
+                "learning_objective": f"理解{title}",
+                "objective_id": f"objective-{index}",
+                "node_content": content,
+                "knowledge_structure": [{
+                    "concept_group": title,
+                    "knowledge_points": [{
+                        "name": f"{title}知识点",
+                        "statement": content,
+                        "knowledge_type": "principle",
+                        "capability_points": [{
+                            "name": f"解释{title}",
+                            "observable_behavior": f"能够解释{title}的核心关系",
+                        }],
+                        "mastery_criteria": [{
+                            "name": f"{title}达标",
+                            "observable_performance": f"能够独立说明{title}",
+                            "verification_method": "完成一道新情境辨析题",
+                        }],
+                    }],
+                }],
+            }
+            for index, (title, content) in enumerate([
+                ("矩阵复合", "用连续变换说明矩阵复合。"),
+                ("结合律", "解释复合为什么满足结合律。"),
+                ("逆变换", "用撤销操作说明逆变换。"),
+            ], start=1)
+        ],
+    }
+    document = document_from_legacy_course(course)
+    for block in document.blocks:
+        block.role = "concept" if block.section_id == "section-2" else "example"
+        block.payload["title"] = "核心概念" if block.role == "concept" else "例子讲解"
+    refresh_document_revision(document)
+    course.update({
+        "course_document": document.model_dump(mode="json"),
+        "course_schema_version": "course_document_v1",
+        "course_document_revision": document.document_revision,
+        "course_document_authoritative": True,
+        "current_course_version_id": document.document_revision,
+        "course_operation_log": [],
+    })
     return course
 
 
@@ -229,6 +292,124 @@ async def test_section_request_upgrades_existing_role_and_inserts_missing_role_a
     assert reasoning_restored.payload == reasoning_before.payload
     assert inserted_restored.status == "retired"
     assert undone.change_sets[0].status == "undone"
+
+
+@pytest.mark.asyncio
+async def test_whole_course_request_matches_semantic_roles_and_partially_applies_reviewed_nodes(
+    tmp_path,
+):
+    course = _whole_course_growth_course()
+    storage = _MemoryCourseStorage(course)
+    document_repository = CourseDocumentRepository(storage)
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+    before, _canonical = document_repository.load_document(course["course_id"])
+    before_by_section = {
+        block.section_id: deepcopy(block.payload)
+        for block in before.blocks
+    }
+
+    state = await generate_section_evolution_plan(
+        course,
+        user_id="student-whole-growth",
+        section_id="section-1",
+        instruction="这一节的例子讲得太垃圾了，以后的例子都讲得详细一点",
+        request_id="request-whole-growth",
+        scope_selection="whole_course",
+        repository=evolution_repository,
+        document_repository=document_repository,
+        generator=_WholeCourseSectionGenerator(),
+    )
+
+    plan = state.change_sets[0]
+    content_operations = [
+        operation
+        for operation in plan.operations
+        if operation.operation_type == "REPLACE_COURSE_BLOCK"
+    ]
+    assert plan.scope_selection == "whole_course"
+    assert plan.requested_roles == ["example"]
+    assert [item.target_section_id for item in content_operations] == [
+        "section-1",
+        "section-3",
+    ]
+    assert plan.impact_summary["matched_block_count"] == 2
+    assert plan.impact_summary["affected_section_ids"] == ["section-1", "section-3"]
+    assert plan.impact_summary["target_role_labels"] == ["例子讲解"]
+    assert "只升级当前课程中已存在" in plan.impact_summary["matching_policy"]
+    unchanged, _canonical = document_repository.load_document(course["course_id"])
+    assert unchanged.document_revision == before.document_revision
+
+    with pytest.raises(ValueError, match="unavailable"):
+        await asyncio.to_thread(
+            accept_change_set,
+            course,
+            user_id="student-whole-growth",
+            change_set_id=plan.change_set_id,
+            selected_scope="current",
+            selected_operation_ids=["not-a-plan-operation"],
+            repository=evolution_repository,
+            document_repository=document_repository,
+        )
+
+    selected_operation = content_operations[0]
+    applied = await asyncio.to_thread(
+        accept_change_set,
+        course,
+        user_id="student-whole-growth",
+        change_set_id=plan.change_set_id,
+        selected_scope="current",
+        selected_operation_ids=[selected_operation.operation_id],
+        repository=evolution_repository,
+        document_repository=document_repository,
+    )
+    after, _canonical = document_repository.load_document(course["course_id"])
+    after_by_section = {
+        block.section_id: block.payload
+        for block in after.blocks
+    }
+    assert after_by_section["section-1"] != before_by_section["section-1"]
+    assert after_by_section["section-2"] == before_by_section["section-2"]
+    assert after_by_section["section-3"] == before_by_section["section-3"]
+    applied_plan = applied.change_sets[0]
+    assert applied_plan.selected_operation_ids == [selected_operation.operation_id]
+    assert applied_plan.excluded_operation_ids == [content_operations[1].operation_id]
+    assert applied_plan.application_receipt["accepted_operation_ids"] == [
+        selected_operation.operation_id
+    ]
+    assert applied_plan.application_receipt["excluded_operation_ids"] == [
+        content_operations[1].operation_id
+    ]
+
+
+@pytest.mark.asyncio
+async def test_current_section_scope_is_a_hard_boundary_even_when_language_says_later(
+    tmp_path,
+):
+    course = _whole_course_growth_course()
+    document_repository = CourseDocumentRepository(_MemoryCourseStorage(course))
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+
+    state = await generate_section_evolution_plan(
+        course,
+        user_id="student-local-growth",
+        section_id="section-1",
+        instruction="这一节的例子讲得太垃圾了，以后的例子都讲得详细一点",
+        request_id="request-local-growth",
+        scope_selection="current_section",
+        repository=evolution_repository,
+        document_repository=document_repository,
+        generator=_WholeCourseSectionGenerator(),
+    )
+
+    plan = state.change_sets[0]
+    content_operations = [
+        operation
+        for operation in plan.operations
+        if operation.operation_type != "ADJUST_COURSE_DIFFICULTY"
+    ]
+    assert plan.scope_selection == "current_section"
+    assert [item.target_section_id for item in content_operations] == ["section-1"]
+    assert plan.impact_summary["affected_section_ids"] == ["section-1"]
 
 
 @pytest.mark.asyncio

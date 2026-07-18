@@ -143,8 +143,11 @@ class CourseEvolutionPlan(BaseModel):
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
     evidence_ids: list[str] = Field(default_factory=list)
     operations: list[CourseEvolutionOperation] = Field(default_factory=list)
+    scope_selection: Literal["current_section", "whole_course"] = "current_section"
     allowed_scopes: list[Literal["current", "current_and_next"]] = Field(default_factory=list)
     selected_scope: Literal["current", "current_and_next"] | None = None
+    selected_operation_ids: list[str] = Field(default_factory=list)
+    excluded_operation_ids: list[str] = Field(default_factory=list)
     impact_summary: dict[str, Any] = Field(default_factory=dict)
     expected_effect: str
     status: ChangeSetStatus = "pending"
@@ -291,6 +294,7 @@ def accept_change_set(
     user_id: str,
     change_set_id: str,
     selected_scope: Literal["current", "current_and_next"],
+    selected_operation_ids: list[str] | None = None,
     repository: CourseEvolutionRepository | None = None,
     document_repository: CourseDocumentRepository | None = None,
 ) -> CourseEvolutionState:
@@ -304,14 +308,54 @@ def accept_change_set(
         raise ValueError("Course must be migrated before course growth can be applied")
     state = repository.load(user_id, course_id)
     change_set = _change_set(state, change_set_id)
-    if change_set.status == "applied" and change_set.selected_scope == selected_scope:
-        return state
+    if change_set.status == "applied":
+        same_selection = (
+            selected_operation_ids is None
+            or set(selected_operation_ids) == set(change_set.selected_operation_ids)
+        )
+        if change_set.selected_scope == selected_scope and same_selection:
+            return state
+        raise ValueError("Course change set has already been applied with another review selection")
     if change_set.status != "pending":
         raise ValueError(f"Course change set cannot be accepted from {change_set.status}")
     if change_set.generation_status != "ready":
         raise ValueError("Course change set has not finished generating")
     if selected_scope not in change_set.allowed_scopes:
         raise ValueError("Selected scope is not allowed for this change set")
+
+    eligible_operations = [
+        operation
+        for operation in change_set.operations
+        if operation.operation_type != "ADJUST_COURSE_DIFFICULTY"
+        and (selected_scope == "current_and_next" or operation.scope == "current")
+    ]
+    eligible_operation_ids = [operation.operation_id for operation in eligible_operations]
+    if selected_operation_ids is None:
+        accepted_operation_ids = eligible_operation_ids
+    else:
+        requested_operation_ids = list(dict.fromkeys(selected_operation_ids))
+        unknown_operation_ids = sorted(
+            set(requested_operation_ids) - set(eligible_operation_ids)
+        )
+        if unknown_operation_ids:
+            raise ValueError(
+                "Selected course evolution operations are unavailable: "
+                + ", ".join(unknown_operation_ids)
+            )
+        accepted_operation_ids = [
+            operation_id
+            for operation_id in eligible_operation_ids
+            if operation_id in requested_operation_ids
+        ]
+    if not accepted_operation_ids:
+        raise ValueError("Select at least one course evolution operation")
+    accepted_operation_id_set = set(accepted_operation_ids)
+    excluded_operation_ids = [
+        operation_id
+        for operation_id in eligible_operation_ids
+        if operation_id not in accepted_operation_id_set
+    ]
+
     current_vector = revision_vector_for_document(document).revisions
     for key, revision in change_set.base_revision_vector.items():
         if key in current_vector and current_vector[key] != revision:
@@ -332,6 +376,7 @@ def accept_change_set(
         change_set,
         document,
         selected_scope=selected_scope,
+        selected_operation_ids=accepted_operation_id_set,
     )
     command_id = f"course-evolution-apply:{user_id}:{change_set.change_set_id}"
     try:
@@ -352,6 +397,8 @@ def accept_change_set(
         raise ValueError(str(exc)) from exc
 
     change_set.selected_scope = selected_scope
+    change_set.selected_operation_ids = accepted_operation_ids
+    change_set.excluded_operation_ids = excluded_operation_ids
     change_set.status = "applied"
     change_set.plan_kind = "course_evolution_plan"
     change_set.write_target = "course_document"
@@ -365,6 +412,8 @@ def accept_change_set(
         **deepcopy(receipt),
         "inserted_block_ids": inserted_block_ids,
         "replaced_block_ids": replaced_block_ids,
+        "accepted_operation_ids": accepted_operation_ids,
+        "excluded_operation_ids": excluded_operation_ids,
         "replacement_journal": [
             {
                 "block_id": operation.target_block_id,
@@ -372,6 +421,7 @@ def accept_change_set(
             }
             for operation in change_set.operations
             if operation.operation_type == "REPLACE_COURSE_BLOCK"
+            and operation.operation_id in accepted_operation_id_set
         ],
     }
     hypothesis = _hypothesis(state, change_set.hypothesis_id)
@@ -387,7 +437,7 @@ def accept_change_set(
         "target_block_ids": [
             operation.target_block_id
             for operation in change_set.operations
-            if selected_scope == "current_and_next" or operation.scope == "current"
+            if operation.operation_id in accepted_operation_id_set
         ],
         "evidence_ids": list(change_set.evidence_ids),
         "practice_attempt_ids": [
@@ -504,6 +554,7 @@ def create_adjustment_plan(
         ),
         evidence_ids=list(source.evidence_ids),
         operations=operations,
+        scope_selection=source.scope_selection,
         allowed_scopes=list(source.allowed_scopes),
         impact_summary={
             **deepcopy(source.impact_summary),
@@ -2136,6 +2187,7 @@ def _course_block_insertions(
     document: CourseDocument,
     *,
     selected_scope: Literal["current", "current_and_next"],
+    selected_operation_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     if change_set.course_id != document.course_id:
         raise ValueError("Course evolution plan belongs to another course")
@@ -2167,6 +2219,11 @@ def _course_block_insertions(
     insertions: list[dict[str, Any]] = []
     for operation in change_set.operations:
         if selected_scope == "current" and operation.scope == "next":
+            continue
+        if (
+            selected_operation_ids is not None
+            and operation.operation_id not in selected_operation_ids
+        ):
             continue
         target = blocks.get(operation.target_block_id)
         if target is None or target.status == "retired":
@@ -2233,6 +2290,7 @@ def _course_block_mutations(
     document: CourseDocument,
     *,
     selected_scope: Literal["current", "current_and_next"],
+    selected_operation_ids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Compile reviewed section edits and legacy growth blocks into one commit."""
     replacements: list[dict[str, Any]] = []
@@ -2251,6 +2309,7 @@ def _course_block_mutations(
             change_set,
             document,
             selected_scope=selected_scope,
+            selected_operation_ids=selected_operation_ids,
         )
 
     if change_set.course_id != document.course_id:
@@ -2261,6 +2320,11 @@ def _course_block_mutations(
         if selected_scope == "current" and operation.scope == "next":
             continue
         if operation.operation_type == "ADJUST_COURSE_DIFFICULTY":
+            continue
+        if (
+            selected_operation_ids is not None
+            and operation.operation_id not in selected_operation_ids
+        ):
             continue
         proposed_raw = operation.payload.get("proposed_block")
         if not isinstance(proposed_raw, dict):

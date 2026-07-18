@@ -13,17 +13,47 @@
         </li>
       </ol>
       <label>
-        <span>{{ t('courseEvolution.sectionGrowth.prompt', '你希望本节怎样变化？') }}</span>
+        <span>{{ t('courseEvolution.sectionGrowth.prompt', '你希望课程怎样变化？') }}</span>
         <input
           v-model="sectionInstruction"
           type="text"
-          :placeholder="t('courseEvolution.sectionGrowth.placeholder', '例如：太简单了，强化理论推导与实战讲解')"
+          :placeholder="t('courseEvolution.sectionGrowth.placeholder', '例如：以后所有例子都讲得更详细一点')"
         >
       </label>
+      <div class="request-scope-control" role="radiogroup" :aria-label="t('courseEvolution.scope.label', '选择这句话可以影响的课程范围')">
+        <button
+          type="button"
+          data-scope="current_section"
+          role="radio"
+          :aria-checked="requestScope === 'current_section'"
+          :class="{ active: requestScope === 'current_section' }"
+          @click="requestScope = 'current_section'"
+        >
+          <LocateFixed :size="12" />
+          <span><b>{{ t('courseEvolution.scope.currentSection', '只影响当前小节') }}</b><small>{{ t('courseEvolution.scope.currentSectionHint', 'AI 只能在这一节内找目标') }}</small></span>
+        </button>
+        <button
+          type="button"
+          data-scope="whole_course"
+          role="radio"
+          :aria-checked="requestScope === 'whole_course'"
+          :class="{ active: requestScope === 'whole_course' }"
+          @click="requestScope = 'whole_course'"
+        >
+          <BookOpenText :size="12" />
+          <span><b>{{ t('courseEvolution.scope.wholeCourse', '应用到全课程') }}</b><small>{{ t('courseEvolution.scope.wholeCourseHint', 'AI 解析语义后匹配相关节点') }}</small></span>
+        </button>
+      </div>
       <button type="button" class="generate-plan" :disabled="store.generating || !sectionInstruction.trim()" @click="createSectionPlan">
         <LoaderCircle v-if="store.generating" :size="13" class="spinning" />
         <Sparkles v-else :size="13" />
-        {{ store.generating ? t('courseEvolution.sectionGrowth.generating', '正在生成候选') : t('courseEvolution.sectionGrowth.generate', '生成本节调整方案') }}
+        {{
+          store.generating
+            ? t('courseEvolution.sectionGrowth.generating', '正在生成候选')
+            : requestScope === 'whole_course'
+              ? t('courseEvolution.sectionGrowth.generateWholeCourse', '解析并生成全课程影响预览')
+              : t('courseEvolution.sectionGrowth.generate', '生成本节调整方案')
+        }}
       </button>
       <p v-if="store.generationError" class="generation-error"><TriangleAlert :size="12" />{{ store.generationError }}</p>
     </div>
@@ -44,6 +74,23 @@
         <div class="plan-source">
           <span>{{ plan.source_kind === 'manual_section_request' ? t('courseEvolution.sectionGrowth.manualSource', '按你的要求') : t('courseEvolution.sectionGrowth.evidenceSource', '由学习证据触发') }}</span>
           <b v-if="plan.growth_direction === 'challenge'">{{ t('courseEvolution.sectionGrowth.challenge', '提高挑战') }}</b>
+        </div>
+        <div v-if="plan.source_kind === 'manual_section_request'" class="semantic-scope-summary" :data-scope="plan.scope_selection || 'current_section'">
+          <span>
+            <component :is="plan.scope_selection === 'whole_course' ? BookOpenText : LocateFixed" :size="13" />
+            {{ plan.scope_selection === 'whole_course' ? t('courseEvolution.scope.wholeCourse', '应用到全课程') : t('courseEvolution.scope.currentSection', '只影响当前小节') }}
+          </span>
+          <strong>
+            {{
+              plan.scope_selection === 'whole_course'
+                ? t('courseEvolution.scope.matchedSummary', 'AI 识别 {roles}，匹配 {count} 个节点')
+                  .replace('{roles}', targetRoleLabels(plan).join('、'))
+                  .replace('{count}', String(contentOperations(plan).length))
+                : t('courseEvolution.scope.currentSummary', 'AI 只在本节内处理：{roles}')
+                  .replace('{roles}', targetRoleLabels(plan).join('、'))
+            }}
+          </strong>
+          <small>{{ String(plan.impact_summary?.matching_policy || '') }}</small>
         </div>
         <div v-if="evidenceFor(plan).length" class="evolution-evidence" :aria-label="t('courseEvolution.evidenceConvergence', '多类证据汇聚')">
           <template v-for="(evidence, index) in evidenceFor(plan)" :key="evidence.evidence_id">
@@ -99,7 +146,7 @@
             <span>{{ evidence.summary }}</span>
             <button type="button" :title="t('courseEvolution.locateEvidence', '回到证据位置')" :aria-label="t('courseEvolution.locateEvidence', '回到证据位置')" @click="locateEvidence(evidence)"><LocateFixed :size="12" /></button>
           </p>
-          <ul class="operation-list">
+          <ul v-if="plan.scope_selection !== 'whole_course'" class="operation-list">
             <li v-for="operation in contentOperations(plan)" :key="operation.operation_id">
               <span :data-action="operation.payload?.action">{{ operationActionLabel(operation) }}</span>
               <div>
@@ -119,6 +166,19 @@
               </div>
             </li>
           </ul>
+          <button
+            v-else
+            type="button"
+            class="whole-course-review-trigger"
+            @click="openReview(plan)"
+          >
+            <Layers3 :size="14" />
+            <span>
+              <b>{{ t('courseEvolution.review.open', '打开多节点生成预览') }}</b>
+              <small>{{ t('courseEvolution.review.openHint', '逐项查看、纳入或排除 {count} 个节点').replace('{count}', String(contentOperations(plan).length)) }}</small>
+            </span>
+            <ArrowRight :size="13" />
+          </button>
           <p v-if="plan.impact_summary?.quality_report?.passed" class="same-source-check">
             <BadgeCheck :size="13" />
             {{ t('courseEvolution.sectionGrowth.sameSourcePassed', '结构化同源检查已通过：所有候选仍绑定本节知识点、能力点与掌握标准') }}
@@ -131,7 +191,17 @@
           <button type="button" :class="{ active: selectedScope[plan.change_set_id] === 'current_and_next' }" @click="selectedScope[plan.change_set_id] = 'current_and_next'">{{ t('courseEvolution.currentAndNext', '本小节及后续') }}</button>
         </div>
         <div class="evolution-actions">
-          <button type="button" class="primary" :disabled="store.actingId === plan.change_set_id || plan.generation_status !== 'ready'" @click="accept(plan)"><LoaderCircle v-if="store.actingId === plan.change_set_id" :size="13" class="spinning" /><Check v-else :size="13" />{{ t('courseEvolution.accept', '整体确认并更新课程') }}</button>
+          <button
+            v-if="plan.scope_selection === 'whole_course'"
+            type="button"
+            class="primary"
+            :disabled="store.actingId === plan.change_set_id || plan.generation_status !== 'ready'"
+            @click="openReview(plan)"
+          >
+            <Layers3 :size="13" />
+            {{ t('courseEvolution.review.reviewNodes', '审阅 {count} 个节点').replace('{count}', String(contentOperations(plan).length)) }}
+          </button>
+          <button v-else type="button" class="primary" :disabled="store.actingId === plan.change_set_id || plan.generation_status !== 'ready'" @click="accept(plan)"><LoaderCircle v-if="store.actingId === plan.change_set_id" :size="13" class="spinning" /><Check v-else :size="13" />{{ t('courseEvolution.accept', '整体确认并更新课程') }}</button>
           <button type="button" :disabled="store.actingId === plan.change_set_id" @click="store.reject(plan.change_set_id)"><X :size="13" />{{ t('courseEvolution.reject', '暂不调整') }}</button>
         </div>
         </template>
@@ -169,11 +239,21 @@
       </template>
     </article>
   </section>
+  <CourseEvolutionReviewOverlay
+    v-if="reviewPlan"
+    :plan="reviewPlan"
+    :selected-operation-ids="reviewSelections[reviewPlan.change_set_id] || []"
+    :acting="store.actingId === reviewPlan.change_set_id"
+    @update:selected-operation-ids="updateReviewSelection(reviewPlan.change_set_id, $event)"
+    @apply="acceptSelected(reviewPlan)"
+    @close="reviewPlanId = ''"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowRight, BadgeCheck, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, LoaderCircle, LocateFixed, Network, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
+import { ArrowRight, BadgeCheck, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, Layers3, LoaderCircle, LocateFixed, Network, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
+import CourseEvolutionReviewOverlay from './CourseEvolutionReviewOverlay.vue'
 import { useCourseEvolutionStore, type CourseEvolutionPlan, type EvolutionEvidence } from '../stores/courseEvolution'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
@@ -185,7 +265,10 @@ const courseStore = useCourseStore()
 const progressStore = useLearningProgressStore()
 const expandedId = ref('')
 const sectionInstruction = ref('')
+const requestScope = ref<'current_section' | 'whole_course'>('current_section')
+const reviewPlanId = ref('')
 const selectedScope = reactive<Record<string, 'current' | 'current_and_next'>>({})
+const reviewSelections = reactive<Record<string, string[]>>({})
 const visiblePlans = computed(() => {
   const matchesSection = (plan: CourseEvolutionPlan) => (
     !props.sectionId
@@ -197,6 +280,9 @@ const visiblePlans = computed(() => {
     ...store.appliedPlans.filter(matchesSection).slice(-1),
   ]
 })
+const reviewPlan = computed(() => (
+  store.pendingPlans.find(plan => plan.change_set_id === reviewPlanId.value) || null
+))
 const growthSteps = computed(() => [
   { index: 1, label: t('courseEvolution.sectionGrowth.steps.request', '需求') },
   { index: 2, label: t('courseEvolution.sectionGrowth.steps.structure', '结构') },
@@ -244,6 +330,10 @@ function operationLabel(type: string, role = '') { return ({ INSERT_COURSE_SUPPO
 function roleLabel(role: string) { return ({ reasoning: t('courseEvolution.sectionGrowth.roles.reasoning', '理论推导'), application: t('courseEvolution.sectionGrowth.roles.application', '实战应用'), example: t('courseEvolution.sectionGrowth.roles.example', '例子讲解'), checkpoint: t('courseEvolution.sectionGrowth.roles.checkpoint', '理解检查'), concept: t('courseEvolution.sectionGrowth.roles.concept', '核心概念') } as Record<string, string>)[role] || role }
 function operationActionLabel(operation: any) { return operation.payload?.action === 'INSERT' ? t('courseEvolution.sectionGrowth.insert', '新增') : operation.payload?.action === 'REPLACE' ? t('courseEvolution.sectionGrowth.replace', '升级') : t('courseEvolution.sectionGrowth.adjust', '调整') }
 function contentOperations(plan: CourseEvolutionPlan) { return plan.operations.filter(item => item.operation_type !== 'ADJUST_COURSE_DIFFICULTY') }
+function targetRoleLabels(plan: CourseEvolutionPlan) {
+  const labels = plan.impact_summary?.target_role_labels || []
+  return labels.length ? labels : (plan.requested_roles || []).map(roleLabel)
+}
 function impactLabels(plan: CourseEvolutionPlan) { return [...(plan.impact_summary?.knowledge_labels || []), ...(plan.impact_summary?.ability_labels || []), ...(plan.impact_summary?.misconception_labels || [])].slice(0, 4) }
 function evidenceAssessment(plan: CourseEvolutionPlan) { return plan.impact_summary?.evidence_assessment || hypothesisFor(plan)?.evidence_assessment || {} }
 function planEffectState(plan: CourseEvolutionPlan) { return plan.status === 'pending' ? 'pending' : String(plan.effect_evaluation?.status || 'insufficient_evidence') }
@@ -279,12 +369,44 @@ async function refreshCourseAndRuntime() {
   await progressStore.loadRuntime(props.courseId)
 }
 async function accept(plan: CourseEvolutionPlan) { await store.accept(plan.change_set_id, selectedScope[plan.change_set_id] || 'current'); await refreshCourseAndRuntime() }
+function openReview(plan: CourseEvolutionPlan) {
+  if (!reviewSelections[plan.change_set_id]) {
+    reviewSelections[plan.change_set_id] = contentOperations(plan).map(
+      operation => operation.operation_id,
+    )
+  }
+  reviewPlanId.value = plan.change_set_id
+}
+function updateReviewSelection(planId: string, operationIds: string[]) {
+  reviewSelections[planId] = [...operationIds]
+}
+async function acceptSelected(plan: CourseEvolutionPlan) {
+  const operationIds = reviewSelections[plan.change_set_id] || []
+  if (!operationIds.length) return
+  await store.accept(
+    plan.change_set_id,
+    selectedScope[plan.change_set_id] || 'current',
+    operationIds,
+  )
+  reviewPlanId.value = ''
+  await refreshCourseAndRuntime()
+}
 async function undo(plan: CourseEvolutionPlan) { await store.undo(plan.change_set_id); await refreshCourseAndRuntime() }
 async function adjust(plan: CourseEvolutionPlan) { await store.adjust(plan.change_set_id) }
 async function createSectionPlan() {
   if (!props.sectionId || !sectionInstruction.value.trim()) return
+  const instruction = sectionInstruction.value.trim()
+  const scopeSelection = requestScope.value
   try {
-    await store.createSectionPlan(props.sectionId, sectionInstruction.value.trim())
+    await store.createSectionPlan(props.sectionId, instruction, scopeSelection)
+    if (scopeSelection === 'whole_course') {
+      const createdPlan = [...store.pendingPlans].reverse().find(plan => (
+        plan.source_kind === 'manual_section_request'
+        && plan.scope_selection === 'whole_course'
+        && plan.request_text === instruction
+      ))
+      if (createdPlan) openReview(createdPlan)
+    }
     sectionInstruction.value = ''
   } catch {
     // The store exposes the exact generation error beside the request.
@@ -329,6 +451,13 @@ onMounted(load)
 .section-growth-request label { display:grid; gap:5px; color:#334155; font-size:9px; font-weight:700; }
 .section-growth-request input { width:100%; min-height:36px; padding:7px 8px; border:1px solid #cbd5e1; border-radius:7px; color:#1f2937; background:#fff; font:inherit; line-height:1.5; box-sizing:border-box; }
 .section-growth-request input:focus { outline:2px solid #ddd6fe; border-color:#8b5cf6; }
+.request-scope-control { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+.request-scope-control > button { min-width:0; min-height:44px; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:center; gap:5px; padding:6px 7px; border:1px solid #dbe3ef; border-radius:7px; color:#64748b; background:#f8fafc; text-align:left; cursor:pointer; }
+.request-scope-control > button.active { color:#4338ca; border-color:#a5b4fc; background:#eef2ff; box-shadow:0 0 0 1px rgba(99,102,241,.08); }
+.request-scope-control > button > span { min-width:0; display:flex; flex-direction:column; gap:1px; }
+.request-scope-control b { overflow:hidden; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.request-scope-control small { overflow:hidden; color:#94a3b8; font-size:7px; text-overflow:ellipsis; white-space:nowrap; }
+.request-scope-control button.active small { color:#6366f1; }
 .generate-plan,.challenge-suggestion button { min-height:30px; display:inline-flex; align-items:center; justify-content:center; gap:5px; border:1px solid #7c3aed; border-radius:6px; color:#fff; background:#7c3aed; font-size:9px; font-weight:700; cursor:pointer; }
 .generate-plan:disabled,.challenge-suggestion button:disabled { opacity:.55; cursor:not-allowed; }
 .generation-error { display:flex; align-items:flex-start; gap:5px; margin:0; color:#b91c1c; font-size:8px; line-height:1.4; }
@@ -341,6 +470,11 @@ onMounted(load)
 .plan-source { display:flex; align-items:center; gap:5px; margin-bottom:7px; }
 .plan-source span,.plan-source b { padding:3px 6px; border-radius:999px; color:#475569; background:#f1f5f9; font-size:8px; }
 .plan-source b { color:#7c3aed; background:#f5f3ff; }
+.semantic-scope-summary { display:grid; gap:4px; margin-bottom:7px; padding:8px; border:1px solid #dbeafe; border-radius:7px; background:#f8fbff; }
+.semantic-scope-summary[data-scope="whole_course"] { border-color:#c7d2fe; background:#eef2ff; }
+.semantic-scope-summary > span { display:flex; align-items:center; gap:5px; color:#1d4ed8; font-size:8px; font-weight:800; }
+.semantic-scope-summary > strong { color:#1e293b; font-size:10px; line-height:1.45; }
+.semantic-scope-summary > small { color:#64748b; font-size:8px; line-height:1.45; }
 .evolution-panel article[data-effect="insufficient_evidence"] { border-left-color:#3b82f6; }
 .evolution-panel article[data-effect="effective"] { border-color:#bbf7d0; border-left-color:#16a34a; background:#f7fef9; }
 .evolution-panel article[data-effect="ineffective"],.evolution-panel article[data-effect="harmful"] { border-color:#fde68a; border-left-color:#d97706; background:#fffbeb; }
@@ -382,6 +516,10 @@ onMounted(load)
 .candidate-after { background:#f5f3ff; }
 .candidate-before small,.candidate-after small { color:#64748b; font-size:7px; font-weight:800; }
 .candidate-before p,.candidate-after p { max-height:92px; overflow:auto; white-space:pre-wrap; }
+.whole-course-review-trigger { width:100%; display:grid; grid-template-columns:22px minmax(0,1fr) 16px; align-items:center; gap:7px; margin-top:8px; padding:8px 9px; border:1px solid #a5b4fc; border-radius:8px; color:#4338ca; background:#eef2ff; text-align:left; cursor:pointer; }
+.whole-course-review-trigger > span { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.whole-course-review-trigger b { font-size:9px; }
+.whole-course-review-trigger small { color:#6366f1; font-size:8px; }
 .same-source-check { display:flex !important; align-items:flex-start !important; gap:5px !important; color:#047857 !important; }
 .evolution-details .validation-plan,.evolution-details .protected { display:flex; grid-template-columns:none; align-items:flex-start; gap:5px; margin-top:8px; }
 .evolution-details .validation-plan { color:#1d4ed8; }

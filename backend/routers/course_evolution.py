@@ -32,6 +32,7 @@ class AcceptCourseEvolutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     selected_scope: Literal["current", "current_and_next"]
+    selected_operation_ids: list[str] | None = Field(default=None, max_length=500)
 
 
 class RejectCourseEvolutionRequest(BaseModel):
@@ -45,6 +46,7 @@ class GenerateSectionEvolutionRequest(BaseModel):
 
     request_id: str = Field(min_length=1, max_length=200)
     instruction: str = Field(min_length=1, max_length=5000)
+    scope_selection: Literal["current_section", "whole_course"] = "current_section"
 
 
 @router.get("")
@@ -84,6 +86,7 @@ async def create_section_evolution_plan(
             user_id=user_id,
             section_id=section_id,
             instruction=body.instruction,
+            scope_selection=body.scope_selection,
             request_id=body.request_id,
             repository=course_evolution_repository,
             document_repository=get_course_document_repository(),
@@ -119,6 +122,7 @@ async def generate_suggested_course_evolution_plan(
             user_id=user_id,
             section_id=plan.target_section_id,
             instruction=plan.request_text,
+            scope_selection=plan.scope_selection,
             request_id=plan.change_set_id,
             repository=course_evolution_repository,
             document_repository=get_course_document_repository(),
@@ -154,6 +158,7 @@ async def accept_course_evolution_change_set(
             user_id=user_id,
             change_set_id=change_set_id,
             selected_scope=body.selected_scope,
+            selected_operation_ids=body.selected_operation_ids,
             document_repository=document_repository,
         )
     except KeyError as exc:
