@@ -549,6 +549,12 @@ const detectAndWrapNakedMathLines = (content: string, maskIdRef: {val: number}, 
     return content.split('\n').map(line => {
         // Skip masked lines or empty lines
         if (line.includes('__MATH') || line.includes('__CODE') || !line.trim()) return line;
+        // Markdown emphasis is already an explicit formatting contract. Treating
+        // its asterisks as multiplication operators turns labels such as
+        // `**学习与修正**：t=9 ... t=0` into a malformed KaTeX expression.
+        // Explicitly delimited formulas on the same line have already been
+        // protected above, so skipping heuristic wrapping here is lossless.
+        if (/\*\*[^*\n]+\*\*|(?<!\*)\*[^*\n]+\*(?!\*)/.test(line)) return line;
         
         // Skip lines that look like headers, lists, or blockquotes
         if (line.match(/^(\s*)(#{1,6}|-|\*|\d+\.|>)\s/)) {
@@ -722,7 +728,12 @@ export const renderMarkdown = (content: string) => {
     // Mask inline code (`...`)
     // Note: This regex is simple and might not handle escaped backticks perfectly, but good enough for protection
     normalized = normalized.replace(/`[^`\n]+`/g, (match) => {
-        const id = `__INLINE_CODE_${codeBlockId++}__`;
+        // Keep the same `__CODE` prefix as fenced-code placeholders. The
+        // naked-math detector skips protected code lines; using the old
+        // `__INLINE_CODE` prefix exposed placeholder underscores to its math
+        // heuristics and turned Markdown such as `**t=0** ... \`θ(0)\`` into
+        // one malformed formula.
+        const id = `__CODE_INLINE_${codeBlockId++}__`;
         codeBlockMap.set(id, match);
         return id;
     });
