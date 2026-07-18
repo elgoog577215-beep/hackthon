@@ -18,8 +18,8 @@
   },
   "task_state": {
     "kind": "practice",
-    "object_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
-    "task_revision_id": "qr_6dc3c7c182415793",
+    "object_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "task_revision_id": "qr_2e6a9a9ee889af07",
     "status": "in_progress",
     "context": {
       "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
@@ -38,13 +38,9 @@
     "remediation_session_id": ""
   },
   "fallback_scroll_top": 700,
-  "activity_at": "2026-07-18T08:45:14.497Z",
+  "activity_at": "2026-07-18T08:45:49.982Z",
   "source": "offline_recovery",
   "snapshot_id": "ls_3694c21aa523b8519d254c47",
   "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
   "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
-  "revision": 17,
-  "schema_version": 2,
-  "created_at": "2026-07-18T08:02:26.143641+00:00",
-  "updated_at": "2026-07-18T08:45:14.909393+00:00"
-}
+  "revision":

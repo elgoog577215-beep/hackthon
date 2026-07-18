@@ -11939,5 +11939,237 @@
     },
     "created_at": "2026-07-18T16:45:14.486535",
     "schema_version": 8
+  },
+  {
+    "event_id": "evt_0dffc84b45cf44ba992ef69d0742ff4a",
+    "event_type": "practice_attempt_submitted",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_6dc3c7c182415793",
+    "task_revision_id": "qr_6dc3c7c182415793",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_16ee69caaa0f4fae8f660ea878a27b68:6:practice_attempt_submitted",
+    "idempotency_key": "practice_attempt_submitted:pa_16ee69caaa0f4fae8f660ea878a27b68:6",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "entity_revision": 6,
+    "evidence": {
+      "answer": {
+        "text": "1"
+      },
+      "active_seconds": 43,
+      "support_level": 3
+    },
+    "result": {},
+    "metadata": {
+      "practice_level": "concept_check",
+      "attempt_number": 1,
+      "task_revision_id": "qr_6dc3c7c182415793",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:45:29.982726",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_dcb22e340d4d4bdab50cbf69eb0b2d21",
+    "event_type": "practice_attempt_graded",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "system",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_6dc3c7c182415793",
+    "task_revision_id": "qr_6dc3c7c182415793",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_16ee69caaa0f4fae8f660ea878a27b68:7:practice_attempt_graded",
+    "idempotency_key": "practice_attempt_graded:pa_16ee69caaa0f4fae8f660ea878a27b68:7",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "entity_revision": 7,
+    "evidence": {},
+    "result": {
+      "status": "graded",
+      "score": 0,
+      "passed": false,
+      "rubric_results": [
+        {
+          "criterion": "正确计算每个键的初始哈希地址",
+          "met": false,
+          "score": 0,
+          "feedback": "学生答案未给出任何计算过程或结果，无法确认地址计算是否正确。"
+        },
+        {
+          "criterion": "准确标出发生冲突的键并说明原因",
+          "met": false,
+          "score": 0,
+          "feedback": "学生答案未提及任何冲突键或冲突原因。"
+        },
+        {
+          "criterion": "所有地址均满足 0≤h(k)<m",
+          "met": false,
+          "score": 0,
+          "feedback": "无地址计算结果，无法判断满足条件。"
+        }
+      ],
+      "feedback": "学生答案仅写了一个数字'1'，未对任何键的初始哈希地址进行计算，也未标出冲突键或说明原因，严重偏离题目要求。",
+      "grading_confidence": 1.0,
+      "grading_method": "rubric_ai",
+      "evidence_strength": "scaffolded",
+      "support_level": 3,
+      "mastery_eligible": false
+    },
+    "metadata": {
+      "practice_level": "concept_check",
+      "attempt_number": 1,
+      "task_revision_id": "qr_6dc3c7c182415793",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:45:33.408150",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_c1bc047fc6254ce3b463e40d426bcd0a",
+    "event_type": "practice_solution_revealed",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_6dc3c7c182415793",
+    "task_revision_id": "qr_6dc3c7c182415793",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_16ee69caaa0f4fae8f660ea878a27b68:8:practice_solution_revealed",
+    "idempotency_key": "practice_solution_revealed:pa_16ee69caaa0f4fae8f660ea878a27b68:8",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "entity_revision": 8,
+    "evidence": {},
+    "result": {},
+    "metadata": {
+      "practice_level": "concept_check",
+      "attempt_number": 1,
+      "task_revision_id": "qr_6dc3c7c182415793",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:45:39.674105",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_20a26163acea4bd0879d063c2deee025",
+    "event_type": "practice_attempt_started",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_2e6a9a9ee889af07",
+    "task_revision_id": "qr_2e6a9a9ee889af07",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_f52a9c84f7674a5c86b5585d9bd16f74:1:practice_attempt_started",
+    "idempotency_key": "practice_attempt_started:pa_f52a9c84f7674a5c86b5585d9bd16f74:1",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "entity_revision": 1,
+    "evidence": {},
+    "result": {},
+    "metadata": {
+      "practice_level": "objective_practice",
+      "attempt_number": 1,
+      "task_revision_id": "qr_2e6a9a9ee889af07",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:45:49.968555",
+    "schema_version": 8
   }
 ]

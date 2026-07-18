@@ -108,21 +108,104 @@
     "attempt_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
     "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
     "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
-    "status": "in_progress",
+    "status": "graded",
     "attempt_number": 1,
-    "answer_payload": {},
+    "answer_payload": {
+      "text": "1"
+    },
     "revealed_hint_levels": [
       1,
       2,
       3
     ],
-    "solution_revealed": false,
+    "solution_revealed": true,
     "ai_support_level": 0,
-    "active_seconds": 0,
-    "revision": 4,
+    "active_seconds": 43,
+    "revision": 8,
     "schema_version": 2,
     "started_at": "2026-07-18T08:44:46.579048+00:00",
     "created_at": "2026-07-18T08:44:46.579048+00:00",
-    "updated_at": "2026-07-18T08:45:14.484080+00:00"
+    "updated_at": "2026-07-18T08:45:39.669105+00:00",
+    "submitted_answer_payload": {
+      "text": "1"
+    },
+    "submit_request_id": "01c42da7-10fa-421c-9ea0-3673f5ad28cc",
+    "submitted_at": "2026-07-18T08:45:29.977725+00:00",
+    "result": {
+      "status": "graded",
+      "score": 0,
+      "passed": false,
+      "rubric_results": [
+        {
+          "criterion": "正确计算每个键的初始哈希地址",
+          "met": false,
+          "score": 0,
+          "feedback": "学生答案未给出任何计算过程或结果，无法确认地址计算是否正确。"
+        },
+        {
+          "criterion": "准确标出发生冲突的键并说明原因",
+          "met": false,
+          "score": 0,
+          "feedback": "学生答案未提及任何冲突键或冲突原因。"
+        },
+        {
+          "criterion": "所有地址均满足 0≤h(k)<m",
+          "met": false,
+          "score": 0,
+          "feedback": "无地址计算结果，无法判断满足条件。"
+        }
+      ],
+      "feedback": "学生答案仅写了一个数字'1'，未对任何键的初始哈希地址进行计算，也未标出冲突键或说明原因，严重偏离题目要求。",
+      "grading_confidence": 1.0,
+      "grading_method": "rubric_ai",
+      "evidence_strength": "scaffolded",
+      "support_level": 3,
+      "mastery_eligible": false
+    },
+    "graded_at": "2026-07-18T08:45:33.391492+00:00"
+  },
+  {
+    "practice_run_id": "1253b346-aaa5-43a4-acbe-04341c9dd681",
+    "practice_level": "objective_practice",
+    "task_revision_id": "qr_2e6a9a9ee889af07",
+    "task_purpose": "course_practice",
+    "task_source": "course_asset",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "question_revision_id": "qr_2e6a9a9ee889af07",
+    "question_type": "implementation_task",
+    "input_contract": {
+      "mode": "structured_text",
+      "required": true,
+      "supports_attachments": true
+    },
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "practice_intent": "standard",
+    "attempt_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "status": "in_progress",
+    "attempt_number": 1,
+    "answer_payload": {},
+    "revealed_hint_levels": [],
+    "solution_revealed": false,
+    "ai_support_level": 0,
+    "active_seconds": 0,
+    "revision": 1,
+    "schema_version": 2,
+    "started_at": "2026-07-18T08:45:49.965240+00:00",
+    "created_at": "2026-07-18T08:45:49.965240+00:00",
+    "updated_at": "2026-07-18T08:45:49.965240+00:00"
   }
 ]
