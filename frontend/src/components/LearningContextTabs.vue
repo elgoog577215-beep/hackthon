@@ -14,8 +14,12 @@
         data-context-item="practice"
         :class="{ 'is-active': activeItem === 'practice' }"
         :aria-selected="activeItem === 'practice'"
-        :disabled="!practiceAvailable"
-        :title="practiceAvailable ? t('learningDock.practiceHint', '打开当前章节的正式练习') : t('learningDock.practiceUnavailable', '当前章节暂时没有正式练习')"
+        :disabled="!practiceEntryAvailable"
+        :title="practiceRepairAvailable
+          ? t('learningDock.practiceRepairHint', '打开当前练习并重新生成旧版题目')
+          : practiceAvailable
+            ? t('learningDock.practiceHint', '打开当前章节的正式练习')
+            : t('learningDock.practiceUnavailable', '当前章节暂时没有正式练习')"
         @click="emit('practice')"
       >
         <ClipboardCheck :size="16" />
@@ -78,18 +82,25 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { ChartNoAxesCombined, ClipboardCheck, Layers3, Library, NotebookTabs } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   domain: 'learning' | 'resources' | 'assistant'
   activeItem: 'practice' | 'records' | 'stats' | 'knowledge-library' | 'teaching-resources' | 'assistant'
   recordCount?: number
   practiceAvailable?: boolean
+  practiceRepairAvailable?: boolean
 }>(), {
   recordCount: 0,
   practiceAvailable: false,
+  practiceRepairAvailable: false,
 })
+
+const practiceEntryAvailable = computed(() => (
+  props.practiceAvailable || props.practiceRepairAvailable
+))
 
 const emit = defineEmits<{
   (event: 'practice' | 'records' | 'stats' | 'knowledge-library' | 'resources'): void

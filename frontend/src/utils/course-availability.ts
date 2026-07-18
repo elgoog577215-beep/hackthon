@@ -24,6 +24,15 @@ const DEFAULT_PRACTICE_COPY = {
   body: '课程其他范围可能仍有题目，可以切换章节或返回课程继续学习。',
 }
 
+const QUESTION_BANK_REPAIR_REASONS = new Set([
+  'legacy_reading_compatible',
+  'required_practice_missing',
+])
+
+export function isQuestionBankRepairReason(reasonCode: string | null | undefined): boolean {
+  return QUESTION_BANK_REPAIR_REASONS.has(String(reasonCode || ''))
+}
+
 export function practiceAvailabilityCopy(reasonCode: string, translate: Translate) {
   const fallback = PRACTICE_COPY[reasonCode] || DEFAULT_PRACTICE_COPY
   return {

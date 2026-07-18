@@ -264,7 +264,7 @@ import {
 import http from '../utils/http'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { t } from '../shared/i18n'
-import { practiceAvailabilityCopy } from '../utils/course-availability'
+import { isQuestionBankRepairReason, practiceAvailabilityCopy } from '../utils/course-availability'
 import { practiceScopeKind } from '../utils/learning-scope'
 
 const props = defineProps<{
@@ -287,10 +287,8 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 const questions = computed(() => workspace.practice?.questions || [])
 const currentQuestion = computed(() => workspace.currentPracticeQuestion)
-const canRebuildQuestionBank = computed(() => (
-  ['legacy_reading_compatible', 'required_practice_missing'].includes(
-    workspace.practice?.practice_availability?.reason_code || '',
-  )
+const canRebuildQuestionBank = computed(() => isQuestionBankRepairReason(
+  workspace.practice?.practice_availability?.reason_code,
 ))
 const currentNodeLabel = computed(() => props.nodeLabel || t('courseWorkspace.allCourse', '全课程'))
 const practiceScopeLabel = computed(() => {
@@ -540,6 +538,7 @@ async function rebuildQuestionBank() {
     workspace.currentAttempt = null
     workspace.currentDraft = {}
     workspace.practiceResult = null
+    await workspace.loadAssets(props.courseId, props.nodeId)
     await workspace.loadPractice(props.courseId, props.nodeId, props.scope)
     ElMessage.success(t(
       'courseAvailability.rebuildQuestionsSuccess',

@@ -200,8 +200,13 @@ describe('LearningView 正文任务覆盖层', () => {
       course_availability: {
         schema_version: 'course_learning_availability_v1',
         mode: 'compatibility',
-        reason_code: 'legacy_course',
-        capabilities: {},
+        reason_code: 'legacy_reading_compatible',
+        capabilities: {
+          practice: {
+            status: 'degraded',
+            reason_code: 'legacy_reading_compatible',
+          },
+        },
       },
       assets: { questions: [] },
     }
@@ -225,6 +230,9 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     await wrapper.get('[data-domain="learning"]').trigger('click')
+    expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
+
+    await wrapper.get('.task-records').trigger('click')
     const practiceTab = wrapper.get('.records-overlay [data-context-item="practice"]')
     expect(practiceTab.attributes('disabled')).toBeUndefined()
 

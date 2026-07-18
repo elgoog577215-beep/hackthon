@@ -80,6 +80,7 @@
           active-item="records"
           :record-count="recordCount"
           :practice-available="Boolean(currentPracticeNode)"
+          :practice-repair-available="questionBankRepairAvailable"
           @practice="openCurrentPractice"
           @records="openRecords"
           @stats="openStats"
@@ -94,6 +95,7 @@
           active-item="stats"
           :record-count="recordCount"
           :practice-available="Boolean(currentPracticeNode)"
+          :practice-repair-available="questionBankRepairAvailable"
           @practice="openCurrentPractice"
           @records="openRecords"
           @stats="openStats"
@@ -161,6 +163,7 @@ import { useLearningProgressStore, type NextLearningAction } from '../stores/lea
 import { useNoteStore } from '../stores/notes'
 import type { CourseBlockEditTarget, Node } from '../stores/types'
 import { isWorkspaceTaskAction, learningActionLabel } from '../utils/learning-action'
+import { isQuestionBankRepairReason } from '../utils/course-availability'
 import { isStartableLearningObjective } from '../utils/learning-scope'
 import { isResumableLearningAction } from '../utils/learning-resume'
 import { t } from '../shared/i18n'
@@ -232,6 +235,13 @@ const currentPracticeNode = computed(() => {
   if (!current) return null
   const questions = workspaceStore.assets?.assets?.questions || []
   return questions.some(question => question.node_id === current.node_id) ? current : null
+})
+const questionBankRepairAvailable = computed(() => {
+  if (isGenerationPreview.value || !courseStore.currentNode) return false
+  const availability = workspaceStore.assets?.course_availability
+  return isQuestionBankRepairReason(
+    availability?.capabilities?.practice?.reason_code || availability?.reason_code,
+  )
 })
 const continuationAction = computed(() => learningProgressStore.continuation?.primary_action || null)
 const resumableAction = computed(() => isResumableLearningAction(continuationAction.value) ? continuationAction.value : null)
@@ -454,7 +464,9 @@ function openCurrentPractice() {
   activeLearningItem.value = 'practice'
   recordsOpen.value = false
   statsOpen.value = false
-  if (currentPracticeNode.value) openTask(currentPracticeNode.value)
+  const targetNode = currentPracticeNode.value
+    || (questionBankRepairAvailable.value ? courseStore.currentNode : null)
+  if (targetNode) openTask(targetNode)
 }
 
 function openStats() {
@@ -479,7 +491,7 @@ function activateLearningDomain() {
     openStats()
     return
   }
-  if (currentPracticeNode.value) {
+  if (currentPracticeNode.value || questionBankRepairAvailable.value) {
     openCurrentPractice()
     return
   }
