@@ -81,7 +81,13 @@ def _legacy_reasoning_support(
     *,
     question_type: str,
 ) -> dict[str, Any]:
-    prompt = str(item.get("prompt") or "")
+    prompt = str(
+        item.get("prompt")
+        or item.get("learning_objective")
+        or item.get("deliverable")
+        or item.get("title")
+        or "当前冻结任务"
+    )
     answer_spec = deepcopy(item.get("answer_spec") or {})
     payload = {
         "archetype_id": f"legacy_{question_type}",
