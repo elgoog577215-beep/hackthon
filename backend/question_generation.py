@@ -10,8 +10,13 @@ from __future__ import annotations
 
 from collections import deque
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
+
+from reasoning_paths import (
+    compile_reasoning_support,
+    validate_reasoning_support,
+)
 
 
 QUESTION_SPEC_SCHEMA = "question_spec_v1"
@@ -65,6 +70,10 @@ def generate_question_contract(
     )
     adapter_id, builder = _select_adapter(context)
     payload = builder(context)
+    contrast_payload = builder(replace(
+        context,
+        variant_index=context.variant_index + 1,
+    ))
     source_records = _course_document_source_records(
         course_data,
         str(node.get("node_id") or ""),
@@ -113,7 +122,22 @@ def generate_question_contract(
             ),
         },
     }
+    _complete_reasoning_contract(
+        question_spec,
+        contrast_payload=contrast_payload,
+    )
+    risk_flags = list(question_spec["risk"].get("flags") or [])
     validation = validate_question_spec(question_spec)
+    if any(
+        issue.get("code") == "question:semantic_archetype_unavailable"
+        for issue in validation.get("issues") or []
+    ):
+        risk_flags = _unique([
+            *risk_flags,
+            "semantic_archetype_unavailable",
+        ])
+        question_spec["risk"]["flags"] = risk_flags
+        question_spec["risk"]["requires_review"] = True
     presentation = _render_question(context, question_spec)
     return {
         **presentation,
@@ -154,6 +178,7 @@ def validate_question_spec(spec: dict[str, Any]) -> dict[str, Any]:
         issues.append(_issue("question:task_missing", "critical"))
     if not (answer_spec.get("criteria") or answer_spec.get("canonical_answer") is not None):
         issues.append(_issue("question:answer_not_executable", "critical"))
+    issues.extend(validate_reasoning_support(spec))
     issues.extend(_validate_target_action_alignment(spec))
 
     adapter_validator = {
@@ -212,6 +237,19 @@ def validate_question_spec(spec: dict[str, Any]) -> dict[str, Any]:
             ),
             "semantic_alignment": not any(
                 issue["code"] == "question:target_action_mismatch"
+                for issue in issues
+            ),
+            "reasoning_path": not any(
+                issue["code"] in {
+                    "question:reasoning_path_missing",
+                    "question:reasoning_path_schema_invalid",
+                    "question:reasoning_operator_missing",
+                    "question:reasoning_inputs_missing",
+                    "question:reasoning_steps_incomplete",
+                    "question:semantic_archetype_unavailable",
+                    "question:hint_not_path_derived",
+                    "question:solution_path_missing",
+                }
                 for issue in issues
             ),
         },
@@ -333,6 +371,7 @@ def generate_cross_chapter_contract(
             "requires_review": True,
         },
     }
+    _complete_reasoning_contract(question_spec)
     validation = validate_question_spec(question_spec)
     prompt = _render_student_prompt(question_spec)
     return {
@@ -362,24 +401,36 @@ def _adapter_context(
 ) -> AdapterContext:
     profile = course_data.get("subject_pedagogy_profile") or {}
     mode = str(profile.get("primary_mode") or "general")
+    node_name = str(node.get("node_name") or "").strip()
+    node_content = str(node.get("node_content") or "").strip()
+    objective = str(
+        node.get("learning_objective")
+        or node_content
+        or node_name
+        or "完成当前学习目标"
+    ).strip()
     key_points = [
         str(value).strip()
         for value in node.get("key_points") or []
         if str(value).strip()
-    ] or [str(node.get("node_name") or "当前知识点")]
+    ] or _unique([
+        node_name or "当前知识点",
+        node_content,
+    ])
     assessments = [
         str(value).strip()
         for value in node.get("assessment") or []
         if str(value).strip()
-    ] or [str(node.get("learning_objective") or "完成当前任务")]
+    ] or [objective]
     topic_text = " ".join([
         str(course_data.get("course_name") or ""),
-        str(node.get("node_name") or ""),
-        str(node.get("learning_objective") or ""),
+        node_name,
+        objective,
+        node_content,
         *key_points,
         *assessments,
     ])
-    if mode == "general":
+    if mode == "general" and not profile.get("user_locked"):
         mode = _infer_subject_family(topic_text)
     return AdapterContext(
         course_data=course_data,
@@ -388,11 +439,7 @@ def _adapter_context(
         variant_index=variant_index,
         subject_family=mode,
         topic_text=topic_text,
-        objective=str(
-            node.get("learning_objective")
-            or node.get("node_name")
-            or "完成当前学习目标"
-        ),
+        objective=objective,
         key_points=key_points,
         assessments=assessments,
     )
@@ -470,6 +517,32 @@ def _base_answer_spec(
     if solution_spec:
         answer["solution_spec"] = deepcopy(solution_spec)
     return answer
+
+
+def _complete_reasoning_contract(
+    spec: dict[str, Any],
+    *,
+    contrast_payload: dict[str, Any] | None = None,
+) -> None:
+    """Freeze an actionable reasoning path, hints, and solution with the item."""
+    support = compile_reasoning_support(
+        spec,
+        contrast_payload=contrast_payload,
+    )
+    spec["reasoning_path"] = support["reasoning_path"]
+    spec["hint_contract"] = support["hint_contract"]
+    spec["answer_spec"] = support["answer_spec"]
+    if not support["complete"]:
+        risk = spec.setdefault("risk", {})
+        risk["flags"] = list(dict.fromkeys([
+            *(risk.get("flags") or []),
+            "reasoning_path_incomplete",
+        ]))
+        risk["requires_review"] = True
+
+
+def _format_compact_vector(values: list[Any]) -> str:
+    return f"({','.join(str(value) for value in values)})"
 
 
 def _build_graph_spec(context: AdapterContext) -> dict[str, Any]:
@@ -1041,7 +1114,15 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
         "给出可复核的计算或推理过程",
         "检查结果并说明适用边界",
     ]
-    if "向量" in topic:
+    semantic_case = _linear_algebra_semantic_case(topic, seed)
+    if semantic_case:
+        data = semantic_case["data"]
+        canonical = semantic_case["canonical"]
+        input_text = semantic_case["input_text"]
+        task_text = semantic_case["task_text"]
+        archetype = semantic_case["archetype"]
+        deliverable = semantic_case["deliverable"]
+    elif "向量" in topic:
         left = [seed, seed + 1]
         right = [2, -1]
         data = {
@@ -1177,6 +1258,282 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
             "结论未超出题目给定条件",
         ],
     }
+
+
+def _linear_algebra_semantic_case(
+    topic: str,
+    seed: int,
+) -> dict[str, Any] | None:
+    if any(marker in topic for marker in (
+        "梯度下降", "gradient descent",
+    )):
+        target = seed + 1
+        data = {
+            "case_kind": "quadratic_gradient_descent",
+            "function": f"f(x)=(x-{target})²",
+            "initial_x": 0,
+            "learning_rate": 0.25,
+            "iterations": 2,
+            "target": target,
+        }
+        return {
+            "data": data,
+            "canonical": {
+                "x1": target / 2,
+                "x2": 3 * target / 4,
+                "distance_reduced": True,
+            },
+            "input_text": (
+                f"令 f(x)=(x-{target})²，初值 x₀=0，学习率 η=0.25。"
+            ),
+            "task_text": (
+                "按 xₖ₊₁=xₖ-ηf′(xₖ) 计算 x₁、x₂，"
+                "并比较两步后到极小点的距离。"
+            ),
+            "archetype": "quadratic_gradient_descent",
+            "deliverable": "两次迭代值、导数代入过程和收敛方向检查",
+        }
+    if any(marker in topic for marker in (
+        "奇异值", "svd", "低秩", "矩阵近似", "数据压缩",
+    )):
+        large = seed + 3
+        small = seed
+        matrix = [[large, 0], [0, small]]
+        return {
+            "data": {
+                "case_kind": "svd_low_rank",
+                "matrix": matrix,
+                "target_rank": 1,
+            },
+            "canonical": {
+                "singular_values": [large, small],
+                "best_rank_one": [[large, 0], [0, 0]],
+                "spectral_error": small,
+            },
+            "input_text": (
+                f"给定矩阵 A={matrix}，要求用 Frobenius 范数意义下的"
+                "最佳秩1近似保留主要信息。"
+            ),
+            "task_text": (
+                "写出 A 的奇异值、最佳秩1近似 A₁，"
+                "并计算 ‖A-A₁‖₂。"
+            ),
+            "archetype": "svd_low_rank_approximation",
+            "deliverable": "奇异值、秩1近似矩阵和误差检查",
+        }
+    if any(marker in topic for marker in (
+        "最小二乘", "正规方程", "超定", "least squares",
+    )):
+        solution = [seed, 1]
+        matrix = [[1, 0], [1, 1], [1, 2]]
+        residual = [1, -2, 1]
+        vector = [
+            solution[0] + residual[0],
+            solution[0] + solution[1] + residual[1],
+            solution[0] + 2 * solution[1] + residual[2],
+        ]
+        return {
+            "data": {
+                "case_kind": "least_squares",
+                "matrix": matrix,
+                "vector": vector,
+            },
+            "canonical": {
+                "solution": solution,
+                "residual": residual,
+                "normal_residual": [0, 0],
+            },
+            "input_text": f"给定 A={matrix}、b={vector}，求 Ax≈b 的最小二乘解。",
+            "task_text": (
+                "用正规方程求 x̂，计算残差 r=b-Ax̂，"
+                "并验证 Aᵀr=0。"
+            ),
+            "archetype": "least_squares_normal_equation",
+            "deliverable": "最小二乘解、残差和正交性验证",
+        }
+    if any(marker in topic for marker in (
+        "gram-schmidt", "gram schmidt", "施密特", "qr分解",
+        "qr 分解", "正交投影", "投影矩阵",
+    )):
+        return {
+            "data": {
+                "case_kind": "gram_schmidt",
+                "vectors": [[1, 1], [1, 0]],
+            },
+            "canonical": {
+                "first_direction": [1, 1],
+                "second_orthogonal_direction": [1, -1],
+                "second_projection_coefficient": "1/2",
+                "orthogonal_dot_product": 0,
+            },
+            "input_text": "给定 a=(1,1)、b=(1,0)，对有序组 (a,b) 做 Gram–Schmidt 正交化。",
+            "task_text": (
+                "求第二个正交方向及相应投影系数，"
+                "再用内积验证两个方向正交。"
+            ),
+            "archetype": "gram_schmidt_projection",
+            "deliverable": "正交方向、投影系数和内积检查",
+        }
+    if any(marker in topic for marker in (
+        "标准正交基", "orthonormal", "正交基", "内积空间",
+        "正交向量", "内积",
+    )):
+        return {
+            "data": {
+                "case_kind": "orthonormal_basis",
+                "vectors": [[1, 1], [1, -1]],
+                "target": [3, 1],
+            },
+            "canonical": {
+                "dot_product": 0,
+                "norms_squared": [2, 2],
+                "normalized_basis": [
+                    "(1/√2)(1,1)",
+                    "(1/√2)(1,-1)",
+                ],
+                "target_coordinates": ["2√2", "√2"],
+            },
+            "input_text": "在 R² 中给定 a=(1,1)、b=(1,-1) 和 w=(3,1)。",
+            "task_text": (
+                "把 a、b 归一化为标准正交基，"
+                "求 w 在该基下的坐标，并用重构检查。"
+            ),
+            "archetype": "orthonormal_basis_verification",
+            "deliverable": "归一化基、基下坐标和重构验证",
+        }
+    if any(marker in topic for marker in (
+        "特征值", "特征向量", "对角化", "pca", "主成分",
+    )):
+        first = seed
+        second = seed + 2
+        matrix = [[first, 0], [0, second]]
+        return {
+            "data": {
+                "case_kind": "eigenpair",
+                "matrix": matrix,
+            },
+            "canonical": {
+                "eigenvalues": [first, second],
+                "eigenvectors": [[1, 0], [0, 1]],
+                "dominant_eigenvalue": second,
+            },
+            "input_text": f"给定线性变换的矩阵 A={matrix}。",
+            "task_text": (
+                "求 A 的全部特征值及对应特征向量，"
+                "并指出伸缩最大的方向。"
+            ),
+            "archetype": "eigenpair_analysis",
+            "deliverable": "特征值、特征向量和主方向解释",
+        }
+    if any(marker in topic for marker in (
+        "线性映射", "线性变换", "核空间", "值域", "像空间",
+        "同构", "可逆变换",
+    )):
+        matrix = [[1, 1], [0, seed]]
+        return {
+            "data": {
+                "case_kind": "linear_map",
+                "matrix": matrix,
+                "mapping": f"T(x,y)=(x+y,{seed}y)",
+            },
+            "canonical": {
+                "determinant": seed,
+                "rank": 2,
+                "kernel_basis": [],
+                "image_basis": [[1, 0], [0, 1]],
+                "invertible": True,
+            },
+            "input_text": f"定义 T:R²→R²，T(x,y)=(x+y,{seed}y)。",
+            "task_text": (
+                "写出 T 的矩阵，求核与像的维数，"
+                "并判断 T 是否可逆。"
+            ),
+            "archetype": "linear_map_kernel_image",
+            "deliverable": "变换矩阵、核、像、秩和可逆性判断",
+        }
+    if any(marker in topic for marker in (
+        "子空间", "向量空间", "封闭性", "交空间", "和空间",
+    )):
+        left = [1, -1, 0]
+        right = [0, 1, -1]
+        return {
+            "data": {
+                "case_kind": "subspace",
+                "equation_coefficients": [1, 1, 1],
+                "vectors": [left, right],
+                "scalar": seed,
+            },
+            "canonical": {
+                "zero_vector_in_set": True,
+                "sum": [1, 0, -1],
+                "scalar_multiple": [seed, -seed, 0],
+                "basis": [left, right],
+                "dimension": 2,
+            },
+            "input_text": (
+                "在 R³ 中令 W={(x,y,z)｜x+y+z=0}，"
+                "取 u=(1,-1,0)、v=(0,1,-1)。"
+            ),
+            "task_text": (
+                f"用零向量、加法和数乘封闭性证明 W 是子空间；"
+                f"计算 u+v 与 {seed}u，并给出 W 的一组基。"
+            ),
+            "archetype": "subspace_closure_verification",
+            "deliverable": "三项子空间检验、运算结果、一组基和维数",
+        }
+    if any(marker in topic for marker in (
+        "基下坐标", "基与坐标", "有序基", "坐标变换",
+    )):
+        basis = [[1, 0], [1, 1]]
+        target = [seed, seed + 1]
+        return {
+            "data": {
+                "case_kind": "basis_coordinates",
+                "basis": basis,
+                "target": target,
+            },
+            "canonical": {
+                "coefficients": [target[0] - target[1], target[1]],
+                "reconstructed": target,
+            },
+            "input_text": (
+                f"在 R² 中给定有序基 B=((1,0),(1,1))，"
+                f"目标向量 w={_format_compact_vector(target)}。"
+            ),
+            "task_text": (
+                "求 w 在基 B 下的坐标，"
+                "并用线性组合重构 w 进行检验。"
+            ),
+            "archetype": "basis_coordinate_reconstruction",
+            "deliverable": "基下坐标、线性组合过程和重构检查",
+        }
+    if any(marker in topic for marker in (
+        "线性无关", "线性相关", "生成集", "线性组合",
+        "基与坐标", "基底", "维数", "矩阵的秩", "秩的",
+    )):
+        first = [1, 0, 1]
+        second = [0, 1, 1]
+        third = [1, 1, 2]
+        return {
+            "data": {
+                "case_kind": "linear_dependence",
+                "vectors": [first, second, third],
+            },
+            "canonical": {
+                "dependent": True,
+                "relation": "c=a+b",
+                "rank": 2,
+                "basis": [first, second],
+            },
+            "input_text": "在 R³ 中给定 a=(1,0,1)、b=(0,1,1)、c=(1,1,2)。",
+            "task_text": (
+                "判断三向量是否线性无关；若相关，写出相关关系，"
+                "并从中选出生成同一子空间的一组基。"
+            ),
+            "archetype": "linear_independence_and_basis",
+            "deliverable": "相关性结论、关系式、秩和一组基",
+        }
+    return None
 
 
 def _build_programming_spec(context: AdapterContext) -> dict[str, Any]:
@@ -1899,6 +2256,13 @@ def _validate_math_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
     data = (spec.get("stimulus") or {}).get("data") or {}
     case_kind = str(data.get("case_kind") or "")
     canonical = (spec.get("answer_spec") or {}).get("canonical_answer") or {}
+    semantic_expected = _expected_linear_algebra_answer(data)
+    if semantic_expected is not None:
+        return (
+            []
+            if canonical == semantic_expected
+            else [_issue("question:canonical_answer_mismatch", "critical")]
+        )
     if case_kind == "vector_operations":
         left = data.get("left") or []
         right = data.get("right") or []
@@ -1956,7 +2320,12 @@ def _validate_math_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
     if case_kind == "topic_reasoning":
         if not str(data.get("topic_focus") or "").strip():
             return [_issue("question:input_material_missing", "critical")]
-        return _validate_rubric_spec(spec)
+        return [
+            _issue(
+                "question:semantic_archetype_unavailable",
+                "critical",
+            )
+        ]
     equations = data.get("equations") or []
     if len(equations) != 2 or not {"x", "y"} <= set(canonical):
         return [_issue("question:input_material_missing", "critical")]
@@ -1974,6 +2343,152 @@ def _validate_math_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
     if determinant == 0:
         return [_issue("question:answer_not_determinate", "critical")]
     return []
+
+
+def _expected_linear_algebra_answer(
+    data: dict[str, Any],
+) -> dict[str, Any] | None:
+    case_kind = str(data.get("case_kind") or "")
+    if case_kind == "quadratic_gradient_descent":
+        target = data.get("target")
+        if not isinstance(target, (int, float)):
+            return {}
+        return {
+            "x1": target / 2,
+            "x2": 3 * target / 4,
+            "distance_reduced": True,
+        }
+    if case_kind == "svd_low_rank":
+        matrix = data.get("matrix") or []
+        if (
+            len(matrix) != 2
+            or any(len(row) != 2 for row in matrix)
+            or matrix[0][1] != 0
+            or matrix[1][0] != 0
+        ):
+            return {}
+        large, small = matrix[0][0], matrix[1][1]
+        return {
+            "singular_values": [large, small],
+            "best_rank_one": [[large, 0], [0, 0]],
+            "spectral_error": small,
+        }
+    if case_kind == "least_squares":
+        matrix = data.get("matrix") or []
+        vector = data.get("vector") or []
+        if matrix != [[1, 0], [1, 1], [1, 2]] or len(vector) != 3:
+            return {}
+        sum_b = sum(vector)
+        weighted_sum = vector[1] + 2 * vector[2]
+        solution = [
+            (5 * sum_b - 3 * weighted_sum) / 6,
+            (-3 * sum_b + 3 * weighted_sum) / 6,
+        ]
+        solution = [
+            int(value) if float(value).is_integer() else value
+            for value in solution
+        ]
+        residual = [
+            vector[row] - sum(
+                matrix[row][column] * solution[column]
+                for column in range(2)
+            )
+            for row in range(3)
+        ]
+        return {
+            "solution": solution,
+            "residual": residual,
+            "normal_residual": [
+                sum(matrix[row][column] * residual[row] for row in range(3))
+                for column in range(2)
+            ],
+        }
+    if case_kind == "gram_schmidt":
+        if data.get("vectors") != [[1, 1], [1, 0]]:
+            return {}
+        return {
+            "first_direction": [1, 1],
+            "second_orthogonal_direction": [1, -1],
+            "second_projection_coefficient": "1/2",
+            "orthogonal_dot_product": 0,
+        }
+    if case_kind == "orthonormal_basis":
+        if (
+            data.get("vectors") != [[1, 1], [1, -1]]
+            or data.get("target") != [3, 1]
+        ):
+            return {}
+        return {
+            "dot_product": 0,
+            "norms_squared": [2, 2],
+            "normalized_basis": [
+                "(1/√2)(1,1)",
+                "(1/√2)(1,-1)",
+            ],
+            "target_coordinates": ["2√2", "√2"],
+        }
+    if case_kind == "eigenpair":
+        matrix = data.get("matrix") or []
+        if (
+            len(matrix) != 2
+            or any(len(row) != 2 for row in matrix)
+            or matrix[0][1] != 0
+            or matrix[1][0] != 0
+        ):
+            return {}
+        return {
+            "eigenvalues": [matrix[0][0], matrix[1][1]],
+            "eigenvectors": [[1, 0], [0, 1]],
+            "dominant_eigenvalue": max(matrix[0][0], matrix[1][1]),
+        }
+    if case_kind == "linear_map":
+        matrix = data.get("matrix") or []
+        if (
+            len(matrix) != 2
+            or any(len(row) != 2 for row in matrix)
+        ):
+            return {}
+        determinant = (
+            matrix[0][0] * matrix[1][1]
+            - matrix[0][1] * matrix[1][0]
+        )
+        return {
+            "determinant": determinant,
+            "rank": 2 if determinant else 1,
+            "kernel_basis": [] if determinant else [[-matrix[0][1], matrix[0][0]]],
+            "image_basis": [[1, 0], [0, 1]] if determinant else [],
+            "invertible": bool(determinant),
+        }
+    if case_kind == "subspace":
+        vectors = data.get("vectors") or []
+        scalar = data.get("scalar")
+        if len(vectors) != 2 or not isinstance(scalar, (int, float)):
+            return {}
+        left, right = vectors
+        return {
+            "zero_vector_in_set": True,
+            "sum": [
+                left[index] + right[index]
+                for index in range(3)
+            ],
+            "scalar_multiple": [
+                scalar * value
+                for value in left
+            ],
+            "basis": vectors,
+            "dimension": 2,
+        }
+    if case_kind == "linear_dependence":
+        vectors = data.get("vectors") or []
+        if vectors != [[1, 0, 1], [0, 1, 1], [1, 1, 2]]:
+            return {}
+        return {
+            "dependent": True,
+            "relation": "c=a+b",
+            "rank": 2,
+            "basis": vectors[:2],
+        }
+    return None
 
 
 def _validate_science_spec(spec: dict[str, Any]) -> list[dict[str, str]]:

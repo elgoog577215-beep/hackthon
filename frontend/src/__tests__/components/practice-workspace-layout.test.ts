@@ -30,4 +30,10 @@ describe('PracticeWorkspace expanded desktop layout', () => {
     expect(componentSource).toContain('workspace.revealedSolution.representation')
     expect(componentSource).toContain('formatSolutionValue')
   })
+
+  it('exposes a manual refresh command backed by the frozen-question API', () => {
+    expect(componentSource).toContain('data-testid="refresh-practice-question"')
+    expect(componentSource).toContain('workspace.refreshPracticeQuestion')
+    expect(componentSource).toContain('当前未提交草稿会结束并保留为一次已放弃记录')
+  })
 })

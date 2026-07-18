@@ -385,6 +385,20 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
         issues.append({"code": "question:near_duplicate", "severity": "major"})
     if "answer_conflict" in (item.get("risk_flags") or []):
         issues.append({"code": "question:answer_conflict", "severity": "critical"})
+    if requires_structured_spec and not (
+        ((item.get("question_spec") or {}).get("reasoning_path") or {}).get(
+            "steps"
+        )
+    ):
+        issues.append({
+            "code": "question:reasoning_path_missing",
+            "severity": "critical",
+        })
+    if requires_structured_spec and not _has_actionable_reasoning_hints(item):
+        issues.append({
+            "code": "question:hint_not_actionable",
+            "severity": "critical",
+        })
 
     issues = _deduplicate_quality_issues(issues)
     critical = [issue for issue in issues if issue["severity"] == "critical"]
@@ -420,6 +434,20 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
                 and bool(domain_validation.get("passed"))
             ),
             "hint_safety": bool((item.get("hint_contract") or {}).get("leakage_check", {}).get("passed", True)),
+            "hint_actionability": not any(
+                issue["code"] in {
+                    "question:reasoning_path_missing",
+                    "question:hint_not_actionable",
+                    "question:hint_not_path_derived",
+                    "question:reasoning_path_schema_invalid",
+                    "question:reasoning_operator_missing",
+                    "question:reasoning_inputs_missing",
+                    "question:reasoning_steps_incomplete",
+                    "question:semantic_archetype_unavailable",
+                    "question:solution_path_missing",
+                }
+                for issue in issues
+            ),
         },
     }
 
@@ -434,8 +462,41 @@ def is_generic_generated_prompt(prompt: str) -> bool:
         "成立或适用的关键条件",
         "在一个不同于正文示例的新情境中",
         "综合运用全部章节完成最终任务",
+        "比较案例值",
+        "边界值",
     )
     return any(marker in normalized for marker in generic_markers)
+
+
+def _has_actionable_reasoning_hints(item: dict[str, Any]) -> bool:
+    spec = item.get("question_spec") or {}
+    path = spec.get("reasoning_path") or {}
+    contract = item.get("hint_contract") or {}
+    levels = contract.get("levels") or []
+    generic_markers = (
+        "先确认题目要求的最终产物",
+        "整理输入—选择方法—执行关键步骤—检查结果",
+        "用一个不同情境做局部对照",
+    )
+    return bool(
+        path.get("schema_version") == "reasoning_path_v1"
+        and path.get("input_anchors")
+        and path.get("steps")
+        and contract.get("generator") == "reasoning_path_v1"
+        and (contract.get("grounding") or {}).get("reasoning_path_schema")
+        == "reasoning_path_v1"
+        and {int(level.get("level") or 0) for level in levels} == {1, 2, 3}
+        and all(
+            len(str(level.get("content") or "").strip()) >= 12
+            and level.get("step_refs")
+            and not any(
+                marker in str(level.get("content") or "")
+                for marker in generic_markers
+            )
+            for level in levels
+        )
+        and (contract.get("leakage_check") or {}).get("passed") is True
+    )
 
 
 def _deduplicate_quality_issues(
@@ -1321,7 +1382,12 @@ def _hint_contract(item: dict[str, Any]) -> dict[str, Any]:
     answer_fragments = _answer_fragments({
         "correct_answer": answer_spec.get("correct_answer"),
         "canonical_answer": answer_spec.get("canonical_answer"),
-        "solution_spec": answer_spec.get("solution_spec"),
+        # Procedural steps and checks intentionally overlap with progressive
+        # hints because both are derived from one reasoning path.  Only the
+        # frozen final answer is forbidden in pre-submission hints.
+        "solution_final_answer": (
+            answer_spec.get("solution_spec") or {}
+        ).get("final_answer"),
     })
     leakage = any(
         fragment in _normalize_text(str(level.get("content") or ""))
@@ -1329,6 +1395,11 @@ def _hint_contract(item: dict[str, Any]) -> dict[str, Any]:
         for level in levels
     )
     return {
+        "generator": str(
+            adapter_contract.get("generator")
+            or "legacy_hint_contract"
+        ),
+        "grounding": deepcopy(adapter_contract.get("grounding") or {}),
         "levels": levels,
         "solution_policy": "after_submission_or_repeated_failure",
         "solution_effect": {

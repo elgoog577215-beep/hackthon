@@ -58,6 +58,12 @@ class RevisionAction(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+class PracticeRefreshRequest(BaseModel):
+    current_task_revision_id: str = Field(min_length=1, max_length=200)
+    node_id: str | None = Field(default=None, max_length=200)
+    scope: Literal["node", "final", "all"] = "node"
+
+
 class AISupportAction(RevisionAction):
     level: int = Field(ge=1, le=3)
     summary: str = Field(default="", max_length=1000)
@@ -211,6 +217,77 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
             if attempt.get("solution_revealed")
             else None
         ),
+    }
+
+
+@router.post("/refresh")
+async def refresh_practice_question(
+    course_id: str,
+    payload: PracticeRefreshRequest,
+    request: Request,
+):
+    """Select another immutable approved task without regenerating in-session."""
+    course = project_learning_objective_bindings(
+        await get_course_or_404(course_id)
+    )
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    questions = _questions(
+        course,
+        node_id=payload.node_id,
+        scope=payload.scope,
+    )
+    current = next((
+        item
+        for item in questions
+        if _task_revision_id(item) == payload.current_task_revision_id
+    ), None)
+    if not current:
+        raise HTTPException(
+            status_code=404,
+            detail="Current task revision is not active in this course scope",
+        )
+    alternatives = [
+        item
+        for item in questions
+        if _task_revision_id(item) != payload.current_task_revision_id
+    ]
+    if not alternatives:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "no_alternative_question",
+                "message": "当前范围没有其他已冻结题目",
+            },
+        )
+    attempts = await run_in_threadpool(
+        practice_attempt_repository.list,
+        user_id,
+        course_id,
+    )
+    attempted_revision_ids = {
+        str(
+            item.get("task_revision_id")
+            or item.get("question_revision_id")
+            or ""
+        )
+        for item in attempts
+    }
+    current_level = str(current.get("practice_level") or "")
+    ranked = sorted(
+        enumerate(alternatives),
+        key=lambda pair: (
+            _task_revision_id(pair[1]) in attempted_revision_ids,
+            str(pair[1].get("practice_level") or "") != current_level,
+            pair[0],
+        ),
+    )
+    selected = ranked[0][1]
+    return {
+        "status": "selected",
+        "selection_policy": "frozen_course_question",
+        "question": _student_question_payload(selected),
+        "has_alternative": True,
+        "attempt_history_preserved": True,
     }
 
 
@@ -623,6 +700,14 @@ def _student_question_payload(question: dict[str, Any]) -> dict[str, Any]:
     ):
         payload.pop(field, None)
     return payload
+
+
+def _task_revision_id(question: dict[str, Any]) -> str:
+    return str(
+        question.get("task_revision_id")
+        or question.get("revision_id")
+        or ""
+    )
 
 
 def _find_question(course: dict[str, Any], revision_id: str) -> dict[str, Any] | None:

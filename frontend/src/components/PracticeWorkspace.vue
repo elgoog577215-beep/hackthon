@@ -113,8 +113,23 @@
             <small>{{ remediationUnit.worked_contrast }}</small>
           </section>
           <div class="question-meta">
-            <span>{{ questionTypeLabel }}</span>
-            <span>{{ saveStateLabel }}</span>
+            <div>
+              <span>{{ questionTypeLabel }}</span>
+              <span>{{ saveStateLabel }}</span>
+            </div>
+            <button
+              type="button"
+              class="refresh-question-command"
+              data-testid="refresh-practice-question"
+              :disabled="!canRefreshQuestion || questionRefreshing || submitting"
+              @click="refreshQuestion"
+            >
+              <LoaderCircle v-if="questionRefreshing" :size="14" class="animate-spin" />
+              <RefreshCw v-else :size="14" />
+              {{ questionRefreshing
+                ? t('courseWorkspace.practice.refreshing', '正在换题')
+                : t('courseWorkspace.practice.refreshQuestion', '换一题') }}
+            </button>
           </div>
           <h3>{{ currentQuestion.prompt }}</h3>
 
@@ -311,6 +326,7 @@ const workspace = useCourseWorkspaceStore()
 const practiceView = ref<'current' | 'history' | 'needs_review'>(workspace.practiceLandingView)
 const submitting = ref(false)
 const targetedRetryingId = ref('')
+const questionRefreshing = ref(false)
 const questionBankRebuilding = ref(false)
 const questionBankRebuildError = ref('')
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -335,6 +351,13 @@ const isChoiceQuestion = computed(() => currentQuestion.value?.input_contract?.m
 const answerLocked = computed(() => !!workspace.currentAttempt && workspace.currentAttempt.status !== 'in_progress')
 const hasAnswer = computed(() => Object.values(workspace.currentDraft || {}).some(value => value !== '' && value !== null && value !== undefined))
 const hasNext = computed(() => workspace.currentQuestionIndex < questions.value.length - 1)
+const canRefreshQuestion = computed(() => (
+  !!currentQuestion.value
+  && questions.value.length > 1
+  && workflowPhase.value === 'practice'
+  && workspace.practiceSaveState !== 'saving'
+  && workspace.practiceSaveState !== 'conflict'
+))
 const canRetry = computed(() => answerLocked.value && workspace.currentAttempt?.status !== 'grading')
 const canRevealSolution = computed(() => workspace.practiceResult?.passed === false && !workspace.currentAttempt?.solution_revealed)
 const historyAttempts = computed(() => workspace.practiceHistory?.attempts || [])
@@ -512,6 +535,54 @@ async function nextQuestion() {
   await ensureAttempt()
 }
 
+async function refreshQuestion() {
+  if (!canRefreshQuestion.value || questionRefreshing.value) return
+  if (
+    workspace.currentAttempt?.status === 'in_progress'
+    && hasAnswer.value
+  ) {
+    try {
+      await ElMessageBox.confirm(
+        t(
+          'courseWorkspace.practice.refreshDraftWarning',
+          '当前未提交草稿会结束并保留为一次已放弃记录，确定换一题吗？',
+        ),
+        t('courseWorkspace.practice.refreshQuestion', '换一题'),
+        {
+          confirmButtonText: t('common.confirm', '确认'),
+          cancelButtonText: t('common.cancel', '取消'),
+        },
+      )
+    } catch {
+      return
+    }
+  }
+  questionRefreshing.value = true
+  try {
+    await workspace.refreshPracticeQuestion(
+      props.courseId,
+      props.nodeId,
+      props.scope,
+    )
+    await ensureAttempt()
+    ElMessage.success(t(
+      'courseWorkspace.practice.refreshSuccess',
+      '已切换到同一课程范围内的另一道题。',
+    ))
+  } catch (error: any) {
+    const detail = error?.response?.data?.detail
+    ElMessage.error(
+      (typeof detail === 'string' ? detail : detail?.message)
+      || t(
+        'courseWorkspace.practice.refreshFailed',
+        '当前没有可切换的正式题目，请稍后重试。',
+      ),
+    )
+  } finally {
+    questionRefreshing.value = false
+  }
+}
+
 async function resumeCoursePractice() {
   workspace.diagnosticWorkflow = null
   workspace.currentAttempt = null
@@ -614,7 +685,7 @@ function formatSolutionValue(value: unknown) {
 .practice-header-state { display:flex; align-items:center; gap:10px; white-space:nowrap; font-size:12px; color:#526174; }.practice-progress { font:700 13px ui-monospace,monospace; color:#0f766e; }
 .practice-tabs { display:flex; max-width:1280px; margin:18px auto 0; padding:0 20px; border-bottom:1px solid #dbe3ed; }.practice-tabs button { padding:10px 14px; border:0; border-bottom:2px solid transparent; background:transparent; color:#64748b; font-size:13px; }.practice-tabs button.active { color:#0f766e; border-color:#0f766e; font-weight:700; }
 .workflow-band { width:min(1280px,calc(100% - 64px)); margin:18px auto 0; padding:14px 0; border-top:2px solid #0f766e; border-bottom:1px solid #cbd5e1; display:flex; justify-content:space-between; gap:24px; align-items:flex-start; }.workflow-band>div { display:grid; gap:4px; }.workflow-band span { color:#0f766e; font-size:11px; font-weight:800; }.workflow-band strong { font-size:14px; }.workflow-band p { max-width:48%; margin:0; color:#526174; font-size:13px; line-height:1.55; }.workflow-band[data-phase="needs_support"] { border-top-color:#b45309; }.workflow-band[data-phase="resolved"] { border-top-color:#047857; }
-.question-stage,.history-list { width:min(1280px,calc(100% - 64px)); margin:0 auto; padding:24px 0 36px; }.question-content { padding:0; }.question-meta { display:flex; justify-content:space-between; gap:16px; color:#64748b; font-size:12px; }.question-content h3 { margin:14px 0 20px; font-size:19px; line-height:1.65; letter-spacing:0; }
+.question-stage,.history-list { width:min(1280px,calc(100% - 64px)); margin:0 auto; padding:24px 0 36px; }.question-content { padding:0; }.question-meta { display:flex; justify-content:space-between; align-items:center; gap:16px; color:#64748b; font-size:12px; }.question-meta>div { display:flex; gap:16px; }.refresh-question-command { display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:0 9px; border:1px solid #cbd5e1; border-radius:6px; color:#475569; background:#fff; font-size:12px; }.refresh-question-command:hover:not(:disabled) { border-color:#0f766e; color:#0f766e; }.refresh-question-command:disabled { opacity:.45; cursor:not-allowed; }.question-content h3 { margin:14px 0 20px; font-size:19px; line-height:1.65; letter-spacing:0; }
 .answer-editor { width:100%; min-height:clamp(360px,54vh,680px); padding:16px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; resize:vertical; font:inherit; line-height:1.7; outline:none; }.answer-editor:focus { border-color:#0f766e; box-shadow:0 0 0 3px rgba(15,118,110,.1); }.answer-editor:disabled { background:#f1f5f9; }
 .choice-list { display:grid; gap:10px; }.choice-list label { display:flex; gap:10px; padding:13px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; }
 .practice-actions { position:sticky; bottom:0; display:flex; justify-content:space-between; gap:14px; align-items:center; margin-top:22px; padding:12px 0; background:linear-gradient(to bottom,rgba(248,250,252,.86),#f8fafc 28%); }.support-actions { display:flex; gap:8px; align-items:center; }.icon-command,.text-command,.primary-command { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; padding:0 12px; color:#334155; }.icon-command { width:42px; padding:0; }.icon-command:disabled,.text-command:disabled,.primary-command:disabled { opacity:.45; cursor:not-allowed; }.primary-command { border-color:#0f766e; background:#0f766e; color:#fff; font-weight:700; }

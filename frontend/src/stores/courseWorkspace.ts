@@ -391,6 +391,51 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.revealedSolution = null
       return this.startPracticeAttempt(courseId, question.task_revision_id || question.revision_id, true)
     },
+    async refreshPracticeQuestion(
+      courseId: string,
+      nodeId?: string,
+      scope: 'node' | 'final' | 'all' = 'node',
+    ) {
+      const question = this.currentPracticeQuestion
+      const currentTaskRevisionId = question?.task_revision_id || question?.revision_id
+      if (!question || !currentTaskRevisionId) return null
+
+      const attempt = this.currentAttempt
+      if (attempt?.status === 'in_progress') {
+        await http.post(
+          `/api/courses/${courseId}/practice/attempts/${attempt.attempt_id}/abandon`,
+          { expected_revision: attempt.revision },
+        )
+        localStorage.removeItem(practiceDraftKey(courseId, attempt.attempt_id))
+      }
+      const res = await http.post(`/api/courses/${courseId}/practice/refresh`, {
+        current_task_revision_id: currentTaskRevisionId,
+        node_id: nodeId || null,
+        scope,
+      })
+      const selected = res.data.question
+      if (!selected) return null
+      const questions = this.practice?.questions || []
+      const selectedRevisionId = selected.task_revision_id || selected.revision_id
+      let selectedIndex = questions.findIndex(item => (
+        (item.task_revision_id || item.revision_id) === selectedRevisionId
+      ))
+      if (selectedIndex < 0 && this.practice) {
+        this.practice.questions = [...questions, selected]
+        selectedIndex = this.practice.questions.length - 1
+      }
+      this.currentQuestionIndex = Math.max(0, selectedIndex)
+      this.currentAttempt = null
+      this.currentDraft = {}
+      this.practiceResult = null
+      this.revealedHints = []
+      this.revealedSolution = null
+      this.practiceSaveState = 'idle'
+      this.practiceSubmitRequestId = ''
+      this.practiceStartedAt = Date.now()
+      this.targetedRetryContext = null
+      return selected
+    },
     async startTargetedRetry(courseId: string, failedAttempt: PracticeAttempt) {
       const questions = this.practice?.questions || []
       const sourceTaskRevisionId = failedAttempt.task_revision_id || failedAttempt.question_revision_id || ''
