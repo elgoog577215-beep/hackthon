@@ -240,6 +240,15 @@ def _generic_reasoning_path(
     action = str(task.get("action") or "")
     family = _ACTION_FAMILIES.get(action, "structured_performance")
     anchors = _input_anchors(stimulus.get("data"))
+    has_structured_anchors = bool(anchors)
+    if not anchors:
+        rendered_text = str(stimulus.get("rendered_text") or "").strip()
+        anchors = [{
+            "path": "rendered_text",
+            "label": "题目说明",
+            "value_preview": rendered_text or "当前冻结任务",
+            "value_type": "str",
+        }]
     required_parts = [
         str(value).strip()
         for value in response.get("required_parts") or []
@@ -301,7 +310,10 @@ def _generic_reasoning_path(
     complete = (
         family != "teacher_review"
         and archetype != "topic_aligned_mathematical_reasoning"
-        and bool(anchors)
+        and (
+            has_structured_anchors
+            or str(stimulus.get("kind") or "") == "legacy_question"
+        )
     )
     contrast = _contrast_example(contrast_payload, steps[1]["instruction"])
     return {
@@ -343,7 +355,16 @@ def _hints_from_path(
             level["step_refs"] = [step_id]
     else:
         anchors = path.get("input_anchors") or []
-        first_anchor = anchors[0]
+        fallback_anchor = {
+            "path": "task",
+            "label": "任务要求",
+            "value_preview": str(
+                (path.get("goal") or {}).get("deliverable")
+                or "按当前题目要求完成作答"
+            ),
+            "value_type": "str",
+        }
+        first_anchor = anchors[0] if anchors else fallback_anchor
         second_anchor = anchors[1] if len(anchors) > 1 else first_anchor
         steps = path["steps"]
         contrast = path.get("contrast_example") or {}
