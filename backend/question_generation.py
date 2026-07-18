@@ -439,7 +439,11 @@ def _select_adapter(context: AdapterContext) -> tuple[str, AdapterBuilder]:
 def _infer_subject_family(topic: str) -> str:
     lowered = topic.lower()
     if any(marker in lowered for marker in (
-        "矩阵", "方程", "函数", "概率", "几何", "微积分", "行列式",
+        "线性代数", "向量", "矩阵", "方程", "函数", "概率", "几何",
+        "微积分", "行列式", "子空间", "线性组合", "生成集", "span",
+        "线性无关", "基底", "维数", "线性映射", "同构", "特征值",
+        "特征向量", "内积", "正交", "投影", "最小二乘", "奇异值",
+        "svd", "秩", "qr分解", "qr 分解",
     )):
         return "math_formal"
     if any(marker in lowered for marker in (

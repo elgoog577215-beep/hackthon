@@ -204,6 +204,36 @@ def test_supported_subject_families_emit_validated_structured_specs(
         assert all(item["lifecycle_status"] == "approved" for item in generated)
 
 
+def test_legacy_linear_algebra_course_without_profile_infers_math_adapter():
+    course = _course_for(
+        mode="general",
+        topic="1.5 线性组合与生成集",
+        objective="判断给定向量是否属于一组向量的生成空间",
+        key_points=["线性组合", "生成集", "Span"],
+        assessment="求解组合系数并代回检查",
+    )
+    course["course_id"] = "legacy-linear-algebra"
+    course["course_name"] = "《线性代数：理论与应用》"
+    course.pop("subject_pedagogy_profile")
+
+    bundle = build_question_bank(course)
+    generated = [
+        item for item in bundle["items"]
+        if item["assessment_role"] == "practice"
+    ]
+
+    assert generated
+    assert all(
+        item["question_spec"]["subject_family"] == "math_formal"
+        and item["question_spec"]["adapter_id"] == "math.quantitative_reasoning"
+        and item["domain_validation"]["passed"]
+        and item["lifecycle_status"] == "approved"
+        for item in generated
+    )
+    assert all("尚无可验证的专属题型契约" not in item["prompt"] for item in generated)
+    assert bundle["coverage"]["coverage_ratio"] == 1
+
+
 def test_unknown_subject_adapter_never_auto_publishes_or_counts_as_coverage():
     course = _course_for(
         mode="general",
