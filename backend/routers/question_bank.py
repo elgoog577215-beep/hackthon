@@ -55,6 +55,11 @@ async def get_question_bank(
     source_type: str | None = Query(default=None, max_length=50),
     lifecycle_status: str | None = Query(default=None, max_length=50),
     risk: str | None = Query(default=None, max_length=100),
+    archetype_id: str | None = Query(default=None, max_length=100),
+    validation_mode: str | None = Query(default=None, max_length=100),
+    risk_level: str | None = Query(default=None, max_length=50),
+    objective_id: str | None = Query(default=None, max_length=200),
+    generation_status: str | None = Query(default=None, max_length=50),
 ):
     await get_course_or_404(course_id)
     bundle = question_bank_repository.load_bundle(course_id)
@@ -69,12 +74,21 @@ async def get_question_bank(
         source_type=source_type,
         lifecycle_status=lifecycle_status,
         risk=risk,
+        archetype_id=archetype_id,
+        validation_mode=validation_mode,
+        risk_level=risk_level,
+        objective_id=objective_id,
+        generation_status=generation_status,
     )
     return {
         "schema_version": "question_bank_api_v1",
         "course_id": course_id,
         "bundle_revision_id": bundle.get("bundle_revision_id"),
         "coverage": bundle.get("coverage") or {},
+        "assessment_profile": bundle.get("assessment_profile") or {},
+        "assessment_objectives": (
+            bundle.get("assessment_objectives") or []
+        ),
         "review_queue": bundle.get("review_queue") or {},
         "web_enrichment": bundle.get("web_enrichment") or {},
         "items": items,
@@ -287,19 +301,30 @@ def _select_publishable_asset_bundle(
             and (previous_assets.get("quality_report") or {}).get("passed")
         ),
     }
-    if not approved_items_passed:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "question_bank_publication_quality_failed",
-                "quality_report": publication_quality,
-            },
-        )
-
     previous_assets_passed = bool(
         previous_assets
         and (previous_assets.get("quality_report") or {}).get("passed")
     )
+    if not approved_items_passed:
+        if previous_assets_passed:
+            return _overlay_question_bank_publication(
+                previous_assets,
+                question_bank_bundle,
+                [],
+                publication_quality,
+                publication_mode="question_bank_waiting_review_overlay",
+                compatibility_policy=(
+                    "preserve_passing_assets_until_review_completes"
+                ),
+            )
+        return _approved_question_subset_bundle(
+            compiled_assets,
+            question_bank_bundle,
+            [],
+            publication_quality,
+            publication_mode="question_bank_waiting_review",
+            quality_scope="question_bank_waiting_review",
+        )
     if not coverage_complete:
         if previous_assets_passed:
             return _overlay_question_bank_publication(

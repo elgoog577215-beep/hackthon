@@ -498,6 +498,27 @@ def _objective_sources(
             "confidence": str(evidence.get("confidence") or "medium"),
         })
         source_parts.append(source)
+    node_id = str(node.get("node_id") or "")
+    course_document = course_data.get("course_document") or {}
+    for block in course_document.get("blocks") or []:
+        if str(block.get("section_id") or "") != node_id:
+            continue
+        payload = block.get("payload") or {}
+        source = " ".join(
+            str(payload.get(field) or "").strip()
+            for field in ("title", "markdown", "content", "text")
+            if str(payload.get(field) or "").strip()
+        )
+        if not source:
+            continue
+        selected.append({
+            "source_type": "course_document",
+            "block_id": str(block.get("block_id") or ""),
+            "node_id": node_id,
+            "content_hash": stable_hash(source, prefix="src_"),
+            "confidence": "high",
+        })
+        source_parts.append(source)
     node_content = str(node.get("node_content") or "").strip()
     if node_content:
         selected.append({

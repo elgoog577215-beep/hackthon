@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from assessment_contracts import project_public_question
 from assessment_tasks import project_assessment_task, resolve_assessment_task
 from course_knowledge_map import project_learning_assets_to_knowledge
 from course_learning_availability import (
@@ -700,17 +701,7 @@ def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> li
 
 
 def _student_question_payload(question: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(question)
-    for field in (
-        "answer_spec",
-        "hint_contract",
-        "question_spec",
-        "grading_policy",
-        "quality_report",
-        "source_records",
-    ):
-        payload.pop(field, None)
-    return payload
+    return project_public_question(question)
 
 
 def _student_attempt_payload(

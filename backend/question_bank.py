@@ -12,6 +12,11 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterable
 
+from assessment_contracts import (
+    compile_assessment_objectives,
+    compile_course_assessment_profile,
+)
+from assessment_generation import generate_universal_question_contract
 from course_versioning import stable_hash
 from question_generation import (
     generate_cross_chapter_contract,
@@ -85,7 +90,18 @@ def build_question_bank(
         imported.append(_imported_item(course_data, node, source, bindings))
     imported = _deduplicate_imported_items(imported)
 
-    generated = _generated_course_items(course_data, nodes, imported)
+    assessment_profile = compile_course_assessment_profile(course_data)
+    assessment_objectives = compile_assessment_objectives(
+        course_data,
+        assessment_profile,
+    )
+    generated, solution_envelopes = _generated_course_items(
+        course_data,
+        nodes,
+        imported,
+        profile=assessment_profile,
+        objectives=assessment_objectives,
+    )
     finals = _comprehensive_items(course_data, nodes, imported)
     legacy = [_legacy_item(course_data, item) for item in legacy_tasks]
     items = [*imported, *generated, *finals, *legacy]
@@ -103,6 +119,9 @@ def build_question_bank(
             "trusted_web_reference",
             "general_model_knowledge",
         ],
+        "assessment_profile": assessment_profile,
+        "assessment_objectives": assessment_objectives,
+        "solution_envelopes": solution_envelopes,
         "items": items,
         "coverage": coverage,
         "assessment_blueprint": assessment_blueprint,
@@ -203,6 +222,15 @@ def revise_question_bank_item(
 
     result = deepcopy(bundle)
     item = _find_item(result, revision_id)
+    solution_revision_id = str(
+        item.get("solution_revision_id") or ""
+    )
+    if solution_revision_id:
+        solution = (
+            result.get("solution_envelopes") or {}
+        ).get(solution_revision_id)
+        if solution:
+            item["_solution_envelope"] = deepcopy(solution)
     previous_revision = str(item.get("revision_id") or "")
     for field, value in patch.items():
         item[field] = deepcopy(value)
@@ -217,6 +245,7 @@ def revise_question_bank_item(
     item["revision_id"] = _item_revision_id(item)
     item["formal_task"] = _formal_task_from_item(item)
     item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
+    item.pop("_solution_envelope", None)
     result["review_queue"] = _review_queue(result.get("items") or [])
     return refresh_question_bank_bundle(result)
 
@@ -228,6 +257,11 @@ def filter_question_bank_items(
     source_type: str | None = None,
     lifecycle_status: str | None = None,
     risk: str | None = None,
+    archetype_id: str | None = None,
+    validation_mode: str | None = None,
+    risk_level: str | None = None,
+    objective_id: str | None = None,
+    generation_status: str | None = None,
 ) -> list[dict[str, Any]]:
     items = list(bundle.get("items") or [])
     if node_id:
@@ -238,6 +272,36 @@ def filter_question_bank_items(
         items = [item for item in items if item.get("lifecycle_status") == lifecycle_status]
     if risk:
         items = [item for item in items if risk in (item.get("risk_flags") or [])]
+    if archetype_id:
+        items = [
+            item
+            for item in items
+            if item.get("archetype_id") == archetype_id
+        ]
+    if validation_mode:
+        items = [
+            item
+            for item in items
+            if item.get("validation_mode") == validation_mode
+        ]
+    if risk_level:
+        items = [
+            item
+            for item in items
+            if item.get("risk_level") == risk_level
+        ]
+    if objective_id:
+        items = [
+            item
+            for item in items
+            if item.get("objective_id") == objective_id
+        ]
+    if generation_status:
+        items = [
+            item
+            for item in items
+            if item.get("generation_status") == generation_status
+        ]
     return deepcopy(items)
 
 
@@ -277,6 +341,11 @@ def refresh_question_bank_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
         "coverage": result.get("coverage") or {},
         "assessment_blueprint": result.get("assessment_blueprint") or {},
         "web_enrichment": result.get("web_enrichment") or {},
+        "assessment_profile": result.get("assessment_profile") or {},
+        "assessment_objectives": (
+            result.get("assessment_objectives") or []
+        ),
+        "solution_envelopes": result.get("solution_envelopes") or {},
     }
     result["bundle_revision_id"] = stable_hash(
         _without_volatile_timestamps(payload),
@@ -329,6 +398,24 @@ def reconcile_question_bank(
         **deepcopy(rebuilt),
         "items": merged,
     }
+    previous_solutions = previous.get("solution_envelopes") or {}
+    rebuilt_solutions = rebuilt.get("solution_envelopes") or {}
+    referenced_solution_ids = {
+        str(item.get("solution_revision_id") or "")
+        for item in merged
+        if item.get("solution_revision_id")
+    }
+    result["solution_envelopes"] = {
+        solution_id: deepcopy(
+            rebuilt_solutions.get(solution_id)
+            or previous_solutions.get(solution_id)
+        )
+        for solution_id in referenced_solution_ids
+        if (
+            rebuilt_solutions.get(solution_id)
+            or previous_solutions.get(solution_id)
+        )
+    }
     return refresh_question_bank_bundle(result)
 
 
@@ -336,7 +423,18 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
     issues: list[dict[str, str]] = []
     prompt = str(item.get("prompt") or "").strip()
     answer_spec = item.get("answer_spec") or {}
+    private_solution = item.get("_solution_envelope") or {}
+    is_v2 = (
+        (item.get("question_spec") or {}).get("schema_version")
+        == "question_spec_v2"
+    )
     criteria = [str(value).strip() for value in answer_spec.get("criteria") or [] if str(value).strip()]
+    if is_v2:
+        criteria = [
+            str(value).strip()
+            for value in private_solution.get("rubric") or []
+            if str(value).strip()
+        ]
     source_type = str(item.get("source_type") or "")
     requires_structured_spec = source_type in {"generated", "variant"}
     domain_validation: dict[str, Any] = {
@@ -361,6 +459,13 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
                 }],
                 "checks": {},
             }
+        elif is_v2:
+            domain_validation = deepcopy(
+                item.get("solution_validation") or {}
+            )
+            issues.extend(
+                deepcopy(domain_validation.get("issues") or [])
+            )
         else:
             domain_validation = validate_question_spec(question_spec)
             issues.extend(deepcopy(domain_validation.get("issues") or []))
@@ -371,7 +476,19 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
         and is_generic_generated_prompt(prompt)
     ):
         issues.append({"code": "question:generic_prompt", "severity": "critical"})
-    if not criteria and answer_spec.get("correct_answer") is None and answer_spec.get("correct_option_id") is None:
+    has_executable_solution = bool(
+        criteria
+        or answer_spec.get("correct_answer") is not None
+        or answer_spec.get("correct_option_id") is not None
+        or (
+            is_v2
+            and (
+                private_solution.get("canonical_answer") is not None
+                or private_solution.get("rubric")
+            )
+        )
+    )
+    if not has_executable_solution:
         issues.append({"code": "question:answer_not_executable", "severity": "critical"})
     if not item.get("course_knowledge_refs"):
         issues.append({"code": "question:knowledge_unbound", "severity": "major"})
@@ -385,11 +502,16 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
         issues.append({"code": "question:near_duplicate", "severity": "major"})
     if "answer_conflict" in (item.get("risk_flags") or []):
         issues.append({"code": "question:answer_conflict", "severity": "critical"})
-    if requires_structured_spec and not (
-        ((item.get("question_spec") or {}).get("reasoning_path") or {}).get(
-            "steps"
-        )
-    ):
+    has_reasoning_steps = bool(
+        (
+            (item.get("question_spec") or {}).get("reasoning_path")
+            or {}
+        ).get("steps")
+        or (
+            private_solution.get("solution_graph") or {}
+        ).get("steps")
+    )
+    if requires_structured_spec and not has_reasoning_steps:
         issues.append({
             "code": "question:reasoning_path_missing",
             "severity": "critical",
@@ -428,8 +550,7 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
                     and is_generic_generated_prompt(prompt)
                 )
                 and bool(
-                    criteria
-                    or answer_spec.get("correct_answer") is not None
+                    has_executable_solution
                 )
                 and bool(domain_validation.get("passed"))
             ),
@@ -473,6 +594,30 @@ def _has_actionable_reasoning_hints(item: dict[str, Any]) -> bool:
     path = spec.get("reasoning_path") or {}
     contract = item.get("hint_contract") or {}
     levels = contract.get("levels") or []
+    if spec.get("schema_version") == "question_spec_v2":
+        private_solution = item.get("_solution_envelope") or {}
+        graph = private_solution.get("solution_graph") or {}
+        return bool(
+            graph.get("schema_version") == "solution_graph_v1"
+            and graph.get("steps")
+            and contract.get("generator") == "solution_graph_v1"
+            and (
+                contract.get("grounding") or {}
+            ).get("solution_revision_id")
+            == item.get("solution_revision_id")
+            and {
+                int(level.get("level") or 0)
+                for level in levels
+            } == {1, 2, 3}
+            and all(
+                len(str(level.get("content") or "").strip()) >= 12
+                and level.get("step_refs")
+                for level in levels
+            )
+            and (
+                contract.get("leakage_check") or {}
+            ).get("passed") is True
+        )
     generic_markers = (
         "先确认题目要求的最终产物",
         "整理输入—选择方法—执行关键步骤—检查结果",
@@ -717,8 +862,17 @@ def _generated_course_items(
     course_data: dict[str, Any],
     nodes: list[dict[str, Any]],
     imported: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    *,
+    profile: dict[str, Any],
+    objectives: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     result: list[dict[str, Any]] = []
+    solutions: dict[str, dict[str, Any]] = {}
+    objective_by_node = {
+        str(item.get("node_id") or ""): item
+        for item in objectives
+        if item.get("node_id")
+    }
     imported_by_node = {
         str(item.get("node_id") or ""): item
         for item in imported
@@ -733,12 +887,27 @@ def _generated_course_items(
         node_id = str(node.get("node_id") or "")
         key_points = _node_key_points(node)
         source_item = imported_by_node.get(node_id)
+        objective = objective_by_node.get(node_id)
+        if not objective:
+            continue
         for index, (level, label) in enumerate(level_specs):
-            generated_contract = generate_question_contract(
+            universal_contract = generate_universal_question_contract(
+                course_data,
+                node,
+                profile=profile,
+                objective=objective,
+                practice_level=level,
+                variant_index=index,
+            )
+            validation_plugin_contract = generate_question_contract(
                 course_data,
                 node,
                 level,
                 index,
+            )
+            generated_contract = _apply_validation_plugin(
+                universal_contract,
+                validation_plugin_contract,
             )
             source_type = "variant" if source_item else "generated"
             item_id = stable_hash(
@@ -782,7 +951,6 @@ def _generated_course_items(
                     else []
                 ),
                 "options": [],
-                "answer_spec": deepcopy(generated_contract["answer_spec"]),
                 "explanation": "",
                 "score": 100,
                 "estimated_minutes": generated_contract["estimated_minutes"],
@@ -791,6 +959,7 @@ def _generated_course_items(
                 "practice_levels": [level],
                 "assessment_role": "practice",
                 "course_objective_refs": [_objective_ref(course_data, node)],
+                "objective_id": objective.get("objective_id"),
                 "course_knowledge_refs": _node_knowledge_refs(course_data, node),
                 "course_skill_refs": _node_refs(node, "course_skill_refs"),
                 "course_misconception_refs": _node_refs(node, "course_misconception_refs"),
@@ -818,20 +987,280 @@ def _generated_course_items(
                 "question_spec": deepcopy(
                     generated_contract["question_spec"]
                 ),
+                "solution_revision_id": (
+                    generated_contract["solution_envelope"][
+                        "solution_revision_id"
+                    ]
+                ),
+                "solution_validation": deepcopy(
+                    generated_contract["solution_validation"]
+                ),
+                "archetype_id": (
+                    generated_contract["question_spec"][
+                        "archetype_id"
+                    ]
+                ),
+                "validation_mode": (
+                    generated_contract["solution_envelope"][
+                        "validation_mode"
+                    ]
+                ),
+                "risk_level": (
+                    generated_contract["question_spec"][
+                        "risk_contract"
+                    ]["risk_level"]
+                ),
+                "generation_status": "generated",
                 "domain_validation": deepcopy(
-                    generated_contract["domain_validation"]
+                    generated_contract["solution_validation"]
                 ),
                 "created_at": _now(),
             }
+            solution_envelope = deepcopy(
+                generated_contract["solution_envelope"]
+            )
+            item["_solution_envelope"] = solution_envelope
             item["hint_contract"] = _hint_contract(item)
             item["quality_report"] = evaluate_question_item_quality(item)
             item["lifecycle_status"] = _initial_status(item)
             item["review_status"] = item["lifecycle_status"]
+            item["generation_status"] = (
+                "published"
+                if item["lifecycle_status"] == "approved"
+                else (
+                    "waiting_review"
+                    if item["quality_report"].get("passed")
+                    else "validation_failed"
+                )
+            )
             item["revision_id"] = _item_revision_id(item)
             item["formal_task"] = _formal_task_from_item(item)
             item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
+            item.pop("_solution_envelope", None)
+            solutions[solution_envelope["solution_revision_id"]] = (
+                solution_envelope
+            )
             result.append(item)
+    return result, solutions
+
+
+def _apply_validation_plugin(
+    universal_contract: dict[str, Any],
+    plugin_contract: dict[str, Any],
+) -> dict[str, Any]:
+    """Use a legacy deterministic adapter only as a V2 validation plugin."""
+    result = deepcopy(universal_contract)
+    plugin_spec = plugin_contract.get("question_spec") or {}
+    adapter_id = str(plugin_spec.get("adapter_id") or "")
+    if adapter_id == "fallback.teacher_review":
+        return result
+
+    validation_mode = _plugin_validation_mode(adapter_id)
+    plugin_validation = plugin_contract.get("domain_validation") or {}
+    plugin_answer = deepcopy(plugin_contract.get("answer_spec") or {})
+    canonical = (
+        plugin_answer.get("correct_answer")
+        if plugin_answer.get("correct_answer") is not None
+        else plugin_answer.get("canonical_answer")
+    )
+    if canonical is None:
+        canonical = deepcopy(
+            (plugin_answer.get("solution_spec") or {}).get(
+                "final_answer"
+            )
+        )
+    rubric = [
+        str(value)
+        for value in plugin_answer.get("criteria") or []
+        if str(value).strip()
+    ]
+    deterministic = validation_mode in {
+        "exact_validator",
+        "numeric_unit_validator",
+        "symbolic_validator",
+        "code_validator",
+        "state_trace_validator",
+    }
+    plugin_requires_review = bool(
+        plugin_contract.get("review_required")
+        or not plugin_validation.get("passed")
+        or not deterministic
+    )
+    objective_risk = str(
+        (
+            result.get("question_spec", {}).get("risk_contract")
+            or {}
+        ).get("risk_level")
+        or "teacher_review"
+    )
+    requires_review = plugin_requires_review or (
+        objective_risk != "low"
+    )
+
+    public_spec = result["question_spec"]
+    for field in (
+        "stimulus",
+        "task",
+        "constraints",
+        "response_contract",
+        "provenance",
+    ):
+        if field in plugin_spec:
+            public_spec[field] = deepcopy(plugin_spec[field])
+    public_spec["validation_plugin"] = {
+        "adapter_id": adapter_id,
+        "capability_id": plugin_spec.get("capability_id"),
+        "archetype_id": plugin_spec.get("archetype_id"),
+        "subject_family": plugin_spec.get("subject_family"),
+        "mode": validation_mode,
+    }
+    public_spec["subject_family"] = plugin_spec.get("subject_family")
+    public_spec["target"] = {
+        **deepcopy(public_spec.get("target") or {}),
+        "knowledge_points": deepcopy(
+            (plugin_spec.get("target") or {}).get(
+                "knowledge_points"
+            )
+            or []
+        ),
+        "assessment_actions": deepcopy(
+            (plugin_spec.get("target") or {}).get(
+                "assessment_actions"
+            )
+            or []
+        ),
+    }
+    public_spec["risk_contract"] = {
+        **deepcopy(public_spec.get("risk_contract") or {}),
+        "requires_teacher_review": requires_review,
+    }
+
+    solution = result["solution_envelope"]
+    solution["validation_mode"] = validation_mode
+    solution["canonical_answer"] = canonical
+    solution["rubric"] = rubric or deepcopy(solution.get("rubric") or [])
+    solution["legacy_answer_spec"] = plugin_answer
+    solution["validator_config"] = {
+        **deepcopy(solution.get("validator_config") or {}),
+        "adapter_id": adapter_id,
+        "capability_id": plugin_spec.get("capability_id"),
+    }
+    reasoning_path = plugin_spec.get("reasoning_path") or {}
+    if reasoning_path.get("steps"):
+        solution["solution_graph"] = {
+            "schema_version": "solution_graph_v1",
+            "steps": [
+                {
+                    "step_id": (
+                        step.get("step_id")
+                        or f"step-{position}"
+                    ),
+                    "action": (
+                        step.get("instruction")
+                        or step.get("action")
+                        or step.get("operation")
+                        or "执行当前步骤"
+                    ),
+                    "check": (
+                        step.get("check")
+                        or step.get("expected_state")
+                        or step.get("result_check")
+                        or "核对当前中间结果"
+                    ),
+                }
+                for position, step in enumerate(
+                    reasoning_path.get("steps") or [],
+                    start=1,
+                )
+            ],
+        }
+
+    validation_issues = deepcopy(
+        plugin_validation.get("issues") or []
+    )
+    if not deterministic:
+        validation_issues.append({
+            "code": "independent_solution_required",
+            "severity": "major",
+        })
+    passed = bool(plugin_validation.get("passed"))
+    auto_publish = passed and not requires_review
+    result["solution_validation"] = {
+        "schema_version": "solution_validation_report_v1",
+        "passed": passed,
+        "status": (
+            "passed"
+            if auto_publish
+            else (
+                "needs_review"
+                if passed
+                else "failed"
+            )
+        ),
+        "validation_mode": validation_mode,
+        "deterministic": deterministic,
+        "auto_publish_eligible": auto_publish,
+        "issues": validation_issues,
+        "checks": {
+            "schema": True,
+            "solution_revision": True,
+            "answer_executable": bool(
+                canonical is not None or solution.get("rubric")
+            ),
+            "independent_agreement": (
+                deterministic and passed
+            ),
+        },
+        "plugin_report": deepcopy(plugin_validation),
+    }
+    result["domain_validation"] = deepcopy(
+        result["solution_validation"]
+    )
+    result["review_required"] = requires_review
+    result["risk_flags"] = _unique([
+        *result.get("risk_flags", []),
+        *plugin_contract.get("risk_flags", []),
+        *[
+            str(issue.get("code") or "")
+            for issue in validation_issues
+            if issue.get("code")
+        ],
+    ])
+    for field in (
+        "prompt",
+        "deliverable",
+        "input_materials",
+        "constraints",
+        "result_checks",
+        "question_type",
+        "estimated_minutes",
+    ):
+        if field in plugin_contract:
+            result[field] = deepcopy(plugin_contract[field])
     return result
+
+
+def _plugin_validation_mode(adapter_id: str) -> str:
+    if adapter_id in {
+        "math.quantitative_reasoning",
+        "math.calculus",
+        "physics.thermodynamics",
+    }:
+        return "exact_validator"
+    if adapter_id in {
+        "computer_science.graph_traversal",
+        "computer_science.hashing",
+        "computer_science.heap",
+        "computer_science.avl_tree",
+    }:
+        return "state_trace_validator"
+    if adapter_id.startswith("programming."):
+        return "code_validator"
+    if adapter_id == "humanities.evidence_argument":
+        return "evidence_validator"
+    if adapter_id == "language.contextual_production":
+        return "language_rubric_validator"
+    return "expert_rubric_validator"
 
 
 def _comprehensive_items(
@@ -1326,6 +1755,16 @@ def _teacher_source_record(
 
 
 def _hint_contract(item: dict[str, Any]) -> dict[str, Any]:
+    private_solution = item.get("_solution_envelope") or {}
+    if (
+        (item.get("question_spec") or {}).get("schema_version")
+        == "question_spec_v2"
+        and private_solution
+    ):
+        return _solution_graph_hint_contract(
+            item,
+            private_solution,
+        )
     concepts = item.get("reference_concepts") or item.get("course_knowledge_refs") or []
     constraints = item.get("constraints") or []
     criteria = (item.get("answer_spec") or {}).get("criteria") or []
@@ -1417,7 +1856,135 @@ def _hint_contract(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _solution_graph_hint_contract(
+    item: dict[str, Any],
+    solution_envelope: dict[str, Any],
+) -> dict[str, Any]:
+    graph = solution_envelope.get("solution_graph") or {}
+    steps = list(graph.get("steps") or [])
+    while len(steps) < 3:
+        steps.append({
+            "step_id": f"support-{len(steps) + 1}",
+            "action": "核对题面输入、限制条件与当前中间结果",
+            "check": "确认当前步骤没有引入题面之外的假设",
+        })
+
+    def action(position: int) -> str:
+        step = steps[position]
+        return str(
+            step.get("action")
+            or step.get("instruction")
+            or "完成当前步骤"
+        ).strip()
+
+    def check(position: int) -> str:
+        step = steps[position]
+        return str(
+            step.get("check")
+            or step.get("result_check")
+            or "核对当前中间结果"
+        ).strip()
+
+    source_text = str(
+        (
+            (item.get("question_spec") or {}).get("stimulus")
+            or {}
+        ).get("rendered_text")
+        or next(iter(item.get("input_materials") or []), "")
+    ).strip()
+    source_anchor = source_text[:80] or "题面给定材料"
+    levels = [
+        {
+            "level": 1,
+            "kind": "orientation",
+            "content": (
+                f"先在“{source_anchor}”中定位任务需要的输入与边界。"
+                f"自检方向：{check(0)}。"
+            ),
+            "step_refs": [
+                str(steps[0].get("step_id") or "step-1")
+            ],
+            "evidence_effect": "limited_mastery",
+            "support_level": 1,
+        },
+        {
+            "level": 2,
+            "kind": "method_skeleton",
+            "content": (
+                f"方法骨架：{action(0)}；然后{action(1)}。"
+                f"先完成第一步，并检查：{check(0)}。"
+            ),
+            "step_refs": [
+                str(steps[0].get("step_id") or "step-1"),
+                str(steps[1].get("step_id") or "step-2"),
+            ],
+            "evidence_effect": "not_independent",
+            "support_level": 2,
+        },
+        {
+            "level": 3,
+            "kind": "local_scaffold",
+            "content": (
+                f"只示范当前卡点的检查方式：先{action(1)}，"
+                f"再用不同数据核对“{check(1)}”。"
+                "不要直接抄写最终结论。"
+            ),
+            "step_refs": [
+                str(steps[1].get("step_id") or "step-2"),
+                str(steps[2].get("step_id") or "step-3"),
+            ],
+            "evidence_effect": "not_mastery",
+            "support_level": 3,
+        },
+    ]
+    prompt = _normalize_text(str(item.get("prompt") or ""))
+    final_answer = (
+        solution_envelope.get("legacy_answer_spec") or {}
+    ).get("correct_answer")
+    fragments = (
+        _answer_fragments({"correct_answer": final_answer})
+        if final_answer is not None
+        else []
+    )
+    leakage = any(
+        fragment
+        and fragment in _normalize_text(level["content"])
+        for fragment in fragments
+        for level in levels
+    )
+    return {
+        "generator": "solution_graph_v1",
+        "grounding": {
+            "solution_revision_id": solution_envelope.get(
+                "solution_revision_id"
+            ),
+            "solution_graph_schema": graph.get(
+                "schema_version",
+                "solution_graph_v1",
+            ),
+        },
+        "levels": levels,
+        "solution_policy": "after_submission_or_repeated_failure",
+        "solution_effect": {
+            "invalidate_current_evidence": True,
+            "requires_unseen_equivalent_validation": True,
+        },
+        "frozen_with_item_revision": True,
+        "leakage_check": {
+            "passed": not leakage and all(
+                _normalize_text(level["content"]) != prompt
+                for level in levels
+            ),
+            "checked_at_compile_time": True,
+        },
+    }
+
+
 def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
+    private_solution = item.get("_solution_envelope") or {}
+    answer_spec = deepcopy(item.get("answer_spec") or {})
+    if private_solution:
+        answer_spec = _answer_spec_from_solution(private_solution)
     task = {
         "asset_id": stable_hash(
             {"course": item.get("course_id"), "question_bank_item": item.get("item_id")},
@@ -1441,7 +2008,11 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "prompt": item.get("prompt"),
         "subquestions": deepcopy(item.get("subquestions") or []),
         "options": deepcopy(item.get("options") or []),
-        "answer_spec": deepcopy(item.get("answer_spec") or {}),
+        "answer_spec": answer_spec,
+        "solution_revision_id": (
+            item.get("solution_revision_id")
+            or private_solution.get("solution_revision_id")
+        ),
         "practice_level": next(iter(item.get("practice_levels") or []), "objective_practice"),
         "hint_contract": deepcopy(item.get("hint_contract") or {}),
         "input_contract": {
@@ -1452,15 +2023,15 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "grading_policy": {
             "method": (
                 "deterministic"
-                if (item.get("answer_spec") or {}).get("correct_answer") is not None
+                if answer_spec.get("correct_answer") is not None
                 else (
                     "rubric_ai_with_reference"
-                    if (item.get("answer_spec") or {}).get("canonical_answer")
+                    if answer_spec.get("canonical_answer")
                     is not None
                     else "rubric_ai"
                 )
             ),
-            "pass_score": int((item.get("answer_spec") or {}).get("pass_score") or 70),
+            "pass_score": int(answer_spec.get("pass_score") or 70),
             "confidence_threshold": 0.72,
             "near_threshold_review_margin": 3,
         },
@@ -1498,6 +2069,41 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
     )
     task["revision_id"] = stable_hash(task, prefix="qr_")
     return task
+
+
+def _answer_spec_from_solution(
+    solution_envelope: dict[str, Any],
+) -> dict[str, Any]:
+    legacy = deepcopy(
+        solution_envelope.get("legacy_answer_spec") or {}
+    )
+    if legacy:
+        return legacy
+    canonical = deepcopy(
+        solution_envelope.get("canonical_answer")
+    )
+    return {
+        "canonical_answer": canonical,
+        "criteria": deepcopy(
+            solution_envelope.get("rubric") or []
+        ),
+        "pass_score": int(
+            (
+                solution_envelope.get("validator_config") or {}
+            ).get("pass_score")
+            or 70
+        ),
+        "solution_spec": {
+            "schema_version": "solution_spec_v1",
+            "final_answer": canonical,
+            "steps": deepcopy(
+                (
+                    solution_envelope.get("solution_graph") or {}
+                ).get("steps")
+                or []
+            ),
+        },
+    }
 
 
 def _initial_status(item: dict[str, Any]) -> str:
