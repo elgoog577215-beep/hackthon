@@ -166,6 +166,26 @@ def test_java_inner_class_target_uses_java_code_instead_of_record_cleaning():
     )
 
 
+def test_unregistered_programming_topic_is_not_approved_with_arbitrary_records():
+    course = _legacy_course(
+        course_id="legacy-java-inheritance",
+        course_name="Java 面向对象程序设计",
+        node_name="2.1 继承与多态详解",
+        node_content="解释动态绑定规则，并比较重写与重载。",
+    )
+
+    generated = _practice_items(course)
+
+    assert generated
+    assert all(
+        item["question_spec"]["adapter_id"] == "fallback.teacher_review"
+        and item["question_spec"]["capability_id"] == "unregistered"
+        and item["lifecycle_status"] == "needs_review"
+        and "case_id" not in item["prompt"]
+        for item in generated
+    )
+
+
 def test_unregistered_natural_science_topic_is_not_auto_approved_as_experiment():
     course = _legacy_course(
         course_id="legacy-physics-unregistered",
