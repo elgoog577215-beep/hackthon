@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import Any, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from course_document import COURSE_DOCUMENT_SCHEMA
 from course_repository import CourseDocumentRepository
@@ -15,6 +17,7 @@ from course_versions import course_version_repository
 from dependencies import get_course_or_404
 from learning_asset_storage import learning_asset_repository
 from learning_assets import compile_learning_assets
+from learner_context import require_user_id
 from material_storage import material_repository
 from question_bank import (
     filter_question_bank_items,
@@ -24,6 +27,9 @@ from question_bank import (
     revise_question_bank_item,
 )
 from question_search import enrich_question_bank_with_web
+from question_bank_jobs import (
+    question_bank_rebuild_job_repository,
+)
 from storage import storage
 from storage_utils import save_course_compat
 
@@ -35,6 +41,55 @@ router = APIRouter(
 
 class QuestionBankRebuildRequest(BaseModel):
     request_id: str | None = Field(default=None, min_length=8, max_length=200)
+    scope: Literal["course", "nodes"] = "course"
+    node_ids: list[str] = Field(default_factory=list, max_length=200)
+    mode: Literal["incremental", "full"] = "incremental"
+
+    @model_validator(mode="after")
+    def validate_scope(self):
+        self.node_ids = sorted({
+            str(value).strip()
+            for value in self.node_ids
+            if str(value).strip()
+        })
+        if self.scope == "nodes" and not self.node_ids:
+            raise ValueError(
+                "node_ids are required when scope is nodes"
+            )
+        if self.scope == "course":
+            self.node_ids = []
+        return self
+
+
+class QuestionBankRebuildExecutor:
+    """Run durable rebuild jobs outside the request lifecycle."""
+
+    def __init__(self, *, max_workers: int = 2) -> None:
+        self._pool = ThreadPoolExecutor(
+            max_workers=max(1, max_workers),
+            thread_name_prefix="question-bank-rebuild",
+        )
+
+    def submit(
+        self,
+        *,
+        job_id: str,
+        course_id: str,
+        payload: QuestionBankRebuildRequest,
+        course: dict[str, Any],
+    ) -> None:
+        self._pool.submit(
+            asyncio.run,
+            _run_rebuild_job(
+                job_id=job_id,
+                course_id=course_id,
+                payload=payload,
+                course=deepcopy(course),
+            ),
+        )
+
+
+question_bank_rebuild_executor = QuestionBankRebuildExecutor()
 
 
 class QuestionBankReviewRequest(BaseModel):
@@ -100,8 +155,142 @@ async def get_question_bank(
 async def rebuild_question_bank(
     course_id: str,
     payload: QuestionBankRebuildRequest,
+    x_user_id: str | None = Header(
+        default=None,
+        alias="X-User-Id",
+    ),
 ):
+    actor_id = require_user_id(x_user_id)
     course = await get_course_or_404(course_id)
+    if payload.scope == "nodes":
+        known_node_ids = {
+            str(node.get("node_id") or "")
+            for node in course.get("nodes") or []
+            if int(node.get("node_level") or 1) == 2
+        }
+        unknown = sorted(set(payload.node_ids) - known_node_ids)
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "question_bank_rebuild_nodes_unknown",
+                    "node_ids": unknown,
+                },
+            )
+    job, created = (
+        question_bank_rebuild_job_repository.create_job(
+            course_id,
+            request_id=payload.request_id,
+            scope=payload.scope,
+            node_ids=payload.node_ids,
+            mode=payload.mode,
+            actor_id=actor_id,
+        )
+    )
+    if created:
+        question_bank_rebuild_executor.submit(
+            job_id=str(job["job_id"]),
+            course_id=course_id,
+            payload=payload,
+            course=course,
+        )
+    return _job_response(
+        job,
+        deduplicated=not created,
+    )
+
+
+@router.get("/rebuilds/{job_id}")
+async def get_question_bank_rebuild(
+    course_id: str,
+    job_id: str,
+    x_user_id: str | None = Header(
+        default=None,
+        alias="X-User-Id",
+    ),
+):
+    require_user_id(x_user_id)
+    await get_course_or_404(course_id)
+    job = question_bank_rebuild_job_repository.load(
+        course_id,
+        job_id,
+    )
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "question_bank_rebuild_job_not_found",
+            },
+        )
+    return _job_response(job, deduplicated=False)
+
+
+def _job_response(
+    job: dict[str, Any],
+    *,
+    deduplicated: bool,
+) -> dict[str, Any]:
+    result = deepcopy(job)
+    result["deduplicated"] = deduplicated
+    result["status_url"] = (
+        f"/api/courses/{job['course_id']}/question-bank/"
+        f"rebuilds/{job['job_id']}"
+    )
+    return result
+
+
+async def _run_rebuild_job(
+    *,
+    job_id: str,
+    course_id: str,
+    payload: QuestionBankRebuildRequest,
+    course: dict[str, Any],
+) -> None:
+    repository = question_bank_rebuild_job_repository
+    try:
+        repository.start(job_id)
+        result = await _execute_question_bank_rebuild(
+            course_id=course_id,
+            payload=payload,
+            course=course,
+            job_id=job_id,
+        )
+        repository.complete(job_id, result=result)
+    except HTTPException as exc:
+        detail = exc.detail
+        if isinstance(detail, dict):
+            code = str(detail.get("code") or "rebuild_failed")
+            message = str(
+                detail.get("message")
+                or detail.get("detail")
+                or code
+            )
+        else:
+            code = "rebuild_failed"
+            message = str(detail)
+        repository.fail(
+            job_id,
+            code=code,
+            message=message,
+            retryable=exc.status_code >= 500,
+        )
+    except Exception as exc:
+        repository.fail(
+            job_id,
+            code="question_bank_rebuild_failed",
+            message=str(exc)[:1000] or "题库重建失败",
+            retryable=True,
+        )
+
+
+async def _execute_question_bank_rebuild(
+    *,
+    course_id: str,
+    payload: QuestionBankRebuildRequest,
+    course: dict[str, Any],
+    job_id: str,
+) -> dict[str, Any]:
+    repository = question_bank_rebuild_job_repository
     previous = question_bank_repository.load_bundle(course_id)
     previous_assets = learning_asset_repository.load_bundle(course_id)
     if (
@@ -119,9 +308,19 @@ async def rebuild_question_bank(
             course,
             deduplicated=True,
         )
+    repository.advance(
+        job_id,
+        stage_id="material_parsing",
+        message="正在解析题目资料与课程正文",
+    )
     course_for_bank = deepcopy(course)
     course_for_bank["evidence_catalog"] = _load_course_evidence(
         course.get("material_bindings") or []
+    )
+    repository.advance(
+        job_id,
+        stage_id="assessment_profile",
+        message="正在编译课程测评画像",
     )
     legacy_tasks = []
     if not previous:
@@ -134,6 +333,26 @@ async def rebuild_question_bank(
             *(assets.get("questions") or []),
             *(assets.get("final_assessment") or []),
         ]
+    repository.advance(
+        job_id,
+        stage_id="objective_compilation",
+        message="正在编译节点能力目标",
+    )
+    repository.advance(
+        job_id,
+        stage_id="source_retrieval",
+        message="正在检索课程内来源与覆盖缺口",
+    )
+    repository.advance(
+        job_id,
+        stage_id="archetype_planning",
+        message="正在规划题型原型与验证方式",
+    )
+    repository.advance(
+        job_id,
+        stage_id="question_generation",
+        message="正在生成三层候选题",
+    )
     initial_assets = compile_learning_assets(
         course_for_bank,
         legacy_tasks=legacy_tasks,
@@ -161,7 +380,17 @@ async def rebuild_question_bank(
         course_for_bank["course_knowledge_map"] = deepcopy(
             compiled_knowledge_map
         )
+    repository.advance(
+        job_id,
+        stage_id="independent_solving",
+        message="正在执行独立求解与确定性验证",
+    )
     bundle = await enrich_question_bank_with_web(course_for_bank, bundle)
+    repository.advance(
+        job_id,
+        stage_id="quality_validation",
+        message="正在执行质量门与风险分级",
+    )
     bundle = reconcile_question_bank(previous, bundle)
     compiled_assets = compile_learning_assets(
         course_for_bank,
@@ -196,6 +425,11 @@ async def rebuild_question_bank(
     )
     published_course = course
     if not deduplicated:
+        repository.advance(
+            job_id,
+            stage_id="waiting_review",
+            message="正在计算审核队列与安全发布范围",
+        )
         published_course = await _publish_rebuilt_course(
             course_id,
             course,
@@ -213,7 +447,7 @@ async def rebuild_question_bank(
                 else None
             ),
         )
-    return _rebuild_response(
+    response = _rebuild_response(
         course_id,
         payload.request_id,
         stored,
@@ -221,6 +455,15 @@ async def rebuild_question_bank(
         published_course,
         deduplicated=deduplicated,
     )
+    if not (response.get("review_queue") or {}).get(
+        "blocking_count"
+    ):
+        repository.advance(
+            job_id,
+            stage_id="publication",
+            message="题库与课程修订发布完成",
+        )
+    return response
 
 
 def _rebuild_response(
