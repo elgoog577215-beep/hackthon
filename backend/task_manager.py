@@ -62,6 +62,15 @@ from generation_workspace import (
     GenerationWorkspaceRepository,
     generation_workspace_repository,
 )
+from guided_generation import (
+    artifact_revision as guided_artifact_revision,
+    build_source_chain_report,
+    confirm_waiting_step,
+    create_guided_workflow,
+    is_confirmed as guided_step_confirmed,
+    mark_running as mark_guided_step_running,
+    mark_waiting as mark_guided_step_waiting,
+)
 from learning_asset_storage import LearningAssetRepository, learning_asset_repository
 from learning_assets import compile_learning_asset_plan, compile_learning_assets
 from material_pipeline import ingest_legacy_material_inputs
@@ -334,6 +343,12 @@ class TaskManager:
             "workspace_id": workspace_id,
             "base_document_revision": base_document_revision,
         }
+        if (
+            task_type == "course_generation"
+            and workspace_id
+            and task["operation"] == "generate"
+        ):
+            task["guided_workflow"] = create_guided_workflow(task["request_snapshot"])
         async with self._lock:
             self.tasks[task_id] = task
             self._task_logs[task_id] = []
@@ -393,6 +408,10 @@ class TaskManager:
         if not subject:
             raise ValueError("Course subject cannot be blank")
         request_snapshot["subject"] = subject
+        # First-time generation has one product path: every product artifact is
+        # reviewed in the six-step workflow. Keep the legacy field only as a
+        # transport compatibility detail.
+        request_snapshot["generation_mode"] = "review_blueprint"
         legacy_bindings, metadata_only = await ingest_legacy_material_inputs(
             request_snapshot.get("materials") or [],
             repository=self._material_repository,
@@ -405,13 +424,13 @@ class TaskManager:
         course_data = {
             "course_id": course_id,
             "course_name": subject,
-            "generation_schema_version": "course_generation_v5",
+            "generation_schema_version": "course_generation_v6",
             "generation_status": "queued",
             "nodes": [],
             "generation_request": request_snapshot,
             "generation_quality_report": None,
             "course_purpose": request_snapshot.get("course_purpose") or "systematic",
-            "generation_mode": request_snapshot.get("generation_mode") or "fast",
+            "generation_mode": "review_blueprint",
         }
         workspace_created = False
         try:
@@ -455,8 +474,12 @@ class TaskManager:
             "phase": "queued",
         }
 
-    async def confirm_blueprint(self, course_id: str) -> dict[str, Any]:
-        """Confirm a waiting initial blueprint and resume the same job."""
+    async def confirm_generation_step(
+        self,
+        course_id: str,
+        step: str,
+    ) -> dict[str, Any]:
+        """Confirm the current user-facing artifact and resume the same job."""
         waiting = [
             task for task in self.tasks.values()
             if task.get("course_id") == course_id
@@ -464,34 +487,109 @@ class TaskManager:
             and task.get("type") == "course_generation"
         ]
         if not waiting:
-            raise ValueError("No course generation job is waiting for blueprint review")
+            related = [
+                task for task in self.tasks.values()
+                if task.get("course_id") == course_id
+                and task.get("type") == "course_generation"
+                and isinstance(task.get("guided_workflow"), dict)
+            ]
+            related.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+            if related:
+                latest = related[0]
+                confirmed_state = next(
+                    (
+                        item for item in latest["guided_workflow"].get("steps") or []
+                        if item.get("key") == step
+                    ),
+                    None,
+                )
+                if confirmed_state and confirmed_state.get("status") == "confirmed":
+                    return {
+                        "status": "already_confirmed",
+                        "job_id": str(latest["id"]),
+                        "course_id": course_id,
+                        "confirmed_step": step,
+                        "artifact_revision": confirmed_state.get("artifact_revision"),
+                        "guided_workflow": deepcopy(latest["guided_workflow"]),
+                    }
+            raise ValueError("No course generation job is waiting for review")
         waiting.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
         task = waiting[0]
         task_id = str(task["id"])
+        workflow = task.get("guided_workflow")
+        if not isinstance(workflow, dict):
+            raise ValueError("This generation job does not use the guided workflow")
+        review_step = str(workflow.get("review_step") or "")
+        if review_step != step:
+            raise ValueError(
+                f"Current review step is {review_step or 'none'}, not {step}"
+            )
         course_data = self._load_task_course(task_id)
         if not course_data:
             raise ValueError("Course not found")
-        draft = self._version_repository.load_draft(course_id) or build_blueprint_draft(course_data)
-        impact = analyze_blueprint_impact(course_data, draft)
-        if not impact.get("can_confirm", False):
-            raise CourseVersionConflict("Blueprint contains locked conflicts")
-        confirmed = merge_blueprint_draft(course_data, draft)
-        plan = deepcopy(confirmed.get("course_plan") or confirmed.get("course_outline") or {})
-        if isinstance(plan, dict):
-            plan["course_title"] = str(confirmed.get("course_name") or plan.get("course_title") or "")
-            confirmed["course_plan"] = plan
-        confirmed["generation_status"] = "outline_confirmed"
-        confirmed["blueprint_revision_id"] = impact.get("draft_blueprint_revision_id")
-        frozen = self._version_repository.freeze_blueprint(course_id, confirmed)
-        await self._save_task_course(task_id, confirmed)
-        self._version_repository.delete_draft(course_id)
-        async with self._lock:
+
+        impact: dict[str, Any] | None = None
+        if step == "outline":
+            draft = self._version_repository.load_draft(course_id) or build_blueprint_draft(course_data)
+            impact = analyze_blueprint_impact(course_data, draft)
+            if not impact.get("can_confirm", False):
+                raise CourseVersionConflict("Blueprint contains locked conflicts")
+            confirmed = merge_blueprint_draft(course_data, draft)
+            plan = deepcopy(confirmed.get("course_plan") or confirmed.get("course_outline") or {})
+            if isinstance(plan, dict):
+                plan["course_title"] = str(confirmed.get("course_name") or plan.get("course_title") or "")
+                confirmed["course_plan"] = plan
+            confirmed["generation_status"] = "outline_confirmed"
+            confirmed["blueprint_revision_id"] = impact.get("draft_blueprint_revision_id")
+            frozen = self._version_repository.freeze_blueprint(course_id, confirmed)
+            confirmed["blueprint_revision_id"] = frozen["blueprint_revision_id"]
+            confirmed["course_outline_revision_id"] = frozen["blueprint_revision_id"]
+            course_data = confirmed
+            await self._save_task_course(task_id, course_data)
+            self._version_repository.delete_draft(course_id)
+            revision = guided_artifact_revision(
+                "outline",
+                course_data,
+                request=task.get("request_snapshot") or {},
+            )
+            # 目录审阅页允许用户在确认前编辑；最终确认的是保存后的最新版，
+            # 而不是刚进入审阅页时的旧修订。
+            for item in workflow.get("steps") or []:
+                if item.get("key") == "outline":
+                    item["artifact_revision"] = revision
+                    break
             task["blueprint_confirmed"] = True
-            task["blueprint_revision_id"] = frozen["blueprint_revision_id"]
+            task["blueprint_revision_id"] = revision
+        else:
+            if step == "release":
+                source_report = course_data.get("generation_source_chain_report") or {}
+                quality_report = course_data.get("generation_quality_report") or {}
+                if not source_report.get("can_publish"):
+                    raise CourseVersionConflict(
+                        "The course no longer matches the confirmed source chain"
+                    )
+                if not quality_report.get("publication_allowed"):
+                    raise CourseVersionConflict(
+                        "The course has blocking quality issues and cannot be published"
+                    )
+            revision = guided_artifact_revision(
+                step,
+                course_data,
+                request=task.get("request_snapshot") or {},
+            )
+
+        confirm_waiting_step(workflow, step, revision=revision)
+        async with self._lock:
             task["status"] = "pending"
-            task["phase"] = "outline_ready"
+            task["phase"] = f"{step}_confirmed"
             task["phase_progress"] = 100
-            task["message"] = "课程目录已确认，等待生成逐节知识包"
+            task["message"] = {
+                "outline": "课程目录已确认，开始生成知识蓝图",
+                "knowledge": "知识蓝图已确认，开始生成教学方案",
+                "teaching": "教学方案已确认，开始生成课程内容",
+                "content": "课程内容已确认，开始执行质量与发布检查",
+                "release": "质量与发布已确认，正在发布课程",
+            }.get(step, "当前步骤已确认，继续生成")
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
         await self._task_queue.put(task_id)
@@ -500,10 +598,16 @@ class TaskManager:
             "status": "resumed",
             "job_id": task_id,
             "course_id": course_id,
-            "blueprint_revision_id": confirmed.get("blueprint_revision_id"),
+            "confirmed_step": step,
+            "artifact_revision": revision,
+            "blueprint_revision_id": course_data.get("blueprint_revision_id"),
             "impact_report": impact,
+            "guided_workflow": deepcopy(workflow),
         }
 
+    async def confirm_blueprint(self, course_id: str) -> dict[str, Any]:
+        """Compatibility alias for the former outline-only review endpoint."""
+        return await self.confirm_generation_step(course_id, "outline")
     async def create_regeneration_job(
         self,
         course_id: str,
@@ -749,6 +853,7 @@ class TaskManager:
                     "progress",
                     "phase_progress",
                     "phase_detail",
+                    "guided_workflow",
                     "message",
                     "error",
                     "completed_nodes",
@@ -761,6 +866,176 @@ class TaskManager:
                 )
             },
             "nodes": nodes,
+        }
+
+    def get_generation_review(self, course_id: str) -> dict[str, Any] | None:
+        """Return the safe, product-facing artifact for the current review step."""
+        candidates = [
+            task
+            for task in self.tasks.values()
+            if task.get("course_id") == course_id
+            and isinstance(task.get("guided_workflow"), dict)
+        ]
+        candidates.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+        if not candidates:
+            return None
+        task = candidates[0]
+        workflow = deepcopy(task["guided_workflow"])
+        workspace_id = str(task.get("workspace_id") or "")
+        try:
+            course_data = (
+                self._generation_workspace_repository.load_course(workspace_id)
+                if workspace_id
+                else self._load_task_course(str(task["id"]))
+            )
+        except GenerationWorkspaceNotFound:
+            return None
+        if not isinstance(course_data, dict):
+            return None
+
+        step = str(workflow.get("review_step") or workflow.get("current_step") or "outline")
+        artifact: dict[str, Any] = {}
+        if step == "outline":
+            plan = course_data.get("course_plan") or course_data.get("course_outline") or {}
+            artifact = {
+                "course_name": str(course_data.get("course_name") or ""),
+                "course_positioning": str(
+                    plan.get("course_positioning")
+                    or plan.get("positioning")
+                    or plan.get("course_description")
+                    or ""
+                ),
+                "learning_objectives": deepcopy(
+                    plan.get("learning_objectives")
+                    or course_data.get("learning_objectives")
+                    or []
+                ),
+                "sections": [
+                    {
+                        "node_id": str(node.get("node_id") or ""),
+                        "parent_node_id": str(node.get("parent_node_id") or "root"),
+                        "name": str(node.get("node_name") or ""),
+                        "level": int(node.get("node_level") or 1),
+                        "learning_objective": str(node.get("learning_objective") or ""),
+                        "scope_boundary": str(node.get("scope_boundary") or ""),
+                    }
+                    for node in course_data.get("nodes") or []
+                ],
+            }
+        elif step == "knowledge":
+            knowledge_base = course_data.get("course_knowledge_base") or {}
+            groups = knowledge_base.get("concept_groups") or []
+            points = knowledge_base.get("knowledge_points") or []
+            artifact = {
+                "lifecycle_status": knowledge_base.get("lifecycle_status"),
+                "revision_id": knowledge_base.get("revision_id"),
+                "concept_group_count": len(groups),
+                "knowledge_point_count": len(points),
+                "relation_count": len(knowledge_base.get("relations") or []),
+                "concept_groups": [
+                    {
+                        "name": str(group.get("name") or group.get("title") or ""),
+                        "summary": str(
+                            group.get("summary")
+                            or group.get("description")
+                            or group.get("learning_purpose")
+                            or ""
+                        ),
+                    }
+                    for group in groups[:24]
+                    if isinstance(group, dict)
+                ],
+                "knowledge_points": [
+                    {
+                        "name": str(point.get("name") or point.get("title") or ""),
+                        "statement": str(
+                            point.get("knowledge_statement")
+                            or point.get("statement")
+                            or point.get("definition")
+                            or ""
+                        ),
+                    }
+                    for point in points[:40]
+                    if isinstance(point, dict)
+                ],
+                "quality": deepcopy(
+                    knowledge_base.get("quality_report")
+                    or course_data.get("course_knowledge_quality_report")
+                    or {}
+                ),
+            }
+        elif step == "teaching":
+            plan = course_data.get("learning_asset_plan") or {}
+            artifact = {
+                "enabled_assets": deepcopy(plan.get("enabled_assets") or plan.get("enabled") or {}),
+                "sections": [
+                    {
+                        "node_id": str(node.get("node_id") or ""),
+                        "name": str(node.get("node_name") or ""),
+                        "learning_objective": str(node.get("learning_objective") or ""),
+                        "module_plan": deepcopy(node.get("module_plan") or {}),
+                        "examples_plan": deepcopy(node.get("examples_plan") or {}),
+                        "exercise_plan": deepcopy(node.get("exercise_plan") or {}),
+                    }
+                    for node in course_data.get("nodes") or []
+                    if int(node.get("node_level") or 1) == 2
+                ],
+            }
+        elif step == "content":
+            content_nodes = [
+                node
+                for node in course_data.get("nodes") or []
+                if int(node.get("node_level") or 1) == 2
+            ]
+            artifact = {
+                "section_count": len(content_nodes),
+                "completed_count": sum(self._is_content_complete(node) for node in content_nodes),
+                "sections": [
+                    {
+                        "node_id": str(node.get("node_id") or ""),
+                        "name": str(node.get("node_name") or ""),
+                        "status": str(node.get("generation_status") or ""),
+                        "character_count": len(str(node.get("node_content") or "")),
+                        "block_count": len(node.get("content_blocks") or []),
+                        "needs_manual_review": bool(node.get("needs_manual_review")),
+                    }
+                    for node in content_nodes
+                ],
+            }
+        elif step == "release":
+            source_report = deepcopy(course_data.get("generation_source_chain_report") or {})
+            quality_report = deepcopy(course_data.get("generation_quality_report") or {})
+            artifact = {
+                "quality_status": quality_report.get("final_status"),
+                "publication_allowed": bool(quality_report.get("publication_allowed")),
+                "blocking_issues": deepcopy(quality_report.get("blocking_issues") or []),
+                "warnings": deepcopy(
+                    quality_report.get("warnings")
+                    or quality_report.get("quality_warnings")
+                    or []
+                ),
+                "source_chain": source_report,
+            }
+
+        return {
+            "schema_version": "guided_generation_review_v1",
+            "course_id": course_id,
+            "job_id": str(task.get("id") or ""),
+            "status": str(task.get("status") or ""),
+            "step": step,
+            "can_confirm": (
+                task.get("status") == "waiting_for_review"
+                and workflow.get("review_step") == step
+                and (
+                    step != "release"
+                    or (
+                        artifact.get("publication_allowed")
+                        and (artifact.get("source_chain") or {}).get("can_publish")
+                    )
+                )
+            ),
+            "guided_workflow": workflow,
+            "artifact": artifact,
         }
 
     def describe_task_recovery(self, task_id: str) -> dict[str, Any]:
@@ -1789,6 +2064,54 @@ class TaskManager:
         detail = "；".join(messages[:6]) or "课程知识蓝图缺失或尚未通过质量门"
         raise RuntimeError(f"正文生成已停止：{detail}")
 
+    async def _pause_for_guided_review(
+        self,
+        task_id: str,
+        course_data: dict[str, Any],
+        step: str,
+        *,
+        phase: str,
+        progress: int,
+        message: str,
+        revision: str | None = None,
+        phase_detail: dict[str, Any] | None = None,
+    ) -> None:
+        task = self.tasks.get(task_id)
+        if not task or not isinstance(task.get("guided_workflow"), dict):
+            return
+        artifact_id = revision or guided_artifact_revision(
+            step,
+            course_data,
+            request=task.get("request_snapshot") or {},
+        )
+        async with self._lock:
+            mark_guided_step_waiting(
+                task["guided_workflow"],
+                step,
+                revision=artifact_id,
+            )
+            task["updated_at"] = datetime.now().isoformat()
+            self.save_tasks()
+        await self._save_task_course(task_id, course_data)
+        await self._update_phase(
+            task_id,
+            phase,
+            progress,
+            message,
+            phase_progress=100,
+            phase_detail={
+                "artifact_type": step,
+                "artifact_revision": artifact_id,
+                **(phase_detail or {}),
+            },
+        )
+        await self._update_task_status(
+            task_id,
+            "waiting_for_review",
+            message=message,
+        )
+        await self._push_progress(task_id)
+
     async def _process_task(self, task_id: str) -> None:
         """处理单个任务：分析课程结构并调度节点。
 
@@ -1813,8 +2136,24 @@ class TaskManager:
             return
 
         request = task.get("request_snapshot") or course_data.get("generation_request") or {}
-        request_mode = str(request.get("generation_mode") or "fast")
-        review_pending = request_mode == "review_blueprint" and not task.get("blueprint_confirmed")
+        guided_workflow = task.get("guided_workflow")
+        guided = isinstance(guided_workflow, dict)
+        if guided and not guided_workflow.get("review_step"):
+            current_guided_step = str(
+                guided_workflow.get("current_step") or "outline"
+            )
+            mark_guided_step_running(guided_workflow, current_guided_step)
+            async with self._lock:
+                task["updated_at"] = datetime.now().isoformat()
+                self.save_tasks()
+        request_mode = str(request.get("generation_mode") or "review_blueprint")
+        review_pending = (
+            guided and not guided_step_confirmed(guided_workflow, "outline")
+        ) or (
+            not guided
+            and request_mode == "review_blueprint"
+            and not task.get("blueprint_confirmed")
+        )
         knowledge_base = course_data.get("course_knowledge_base") or {}
         pipeline_ready = bool(
             course_data.get("course_blueprint")
@@ -1879,6 +2218,25 @@ class TaskManager:
                 ).get("actual") or {}
                 course_data["generation_status"] = "outline_ready"
                 await self._save_task_course(task_id, course_data)
+                if guided:
+                    await self._pause_for_guided_review(
+                        task_id,
+                        course_data,
+                        "outline",
+                        phase="outline_ready",
+                        progress=35,
+                        message="课程目录等待确认；确认后才会生成知识蓝图",
+                        revision=guided_artifact_revision(
+                            "outline",
+                            course_data,
+                            request=task.get("request_snapshot") or {},
+                        ),
+                        phase_detail={
+                            "completed_items": int(outline_actual.get("section_count") or 0),
+                            "total_items": int(outline_actual.get("section_count") or 0),
+                        },
+                    )
+                    return
                 await self._update_phase(
                     task_id,
                     "outline_ready",
@@ -1906,10 +2264,6 @@ class TaskManager:
             ).get("lifecycle_status") != "active":
                 course_data = await self._prepare_subject_knowledge(task_id, course_data)
             self._require_course_knowledge_ready(course_data)
-            course_data["learning_asset_plan"] = compile_learning_asset_plan(course_data)
-            if isinstance(course_data.get("course_blueprint"), dict):
-                course_data["course_blueprint"]["learning_asset_plan"] = course_data["learning_asset_plan"]
-            course_data["generation_status"] = "content_generation"
             frozen = self._version_repository.freeze_blueprint(course_id, course_data)
             course_data["blueprint_revision_id"] = frozen["blueprint_revision_id"]
             task["blueprint_revision_id"] = frozen["blueprint_revision_id"]
@@ -1920,6 +2274,41 @@ class TaskManager:
                 course_data = await self._prepare_subject_knowledge(task_id, course_data)
                 await self._save_task_course(task_id, course_data)
             self._require_course_knowledge_ready(course_data)
+
+        if guided and not guided_step_confirmed(guided_workflow, "knowledge"):
+            await self._pause_for_guided_review(
+                task_id,
+                course_data,
+                "knowledge",
+                phase="knowledge_ready",
+                progress=48,
+                message="知识蓝图等待确认；确认后才会设计每节怎样讲",
+                phase_detail={
+                    "knowledge_revision_id": (
+                        course_data.get("course_knowledge_base") or {}
+                    ).get("revision_id"),
+                },
+            )
+            return
+
+        if task.get("type") == "course_generation":
+            if not course_data.get("learning_asset_plan"):
+                course_data["learning_asset_plan"] = compile_learning_asset_plan(course_data)
+                if isinstance(course_data.get("course_blueprint"), dict):
+                    course_data["course_blueprint"]["learning_asset_plan"] = course_data["learning_asset_plan"]
+                await self._save_task_course(task_id, course_data)
+            if guided and not guided_step_confirmed(guided_workflow, "teaching"):
+                await self._pause_for_guided_review(
+                    task_id,
+                    course_data,
+                    "teaching",
+                    phase="teaching_ready",
+                    progress=55,
+                    message="教学方案等待确认；确认后才会生成完整课程内容",
+                )
+                return
+            course_data["generation_status"] = "content_generation"
+            await self._save_task_course(task_id, course_data)
 
         if task.get("status") == "paused":
             return
@@ -1935,7 +2324,30 @@ class TaskManager:
         incomplete_l2 = [n for n in l2_nodes if not self._is_content_complete(n)]
 
         if not incomplete_l2:
-            # All done
+            if guided and not guided_step_confirmed(guided_workflow, "content"):
+                for node in l2_nodes:
+                    if (
+                        str(node.get("node_content") or "").strip()
+                        and not node.get("content_blocks")
+                    ):
+                        set_node_content_blocks(
+                            node,
+                            str(node.get("node_content") or ""),
+                        )
+                await self._save_task_course(task_id, course_data)
+                await self._pause_for_guided_review(
+                    task_id,
+                    course_data,
+                    "content",
+                    phase="content_ready",
+                    progress=88,
+                    message="课程内容已经生成，等待你整体审阅",
+                    phase_detail={
+                        "completed_items": len(l2_nodes),
+                        "total_items": len(l2_nodes),
+                    },
+                )
+                return
             await self._complete_task(task_id, course_data)
             return
 
@@ -1961,6 +2373,37 @@ class TaskManager:
         # After all nodes processed, check for completion
         course_data = self._load_task_course(task_id)
         if course_data:
+            if guided and not guided_step_confirmed(guided_workflow, "content"):
+                l2_nodes = [
+                    node
+                    for node in course_data.get("nodes") or []
+                    if int(node.get("node_level") or 1) == 2
+                ]
+                for node in l2_nodes:
+                    if (
+                        str(node.get("node_content") or "").strip()
+                        and not node.get("content_blocks")
+                    ):
+                        set_node_content_blocks(
+                            node,
+                            str(node.get("node_content") or ""),
+                        )
+                await self._save_task_course(task_id, course_data)
+                await self._pause_for_guided_review(
+                    task_id,
+                    course_data,
+                    "content",
+                    phase="content_ready",
+                    progress=88,
+                    message="课程内容已经生成，等待你整体审阅",
+                    phase_detail={
+                        "completed_items": sum(
+                            self._is_content_complete(node) for node in l2_nodes
+                        ),
+                        "total_items": len(l2_nodes),
+                    },
+                )
+                return
             await self._complete_task(task_id, course_data)
 
     async def _save_generated_node_content(
@@ -2656,6 +3099,7 @@ class TaskManager:
                 "current_phase": task.get("current_phase", ""),
                 "phase_progress": task.get("phase_progress", 0),
                 "phase_detail": task.get("phase_detail", {}),
+                "guided_workflow": deepcopy(task.get("guided_workflow")),
                 "message": task.get("message", ""),
                 "error": task.get("error"),
                 "progress": progress,
@@ -2817,6 +3261,49 @@ class TaskManager:
         quality_report["publication_allowed"] = publication_allowed
         fresh_course["generation_quality_report"] = quality_report
         await self._save_task_course(task_id, fresh_course)
+
+        guided_workflow = task.get("guided_workflow")
+        if isinstance(guided_workflow, dict):
+            source_chain_report = build_source_chain_report(
+                guided_workflow,
+                fresh_course,
+                request=task.get("request_snapshot") or {},
+            )
+            fresh_course["generation_source_chain_report"] = source_chain_report
+            publication_allowed = bool(
+                publication_allowed and source_chain_report.get("can_publish")
+            )
+            quality_report["publication_allowed"] = publication_allowed
+            quality_report["source_chain_passed"] = bool(
+                source_chain_report.get("can_publish")
+            )
+            fresh_course["generation_quality_report"] = quality_report
+            await self._save_task_course(task_id, fresh_course)
+            if not guided_step_confirmed(guided_workflow, "release"):
+                await self._pause_for_guided_review(
+                    task_id,
+                    fresh_course,
+                    "release",
+                    phase="release_ready",
+                    progress=98,
+                    message=(
+                        "全部检查通过，等待确认发布"
+                        if publication_allowed
+                        else "发布检查发现阻断问题，请查看检查结果"
+                    ),
+                    phase_detail={
+                        "publication_allowed": publication_allowed,
+                        "source_chain_passed": bool(
+                            source_chain_report.get("can_publish")
+                        ),
+                        "blocking_issue_count": len(
+                            quality_report.get("blocking_issues") or []
+                        )
+                        + len(source_chain_report.get("issues") or []),
+                    },
+                )
+                return
+
         candidate_id = task.get("candidate_id")
         workspace_id = task.get("workspace_id")
         version_entry: dict[str, Any] | None = None

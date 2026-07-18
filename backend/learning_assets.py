@@ -364,6 +364,12 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
         course_map=course_map,
         assets=assets,
     )
+    # The final knowledge revision includes precise content and asset bindings.
+    # Rebind the course map after that revision exists so the published map and
+    # every downstream asset point at the same knowledge source.
+    course_map = bind_course_knowledge_base_to_map(course_map, course_knowledge_base)
+    if "course_knowledge_map" in enabled:
+        assets["course_knowledge_map"] = [course_map]
     _attach_course_knowledge_refs_to_blocks(course_data, course_knowledge_base)
     _attach_course_knowledge_refs(assets, course_knowledge_base)
     if "course_knowledge_base" in enabled:

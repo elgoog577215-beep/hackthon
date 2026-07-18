@@ -252,6 +252,9 @@ export const useGenerationStore = defineStore('generation', {
           localTask.publicationAllowed = payload.publication_allowed
         }
         if (payload.quality_status) localTask.qualityStatus = String(payload.quality_status)
+        if (payload.guided_workflow) {
+          localTask.guidedWorkflow = payload.guided_workflow as Task['guidedWorkflow']
+        }
       }
       this.taskProgress[course_id] = projectTaskProgress(this.taskProgress[course_id], {
         percentage: (payload.progress as number) ?? 0,
@@ -701,6 +704,7 @@ export const useGenerationStore = defineStore('generation', {
           recovery: task.recovery,
           publicationAllowed: task.publicationAllowed,
           qualityStatus: task.qualityStatus,
+          guidedWorkflow: task.guidedWorkflow,
           shouldStop: false,
         }))
         const cs = this._courseStore()
@@ -770,6 +774,9 @@ export const useGenerationStore = defineStore('generation', {
               localTask.publicationAllowed = backendTask.publication_allowed
             }
             if (backendTask.quality_status) localTask.qualityStatus = String(backendTask.quality_status)
+            if (backendTask.guided_workflow) {
+              localTask.guidedWorkflow = backendTask.guided_workflow
+            }
             const phase = backendTask.current_phase || backendTask.phase
             if (phase) {
               localTask.currentPhase = String(phase)

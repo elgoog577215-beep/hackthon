@@ -103,6 +103,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     practiceScope: 'node' as 'node' | 'final' | 'all',
     assets: null as LearningAssetsResponse | null,
     blueprint: null as any,
+    generationReview: null as any,
     versions: [] as any[],
     currentVersionId: '' as string,
     versionDiff: null as any,
@@ -521,7 +522,23 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       }
     },
     async confirmBlueprint(courseId: string) {
-      const res = await http.post(`/api/courses/${courseId}/blueprint/confirm`)
+      return this.confirmGenerationStep(courseId, 'outline')
+    },
+    async loadGenerationReview(courseId: string) {
+      this.loading = true
+      try {
+        const res = await http.get(`/api/courses/${courseId}/generation/review`)
+        this.generationReview = res.data
+        return res.data
+      } finally {
+        this.loading = false
+      }
+    },
+    async confirmGenerationStep(
+      courseId: string,
+      step: 'outline' | 'knowledge' | 'teaching' | 'content' | 'release',
+    ) {
+      const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/confirm`)
       return res.data
     },
     async discardBlueprint(courseId: string) {

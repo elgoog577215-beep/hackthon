@@ -129,30 +129,17 @@
             </div>
           </section>
 
-          <section class="form-section">
-            <label class="field-label">{{ t('courseGeneration.form.generationMode', '生成方式') }}</label>
-            <div class="segmented-options segmented-options--two">
-              <button
-                type="button"
-                :class="{ active: form.generationMode === 'review_blueprint' }"
-                :aria-pressed="form.generationMode === 'review_blueprint'"
-                :disabled="busy"
-                @click="form.generationMode = 'review_blueprint'"
-              >
-                <BookOpenCheck :size="17" />
-                <span><strong>{{ t('courseGeneration.generationMode.review', '先审蓝图') }}</strong>{{ t('courseGeneration.generationMode.reviewHelp', '先确认目录与学习目标，再生成正文') }}</span>
-              </button>
-              <button
-                type="button"
-                :class="{ active: form.generationMode === 'fast' }"
-                :aria-pressed="form.generationMode === 'fast'"
-                :disabled="busy"
-                @click="form.generationMode = 'fast'"
-              >
-                <Gauge :size="17" />
-                <span><strong>{{ t('courseGeneration.generationMode.fast', '直接生成') }}</strong>{{ t('courseGeneration.generationMode.fastHelp', '按当前设置直接完成整门课程') }}</span>
-              </button>
+          <section class="form-section guided-intro">
+            <div class="guided-intro__heading">
+              <strong>{{ t('courseGeneration.guided.title', '分六步完成课程') }}</strong>
+              <span>{{ t('courseGeneration.guided.help', '系统每完成一步都会停下来给你看，确认后才继续。') }}</span>
             </div>
+            <ol class="guided-intro__steps">
+              <li v-for="(label, index) in guidedStepLabels" :key="label">
+                <span>{{ index + 1 }}</span>
+                <strong>{{ label }}</strong>
+              </li>
+            </ol>
           </section>
 
           <section class="form-section">
@@ -183,7 +170,7 @@
             <button type="button" class="primary-button" :disabled="busy || !form.subject.trim()" @click="submit">
               <LoaderCircle v-if="busy" class="spin" :size="16" />
               <Sparkles v-else :size="16" />
-              {{ busy ? t('courseGeneration.actions.submitting', '正在提交') : t('courseGeneration.actions.start', '开始生成') }}
+              {{ busy ? t('courseGeneration.actions.submitting', '正在提交') : t('courseGeneration.actions.confirmRequirements', '确认需求，生成目录') }}
             </button>
           </div>
         </footer>
@@ -196,9 +183,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import {
   BookMarked,
-  BookOpenCheck,
   Check,
-  Gauge,
   GraduationCap,
   Library,
   LoaderCircle,
@@ -243,7 +228,6 @@ const form = reactive({
   difficulty: 'intermediate' as DifficultyLevel,
   style: 'academic' as TeachingStyle,
   pedagogyMode: 'auto' as PedagogyModeSelection,
-  generationMode: 'review_blueprint' as 'review_blueprint' | 'fast',
   coursePurpose: 'systematic' as 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial',
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
   requirements: '',
@@ -267,6 +251,14 @@ const purposeOptions = computed(() => ([
   { value: 'material_organization' as const, label: t('courseWorkspace.purpose.material_organization', '资料整理') },
   { value: 'personalized_remedial' as const, label: t('courseWorkspace.purpose.personalized_remedial', '个性补弱') },
 ]))
+const guidedStepLabels = computed(() => [
+  t('courseGeneration.guided.requirements', '需求'),
+  t('courseGeneration.guided.outline', '目录'),
+  t('courseGeneration.guided.knowledge', '知识蓝图'),
+  t('courseGeneration.guided.teaching', '教学方案'),
+  t('courseGeneration.guided.content', '课程内容'),
+  t('courseGeneration.guided.release', '质量与发布'),
+])
 
 watch(() => props.modelValue, async open => {
   if (!open) {
@@ -294,7 +286,7 @@ async function submit() {
       difficulty: form.difficulty,
       style: form.style,
       pedagogy_mode: form.pedagogyMode,
-      generation_mode: form.generationMode,
+      generation_mode: 'review_blueprint',
       course_purpose: form.coursePurpose,
       grounding_strategy: form.groundingStrategy,
       requirements: form.requirements.trim(),
@@ -332,6 +324,15 @@ async function submit() {
 .form-section { padding: 20px 0; border-bottom: 1px solid rgba(226,232,240,.78); }
 .form-section:last-child { border-bottom: 0; }
 .form-section--lead { padding-top: 22px; }
+.guided-intro { display:grid; gap:14px; }
+.guided-intro__heading { display:flex; align-items:baseline; justify-content:space-between; gap:18px; }
+.guided-intro__heading strong { color:var(--lz-text-strong); font-size:12px; }
+.guided-intro__heading span { color:var(--lz-text-muted); font-size:10px; text-align:right; }
+.guided-intro__steps { margin:0; padding:0; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); list-style:none; }
+.guided-intro__steps li { position:relative; min-width:0; display:grid; justify-items:center; gap:6px; color:var(--lz-text-secondary); font-size:10px; text-align:center; }
+.guided-intro__steps li:not(:last-child)::after { content:""; position:absolute; top:12px; left:calc(50% + 16px); right:calc(-50% + 16px); height:1px; background:var(--lz-border); }
+.guided-intro__steps span { position:relative; z-index:1; width:25px; height:25px; display:grid; place-items:center; border:1px solid rgba(99,102,241,.24); border-radius:50%; color:var(--lz-brand-strong); background:#fff; font-family:ui-monospace,monospace; font-weight:750; }
+.guided-intro__steps strong { overflow:hidden; max-width:100%; text-overflow:ellipsis; white-space:nowrap; }
 .teaching-settings { display: grid; gap: 22px; }
 .teaching-settings__core { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
 .choice-group { min-width: 0; margin: 0; padding: 0; border: 0; }
@@ -409,6 +410,8 @@ async function submit() {
   .footer-actions button { flex: 1; }
 }
 @media (max-width: 520px) {
+  .guided-intro__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 12px; }
+  .guided-intro__steps li:nth-child(3n)::after { display: none; }
   .segmented-options--three,.segmented-options--two,.compact-grid { grid-template-columns: 1fr; }
   .segmented-options button { min-height: 52px; }
   .strategy-settings__heading { align-items: flex-start; flex-direction: column; gap: 3px; }

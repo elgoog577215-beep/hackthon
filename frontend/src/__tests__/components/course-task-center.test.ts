@@ -4,9 +4,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElMessageBox } from 'element-plus'
 import CourseTaskCenter from '@/components/CourseTaskCenter.vue'
+import { setLocale } from '@/shared/i18n'
 import { useCourseStore } from '@/stores/course'
 import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import { useGenerationStore } from '@/stores/generation'
+import enMessages from '../../../public/locales/en/translation.json'
+import zhMessages from '../../../public/locales/zh/translation.json'
 
 const router = createRouter({
   history: createMemoryHistory(),
@@ -23,6 +26,11 @@ const mountCenter = () => mount(CourseTaskCenter, {
 
 describe('CourseTaskCenter', () => {
   beforeEach(async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
+    })))
+    await setLocale('zh')
     setActivePinia(createPinia())
     await router.push('/courses')
     await router.isReady()
@@ -129,7 +137,23 @@ describe('CourseTaskCenter', () => {
       id: 'task-2', course_id: 'course-1', course_name: '线性代数', status: 'waiting_for_review',
       progress: 35, current_phase: 'outline_ready',
       phase_detail: { artifact_type: 'course_outline', completed_items: 1, total_items: 1 },
+      guided_workflow: {
+        schema_version: 'guided_course_generation_v1', current_step: 'outline', review_step: 'outline',
+        steps: [
+          { number: 1, key: 'requirements', status: 'confirmed' },
+          { number: 2, key: 'outline', status: 'waiting_for_confirmation' },
+          { number: 3, key: 'knowledge', status: 'locked' },
+          { number: 4, key: 'teaching', status: 'locked' },
+          { number: 5, key: 'content', status: 'locked' },
+          { number: 6, key: 'release', status: 'locked' },
+        ],
+      },
     }]
+    vi.spyOn(workspace, 'loadGenerationReview').mockResolvedValue({
+      step: 'outline', can_confirm: true,
+      guided_workflow: generation.globalTasks[0].guided_workflow,
+      artifact: {},
+    })
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
       draft: {
         base_blueprint_revision_id: 'bp-1', course_name: '线性代数', course_purpose: 'systematic',
@@ -137,12 +161,13 @@ describe('CourseTaskCenter', () => {
       },
     })
     const save = vi.spyOn(workspace, 'saveBlueprint').mockResolvedValue({ draft: {} })
-    const confirm = vi.spyOn(workspace, 'confirmBlueprint').mockResolvedValue({ status: 'running' })
+    const confirm = vi.spyOn(workspace, 'confirmGenerationStep').mockResolvedValue({ status: 'running' })
     const wrapper = mountCenter()
     await flushPromises()
 
     expect(wrapper.text()).toContain('确认课程目录')
-    expect(wrapper.text()).toContain('确认后才会逐节生成知识包和正文')
+    expect(wrapper.text()).toContain('确认后才会生成知识蓝图')
+    expect(wrapper.text()).toContain('质量与发布')
     expect(wrapper.text()).toContain('目录小节')
     await wrapper.find('.blueprint-nodes input').setValue('向量空间与线性映射')
     await wrapper.find('.task-actions .primary-button').trigger('click')
@@ -152,7 +177,91 @@ describe('CourseTaskCenter', () => {
       base_blueprint_revision_id: 'bp-1',
       nodes: [expect.objectContaining({ node_name: '向量空间与线性映射' })],
     }))
-    expect(confirm).toHaveBeenCalledWith('course-1')
+    expect(confirm).toHaveBeenCalledWith('course-1', 'outline')
+  })
+
+  it('知识蓝图步骤展示结构摘要并只确认当前步骤', async () => {
+    const generation = useGenerationStore()
+    const workspace = useCourseWorkspaceStore()
+    const workflow = {
+      schema_version: 'guided_course_generation_v1', current_step: 'knowledge', review_step: 'knowledge',
+      steps: [
+        { number: 1, key: 'requirements', status: 'confirmed' },
+        { number: 2, key: 'outline', status: 'confirmed' },
+        { number: 3, key: 'knowledge', status: 'waiting_for_confirmation' },
+        { number: 4, key: 'teaching', status: 'locked' },
+        { number: 5, key: 'content', status: 'locked' },
+        { number: 6, key: 'release', status: 'locked' },
+      ],
+    }
+    generation.globalTasks = [{
+      id: 'task-knowledge', course_id: 'course-1', course_name: '线性代数', status: 'waiting_for_review',
+      progress: 48, current_phase: 'knowledge_ready', guided_workflow: workflow,
+    }]
+    vi.spyOn(workspace, 'loadGenerationReview').mockResolvedValue({
+      step: 'knowledge',
+      can_confirm: true,
+      guided_workflow: workflow,
+      artifact: {
+        concept_group_count: 3,
+        knowledge_point_count: 12,
+        relation_count: 8,
+        concept_groups: [{ name: '向量与空间', summary: '建立线性空间的基本语言' }],
+      },
+    })
+    const confirm = vi.spyOn(workspace, 'confirmGenerationStep').mockResolvedValue({ status: 'running' })
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('确认知识蓝图')
+    expect(wrapper.text()).toContain('12')
+    expect(wrapper.text()).toContain('向量与空间')
+    await wrapper.get('.task-actions .primary-button').trigger('click')
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledWith('course-1', 'knowledge')
+  })
+
+  it('英文模式完整显示六步和当前确认动作，不泄漏翻译键或中文', async () => {
+    const generation = useGenerationStore()
+    const workspace = useCourseWorkspaceStore()
+    const workflow = {
+      schema_version: 'guided_course_generation_v1', current_step: 'knowledge', review_step: 'knowledge',
+      steps: [
+        { number: 1, key: 'requirements', status: 'confirmed' },
+        { number: 2, key: 'outline', status: 'confirmed' },
+        { number: 3, key: 'knowledge', status: 'waiting_for_confirmation' },
+        { number: 4, key: 'teaching', status: 'locked' },
+        { number: 5, key: 'content', status: 'locked' },
+        { number: 6, key: 'release', status: 'locked' },
+      ],
+    }
+    generation.globalTasks = [{
+      id: 'task-knowledge-en', course_id: 'course-1', course_name: 'Linear Algebra',
+      status: 'waiting_for_review', progress: 48, current_phase: 'knowledge_ready',
+      guided_workflow: workflow,
+    }]
+    vi.spyOn(workspace, 'loadGenerationReview').mockResolvedValue({
+      step: 'knowledge',
+      can_confirm: true,
+      guided_workflow: workflow,
+      artifact: {
+        concept_group_count: 3,
+        knowledge_point_count: 12,
+        relation_count: 8,
+        concept_groups: [{ name: 'Vector spaces', summary: 'Build the language of linear spaces' }],
+      },
+    })
+    vi.spyOn(workspace, 'confirmGenerationStep').mockResolvedValue({ status: 'running' })
+    await setLocale('en')
+
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Confirm knowledge blueprint')
+    expect(wrapper.text()).toContain('Knowledge blueprint')
+    expect(wrapper.text()).toContain('Quality & release')
+    expect(wrapper.text()).not.toContain('courseTasks.')
+    expect(wrapper.text()).not.toContain('确认知识蓝图')
   })
 
   it('把质量阻断翻译为用户文案，并提供删除而非继续操作', async () => {

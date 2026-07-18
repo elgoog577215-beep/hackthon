@@ -324,6 +324,25 @@ export interface TaskRecovery {
     checkpoint: TaskRecoveryCheckpoint
 }
 
+export type GuidedGenerationStepKey = 'requirements' | 'outline' | 'knowledge' | 'teaching' | 'content' | 'release'
+
+export interface GuidedGenerationStep {
+    number: number
+    key: GuidedGenerationStepKey
+    status: 'locked' | 'pending' | 'in_progress' | 'waiting_for_confirmation' | 'confirmed' | 'needs_regeneration' | 'failed'
+    artifact_revision?: string | null
+    input_revisions?: Record<string, string>
+    confirmed_at?: string | null
+}
+
+export interface GuidedGenerationWorkflow {
+    schema_version: 'guided_course_generation_v1'
+    current_step: GuidedGenerationStepKey
+    review_step?: GuidedGenerationStepKey | null
+    steps: GuidedGenerationStep[]
+    updated_at?: string
+}
+
 export interface Task {
     id: string
     courseId: string
@@ -352,4 +371,5 @@ export interface Task {
     recovery?: TaskRecovery
     publicationAllowed?: boolean
     qualityStatus?: string
+    guidedWorkflow?: GuidedGenerationWorkflow
 }

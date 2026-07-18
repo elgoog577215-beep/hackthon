@@ -113,13 +113,16 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     )
     job = await manager.create_generation_job({
         "subject": "概念课",
-        "generation_mode": "review_blueprint",
+        "generation_mode": "fast",
         "course_purpose": "systematic",
     })
+    assert manager.tasks[job["job_id"]]["request_snapshot"]["generation_mode"] == "review_blueprint"
+    assert manager.tasks[job["job_id"]]["guided_workflow"]["steps"][0]["status"] == "confirmed"
     assert await manager._task_queue.get() == job["job_id"]
     await manager._process_task(job["job_id"])
 
     assert manager.tasks[job["job_id"]]["status"] == "waiting_for_review"
+    assert manager.tasks[job["job_id"]]["guided_workflow"]["review_step"] == "outline"
     assert storage.course["course_schema_version"] == "course_document_v1"
     assert storage.course["course_document"]["sections"] == []
     assert "nodes" not in storage.course
@@ -165,14 +168,98 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     monkeypatch.setattr(course_versions_router, "get_task_manager_optional", lambda: manager)
     blueprint_course = await course_versions_router._course_for_blueprint(job["course_id"])
     assert blueprint_course["nodes"][0]["node_name"] == "概念"
+    edited_draft = manager._version_repository.load_draft(job["course_id"])
+    edited_draft["nodes"][0]["node_name"] = "用户确认后的概念"
+    manager._version_repository.save_draft(job["course_id"], edited_draft)
+    with pytest.raises(ValueError, match="not content"):
+        await manager.confirm_generation_step(job["course_id"], "content")
     resumed = await manager.confirm_blueprint(job["course_id"])
     assert resumed["job_id"] == job["job_id"]
     assert manager.tasks[job["job_id"]]["status"] == "pending"
+    duplicate = await manager.confirm_blueprint(job["course_id"])
+    assert duplicate["status"] == "already_confirmed"
+    assert manager._task_queue.qsize() == 1
     confirmed_course = manager.get_generation_workspace_course(job["course_id"])
+    assert confirmed_course["nodes"][0]["node_name"] == "用户确认后的概念"
     assert "course_knowledge_base" not in confirmed_course
     assert await manager._task_queue.get() == job["job_id"]
     workspaces.set_status(job["job_id"], "published")
     assert manager.get_generation_preview(job["course_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_guided_job_waits_for_knowledge_then_teaching_confirmation(tmp_path, monkeypatch):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    storage = MemoryStorage()
+    manager = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=CourseVersionRepository(tmp_path / "versions"),
+        workspace_repository=GenerationWorkspaceRepository(tmp_path / "workspaces"),
+        document_repository=CourseDocumentRepository(storage),
+    )
+    job = await manager.create_generation_job({"subject": "概念课"})
+    assert await manager._task_queue.get() == job["job_id"]
+    await manager._process_task(job["job_id"])
+    await manager.confirm_generation_step(job["course_id"], "outline")
+    assert await manager._task_queue.get() == job["job_id"]
+
+    await manager._process_task(job["job_id"])
+    task = manager.tasks[job["job_id"]]
+    assert task["status"] == "waiting_for_review"
+    assert task["guided_workflow"]["review_step"] == "knowledge"
+    review = manager.get_generation_review(job["course_id"])
+    assert review["step"] == "knowledge"
+    assert review["can_confirm"] is True
+
+    await manager.confirm_generation_step(job["course_id"], "knowledge")
+    assert await manager._task_queue.get() == job["job_id"]
+    await manager._process_task(job["job_id"])
+    task = manager.tasks[job["job_id"]]
+    assert task["status"] == "waiting_for_review"
+    assert task["guided_workflow"]["review_step"] == "teaching"
+    assert manager.get_generation_review(job["course_id"])["step"] == "teaching"
+
+    await manager.confirm_generation_step(job["course_id"], "teaching")
+    assert await manager._task_queue.get() == job["job_id"]
+    manager._generation_workspace_repository.update_course(
+        job["job_id"],
+        lambda course: {
+            **course,
+            "nodes": [{
+                **course["nodes"][0],
+                "node_content": "完整课程内容。" * 120,
+                "generation_status": "completed",
+            }],
+        },
+    )
+    await manager._process_task(job["job_id"])
+    task = manager.tasks[job["job_id"]]
+    assert task["status"] == "waiting_for_review"
+    assert task["guided_workflow"]["review_step"] == "content"
+    await manager.confirm_generation_step(job["course_id"], "content")
+    assert await manager._task_queue.get() == job["job_id"]
+    monkeypatch.setattr(
+        manager,
+        "_quality_allows_publication",
+        lambda _course, _report: True,
+    )
+    await manager._process_task(job["job_id"])
+    task = manager.tasks[job["job_id"]]
+    assert task["status"] == "waiting_for_review"
+    assert task["guided_workflow"]["review_step"] == "release"
+    release_review = manager.get_generation_review(job["course_id"])
+    assert release_review["step"] == "release"
+    assert release_review["artifact"]["source_chain"]["can_publish"] is True
+
+    await manager.confirm_generation_step(job["course_id"], "release")
+    assert await manager._task_queue.get() == job["job_id"]
+    await manager._process_task(job["job_id"])
+    assert manager.tasks[job["job_id"]]["status"] in {"completed", "completed_with_warnings"}
+    assert manager._publication_receipt(manager.tasks[job["job_id"]]) is not None
 
 
 @pytest.mark.asyncio
@@ -213,6 +300,45 @@ async def test_generation_workspace_survives_manager_restart(tmp_path, monkeypat
     assert restored._load_task_course(job["job_id"])["checkpoint_marker"] == "saved-before-restart"
     await restored.resume_task(job["job_id"])
     assert await restored._task_queue.get() == job["job_id"]
+
+
+@pytest.mark.asyncio
+async def test_waiting_confirmation_survives_restart_without_skipping_gate(tmp_path, monkeypatch):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    storage = MemoryStorage()
+    workspaces = GenerationWorkspaceRepository(tmp_path / "workspaces")
+    documents = CourseDocumentRepository(storage)
+    versions = CourseVersionRepository(tmp_path / "versions")
+    manager = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=versions,
+        workspace_repository=workspaces,
+        document_repository=documents,
+    )
+    job = await manager.create_generation_job({"subject": "等待确认恢复课程"})
+    assert await manager._task_queue.get() == job["job_id"]
+    await manager._process_task(job["job_id"])
+    assert manager.tasks[job["job_id"]]["status"] == "waiting_for_review"
+    assert manager.tasks[job["job_id"]]["guided_workflow"]["review_step"] == "outline"
+
+    restored = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=versions,
+        workspace_repository=workspaces,
+        document_repository=documents,
+    )
+
+    should_enqueue = await restored._reconcile_task_after_restart(job["job_id"])
+    assert should_enqueue is False
+    assert restored.tasks[job["job_id"]]["status"] == "waiting_for_review"
+    assert restored.tasks[job["job_id"]]["guided_workflow"]["review_step"] == "outline"
+    assert restored._task_queue.empty()
 
 
 @pytest.mark.asyncio

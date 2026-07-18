@@ -125,7 +125,7 @@ class CourseGenerationRequest(BaseModel):
     secondary_intensity: Optional[
         Literal["light", "collaborative", "dual_core"]
     ] = None
-    generation_mode: Literal["fast", "review_blueprint"] = "fast"
+    generation_mode: Literal["fast", "review_blueprint"] = "review_blueprint"
     course_purpose: Literal[
         "systematic",
         "exam_sprint",

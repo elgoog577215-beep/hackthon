@@ -43,6 +43,15 @@ class RegenerateCourseRequest(BaseModel):
     regenerate_all: bool = False
 
 
+GenerationStep = Literal[
+    "outline",
+    "knowledge",
+    "teaching",
+    "content",
+    "release",
+]
+
+
 @router.get("/blueprint")
 async def get_blueprint(course_id: str):
     course = await _course_for_blueprint(course_id)
@@ -166,6 +175,45 @@ async def confirm_course_blueprint(
     await get_course_or_404(course_id)
     try:
         return await tm.confirm_blueprint(course_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except CourseVersionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TaskStateConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "task_state_conflict",
+                "message": str(exc),
+                "status": exc.status,
+            },
+        ) from exc
+
+
+@router.get("/generation/review")
+async def get_generation_review(
+    course_id: str,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    await get_course_or_404(course_id)
+    review = tm.get_generation_review(course_id)
+    if not review:
+        raise HTTPException(
+            status_code=404,
+            detail="No guided generation workflow was found for this course",
+        )
+    return review
+
+
+@router.post("/generation/steps/{step}/confirm", status_code=202)
+async def confirm_generation_step(
+    course_id: str,
+    step: GenerationStep,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    await get_course_or_404(course_id)
+    try:
+        return await tm.confirm_generation_step(course_id, step)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except CourseVersionConflict as exc:

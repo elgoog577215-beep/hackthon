@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import CourseGenerationDialog from '@/components/CourseGenerationDialog.vue'
 
 describe('CourseGenerationDialog', () => {
-  it('将课程主题、难度、教学结构和生成方式作为同一份生成参数提交', async () => {
+  it('默认走六步确认流程，不提供直接生成入口', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: {
@@ -18,7 +18,8 @@ describe('CourseGenerationDialog', () => {
     await wrapper.findAll('.difficulty-option')[2]!.trigger('click')
     await wrapper.findAll('.style-option')[2]!.trigger('click')
     await wrapper.findAll('.compact-grid select')[0]!.setValue('math_formal')
-    await wrapper.findAll('.segmented-options--two button')[1]!.trigger('click')
+    expect(wrapper.text()).toContain('分六步完成课程')
+    expect(wrapper.text()).not.toContain('直接生成')
     await wrapper.get('#course-requirements').setValue('保留完整推导，并提供独立练习')
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
     await flushPromises()
@@ -31,7 +32,7 @@ describe('CourseGenerationDialog', () => {
         difficulty: 'advanced',
         style: 'socratic',
         pedagogy_mode: 'math_formal',
-        generation_mode: 'fast',
+        generation_mode: 'review_blueprint',
         requirements: '保留完整推导，并提供独立练习',
         material_bindings: [],
       }),
