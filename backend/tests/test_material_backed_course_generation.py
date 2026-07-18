@@ -276,6 +276,10 @@ async def test_course_service_builds_v4_blueprint_without_legacy_quality_report(
         topic="微积分",
         depth="intermediate",
         style="academic",
+        generation_mode="fast",
+        course_purpose="exam_sprint",
+        asset_preferences={"questions": True, "final_assessment": True},
+        web_question_enrichment={"enabled": True},
         requirements="少废话，适合自学，讲清数学底层逻辑。",
         materials=[{
             "filename": "期末真题.md",
@@ -288,6 +292,14 @@ async def test_course_service_builds_v4_blueprint_without_legacy_quality_report(
 
     assert data["generation_pipeline_version"] == "course_generation_v4"
     assert data["generation_schema_version"] == "course_generation_v4"
+    assert data["course_purpose"] == "exam_sprint"
+    assert data["generation_mode"] == "fast"
+    assert data["asset_preferences"] == {"questions": True, "final_assessment": True}
+    assert data["web_question_enrichment"]["enabled"] is True
+    assert data["generation_request"]["course_purpose"] == "exam_sprint"
+    assert data["generation_request"]["generation_mode"] == "fast"
+    assert data["generation_request"]["asset_preferences"]["final_assessment"] is True
+    assert data["generation_request"]["web_question_enrichment"]["enabled"] is True
     assert data["generation_quality_report"] is None
     assert data["subject_pedagogy_profile"]["primary_mode"] == "math_formal"
     assert data["difficulty_profile"]["target_level"] == "intermediate"

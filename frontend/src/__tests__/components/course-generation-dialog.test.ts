@@ -18,6 +18,7 @@ describe('CourseGenerationDialog', () => {
     await wrapper.findAll('.difficulty-option')[2]!.trigger('click')
     await wrapper.findAll('.style-option')[2]!.trigger('click')
     await wrapper.findAll('.compact-grid select')[0]!.setValue('math_formal')
+    await wrapper.find('[data-testid="web-question-enrichment"]').setValue(true)
     await wrapper.findAll('.segmented-options--two button')[1]!.trigger('click')
     await wrapper.get('#course-requirements').setValue('保留完整推导，并提供独立练习')
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
@@ -34,6 +35,7 @@ describe('CourseGenerationDialog', () => {
         generation_mode: 'fast',
         requirements: '保留完整推导，并提供独立练习',
         material_bindings: [],
+        web_question_enrichment: { enabled: true },
       }),
     })
   })
@@ -87,6 +89,7 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.findAll('.difficulty-options .difficulty-option')).toHaveLength(3)
     expect(wrapper.findAll('.style-options .style-option')).toHaveLength(4)
     expect(wrapper.findAll('.strategy-settings .select-input')).toHaveLength(3)
+    expect(wrapper.find('[data-testid="web-question-enrichment"]').exists()).toBe(true)
     expect(wrapper.find('.difficulty-option.active').text()).toContain('进阶')
     expect(wrapper.find('.style-option.active').text()).toContain('学术严谨')
   })

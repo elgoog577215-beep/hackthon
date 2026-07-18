@@ -243,7 +243,8 @@ def test_material_organization_explicitly_declares_reading_only():
 def test_questions_compile_formal_practice_contracts():
     assets = compile_learning_assets(_course())["assets"]
     questions = assets["questions"]
-    final = assets["final_assessment"][0]
+    finals = assets["final_assessment"]
+    final = finals[0]
     assert [item["practice_level"] for item in questions] == ["concept_check", "objective_practice", "mastery_check"]
     assert questions[0]["question_type"] == "short_answer"
     assert questions[0]["input_contract"]["mode"] == "rich_text"
@@ -254,11 +255,24 @@ def test_questions_compile_formal_practice_contracts():
     assert questions[0]["answer_spec"]["criteria"] != questions[2]["answer_spec"]["criteria"]
     assert all(marker in " ".join(questions[1]["answer_spec"]["criteria"]) for marker in ("依据", "过程", "检查"))
     assert final["practice_level"] == "final_assessment"
+    assert 3 <= len(finals) <= 8
+    assert all(item["review_status"] == "approved" for item in finals)
+    assert all(item["quality_report"]["passed"] is True for item in finals)
+    assert all(item["deliverable"] and item["input_materials"] and item["constraints"] for item in finals)
+    assert any(item["assessment_role"] == "cross_chapter_transfer" for item in finals)
     assert len(assets["diagnostic_templates"]) == 1
     assert len(assets["remediation_units"]) == 1
     assert len(assets["validation_questions"]) == 2
-    assert all(item["quality_status"] == "passed" for item in assets["validation_questions"])
+    assert all(
+        item["quality_status"] == item["quality_report"]["status"]
+        for item in [*assets["diagnostic_templates"], *assets["validation_questions"]]
+    )
     assert all(item["validation_policy"]["mastery_eligible"] is True for item in assets["validation_questions"])
+    assert all(
+        [hint["evidence_effect"] for hint in item["hint_contract"]["levels"]]
+        == ["limited_mastery", "not_independent", "not_mastery"]
+        for item in [*questions, *finals]
+    )
 
 
 def test_mastery_prompt_exposes_every_scored_assessment_item():
