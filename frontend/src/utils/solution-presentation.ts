@@ -75,6 +75,6 @@ function presentVector(values: unknown[]): string {
 }
 
 function fallbackLabel(fieldName: string): string {
-  const words = fieldName.replaceAll('_', ' ').trim()
-  return words ? `${words[0].toUpperCase()}${words.slice(1)}` : '结果'
+  const words = fieldName.replace(/_/g, ' ').trim()
+  return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : '结果'
 }
