@@ -1601,6 +1601,13 @@ class TaskManager:
             1 for item in package_states.values()
             if isinstance(item, dict) and item.get("status") == "completed"
         )
+        relation_stage = stage_artifacts.get("course_relations") or {}
+        relation_batches = relation_stage.get("batches") or {}
+        completed_relation_batches = sum(
+            1
+            for item in relation_batches.values()
+            if isinstance(item, dict) and item.get("status") == "completed"
+        )
         checkpoint = {
             "phase": str(task.get("phase") or task.get("current_phase") or ""),
             "completed_nodes": completed_nodes,
@@ -1611,6 +1618,11 @@ class TaskManager:
             "outline_ready": bool(course_data.get("course_outline")),
             "completed_knowledge_packages": completed_knowledge_packages,
             "total_knowledge_packages": len(nodes),
+            "completed_relation_batches": completed_relation_batches,
+            "total_relation_batches": len(nodes),
+            "knowledge_registry_revision_id": relation_stage.get(
+                "knowledge_registry_revision_id"
+            ),
             "workspace_status": workspace.get("status"),
             "updated_at": workspace.get("updated_at") or task.get("updated_at"),
         }
@@ -1649,6 +1661,12 @@ class TaskManager:
         if status in {"paused", "failed", "completed_with_warnings"}:
             if completed_nodes or draft_node_ids:
                 reason = "已保留完成内容和中断草稿，可以从保存点继续"
+            elif completed_relation_batches:
+                reason = (
+                    f"已冻结全部知识节点，并保留 "
+                    f"{completed_relation_batches}/{len(nodes)} 个关系邻域，"
+                    "可以从下一个未完成邻域继续"
+                )
             elif completed_knowledge_packages:
                 reason = (
                     f"已保留课程目录和 {completed_knowledge_packages}/{len(nodes)} "
@@ -2461,7 +2479,7 @@ class TaskManager:
             task_id,
             "course_knowledge_blueprint",
             46,
-            "正在生成当前课程的概念组、原子知识点与能力包",
+            "正在编译已冻结的知识节点、能力包与全课关系网",
             phase_progress=35,
         )
         course_map = compile_course_knowledge_map(working)
@@ -2489,7 +2507,7 @@ class TaskManager:
             task_id,
             "knowledge_mapping",
             49,
-            "正在检查原子性、六类关系与精确教学绑定",
+            "正在检查稳定知识 ID、关系结构与精确教学绑定",
             phase_progress=100,
             phase_detail={
                 "course_knowledge_base_revision_id": course_knowledge_base.get(

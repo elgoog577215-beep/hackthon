@@ -26,7 +26,18 @@ from course_pedagogy import SubjectPedagogyProfile
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
-PIPELINE_VERSION = "course_generation_v5"
+PIPELINE_VERSION = "course_generation_v6"
+
+COURSE_RELATION_TYPES = {
+    "prerequisite",
+    "derives",
+    "equivalent_to",
+    "contrasts_with",
+    "applies_to",
+    "generalizes",
+}
+SYMMETRIC_COURSE_RELATION_TYPES = {"equivalent_to", "contrasts_with"}
+ACYCLIC_COURSE_RELATION_TYPES = {"prerequisite", "generalizes"}
 
 MATERIAL_USAGE_LABELS = {
     "content_source": "正文依据",
@@ -244,6 +255,274 @@ def normalize_course_plan_contract(plan: dict[str, Any]) -> dict[str, Any]:
     return plan
 
 
+def normalize_course_relation_batch(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one graph-planning batch over a frozen course registry."""
+    return {
+        "schema_version": "course_relation_batch_v1",
+        "node_decisions": [
+            {
+                "knowledge_id": str(item.get("knowledge_id") or "").strip(),
+                "decision": str(item.get("decision") or "").strip(),
+                "reason": str(item.get("reason") or "").strip(),
+            }
+            for item in payload.get("node_decisions") or []
+            if isinstance(item, dict)
+        ],
+        "relations": [
+            {
+                **deepcopy(item),
+                "source_knowledge_id": str(
+                    item.get("source_knowledge_id") or ""
+                ).strip(),
+                "target_knowledge_id": str(
+                    item.get("target_knowledge_id") or ""
+                ).strip(),
+                "relation_type": str(item.get("relation_type") or "").strip(),
+                "reason": str(item.get("reason") or "").strip(),
+                "conditions": _unique_strings(item.get("conditions") or []),
+                "derivation_steps": _unique_strings(
+                    item.get("derivation_steps") or []
+                ),
+            }
+            for item in payload.get("relations") or []
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def validate_course_relation_batch(
+    payload: dict[str, Any],
+    *,
+    target_knowledge_ids: list[str],
+    allowed_knowledge_ids: list[str],
+) -> dict[str, Any]:
+    """Validate graph structure without grading semantic richness.
+
+    Every target node must receive an explicit compiler decision. The model may
+    connect it through one of the six formal relations or mark it as a genuine
+    course entry, but it may not silently omit the node.
+    """
+    batch = normalize_course_relation_batch(payload)
+    targets = {str(item) for item in target_knowledge_ids if str(item)}
+    allowed = {str(item) for item in allowed_knowledge_ids if str(item)}
+    issues: list[dict[str, Any]] = []
+    decisions: dict[str, dict[str, Any]] = {}
+
+    for decision in batch["node_decisions"]:
+        knowledge_id = decision["knowledge_id"]
+        if knowledge_id not in targets:
+            issues.append(_plan_issue(
+                "course_relations:invalid_decision_target",
+                "关系规划决定引用了当前批次之外的知识点 ID",
+            ))
+            continue
+        if knowledge_id in decisions:
+            issues.append(_plan_issue(
+                "course_relations:duplicate_decision",
+                f"知识点 {knowledge_id} 出现了重复关系规划决定",
+            ))
+            continue
+        if decision["decision"] not in {"connected", "course_entry"}:
+            issues.append(_plan_issue(
+                "course_relations:invalid_decision",
+                f"知识点 {knowledge_id} 的关系规划决定不合法",
+            ))
+        if not decision["reason"]:
+            issues.append(_plan_issue(
+                "course_relations:decision_missing_reason",
+                f"知识点 {knowledge_id} 的关系规划决定缺少理由",
+            ))
+        decisions[knowledge_id] = decision
+
+    for knowledge_id in sorted(targets - set(decisions)):
+        issues.append(_plan_issue(
+            "course_relations:missing_decision",
+            f"知识点 {knowledge_id} 没有被关系规划批次处理",
+        ))
+
+    inbound: set[str] = set()
+    signatures: set[tuple[str, str, str]] = set()
+    valid_relations: list[dict[str, Any]] = []
+    for relation in batch["relations"]:
+        source_id = relation["source_knowledge_id"]
+        target_id = relation["target_knowledge_id"]
+        relation_type = relation["relation_type"]
+        if relation_type not in COURSE_RELATION_TYPES:
+            issues.append(_plan_issue(
+                "course_relations:invalid_relation_type",
+                f"知识关系类型「{relation_type or '空'}」不在六类正式关系中",
+            ))
+            continue
+        if (
+            source_id not in allowed
+            or target_id not in allowed
+            or source_id == target_id
+        ):
+            issues.append(_plan_issue(
+                "course_relations:invalid_relation_endpoint",
+                "知识关系端点必须引用当前批次允许的两个不同知识点 ID",
+            ))
+            continue
+        if target_id not in targets:
+            issues.append(_plan_issue(
+                "course_relations:relation_outside_target",
+                "关系批次只能为本批次负责的目标知识点建立入边",
+            ))
+            continue
+        if not relation["reason"]:
+            issues.append(_plan_issue(
+                "course_relations:relation_missing_reason",
+                "知识关系缺少具体语义理由",
+            ))
+        if (
+            relation_type == "derives"
+            and not relation.get("derivation_steps")
+        ):
+            issues.append(_plan_issue(
+                "course_relations:derivation_missing_steps",
+                "推导关系缺少关键推导步骤",
+            ))
+        if (
+            relation_type == "contrasts_with"
+            and not str(relation.get("distinction") or "").strip()
+        ):
+            issues.append(_plan_issue(
+                "course_relations:contrast_missing_distinction",
+                "对比关系缺少具体判别维度",
+            ))
+        signature = (source_id, target_id, relation_type)
+        if relation_type in SYMMETRIC_COURSE_RELATION_TYPES:
+            signature = (*sorted((source_id, target_id)), relation_type)
+        if signature in signatures:
+            issues.append(_plan_issue(
+                "course_relations:duplicate_relation",
+                "关系批次包含重复的知识关系",
+            ))
+            continue
+        signatures.add(signature)
+        valid_relations.append(relation)
+        inbound.add(target_id)
+        if relation_type in SYMMETRIC_COURSE_RELATION_TYPES:
+            inbound.add(source_id)
+
+    for knowledge_id, decision in decisions.items():
+        if decision["decision"] == "connected" and knowledge_id not in inbound:
+            issues.append(_plan_issue(
+                "course_relations:connected_without_relation",
+                f"知识点 {knowledge_id} 被标记为已连接，但没有对应关系入边",
+            ))
+
+    for relation_type in ACYCLIC_COURSE_RELATION_TYPES:
+        cycle = _find_course_relation_cycle(valid_relations, relation_type)
+        if cycle:
+            issues.append(_plan_issue(
+                "course_relations:cycle",
+                f"{relation_type} 关系形成循环：{' -> '.join(cycle)}",
+            ))
+
+    return {
+        "schema_version": "course_relation_batch_validation_v1",
+        "passed": not issues,
+        "issues": issues,
+        "actual": {
+            "target_count": len(targets),
+            "decision_count": len(decisions),
+            "relation_count": len(batch["relations"]),
+        },
+    }
+
+
+def merge_course_relation_batches(
+    batches: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Merge validated batches into one whole-course graph artifact."""
+    decisions: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+    seen_decisions: set[str] = set()
+    seen_relations: set[tuple[str, str, str]] = set()
+    for raw_batch in batches:
+        batch = normalize_course_relation_batch(raw_batch)
+        for decision in batch["node_decisions"]:
+            knowledge_id = decision["knowledge_id"]
+            if knowledge_id and knowledge_id not in seen_decisions:
+                seen_decisions.add(knowledge_id)
+                decisions.append(deepcopy(decision))
+        for relation in batch["relations"]:
+            source_id = relation["source_knowledge_id"]
+            target_id = relation["target_knowledge_id"]
+            relation_type = relation["relation_type"]
+            identity = (source_id, target_id, relation_type)
+            if relation_type in SYMMETRIC_COURSE_RELATION_TYPES:
+                left, right = sorted((source_id, target_id))
+                identity = (left, right, relation_type)
+                relation["source_knowledge_id"] = left
+                relation["target_knowledge_id"] = right
+            if not all(identity) or identity in seen_relations:
+                continue
+            seen_relations.add(identity)
+            relations.append(deepcopy(relation))
+    return decisions, relations
+
+
+def attach_course_relation_plan(
+    plan: dict[str, Any],
+    *,
+    knowledge_points: list[dict[str, Any]],
+    node_decisions: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Attach system IDs and the completed graph plan to the frozen nodes."""
+    plan = deepcopy(plan)
+    point_by_name = {
+        _normalize_knowledge_name(item.get("name")): item
+        for item in knowledge_points
+        if isinstance(item, dict)
+        and _normalize_knowledge_name(item.get("name"))
+    }
+    decision_by_id = {
+        str(item.get("knowledge_id") or ""): item
+        for item in node_decisions
+        if isinstance(item, dict) and str(item.get("knowledge_id") or "")
+    }
+    for chapter in plan.get("chapters") or []:
+        for section in chapter.get("sections") or []:
+            section["knowledge_relations"] = []
+            for group in section.get("knowledge_structure") or []:
+                if not isinstance(group, dict):
+                    continue
+                for point in group.get("knowledge_points") or []:
+                    if not isinstance(point, dict):
+                        continue
+                    registry_point = point_by_name.get(
+                        _normalize_knowledge_name(point.get("name"))
+                    )
+                    if not registry_point:
+                        continue
+                    knowledge_id = str(
+                        registry_point.get("knowledge_id") or ""
+                    )
+                    point["knowledge_id"] = knowledge_id
+                    decision = decision_by_id.get(knowledge_id) or {}
+                    point["relation_state"] = str(
+                        decision.get("decision") or ""
+                    )
+                    point["relation_decision_reason"] = str(
+                        decision.get("reason") or ""
+                    )
+                    if decision.get("decision") == "course_entry":
+                        point["entry_reason"] = str(
+                            decision.get("reason") or ""
+                        )
+                    else:
+                        point.pop("entry_reason", None)
+                    point.pop("prerequisite_names", None)
+                    point.pop("relations", None)
+    plan["knowledge_relation_decisions"] = deepcopy(node_decisions)
+    plan["knowledge_relations"] = deepcopy(relations)
+    plan["knowledge_relation_schema_version"] = "course_relation_plan_v1"
+    return plan
+
+
 def validate_course_outline_constraints(
     plan: dict[str, Any],
     brief: dict[str, Any],
@@ -338,11 +617,34 @@ def normalize_section_knowledge_package(package: dict[str, Any]) -> dict[str, An
     }
 
 
+def normalize_section_knowledge_node_package(
+    package: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep only frozen nodes and leaf teaching contracts for graph planning."""
+    normalized = normalize_section_knowledge_package(package)
+    for group in normalized.get("knowledge_structure") or []:
+        if not isinstance(group, dict):
+            continue
+        for point in group.get("knowledge_points") or []:
+            if not isinstance(point, dict):
+                continue
+            point.pop("entry_reason", None)
+            point.pop("prerequisite_names", None)
+            point.pop("relations", None)
+            point.pop("relation_state", None)
+            point.pop("relation_decision_reason", None)
+            point.pop("knowledge_id", None)
+    normalized["schema_version"] = "section_knowledge_nodes_v2"
+    normalized["knowledge_relations"] = []
+    return normalized
+
+
 def validate_section_knowledge_package(
     package: dict[str, Any],
     *,
     section_title: str,
     available_knowledge_names: list[str],
+    validate_relations: bool = True,
 ) -> dict[str, Any]:
     """Validate the smallest retryable knowledge unit.
 
@@ -455,7 +757,7 @@ def validate_section_knowledge_package(
     all_names = {**available, **local_names}
     relations = [
         item for item in package.get("knowledge_relations") or []
-        if isinstance(item, dict)
+        if validate_relations and isinstance(item, dict)
     ]
     allowed_relations = {
         "prerequisite",
@@ -505,19 +807,24 @@ def validate_section_knowledge_package(
         if relation_type in {"equivalent_to", "contrasts_with"}:
             inbound_names.add(source)
 
-    for raw_group in structures:
-        if not isinstance(raw_group, dict):
-            continue
-        for point in raw_group.get("knowledge_points") or []:
-            if not isinstance(point, dict):
+    if validate_relations:
+        for raw_group in structures:
+            if not isinstance(raw_group, dict):
                 continue
-            normalized = _normalize_knowledge_name(point.get("name"))
-            if normalized and normalized not in inbound_names and not str(point.get("entry_reason") or "").strip():
-                issues.append(_plan_issue(
-                    "section_knowledge:entry_reason_missing",
-                    f"知识点「{point.get('name')}」尚未说明为何从这里开始学习",
-                    blocking=False,
-                ))
+            for point in raw_group.get("knowledge_points") or []:
+                if not isinstance(point, dict):
+                    continue
+                normalized = _normalize_knowledge_name(point.get("name"))
+                if (
+                    normalized
+                    and normalized not in inbound_names
+                    and not str(point.get("entry_reason") or "").strip()
+                ):
+                    issues.append(_plan_issue(
+                        "section_knowledge:entry_reason_missing",
+                        f"知识点「{point.get('name')}」尚未说明为何从这里开始学习",
+                        blocking=False,
+                    ))
 
     reused = {
         _normalize_knowledge_name(name)
@@ -588,16 +895,65 @@ def _deduplicate_knowledge_relations(
     result: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for relation in relations:
-        identity = (
-            _normalize_knowledge_name(relation.get("source_name")),
-            _normalize_knowledge_name(relation.get("target_name")),
-            str(relation.get("relation_type") or "").strip(),
-        )
+        relation_type = str(relation.get("relation_type") or "").strip()
+        source_id = str(relation.get("source_knowledge_id") or "").strip()
+        target_id = str(relation.get("target_knowledge_id") or "").strip()
+        if source_id or target_id:
+            identity = (source_id, target_id, relation_type)
+            if relation_type in SYMMETRIC_COURSE_RELATION_TYPES:
+                left, right = sorted((source_id, target_id))
+                identity = (left, right, relation_type)
+                relation["source_knowledge_id"] = left
+                relation["target_knowledge_id"] = right
+        else:
+            identity = (
+                _normalize_knowledge_name(relation.get("source_name")),
+                _normalize_knowledge_name(relation.get("target_name")),
+                relation_type,
+            )
         if not all(identity) or identity in seen:
             continue
         seen.add(identity)
         result.append(relation)
     return result
+
+
+def _find_course_relation_cycle(
+    relations: list[dict[str, Any]],
+    relation_type: str,
+) -> list[str]:
+    graph: dict[str, list[str]] = {}
+    for relation in relations:
+        if relation.get("relation_type") != relation_type:
+            continue
+        source_id = str(relation.get("source_knowledge_id") or "")
+        target_id = str(relation.get("target_knowledge_id") or "")
+        if source_id and target_id:
+            graph.setdefault(source_id, []).append(target_id)
+
+    visiting: list[str] = []
+    visited: set[str] = set()
+
+    def visit(node_id: str) -> list[str]:
+        if node_id in visiting:
+            start = visiting.index(node_id)
+            return [*visiting[start:], node_id]
+        if node_id in visited:
+            return []
+        visiting.append(node_id)
+        for target_id in graph.get(node_id, []):
+            cycle = visit(target_id)
+            if cycle:
+                return cycle
+        visiting.pop()
+        visited.add(node_id)
+        return []
+
+    for node_id in graph:
+        cycle = visit(node_id)
+        if cycle:
+            return cycle
+    return []
 
 
 def validate_course_plan_constraints(
@@ -694,6 +1050,7 @@ def _knowledge_contract_issues(
     """Reject chapter-title indexes before any expensive content generation."""
     issues: list[dict[str, Any]] = []
     point_names: dict[str, str] = {}
+    point_ids: dict[str, str] = {}
     inbound_names: set[str] = set()
     entry_names: set[str] = set()
     relation_candidates: list[dict[str, Any]] = [
@@ -764,6 +1121,9 @@ def _knowledge_contract_issues(
                             f"小节 {section_label} 存在未命名知识点，系统将忽略该条",
                         ))
                         continue
+                    knowledge_id = str(point.get("knowledge_id") or "").strip()
+                    if knowledge_id:
+                        point_ids[knowledge_id] = name
                     if normalized == section_title:
                         issues.append(_plan_issue(
                             "plan:knowledge_point_mirrors_section",
@@ -841,6 +1201,29 @@ def _knowledge_contract_issues(
                         "plan:invalid_reused_knowledge",
                         f"小节 {section_label} 复用了尚未在前序小节定义的知识点「{reused_name}」",
                     ))
+
+    id_relations = [
+        relation
+        for relation in relation_candidates
+        if str(relation.get("source_knowledge_id") or "").strip()
+        or str(relation.get("target_knowledge_id") or "").strip()
+    ]
+    relation_decisions = [
+        item
+        for item in plan.get("knowledge_relation_decisions") or []
+        if isinstance(item, dict)
+    ]
+    if id_relations or relation_decisions:
+        relation_report = validate_course_relation_batch(
+            {
+                "node_decisions": relation_decisions,
+                "relations": id_relations,
+            },
+            target_knowledge_ids=list(point_ids),
+            allowed_knowledge_ids=list(point_ids),
+        )
+        issues.extend(deepcopy(relation_report.get("issues") or []))
+        return issues
 
     for relation in relation_candidates:
         relation_type = str(relation.get("relation_type") or "").strip()
@@ -1002,6 +1385,12 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
         "positioning": plan.get("positioning") or artifacts.get("course_generation_brief", {}).get("goal", "电子课程资料"),
         "learning_objectives": plan.get("learning_objectives", []),
         "prerequisites": plan.get("prerequisites", []),
+        "knowledge_relation_schema_version": plan.get(
+            "knowledge_relation_schema_version"
+        ),
+        "knowledge_relation_decisions": deepcopy(
+            plan.get("knowledge_relation_decisions") or []
+        ),
         "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
         "subject_pedagogy_profile": artifacts.get("subject_pedagogy_profile") or plan.get("subject_pedagogy_profile") or {},
         "course_composition_profile": artifacts.get("course_composition_profile") or plan.get("course_composition_profile") or {},

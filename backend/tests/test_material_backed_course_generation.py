@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 
 import pytest
 from fastapi import FastAPI
@@ -11,11 +12,14 @@ from course_generation_workflow import (
     build_course_blueprint_from_plan,
     build_course_generation_artifacts,
     build_node_generation_context,
+    merge_course_relation_batches,
     normalize_course_outline_contract,
     normalize_course_plan_contract,
+    normalize_course_relation_batch,
     normalize_section_knowledge_package,
     validate_course_outline_constraints,
     validate_course_plan_constraints,
+    validate_course_relation_batch,
     validate_section_knowledge_package,
 )
 from course_pedagogy import (
@@ -95,6 +99,69 @@ def _section_knowledge_package(label):
     }
 
 
+def _relation_batch_response(system_prompt):
+    match = re.search(
+        r"## 本批次必须逐一处理的目标知识点\n(\[.*?\])\n\n"
+        r"## 本批次允许引用的关系上下文",
+        system_prompt,
+        re.S,
+    )
+    assert match, system_prompt
+    targets = json.loads(match.group(1))
+    context_match = re.search(
+        r"## 本批次允许引用的关系上下文\n(\[.*?\])\n\n"
+        r"## 建网规则",
+        system_prompt,
+        re.S,
+    )
+    assert context_match, system_prompt
+    context = json.loads(context_match.group(1))
+    target_ids = [item["knowledge_id"] for item in targets]
+    prior_ids = [
+        item["knowledge_id"]
+        for item in context
+        if item["knowledge_id"] not in target_ids
+    ]
+    decisions = []
+    relations = []
+    for index, knowledge_id in enumerate(target_ids):
+        if index == 0 and prior_ids:
+            source_id = prior_ids[0]
+            decisions.append({
+                "knowledge_id": knowledge_id,
+                "decision": "connected",
+                "reason": "承接前序小节的直接知识前置",
+            })
+            relations.append({
+                "source_knowledge_id": source_id,
+                "target_knowledge_id": knowledge_id,
+                "relation_type": "prerequisite",
+                "reason": "前序知识是当前知识独立学习所需的直接前置",
+            })
+        elif index == 0:
+            decisions.append({
+                "knowledge_id": knowledge_id,
+                "decision": "course_entry",
+                "reason": "这是当前课程关系网的真实起始知识",
+            })
+        else:
+            decisions.append({
+                "knowledge_id": knowledge_id,
+                "decision": "connected",
+                "reason": "承接本节首个知识点后才能独立应用",
+            })
+            relations.append({
+                "source_knowledge_id": target_ids[0],
+                "target_knowledge_id": knowledge_id,
+                "relation_type": "prerequisite",
+                "reason": "先理解本节首个知识点，才能独立应用当前知识",
+            })
+    return json.dumps({
+        "node_decisions": decisions,
+        "relations": relations,
+    }, ensure_ascii=False)
+
+
 def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
     artifacts = build_course_generation_artifacts(
         course_id="course-1",
@@ -112,7 +179,7 @@ def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
         }],
     )
 
-    assert artifacts["pipeline_version"] == "course_generation_v5"
+    assert artifacts["pipeline_version"] == "course_generation_v6"
     assert artifacts["course_generation_brief"]["course_shape_constraints"] == {}
     assert artifacts["material_cards"][0]["usage"] == "content_source"
     assert artifacts["material_cards"][0]["parse_status"] == "metadata_only"
@@ -255,7 +322,7 @@ def test_generation_route_creates_one_persisted_job():
 
 
 @pytest.mark.asyncio
-async def test_course_service_builds_v5_blueprint_without_legacy_quality_report(monkeypatch, tmp_path):
+async def test_course_service_builds_v6_blueprint_with_independent_relation_plan(monkeypatch, tmp_path):
     from material_storage import MaterialRepository
 
     service = CourseService(materials=MaterialRepository(tmp_path / "materials"))
@@ -270,6 +337,8 @@ async def test_course_service_builds_v5_blueprint_without_legacy_quality_report(
             }, ensure_ascii=False)
         if "独立知识包" in prompt or "修复小节" in prompt:
             return json.dumps(_section_knowledge_package("导数定义"), ensure_ascii=False)
+        if "建立知识关系邻域" in prompt:
+            return _relation_batch_response(system_prompt)
         return json.dumps({
             "course_title": "微积分电子课程资料",
             "learning_objectives": ["理解极限与导数"],
@@ -312,8 +381,8 @@ async def test_course_service_builds_v5_blueprint_without_legacy_quality_report(
         }],
     )
 
-    assert data["generation_pipeline_version"] == "course_generation_v5"
-    assert data["generation_schema_version"] == "course_generation_v5"
+    assert data["generation_pipeline_version"] == "course_generation_v6"
+    assert data["generation_schema_version"] == "course_generation_v6"
     assert data["course_purpose"] == "exam_sprint"
     assert data["generation_mode"] == "fast"
     assert data["asset_preferences"] == {"questions": True, "final_assessment": True}
@@ -346,6 +415,19 @@ async def test_course_service_builds_v5_blueprint_without_legacy_quality_report(
     assert l2_node["module_plan"]
     assert l2_node["difficulty_contract"]["target_level"] == "intermediate"
     assert "complexity" not in l2_node
+    relation_stage = data["generation_stage_artifacts"]["course_relations"]
+    assert relation_stage["status"] == "completed"
+    assert relation_stage["decision_count"] == len(
+        data["course_knowledge_base"]["knowledge_points"]
+    )
+    assert data["knowledge_relations"]
+    assert all(
+        relation.get("source_knowledge_id")
+        and relation.get("target_knowledge_id")
+        and not relation.get("source_name")
+        and not relation.get("target_name")
+        for relation in data["knowledge_relations"]
+    )
 
 
 @pytest.mark.asyncio
@@ -355,10 +437,12 @@ async def test_course_service_resumes_from_persisted_pedagogy_checkpoint(monkeyp
     service = CourseService(materials=MaterialRepository(tmp_path / "materials"))
     calls = []
 
-    async def fake_call_llm(prompt, _system_prompt, **_kwargs):
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
         calls.append(prompt)
         if "独立知识包" in prompt or "修复小节" in prompt:
             return json.dumps(_section_knowledge_package("项目启动"), ensure_ascii=False)
+        if "建立知识关系邻域" in prompt:
+            return _relation_batch_response(system_prompt)
         return json.dumps({
             "course_title": "Python 工程实战",
             "learning_objectives": ["完成可运行项目"],
@@ -398,9 +482,10 @@ async def test_course_service_resumes_from_persisted_pedagogy_checkpoint(monkeyp
         existing_course_data=existing,
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert calls[0].startswith("为「Python 工程实战」生成轻量课程目录")
     assert calls[1].startswith("为小节「启动项目」生成独立知识包")
+    assert calls[2].startswith("为小节「启动项目」建立知识关系邻域")
     assert data["subject_pedagogy_profile"]["primary_mode"] == "programming_engineering"
     assert data["nodes"]
 
@@ -482,8 +567,76 @@ def test_section_knowledge_validation_keeps_relation_defects_as_advisories():
     } == {"section_knowledge:invalid_relation_endpoint"}
 
 
+def test_course_relation_batch_requires_an_explicit_decision_for_every_node():
+    payload = normalize_course_relation_batch({
+        "node_decisions": [{
+            "knowledge_id": "kp-a",
+            "decision": "course_entry",
+            "reason": "课程真实入口",
+        }],
+        "relations": [],
+    })
+
+    report = validate_course_relation_batch(
+        payload,
+        target_knowledge_ids=["kp-a", "kp-b"],
+        allowed_knowledge_ids=["kp-a", "kp-b"],
+    )
+
+    assert report["passed"] is False
+    assert {
+        item["code"] for item in report["issues"]
+    } == {"course_relations:missing_decision"}
+
+
+def test_course_relation_batches_merge_by_stable_ids():
+    decisions, relations = merge_course_relation_batches([
+        {
+            "node_decisions": [{
+                "knowledge_id": "kp-a",
+                "decision": "course_entry",
+                "reason": "课程真实入口",
+            }],
+            "relations": [],
+        },
+        {
+            "node_decisions": [{
+                "knowledge_id": "kp-b",
+                "decision": "connected",
+                "reason": "依赖入口知识",
+            }],
+            "relations": [{
+                "source_knowledge_id": "kp-a",
+                "target_knowledge_id": "kp-b",
+                "relation_type": "prerequisite",
+                "reason": "先掌握 A 才能学习 B",
+            }],
+        },
+    ])
+
+    report = validate_course_relation_batch(
+        {
+            "node_decisions": decisions,
+            "relations": relations,
+        },
+        target_knowledge_ids=["kp-a", "kp-b"],
+        allowed_knowledge_ids=["kp-a", "kp-b"],
+    )
+
+    assert report["passed"] is True
+    assert [item["knowledge_id"] for item in decisions] == ["kp-a", "kp-b"]
+    assert relations == [{
+        "source_knowledge_id": "kp-a",
+        "target_knowledge_id": "kp-b",
+        "relation_type": "prerequisite",
+        "reason": "先掌握 A 才能学习 B",
+        "conditions": [],
+        "derivation_steps": [],
+    }]
+
+
 @pytest.mark.asyncio
-async def test_relation_advisory_does_not_add_another_model_call(monkeypatch):
+async def test_section_node_stage_discards_relation_fields_without_extra_call(monkeypatch):
     service = CourseService()
     plan = normalize_course_outline_contract({
         "course_title": "关系局部修复",
@@ -528,12 +681,16 @@ async def test_relation_advisory_does_not_add_another_model_call(monkeypatch):
 
     section = result["chapters"][0]["sections"][0]
     assert len(calls) == 1
+    assert '"source_name"' not in calls[0][1]
+    assert '"target_name"' not in calls[0][1]
     assert section["knowledge_package_status"] == "completed"
     assert section["knowledge_quality_report"]["passed"] is True
-    assert {
+    assert section["knowledge_relations"] == []
+    assert not {
         item["code"]
         for item in section["knowledge_quality_report"]["advisory_issues"]
-    } == {"section_knowledge:relation_missing_reason"}
+        if item["code"].startswith("section_knowledge:relation_")
+    }
     assert (
         course_data["generation_stage_artifacts"]["section_knowledge"][
             section["node_id"]
@@ -744,6 +901,88 @@ async def test_section_knowledge_resume_skips_completed_packages(monkeypatch):
     assert len(resumed["chapters"][0]["sections"][1]["knowledge_structure"]) == 1
 
 
+@pytest.mark.asyncio
+async def test_course_relation_stage_resumes_from_the_failed_neighborhood(monkeypatch):
+    service = CourseService()
+    plan = normalize_course_outline_contract({
+        "course_title": "关系建网恢复课程",
+        "positioning": "验证节点冻结后独立建网",
+        "chapters": [{
+            "title": "第一章",
+            "sections": [{
+                "title": "第一小节",
+                "learning_objective": "理解第一组知识",
+                "assessment": ["说明第一组关系"],
+                "scope_boundary": "只覆盖第一组",
+                "knowledge_structure": _section_knowledge_package(
+                    "第一组"
+                )["knowledge_structure"],
+            }, {
+                "title": "第二小节",
+                "learning_objective": "理解第二组知识",
+                "assessment": ["说明第二组关系"],
+                "scope_boundary": "只覆盖第二组",
+                "prerequisite_node_ids": ["L2-1-1"],
+                "knowledge_structure": _section_knowledge_package(
+                    "第二组"
+                )["knowledge_structure"],
+            }],
+        }],
+    })
+    course_data = {
+        "course_id": "course-relation-resume",
+        "course_name": "关系建网恢复课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    first_calls = []
+
+    async def fail_second_batch(prompt, system_prompt, **_kwargs):
+        first_calls.append(prompt)
+        if "第一小节" in prompt:
+            return _relation_batch_response(system_prompt)
+        return "{}"
+
+    monkeypatch.setattr(service, "_call_llm", fail_second_batch)
+    with pytest.raises(AIProviderRequestError, match="第二小节"):
+        await service._enrich_course_knowledge_relations(
+            course_data=course_data,
+            plan=plan,
+            on_phase=None,
+            on_checkpoint=None,
+        )
+
+    batches = course_data["generation_stage_artifacts"]["course_relations"][
+        "batches"
+    ]
+    assert batches["L2-1-1"]["status"] == "completed"
+    assert batches["L2-1-2"]["status"] == "failed"
+    assert len(first_calls) == 3
+
+    resume_calls = []
+
+    async def finish_second_batch(prompt, system_prompt, **_kwargs):
+        resume_calls.append(prompt)
+        return _relation_batch_response(system_prompt)
+
+    monkeypatch.setattr(service, "_call_llm", finish_second_batch)
+    resumed = await service._enrich_course_knowledge_relations(
+        course_data=course_data,
+        plan=plan,
+        on_phase=None,
+        on_checkpoint=None,
+    )
+
+    assert len(resume_calls) == 1
+    assert "第二小节" in resume_calls[0]
+    assert len(resumed["knowledge_relation_decisions"]) == 4
+    assert len(resumed["knowledge_relations"]) == 3
+    assert all(
+        item.get("source_knowledge_id") and item.get("target_knowledge_id")
+        for item in resumed["knowledge_relations"]
+    )
+
+
 def test_explicit_course_shape_is_compiled_as_a_hard_constraint():
     artifacts = build_course_generation_artifacts(
         course_id="course-shape",
@@ -828,8 +1067,10 @@ async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkey
     ]
     prompts = []
 
-    async def fake_call_llm(prompt, _system_prompt, **_kwargs):
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
         prompts.append(prompt)
+        if "建立知识关系邻域" in prompt:
+            return _relation_batch_response(system_prompt)
         return responses.pop(0)
 
     monkeypatch.setattr(service, "_call_llm", fake_call_llm)
@@ -840,10 +1081,12 @@ async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkey
         pedagogy_mode="math_formal",
     )
 
-    assert len(prompts) == 4
+    assert len(prompts) == 6
     assert prompts[1].startswith("重新生成")
     assert prompts[2].startswith("为小节「判别式与根的情况」生成独立知识包")
     assert prompts[3].startswith("为小节「实际问题建模」生成独立知识包")
+    assert prompts[4].startswith("为小节「判别式与根的情况」建立知识关系邻域")
+    assert prompts[5].startswith("为小节「实际问题建模」建立知识关系邻域")
     assert data["course_plan_constraint_report"]["passed"] is True
     assert data["course_plan_constraint_report"]["actual"] == {
         "chapter_count": 1,

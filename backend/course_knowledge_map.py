@@ -808,6 +808,7 @@ def _normalize_point(raw_point: Any, order: int) -> dict[str, Any] | None:
     if not name:
         return None
     return {
+        "knowledge_id": str(raw.get("knowledge_id") or "").strip(),
         "name": name,
         "statement": str(raw.get("statement") or raw.get("description") or "").strip(),
         "description": str(raw.get("description") or raw.get("statement") or "").strip(),
@@ -831,6 +832,10 @@ def _normalize_point(raw_point: Any, order: int) -> dict[str, Any] | None:
         "relations": _normalize_relations(raw.get("relations") or []),
         "aliases": _unique([str(item).strip() for item in raw.get("aliases") or []]),
         "entry_reason": str(raw.get("entry_reason") or "").strip(),
+        "relation_state": str(raw.get("relation_state") or "").strip(),
+        "relation_decision_reason": str(
+            raw.get("relation_decision_reason") or ""
+        ).strip(),
         "prerequisite_names": _unique([str(item).strip() for item in raw.get("prerequisite_names") or []]),
         "order": order,
     }

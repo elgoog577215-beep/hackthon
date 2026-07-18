@@ -15,9 +15,9 @@ from course_knowledge_base import (
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
 )
-from course_pedagogy import MODULES, TEMPLATES, SubjectPedagogyProfile, module_block_role
+from course_pedagogy import TEMPLATES, SubjectPedagogyProfile, module_block_role
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v13"
+PROMPT_CONTRACT_VERSION = "course_prompt_v14"
 
 
 class CoursePromptComposer:
@@ -201,10 +201,9 @@ class CoursePromptComposer:
 3. 每个新知识点必须有独立 `statement`、`knowledge_type`、`conditions` 或 `boundaries`、可观察能力和可验证掌握标准。
 4. 后续再次使用前序知识时写入 `reused_knowledge_names`，不得重新创建同名知识。
 5. 易错点允许为空；生成时必须包含具体错误表现、辨别方法和修复策略。
-6. 关系只能使用 `prerequisite / derives / equivalent_to / contrasts_with / applies_to / generalizes`。
-7. 关系端点只能引用本次新知识或前序已存在规范名称；每条关系必须有理由，推导必须有步骤，对比必须有判别维度。
-8. 没有关系入边的真正入口知识必须填写 `entry_reason`。
-9. 不输出 ImprovementPoint、章节关系、课程顺序关系或泛化的 `related`。
+6. 本阶段只冻结知识节点及其能力包。不得输出知识关系、入口判断、前置名称或内部知识 ID。
+7. 全课所有知识节点冻结并由系统分配 ID 后，会进入独立关系建网阶段；不要在这里提前猜关系。
+8. 不输出 ImprovementPoint、章节关系、课程顺序关系或泛化的 `related`。
 
 ## JSON Schema
 {{
@@ -246,28 +245,12 @@ class CoursePromptComposer:
               "required_evidence_types": ["practice_attempt"]
             }}
           ],
-          "aliases": [],
-          "entry_reason": "只有真正入口知识填写",
-          "prerequisite_names": [],
-          "relations": []
+          "aliases": []
         }}
       ]
     }}
   ],
-  "reused_knowledge_names": [],
-  "knowledge_relations": [
-    {{
-      "source_name": "来源知识规范名称",
-      "target_name": "目标知识规范名称",
-      "relation_type": "prerequisite",
-      "reason": "具体语义理由",
-      "conditions": [],
-      "distinction": "仅 contrasts_with 必填",
-      "derivation_steps": ["仅 derives 必填"],
-      "necessity": "required",
-      "priority": "core"
-    }}
-  ]
+  "reused_knowledge_names": []
 }}"""
 
     def build_section_knowledge_correction_prompt(
@@ -341,6 +324,87 @@ class CoursePromptComposer:
     }}
   ]
 }}""".strip()
+
+    def build_course_relation_batch_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        batch_id: str,
+        section: dict[str, Any],
+        target_points: list[dict[str, Any]],
+        context_points: list[dict[str, Any]],
+    ) -> str:
+        return f"""## 全课知识关系建网：局部批次
+
+全课知识节点已经全部冻结，内部 ID 已由系统分配。你只负责为当前目标小节判断
+直接、可教学的知识语义关系；不得新增、删除、改名或重写知识点。
+只输出有效 JSON，不输出 Markdown 围栏或解释。
+
+## 课程
+- 名称：{course_title}
+- 定位：{positioning}
+- 批次：{batch_id}
+- 目标小节：{json.dumps(section, ensure_ascii=False)}
+
+## 本批次必须逐一处理的目标知识点
+{json.dumps(target_points, ensure_ascii=False)}
+
+## 本批次允许引用的关系上下文
+{json.dumps(context_points, ensure_ascii=False)}
+
+## 建网规则
+1. 对每个目标知识点恰好输出一个 `node_decisions` 决定，不得遗漏。
+2. 有直接语义入边时使用 `connected`；只有在允许上下文内确实没有合理入边、且它是课程真实起点时，才使用 `course_entry` 并说明原因。
+3. 关系只允许 `prerequisite / derives / equivalent_to / contrasts_with / applies_to / generalizes`。
+4. 端点必须逐字复制上方系统 ID，`target_knowledge_id` 必须属于目标知识点。
+5. 只建立直接且会影响教学顺序、解释、辨析、应用或迁移的关系。不要凑数量，不使用章节先后代替知识关系。
+6. 每条关系必须有具体理由；`derives` 必须给出推导步骤；`contrasts_with` 必须给出判别维度。
+7. `prerequisite` 和 `generalizes` 不得形成循环；不得输出自环、重复关系、`related` 或父子包含关系。
+
+## JSON Schema
+{{
+  "node_decisions": [
+    {{
+      "knowledge_id": "系统知识 ID",
+      "decision": "connected",
+      "reason": "为什么存在入边，或为什么它是课程真实入口"
+    }}
+  ],
+  "relations": [
+    {{
+      "source_knowledge_id": "系统知识 ID",
+      "target_knowledge_id": "目标知识 ID",
+      "relation_type": "prerequisite",
+      "reason": "具体语义理由",
+      "conditions": [],
+      "distinction": "仅 contrasts_with 必填",
+      "derivation_steps": ["仅 derives 必填"],
+      "necessity": "required",
+      "priority": "core"
+    }}
+  ]
+}}""".strip()
+
+    def build_course_relation_batch_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 上一次输出不是完整有效的关系批次 JSON"
+        return f"""## 关系建网批次结构纠正
+
+上一次关系批次存在以下结构错误：
+{issue_text}
+
+只修复这些结构错误并重新输出完整 JSON。知识节点、系统 ID、目标范围和六类关系
+约束均不得改变；不要输出解释、评分或 Markdown 围栏。
+
+{original_prompt}
+""".strip()
 
     def build_content_prompt(
         self,

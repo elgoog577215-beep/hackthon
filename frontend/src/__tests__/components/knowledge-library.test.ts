@@ -355,6 +355,24 @@ describe('Course knowledge library', () => {
   })
 
   it('在知识库页面上部切换知识树和只读关系图，并仅展示已启用关系', async () => {
+    const courseEntryWithoutEdge = node({
+      knowledge_id: 'course-entry-without-edge',
+      parent_id: 'group-linear-combination',
+      node_type: 'knowledge_point',
+      name: '向量空间约定',
+      description: '这是当前课程显式保留的关系网入口节点。',
+      depth: 4,
+      sort_order: 2,
+      path_ids: [
+        'course-path:course-1',
+        'course-path:chapter:L1-1',
+        'course-path:section:L2-1-1',
+        'group-linear-combination',
+        'course-entry-without-edge',
+      ],
+      path_names: ['线性代数课程', '向量基础', '线性组合与数域', '线性表示机制', '向量空间约定'],
+      section_ids: ['L2-1-1'],
+    })
     const candidateRelation = {
       ...libraryView.relations[0],
       relation_id: 'relation-candidate',
@@ -369,6 +387,7 @@ describe('Course knowledge library', () => {
           ...response().data.assets,
           knowledge_library: [{
             ...libraryView,
+            nodes: [...libraryView.nodes, courseEntryWithoutEdge],
             relations: [...libraryView.relations, candidateRelation],
           }],
         },
@@ -386,6 +405,7 @@ describe('Course knowledge library', () => {
     const edges = wrapper.findAll('[data-testid="knowledge-graph-edge"]')
     expect(edges).toHaveLength(1)
     expect(edges[0]!.attributes('data-relation-id')).toBe('relation-1')
+    expect(wrapper.find('[data-knowledge-id="course-entry-without-edge"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('这条候选关系尚未通过当前版本审核')
 
     const targetNode = wrapper.get('[data-knowledge-id="linear-combination-definition"]')
