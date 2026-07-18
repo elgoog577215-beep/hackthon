@@ -7,6 +7,7 @@ from question_bank import (
     approved_formal_tasks,
     build_question_bank,
     evaluate_question_item_quality,
+    formal_task_from_question_bank_item,
     review_question_bank_item,
     revise_question_bank_item,
 )
@@ -80,14 +81,28 @@ def _course() -> dict:
     }
 
 
+def _internal_task(
+    bundle: dict,
+    item: dict,
+) -> dict:
+    solution_revision_id = item["solution_revision_id"]
+    return formal_task_from_question_bank_item({
+        **item,
+        "_solution_envelope": bundle["solution_envelopes"][
+            solution_revision_id
+        ],
+    })
+
+
 def test_build_question_bank_is_course_scoped_deduplicated_and_traceable():
     bundle = build_question_bank(_course())
 
     assert bundle["schema_version"] == "question_bank_bundle_v1"
     assert bundle["course_id"] == "course-bank"
     assert bundle["coverage"]["required_objective_count"] == 2
-    assert bundle["coverage"]["covered_objective_count"] == 2
-    assert bundle["coverage"]["coverage_ratio"] == 1
+    assert bundle["coverage"]["covered_objective_count"] == 1
+    assert bundle["coverage"]["coverage_ratio"] == 0.5
+    assert bundle["coverage"]["status"] == "blocked"
 
     imported = [item for item in bundle["items"] if item["source_type"] == "imported"]
     assert len(imported) == 1
@@ -121,7 +136,11 @@ def test_question_bank_generates_specific_candidates_for_coverage_gaps():
     assert all(item["constraints"] for item in generated)
     assert all("给出一组" not in item["prompt"] for item in generated)
     assert all("给出一个" not in item["prompt"] for item in generated)
-    assert all(item["answer_spec"]["criteria"] for item in generated)
+    assert all(
+        _internal_task(bundle, item)["answer_spec"]["criteria"]
+        for item in generated
+    )
+    assert all("answer_spec" not in item for item in generated)
     assert all(item["course_knowledge_refs"] for item in generated)
     assert all(item["quality_report"]["passed"] for item in generated)
 
@@ -267,7 +286,11 @@ def test_comprehensive_tasks_are_multi_item_specific_and_require_teacher_review(
     assert all(item["deliverable"] for item in finals)
     assert all(item["input_materials"] for item in finals)
     assert all(item["constraints"] for item in finals)
-    assert all(item["answer_spec"]["criteria"] for item in finals)
+    assert all(
+        _internal_task(bundle, item)["answer_spec"]["criteria"]
+        for item in finals
+    )
+    assert all("answer_spec" not in item for item in finals)
     assert all("一个同时涉及" not in item["prompt"] for item in finals)
     assert all("综合运用全部章节完成最终任务" not in item["prompt"] for item in finals)
 
@@ -286,6 +309,10 @@ def test_exam_sprint_assessment_uses_teacher_question_distribution():
     assert bundle["assessment_blueprint"]["distribution_inferred"] is False
     assert bundle["assessment_blueprint"]["basis"] == "teacher_question_bank"
     assert all(item["assessment_distribution"]["inferred"] is False for item in finals)
+    assert all(
+        item["assessment_distribution"]["source_score"] == item["score"]
+        for item in finals
+    )
 
 
 def test_personalized_assessment_only_covers_confirmed_weak_nodes():
@@ -399,8 +426,9 @@ async def test_web_enrichment_only_runs_for_enabled_gaps_and_sanitizes_untrusted
     assert web_generated
     assert all("构造一组" not in item["prompt"] for item in web_generated)
     assert all(
-        item["question_spec"]["schema_version"] == "question_spec_v1"
+        item["question_spec"]["schema_version"] == "question_spec_v2"
         and item["domain_validation"]["passed"]
+        and "answer_spec" not in item
         for item in web_generated
     )
     assert all(item["lifecycle_status"] == "needs_review" for item in web_generated)

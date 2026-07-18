@@ -307,13 +307,23 @@ def test_all_generated_learning_tasks_preserve_valid_subject_contracts():
         *assets["validation_questions"],
     ]
 
+    assert {
+        task["question_spec"]["schema_version"]
+        for task in generated_tasks
+    } == {"question_spec_v1", "question_spec_v2"}
     assert all(
-        task["question_spec"]["schema_version"] == "question_spec_v1"
-        and task["domain_validation"]["passed"]
+        task["domain_validation"]["passed"]
         for task in generated_tasks
     )
     assert all(
-        task["question_spec"]["adapter_id"].startswith("programming.")
+        (
+            task["question_spec"].get("adapter_id")
+            or (
+                task["question_spec"].get("validation_plugin")
+                or {}
+            ).get("adapter_id")
+            or ""
+        ).startswith("programming.")
         for task in generated_tasks
     )
     assert all(task["input_materials"] and task["result_checks"] for task in generated_tasks)

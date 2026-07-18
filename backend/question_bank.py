@@ -229,6 +229,14 @@ def revise_question_bank_item(
 
     result = deepcopy(bundle)
     item = _find_item(result, revision_id)
+    if (
+        "answer_spec" in patch
+        and (item.get("question_spec") or {}).get("schema_version")
+        == "question_spec_v2"
+    ):
+        raise ValueError(
+            "V2 question answers must be revised through the private solution contract"
+        )
     solution_revision_id = str(
         item.get("solution_revision_id") or ""
     )
@@ -1982,17 +1990,18 @@ def _apply_assessment_distribution(
             )
             if source_score:
                 item["score"] = source_score
-                item["answer_spec"]["max_score"] = source_score
             item["assessment_distribution"] = {
                 "basis": "teacher_question_bank",
                 "inferred": False,
                 "source_item_revision_id": sample.get("revision_id"),
+                "source_score": source_score,
             }
         else:
             item["assessment_distribution"] = {
                 "basis": "systematic_rule",
                 "inferred": purpose == "exam_sprint",
                 "source_item_revision_id": None,
+                "source_score": None,
             }
         item["quality_report"] = evaluate_question_item_quality(item)
         item["revision_id"] = _item_revision_id(item)

@@ -1,7 +1,9 @@
 from copy import deepcopy
 
-from question_bank import build_question_bank
-from question_generation import validate_question_spec
+from question_generation import (
+    generate_question_contract,
+    validate_question_spec,
+)
 
 
 def _legacy_course(
@@ -34,11 +36,28 @@ def _legacy_course(
 
 
 def _practice_items(course: dict) -> list[dict]:
-    return [
+    node = next(
         item
-        for item in build_question_bank(course)["items"]
-        if item["assessment_role"] == "practice"
-    ]
+        for item in course["nodes"]
+        if int(item.get("node_level") or 1) == 2
+    )
+    result = []
+    for index, practice_level in enumerate(
+        ("concept_check", "objective_practice", "mastery_check")
+    ):
+        item = generate_question_contract(
+            course,
+            node,
+            practice_level,
+            index,
+        )
+        item["lifecycle_status"] = (
+            "needs_review"
+            if item["review_required"]
+            else "approved"
+        )
+        result.append(item)
+    return result
 
 
 def test_legacy_calculus_routes_to_a_solvable_derivative_capability():

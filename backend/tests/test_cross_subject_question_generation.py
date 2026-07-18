@@ -2,7 +2,12 @@ from copy import deepcopy
 
 import pytest
 
-from question_bank import build_question_bank, evaluate_question_item_quality
+from question_bank import (
+    _hint_contract,
+    build_question_bank,
+    evaluate_question_item_quality,
+)
+from question_generation import generate_question_contract
 
 
 def _course_for(
@@ -39,11 +44,46 @@ def _course_for(
 
 
 def _practice_items(course: dict) -> list[dict]:
-    return [
+    node = next(
         item
-        for item in build_question_bank(course)["items"]
-        if item["assessment_role"] == "practice"
-    ]
+        for item in course["nodes"]
+        if int(item.get("node_level") or 1) == 2
+    )
+    result = []
+    for index, practice_level in enumerate(
+        ("concept_check", "objective_practice", "mastery_check")
+    ):
+        contract = generate_question_contract(
+            course,
+            node,
+            practice_level,
+            index,
+        )
+        item = {
+            **contract,
+            "source_type": "generated",
+            "assessment_role": "practice",
+            "practice_levels": [practice_level],
+            "course_knowledge_refs": list(
+                node.get("key_points") or [node.get("node_name")]
+            ),
+            "difficulty": (
+                (node.get("difficulty_contract") or {}).get(
+                    "target_level"
+                )
+                or course.get("difficulty")
+                or "intermediate"
+            ),
+        }
+        item["hint_contract"] = _hint_contract(item)
+        item["lifecycle_status"] = (
+            "needs_review"
+            if item["review_required"]
+            else "approved"
+        )
+        item["quality_report"] = evaluate_question_item_quality(item)
+        result.append(item)
+    return result
 
 
 def test_graph_questions_use_a_solvable_graph_contract_and_course_evidence():
@@ -280,8 +320,9 @@ def test_legacy_linear_algebra_course_without_profile_infers_math_adapter():
     course["course_name"] = "《线性代数：理论与应用》"
     course.pop("subject_pedagogy_profile")
 
+    generated = _practice_items(course)
     bundle = build_question_bank(course)
-    generated = [
+    public_candidates = [
         item for item in bundle["items"]
         if item["assessment_role"] == "practice"
     ]
@@ -295,7 +336,15 @@ def test_legacy_linear_algebra_course_without_profile_infers_math_adapter():
         for item in generated
     )
     assert all("尚无可验证的专属题型契约" not in item["prompt"] for item in generated)
-    assert bundle["coverage"]["coverage_ratio"] == 1
+    assert all(
+        item["question_spec"]["schema_version"] == "question_spec_v2"
+        and item["question_spec"]["validation_plugin"]["adapter_id"]
+        == "math.quantitative_reasoning"
+        and "answer_spec" not in item
+        and item["lifecycle_status"] == "needs_review"
+        for item in public_candidates
+    )
+    assert bundle["coverage"]["coverage_ratio"] == 0
 
 
 def test_basis_coordinate_hints_are_derived_from_the_actual_reasoning_path():
@@ -425,8 +474,9 @@ def test_unknown_subject_adapter_never_auto_publishes_or_counts_as_coverage():
         assessment="提交成果",
     )
 
+    generated = _practice_items(course)
     bundle = build_question_bank(course)
-    generated = [
+    public_candidates = [
         item for item in bundle["items"]
         if item["assessment_role"] == "practice"
     ]
@@ -439,6 +489,12 @@ def test_unknown_subject_adapter_never_auto_publishes_or_counts_as_coverage():
     assert all(item["review_required"] for item in generated)
     assert all(item["lifecycle_status"] == "needs_review" for item in generated)
     assert all("adapter_unavailable" in item["risk_flags"] for item in generated)
+    assert all(
+        item["question_spec"]["schema_version"] == "question_spec_v2"
+        and "answer_spec" not in item
+        and item["lifecycle_status"] == "needs_review"
+        for item in public_candidates
+    )
     assert bundle["coverage"]["coverage_ratio"] == 0
     assert bundle["coverage"]["status"] == "blocked"
 

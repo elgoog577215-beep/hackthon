@@ -5,6 +5,7 @@ python-multipart>=0.0.9,<1.0
 requests>=2.31,<3.0
 openai>=1.12,<2.0
 python-dotenv>=1.0,<2.0
+sympy>=1.13,<2.0
 docling-slim[convert-core,format-pdf,format-office]==2.111.0
 markitdown[pdf,docx,pptx,xlsx]==0.1.6
 pillow>=10.0,<13.0

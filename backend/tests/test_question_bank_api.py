@@ -1,12 +1,15 @@
+import asyncio
 from copy import deepcopy
+from threading import Thread
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from course_versions import CourseVersionRepository
 from learning_asset_storage import LearningAssetRepository
 from question_bank import QuestionBankRepository, build_question_bank
+from question_bank_jobs import QuestionBankRebuildJobRepository
 from routers import question_bank
 
 
@@ -19,6 +22,30 @@ class MemoryCourseStorage:
         assert course_id == course["course_id"]
         self.course = deepcopy(course)
         self.save_count += 1
+
+
+class BlockingRebuildExecutor:
+    """Complete the durable job before the test request returns."""
+
+    def submit(
+        self,
+        *,
+        job_id,
+        course_id,
+        payload,
+        course,
+    ):
+        worker = Thread(
+            target=asyncio.run,
+            args=(question_bank._run_rebuild_job(
+                job_id=job_id,
+                course_id=course_id,
+                payload=payload,
+                course=deepcopy(course),
+            ),),
+        )
+        worker.start()
+        worker.join()
 
 
 def _course():
@@ -46,6 +73,9 @@ def _client(monkeypatch, tmp_path):
     repository = QuestionBankRepository(tmp_path / "question-banks")
     asset_repository = LearningAssetRepository(tmp_path / "learning-assets")
     version_repository = CourseVersionRepository(tmp_path / "course-versions")
+    job_repository = QuestionBankRebuildJobRepository(
+        tmp_path / "question-bank-rebuilds"
+    )
     course_storage = MemoryCourseStorage(_course())
 
     async def get_course(course_id: str):
@@ -66,6 +96,16 @@ def _client(monkeypatch, tmp_path):
         version_repository,
         raising=False,
     )
+    monkeypatch.setattr(
+        question_bank,
+        "question_bank_rebuild_job_repository",
+        job_repository,
+    )
+    monkeypatch.setattr(
+        question_bank,
+        "question_bank_rebuild_executor",
+        BlockingRebuildExecutor(),
+    )
     monkeypatch.setattr(question_bank, "storage", course_storage, raising=False)
     monkeypatch.setattr(question_bank, "get_course_or_404", get_course)
     repository.asset_repository = asset_repository
@@ -76,6 +116,24 @@ def _client(monkeypatch, tmp_path):
     return TestClient(app), repository
 
 
+def _rebuild(client, request_id):
+    created = client.post(
+        "/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={"request_id": request_id},
+    )
+    assert created.status_code == 202
+    status = client.get(
+        created.json()["status_url"],
+        headers={"X-User-Id": "teacher-1"},
+    )
+    assert status.status_code == 200
+    job = status.json()
+    assert job["status"] in {"completed", "waiting_review"}
+    assert job["result"]
+    return created.json(), job
+
+
 def test_question_bank_list_review_revision_and_conflict(monkeypatch, tmp_path):
     client, repository = _client(monkeypatch, tmp_path)
     stored = repository.save_bundle("course-api", build_question_bank(_course()))
@@ -83,6 +141,7 @@ def test_question_bank_list_review_revision_and_conflict(monkeypatch, tmp_path):
 
     listed = client.get(
         "/api/courses/course-api/question-bank",
+        headers={"X-User-Id": "teacher-1"},
         params={"lifecycle_status": "needs_review"},
     )
     assert listed.status_code == 200
@@ -90,6 +149,7 @@ def test_question_bank_list_review_revision_and_conflict(monkeypatch, tmp_path):
 
     stale = client.post(
         f"/api/courses/course-api/question-bank/items/{final['revision_id']}/reviews",
+        headers={"X-User-Id": "teacher-1"},
         json={
             "decision": "approved",
             "expected_bundle_revision_id": "stale",
@@ -124,9 +184,18 @@ def test_question_bank_list_review_revision_and_conflict(monkeypatch, tmp_path):
 
     oversized = client.post(
         f"/api/courses/course-api/question-bank/items/{revised.json()['item']['revision_id']}/revisions",
+        headers={"X-User-Id": "teacher-1"},
         json={"patch": {"prompt": "x" * 12_001}},
     )
     assert oversized.status_code == 422
+
+    leaked_answer = client.post(
+        f"/api/courses/course-api/question-bank/items/{revised.json()['item']['revision_id']}/revisions",
+        headers={"X-User-Id": "teacher-1"},
+        json={"patch": {"answer_spec": {"correct_answer": "SECRET"}}},
+    )
+    assert leaked_answer.status_code == 422
+    assert "private solution contract" in leaked_answer.json()["detail"]
 
 
 def test_question_bank_review_rejects_failed_quality_item(monkeypatch, tmp_path):
@@ -143,6 +212,7 @@ def test_question_bank_review_rejects_failed_quality_item(monkeypatch, tmp_path)
 
     response = client.post(
         f"/api/courses/course-api/question-bank/items/{pending['revision_id']}/reviews",
+        headers={"X-User-Id": "teacher-1"},
         json={
             "decision": "approved",
             "expected_bundle_revision_id": stored["bundle_revision_id"],
@@ -156,29 +226,24 @@ def test_question_bank_review_rejects_failed_quality_item(monkeypatch, tmp_path)
 def test_question_bank_rebuild_is_idempotent_and_returns_coverage(monkeypatch, tmp_path):
     client, repository = _client(monkeypatch, tmp_path)
 
-    first = client.post(
-        "/api/courses/course-api/question-bank/rebuild",
-        json={"request_id": "request-123"},
-    )
+    first, first_job = _rebuild(client, "request-123")
     second = client.post(
         "/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
         json={"request_id": "request-123"},
     )
 
-    assert first.status_code == 202
-    assert first.json()["coverage"]["coverage_ratio"] == 1
+    result = first_job["result"]
+    assert first_job["status"] == "waiting_review"
+    assert result["coverage"]["coverage_ratio"] == 0
     assert second.status_code == 202
-    assert second.json()["bundle_revision_id"] == first.json()["bundle_revision_id"]
+    assert second.json()["job_id"] == first["job_id"]
     assert second.json()["deduplicated"] is True
-    assert first.json()["learning_asset_bundle_revision_id"]
-    assert (
-        second.json()["learning_asset_bundle_revision_id"]
-        == first.json()["learning_asset_bundle_revision_id"]
-    )
+    assert result["learning_asset_bundle_revision_id"]
 
     active_assets = repository.asset_repository.load_bundle("course-api")
     assert active_assets is not None
-    assert active_assets["bundle_revision_id"] == first.json()[
+    assert active_assets["bundle_revision_id"] == result[
         "learning_asset_bundle_revision_id"
     ]
     assert all(
@@ -187,10 +252,10 @@ def test_question_bank_rebuild_is_idempotent_and_returns_coverage(monkeypatch, t
     )
 
     saved_course = repository.course_storage.course
-    assert saved_course["question_bank_bundle_revision_id"] == first.json()[
+    assert saved_course["question_bank_bundle_revision_id"] == result[
         "bundle_revision_id"
     ]
-    assert saved_course["learning_asset_bundle_revision_id"] == first.json()[
+    assert saved_course["learning_asset_bundle_revision_id"] == result[
         "learning_asset_bundle_revision_id"
     ]
     assert saved_course["current_course_version_id"]
@@ -208,6 +273,7 @@ def test_question_bank_rebuild_preserves_teacher_review_decisions(monkeypatch, t
 
     approved = client.post(
         f"/api/courses/course-api/question-bank/items/{pending['revision_id']}/reviews",
+        headers={"X-User-Id": "teacher-1"},
         json={
             "decision": "approved",
             "expected_bundle_revision_id": stored["bundle_revision_id"],
@@ -215,11 +281,8 @@ def test_question_bank_rebuild_preserves_teacher_review_decisions(monkeypatch, t
     )
     assert approved.status_code == 200
 
-    rebuilt = client.post(
-        "/api/courses/course-api/question-bank/rebuild",
-        json={"request_id": "request-preserve-review"},
-    )
-    assert rebuilt.status_code == 202
+    _, rebuilt = _rebuild(client, "request-preserve-review")
+    assert rebuilt["result"]["bundle_revision_id"]
     latest = repository.load_bundle("course-api")
     preserved = next(
         item for item in latest["items"] if item["item_id"] == pending["item_id"]
@@ -273,29 +336,30 @@ def test_rebuild_overlays_bank_on_passing_legacy_assets_when_full_recompile_fail
         ),
     })
 
-    response = client.post(
-        "/api/courses/course-api/question-bank/rebuild",
-        json={"request_id": "request-legacy-overlay"},
-    )
+    _, response = _rebuild(client, "request-legacy-overlay")
+    result = response["result"]
 
-    assert response.status_code == 202
-    assert response.json()["publication_mode"] == "question_bank_overlay"
+    assert result["publication_mode"] == (
+        "question_bank_waiting_review_overlay"
+    )
     active = repository.asset_repository.load_bundle("course-api")
     assert active["quality_report"]["passed"] is True
-    assert active["publication_mode"] == "question_bank_overlay"
+    assert active["publication_mode"] == (
+        "question_bank_waiting_review_overlay"
+    )
     binding = active["assets"]["question_bank_publications"][0]
     assert (
         binding["question_bank_bundle_revision_id"]
-        == response.json()["bundle_revision_id"]
+        == result["bundle_revision_id"]
     )
-    assert binding["quality_report"]["passed"] is True
+    assert binding["quality_report"]["passed"] is False
     assert active["bundle_revision_id"] != stored_legacy[
         "bundle_revision_id"
     ]
 
 
 @pytest.mark.parametrize("compiled_passed", [False, True])
-def test_first_rebuild_refuses_partial_question_bank_publication(
+def test_first_rebuild_keeps_unapproved_question_bank_out_of_learning_tasks(
     compiled_passed,
 ):
     compiled_assets = {
@@ -316,18 +380,18 @@ def test_first_rebuild_refuses_partial_question_bank_publication(
         }],
     }
 
-    with pytest.raises(HTTPException) as raised:
-        question_bank._select_publishable_asset_bundle(
-            None,
-            compiled_assets,
-            partial_bank,
-        )
-
-    assert raised.value.status_code == 409
-    assert (
-        raised.value.detail["code"]
-        == "question_bank_publication_quality_failed"
+    selected = question_bank._select_publishable_asset_bundle(
+        None,
+        compiled_assets,
+        partial_bank,
     )
+
+    assert selected["publication_mode"] == "question_bank_waiting_review"
+    assert selected["quality_report"]["passed"] is True
+    assert selected["quality_report"]["scope"] == (
+        "question_bank_waiting_review"
+    )
+    assert selected["assets"]["questions"] == []
 
 
 def test_safe_approved_subset_builds_explicit_partial_overlay():
