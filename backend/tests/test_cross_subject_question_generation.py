@@ -563,3 +563,18 @@ def test_math_topic_reasoning_fallback_is_blocked_instead_of_auto_published():
         )
         for item in generated
     )
+
+
+def test_semantic_practice_variants_change_the_actual_problem_data():
+    course = _course_for(
+        mode="math_formal",
+        topic="5.3 标准正交基（Orthonormal Basis）",
+        objective="将正交向量归一化并求目标向量的基坐标",
+        key_points=["标准正交基", "坐标重构"],
+        assessment="完成归一化、坐标计算和重构检查",
+    )
+
+    generated = _practice_items(course)
+
+    assert len(generated) >= 2
+    assert len({item["prompt"] for item in generated}) == len(generated)

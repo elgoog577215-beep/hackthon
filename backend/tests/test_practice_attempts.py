@@ -883,3 +883,65 @@ def test_manual_refresh_selects_an_unattempted_frozen_question(monkeypatch):
     assert payload["question"]["task_revision_id"] == "qr2"
     assert payload["question"]["prompt"] == "同目标的另一道冻结题目"
     assert payload["selection_policy"] == "frozen_course_question"
+
+
+def test_manual_refresh_skips_a_duplicate_prompt(monkeypatch):
+    course = _course()
+    base = deepcopy(course["learning_assets"]["questions"][0])
+    current = enrich_question_contract({
+        **base,
+        "revision_id": "qr1",
+        "task_revision_id": "qr1",
+        "practice_level": "mastery_check",
+        "prompt": "同一道题",
+    }, practice_level="mastery_check")
+    duplicate = enrich_question_contract({
+        **base,
+        "asset_id": "q2",
+        "revision_id": "qr2",
+        "task_revision_id": "qr2",
+        "practice_level": "mastery_check",
+        "prompt": "  同一道题  ",
+    }, practice_level="mastery_check")
+    distinct = enrich_question_contract({
+        **base,
+        "asset_id": "q3",
+        "revision_id": "qr3",
+        "task_revision_id": "qr3",
+        "practice_level": "mastery_check",
+        "prompt": "真正不同的题目",
+    }, practice_level="mastery_check")
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    monkeypatch.setattr(
+        practice_router,
+        "_questions",
+        lambda _course, *, node_id, scope: [
+            deepcopy(current),
+            deepcopy(duplicate),
+            deepcopy(distinct),
+        ],
+    )
+    monkeypatch.setattr(
+        practice_router.practice_attempt_repository,
+        "list",
+        lambda _user_id, _course_id: [],
+    )
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    response = client.post(
+        "/api/courses/c1/practice/refresh",
+        json={
+            "current_task_revision_id": "qr1",
+            "node_id": "n1",
+            "scope": "node",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["question"]["task_revision_id"] == "qr3"
