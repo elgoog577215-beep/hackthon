@@ -1265,6 +1265,68 @@ def _linear_algebra_semantic_case(
     seed: int,
 ) -> dict[str, Any] | None:
     if any(marker in topic for marker in (
+        "条件概率", "conditional probability", "贝叶斯",
+    )):
+        return {
+            "data": {
+                "case_kind": "conditional_probability",
+                "sample_space_size": 36,
+                "condition_event_count": 18,
+                "intersection_count": 12,
+                "experiment": "投掷两枚公平六面骰子",
+                "condition_event": "第一枚骰子的点数不小于4",
+                "target_event": "两枚骰子的点数和不小于8",
+            },
+            "canonical": {
+                "condition_probability": "2/3",
+                "numerator_count": 12,
+                "denominator_count": 18,
+                "range_check": True,
+            },
+            "input_text": (
+                "同时投掷两枚公平六面骰子。已知第一枚骰子的点数不小于4，"
+                "求两枚骰子点数和不小于8的条件概率。"
+            ),
+            "task_text": (
+                "列出条件事件中的等可能结果数和同时满足目标事件的结果数，"
+                "计算条件概率并检查结果是否在[0,1]内。"
+            ),
+            "archetype": "conditional_probability_by_counting",
+            "deliverable": "条件样本空间计数、交事件计数、条件概率和范围检查",
+        }
+    if any(marker in topic for marker in (
+        "概率", "随机事件", "样本空间", "古典概型",
+    )):
+        favorable = (seed % 4) + 1
+        total = 6
+        divisor = _greatest_common_divisor(favorable, total)
+        return {
+            "data": {
+                "case_kind": "finite_event_probability",
+                "sample_space_size": total,
+                "favorable_count": favorable,
+                "experiment": "投掷一枚公平六面骰子",
+            },
+            "canonical": {
+                "probability": (
+                    f"{favorable // divisor}/{total // divisor}"
+                ),
+                "favorable_count": favorable,
+                "sample_space_size": total,
+                "range_check": True,
+            },
+            "input_text": (
+                f"投掷一枚公平六面骰子，事件 A 包含其中 {favorable} 个"
+                "等可能结果。"
+            ),
+            "task_text": (
+                "写出样本空间大小与事件 A 的有利结果数，"
+                "计算 P(A) 并检查概率范围。"
+            ),
+            "archetype": "finite_probability_by_counting",
+            "deliverable": "样本空间、有利结果计数、事件概率和范围检查",
+        }
+    if any(marker in topic for marker in (
         "梯度下降", "gradient descent",
     )):
         target = seed + 1
@@ -2349,6 +2411,42 @@ def _expected_linear_algebra_answer(
     data: dict[str, Any],
 ) -> dict[str, Any] | None:
     case_kind = str(data.get("case_kind") or "")
+    if case_kind == "conditional_probability":
+        denominator = data.get("condition_event_count")
+        numerator = data.get("intersection_count")
+        if (
+            not isinstance(denominator, int)
+            or not isinstance(numerator, int)
+            or denominator <= 0
+            or not 0 <= numerator <= denominator
+        ):
+            return {}
+        divisor = _greatest_common_divisor(numerator, denominator)
+        return {
+            "condition_probability": (
+                f"{numerator // divisor}/{denominator // divisor}"
+            ),
+            "numerator_count": numerator,
+            "denominator_count": denominator,
+            "range_check": True,
+        }
+    if case_kind == "finite_event_probability":
+        total = data.get("sample_space_size")
+        favorable = data.get("favorable_count")
+        if (
+            not isinstance(total, int)
+            or not isinstance(favorable, int)
+            or total <= 0
+            or not 0 <= favorable <= total
+        ):
+            return {}
+        divisor = _greatest_common_divisor(favorable, total)
+        return {
+            "probability": f"{favorable // divisor}/{total // divisor}",
+            "favorable_count": favorable,
+            "sample_space_size": total,
+            "range_check": True,
+        }
     if case_kind == "quadratic_gradient_descent":
         target = data.get("target")
         if not isinstance(target, (int, float)):
@@ -2489,6 +2587,12 @@ def _expected_linear_algebra_answer(
             "basis": vectors[:2],
         }
     return None
+
+
+def _greatest_common_divisor(left: int, right: int) -> int:
+    while right:
+        left, right = right, left % right
+    return max(1, abs(left))
 
 
 def _validate_science_spec(spec: dict[str, Any]) -> list[dict[str, str]]:

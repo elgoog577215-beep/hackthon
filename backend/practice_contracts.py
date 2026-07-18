@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
+from reasoning_paths import compile_reasoning_support
 
 
 INPUT_MODES = {
@@ -37,38 +38,21 @@ def enrich_question_contract(
         "required": True,
         "supports_attachments": question_type in {"implementation_task", "source_argument", "scenario_deliverable"},
     })
-    item.setdefault("hint_contract", {
-        "levels": [
-            {
-                "level": 1,
-                "kind": "orientation",
-                "content": f"先澄清任务最终要验证什么，再回看相关章节与自检方向：{objective}",
-                "support_level": 1,
-                "evidence_effect": "limited_mastery",
-            },
-            {
-                "level": 2,
-                "kind": "method_skeleton",
-                "content": f"按“整理输入—选择方法—执行首个关键步骤—检查结果”的骨架推进；核对：{'、'.join(criteria[:3]) or '条件、过程与结果'}",
-                "support_level": 2,
-                "evidence_effect": "not_independent",
-            },
-            {
-                "level": 3,
-                "kind": "local_scaffold",
-                "content": "用不同情境的正反例定位当前卡点，只补足局部步骤；最终结论仍需独立完成。",
-                "support_level": 3,
-                "evidence_effect": "not_mastery",
-            },
-        ],
-        "solution_policy": "after_submission_or_repeated_failure",
-        "solution_effect": {
-            "invalidate_current_evidence": True,
-            "requires_unseen_equivalent_validation": True,
-        },
-        "frozen_with_item_revision": True,
-        "leakage_check": {"passed": True, "checked_at_compile_time": True},
-    })
+    if not item.get("hint_contract"):
+        support = _legacy_reasoning_support(
+            item,
+            question_type=question_type,
+        )
+        item["reasoning_path"] = support["reasoning_path"]
+        item["answer_spec"] = support["answer_spec"]
+        item["hint_contract"] = support["hint_contract"]
+        answer_spec = item["answer_spec"]
+        criteria = [
+            str(value)
+            for value in answer_spec.get("criteria") or []
+            if str(value).strip()
+        ]
+    _complete_hint_policy(item)
     method = "deterministic" if answer_spec.get("correct_answer") is not None or answer_spec.get("correct_option_id") is not None else "rubric_ai"
     item.setdefault("grading_policy", {
         "method": method,
@@ -90,6 +74,112 @@ def enrich_question_contract(
     }
     item["practice_contract_revision_id"] = stable_hash(contract_payload, prefix="pcr_")
     return item
+
+
+def _legacy_reasoning_support(
+    item: dict[str, Any],
+    *,
+    question_type: str,
+) -> dict[str, Any]:
+    prompt = str(item.get("prompt") or "")
+    answer_spec = deepcopy(item.get("answer_spec") or {})
+    payload = {
+        "archetype_id": f"legacy_{question_type}",
+        "stimulus": {
+            "kind": "legacy_question",
+            "data": {
+                "question_text": prompt,
+                "input_materials": deepcopy(
+                    item.get("input_materials") or []
+                ),
+            },
+            "rendered_text": prompt,
+        },
+        "task": {
+            "action": _legacy_task_action(question_type),
+            "rendered_text": prompt,
+            "deliverable": str(
+                item.get("deliverable")
+                or "提交题目要求的结果与必要依据"
+            ),
+        },
+        "constraints": deepcopy(item.get("constraints") or []),
+        "response_contract": {
+            "format": question_type,
+            "required_parts": _legacy_required_parts(question_type),
+        },
+        "answer_spec": answer_spec,
+        "result_checks": deepcopy(
+            item.get("result_checks")
+            or answer_spec.get("criteria")
+            or ["结果能够由题目条件复核"]
+        ),
+    }
+    return compile_reasoning_support(payload)
+
+
+def _complete_hint_policy(item: dict[str, Any]) -> None:
+    contract = item["hint_contract"]
+    effects = {
+        1: ("limited_mastery", 1),
+        2: ("not_independent", 2),
+        3: ("not_mastery", 3),
+    }
+    for level in contract.get("levels") or []:
+        number = int(level.get("level") or 0)
+        effect, support = effects.get(number, ("not_mastery", max(1, number)))
+        level.setdefault("evidence_effect", effect)
+        level.setdefault("support_level", support)
+    contract.setdefault(
+        "solution_policy",
+        "after_submission_or_repeated_failure",
+    )
+    contract.setdefault("solution_effect", {
+        "invalidate_current_evidence": True,
+        "requires_unseen_equivalent_validation": True,
+    })
+    contract.setdefault("frozen_with_item_revision", True)
+    contract.setdefault("leakage_check", {
+        "passed": _legacy_hint_does_not_reveal_answer(item),
+        "checked_at_compile_time": True,
+    })
+
+
+def _legacy_hint_does_not_reveal_answer(item: dict[str, Any]) -> bool:
+    answer = (item.get("answer_spec") or {}).get("canonical_answer")
+    if answer is None:
+        answer = (item.get("answer_spec") or {}).get("correct_answer")
+    if answer is None:
+        return True
+    normalized_answer = "".join(str(answer).split())
+    if len(normalized_answer) < 4:
+        return True
+    return all(
+        normalized_answer not in "".join(str(level.get("content") or "").split())
+        for level in (item.get("hint_contract") or {}).get("levels") or []
+    )
+
+
+def _legacy_task_action(question_type: str) -> str:
+    return {
+        "implementation_task": "implement_transform_and_test",
+        "evidence_analysis": "analyze_evidence",
+        "mechanism_explanation": "explain_mechanism",
+        "source_argument": "construct_evidence_argument",
+        "language_production": "produce_contextual_language",
+        "scenario_deliverable": "design_and_justify",
+    }.get(question_type, "solve_and_verify")
+
+
+def _legacy_required_parts(question_type: str) -> list[str]:
+    return {
+        "implementation_task": ["implementation", "tests", "verification"],
+        "evidence_analysis": ["evidence", "reasoning", "claim", "limitation"],
+        "mechanism_explanation": ["steps", "reasoning", "verification"],
+        "source_argument": ["claim", "evidence", "reasoning", "limitation"],
+        "language_production": ["response_text", "target_form_highlights"],
+        "scenario_deliverable": ["design", "reasoning", "verification"],
+    }.get(question_type, ["method", "steps", "answer", "verification"])
 
 
 def project_practice_contracts(assets: dict[str, Any]) -> dict[str, Any]:
