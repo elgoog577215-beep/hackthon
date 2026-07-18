@@ -17,10 +17,10 @@
     "started_at": "2026-07-16T02:14:09.803Z"
   },
   "task_state": {
-    "kind": "practice",
-    "object_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
-    "task_revision_id": "qr_2e6a9a9ee889af07",
-    "status": "in_progress",
+    "kind": "diagnostic",
+    "object_id": "dc_50230f9bc807458ba0bd37e1d4fcd82c",
+    "task_revision_id": "dtr_c6b42aceb2b6cfed",
+    "status": "active",
     "context": {
       "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
       "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
@@ -38,13 +38,13 @@
     "remediation_session_id": ""
   },
   "fallback_scroll_top": 700,
-  "activity_at": "2026-07-18T08:46:05.538Z",
+  "activity_at": "2026-07-18T08:46:22.394Z",
   "source": "offline_recovery",
   "snapshot_id": "ls_3694c21aa523b8519d254c47",
   "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
   "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
-  "revision": 22,
+  "revision": 24,
   "schema_version": 2,
   "created_at": "2026-07-18T08:02:26.143641+00:00",
-  "updated_at": "2026-07-18T08:46:05.876979+00:00"
+  "updated_at": "2026-07-18T08:46:22.966495+00:00"
 }

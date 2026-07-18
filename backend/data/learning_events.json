@@ -12344,5 +12344,237 @@
     },
     "created_at": "2026-07-18T16:46:18.307507",
     "schema_version": 8
+  },
+  {
+    "event_id": "evt_59c0106055a14c6bb708f3b3fc8c159d",
+    "event_type": "practice_attempt_graded",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "system",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_2e6a9a9ee889af07",
+    "task_revision_id": "qr_2e6a9a9ee889af07",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_f52a9c84f7674a5c86b5585d9bd16f74:4:practice_attempt_graded",
+    "idempotency_key": "practice_attempt_graded:pa_f52a9c84f7674a5c86b5585d9bd16f74:4",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "entity_revision": 4,
+    "evidence": {},
+    "result": {
+      "status": "graded",
+      "score": 0,
+      "passed": false,
+      "rubric_results": [
+        {
+          "criterion": "按给定顺序和线性探测规则逐键插入",
+          "met": false,
+          "score": 0,
+          "feedback": "没有进行任何键的插入操作，无法判断是否按规则插入。"
+        },
+        {
+          "criterion": "写出完整最终槽位并记录各键探测次数",
+          "met": false,
+          "score": 0,
+          "feedback": "未写出任何槽位和探测次数。"
+        },
+        {
+          "criterion": "复核每个键都能按同一规则查回",
+          "met": false,
+          "score": 0,
+          "feedback": "没有进行任何复核操作。"
+        }
+      ],
+      "feedback": "学生答案仅写了“不知道”，未进行任何插入操作、槽位填写、探测次数记录、负载因子管理或性能分析，完全不符合题目要求。",
+      "grading_confidence": 1.0,
+      "grading_method": "rubric_ai",
+      "evidence_strength": "lightly_supported",
+      "support_level": 1,
+      "mastery_eligible": false
+    },
+    "metadata": {
+      "practice_level": "objective_practice",
+      "attempt_number": 1,
+      "task_revision_id": "qr_2e6a9a9ee889af07",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:46:21.208045",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_6d09954b08d949c69c876cb0a43a7bbc",
+    "event_type": "diagnostic_case_opened",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "system",
+    "source": "diagnostic.remediation",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": null,
+    "task_revision_id": "qr_2e6a9a9ee889af07",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "diagnostic_case_id": "dc_50230f9bc807458ba0bd37e1d4fcd82c",
+    "remediation_session_id": null,
+    "operation_id": "evt_6d09954b08d949c69c876cb0a43a7bbc",
+    "idempotency_key": null,
+    "entity_type": null,
+    "entity_id": null,
+    "entity_revision": null,
+    "evidence": {
+      "task_revision_id": "qr_2e6a9a9ee889af07",
+      "task_purpose": "course_practice"
+    },
+    "result": {},
+    "metadata": {
+      "diagnostic_case_id": "dc_50230f9bc807458ba0bd37e1d4fcd82c",
+      "trigger_attempt_ids": [
+        "pa_16ee69caaa0f4fae8f660ea878a27b68",
+        "pa_f52a9c84f7674a5c86b5585d9bd16f74"
+      ]
+    },
+    "created_at": "2026-07-18T16:46:21.277429",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_cf6731ddd8974340afd68b67b71e33e8",
+    "event_type": "practice_attempt_started",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "dtr_c6b42aceb2b6cfed",
+    "task_revision_id": "dtr_c6b42aceb2b6cfed",
+    "task_purpose": "diagnostic_probe",
+    "criterion_id": "mc_b7bfa5c40c9d2e9f",
+    "criterion_revision_id": "mcr_88150cfc67b7518c",
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_d35ecea75d4941a8a3e3f0cd9ccbcd1c",
+    "diagnostic_case_id": "dc_50230f9bc807458ba0bd37e1d4fcd82c",
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_d35ecea75d4941a8a3e3f0cd9ccbcd1c:1:practice_attempt_started",
+    "idempotency_key": "practice_attempt_started:pa_d35ecea75d4941a8a3e3f0cd9ccbcd1c:1",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_d35ecea75d4941a8a3e3f0cd9ccbcd1c",
+    "entity_revision": 1,
+    "evidence": {},
+    "result": {},
+    "metadata": {
+      "practice_level": "diagnostic_probe",
+      "attempt_number": 1,
+      "task_revision_id": "dtr_c6b42aceb2b6cfed",
+      "task_purpose": "diagnostic_probe",
+      "diagnostic_case_id": "dc_50230f9bc807458ba0bd37e1d4fcd82c",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:46:22.364604",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_67fc17faa8134e2fbf2cc80047d96b03",
+    "event_type": "assistant_answer_completed",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "assistant",
+    "source": "ai_teacher.ask_events",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": null,
+    "objective_revision_id": null,
+    "concept_ids": [],
+    "skill_unit_ids": [],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": null,
+    "task_revision_id": null,
+    "task_purpose": null,
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": null,
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "evt_67fc17faa8134e2fbf2cc80047d96b03",
+    "idempotency_key": null,
+    "entity_type": null,
+    "entity_id": null,
+    "entity_revision": null,
+    "evidence": {
+      "question": "请换一种更容易理解的方式解释当前内容。",
+      "conversation_id": "aic_c01d953002f3447787f1f17cb0bb5e51",
+      "source_ids": [
+        "cbr_57ff156ac2e06eca54294c5d",
+        "cbr_864cd11bb413344cfc3ab5fe",
+        "cbr_922027b931a8de01d9b96160",
+        "cbr_b5a76488f81d3918d811a57b",
+        "cbr_f23732269e98f93fdf6e43c8"
+      ]
+    },
+    "result": {
+      "answer_summary": "好的，没问题。我们用更直观、更生活化的方式来理解这个“哈希表插入与线性探测”的过程。 想象你有一个**10个房间的旅馆**（散列表容量 m=10），每个房间都有一个编号，从 0 到 9。 现在，你有一个**奇怪的入住规则**（哈希函数 `h(k) = (3k+1) mod 10`）来决定每个客人应该住哪个房间。这个规则就是：**客人的编号乘以3再加1，然后取结果的个位数**，个位数是几，就去几号房间。 **开始入住：** 1. **第一位客人：12号** * 计算房间号：`(...",
+      "output_chars": 11638,
+      "metadata_emitted": true
+    },
+    "metadata": {},
+    "created_at": "2026-07-18T16:46:22.397712",
+    "schema_version": 8
   }
 ]

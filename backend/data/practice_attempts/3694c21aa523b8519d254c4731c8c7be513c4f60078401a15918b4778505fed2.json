@@ -195,7 +195,7 @@
     "attempt_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
     "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
     "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
-    "status": "submitted",
+    "status": "graded",
     "attempt_number": 1,
     "answer_payload": {
       "text": "不知道"
@@ -204,15 +204,94 @@
     "solution_revealed": false,
     "ai_support_level": 1,
     "active_seconds": 28,
-    "revision": 3,
+    "revision": 4,
     "schema_version": 2,
     "started_at": "2026-07-18T08:45:49.965240+00:00",
     "created_at": "2026-07-18T08:45:49.965240+00:00",
-    "updated_at": "2026-07-18T08:46:18.305507+00:00",
+    "updated_at": "2026-07-18T08:46:21.202717+00:00",
     "submitted_answer_payload": {
       "text": "不知道"
     },
     "submit_request_id": "d24411bc-4c90-4cad-8fa8-78fc9925c901",
-    "submitted_at": "2026-07-18T08:46:18.305507+00:00"
+    "submitted_at": "2026-07-18T08:46:18.305507+00:00",
+    "result": {
+      "status": "graded",
+      "score": 0,
+      "passed": false,
+      "rubric_results": [
+        {
+          "criterion": "按给定顺序和线性探测规则逐键插入",
+          "met": false,
+          "score": 0,
+          "feedback": "没有进行任何键的插入操作，无法判断是否按规则插入。"
+        },
+        {
+          "criterion": "写出完整最终槽位并记录各键探测次数",
+          "met": false,
+          "score": 0,
+          "feedback": "未写出任何槽位和探测次数。"
+        },
+        {
+          "criterion": "复核每个键都能按同一规则查回",
+          "met": false,
+          "score": 0,
+          "feedback": "没有进行任何复核操作。"
+        }
+      ],
+      "feedback": "学生答案仅写了“不知道”，未进行任何插入操作、槽位填写、探测次数记录、负载因子管理或性能分析，完全不符合题目要求。",
+      "grading_confidence": 1.0,
+      "grading_method": "rubric_ai",
+      "evidence_strength": "lightly_supported",
+      "support_level": 1,
+      "mastery_eligible": false
+    },
+    "graded_at": "2026-07-18T08:46:21.201718+00:00"
+  },
+  {
+    "practice_run_id": "1253b346-aaa5-43a4-acbe-04341c9dd681",
+    "practice_level": "diagnostic_probe",
+    "task_revision_id": "dtr_c6b42aceb2b6cfed",
+    "task_purpose": "diagnostic_probe",
+    "task_source": "diagnostic_workflow",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "criterion_id": "mc_b7bfa5c40c9d2e9f",
+    "criterion_revision_id": "mcr_88150cfc67b7518c",
+    "question_revision_id": "dtr_c6b42aceb2b6cfed",
+    "question_type": "short_answer",
+    "input_contract": {
+      "mode": "rich_text",
+      "required": true,
+      "supports_attachments": false
+    },
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "practice_intent": "standard",
+    "diagnostic_case_id": "dc_50230f9bc807458ba0bd37e1d4fcd82c",
+    "attempt_id": "pa_d35ecea75d4941a8a3e3f0cd9ccbcd1c",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "status": "in_progress",
+    "attempt_number": 1,
+    "answer_payload": {},
+    "revealed_hint_levels": [],
+    "solution_revealed": false,
+    "ai_support_level": 0,
+    "active_seconds": 0,
+    "revision": 1,
+    "schema_version": 2,
+    "started_at": "2026-07-18T08:46:22.313281+00:00",
+    "created_at": "2026-07-18T08:46:22.313281+00:00",
+    "updated_at": "2026-07-18T08:46:22.313281+00:00"
   }
 ]

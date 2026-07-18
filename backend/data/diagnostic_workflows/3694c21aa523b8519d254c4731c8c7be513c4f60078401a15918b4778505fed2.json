@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "trigger_attempt_ids": [
+        "pa_16ee69caaa0f4fae8f660ea878a27b68",
+        "pa_f52a9c84f7674a5c86b5585d9bd16f74"
+      ],
+      "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+      "node_id": "L2-4-2",
+      "node_name": "4.2 哈希表实现与性能分析",
+      "learning_objective": "lo_e53ec242e0627f76",
+      "objective_id": "lo_e53ec242e0627f76",
+      "objective_revision_id": null,
+      "criterion_id": null,
+      "criterion_revision_id": null,
+      "concept_ids": [
+        "ckp_8fd684c7f13b11ed",
+        "ckp_b54aa392671a030d"
+      ],
+      "skill_unit_ids": [
+        "cks_5a31fd921e3311a7",
+        "cks_ca90693b5c66d15b"
+      ],
+      "candidate_mistake_point_ids": [],
+      "improvement_point_ids": [],
+      "hypotheses": [
+        {
+          "hypothesis_id": "dh_5a30a843cf28e5ae",
+          "category": "transfer_gap",
+          "claim": "按给定顺序和线性探测规则逐键插入",
+          "status": "testing",
+          "confidence_level": "low",
+          "concept_ids": [
+            "ckp_8fd684c7f13b11ed",
+            "ckp_b54aa392671a030d"
+          ],
+          "skill_unit_ids": [
+            "cks_5a31fd921e3311a7",
+            "cks_ca90693b5c66d15b"
+          ],
+          "candidate_mistake_point_ids": [],
+          "confirmed_mistake_point_ids": [],
+          "evidence_for": [
+            {
+              "attempt_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+              "kind": "formal_failure"
+            }
+          ],
+          "evidence_against": []
+        },
+        {
+          "hypothesis_id": "dh_4bad132cf5031d98",
+          "category": "transfer_gap",
+          "claim": "写出完整最终槽位并记录各键探测次数",
+          "status": "testing",
+          "confidence_level": "low",
+          "concept_ids": [
+            "ckp_8fd684c7f13b11ed",
+            "ckp_b54aa392671a030d"
+          ],
+          "skill_unit_ids": [
+            "cks_5a31fd921e3311a7",
+            "cks_ca90693b5c66d15b"
+          ],
+          "candidate_mistake_point_ids": [],
+          "confirmed_mistake_point_ids": [],
+          "evidence_for": [
+            {
+              "attempt_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+              "kind": "formal_failure"
+            }
+          ],
+          "evidence_against": []
+        }
+      ],
+      "diagnostic_tasks": [
+        {
+          "question_type": "short_answer",
+          "learning_objective": "lo_e53ec242e0627f76",
+          "objective_id": "lo_e53ec242e0627f76",
+          "objective_revision_id": null,
+          "node_id": "L2-4-2",
+          "prompt": "只针对下面这一点作答，不展开其他内容：按给定顺序和线性探测规则逐键插入。说明你的判断、必要条件和一个最小例子。",
+          "answer_spec": {
+            "type": "rubric",
+            "expected_keywords": [
+              "负载因子管理",
+              "性能分析"
+            ],
+            "criteria": [
+              "按给定顺序和线性探测规则逐键插入",
+              "说明必要条件或边界",
+              "给出可检查的最小例子"
+            ],
+            "pass_score": 70
+          },
+          "practice_level": "diagnostic_probe",
+          "target_hypothesis_ids": [
+            "dh_5a30a843cf28e5ae"
+          ],
+          "concept_ids": [
+            "ckp_8fd684c7f13b11ed",
+            "ckp_b54aa392671a030d"
+          ],
+          "skill_unit_ids": [
+            "cks_5a31fd921e3311a7",
+            "cks_ca90693b5c66d15b"
+          ],
+          "mistake_point_ids": [],
+          "outcome_matrix": {
+            "independent_pass": "evidence_against",
+            "independent_fail": "evidence_for",
+            "supported_or_pending": "inconclusive"
+          },
+          "revision_id": "dtr_c6b42aceb2b6cfed",
+          "validation_policy": {
+            "mastery_eligible": false,
+            "max_support_level_for_mastery": -1
+          },
+          "input_contract": {
+            "mode": "rich_text",
+            "required": true,
+            "supports_attachments": false
+          },
+          "hint_contract": {
+            "levels": [
+              {
+                "level": 1,
+                "kind": "orientation",
+                "content": "先澄清任务最终要验证什么，再回看相关章节与自检方向：lo_e53ec242e0627f76",
+                "support_level": 1,
+                "evidence_effect": "limited_mastery"
+              },
+              {
+                "level": 2,
+                "kind": "method_skeleton",
+                "content": "按“整理输入—选择方法—执行首个关键步骤—检查结果”的骨架推进；核对：按给定顺序和线性探测规则逐键插入、说明必要条件或边界、给出可检查的最小例子",
+                "support_level": 2,
+                "evidence_effect": "not_independent"
+              },
+              {
+                "level": 3,
+                "kind": "local_scaffold",
+                "content": "用不同情境的正反例定位当前卡点，只补足局部步骤；最终结论仍需独立完成。",
+                "support_level": 3,
+                "evidence_effect": "not_mastery"
+              }
+            ],
+            "solution_policy": "after_submission_or_repeated_failure",
+            "solution_effect": {
+              "invalidate_current_evidence": true,
+              "requires_unseen_equivalent_validation": true
+            },
+            "frozen_with_item_revision": true,
+            "leakage_check": {
+              "passed": true,
+              "checked_at_compile_time": true
+            }
+          },
+          "grading_policy": {
+            "method": "rubric_ai",
+            "pass_score": 70,
+            "confidence_threshold": 0.72,
+            "near_threshold_review_margin": 3
+          },
+          "practice_contract_revision_id": "pcr_f06b68928850ddf2",
+          "task_revision_id": "dtr_c6b42aceb2b6cfed",
+          "task_id": "dtr_c6b42aceb2b6cfed",
+          "task_purpose": "diagnostic_probe",
+          "task_source": "diagnostic_workflow",
+          "assessment_contract_revision_id": "acr_f42dc1566c4fcddc",
+          "diagnostic_case_id": "dc_50230f9bc807458ba0bd37e1d4fcd82c",
+          "course_version_id": "cdr_3a85a71a89107ae1bb0baa42"
+        },
+        {
+          "question_type": "short_answer",
+          "learning_objective": "lo_e53ec242e0627f76",
+          "objective_id": "lo_e53ec242e0627f76",
+          "objective_revision_id": null,
+          "node_id": "L2-4-2",
+          "prompt": "只针对下面这一点作答，不展开其他内容：写出完整最终槽位并记录各键探测次数。说明你的判断、必要条件和一个最小例子。",
+          "answer_spec": {
+            "type": "rubric",
+            "expected_keywords": [
+              "负载因子管理",
+              "性能分析"
+            ],
+            "criteria": [
+              "写出完整最终槽位并记录各键探测次数",
+              "说明必要条件或边界",
+              "给出可检查的最小例子"
+            ],
+            "pass_score": 70
+          },
+          "practice_level": "diagnostic_probe",
+          "target_hypothesis_ids": [
+            "dh_4bad132cf5031d98"
+          ],
+          "concept_ids": [
+            "ckp_8fd684c7f13b11ed",
+            "ckp_b54aa392671a030d"
+          ],
+          "skill_unit_ids": [
+            "cks_5a31fd921e3311a7",
+            "cks_ca90693b5c66d15b"
+          ],
+          "mistake_point_ids": [],
+          "outcome_matrix": {
+            "independent_pass": "evidence_against",
+            "independent_fail": "evidence_for",
+            "supported_or_pending": "inconclusive"
+          },
+          "revision_id": "dtr_0ffadfe9d1648fa3",
+          "validation_policy": {
+            "mastery_eligible": false,
+            "max_support_level_for_mastery": -1
+          },
+          "input_contract": {
+            "mode": "rich_text",
+            "required": true,
+            "supports_attachments": false
+          },
+          "hint_contract": {
+            "levels": [
+              {
+                "level": 1,
+                "kind": "orientation",
+                "content": "先澄清任务最终要验证什么，再回看相关章节与自检方向：lo_e53ec242e0627f76",
+                "support_level": 1,
+                "evidence_effect": "limited_mastery"
+              },
+              {
+                "level": 2,
+                "kind": "method_skeleton",
+                "content": "按“整理输入—选择方法—执行首个关键步骤—检查结果”的骨架推进；核对：写出完整最终槽位并记录各键探测次数、说明必要条件或边界、给出可检查的最小例子",
+                "support_level": 2,
+                "evidence_effect": "not_independent"
+              },
+              {
+                "level": 3,
+                "kind": "local_scaffold",
+                "content": "用不同情境的正反例定位当前卡点，只补足局部步骤；最终结论仍需独立完成。",
+                "support_level": 3,
+                "evidence_effect": "not_mastery"
+              }
+            ],
+            "solution_policy": "after_submission_or_repeated_failure",
+            "solution_effect": {
+              "invalidate_current_evidence": true,
+              "requires_unseen_equivalent_validation": true
+            },
+            "frozen_with_item_revision": true,
+            "leakage_check": {
+              "passed": true,
+              "checked_at_compile_time": true
+            }
+          },
+          "grading_policy": {
+            "method": "rubric_ai",
+            "pass_score": 70,
+            "confidence_threshold": 0.72,
+            "near_threshold_review_margin": 3
+          },
+          "practice_contract_revision_id": "pcr_d9e4d70a4745b51a",
+          "task_revision_id": "dtr_0ffadfe9d1648fa3",
+          "task_id": "dtr_0ffadfe9d1648fa3",
+          "task_purpose": "diagnostic_probe",
+          "task_source": "diagnostic_workflow",
+          "assessment_contract_revision_id": "acr_e7fdd195af3c5072",
+          "diagnostic_case_id": "dc_50230f9bc807458ba0bd37e1d4fcd82c",
+          "course_version_id": "cdr_3a85a71a89107ae1bb0baa42"
+        }
+      ],
+      "current_task_revision_id": "dtr_c6b42aceb2b6cfed",
+      "decision_rule_version": "diagnostic_policy_v1",
+      "return_anchor": {
+        "node_id": "L2-4-2",
+        "attempt_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74"
+      },
+      "diagnostic_case_id": "dc_50230f9bc807458ba0bd37e1d4fcd82c",
+      "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+      "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+      "status": "testing",
+      "revision": 1,
+      "schema_version": 1,
+      "created_at": "2026-07-18T08:46:21.272347+00:00",
+      "updated_at": "2026-07-18T08:46:21.272347+00:00"
+    }
+  ],
+  "sessions": []
+}
