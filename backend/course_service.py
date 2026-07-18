@@ -498,7 +498,7 @@ class CourseService(AIBase):
                     on_phase,
                     "outline_validation",
                     34,
-                    "课程目录未通过形状或责任检查，正在局部重新规划目录",
+                    "课程目录未通过结构或数量检查，正在局部重新规划目录",
                     phase_progress=50,
                     phase_detail={
                         "artifact_type": "course_outline",
@@ -1679,7 +1679,7 @@ class CourseService(AIBase):
         stage_timeout_seconds: float | None = None,
         heartbeat_message: str = "仍在等待 AI 返回当前生成产物",
         phase_detail: dict[str, Any] | None = None,
-    ) -> str | None:
+    ) -> str:
         """Run `_call_llm` while periodically re-announcing the same phase with
         an elapsed-time message, so a slow/degraded AI provider response
         (this call alone can legally take tens of minutes across all model
@@ -1699,6 +1699,7 @@ class CourseService(AIBase):
             user_prompt,
             system_prompt,
             enable_thinking=enable_thinking,
+            raise_on_failure=True,
         )
         if not on_phase:
             try:

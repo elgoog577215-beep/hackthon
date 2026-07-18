@@ -110,6 +110,7 @@
     "remaining": "预计剩余",
     "retry": "重新尝试",
     "resumeCheckpoint": "从保存点继续",
+    "retryStage": "重试当前阶段",
     "pauseKeepDraft": "暂停并保留草稿",
     "pauseKeepDraftHelp": "停止当前模型调用；已经保存的正文草稿会保留，恢复后从草稿继续。",
     "pauseRestartStep": "停止本步并保留检查点",
@@ -288,6 +289,8 @@
     "problem": {
       "failed": "生成中断，可以从保存点继续",
       "failedHelp": "继续时会保留已完成内容和中断草稿，不会新建重复课程。",
+      "restartStage": "生成中断，可以重试当前阶段",
+      "restartStageHelp": "继续后会复用已保存的课程需求和资料处理结果，重新生成课程目录，不会新建重复课程。",
       "qualityBlocked": "内容已生成，但质量检查未通过",
       "qualityBlockedHelp": "重复生成不会自动修复同一质量问题；请先查看质量结果，再决定局部优化。",
       "unavailable": "原任务没有可用的恢复点",
@@ -303,6 +306,8 @@
       "checkpoint": "已保留 {completed}/{total} 个内容块和 {drafts} 份草稿",
       "outlineCheckpoint": "课程目录已保留，可从逐节知识包阶段继续",
       "knowledgeCheckpoint": "目录已保留，知识包已完成 {completed}/{total}",
+      "requirementsCheckpoint": "已保存课程需求和资料处理结果；继续后将重新生成课程目录",
+      "stageRetry": "尚未生成课程内容；继续后将重试当前阶段",
       "resumedLog": "已从保存点继续"
     }
   },

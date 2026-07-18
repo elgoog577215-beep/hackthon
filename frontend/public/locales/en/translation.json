@@ -110,6 +110,7 @@
     "remaining": "Estimated remaining",
     "retry": "Try again",
     "resumeCheckpoint": "Resume from checkpoint",
+    "retryStage": "Retry current stage",
     "pauseKeepDraft": "Pause and keep draft",
     "pauseKeepDraftHelp": "Stops the current model call. Saved content drafts are kept and resume continues from them.",
     "pauseRestartStep": "Stop step and keep checkpoint",
@@ -288,6 +289,8 @@
     "problem": {
       "failed": "Generation stopped and can resume from its checkpoint",
       "failedHelp": "Resuming preserves completed content and interrupted drafts instead of creating a duplicate course.",
+      "restartStage": "Generation stopped and can retry the current stage",
+      "restartStageHelp": "Retrying reuses the saved course requirements and processed materials, regenerates the outline, and does not create a duplicate course.",
       "qualityBlocked": "Content was generated but did not pass quality checks",
       "qualityBlockedHelp": "Repeating generation will not automatically fix the same quality issue. Review the result before applying a targeted improvement.",
       "unavailable": "The original task has no usable checkpoint",
@@ -303,6 +306,8 @@
       "checkpoint": "Preserved {completed}/{total} content blocks and {drafts} drafts",
       "outlineCheckpoint": "The course outline is preserved and can resume at section knowledge generation",
       "knowledgeCheckpoint": "Outline preserved; completed {completed}/{total} knowledge packages",
+      "requirementsCheckpoint": "Course requirements and processed materials are saved; retrying will regenerate the outline",
+      "stageRetry": "No course content was generated; retrying will rerun the current stage",
       "resumedLog": "Resumed from checkpoint"
     }
   },

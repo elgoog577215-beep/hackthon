@@ -527,7 +527,12 @@ def validate_course_outline_constraints(
     plan: dict[str, Any],
     brief: dict[str, Any],
 ) -> dict[str, Any]:
-    """Validate only the cheap outline contract before user confirmation."""
+    """Block only an unusable outline shape or an explicit size mismatch.
+
+    Reviewable quality differences such as omitted objectives, omitted scope
+    boundaries, or repeated wording are normalized or left for the outline
+    review step. They must not turn a usable first draft into a failed job.
+    """
     chapters = plan.get("chapters") if isinstance(plan, dict) else None
     chapters = chapters if isinstance(chapters, list) else []
     constraints = brief.get("course_shape_constraints") or {}
@@ -542,8 +547,6 @@ def validate_course_outline_constraints(
         issues.append(_plan_issue("outline:malformed_chapters", f"课程目录第 {malformed_chapters} 章不是合法对象"))
     valid_chapters = [chapter for chapter in chapters if isinstance(chapter, dict)]
     section_count = 0
-    seen_titles: set[str] = set()
-    seen_responsibilities: set[str] = set()
     for chapter_index, chapter in enumerate(valid_chapters, start=1):
         sections = chapter.get("sections")
         if not isinstance(sections, list):
@@ -551,27 +554,11 @@ def validate_course_outline_constraints(
             continue
         for section_index, section in enumerate(sections, start=1):
             section_count += 1
-            label = f"{chapter_index}.{section_index}"
             if not isinstance(section, dict):
-                issues.append(_plan_issue("outline:malformed_section", f"课程目录小节 {label} 不是合法对象"))
-                continue
-            title = str(section.get("title") or "").strip()
-            objective = str(section.get("learning_objective") or "").strip()
-            boundary = str(section.get("scope_boundary") or "").strip()
-            if not title:
-                issues.append(_plan_issue("outline:missing_section_title", f"小节 {label} 缺少名称"))
-            if not objective:
-                issues.append(_plan_issue("outline:missing_learning_objective", f"小节 {label} 缺少可观察学习目标"))
-            if not boundary:
-                issues.append(_plan_issue("outline:missing_scope_boundary", f"小节 {label} 缺少范围边界"))
-            normalized_title = _normalize_knowledge_name(title)
-            normalized_objective = _normalize_knowledge_name(objective)
-            if normalized_title and normalized_title in seen_titles:
-                issues.append(_plan_issue("outline:duplicate_section_title", f"小节 {label} 与前面小节名称重复"))
-            if normalized_objective and normalized_objective in seen_responsibilities:
-                issues.append(_plan_issue("outline:duplicate_section_responsibility", f"小节 {label} 与前面小节承担相同学习责任"))
-            seen_titles.add(normalized_title)
-            seen_responsibilities.add(normalized_objective)
+                issues.append(_plan_issue(
+                    "outline:malformed_section",
+                    f"课程目录小节 {chapter_index}.{section_index} 不是合法对象",
+                ))
     if chapters and not section_count:
         issues.append(_plan_issue("outline:missing_sections", "课程目录没有可生成的小节"))
     expected_chapters = constraints.get("chapter_count")

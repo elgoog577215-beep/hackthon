@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ai_base import AIProviderRequestError
+from ai_base import AIProviderRequestError, AIProviderUnavailable
 from course_generation_workflow import (
     attach_generation_artifacts_to_plan,
     build_course_blueprint_from_plan,
@@ -513,6 +513,22 @@ async def test_invalid_model_json_never_falls_back_to_placeholder_course(monkeyp
     assert not (tmp_path / "debug_failed_json.txt").exists()
 
 
+@pytest.mark.asyncio
+async def test_outline_provider_failure_is_not_reported_as_structure_error():
+    service = CourseService()
+    service.api_key = None
+
+    with pytest.raises(AIProviderUnavailable, match="not_configured"):
+        await service._call_llm_with_heartbeat(
+            "生成课程目录",
+            "只输出 JSON",
+            enable_thinking=False,
+            on_phase=None,
+            phase="outline_generation",
+            base_progress=32,
+        )
+
+
 def test_lightweight_outline_validation_does_not_require_knowledge_packages():
     outline = normalize_course_outline_contract({
         "course_title": "轻量目录测试",
@@ -531,6 +547,31 @@ def test_lightweight_outline_validation_does_not_require_knowledge_packages():
 
     assert report["passed"] is True
     assert outline["chapters"][0]["sections"][0]["knowledge_structure"] == []
+
+
+def test_outline_validation_leaves_fillable_quality_fields_for_review():
+    outline = {
+        "course_title": "允许审阅的轻量目录",
+        "chapters": [{
+            "sections": [
+                {"title": "重复措辞"},
+                {"title": "重复措辞"},
+            ],
+        }],
+    }
+
+    report = validate_course_outline_constraints(
+        outline,
+        {"course_shape_constraints": {}},
+    )
+    normalized = normalize_course_outline_contract(outline)
+
+    assert report["passed"] is True
+    assert report["issues"] == []
+    assert all(
+        section["learning_objective"] and section["scope_boundary"]
+        for section in normalized["chapters"][0]["sections"]
+    )
 
 
 def test_section_knowledge_validation_keeps_relation_defects_as_advisories():

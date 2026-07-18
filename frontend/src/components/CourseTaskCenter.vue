@@ -330,7 +330,7 @@
                 <Pause :size="16" />{{ pauseActionLabel(selectedTask) }}
               </button>
               <button v-if="canResume(selectedTask)" type="button" class="primary-button" :disabled="acting" @click="resumeSelected">
-                <RotateCw :size="16" />{{ t('courseTasks.resumeCheckpoint', '从保存点继续') }}
+                <RotateCw :size="16" />{{ resumeActionLabel(selectedTask) }}
               </button>
               <button v-if="selectedTask.status === 'waiting_for_review'" type="button" class="primary-button" :disabled="acting || workspace.loading || !canConfirmCurrentStep" @click="confirmCurrentStep">
                 <CircleCheck :size="16" />{{ confirmCurrentStepLabel }}
@@ -907,6 +907,9 @@ function problemTitle(task: TaskView) {
   }
   if (task.recovery?.state === 'quality_blocked') return t('courseTasks.problem.qualityBlocked', '内容已生成，但质量检查未通过')
   if (task.recovery?.state === 'unavailable') return t('courseTasks.problem.unavailable', '原任务没有可用的恢复点')
+  if (task.status === 'error' && restartsCurrentStage(task)) {
+    return t('courseTasks.problem.restartStage', '生成中断，可以重试当前阶段')
+  }
   if (task.status === 'error') return t('courseTasks.problem.failed', '生成中断，可以从保存点继续')
   if (task.status === 'conflict') return t('courseTasks.problem.conflict', '当前任务需要人工确认')
   return t('courseTasks.problem.warning', '课程已生成，但仍有质量警告')
@@ -917,6 +920,9 @@ function problemHelp(task: TaskView) {
   }
   if (task.recovery?.state === 'quality_blocked') return t('courseTasks.problem.qualityBlockedHelp', '重复生成不会自动修复同一质量问题；请先查看质量结果，再决定局部优化。')
   if (task.recovery?.state === 'unavailable') return t('courseTasks.problem.unavailableHelp', '为避免覆盖现有内容，系统不会盲目重跑这个旧任务。')
+  if (task.status === 'error' && restartsCurrentStage(task)) {
+    return t('courseTasks.problem.restartStageHelp', '继续后会复用已保存的课程需求和资料处理结果，重新生成课程目录，不会新建重复课程。')
+  }
   if (task.status === 'error') return t('courseTasks.problem.failedHelp', '继续时会保留已完成内容和中断草稿，不会新建重复课程。')
   if (task.status === 'conflict') return t('courseTasks.problem.conflictHelp', '保留当前内容，刷新任务状态后再决定继续或取消。')
   return t('courseTasks.problem.warningHelp', '可以继续补齐失败节点，也可以先进入课程查看已生成内容。')
@@ -928,6 +934,16 @@ function isPublishedWarning(task: TaskView) {
 function taskNeedsAttention(task: TaskView) {
   if (isPublishedWarning(task)) return false
   return ['running', 'pending', 'waiting_for_review', 'error', 'conflict', 'paused', 'completed_with_warnings'].includes(task.status)
+}
+function restartsCurrentStage(task: TaskView) {
+  const checkpoint = task.recovery?.checkpoint
+  return task.recovery?.reason_code === 'stage_restart_available'
+    || Boolean(checkpoint && !checkpoint.outline_ready && !checkpoint.total_nodes)
+}
+function resumeActionLabel(task: TaskView) {
+  return restartsCurrentStage(task)
+    ? t('courseTasks.retryStage', '重试当前阶段')
+    : t('courseTasks.resumeCheckpoint', '从保存点继续')
 }
 function recoveryCheckpointLabel(task: TaskView) {
   const checkpoint = task.recovery?.checkpoint
@@ -941,6 +957,11 @@ function recoveryCheckpointLabel(task: TaskView) {
   }
   if (checkpoint.outline_ready && !checkpoint.total_nodes) {
     return t('courseTasks.recovery.outlineCheckpoint', '课程目录已保留，可从逐节知识包阶段继续')
+  }
+  if (!checkpoint.outline_ready && !checkpoint.total_nodes) {
+    return checkpoint.requirements_ready
+      ? t('courseTasks.recovery.requirementsCheckpoint', '已保存课程需求和资料处理结果；继续后将重新生成课程目录')
+      : t('courseTasks.recovery.stageRetry', '尚未生成课程内容；继续后将重试当前阶段')
   }
   return t('courseTasks.recovery.checkpoint', '已保留 {completed}/{total} 个内容块和 {drafts} 份草稿')
     .replace('{completed}', String(checkpoint.completed_nodes || 0))

@@ -536,6 +536,40 @@ describe('CourseTaskCenter', () => {
     expect(resume).toHaveBeenCalledWith('course-1', 'task-4')
   })
 
+  it('目录前失败显示重试当前阶段，不伪造 0/0 正文检查点', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-outline', course_id: 'course-1', course_name: '概率论', status: 'failed',
+      progress: 34, current_phase: 'outline_validation',
+      message: '课程目录未通过检查',
+      error: 'AI provider unavailable: not_configured',
+      recovery: {
+        state: 'manual_resume', can_resume: true,
+        reason_code: 'stage_restart_available',
+        reason: '已保留课程需求与资料处理结果；继续后将重新生成课程目录',
+        checkpoint: {
+          phase: 'outline_validation', completed_nodes: 0, total_nodes: 0,
+          draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [],
+          requirements_ready: true, outline_ready: false,
+        },
+      },
+    }]
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('生成中断，可以重试当前阶段')
+    expect(wrapper.text()).toContain('已保存课程需求和资料处理结果')
+    expect(wrapper.find('.task-actions .primary-button').text()).toContain('重试当前阶段')
+    expect(wrapper.text()).not.toContain('已保留 0/0 个内容块')
+    expect(wrapper.text()).not.toContain('已完成内容和中断草稿')
+
+    await setLocale('en')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Generation stopped and can retry the current stage')
+    expect(wrapper.text()).toContain('Course requirements and processed materials are saved')
+    expect(wrapper.find('.task-actions .primary-button').text()).toContain('Retry current stage')
+  })
+
   it('显示当前知识包进度、真实失败原因和知识阶段检查点', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [{

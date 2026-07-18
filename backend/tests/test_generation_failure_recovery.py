@@ -132,6 +132,44 @@ async def test_fresh_active_job_is_not_described_as_recovery(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_outline_failure_restarts_stage_without_claiming_content_checkpoint(
+    tmp_path,
+    monkeypatch,
+):
+    manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path,
+        monkeypatch,
+        task_status="failed",
+    )
+    workspaces.save_course("job-recovery", {
+        "course_id": "course-recovery",
+        "course_name": "失败恢复课程",
+        "course_generation_brief": {"subject": "失败恢复课程"},
+        "subject_pedagogy_profile": {"primary_mode": "general"},
+        "material_cards": [],
+        "nodes": [],
+    })
+    manager.tasks["job-recovery"].update({
+        "phase": "outline_validation",
+        "progress": 34,
+        "completed_nodes": 0,
+        "total_nodes": 0,
+    })
+
+    recovery = manager.describe_task_recovery("job-recovery")
+
+    assert recovery["state"] == "manual_resume"
+    assert recovery["can_resume"] is True
+    assert recovery["reason_code"] == "stage_restart_available"
+    assert recovery["checkpoint"]["requirements_ready"] is True
+    assert recovery["checkpoint"]["outline_ready"] is False
+    assert recovery["checkpoint"]["completed_nodes"] == 0
+    assert recovery["checkpoint"]["total_nodes"] == 0
+    assert "重新生成课程目录" in recovery["reason"]
+    assert "正文" not in recovery["reason"]
+
+
+@pytest.mark.asyncio
 async def test_reconciled_active_job_is_described_as_auto_resuming(tmp_path, monkeypatch):
     manager, _storage, _workspaces, _versions, _documents = await _workspace_manager(
         tmp_path, monkeypatch

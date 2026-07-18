@@ -1507,6 +1507,7 @@ class TaskManager:
                 "draft_node_ids": [],
                 "failed_node_ids": [],
                 "interrupted_node_ids": [],
+                "requirements_ready": False,
                 "outline_ready": False,
                 "completed_knowledge_packages": 0,
                 "total_knowledge_packages": 0,
@@ -1608,6 +1609,10 @@ class TaskManager:
             for item in relation_batches.values()
             if isinstance(item, dict) and item.get("status") == "completed"
         )
+        requirements_ready = bool(
+            course_data.get("course_generation_brief")
+            and course_data.get("subject_pedagogy_profile")
+        )
         checkpoint = {
             "phase": str(task.get("phase") or task.get("current_phase") or ""),
             "completed_nodes": completed_nodes,
@@ -1615,6 +1620,7 @@ class TaskManager:
             "draft_node_ids": draft_node_ids,
             "failed_node_ids": failed_node_ids,
             "interrupted_node_ids": interrupted_node_ids,
+            "requirements_ready": requirements_ready,
             "outline_ready": bool(course_data.get("course_outline")),
             "completed_knowledge_packages": completed_knowledge_packages,
             "total_knowledge_packages": len(nodes),
@@ -1674,13 +1680,19 @@ class TaskManager:
                 )
             elif course_data.get("course_outline"):
                 reason = "已保留课程目录，可以从逐节知识生成阶段继续"
+            elif requirements_ready:
+                reason = "已保留课程需求与资料处理结果；继续后将重新生成课程目录"
             else:
-                reason = "已保留课程需求与资料处理结果，可以从当前阶段继续"
+                reason = "尚未生成课程内容；继续后将重试当前阶段"
             return {
                 **base,
                 "state": "manual_resume",
                 "can_resume": True,
-                "reason_code": "checkpoint_available",
+                "reason_code": (
+                    "checkpoint_available"
+                    if course_data.get("course_outline") or nodes
+                    else "stage_restart_available"
+                ),
                 "reason": reason,
                 "checkpoint": checkpoint,
             }

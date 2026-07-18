@@ -309,6 +309,7 @@ export interface TaskRecoveryCheckpoint {
     draft_node_ids: string[]
     failed_node_ids: string[]
     interrupted_node_ids: string[]
+    requirements_ready?: boolean
     outline_ready?: boolean
     completed_knowledge_packages?: number
     total_knowledge_packages?: number
