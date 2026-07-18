@@ -72,6 +72,62 @@ describe('formal practice attempt store', () => {
     expect(store.practiceSaveState).toBe('saved')
   })
 
+  it('恢复活动 Attempt 时同步恢复已经查看的提示正文', async () => {
+    httpMock.get
+      .mockResolvedValueOnce({ data: {
+        course_id: 'c1',
+        course_version_id: 'cv1',
+        scope: 'node',
+        questions: [question],
+        active_attempts: [attempt({
+          node_id: 'n1',
+          course_version_id: 'cv1',
+          revealed_hint_levels: [1],
+          revealed_hints: [
+            { level: 1, kind: 'orientation', content: '先区分大小与方向。' },
+          ],
+        })],
+        summary: {},
+      } })
+      .mockResolvedValueOnce({ data: { phase: 'practice', case: null, session: null, current_task: null } })
+      .mockResolvedValue({ data: runtimeResponse })
+    const store = useCourseWorkspaceStore()
+
+    await store.loadPractice('c1', 'n1')
+
+    expect(store.revealedHints).toEqual([
+      { level: 1, kind: 'orientation', content: '先区分大小与方向。' },
+    ])
+  })
+
+  it('加载新题修订时清除仍指向旧题的活动 Attempt', async () => {
+    httpMock.get
+      .mockResolvedValueOnce({ data: {
+        course_id: 'c1',
+        course_version_id: 'cv2',
+        scope: 'node',
+        questions: [question],
+        active_attempts: [],
+        summary: {},
+      } })
+      .mockResolvedValueOnce({ data: { phase: 'practice', case: null, session: null, current_task: null } })
+      .mockResolvedValue({ data: runtimeResponse })
+    const store = useCourseWorkspaceStore()
+    store.currentAttempt = attempt({
+      task_revision_id: 'qr-retired',
+      question_revision_id: 'qr-retired',
+      revealed_hint_levels: [1, 2, 3],
+    }) as any
+    store.revealedHints = [
+      { level: 1, content: '旧题提示' },
+    ]
+
+    await store.loadPractice('c1', 'n1')
+
+    expect(store.currentAttempt).toBeNull()
+    expect(store.revealedHints).toEqual([])
+  })
+
   it('草稿先写本地，再用期望修订同步服务端', async () => {
     httpMock.patch.mockResolvedValue({ data: { attempt: attempt({ revision: 2, answer_payload: { text: '大小和方向' } }) } })
     const store = useCourseWorkspaceStore()

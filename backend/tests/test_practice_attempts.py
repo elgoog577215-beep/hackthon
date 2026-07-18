@@ -160,6 +160,56 @@ def test_practice_list_does_not_expose_answers_or_frozen_hint_contents(
     assert "question_spec" not in projected
 
 
+def test_practice_list_restores_only_hints_already_revealed_by_active_attempt(
+    monkeypatch,
+    tmp_path,
+):
+    repository = PracticeAttemptRepository(tmp_path)
+    course = _course()
+    question = course["learning_assets"]["questions"][0]
+    question["hint_contract"] = {
+        "levels": [
+            {"level": 1, "kind": "orientation", "content": "先区分大小与方向。"},
+            {"level": 2, "kind": "method", "content": "分别说明两个属性如何表示。"},
+        ],
+    }
+    question["question_spec"] = {
+        "answer_spec": deepcopy(question["answer_spec"]),
+        "hint_contract": deepcopy(question["hint_contract"]),
+    }
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "practice_attempt_repository", repository)
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    created = client.post(
+        "/api/courses/c1/practice/attempts",
+        json={"question_revision_id": "qr1"},
+    ).json()["attempt"]
+    revealed = client.post(
+        f"/api/courses/c1/practice/attempts/{created['attempt_id']}/hints/1",
+        json={"expected_revision": created["revision"]},
+    )
+    resumed = client.get(
+        "/api/courses/c1/practice",
+        params={"node_id": "n1", "scope": "node"},
+    )
+
+    assert revealed.status_code == 200
+    assert resumed.status_code == 200
+    active = resumed.json()["active_attempts"][0]
+    assert active["revealed_hint_levels"] == [1]
+    assert active["revealed_hints"] == [
+        {"level": 1, "kind": "orientation", "content": "先区分大小与方向。"},
+    ]
+    assert "分别说明两个属性如何表示" not in resumed.text
+
+
 def test_attempt_repository_preserves_retries_and_rejects_stale_drafts(tmp_path):
     repository = PracticeAttemptRepository(tmp_path)
     first, created = repository.create_once("u1", "c1", _payload(attempt_id="a1"))
