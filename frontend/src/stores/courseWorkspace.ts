@@ -50,6 +50,26 @@ export interface PracticeAttempt {
   [key: string]: any
 }
 
+export function unresolvedMistakeAttempts(attempts: PracticeAttempt[]): PracticeAttempt[] {
+  const supersededOriginIds = new Set(
+    attempts
+      .filter(attempt => (
+        attempt.practice_intent === 'targeted_retry'
+        && attempt.origin_attempt_id
+        && ['grading', 'graded'].includes(attempt.status)
+      ))
+      .map(attempt => String(attempt.origin_attempt_id)),
+  )
+  return attempts.filter(attempt => {
+    const needsReview = (
+      attempt.status === 'grading'
+      || attempt.result?.passed === false
+      || attempt.result?.mastery_eligible === false
+    )
+    return needsReview && !supersededOriginIds.has(attempt.attempt_id)
+  })
+}
+
 export interface DiagnosticWorkflow {
   phase: 'practice' | 'diagnostic' | 'remediation' | 'validation' | 'resolved' | 'needs_support'
   case: Record<string, any> | null
@@ -117,6 +137,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     revealedSolution: null as Record<string, any> | null,
     practiceResult: null as Record<string, any> | null,
     practiceHistory: null as Record<string, any> | null,
+    mistakeBookAttempts: [] as PracticeAttempt[],
     practiceLandingView: 'current' as 'current' | 'history' | 'needs_review',
     practiceNeedsReviewCount: 0,
     practiceSaveState: 'idle' as PracticeSaveState,
@@ -458,11 +479,18 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       return selected
     },
     async startTargetedRetry(courseId: string, failedAttempt: PracticeAttempt) {
-      const questions = this.practice?.questions || []
       const sourceTaskRevisionId = failedAttempt.task_revision_id || failedAttempt.question_revision_id || ''
-      const sourceQuestion = questions.find(question => (
+      let questions = this.practice?.questions || []
+      let sourceQuestion = questions.find(question => (
         (question.task_revision_id || question.revision_id) === sourceTaskRevisionId
       ))
+      if (!sourceQuestion && failedAttempt.node_id) {
+        await this.loadPractice(courseId, String(failedAttempt.node_id), 'node')
+        questions = this.practice?.questions || []
+        sourceQuestion = questions.find(question => (
+          (question.task_revision_id || question.revision_id) === sourceTaskRevisionId
+        ))
+      }
       const diagnosed = failedAttempt.result?.answer_diagnosis?.diagnosis || {}
       const sourceSignals = {
         ...(sourceQuestion || {}),
@@ -523,6 +551,17 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.practiceHistory = res.data
       if (view === 'needs_review') this.practiceNeedsReviewCount = (res.data.attempts || []).length
       return res.data
+    },
+    async loadMistakeBook(courseId: string) {
+      const res = await http.get(`/api/courses/${courseId}/practice/history`, {
+        params: { view: 'all' },
+      })
+      this.mistakeBookAttempts = unresolvedMistakeAttempts(res.data.attempts || [])
+      this.practiceNeedsReviewCount = this.mistakeBookAttempts.length
+      return {
+        ...res.data,
+        attempts: this.mistakeBookAttempts,
+      }
     },
     async migrateLegacyPracticeData(courseId: string, courseNodeIds: string[]) {
       const wrong = this.readLegacyArray('quiz_wrong_answers')

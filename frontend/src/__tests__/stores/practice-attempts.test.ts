@@ -9,7 +9,11 @@ const httpMock = vi.hoisted(() => ({
 
 vi.mock('@/utils/http', () => ({ default: httpMock }))
 
-import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
+import {
+  unresolvedMistakeAttempts,
+  useCourseWorkspaceStore,
+  type PracticeAttempt,
+} from '@/stores/courseWorkspace'
 
 const runtimeResponse = {
   schema_version: 'learning_runtime_v1', course_id: 'c1', user_id: 'default_user',
@@ -31,7 +35,7 @@ const question = {
   input_contract: { mode: 'rich_text' },
 }
 
-const attempt = (overrides: Record<string, any> = {}) => ({
+const attempt = (overrides: Record<string, any> = {}): PracticeAttempt => ({
   attempt_id: 'pa1',
   task_revision_id: 'qr1',
   question_revision_id: 'qr1',
@@ -44,6 +48,36 @@ const attempt = (overrides: Record<string, any> = {}) => ({
   ai_support_level: 0,
   active_seconds: 0,
   ...overrides,
+})
+
+describe('mistake book projection', () => {
+  it('只保留每条针对再练链上最新且仍未解决的作答', () => {
+    const original = attempt({
+      attempt_id: 'pa-original',
+      status: 'graded',
+      result: { passed: false, mastery_eligible: false },
+    })
+    const failedRetry = attempt({
+      attempt_id: 'pa-retry-failed',
+      status: 'graded',
+      origin_attempt_id: 'pa-original',
+      practice_intent: 'targeted_retry',
+      result: { passed: false, mastery_eligible: false },
+    })
+
+    expect(unresolvedMistakeAttempts([original, failedRetry]).map(item => item.attempt_id))
+      .toEqual(['pa-retry-failed'])
+
+    const passedRetry = attempt({
+      attempt_id: 'pa-retry-passed',
+      status: 'graded',
+      origin_attempt_id: 'pa-retry-failed',
+      practice_intent: 'targeted_retry',
+      result: { passed: true, mastery_eligible: true },
+    })
+
+    expect(unresolvedMistakeAttempts([original, failedRetry, passedRetry])).toEqual([])
+  })
 })
 
 beforeEach(() => {
@@ -366,6 +400,56 @@ describe('formal practice attempt store', () => {
     expect(httpMock.post).toHaveBeenCalledWith(
       '/api/courses/c1/practice/attempts',
       expect.objectContaining({ task_revision_id: 'qr-diagnosed' }),
+    )
+  })
+
+  it('从错题本首次发起针对再练时先加载错题所在节点的正式题目', async () => {
+    const failedAttempt = attempt({
+      node_id: 'n1',
+      status: 'graded',
+      result: { passed: false, mastery_eligible: false },
+    })
+    httpMock.get
+      .mockResolvedValueOnce({
+        data: {
+          course_id: 'c1',
+          course_version_id: 'cv1',
+          scope: 'node',
+          questions: [question],
+          active_attempts: [],
+          summary: {},
+        },
+      })
+      .mockResolvedValueOnce({
+        data: { phase: 'practice', case: null, session: null, current_task: null },
+      })
+      .mockResolvedValue({ data: runtimeResponse })
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        status: 'created',
+        attempt: attempt({
+          attempt_id: 'pa-retry',
+          status: 'in_progress',
+          origin_attempt_id: 'pa1',
+          practice_intent: 'targeted_retry',
+        }),
+      },
+    })
+    const store = useCourseWorkspaceStore()
+
+    const result = await store.startTargetedRetry('c1', failedAttempt)
+
+    expect(httpMock.get).toHaveBeenNthCalledWith(1, '/api/courses/c1/practice', {
+      params: { scope: 'node', node_id: 'n1' },
+    })
+    expect(result?.origin_attempt_id).toBe('pa1')
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/c1/practice/attempts',
+      expect.objectContaining({
+        task_revision_id: 'qr1',
+        origin_attempt_id: 'pa1',
+        practice_intent: 'targeted_retry',
+      }),
     )
   })
 

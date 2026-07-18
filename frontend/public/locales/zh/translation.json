@@ -538,6 +538,10 @@
     "resourceMenuHelp": "知识库与课程配套资料",
     "assistant": "智能助教",
     "assistantHint": "在当前页面打开 AI 老师",
+    "notebook": "笔记本",
+    "notebookHint": "查看本课程的笔记与学习标记",
+    "mistakeBook": "错题本",
+    "mistakeBookHint": "查看未通过或需要继续巩固的正式练习",
     "learningTabs": "学习功能",
     "resourceTabs": "资源功能",
     "records": "学习记录",
@@ -1238,6 +1242,34 @@
       "blockedBody": "正式掌握检查不完整，系统不会用自检结果替代正式证据。"
     },
     "continuity": { "repairAssets": "等待课程资产修复", "requiredPracticeMissing": "标准课程缺少必需正式练习，已停止进入空的掌握检查。" }
+  },
+  "notebook": {
+    "title": "笔记本",
+    "count": "共 {count} 条内容",
+    "search": "搜索笔记本...",
+    "types": "笔记本分类",
+    "empty": "笔记本还是空的"
+  },
+  "mistakeNotebook": {
+    "title": "错题本",
+    "count": "共 {count} 道待巩固题目",
+    "refresh": "刷新错题本",
+    "close": "关闭错题本",
+    "loading": "正在读取错题本",
+    "unavailable": "错题本暂时无法读取",
+    "empty": "暂无错题，继续保持",
+    "emptyHint": "未通过或证据不足的正式练习会自动出现在这里。",
+    "unknownNode": "课程练习",
+    "unknownQuestion": "待巩固练习",
+    "saved": "本次作答与判断依据已保留",
+    "retry": "针对再练",
+    "retryUnavailable": "原题已不在当前课程版本中，暂时无法发起针对练习",
+    "retryFailed": "针对练习启动失败，请稍后重试",
+    "status": {
+      "pending": "等待评阅",
+      "incorrect": "尚未通过",
+      "review": "需要巩固"
+    }
   },
   "quickNote": {
     "title": "随手记",

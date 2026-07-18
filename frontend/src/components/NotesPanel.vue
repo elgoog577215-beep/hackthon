@@ -4,12 +4,12 @@
       <div class="records-title">
         <Notebook :size="20" />
         <div>
-          <h3>{{ t('courseWorkspace.records.title', '学习记录') }}</h3>
-          <p>{{ filteredRecords.length }} {{ t('courseWorkspace.records.items', '条记录') }}</p>
+          <h3>{{ t('notebook.title', '笔记本') }}</h3>
+          <p>{{ t('notebook.count', '共 {count} 条内容').replace('{count}', String(filteredRecords.length)) }}</p>
         </div>
       </div>
       <div class="records-tools">
-        <input v-model="search" :placeholder="t('courseWorkspace.records.search', '搜索学习记录...')" />
+        <input v-model="search" :placeholder="t('notebook.search', '搜索笔记本...')" />
         <button :title="sortMode === 'time' ? t('courseWorkspace.records.sortByTime', '按时间排序') : t('courseWorkspace.records.sortByChapter', '按章节排序')" @click="toggleSortMode">
           <ArrowDownUp :size="16" />
         </button>
@@ -34,7 +34,7 @@
         <span>
           <strong>{{ t('quickNote.title', '随手记') }}</strong>
           <small v-if="courseStore.currentNode">
-            {{ t('quickNote.currentNode', '记录到当前章节') }}：{{ courseStore.currentNode.node_name }}
+            {{ t('quickNote.currentNode', '记录到当前章节') }}: {{ courseStore.currentNode.node_name }}
           </small>
           <small v-else>{{ t('quickNote.noNode', '请先选择一个课程章节') }}</small>
         </span>
@@ -51,7 +51,7 @@
           <NotebookPen :size="17" />
           <div>
             <strong>{{ t('quickNote.title', '随手记') }}</strong>
-            <small>{{ t('quickNote.currentNode', '记录到当前章节') }}：{{ courseStore.currentNode?.node_name }}</small>
+            <small>{{ t('quickNote.currentNode', '记录到当前章节') }}: {{ courseStore.currentNode?.node_name }}</small>
           </div>
           <button type="button" :title="t('quickNote.cancel', '取消')" @click="cancelQuickNote">
             <X :size="15" />
@@ -76,7 +76,7 @@
       </form>
     </section>
 
-    <nav class="record-tabs" :aria-label="t('courseWorkspace.records.types', '记录类型')">
+    <nav class="record-tabs" :aria-label="t('notebook.types', '笔记本分类')">
       <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" @click="activeTab = tab.key">
         {{ tab.label }} <span>{{ tab.count }}</span>
       </button>
@@ -85,7 +85,7 @@
     <div class="records-list">
       <div v-if="!filteredRecords.length" class="records-empty">
         <NotebookPen :size="28" />
-        <span>{{ t('courseWorkspace.records.empty', '当前没有学习记录') }}</span>
+        <span>{{ t('notebook.empty', '笔记本还是空的') }}</span>
       </div>
       <article v-for="record in filteredRecords" :key="record.id" class="record-row">
         <button class="record-main" @click="emit('viewDetail', record)">
@@ -144,7 +144,7 @@ const officialRecords = computed(() => noteStore.notes.filter(item => item.sourc
 const recordType = (record: any) => (record.recordType || 'note') as Exclude<RecordTab, 'all'>
 const count = (type: Exclude<RecordTab, 'all'>) => officialRecords.value.filter(item => recordType(item) === type).length
 const tabs = computed(() => [
-  { key: 'all' as const, label: t('courseWorkspace.records.all', '全部'), count: officialRecords.value.length },
+  { key: 'all' as const, label: t('courseWorkspace.records.tabs.all', '全部'), count: officialRecords.value.length },
   { key: 'note' as const, label: t('courseWorkspace.records.note', '笔记'), count: count('note') },
   { key: 'issue' as const, label: t('courseWorkspace.records.issue', '问题'), count: count('issue') },
   { key: 'review_task' as const, label: t('courseWorkspace.records.review', '复习'), count: count('review_task') },

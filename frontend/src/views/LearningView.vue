@@ -59,12 +59,14 @@
       <LearningDock
         v-if="!isGenerationPreview"
         :location="dockLocation"
-        :record-count="recordCount"
+        :note-count="noteCount"
+        :mistake-count="mistakeCount"
         :resume-action-label="resumeActionLabel"
         :resume-action-available="resumableAction?.availability === 'available'"
         :resume-action-busy="continuityBusy"
         :active-domain="activeDomain"
-        @records="openRecords"
+        @notebook="openNotebook"
+        @mistake-book="openMistakeNotebook"
         @stats="openStats"
         @knowledge-library="openKnowledgeLibrary"
         @ai="openAi()"
@@ -77,45 +79,31 @@
         :node-id="taskNode?.node_id"
         :node-label="taskNode?.node_name"
         :origin-rect="taskOriginRect"
-        :record-count="recordCount"
+        :record-count="noteCount"
         @close="closeTask"
         @outline="openTeachingResourceFromTask('outline')"
         @lesson-plan="openTeachingResourceFromTask('lesson_plan')"
         @course="closeTask"
         @ask-teacher="openAiForPractice"
-        @graded="refreshRuntime"
-        @records="openRecords"
+        @graded="refreshAfterGrade"
+        @records="openNotebook"
         @stats="openStats"
       />
 
-      <section v-if="recordsOpen" class="learning-tool-overlay records-overlay" role="dialog" aria-modal="true" :aria-label="t('learningNavigator.records', '学习记录')">
-        <button type="button" :title="t('learningShell.closeRecords', '关闭学习记录')" :aria-label="t('learningShell.closeRecords', '关闭学习记录')" @click="recordsOpen = false"><X :size="18" /></button>
-        <LearningContextTabs
-          domain="learning"
-          active-item="records"
-          :record-count="recordCount"
-          :practice-available="Boolean(currentPracticeNode)"
-          :practice-repair-available="questionBankRepairAvailable"
-          @practice="openCurrentPractice"
-          @records="openRecords"
-          @stats="openStats"
+      <section v-if="notebookOpen" class="learning-tool-overlay notebook-overlay" role="dialog" aria-modal="true" :aria-label="t('notebook.title', '笔记本')">
+        <NotesPanel class="notebook-tool" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
+      </section>
+
+      <section v-if="mistakeBookOpen" class="learning-tool-overlay mistake-book-overlay" role="dialog" aria-modal="true" :aria-label="t('mistakeNotebook.title', '错题本')">
+        <MistakeNotebookPanel
+          :course-id="courseStore.currentCourseId"
+          @close="closeMistakeNotebook"
+          @retry="openMistakeRetry"
         />
-        <NotesPanel class="records-tool" @locate="locateRecord" @view-detail="locateRecord" @close="recordsOpen = false" />
       </section>
 
       <section v-if="statsOpen" class="learning-tool-overlay stats-overlay" role="dialog" aria-modal="true" :aria-label="t('learningDock.stats', '学习概况')">
-        <button type="button" :title="t('learningDock.closeStats', '关闭学习概况')" :aria-label="t('learningDock.closeStats', '关闭学习概况')" @click="statsOpen = false"><X :size="18" /></button>
-        <LearningContextTabs
-          domain="learning"
-          active-item="stats"
-          :record-count="recordCount"
-          :practice-available="Boolean(currentPracticeNode)"
-          :practice-repair-available="questionBankRepairAvailable"
-          @practice="openCurrentPractice"
-          @records="openRecords"
-          @stats="openStats"
-        />
-        <LearningStats class="stats-tool" />
+        <LearningStats class="stats-tool" closable @close="closeStats" />
       </section>
 
       <TeachingRepresentationsOverlay
@@ -160,14 +148,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, X } from 'lucide-vue-next'
+import { History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import CourseWorkspaceTabs from '../components/CourseWorkspaceTabs.vue'
-import LearningContextTabs from '../components/LearningContextTabs.vue'
 import LearningDock from '../components/LearningDock.vue'
 import LearningStats from '../components/LearningStats.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
+import MistakeNotebookPanel from '../components/MistakeNotebookPanel.vue'
 import NotesPanel from '../components/NotesPanel.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
@@ -199,7 +187,8 @@ const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
-const recordsOpen = ref(false)
+const notebookOpen = ref(false)
+const mistakeBookOpen = ref(false)
 const statsOpen = ref(false)
 const resourcesOpen = computed({
   get: () => courseStore.showTeachingResources,
@@ -219,7 +208,7 @@ const aiEntrypoint = ref<'global' | 'selection' | 'practice' | 'continuity' | 'r
 const aiBlockTarget = ref<CourseBlockEditTarget | undefined>(undefined)
 const autoFollowGeneration = ref(true)
 const loadedLearningCourseId = ref('')
-const activeDomain = ref<'course' | 'learning' | 'knowledge-library' | 'assistant'>('course')
+const activeDomain = ref<'course' | 'notebook' | 'mistake-book' | 'overview' | 'knowledge-library' | 'assistant'>('course')
 const activeTeachingResource = ref<'outline' | 'lesson_plan'>('outline')
 
 const isNarrow = computed(() => windowWidth.value < 1024)
@@ -236,7 +225,8 @@ const generationStatusText = computed(() => (
 ))
 const navigatorVisible = computed(() => !courseStore.isFocusMode && (isNarrow.value ? navigatorOpen.value : navigatorOpen.value))
 const overlayVisible = computed(() => isNarrow.value && navigatorOpen.value && !taskOpen.value)
-const recordCount = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format').length)
+const noteCount = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format' && item.sourceType !== 'wrong').length)
+const mistakeCount = computed(() => workspaceStore.practiceNeedsReviewCount)
 const currentParentLabel = computed(() => {
   const current = courseStore.currentNode
   if (!current) return t('learningShell.course', '当前课程')
@@ -278,7 +268,8 @@ const resumeActionLabel = computed(() => resumableAction.value ? learningActionL
 const showMobileResumePrompt = computed(() => Boolean(
   resumableAction.value
   && !navigatorOpen.value
-  && !recordsOpen.value
+  && !notebookOpen.value
+  && !mistakeBookOpen.value
   && !statsOpen.value
   && !resourcesOpen.value
   && !taskOpen.value
@@ -295,10 +286,13 @@ watch(() => route.params.courseId, async value => {
   aiVisible.value = false
   activeDomain.value = 'course'
   activeTeachingResource.value = 'outline'
-  recordsOpen.value = false
+  notebookOpen.value = false
+  mistakeBookOpen.value = false
   statsOpen.value = false
   resourcesOpen.value = false
   taskOpen.value = false
+  workspaceStore.mistakeBookAttempts = []
+  workspaceStore.practiceNeedsReviewCount = 0
   await courseStore.fetchCourseList()
   await courseStore.loadCourse(courseId)
   generationStore.observeCourse(courseId)
@@ -316,7 +310,8 @@ watch(() => courseStore.showTeachingResources, visible => {
 })
 
 watch(() => courseStore.showKnowledgeLibrary, visible => {
-  activeDomain.value = visible ? 'knowledge-library' : 'course'
+  if (visible) activeDomain.value = 'knowledge-library'
+  else if (activeDomain.value === 'knowledge-library') activeDomain.value = 'course'
 })
 
 async function loadPublishedLearningContext(courseId: string) {
@@ -324,6 +319,7 @@ async function loadPublishedLearningContext(courseId: string) {
   await workspaceStore.loadAssets(courseId)
   await noteStore.loadCourseRecords(courseId)
   await workspaceStore.migrateLegacyPracticeData(courseId, courseStore.nodes.map(node => node.node_id)).catch(() => undefined)
+  await workspaceStore.loadMistakeBook(courseId).catch(() => undefined)
   await learningProgressStore.load(courseId, String(route.params.nodeId || '') || undefined)
   await aiTeacherStore.load(courseId, String(route.params.nodeId || '') || undefined)
   loadedLearningCourseId.value = courseId
@@ -413,7 +409,8 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   if (isGenerationPreview.value) return
   activeDomain.value = 'assistant'
   resourcesOpen.value = false
-  recordsOpen.value = false
+  notebookOpen.value = false
+  mistakeBookOpen.value = false
   statsOpen.value = false
   courseStore.showKnowledgeLibrary = false
   aiBlockTarget.value = undefined
@@ -462,19 +459,53 @@ function openAiForPractice(payload: { text: string; nodeId: string }) {
   aiVisible.value = true
 }
 
-function openRecords() {
-  activeDomain.value = 'learning'
-  recordsOpen.value = true
+function openNotebook() {
+  activeDomain.value = 'notebook'
+  notebookOpen.value = true
+  mistakeBookOpen.value = false
   statsOpen.value = false
   taskOpen.value = false
   resourcesOpen.value = false
+  aiVisible.value = false
+  courseStore.showKnowledgeLibrary = false
   if (isNarrow.value) navigatorOpen.value = false
+}
+
+function closeNotebook() {
+  notebookOpen.value = false
+  activeDomain.value = 'course'
+}
+
+function openMistakeNotebook() {
+  activeDomain.value = 'mistake-book'
+  mistakeBookOpen.value = true
+  notebookOpen.value = false
+  statsOpen.value = false
+  taskOpen.value = false
+  resourcesOpen.value = false
+  aiVisible.value = false
+  courseStore.showKnowledgeLibrary = false
+  if (isNarrow.value) navigatorOpen.value = false
+}
+
+function closeMistakeNotebook() {
+  mistakeBookOpen.value = false
+  activeDomain.value = 'course'
+}
+
+function openMistakeRetry(payload: { nodeId: string; taskRevisionId: string }) {
+  mistakeBookOpen.value = false
+  const node = courseStore.nodes.find(item => item.node_id === payload.nodeId)
+    || currentPracticeNode.value
+    || courseStore.currentNode
+  if (node) openTask(node, payload.taskRevisionId)
 }
 
 function openKnowledgeLibrary() {
   activeDomain.value = 'knowledge-library'
   resourcesOpen.value = false
-  recordsOpen.value = false
+  notebookOpen.value = false
+  mistakeBookOpen.value = false
   statsOpen.value = false
   taskOpen.value = false
   aiVisible.value = false
@@ -486,7 +517,8 @@ function openTeachingResource(type: 'outline' | 'lesson_plan') {
   activeDomain.value = 'course'
   activeTeachingResource.value = type
   resourcesOpen.value = true
-  recordsOpen.value = false
+  notebookOpen.value = false
+  mistakeBookOpen.value = false
   statsOpen.value = false
   taskOpen.value = false
   aiVisible.value = false
@@ -501,7 +533,8 @@ async function openTeachingResourceFromTask(type: 'outline' | 'lesson_plan') {
 
 async function openCourseWorkspace() {
   resourcesOpen.value = false
-  recordsOpen.value = false
+  notebookOpen.value = false
+  mistakeBookOpen.value = false
   statsOpen.value = false
   courseStore.showKnowledgeLibrary = false
   activeDomain.value = 'course'
@@ -517,7 +550,8 @@ async function openPracticeFromTeachingResource() {
 function openCurrentPractice() {
   activeDomain.value = 'course'
   resourcesOpen.value = false
-  recordsOpen.value = false
+  notebookOpen.value = false
+  mistakeBookOpen.value = false
   statsOpen.value = false
   const targetNode = currentPracticeNode.value
     || (questionBankRepairAvailable.value ? courseStore.currentNode : null)
@@ -525,11 +559,19 @@ function openCurrentPractice() {
 }
 
 function openStats() {
-  activeDomain.value = 'learning'
+  activeDomain.value = 'overview'
   statsOpen.value = true
-  recordsOpen.value = false
+  notebookOpen.value = false
+  mistakeBookOpen.value = false
   taskOpen.value = false
   resourcesOpen.value = false
+  aiVisible.value = false
+  courseStore.showKnowledgeLibrary = false
+}
+
+function closeStats() {
+  statsOpen.value = false
+  activeDomain.value = 'course'
 }
 
 function closeAi() {
@@ -538,7 +580,8 @@ function closeAi() {
 }
 
 function locateRecord(record: any) {
-  recordsOpen.value = false
+  notebookOpen.value = false
+  activeDomain.value = 'course'
   const node = courseStore.nodes.find(item => item.node_id === record.nodeId)
   if (node) selectNode(node)
   window.setTimeout(() => courseStore.scrollToNote(record.id), 160)
@@ -549,7 +592,8 @@ function openTask(node?: Node | null, taskRevisionId = '') {
   if (!source) return
   activeDomain.value = 'course'
   resourcesOpen.value = false
-  recordsOpen.value = false
+  notebookOpen.value = false
+  mistakeBookOpen.value = false
   statsOpen.value = false
   if (taskRevisionId && courseStore.currentCourseId) {
     workspaceStore.preparePracticeTask(courseStore.currentCourseId, source.node_id, taskRevisionId)
@@ -593,6 +637,13 @@ async function refreshRuntime() {
   if (courseStore.currentCourseId) await learningProgressStore.loadRuntime(courseStore.currentCourseId, taskNode.value?.node_id || courseStore.currentNode?.node_id)
 }
 
+async function refreshAfterGrade() {
+  await refreshRuntime()
+  if (courseStore.currentCourseId) {
+    await workspaceStore.loadMistakeBook(courseStore.currentCourseId).catch(() => undefined)
+  }
+}
+
 async function handleContinuationAction(action: NextLearningAction) {
   if (!courseStore.currentCourseId || continuityBusy.value) return
   continuityBusy.value = true
@@ -609,7 +660,7 @@ async function handleContinuationAction(action: NextLearningAction) {
       workspaceStore.prepareLearningAction(action)
       openTask(node)
     } else if (action.scope === 'learning_record') {
-      openRecords()
+      openNotebook()
     }
   } finally {
     continuityBusy.value = false
@@ -622,7 +673,8 @@ function runResumeAction() {
 
 function closeMobileSurfaces() {
   if (isNarrow.value) { navigatorOpen.value = false; aiVisible.value = false }
-  recordsOpen.value = false
+  notebookOpen.value = false
+  mistakeBookOpen.value = false
   statsOpen.value = false
   resourcesOpen.value = false
 }
@@ -646,8 +698,7 @@ function closeMobileSurfaces() {
 .generation-meter b { height:100%; display:block; border-radius:inherit; background:#6366f1; transition:width .35s ease; }
 .learning-content { min-height: 0; flex: 1; }
 .learning-tool-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
-.records-overlay > button, .stats-overlay > button { position:absolute; top:11px; right:12px; z-index:2; width:32px; height:32px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-secondary); background:#fff; cursor:pointer; }
-.records-tool { flex: 1; min-width: 0; min-height: 0; }
+.notebook-tool,.mistake-book-overlay > * { flex:1; min-width:0; min-height:0; }
 .stats-tool { flex:1; min-width:0; min-height:0; }
 .surface-backdrop { display: none; }
 .focus-mode .learning-main { max-width: 1040px; margin: 0 auto; }

@@ -3,73 +3,59 @@ import { describe, expect, it } from 'vitest'
 import LearningDock from '@/components/LearningDock.vue'
 
 describe('LearningDock', () => {
-  it('底栏把知识库提升为独立入口，并只把记录与概况收进学习工具', async () => {
+  it('按三月份结构恢复笔记本与错题本，并保留概况、知识库和助教独立入口', () => {
     const wrapper = mount(LearningDock, {
       props: {
         location: '第一章 · 当前目标',
         activeDomain: 'course',
-        recordCount: 3,
+        noteCount: 3,
+        mistakeCount: 2,
       },
     })
 
     expect(wrapper.text()).toContain('第一章 · 当前目标')
     const domainButtons = wrapper.findAll('.learning-dock__domain')
-    expect(domainButtons).toHaveLength(3)
-    expect(domainButtons.map(button => button.text())).toEqual(['学习工具 · 2', '知识库', '智能助教'])
-    expect(domainButtons[0]!.attributes('aria-haspopup')).toBe('menu')
-    expect(domainButtons[1]!.attributes('aria-haspopup')).toBeUndefined()
-    expect(wrapper.find('[data-domain="resources"]').exists()).toBe(false)
-  })
-
-  it('学习工具托盘只展示学习记录和学习概况', async () => {
-    const wrapper = mount(LearningDock, {
-      props: {
-        location: '第一章 · 当前目标',
-        recordCount: 3,
-      },
-    })
-
-    await wrapper.get('[data-domain="learning"]').trigger('click')
-
-    expect(wrapper.get('[data-domain="learning"]').attributes('aria-expanded')).toBe('true')
-    expect(wrapper.get('[data-tool-menu="learning"]').text()).toContain('学习记录与学习概况')
-    expect(wrapper.findAll('[data-tool-menu="learning"] [role="menuitem"]').map(item => item.text())).toEqual([
-      '学习记录查看笔记、问答和待复习内容3 条',
-      '学习概况查看阅读、掌握与学习证据',
+    expect(domainButtons).toHaveLength(5)
+    expect(domainButtons.map(button => button.text())).toEqual([
+      '笔记本3',
+      '错题本2',
+      '学习概况',
+      '知识库',
+      '智能助教',
     ])
-    expect(wrapper.find('[data-tool-item="practice"]').exists()).toBe(false)
-
-    await wrapper.get('[data-tool-item="records"]').trigger('click')
-    expect(wrapper.emitted('records')).toHaveLength(1)
-    expect(wrapper.find('[data-tool-menu="learning"]').exists()).toBe(false)
+    expect(wrapper.find('[data-domain="learning"]').exists()).toBe(false)
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false)
   })
 
-  it('知识库和智能助教都从底栏一键触发', async () => {
+  it('五个入口都从底栏一键触发', async () => {
     const wrapper = mount(LearningDock, {
       props: { location: '第一章 · 当前目标' },
     })
 
+    await wrapper.get('[data-domain="notebook"]').trigger('click')
+    await wrapper.get('[data-domain="mistake-book"]').trigger('click')
+    await wrapper.get('[data-domain="overview"]').trigger('click')
     await wrapper.get('[data-domain="knowledge-library"]').trigger('click')
     await wrapper.get('[data-domain="assistant"]').trigger('click')
 
+    expect(wrapper.emitted('notebook')).toHaveLength(1)
+    expect(wrapper.emitted('mistake-book')).toHaveLength(1)
+    expect(wrapper.emitted('stats')).toHaveLength(1)
     expect(wrapper.emitted('knowledge-library')).toHaveLength(1)
     expect(wrapper.emitted('ai')).toHaveLength(1)
   })
 
-  it('按 Escape 收起托盘并把焦点还给父入口', async () => {
+  it('当前打开的本子在底栏保持选中状态', () => {
     const wrapper = mount(LearningDock, {
-      attachTo: document.body,
-      props: { location: '第一章 · 当前目标' },
+      props: {
+        location: '第一章 · 当前目标',
+        activeDomain: 'mistake-book',
+      },
     })
-    const trigger = wrapper.get('[data-domain="learning"]')
 
-    await trigger.trigger('click')
-    ;(wrapper.get('[data-tool-item="records"]').element as HTMLElement).focus()
-    await wrapper.trigger('keydown', { key: 'Escape' })
-
-    expect(wrapper.find('[data-tool-menu="learning"]').exists()).toBe(false)
-    expect(document.activeElement).toBe(trigger.element)
-    wrapper.unmount()
+    expect(wrapper.get('[data-domain="mistake-book"]').classes()).toContain('is-active')
+    expect(wrapper.get('[data-domain="mistake-book"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('[data-domain="notebook"]').classes()).not.toContain('is-active')
   })
 
   it('只把明确的未完成事项显示为恢复提示', async () => {

@@ -35,6 +35,14 @@ const TaskOverlayStub = defineComponent({
   template: '<div class="task-overlay-stub" :data-node-id="nodeId" :data-origin-top="originRect?.top"><span>{{ nodeLabel }}</span><button class="task-records" @click="$emit(\'records\')">records</button><button class="task-stats" @click="$emit(\'stats\')">stats</button><button class="close-task" @click="$emit(\'close\')">close</button></div>',
 })
 
+const LearningStatsStub = defineComponent({
+  props: {
+    closable: Boolean,
+  },
+  emits: ['close'],
+  template: '<div class="learning-stats-stub" :data-closable="closable"><button class="close-stats" @click="$emit(\'close\')">close stats</button></div>',
+})
+
 describe('LearningView 正文任务覆盖层', () => {
   beforeEach(async () => {
     const pinia = createPinia()
@@ -67,6 +75,7 @@ describe('LearningView 正文任务覆盖层', () => {
     }
     vi.spyOn(workspace, 'loadAssets').mockResolvedValue(workspace.assets)
     vi.spyOn(workspace, 'migrateLegacyPracticeData').mockResolvedValue(undefined)
+    vi.spyOn(workspace, 'loadMistakeBook').mockResolvedValue({ attempts: [] } as any)
 
     const notes = useNoteStore()
     vi.spyOn(notes, 'loadCourseRecords').mockResolvedValue([])
@@ -92,7 +101,8 @@ describe('LearningView 正文任务覆盖层', () => {
           LearningTaskOverlay: TaskOverlayStub,
           CourseNavigator: true,
           LearningDock: true,
-          LearningStats: true,
+          LearningStats: LearningStatsStub,
+          MistakeNotebookPanel: { template: '<div class="mistake-notebook-stub">错题本</div>' },
           NotesPanel: true,
           SideAIPanel: true,
           Transition: false,
@@ -130,7 +140,8 @@ describe('LearningView 正文任务覆盖层', () => {
           ContentArea: ContentAreaStub,
           LearningTaskOverlay: TaskOverlayStub,
           CourseNavigator: true,
-          LearningStats: true,
+          LearningStats: LearningStatsStub,
+          MistakeNotebookPanel: { template: '<div class="mistake-notebook-stub">错题本</div>' },
           NotesPanel: true,
           SideAIPanel: { template: '<aside class="ai-panel-stub">AI 老师</aside>' },
           TeachingRepresentationsOverlay: true,
@@ -142,15 +153,24 @@ describe('LearningView 正文任务覆盖层', () => {
 
     expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['大纲', '教案', '课程', '练习'])
     expect(wrapper.get('.learning-context-bar [data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
-    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['学习工具 · 2', '知识库', '智能助教'])
+    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '错题本', '学习概况', '知识库', '智能助教'])
 
     await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
 
     await wrapper.get('.task-records').trigger('click')
-    expect(wrapper.find('.records-overlay').exists()).toBe(true)
-    expect(wrapper.get('.records-overlay').classes()).toContain('learning-tool-overlay')
-    expect(wrapper.findAll('.records-overlay .learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['当前练习', '学习记录', '学习概况'])
+    expect(wrapper.find('.notebook-overlay').exists()).toBe(true)
+    expect(wrapper.get('.notebook-overlay').classes()).toContain('learning-tool-overlay')
+
+    await wrapper.get('[data-domain="mistake-book"]').trigger('click')
+    expect(wrapper.find('.mistake-book-overlay').exists()).toBe(true)
+    expect(wrapper.find('.mistake-notebook-stub').exists()).toBe(true)
+
+    await wrapper.get('[data-domain="overview"]').trigger('click')
+    expect(wrapper.find('.stats-overlay').exists()).toBe(true)
+    expect(wrapper.get('.learning-stats-stub').attributes('data-closable')).toBe('true')
+    await wrapper.get('.close-stats').trigger('click')
+    expect(wrapper.find('.stats-overlay').exists()).toBe(false)
 
     await wrapper.get('[data-domain="knowledge-library"]').trigger('click')
     const courseStore = useCourseStore()
@@ -233,12 +253,6 @@ describe('LearningView 正文任务覆盖层', () => {
 
     await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
-
-    await wrapper.get('.task-records').trigger('click')
-    const practiceTab = wrapper.get('.records-overlay [data-context-item="practice"]')
-    expect(practiceTab.attributes('disabled')).toBeUndefined()
-
-    await practiceTab.trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     expect(wrapper.get('.task-overlay-stub').text()).toContain(node.node_name)
     wrapper.unmount()
@@ -299,12 +313,7 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    await wrapper.get('.open-practice').trigger('click')
-    await wrapper.get('.task-records').trigger('click')
-    const practiceTab = wrapper.get('.records-overlay [data-context-item="practice"]')
-    expect(practiceTab.attributes('disabled')).toBeUndefined()
-
-    await practiceTab.trigger('click')
+    await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
     expect(wrapper.get('.task-overlay-stub').attributes('data-node-id')).toBe(parentNode.node_id)
     expect(wrapper.get('.task-overlay-stub').text()).toContain(parentNode.node_name)
     wrapper.unmount()

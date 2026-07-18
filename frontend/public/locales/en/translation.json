@@ -538,6 +538,10 @@
     "resourceMenuHelp": "Knowledge library and supporting course materials",
     "assistant": "AI assistant",
     "assistantHint": "Open the AI teacher on this page",
+    "notebook": "Notebook",
+    "notebookHint": "View notes and learning markers for this course",
+    "mistakeBook": "Mistake book",
+    "mistakeBookHint": "View formal practice that was not passed or still needs reinforcement",
     "learningTabs": "Learning tools",
     "resourceTabs": "Resource tools",
     "records": "Learning records",
@@ -1238,6 +1242,34 @@
       "blockedBody": "Formal mastery checks are incomplete. Self-checks will not replace formal evidence."
     },
     "continuity": { "repairAssets": "Wait for course asset repair", "requiredPracticeMissing": "Required formal practice is missing, so the system stopped before opening an empty mastery check." }
+  },
+  "notebook": {
+    "title": "Notebook",
+    "count": "{count} items",
+    "search": "Search notebook...",
+    "types": "Notebook categories",
+    "empty": "Your notebook is empty"
+  },
+  "mistakeNotebook": {
+    "title": "Mistake book",
+    "count": "{count} items to reinforce",
+    "refresh": "Refresh mistake book",
+    "close": "Close mistake book",
+    "loading": "Loading mistake book",
+    "unavailable": "The mistake book is temporarily unavailable",
+    "empty": "No mistakes to review",
+    "emptyHint": "Formal practice that was not passed or lacks sufficient evidence will appear here automatically.",
+    "unknownNode": "Course practice",
+    "unknownQuestion": "Practice to reinforce",
+    "saved": "Your answer and its assessment have been preserved",
+    "retry": "Targeted retry",
+    "retryUnavailable": "The original question is no longer in the current course version",
+    "retryFailed": "Could not start the targeted retry. Please try again later.",
+    "status": {
+      "pending": "Awaiting review",
+      "incorrect": "Not passed",
+      "review": "Needs reinforcement"
+    }
   },
   "quickNote": {
     "title": "Quick note",
