@@ -185,20 +185,100 @@
     "attempt_id": "pa_0d10af36392e48dda29b3aedfea6c605",
     "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
     "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
-    "status": "in_progress",
+    "status": "graded",
     "attempt_number": 1,
-    "answer_payload": {},
+    "answer_payload": {
+      "text": "不知道"
+    },
     "revealed_hint_levels": [
-      1
+      1,
+      2,
+      3
     ],
-    "solution_revealed": false,
+    "solution_revealed": true,
     "ai_support_level": 1,
     "active_seconds": 0,
-    "revision": 3,
+    "revision": 10,
     "schema_version": 2,
     "started_at": "2026-07-18T12:35:32.978935+00:00",
     "created_at": "2026-07-18T12:35:32.978935+00:00",
-    "updated_at": "2026-07-18T12:37:19.579362+00:00"
+    "updated_at": "2026-07-18T13:09:07.416849+00:00",
+    "revealed_hints": [
+      {
+        "level": 1,
+        "kind": "orientation",
+        "content": "先定位题目中的equation coefficients=[1,1,1]。从给定材料中定位equation coefficients、向量组、scalar，并把它们对应到“三项子空间检验、运算结果、一组基和维数”。",
+        "step_refs": [
+          "orient"
+        ],
+        "evidence_effect": "limited_mastery",
+        "support_level": 1
+      },
+      {
+        "level": 2,
+        "kind": "method_skeleton",
+        "content": "下一步使用向量组=[[1,-1,0],[0,1,-1]]。把条件转换为可计算或可推理的关系，保留关键中间结果，再用原条件验证；依次形成方法依据、关键过程、任务结果、结果检验，每个判断后紧邻写出所用数据、材料或规则。完成后先检查：准确辨析“1.1 向量空间的公理化定义”完成给定任务。",
+        "step_refs": [
+          "transform"
+        ],
+        "evidence_effect": "not_independent",
+        "support_level": 2
+      },
+      {
+        "level": 3,
+        "kind": "local_scaffold",
+        "content": "对照例：在 R³ 中令 W={(x,y,z)｜x+y+z=0}，取 u=(1,-1,0)、v=(0,1,-1)。局部示范：先标出equation coefficients=[1,1,1]，再执行局部步骤：把条件转换为可计算或可推理的关系，保留关键中间结果，再用原条件验证；依次形成方法依据、关键过程、任务结果、结果检验，每个判断后紧邻写出所用数据、材料或规则。",
+        "step_refs": [
+          "transform",
+          "verify"
+        ],
+        "evidence_effect": "not_mastery",
+        "support_level": 3
+      }
+    ],
+    "submitted_answer_payload": {
+      "text": "不知道"
+    },
+    "submit_request_id": "882ce44a-d3be-49e1-a16c-43615fe2b3cf",
+    "submitted_at": "2026-07-18T13:08:06.585991+00:00",
+    "result": {
+      "status": "graded",
+      "score": 0,
+      "passed": false,
+      "rubric_results": [
+        {
+          "criterion": "准确辨析“1.1 向量空间的公理化定义”完成给定任务",
+          "met": false,
+          "score": 0,
+          "feedback": "未给出任何与子空间定义或验证相关的论述。"
+        },
+        {
+          "criterion": "说明所用定义或方法依据",
+          "met": false,
+          "score": 0,
+          "feedback": "未提供任何方法依据。"
+        },
+        {
+          "criterion": "给出可复核的计算或推理过程",
+          "met": false,
+          "score": 0,
+          "feedback": "未给出任何计算或推理过程。"
+        },
+        {
+          "criterion": "检查结果并说明适用边界",
+          "met": false,
+          "score": 0,
+          "feedback": "未进行任何结果检查。"
+        }
+      ],
+      "feedback": "学生答案未能展示任何已知内容，无法判别是否理解题目要求。",
+      "grading_confidence": 1.0,
+      "grading_method": "rubric_ai",
+      "evidence_strength": "scaffolded",
+      "support_level": 3,
+      "mastery_eligible": false
+    },
+    "graded_at": "2026-07-18T13:08:09.741628+00:00"
   },
   {
     "practice_run_id": "d4c1230a-cc2b-40ea-b86f-700c250b9924",
