@@ -10,6 +10,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator
 
+from assessment_orchestrator import AssessmentGenerationOrchestrator
 from course_document import COURSE_DOCUMENT_SCHEMA
 from course_repository import CourseDocumentRepository
 from course_versioning import stable_hash
@@ -90,6 +91,7 @@ class QuestionBankRebuildExecutor:
 
 
 question_bank_rebuild_executor = QuestionBankRebuildExecutor()
+assessment_generation_orchestrator = AssessmentGenerationOrchestrator()
 
 
 class QuestionBankReviewRequest(BaseModel):
@@ -352,6 +354,11 @@ async def _execute_question_bank_rebuild(
         job_id,
         stage_id="question_generation",
         message="正在生成三层候选题",
+    )
+    course_for_bank = (
+        await assessment_generation_orchestrator.prepare_course(
+            course_for_bank
+        )
     )
     initial_assets = compile_learning_assets(
         course_for_bank,

@@ -891,24 +891,36 @@ def _generated_course_items(
         if not objective:
             continue
         for index, (level, label) in enumerate(level_specs):
-            universal_contract = generate_universal_question_contract(
-                course_data,
-                node,
-                profile=profile,
-                objective=objective,
-                practice_level=level,
-                variant_index=index,
-            )
-            validation_plugin_contract = generate_question_contract(
-                course_data,
-                node,
-                level,
-                index,
-            )
-            generated_contract = _apply_validation_plugin(
-                universal_contract,
-                validation_plugin_contract,
-            )
+            prepared_contract = (
+                (
+                    course_data.get(
+                        "_assessment_generated_contracts"
+                    )
+                    or {}
+                ).get(node_id)
+                or {}
+            ).get(level)
+            if prepared_contract:
+                generated_contract = deepcopy(prepared_contract)
+            else:
+                universal_contract = generate_universal_question_contract(
+                    course_data,
+                    node,
+                    profile=profile,
+                    objective=objective,
+                    practice_level=level,
+                    variant_index=index,
+                )
+                validation_plugin_contract = generate_question_contract(
+                    course_data,
+                    node,
+                    level,
+                    index,
+                )
+                generated_contract = _apply_validation_plugin(
+                    universal_contract,
+                    validation_plugin_contract,
+                )
             source_type = "variant" if source_item else "generated"
             item_id = stable_hash(
                 {
