@@ -196,7 +196,8 @@
       "compositionProfile": "课程编排偏好",
       "rhythm": "主要节奏",
       "preferenceAdded": "偏好新增",
-      "blockPlanSummary": "{blocks} 个课程块 · 编排偏好新增 {added} 个",
+      "difficultyAdded": "难度新增",
+      "blockPlanSummary": "{blocks} 个课程块 · 偏好新增 {preference} 个 · 难度新增 {difficulty} 个",
       "roles": {
         "orientation": "引入",
         "prerequisite": "前置",

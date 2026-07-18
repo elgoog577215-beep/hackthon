@@ -1,7 +1,8 @@
 """课程块编排画像与确定性编译器。
 
-教学结构决定一个学科必须有哪些模块；本模块只在其上增加课程级节奏，
-并把节级难度契约投影到每个模块实例。这里不调用大模型，也不控制文案语气。
+教学结构先决定一个学科必须有哪些模块，课程编排偏好再增加跨学科节奏，
+目标难度随后选择对应的块配方，最后把节级难度契约投影到每个模块实例。
+这里不调用大模型，也不控制文案语气。
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from course_pedagogy import MODULES, module_block_role
 from shared.prompt_config import CourseCompositionStyle
 
 
-COMPOSITION_PROFILE_VERSION = "course_composition_v1"
+COMPOSITION_PROFILE_VERSION = "course_composition_v2"
 
 
 LEGACY_STYLE_MAP: dict[str, CourseCompositionStyle] = {
@@ -154,6 +155,20 @@ FOCUS_BY_ROLE = {
 }
 
 
+# 高阶课程不能只把同一批块写得更长、更难。不同学科在课程后半程启用
+# 与其学习表现一致的正式模块；首个模块用于进阶节点，第二个模块用于整合节点。
+ADVANCED_SUBJECT_MODULES: dict[str, tuple[str, ...]] = {
+    "general": ("general_comparison",),
+    "math_formal": ("math_proof", "math_modeling"),
+    "programming_engineering": ("engineering_testing", "engineering_architecture"),
+    "natural_science": ("science_experiment_design", "science_data_analysis"),
+    "life_medical": ("life_evidence", "life_normal_abnormal"),
+    "humanities_social": ("humanities_source_criticism", "composition_boundary"),
+    "language_learning": ("language_pragmatics",),
+    "business_career": ("business_data", "business_roleplay"),
+}
+
+
 def normalize_composition_style(
     value: Any = None,
     *,
@@ -198,31 +213,52 @@ def attach_composition_to_plan(
         for chapter in plan.get("chapters") or []
         for section in chapter.get("sections") or []
     ]
+    primary_mode = str(
+        (plan.get("subject_pedagogy_profile") or {}).get("primary_mode")
+        or "general"
+    )
     role_counts: Counter[str] = Counter()
-    added_counts: Counter[str] = Counter()
+    style_counts: Counter[str] = Counter()
+    difficulty_counts: Counter[str] = Counter()
+    target_level_counts: Counter[str] = Counter()
     section_summaries: list[dict[str, Any]] = []
 
     for index, section in enumerate(sections):
         base_plan = [deepcopy(item) for item in section.get("module_plan") or []]
         for item in base_plan:
-            item["composition_source"] = (
+            selection_reason = (
                 "subject_required" if item.get("required", True) else "subject_optional"
             )
+            item["composition_source"] = selection_reason
+            item["selection_reasons"] = [selection_reason]
         for module_id in _extra_module_ids(
             style,
             index=index,
             count=len(sections),
             difficulty_contract=section.get("difficulty_contract") or {},
         ):
-            spec = MODULES[module_id]
-            base_plan.append(
-                spec.to_dict(
-                    source_mode=f"composition:{style.value}",
-                    required=True,
-                )
-                | {"composition_source": "composition_style"}
+            _select_module(
+                base_plan,
+                module_id,
+                selection_reason="composition_style",
+                source_mode=f"composition:{style.value}",
             )
-            added_counts[module_block_role(module_id)] += 1
+        difficulty_contract = section.get("difficulty_contract") or {}
+        for module_id in _difficulty_module_ids(
+            primary_mode,
+            index=index,
+            count=len(sections),
+            difficulty_contract=difficulty_contract,
+        ):
+            _select_module(
+                base_plan,
+                module_id,
+                selection_reason="difficulty_level",
+                source_mode=(
+                    "difficulty:"
+                    f"{difficulty_contract.get('target_level') or 'intermediate'}"
+                ),
+            )
 
         ordered = _order_modules(base_plan, style)
         section_key = _section_key(section, index)
@@ -242,17 +278,30 @@ def attach_composition_to_plan(
                 item["block_role"],
             )
             role_counts[item["block_role"]] += 1
+            if _selected_by(item, "composition_style"):
+                style_counts[item["block_role"]] += 1
+            if _selected_by(item, "difficulty_level"):
+                difficulty_counts[item["block_role"]] += 1
 
+        target_level = str(
+            difficulty_contract.get("target_level") or "intermediate"
+        )
+        target_level_counts[target_level] += 1
+        style_added = sum(
+            1 for item in ordered if _selected_by(item, "composition_style")
+        )
+        difficulty_added = sum(
+            1 for item in ordered if _selected_by(item, "difficulty_level")
+        )
         section["module_plan"] = ordered
         section["composition_summary"] = {
             "style": style.value,
             "style_label": profile["label"],
+            "difficulty_level": target_level,
             "total_blocks": len(ordered),
-            "added_blocks": sum(
-                1
-                for item in ordered
-                if item.get("composition_source") == "composition_style"
-            ),
+            "added_blocks": style_added,
+            "composition_added_blocks": style_added,
+            "difficulty_added_blocks": difficulty_added,
             "role_sequence": [item["block_role"] for item in ordered],
         }
         section_summaries.append(
@@ -268,9 +317,12 @@ def attach_composition_to_plan(
         "style": style.value,
         "style_label": profile["label"],
         "total_blocks": sum(role_counts.values()),
-        "composition_added_blocks": sum(added_counts.values()),
+        "composition_added_blocks": sum(style_counts.values()),
+        "difficulty_added_blocks": sum(difficulty_counts.values()),
         "role_counts": dict(sorted(role_counts.items())),
-        "added_role_counts": dict(sorted(added_counts.items())),
+        "added_role_counts": dict(sorted(style_counts.items())),
+        "difficulty_role_counts": dict(sorted(difficulty_counts.items())),
+        "difficulty_levels": dict(sorted(target_level_counts.items())),
         "sections": section_summaries,
     }
     plan["course_composition_profile"] = profile
@@ -399,6 +451,108 @@ def _extra_module_ids(
             result.append("composition_boundary")
         return result
     return []
+
+
+def _difficulty_module_ids(
+    primary_mode: str,
+    *,
+    index: int,
+    count: int,
+    difficulty_contract: dict[str, Any],
+) -> list[str]:
+    """把目标难度编译成块配方，而不只改变块内参数。"""
+    target_level = str(
+        difficulty_contract.get("target_level") or "intermediate"
+    )
+    progress = (index + 1) / max(count, 1)
+    node_role = str(difficulty_contract.get("node_role") or "")
+    later_role = node_role in {
+        "independent_task", "integration", "transfer", "capstone"
+    }
+
+    if target_level == "beginner":
+        result = ["difficulty_scaffolded_example"]
+        if progress >= 0.35 or count == 1 or node_role in {
+            "guided_practice", "independent_task", "checkpoint"
+        }:
+            result.append("difficulty_guided_practice")
+        return result
+
+    if target_level != "advanced":
+        return []
+
+    result: list[str] = []
+    subject_modules = ADVANCED_SUBJECT_MODULES.get(
+        str(primary_mode or "general"),
+        ADVANCED_SUBJECT_MODULES["general"],
+    )
+    if progress < 0.5 and not later_role:
+        result.append("composition_deep_reasoning")
+    elif subject_modules:
+        result.append(subject_modules[0])
+
+    if len(subject_modules) > 1 and (
+        progress >= 0.75 or node_role in {"integration", "transfer", "capstone"}
+    ):
+        result.append(subject_modules[1])
+    if progress >= 0.9 or node_role in {"transfer", "capstone"}:
+        result.append("difficulty_transfer_challenge")
+    return list(dict.fromkeys(result))
+
+
+def _select_module(
+    modules: list[dict[str, Any]],
+    module_id: str,
+    *,
+    selection_reason: str,
+    source_mode: str,
+) -> None:
+    """选择或提升模块，确保学科、偏好和难度三层不会重复造块。"""
+    existing = next(
+        (
+            item
+            for item in modules
+            if str(item.get("module_id") or "") == module_id
+        ),
+        None,
+    )
+    if existing is None:
+        modules.append(
+            MODULES[module_id].to_dict(
+                source_mode=source_mode,
+                required=True,
+            )
+            | {
+                "composition_source": selection_reason,
+                "selection_reasons": [selection_reason],
+            }
+        )
+        return
+
+    reasons = [
+        str(item)
+        for item in existing.get("selection_reasons") or []
+        if str(item)
+    ]
+    existing_source = str(existing.get("composition_source") or "")
+    if not reasons and existing_source:
+        reasons.append(existing_source)
+    if selection_reason not in reasons:
+        reasons.append(selection_reason)
+    existing["selection_reasons"] = reasons
+    existing["required"] = True
+    if existing_source == "subject_optional":
+        existing["composition_source"] = selection_reason
+        existing["source_mode"] = source_mode
+
+
+def _selected_by(item: dict[str, Any], reason: str) -> bool:
+    reasons = {
+        str(value)
+        for value in item.get("selection_reasons") or []
+        if str(value)
+    }
+    return reason in reasons or item.get("composition_source") == reason
 
 
 def _order_modules(

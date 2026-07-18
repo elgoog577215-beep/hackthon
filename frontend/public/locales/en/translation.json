@@ -196,7 +196,8 @@
       "compositionProfile": "Course composition preference",
       "rhythm": "Primary rhythm",
       "preferenceAdded": "Added by preference",
-      "blockPlanSummary": "{blocks} course blocks · {added} added by the composition preference",
+      "difficultyAdded": "Added by difficulty",
+      "blockPlanSummary": "{blocks} course blocks · {preference} by preference · {difficulty} by difficulty",
       "roles": {
         "orientation": "Orientation",
         "prerequisite": "Prerequisite",

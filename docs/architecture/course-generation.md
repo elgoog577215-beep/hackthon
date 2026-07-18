@@ -76,14 +76,16 @@ LearningEvent + 正式领域仓库
   ```text
   学科必需模块
     -> 编排偏好补充模块与节奏顺序
+    -> 目标难度增加或提升对应课程块
     -> 章节难度契约投影到每个课程块
     -> 证据边界与质量门
     -> CourseDocument + ordered CourseBlock[]
   ```
 
 - 当前编排预设包括智能均衡、理论推导、案例实战、项目驱动和问题探究。预设只能调整讲解、推演、案例、真实场景、项目任务、探究、边界与反例等块的占比和顺序，不能用“实战型”等偏好删掉学科必需推导或安全边界。
-- 每个生成模块必须携带稳定的 `module_instance_id`、`block_role`、`composition_source` 和 `block_difficulty_contract`。这些信息从教学审阅、Prompt 约束一路进入最终 `CourseBlock.payload`，使用户能够在生成前审阅、生成后追溯。
-- 课程难度与编排偏好是两个正交控制量：难度决定推理跨度、支架、迁移与自主度；编排偏好决定通过哪类课程块组织学习。两者最终在块级难度契约中汇合。
+- 难度配方使用确定性三级规则：入门增加分步示范并逐步加入带支架练习；进阶保留学科标准配方；高阶前段增加深入推演，后段按学科增加证明、测试、实验设计、材料辨析、数据分析等模块，末端增加迁移挑战。规则按课程位置与节点角色渐进启用，不在每节机械堆满高阶模块。
+- 每个生成模块必须携带稳定的 `module_instance_id`、`block_role`、`composition_source`、`selection_reasons` 和 `block_difficulty_contract`。这些信息从教学审阅、Prompt 约束一路进入最终 `CourseBlock.payload`，使用户能够在生成前审阅、生成后追溯。
+- 课程难度与编排偏好是两个独立输入、按层合并：编排偏好决定跨学科的教学节奏，难度既选择与目标等级相称的课程块，也决定每个块的推理跨度、支架、迁移与自主度。同一模块被多层选中时只保留一个实例，并记录全部选择原因。
 - 课程生成分三类策略：
   - 通用课程结构蓝图：不使用单个学习者状态改变目录主线。
   - 个性化节点解释：只在当前节点内部调整讲法。
@@ -215,7 +217,7 @@ LearningEvent + LearningSnapshot + LearningRecord + PracticeAttempt + 诊断
 ## 9. 新功能接入规则
 
 - 课件生成、内容改写、内容扩展、内容摘要：接 `CourseService`。
-- 新建课程的块组成、块顺序和块级难度：接 `course_composition`，并由 `CourseService` 在学科模块计划之后统一编译；不得重新用自然语言 `style` 提示词做旁路控制。
+- 新建课程的块组成、块顺序、难度配方和块级难度：接 `course_composition`，并由 `CourseService` 在学科模块计划与节级难度契约之后统一编译；不得重新用自然语言 `style` 或 `difficulty` 形容词做旁路控制。
 - Markdown 选区级局部改写：接 `CourseService.rewrite_selection()`，只返回候选；确认写入必须进入统一课程命令，未完成接线前不得绕回旧节点保存覆盖已迁移课程。
 - 学习行为证据：写入 `LearningEvent`。
 - 正式题目与评分契约：接 `learning_assets` 与 `practice_contracts`；作答事实只写 `PracticeAttempt`，再追加 `LearningEvent`。

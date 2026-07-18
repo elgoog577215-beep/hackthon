@@ -193,6 +193,33 @@ MODULES: dict[str, TeachingModuleSpec] = {
         "明确哪些条件改变后原结论不再成立，并解释失败原因",
     ),
 
+    # 难度配方扩展。难度不只改变同一个块的支架和挑战，也会选择不同的
+    # 教学动作；这些模块由 course_composition 按目标等级确定性启用。
+    "difficulty_scaffolded_example": _module(
+        "difficulty_scaffolded_example",
+        "分步示范",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "把一个标准任务拆成可跟随、可核对的完整步骤",
+        "逐步展示输入、当前判断、所用依据和结果检查，在关键步骤解释为什么这样做",
+    ),
+    "difficulty_guided_practice": _module(
+        "difficulty_guided_practice",
+        "带支架练习",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "让学习者在提示、半成品或检查点支持下完成相邻任务",
+        "提供逐级减少的提示或中间检查点，但保留需要学习者亲自完成的关键步骤",
+    ),
+    "difficulty_transfer_challenge": _module(
+        "difficulty_transfer_challenge",
+        "迁移挑战",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "在新条件、多重约束或陌生情境中独立迁移本节能力",
+        "改变情境、条件或目标，要求学习者说明方法选择、边界、取舍和验收依据",
+    ),
+
     # 通用课程
     "general_concept_map": _module("general_concept_map", "概念地图", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "连接核心概念和方法", "用清晰关系组织概念，避免百科式堆砌"),
     "general_explained_example": _module("general_explained_example", "解释性例子", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "用具体例子落实抽象说明", "例子必须对应当前概念并解释映射关系"),
@@ -290,6 +317,9 @@ MODULE_BLOCK_ROLES: dict[str, str] = {
     "composition_project_task": "activity",
     "composition_inquiry": "reasoning",
     "composition_boundary": "counterexample",
+    "difficulty_scaffolded_example": "example",
+    "difficulty_guided_practice": "activity",
+    "difficulty_transfer_challenge": "transfer",
     "general_concept_map": "concept",
     "general_explained_example": "example",
     "general_application": "application",

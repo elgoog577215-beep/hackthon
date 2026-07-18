@@ -277,10 +277,24 @@ describe('CourseTaskCenter', () => {
               label: '补充案例',
               block_role: 'example',
               composition_source: 'composition_style',
+              selection_reasons: ['composition_style'],
               block_difficulty_contract: {
                 target_level: 'intermediate',
                 learner_autonomy: 'guided',
                 scaffold_intensity: 'medium',
+              },
+            },
+            {
+              module_id: 'math_proof',
+              module_instance_id: 'L2-1-1:math_proof:1',
+              label: '证明与推导',
+              block_role: 'reasoning',
+              composition_source: 'difficulty_level',
+              selection_reasons: ['difficulty_level'],
+              block_difficulty_contract: {
+                target_level: 'advanced',
+                learner_autonomy: 'independent',
+                scaffold_intensity: 'low',
               },
             },
           ],
@@ -295,8 +309,10 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('案例')
     expect(wrapper.text()).toContain('补充案例')
     expect(wrapper.text()).toContain('偏好新增')
+    expect(wrapper.text()).toContain('难度新增')
     expect(wrapper.text()).toContain('进阶 · 引导完成 · 中支架')
-    expect(wrapper.text()).toContain('2 个课程块 · 编排偏好新增 1 个')
+    expect(wrapper.text()).toContain('高阶 · 独立完成 · 低支架')
+    expect(wrapper.text()).toContain('3 个课程块 · 偏好新增 1 个 · 难度新增 1 个')
 
     await setLocale('en')
     await flushPromises()
@@ -304,7 +320,9 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.find('.composition-review').text()).toContain('Explanation → Additional example')
     expect(wrapper.find('.composition-review').text()).not.toContain('案例实战')
     expect(wrapper.find('.module-sequence').text()).toContain('Example')
+    expect(wrapper.find('.module-sequence').text()).toContain('Reasoning')
     expect(wrapper.find('.module-sequence').text()).not.toContain('补充案例')
+    expect(wrapper.find('.module-sequence').text()).not.toContain('证明与推导')
   })
 
   it('英文模式完整显示六步和当前确认动作，不泄漏翻译键或中文', async () => {

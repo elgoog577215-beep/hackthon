@@ -150,11 +150,13 @@
                           v-for="module in section.module_plan"
                           :key="module.module_instance_id || module.module_id"
                           class="module-sequence__item"
-                          :data-added="module.composition_source === 'composition_style'"
+                          :data-added="moduleSelectedBy(module, 'composition_style') || moduleSelectedBy(module, 'difficulty_level')"
+                          :data-source="module.composition_source"
                         >
                           <b>{{ moduleDisplayLabel(module) }}</b>
                           <em>{{ blockRoleLabel(module.block_role) }} · {{ blockDifficultySummary(module.block_difficulty_contract) }}</em>
-                          <i v-if="module.composition_source === 'composition_style'">{{ t('courseTasks.review.preferenceAdded', '偏好新增') }}</i>
+                          <i v-if="moduleSelectedBy(module, 'composition_style')">{{ t('courseTasks.review.preferenceAdded', '偏好新增') }}</i>
+                          <i v-if="moduleSelectedBy(module, 'difficulty_level')">{{ t('courseTasks.review.difficultyAdded', '难度新增') }}</i>
                         </span>
                       </div>
                     </div>
@@ -557,10 +559,16 @@ function workflowStatusLabel(status: string) {
 }
 function teachingPlanSummary(section: any) {
   const modules = Array.isArray(section?.module_plan) ? section.module_plan : []
-  const added = modules.filter((item: any) => item?.composition_source === 'composition_style').length
-  return t('courseTasks.review.blockPlanSummary', '{blocks} 个课程块 · 编排偏好新增 {added} 个')
+  const preference = modules.filter((item: any) => moduleSelectedBy(item, 'composition_style')).length
+  const difficulty = modules.filter((item: any) => moduleSelectedBy(item, 'difficulty_level')).length
+  return t('courseTasks.review.blockPlanSummary', '{blocks} 个课程块 · 偏好新增 {preference} 个 · 难度新增 {difficulty} 个')
     .replace('{blocks}', String(modules.length))
-    .replace('{added}', String(added))
+    .replace('{preference}', String(preference))
+    .replace('{difficulty}', String(difficulty))
+}
+function moduleSelectedBy(module: any, reason: string) {
+  const reasons = Array.isArray(module?.selection_reasons) ? module.selection_reasons : []
+  return reasons.includes(reason) || module?.composition_source === reason
 }
 function blockRoleLabel(role: string) {
   const labels: Record<string, string> = {
@@ -762,7 +770,7 @@ function formatDuration(seconds: number) {
 .review-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-bottom:15px; }.review-metrics div { padding:13px; border:1px solid var(--lz-border); border-radius:9px; background:var(--lz-surface-muted); }.review-metrics strong,.review-metrics span { display:block; }.review-metrics strong { color:var(--lz-text-strong); font-size:20px; }.review-metrics span { margin-top:3px; color:var(--lz-text-muted); font-size:9px; }
 .composition-review { margin-bottom:16px; padding:14px; border:1px solid rgba(99,102,241,.18); border-radius:10px; background:var(--lz-brand-soft); }.composition-review__heading > span,.composition-review__rhythm > span { display:block; margin-bottom:3px; color:var(--lz-text-muted); font-size:9px; }.composition-review__heading strong { color:var(--lz-text-strong); font-size:14px; }.composition-review__heading p,.composition-review__rhythm p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }.composition-review__rhythm { margin-top:10px; padding-top:10px; border-top:1px solid rgba(99,102,241,.12); }.role-distribution { display:flex; flex-wrap:wrap; gap:6px; margin:11px 0 0; }.role-distribution div { display:inline-flex; align-items:center; gap:5px; padding:4px 7px; border:1px solid rgba(99,102,241,.14); border-radius:999px; color:var(--lz-text-secondary); background:#fff; }.role-distribution dt,.role-distribution dd { margin:0; font-size:9px; }.role-distribution dd { color:var(--lz-brand-strong); font-weight:800; }
 .review-cards { border-top:1px solid var(--lz-border); }.review-cards article { display:grid; grid-template-columns:30px minmax(0,1fr); gap:10px; padding:12px 0; border-bottom:1px solid rgba(226,232,240,.75); }.review-cards article > span { color:var(--lz-text-muted); font-family:ui-monospace,monospace; font-size:9px; }.review-cards strong { display:block; color:var(--lz-text-strong); font-size:12px; }.review-cards p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }.review-cards small { display:block; margin-top:6px; color:var(--lz-brand-strong); font-size:9px; line-height:1.45; }.review-cards--compact article { padding:9px 0; }
-.module-sequence { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }.module-sequence__item { position:relative; min-width:130px; max-width:220px; display:grid; gap:2px; padding:7px 8px; border-left:2px solid var(--lz-border); color:var(--lz-text-secondary); background:var(--lz-surface-muted); }.module-sequence__item[data-added="true"] { border-left-color:var(--lz-brand); background:var(--lz-brand-soft); }.module-sequence__item b { overflow:hidden; color:var(--lz-text-strong); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.module-sequence__item em { color:var(--lz-text-muted); font-size:8px; font-style:normal; line-height:1.35; }.module-sequence__item i { color:var(--lz-brand-strong); font-size:8px; font-style:normal; font-weight:700; }
+.module-sequence { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }.module-sequence__item { position:relative; min-width:130px; max-width:220px; display:grid; gap:2px; padding:7px 8px; border-left:2px solid var(--lz-border); color:var(--lz-text-secondary); background:var(--lz-surface-muted); }.module-sequence__item[data-added="true"] { border-left-color:var(--lz-brand); background:var(--lz-brand-soft); }.module-sequence__item[data-source="difficulty_level"] { border-left-color:var(--lz-warning); background:var(--lz-warning-soft); }.module-sequence__item b { overflow:hidden; color:var(--lz-text-strong); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.module-sequence__item em { color:var(--lz-text-muted); font-size:8px; font-style:normal; line-height:1.35; }.module-sequence__item i { color:var(--lz-brand-strong); font-size:8px; font-style:normal; font-weight:700; }.module-sequence__item[data-source="difficulty_level"] i { color:var(--lz-warning); }
 .review-callout,.release-verdict { display:flex; gap:11px; align-items:flex-start; padding:14px; border:1px solid rgba(99,102,241,.18); border-radius:10px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.review-callout strong,.release-verdict strong { display:block; color:var(--lz-text-strong); font-size:12px; }.review-callout p,.release-verdict p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }
 .release-verdict[data-pass="false"] { border-color:rgba(217,119,6,.2); color:var(--lz-warning); background:var(--lz-warning-soft); }.release-issues { margin:12px 0 0; padding:0 0 0 18px; color:var(--lz-warning); font-size:10px; line-height:1.6; }
 .task-notice { margin-top:20px; display:flex; gap:10px; padding:13px 14px; border-left:3px solid var(--lz-warning); color:var(--lz-warning); background:var(--lz-warning-soft); }.task-notice strong { display:block; font-size:12px; }.task-notice p { margin:4px 0 0; font-size:11px; line-height:1.5; }.task-error-detail,.recovery-checkpoint { display:block; margin-top:7px; color:inherit; font-size:9px; line-height:1.5; opacity:.88; }

@@ -300,6 +300,9 @@ def _attach_module_plan_metadata(
             "module_instance_id": matched.get("module_instance_id"),
             "composition_source": matched.get("composition_source"),
             "composition_style": matched.get("composition_style"),
+            "selection_reasons": deepcopy(
+                matched.get("selection_reasons") or []
+            ),
             "block_difficulty_contract": deepcopy(
                 matched.get("block_difficulty_contract") or {}
             ),

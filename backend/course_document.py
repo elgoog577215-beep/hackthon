@@ -202,9 +202,10 @@ def document_from_legacy_course(course_data: dict[str, Any]) -> CourseDocument:
                 "module_instance_id",
                 "composition_source",
                 "composition_style",
+                "selection_reasons",
                 "block_difficulty_contract",
             ):
-                if metadata.get(trace_key) not in (None, "", {}):
+                if metadata.get(trace_key) not in (None, "", {}, []):
                     payload[trace_key] = deepcopy(metadata.get(trace_key))
             if role == "feedback":
                 payload = enrich_feedback_payload(payload)
