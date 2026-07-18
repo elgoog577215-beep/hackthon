@@ -231,10 +231,21 @@ const dockLocation = computed(() => {
 })
 const currentPracticeNode = computed(() => {
   if (isGenerationPreview.value) return null
-  const current = courseStore.currentNode
-  if (!current) return null
+  let candidate = courseStore.currentNode
+  if (!candidate) return null
   const questions = workspaceStore.assets?.assets?.questions || []
-  return questions.some(question => question.node_id === current.node_id) ? current : null
+  const questionNodeIds = new Set(
+    questions
+      .map(question => String(question.node_id || ''))
+      .filter(Boolean),
+  )
+  const visitedNodeIds = new Set<string>()
+  while (candidate && !visitedNodeIds.has(candidate.node_id)) {
+    if (questionNodeIds.has(candidate.node_id)) return candidate
+    visitedNodeIds.add(candidate.node_id)
+    candidate = courseStore.nodes.find(node => node.node_id === candidate?.parent_node_id) || null
+  }
+  return null
 })
 const questionBankRepairAvailable = computed(() => {
   if (isGenerationPreview.value || !courseStore.currentNode) return false
