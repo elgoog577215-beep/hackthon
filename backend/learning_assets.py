@@ -21,7 +21,11 @@ from course_pedagogy import coerce_persisted_profile
 from course_versioning import stable_hash
 from learning_progress import learning_objective_identity
 from practice_contracts import enrich_question_contract
-from question_bank import build_question_bank, is_generic_generated_prompt
+from question_bank import (
+    approved_formal_tasks,
+    build_question_bank,
+    is_generic_generated_prompt,
+)
 from question_generation import generate_question_contract
 
 ASSET_SCHEMA = "learning_assets_v2"
@@ -170,11 +174,12 @@ def compile_learning_assets(
     bank_practice_items = {
         (
             str(item.get("node_id") or ""),
-            str(next(iter(item.get("practice_levels") or []), "")),
+            str(item.get("practice_level") or ""),
         ): item
-        for item in question_bank_bundle.get("items") or []
-        if item.get("assessment_role") == "practice"
-        and item.get("lifecycle_status") == "approved"
+        for item in approved_formal_tasks(
+            question_bank_bundle,
+            assessment_role="practice",
+        )
     }
 
     questions: list[dict[str, Any]] = []
@@ -270,7 +275,14 @@ def compile_learning_assets(
                 "source_status": "grounded" if evidence_ids else "course_structure",
                 "status": "active",
                 "question_bank_item_revision_id": (
-                    bank_item.get("revision_id") if bank_item else None
+                    (
+                        bank_item.get(
+                            "question_bank_item_revision_id"
+                        )
+                        or bank_item.get("revision_id")
+                    )
+                    if bank_item
+                    else None
                 ),
                 "source_type": bank_item.get("source_type") if bank_item else "generated",
                 "source_records": deepcopy(bank_item.get("source_records") or []) if bank_item else [],
@@ -415,7 +427,10 @@ def compile_learning_assets(
         "final_assessment": [
             deepcopy(item["formal_task"])
             for item in question_bank_bundle.get("items") or []
-            if item.get("assessment_role") in {"coverage_task", "cross_chapter_transfer"}
+            if item.get("assessment_role") in {
+                "coverage_task",
+                "cross_chapter_transfer",
+            }
             and isinstance(item.get("formal_task"), dict)
         ] if "final_assessment" in enabled else [],
         "diagnostic_templates": diagnostic_templates if "questions" in enabled else [],

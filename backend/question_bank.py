@@ -325,12 +325,22 @@ def approved_formal_tasks(
             continue
         if assessment_role and item.get("assessment_role") != assessment_role:
             continue
-        formal = item.get("formal_task")
-        if isinstance(formal, dict):
-            projected = deepcopy(formal)
-            projected["review_status"] = "approved"
-            projected["question_bank_item_revision_id"] = item.get("revision_id")
-            tasks.append(projected)
+        hydrated = deepcopy(item)
+        solution_revision_id = str(
+            item.get("solution_revision_id") or ""
+        )
+        solution = (
+            bundle.get("solution_envelopes") or {}
+        ).get(solution_revision_id)
+        if solution:
+            hydrated["_solution_envelope"] = deepcopy(solution)
+        projected = _formal_task_from_item(hydrated)
+        projected["review_status"] = "approved"
+        projected["source_type"] = item.get("source_type")
+        projected["question_bank_item_revision_id"] = item.get(
+            "revision_id"
+        )
+        tasks.append(projected)
     return tasks
 
 
@@ -1551,16 +1561,21 @@ def _comprehensive_items(
         practice_level="final_assessment",
         variant_index=desired_count,
     )
-    cross_plugin = generate_cross_chapter_contract(
-        course_data,
-        assessment_nodes,
-    )
-    cross_contract = _force_comprehensive_review(
-        _apply_validation_plugin(
+    if len(assessment_nodes) >= 2:
+        cross_plugin = generate_cross_chapter_contract(
+            course_data,
+            assessment_nodes,
+        )
+        cross_contract = _apply_validation_plugin(
             cross_universal,
             cross_plugin,
         )
-    )
+    else:
+        # A one-node course cannot truthfully claim cross-chapter
+        # deterministic validation. Keep the integrated task on the
+        # universal rubric path and require teacher review.
+        cross_contract = cross_universal
+    cross_contract = _force_comprehensive_review(cross_contract)
     cross_item, cross_solution = _v2_final_item(
         course_data,
         assessment_nodes,
@@ -1578,6 +1593,7 @@ def _comprehensive_items(
         items,
         imported,
         purpose,
+        solutions,
     )
     return items, solutions
 
@@ -1733,8 +1749,12 @@ def _v2_final_item(
         ),
         "practice_levels": ["final_assessment"],
         "assessment_role": role,
-        "course_objective_refs": [objective.get("objective_id")],
+        "course_objective_refs": _unique([
+            _objective_ref(course_data, node)
+            for node in nodes
+        ]),
         "objective_id": objective.get("objective_id"),
+        "assessment_objective_id": objective.get("objective_id"),
         "course_knowledge_refs": _unique([
             ref
             for node in nodes
@@ -1936,9 +1956,15 @@ def _apply_assessment_distribution(
     items: list[dict[str, Any]],
     imported: list[dict[str, Any]],
     purpose: str,
+    solution_envelopes: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     teacher_distribution = purpose == "exam_sprint" and bool(imported)
     for index, item in enumerate(items):
+        solution = (
+            solution_envelopes or {}
+        ).get(str(item.get("solution_revision_id") or ""))
+        if solution:
+            item["_solution_envelope"] = deepcopy(solution)
         matching = [
             candidate
             for candidate in imported
@@ -1972,6 +1998,7 @@ def _apply_assessment_distribution(
         item["revision_id"] = _item_revision_id(item)
         item["formal_task"] = _formal_task_from_item(item)
         item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
+        item.pop("_solution_envelope", None)
 
 
 def _assessment_blueprint(
