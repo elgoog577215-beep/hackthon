@@ -25,59 +25,34 @@
       </button>
     </div>
 
-    <nav class="learning-dock__actions" :aria-label="t('learningDock.primaryNavigation', '学习空间导航')">
+    <nav class="learning-dock__actions" :aria-label="t('learningDock.primaryNavigation', '学习辅助导航')">
       <Transition name="learning-dock-tray">
         <section
-          v-if="openDomain"
-          :id="`${openDomain}-tool-menu`"
+          v-if="toolsOpen"
+          id="learning-tool-menu"
           class="learning-dock__tray"
-          :class="`is-${openDomain}`"
           role="menu"
-          :aria-label="openDomain === 'learning'
-            ? t('learningDock.learningMenuTitle', '学习任务')
-            : t('learningDock.resourceMenuTitle', '课程资料')"
-          :data-tool-menu="openDomain"
+          :aria-label="t('learningDock.learningMenuTitle', '学习工具')"
+          data-tool-menu="learning"
         >
           <header>
             <span class="learning-dock__tray-icon">
-              <GraduationCap v-if="openDomain === 'learning'" :size="18" />
-              <Layers3 v-else :size="18" />
+              <NotebookTabs :size="18" />
             </span>
             <span>
-              <strong>{{ openDomain === 'learning'
-                ? t('learningDock.learningMenuTitle', '学习任务')
-                : t('learningDock.resourceMenuTitle', '课程资料') }}</strong>
-              <small>{{ openDomain === 'learning'
-                ? t('learningDock.learningMenuHelp', '练习、记录与学习进展')
-                : t('learningDock.resourceMenuHelp', '知识库与课程配套资料') }}</small>
+              <strong>{{ t('learningDock.learningMenuTitle', '学习工具') }}</strong>
+              <small>{{ t('learningDock.learningMenuHelp', '学习记录与学习概况') }}</small>
             </span>
           </header>
 
-          <div v-if="openDomain === 'learning'" class="learning-dock__tool-list">
-            <button
-              type="button"
-              role="menuitem"
-              data-tool-item="practice"
-              :disabled="!practiceEntryAvailable"
-              @click="selectTool('practice')"
-            >
-              <span class="learning-dock__item-icon"><ClipboardCheck :size="18" /></span>
-              <span class="learning-dock__item-copy">
-                <strong>{{ t('learningDock.practice', '当前练习') }}</strong>
-                <small>{{ practiceEntryAvailable
-                  ? t('learningDock.practiceDescription', '完成当前章节的正式练习')
-                  : t('learningDock.practiceUnavailableVisible', '本节暂无正式练习') }}</small>
-              </span>
-              <span class="learning-dock__item-meta">{{ practiceStatus }}</span>
-              <ChevronRight :size="17" />
-            </button>
+          <div class="learning-dock__tool-list">
             <button type="button" role="menuitem" data-tool-item="records" @click="selectTool('records')">
               <span class="learning-dock__item-icon"><NotebookTabs :size="18" /></span>
               <span class="learning-dock__item-copy">
                 <strong>{{ t('learningDock.records', '学习记录') }}</strong>
                 <small>{{ t('learningDock.recordsDescription', '查看笔记、问答和待复习内容') }}</small>
               </span>
-              <span v-if="recordCount" class="learning-dock__item-meta is-count">{{ recordCount }} 条</span>
+              <span v-if="recordCount" class="learning-dock__item-meta is-count">{{ recordCount }} {{ t('learningDock.recordUnit', '条') }}</span>
               <ChevronRight :size="17" />
             </button>
             <button type="button" role="menuitem" data-tool-item="stats" @click="selectTool('stats')">
@@ -85,25 +60,6 @@
               <span class="learning-dock__item-copy">
                 <strong>{{ t('learningDock.stats', '学习概况') }}</strong>
                 <small>{{ t('learningDock.statsDescription', '查看阅读、掌握与学习证据') }}</small>
-              </span>
-              <ChevronRight :size="17" />
-            </button>
-          </div>
-
-          <div v-else class="learning-dock__tool-list">
-            <button type="button" role="menuitem" data-tool-item="knowledge-library" @click="selectTool('knowledge-library')">
-              <span class="learning-dock__item-icon"><Library :size="18" /></span>
-              <span class="learning-dock__item-copy">
-                <strong>{{ t('learningDock.knowledgeLibrary', '知识库') }}</strong>
-                <small>{{ t('learningDock.knowledgeDescription', '查看本课知识结构与课程覆盖') }}</small>
-              </span>
-              <ChevronRight :size="17" />
-            </button>
-            <button type="button" role="menuitem" data-tool-item="teaching-resources" @click="selectTool('teaching-resources')">
-              <span class="learning-dock__item-icon"><FileText :size="18" /></span>
-              <span class="learning-dock__item-copy">
-                <strong>{{ t('learningDock.resources', '教学资源') }}</strong>
-                <small>{{ t('learningDock.teachingDescription', '查看大纲、教案、讲义等') }}</small>
               </span>
               <ChevronRight :size="17" />
             </button>
@@ -116,40 +72,35 @@
         type="button"
         class="learning-dock__domain"
         data-domain="learning"
-        :class="{ 'is-active': openDomain === 'learning' || (activeDomain === 'learning' && !openDomain) }"
+        :class="{ 'is-active': toolsOpen || activeDomain === 'learning' }"
         aria-haspopup="menu"
-        :aria-expanded="openDomain === 'learning'"
+        :aria-expanded="toolsOpen"
         aria-controls="learning-tool-menu"
-        :title="t('learningDock.learningGroupHint', '展开当前练习、学习记录和学习概况')"
-        @click="toggleDomain('learning')"
+        :title="t('learningDock.learningGroupHint', '展开学习记录和学习概况')"
+        @click="toggleTools"
       >
-        <GraduationCap :size="16" />
-        <span>{{ t('learningDock.learningGroup', '学习任务 · 3') }}</span>
-        <ChevronUp v-if="openDomain === 'learning'" :size="14" />
-        <ChevronDown v-else :size="14" />
+        <NotebookTabs :size="16" />
+        <span>{{ t('learningDock.learningGroup', '学习工具 · 2') }}</span>
+        <ChevronUp v-if="toolsOpen" class="learning-dock__chevron" :size="14" />
+        <ChevronDown v-else class="learning-dock__chevron" :size="14" />
       </button>
       <button
-        ref="resourceTrigger"
         type="button"
         class="learning-dock__domain"
-        data-domain="resources"
-        :class="{ 'is-active': openDomain === 'resources' || (activeDomain === 'resources' && !openDomain) }"
-        aria-haspopup="menu"
-        :aria-expanded="openDomain === 'resources'"
-        aria-controls="resources-tool-menu"
-        :title="t('learningDock.resourceGroupHint', '展开知识库和教学资源')"
-        @click="toggleDomain('resources')"
+        data-domain="knowledge-library"
+        :class="{ 'is-active': activeDomain === 'knowledge-library' && !toolsOpen }"
+        :aria-current="activeDomain === 'knowledge-library' ? 'page' : undefined"
+        :title="t('learningDock.knowledgeLibraryHint', '查看学科知识与本课覆盖')"
+        @click="openKnowledgeLibrary"
       >
-        <Layers3 :size="16" />
-        <span>{{ t('learningDock.resourceGroup', '课程资料 · 2') }}</span>
-        <ChevronUp v-if="openDomain === 'resources'" :size="14" />
-        <ChevronDown v-else :size="14" />
+        <Library :size="16" />
+        <span>{{ t('learningDock.knowledgeLibrary', '知识库') }}</span>
       </button>
       <button
         type="button"
         class="learning-dock__domain"
         data-domain="assistant"
-        :class="{ 'is-active': activeDomain === 'assistant' && !openDomain }"
+        :class="{ 'is-active': activeDomain === 'assistant' && !toolsOpen }"
         :aria-current="activeDomain === 'assistant' ? 'page' : undefined"
         :title="t('learningDock.assistantHint', '在当前页面打开 AI 老师')"
         @click="openAssistant"
@@ -162,17 +113,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   ArrowRight,
   ChartNoAxesCombined,
   ChevronDown,
   ChevronRight,
   ChevronUp,
-  ClipboardCheck,
-  FileText,
-  GraduationCap,
-  Layers3,
   Library,
   LoaderCircle,
   MapPin,
@@ -181,60 +128,49 @@ import {
 } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 
-type ToolDomain = 'learning' | 'resources'
-type ToolItem = 'practice' | 'records' | 'stats' | 'knowledge-library' | 'teaching-resources'
+type ToolItem = 'records' | 'stats'
 
 const props = withDefaults(defineProps<{
   location: string
-  activeDomain?: 'learning' | 'resources' | 'assistant'
+  activeDomain?: 'course' | 'learning' | 'knowledge-library' | 'assistant'
   recordCount?: number
-  practiceAvailable?: boolean
-  practiceRepairAvailable?: boolean
   resumeActionLabel?: string
   resumeActionAvailable?: boolean
   resumeActionBusy?: boolean
 }>(), {
-  activeDomain: 'learning',
+  activeDomain: 'course',
   recordCount: 0,
-  practiceAvailable: false,
-  practiceRepairAvailable: false,
   resumeActionLabel: '',
   resumeActionAvailable: true,
   resumeActionBusy: false,
 })
 
 const emit = defineEmits<{
-  (event: 'practice' | 'records' | 'stats' | 'knowledge-library' | 'teaching-resources' | 'ai' | 'resume'): void
+  (event: 'records' | 'stats' | 'knowledge-library' | 'ai' | 'resume'): void
 }>()
 
 const dockRoot = ref<HTMLElement | null>(null)
 const learningTrigger = ref<HTMLButtonElement | null>(null)
-const resourceTrigger = ref<HTMLButtonElement | null>(null)
-const openDomain = ref<ToolDomain | null>(null)
-const practiceEntryAvailable = computed(() => props.practiceAvailable || props.practiceRepairAvailable)
-const practiceStatus = computed(() => {
-  if (props.practiceAvailable) return t('learningDock.practiceNotStarted', '未开始')
-  if (props.practiceRepairAvailable) return t('learningDock.practiceRepair', '可重建')
-  return t('learningDock.practiceUnavailableShort', '暂无')
-})
+const toolsOpen = ref(false)
 
-function toggleDomain(domain: ToolDomain) {
-  openDomain.value = openDomain.value === domain ? null : domain
+function toggleTools() {
+  toolsOpen.value = !toolsOpen.value
 }
 
 function closeMenu(restoreFocus = false) {
-  const closingDomain = openDomain.value
-  openDomain.value = null
-  if (!restoreFocus || !closingDomain) return
-  void nextTick(() => {
-    const trigger = closingDomain === 'learning' ? learningTrigger.value : resourceTrigger.value
-    trigger?.focus()
-  })
+  if (!toolsOpen.value) return
+  toolsOpen.value = false
+  if (restoreFocus) void nextTick(() => learningTrigger.value?.focus())
 }
 
 function selectTool(tool: ToolItem) {
   closeMenu()
   emit(tool)
+}
+
+function openKnowledgeLibrary() {
+  closeMenu()
+  emit('knowledge-library')
 }
 
 function openAssistant() {
@@ -243,7 +179,7 @@ function openAssistant() {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape' || !openDomain.value) return
+  if (event.key !== 'Escape' || !toolsOpen.value) return
   event.preventDefault()
   event.stopPropagation()
   closeMenu(true)
@@ -256,7 +192,7 @@ function handleOutsidePointer(event: PointerEvent) {
 }
 
 watch(() => props.activeDomain, domain => {
-  if (domain === 'assistant') closeMenu()
+  if (domain !== 'learning') closeMenu()
 })
 
 onMounted(() => document.addEventListener('pointerdown', handleOutsidePointer))
@@ -280,11 +216,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', handleOutsideP
 .learning-dock button:focus-visible { outline:3px solid rgba(99,102,241,.26); outline-offset:2px; }
 .learning-dock button:disabled { color:#a9b4c8; cursor:not-allowed; }
 .learning-dock__domain.is-active { color:var(--lz-brand-strong); border-color:#cfd6ff; background:linear-gradient(180deg,#f8f7ff,#eef0ff); box-shadow:0 3px 10px rgba(79,70,229,.1); }
-.learning-dock__domain > svg:last-child { margin-left:1px; color:#94a3b8; }
-.learning-dock__domain.is-active > svg:last-child { color:#6366f1; }
-.learning-dock__tray { --pointer-right:210px; position:absolute; right:0; bottom:calc(100% + 18px); z-index:80; width:min(460px,calc(100vw - 32px)); overflow:visible; padding:16px; border:1px solid rgba(203,213,225,.9); border-radius:16px; color:var(--lz-text); background:rgba(255,255,255,.985); box-shadow:0 20px 54px rgba(15,23,42,.16),0 4px 14px rgba(79,70,229,.08); }
-.learning-dock__tray.is-learning { --pointer-right:265px; }
-.learning-dock__tray.is-resources { --pointer-right:136px; }
+.learning-dock__chevron { margin-left:1px; color:#94a3b8; }
+.learning-dock__domain.is-active .learning-dock__chevron { color:#6366f1; }
+.learning-dock__tray { --pointer-right:245px; position:absolute; right:0; bottom:calc(100% + 18px); z-index:80; width:min(440px,calc(100vw - 32px)); overflow:visible; padding:16px; border:1px solid rgba(203,213,225,.9); border-radius:16px; color:var(--lz-text); background:rgba(255,255,255,.985); box-shadow:0 20px 54px rgba(15,23,42,.16),0 4px 14px rgba(79,70,229,.08); }
 .learning-dock__tray::after { content:""; position:absolute; right:var(--pointer-right); bottom:-8px; width:14px; height:14px; transform:rotate(45deg); border-right:1px solid rgba(203,213,225,.9); border-bottom:1px solid rgba(203,213,225,.9); background:#fff; }
 .learning-dock__tray header { display:grid; grid-template-columns:38px minmax(0,1fr); align-items:center; gap:10px; padding:0 2px 12px; }
 .learning-dock__tray header > span:last-child { min-width:0; display:flex; flex-direction:column; gap:3px; }
@@ -296,13 +230,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', handleOutsideP
 .learning-dock__tool-list > button { width:100%; min-height:66px; display:grid; grid-template-columns:38px minmax(0,1fr) auto 18px; justify-content:stretch; gap:11px; padding:10px 4px; border:0; border-bottom:1px solid #edf0f6; border-radius:0; text-align:left; background:transparent; }
 .learning-dock__tool-list > button:last-child { border-bottom:0; }
 .learning-dock__tool-list > button:hover:not(:disabled) { transform:none; border-color:#edf0f6; background:#f8f9ff; }
-.learning-dock__tool-list > button:disabled { background:#fafbfc; }
 .learning-dock__item-icon { width:38px; height:38px; border-radius:10px; }
 .learning-dock__item-copy { min-width:0; display:flex; flex-direction:column; gap:4px; }
 .learning-dock__item-copy strong { color:var(--lz-text-strong); font-size:13px; line-height:1.3; }
 .learning-dock__item-copy small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--lz-text-muted); font-size:10px; font-weight:500; line-height:1.4; }
-.learning-dock__item-meta { min-width:48px; padding:4px 8px; border-radius:999px; color:#64748b; background:#f1f5f9; font-size:10px; font-weight:700; text-align:center; }
-.learning-dock__item-meta.is-count { color:#4f46e5; background:#eef0ff; }
+.learning-dock__item-meta { min-width:48px; padding:4px 8px; border-radius:999px; color:#4f46e5; background:#eef0ff; font-size:10px; font-weight:700; text-align:center; }
 .learning-dock__tool-list > button > svg { color:#94a3b8; }
 .learning-dock-tray-enter-active,.learning-dock-tray-leave-active { transition:opacity .16s ease,transform .16s ease; transform-origin:bottom right; }
 .learning-dock-tray-enter-from,.learning-dock-tray-leave-to { opacity:0; transform:translateY(8px) scale(.985); }
@@ -317,10 +249,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', handleOutsideP
 @media (max-width:767px) {
   .learning-dock { position:fixed; left:0; right:0; bottom:0; z-index:120; min-height:calc(58px + env(safe-area-inset-bottom,0px)); padding:4px 6px env(safe-area-inset-bottom,0px); }
   .learning-dock__location,.learning-dock__resume { display:none; }
-  .learning-dock__actions { width:100%; display:grid; grid-template-columns:1fr 1fr .82fr; gap:3px; }
+  .learning-dock__actions { width:100%; display:grid; grid-template-columns:1fr 1fr .9fr; gap:3px; }
   .learning-dock__domain { min-width:0; min-height:50px; flex-direction:column; gap:2px; padding:3px 2px; border-radius:9px; font-size:9px; line-height:1.1; }
-  .learning-dock__domain > svg:last-child { position:absolute; top:7px; right:7px; width:11px; height:11px; }
-  .learning-dock__tray { position:fixed; left:8px; right:8px; bottom:calc(66px + env(safe-area-inset-bottom,0px)); width:auto; max-height:min(70vh,410px); overflow-y:auto; padding:14px; border-radius:16px; }
+  .learning-dock__chevron { position:absolute; top:7px; right:7px; width:11px; height:11px; }
+  .learning-dock__tray { position:fixed; left:8px; right:8px; bottom:calc(66px + env(safe-area-inset-bottom,0px)); width:auto; max-height:min(70vh,330px); overflow-y:auto; padding:14px; border-radius:16px; }
   .learning-dock__tray::after { display:none; }
   .learning-dock__tool-list > button { min-height:64px; grid-template-columns:38px minmax(0,1fr) auto 18px; }
   .learning-dock__item-copy small { white-space:normal; }

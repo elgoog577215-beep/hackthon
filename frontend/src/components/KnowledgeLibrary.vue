@@ -36,13 +36,6 @@
               </div>
             </div>
 
-            <LearningContextTabs
-              domain="resources"
-              active-item="knowledge-library"
-              @knowledge-library="courseStore.showKnowledgeLibrary = true"
-              @resources="openTeachingResources"
-            />
-
             <label class="knowledge-tree-search">
               <Search :size="16" aria-hidden="true" />
               <span class="sr-only">{{ t('knowledgeLibrary.search', '搜索知识点') }}</span>
@@ -430,7 +423,6 @@ import {
   X,
 } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
-import LearningContextTabs from './LearningContextTabs.vue'
 import KnowledgeRelationGraph from './KnowledgeRelationGraph.vue'
 import { t } from '../shared/i18n'
 import http from '../utils/http'
@@ -800,11 +792,6 @@ function handleClose(): void {
   courseStore.showKnowledgeLibrary = false
 }
 
-function openTeachingResources(): void {
-  courseStore.showKnowledgeLibrary = false
-  courseStore.showTeachingResources = true
-}
-
 function handleKeydown(event: KeyboardEvent): void {
   if (!courseStore.showKnowledgeLibrary || event.key !== 'Escape') return
   if (mobileDetailOpen.value) mobileDetailOpen.value = false
@@ -880,8 +867,7 @@ watch(() => courseStore.currentCourseId, () => {
 <style scoped>
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .knowledge-tree-dialog { display:flex; flex-direction:column; outline:none; }
-.knowledge-tree-header { flex:0 0 auto; display:grid; grid-template-columns:minmax(210px,1fr) auto minmax(220px,360px) 38px; align-items:center; gap:12px; }
-.knowledge-tree-header :deep(.learning-context-tabs) { min-height:44px; padding:4px; border:0; background:transparent; }
+.knowledge-tree-header { flex:0 0 auto; display:grid; grid-template-columns:minmax(210px,1fr) minmax(260px,440px) 38px; align-items:center; gap:12px; }
 .knowledge-tree-heading { min-width:0; display:flex; align-items:center; gap:12px; }
 .knowledge-tree-brand { width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; border:1px solid #ddd6fe; border-radius:11px; color:#6d4aff; background:#f4f1ff; box-shadow:0 4px 12px rgba(109,74,255,.12); }
 .knowledge-tree-heading h1 { margin:0; color:#252a43; font-size:16px; line-height:1.3; font-weight:760; letter-spacing:0; }
@@ -1011,7 +997,7 @@ watch(() => courseStore.currentCourseId, () => {
 @keyframes knowledge-tree-spin { to { transform:rotate(360deg); } }
 
 @media (max-width:900px) {
-  .knowledge-tree-header { grid-template-columns:minmax(170px,1fr) auto minmax(180px,260px) 38px; gap:8px; }
+  .knowledge-tree-header { grid-template-columns:minmax(170px,1fr) minmax(180px,300px) 38px; gap:8px; }
   .knowledge-tree-main { grid-template-columns:320px minmax(0,1fr); }
   .knowledge-tree-detail { padding-inline:28px; }
   .knowledge-tree-child-list { grid-template-columns:1fr; }
@@ -1021,7 +1007,7 @@ watch(() => courseStore.currentCourseId, () => {
 @media (max-width:700px) {
   .knowledge-tree-overlay { padding:0; background:#fff; }
   .knowledge-tree-dialog { width:100vw; height:100dvh; min-height:0; border:0; border-radius:0; box-shadow:none; }
-  .knowledge-tree-header { min-height:156px; grid-template-columns:minmax(0,1fr) 38px; grid-template-rows:48px 44px 44px; gap:4px 10px; padding:8px 12px 10px; }
+  .knowledge-tree-header { min-height:108px; grid-template-columns:minmax(0,1fr) 38px; grid-template-rows:48px 44px; gap:4px 10px; padding:8px 12px 10px; }
   .knowledge-library-viewbar { padding-inline:12px; }
   .knowledge-library-viewbar > span { display:none; }
   .knowledge-tree-heading { grid-column:1; grid-row:1; }
@@ -1029,8 +1015,7 @@ watch(() => courseStore.currentCourseId, () => {
   .knowledge-tree-heading h1 { font-size:14px; }
   .knowledge-tree-heading p { font-size:9.5px; }
   .knowledge-tree-close { grid-column:2; grid-row:1; }
-  .knowledge-tree-header :deep(.learning-context-tabs) { grid-column:1 / -1; grid-row:2; justify-content:center; }
-  .knowledge-tree-search { grid-column:1 / -1; grid-row:3; height:40px; }
+  .knowledge-tree-search { grid-column:1 / -1; grid-row:2; height:40px; }
   .knowledge-tree-main { display:block; }
   .knowledge-tree-pane, .knowledge-tree-detail { position:absolute; inset:0; border:0; }
   .knowledge-tree-pane { background:#fafbfe; }

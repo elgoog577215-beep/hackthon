@@ -31,7 +31,7 @@ const ContentAreaStub = defineComponent({
 
 const TaskOverlayStub = defineComponent({
   props: ['courseId', 'nodeId', 'nodeLabel', 'originRect'],
-  emits: ['close', 'graded', 'askTeacher', 'records', 'stats'],
+  emits: ['close', 'graded', 'askTeacher', 'records', 'stats', 'outline', 'lesson-plan', 'course'],
   template: '<div class="task-overlay-stub" :data-node-id="nodeId" :data-origin-top="originRect?.top"><span>{{ nodeLabel }}</span><button class="task-records" @click="$emit(\'records\')">records</button><button class="task-stats" @click="$emit(\'stats\')">stats</button><button class="close-task" @click="$emit(\'close\')">close</button></div>',
 })
 
@@ -121,7 +121,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it('正文页通过两个父入口展开五个子项目，并保留覆盖层内的同组切换', async () => {
+  it('正文页用顶栏切换大纲、教案、课程和练习，并从底栏直达知识库', async () => {
     const wrapper = mount(LearningView, {
       attachTo: document.body,
       global: {
@@ -140,13 +140,11 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['学习任务 · 3', '课程资料 · 2', '智能助教'])
-    expect(wrapper.find('.learning-main > .learning-context-tabs').exists()).toBe(false)
+    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['大纲', '教案', '课程', '练习'])
+    expect(wrapper.get('.learning-context-bar [data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['学习工具 · 2', '知识库', '智能助教'])
 
-    await wrapper.get('[data-domain="learning"]').trigger('click')
-    expect(wrapper.find('.task-overlay-stub').exists()).toBe(false)
-    expect(wrapper.findAll('[data-tool-menu="learning"] [role="menuitem"]')).toHaveLength(3)
-    await wrapper.get('[data-tool-item="practice"]').trigger('click')
+    await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
 
     await wrapper.get('.task-records').trigger('click')
@@ -154,16 +152,15 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.get('.records-overlay').classes()).toContain('learning-tool-overlay')
     expect(wrapper.findAll('.records-overlay .learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['当前练习', '学习记录', '学习概况'])
 
-    await wrapper.get('[data-domain="resources"]').trigger('click')
-    expect(wrapper.findAll('[data-tool-menu="resources"] [role="menuitem"]')).toHaveLength(2)
-    await wrapper.get('[data-tool-item="knowledge-library"]').trigger('click')
+    await wrapper.get('[data-domain="knowledge-library"]').trigger('click')
     const courseStore = useCourseStore()
     expect(courseStore.showKnowledgeLibrary).toBe(true)
 
     courseStore.showKnowledgeLibrary = false
-    courseStore.showTeachingResources = true
+    await wrapper.get('.learning-context-bar [data-workspace-item="outline"]').trigger('click')
     await flushPromises()
     expect(wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' }).props('visible')).toBe(true)
+    expect(wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' }).props('activeType')).toBe('outline')
 
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.find('.ai-panel-stub').exists()).toBe(true)
@@ -234,8 +231,7 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    await wrapper.get('[data-domain="learning"]').trigger('click')
-    await wrapper.get('[data-tool-item="practice"]').trigger('click')
+    await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
 
     await wrapper.get('.task-records').trigger('click')

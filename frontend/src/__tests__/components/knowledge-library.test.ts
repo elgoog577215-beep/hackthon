@@ -345,17 +345,13 @@ describe('Course knowledge library', () => {
     expect(wrapper.text()).toContain('这门课的知识库需要升级')
   })
 
-  it('进入资源覆盖层后在顶栏切换知识库和教学资源', async () => {
+  it('知识库作为独立底栏工具打开时不再混入教学资源切换', async () => {
     const { wrapper, courseStore } = await mountLibrary()
 
-    const tabs = wrapper.findAll('.knowledge-tree-header [role="tab"]')
-    expect(tabs.map(tab => tab.text())).toEqual(['知识库', '教学资源'])
-    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
-
-    await tabs[1]!.trigger('click')
-
-    expect(courseStore.showKnowledgeLibrary).toBe(false)
-    expect(courseStore.showTeachingResources).toBe(true)
+    expect(wrapper.find('.knowledge-tree-header [role="tablist"]').exists()).toBe(false)
+    expect(wrapper.find('.knowledge-tree-search').exists()).toBe(true)
+    expect(courseStore.showKnowledgeLibrary).toBe(true)
+    expect(courseStore.showTeachingResources).toBe(false)
   })
 
   it('在知识库页面上部切换知识树和只读关系图，并仅展示已启用关系', async () => {

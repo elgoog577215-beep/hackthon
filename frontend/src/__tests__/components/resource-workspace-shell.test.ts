@@ -32,9 +32,19 @@ describe('resource workspace shell', () => {
 
     expect(app).toContain('header-ppt-button')
     expect(app).toContain("name: 'ppt-workspace'")
-    expect(teachingResources).toContain("item.representation_type !== 'slide_deck'")
+    expect(teachingResources).toContain("activeType?: 'outline' | 'lesson_plan'")
+    expect(teachingResources).toContain('<CourseWorkspaceTabs')
     expect(teachingResources).not.toContain('<SlideDeckWorkbench')
     expect(pptWorkspace).toContain('standalone')
     expect(pptWorkspace).toContain('<SideAIPanel')
+  })
+
+  it('keeps the knowledge library independent from the course workspace tabs', () => {
+    const knowledgeLibrary = readSource('../../components/KnowledgeLibrary.vue')
+    const learningDock = readSource('../../components/LearningDock.vue')
+
+    expect(knowledgeLibrary).not.toContain('<LearningContextTabs')
+    expect(learningDock).toContain('data-domain="knowledge-library"')
+    expect(learningDock).not.toContain('data-domain="resources"')
   })
 })
