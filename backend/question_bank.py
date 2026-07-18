@@ -13,6 +13,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from course_versioning import stable_hash
+from question_generation import (
+    generate_cross_chapter_contract,
+    generate_question_contract,
+    validate_question_spec,
+)
 from storage import DATA_DIR
 
 QUESTION_BANK_SCHEMA = "question_bank_bundle_v1"
@@ -324,6 +329,33 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
     prompt = str(item.get("prompt") or "").strip()
     answer_spec = item.get("answer_spec") or {}
     criteria = [str(value).strip() for value in answer_spec.get("criteria") or [] if str(value).strip()]
+    source_type = str(item.get("source_type") or "")
+    requires_structured_spec = source_type in {"generated", "variant"}
+    domain_validation: dict[str, Any] = {
+        "passed": True,
+        "status": "passed",
+        "issues": [],
+        "checks": {},
+    }
+    if requires_structured_spec:
+        question_spec = item.get("question_spec")
+        if not isinstance(question_spec, dict):
+            issues.append({
+                "code": "question:structured_spec_missing",
+                "severity": "critical",
+            })
+            domain_validation = {
+                "passed": False,
+                "status": "failed",
+                "issues": [{
+                    "code": "question:structured_spec_missing",
+                    "severity": "critical",
+                }],
+                "checks": {},
+            }
+        else:
+            domain_validation = validate_question_spec(question_spec)
+            issues.extend(deepcopy(domain_validation.get("issues") or []))
     if len(prompt) < 12:
         issues.append({"code": "question:prompt_too_short", "severity": "critical"})
     if (
@@ -346,6 +378,7 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
     if "answer_conflict" in (item.get("risk_flags") or []):
         issues.append({"code": "question:answer_conflict", "severity": "critical"})
 
+    issues = _deduplicate_quality_issues(issues)
     critical = [issue for issue in issues if issue["severity"] == "critical"]
     status = "failed" if critical else ("needs_review" if issues else "passed")
     return {
@@ -364,6 +397,8 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
             "knowledge_and_difficulty": bool(item.get("course_knowledge_refs")) and bool(item.get("difficulty")),
             "source_and_rights": bool(item.get("source_records")),
             "answer_and_rubric": not any("answer" in issue["code"] for issue in critical),
+            "domain_validation": bool(domain_validation.get("passed"))
+            and domain_validation.get("status") == "passed",
             "semantic_alignment": (
                 len(prompt) >= 12
                 and not (
@@ -374,6 +409,7 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
                     criteria
                     or answer_spec.get("correct_answer") is not None
                 )
+                and bool(domain_validation.get("passed"))
             ),
             "hint_safety": bool((item.get("hint_contract") or {}).get("leakage_check", {}).get("passed", True)),
         },
@@ -392,6 +428,20 @@ def is_generic_generated_prompt(prompt: str) -> bool:
         "综合运用全部章节完成最终任务",
     )
     return any(marker in normalized for marker in generic_markers)
+
+
+def _deduplicate_quality_issues(
+    issues: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for issue in issues:
+        key = (str(issue.get("code") or ""), str(issue.get("severity") or ""))
+        if not all(key) or key in seen:
+            continue
+        seen.add(key)
+        result.append(issue)
+    return result
 
 
 class QuestionBankRepository:
@@ -613,10 +663,14 @@ def _generated_course_items(
     for node in nodes:
         node_id = str(node.get("node_id") or "")
         key_points = _node_key_points(node)
-        assessments = _assessment_items(node)
         source_item = imported_by_node.get(node_id)
         for index, (level, label) in enumerate(level_specs):
-            condition = _variant_condition(course_data, node, index)
+            generated_contract = generate_question_contract(
+                course_data,
+                node,
+                level,
+                index,
+            )
             source_type = "variant" if source_item else "generated"
             item_id = stable_hash(
                 {
@@ -629,25 +683,21 @@ def _generated_course_items(
                 },
                 prefix="qbi_",
             )
-            task_text = _generated_task_text(
-                node,
-                level,
-                assessments,
-                index,
+            prompt = generated_contract["prompt"]
+            source_records = (
+                deepcopy(source_item.get("source_records") or [])
+                if source_item
+                else [{
+                    "source_type": "course_material",
+                    "course_id": str(course_data.get("course_id") or ""),
+                    "node_id": node_id,
+                    "rights_basis": "course_generated",
+                    "reuse_policy": "original_generation",
+                }]
             )
-            prompt = (
-                f"{label}｜{node.get('node_name') or node_id}\n"
-                f"输入材料：{condition}\n"
-                f"任务：{task_text}\n"
-                f"限制条件：必须使用{_join_names(key_points[:2])}，写出依据、过程和结果检查。"
+            source_records.extend(
+                deepcopy(generated_contract.get("source_records") or [])
             )
-            source_records = deepcopy(source_item.get("source_records") or []) if source_item else [{
-                "source_type": "course_material",
-                "course_id": str(course_data.get("course_id") or ""),
-                "node_id": node_id,
-                "rights_basis": "course_generated",
-                "reuse_policy": "original_generation",
-            }]
             item = {
                 "schema_version": QUESTION_ITEM_SCHEMA,
                 "course_id": str(course_data.get("course_id") or ""),
@@ -657,19 +707,17 @@ def _generated_course_items(
                 "node_id": node_id,
                 "node_ids": [node_id],
                 "prompt": prompt,
-                "subquestions": [task_text] if level == "mastery_check" else [],
+                "subquestions": (
+                    [generated_contract["deliverable"]]
+                    if level == "mastery_check"
+                    else []
+                ),
                 "options": [],
-                "answer_spec": {
-                    "type": "rubric",
-                    "criteria": _generated_criteria(node, level),
-                    "expected_keywords": key_points[:6],
-                    "max_score": 100,
-                    "pass_score": 70,
-                },
+                "answer_spec": deepcopy(generated_contract["answer_spec"]),
                 "explanation": "",
                 "score": 100,
-                "estimated_minutes": 6 if level == "concept_check" else 15,
-                "question_type": _question_type(course_data, level),
+                "estimated_minutes": generated_contract["estimated_minutes"],
+                "question_type": generated_contract["question_type"],
                 "difficulty": _node_difficulty(course_data, node),
                 "practice_levels": [level],
                 "assessment_role": "practice",
@@ -681,17 +729,29 @@ def _generated_course_items(
                 "source_type": source_type,
                 "source_records": source_records,
                 "parse_confidence": "high",
-                "risk_flags": [],
-                "review_required": False,
+                "risk_flags": deepcopy(generated_contract["risk_flags"]),
+                "review_required": bool(
+                    generated_contract["review_required"]
+                ),
                 "lifecycle_status": "candidate",
                 "review_status": "candidate",
                 "review_history": [],
                 "formal_task_revision_id": None,
-                "deliverable": task_text,
-                "input_materials": [condition],
-                "constraints": [f"必须使用{_join_names(key_points[:2])}", "必须写出可复核的结果检查"],
+                "deliverable": generated_contract["deliverable"],
+                "input_materials": deepcopy(
+                    generated_contract["input_materials"]
+                ),
+                "constraints": deepcopy(generated_contract["constraints"]),
                 "reference_concepts": key_points,
-                "result_checks": ["覆盖指定知识点", "过程可执行", "结果与输入条件一致"],
+                "result_checks": deepcopy(
+                    generated_contract["result_checks"]
+                ),
+                "question_spec": deepcopy(
+                    generated_contract["question_spec"]
+                ),
+                "domain_validation": deepcopy(
+                    generated_contract["domain_validation"]
+                ),
                 "created_at": _now(),
             }
             item["hint_contract"] = _hint_contract(item)
@@ -733,52 +793,44 @@ def _comprehensive_items(
     ]
     items: list[dict[str, Any]] = []
     for index, node in enumerate(selected, start=1):
-        node_id = str(node.get("node_id") or "")
-        assessment = _assessment_items(node)[0]
-        key_points = _node_key_points(node)
-        input_material = _variant_condition(course_data, node, index + 3)
-        prompt = (
-            f"综合测评任务 {index}｜{node.get('node_name') or node_id}\n"
-            f"输入材料：{input_material}\n"
-            f"最终产物：{assessment}\n"
-            f"限制条件：使用{_join_names(key_points[:2])}，展示依据与过程，并给出至少一项结果检查。"
+        generated_contract = generate_question_contract(
+            course_data,
+            node,
+            "final_assessment",
+            index + 3,
         )
         items.append(_final_item(
             course_data,
             [node],
             index=index,
             role="coverage_task",
-            prompt=prompt,
-            deliverable=assessment,
-            input_materials=[input_material],
-            constraints=[f"使用{_join_names(key_points[:2])}", "展示依据和过程", "完成结果检查"],
+            prompt=generated_contract["prompt"].replace(
+                "综合测评｜",
+                f"综合测评任务 {index}｜",
+                1,
+            ),
+            deliverable=generated_contract["deliverable"],
+            input_materials=generated_contract["input_materials"],
+            constraints=generated_contract["constraints"],
+            generated_contract=generated_contract,
         ))
 
-    node_names = [
-        str(node.get("node_name") or node.get("node_id") or "")
-        for node in assessment_nodes
-    ]
-    objectives = [
-        str(node.get("learning_objective") or "")
-        for node in assessment_nodes
-    ]
-    cross_material = _cross_chapter_material(course_data, assessment_nodes)
-    cross_prompt = (
-        f"跨章节迁移任务｜连接{_join_names(node_names[:4])}\n"
-        f"输入材料：{cross_material}\n"
-        f"最终产物：提交一份完整解决方案，分别说明各章节概念如何参与，并对最终结论执行一致性检查。\n"
-        f"限制条件：至少建立两处跨章节连接；不得省略关键假设；结论必须能够由给定材料复核。"
-    )
-    items.append(_final_item(
-        course_data,
-        assessment_nodes,
-        index=desired_count,
-        role="cross_chapter_transfer",
-        prompt=cross_prompt,
-        deliverable="一份包含跨章节连接、推理过程与结果验证的完整解决方案",
-        input_materials=[cross_material, f"目标约束：{_join_names(objectives[:4])}"],
-        constraints=["至少连接两个章节", "明确关键假设", "提供可执行的结果检查"],
-    ))
+    if len(assessment_nodes) >= 2:
+        cross_contract = generate_cross_chapter_contract(
+            course_data,
+            assessment_nodes,
+        )
+        items.append(_final_item(
+            course_data,
+            assessment_nodes,
+            index=desired_count,
+            role="cross_chapter_transfer",
+            prompt=cross_contract["prompt"],
+            deliverable=cross_contract["deliverable"],
+            input_materials=cross_contract["input_materials"],
+            constraints=cross_contract["constraints"],
+            generated_contract=cross_contract,
+        ))
     _apply_assessment_distribution(course_data, items, imported, purpose)
     return items
 
@@ -892,6 +944,7 @@ def _final_item(
     deliverable: str,
     input_materials: list[str],
     constraints: list[str],
+    generated_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     course_id = str(course_data.get("course_id") or "")
     node_ids = [str(node.get("node_id") or "") for node in nodes]
@@ -900,12 +953,28 @@ def _final_item(
         for node in nodes
         for ref in _node_knowledge_refs(course_data, node)
     )
-    criteria = [
-        deliverable,
-        "正确使用指定章节概念并说明连接依据",
-        "过程完整且关键假设明确",
-        "执行结果检查并说明适用边界",
-    ]
+    criteria = (
+        list((generated_contract or {}).get("answer_spec", {}).get("criteria") or [])
+        or [
+            deliverable,
+            "正确使用指定章节概念并说明连接依据",
+            "过程完整且关键假设明确",
+            "执行结果检查并说明适用边界",
+        ]
+    )
+    answer_spec = deepcopy(
+        (generated_contract or {}).get("answer_spec")
+        or {
+            "type": "rubric",
+            "criteria": criteria,
+            "expected_keywords": _unique(
+                point for node in nodes for point in _node_key_points(node)
+            )[:12],
+            "max_score": 100,
+            "pass_score": 70,
+        }
+    )
+    answer_spec["criteria"] = criteria
     item = {
         "schema_version": QUESTION_ITEM_SCHEMA,
         "course_id": course_id,
@@ -920,19 +989,17 @@ def _final_item(
         "prompt": prompt,
         "subquestions": [],
         "options": [],
-        "answer_spec": {
-            "type": "rubric",
-            "criteria": criteria,
-            "expected_keywords": _unique(
-                point for node in nodes for point in _node_key_points(node)
-            )[:12],
-            "max_score": 100,
-            "pass_score": 70,
-        },
+        "answer_spec": answer_spec,
         "explanation": "",
         "score": 100,
-        "estimated_minutes": 25 if role == "coverage_task" else 45,
-        "question_type": _question_type(course_data, "final_assessment"),
+        "estimated_minutes": int(
+            (generated_contract or {}).get("estimated_minutes")
+            or (25 if role == "coverage_task" else 45)
+        ),
+        "question_type": (
+            (generated_contract or {}).get("question_type")
+            or _question_type(course_data, "final_assessment")
+        ),
         "difficulty": str(course_data.get("difficulty") or "intermediate"),
         "practice_levels": ["final_assessment"],
         "assessment_role": role,
@@ -950,7 +1017,7 @@ def _final_item(
             "node_ids": node_ids,
             "rights_basis": "course_generated",
             "reuse_policy": "original_generation",
-        }],
+        }, *deepcopy((generated_contract or {}).get("source_records") or [])],
         "parse_confidence": "high",
         "risk_flags": ["comprehensive_task"],
         "review_required": True,
@@ -963,6 +1030,12 @@ def _final_item(
         "constraints": constraints,
         "reference_concepts": _unique(point for node in nodes for point in _node_key_points(node)),
         "result_checks": ["量规逐项可判定", "结果与输入材料一致", "跨章节连接有明确依据"],
+        "question_spec": deepcopy(
+            (generated_contract or {}).get("question_spec") or {}
+        ),
+        "domain_validation": deepcopy(
+            (generated_contract or {}).get("domain_validation") or {}
+        ),
         "created_at": _now(),
     }
     item["hint_contract"] = _hint_contract(item)
@@ -1043,8 +1116,13 @@ def _coverage_report(
     covered = {
         objective
         for item in items
-        if item.get("lifecycle_status") in {"approved", "needs_review"}
-        and item.get("assessment_role") not in {"reference"}
+        if item.get("lifecycle_status") == "approved"
+        and (item.get("quality_report") or {}).get("passed")
+        and item.get("assessment_role") in {
+            "practice",
+            "imported_practice",
+            "web_enriched_practice",
+        }
         for objective in item.get("course_objective_refs") or []
     }
     imported_nodes = {
@@ -1114,6 +1192,10 @@ def _mark_near_duplicate_risks(items: list[dict[str, Any]]) -> None:
             continue
         for right in comparable[index + 1:]:
             if left.get("node_id") != right.get("node_id"):
+                continue
+            if set(left.get("practice_levels") or []) != set(
+                right.get("practice_levels") or []
+            ):
                 continue
             right_text = _normalize_text(str(right.get("prompt") or ""))
             similarity = SequenceMatcher(None, left_text, right_text).ratio()
@@ -1271,6 +1353,8 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "input_materials": deepcopy(item.get("input_materials") or []),
         "constraints": deepcopy(item.get("constraints") or []),
         "result_checks": deepcopy(item.get("result_checks") or []),
+        "question_spec": deepcopy(item.get("question_spec") or {}),
+        "domain_validation": deepcopy(item.get("domain_validation") or {}),
         "question_bank_item_revision_id": item.get("revision_id"),
     }
     task["practice_contract_revision_id"] = stable_hash(
