@@ -102,7 +102,14 @@ def build_question_bank(
         profile=assessment_profile,
         objectives=assessment_objectives,
     )
-    finals = _comprehensive_items(course_data, nodes, imported)
+    finals, final_solutions = _comprehensive_items(
+        course_data,
+        nodes,
+        imported,
+        profile=assessment_profile,
+        objectives=assessment_objectives,
+    )
+    solution_envelopes.update(final_solutions)
     legacy = [_legacy_item(course_data, item) for item in legacy_tasks]
     items = [*imported, *generated, *finals, *legacy]
     _mark_near_duplicate_risks(items)
@@ -1276,6 +1283,377 @@ def _plugin_validation_mode(adapter_id: str) -> str:
 
 
 def _comprehensive_items(
+    course_data: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    imported: list[dict[str, Any]],
+    *,
+    profile: dict[str, Any],
+    objectives: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    purpose = str(
+        course_data.get("course_purpose")
+        or (course_data.get("generation_request") or {}).get(
+            "course_purpose"
+        )
+        or "systematic"
+    )
+    preferences = (
+        course_data.get("asset_preferences")
+        or (course_data.get("generation_request") or {}).get(
+            "asset_preferences"
+        )
+        or {}
+    )
+    if (
+        purpose == "material_organization"
+        and not preferences.get("final_assessment")
+    ):
+        return [], {}
+    assessment_nodes = _assessment_nodes(course_data, nodes, purpose)
+    if not assessment_nodes:
+        return [], {}
+    objective_by_node = {
+        str(item.get("node_id") or ""): item
+        for item in objectives
+        if item.get("node_id")
+    }
+    desired_count = max(3, min(8, len(assessment_nodes) + 1))
+    selected = [
+        assessment_nodes[index % len(assessment_nodes)]
+        for index in range(desired_count - 1)
+    ]
+    items: list[dict[str, Any]] = []
+    solutions: dict[str, dict[str, Any]] = {}
+    for index, node in enumerate(selected, start=1):
+        objective = objective_by_node.get(
+            str(node.get("node_id") or "")
+        )
+        if not objective:
+            continue
+        universal = generate_universal_question_contract(
+            course_data,
+            node,
+            profile=profile,
+            objective=objective,
+            practice_level="final_assessment",
+            variant_index=index + 3,
+        )
+        plugin = generate_question_contract(
+            course_data,
+            node,
+            "final_assessment",
+            index + 3,
+        )
+        contract = _force_comprehensive_review(
+            _apply_validation_plugin(universal, plugin)
+        )
+        item, solution = _v2_final_item(
+            course_data,
+            [node],
+            index=index,
+            role="coverage_task",
+            objective=objective,
+            contract=contract,
+        )
+        items.append(item)
+        solutions[solution["solution_revision_id"]] = solution
+
+    cross_objective = _cross_chapter_objective(
+        course_data,
+        assessment_nodes,
+        objective_by_node,
+    )
+    cross_node = {
+        "node_id": str(
+            assessment_nodes[0].get("node_id") or "cross-chapter"
+        ),
+        "node_level": 2,
+        "node_name": "跨章节综合任务",
+        "node_content": cross_objective.get("source_excerpt"),
+        "learning_objective": cross_objective.get("objective"),
+        "key_points": deepcopy(
+            cross_objective.get("knowledge") or []
+        ),
+        "assessment": deepcopy(
+            cross_objective.get("skills") or []
+        ),
+    }
+    cross_universal = generate_universal_question_contract(
+        course_data,
+        cross_node,
+        profile=profile,
+        objective=cross_objective,
+        practice_level="final_assessment",
+        variant_index=desired_count,
+    )
+    cross_plugin = generate_cross_chapter_contract(
+        course_data,
+        assessment_nodes,
+    )
+    cross_contract = _force_comprehensive_review(
+        _apply_validation_plugin(
+            cross_universal,
+            cross_plugin,
+        )
+    )
+    cross_item, cross_solution = _v2_final_item(
+        course_data,
+        assessment_nodes,
+        index=desired_count,
+        role="cross_chapter_transfer",
+        objective=cross_objective,
+        contract=cross_contract,
+    )
+    items.append(cross_item)
+    solutions[
+        cross_solution["solution_revision_id"]
+    ] = cross_solution
+    _apply_assessment_distribution(
+        course_data,
+        items,
+        imported,
+        purpose,
+    )
+    return items, solutions
+
+
+def _force_comprehensive_review(
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    result = deepcopy(contract)
+    risk_contract = result["question_spec"].setdefault(
+        "risk_contract",
+        {},
+    )
+    risk_contract["risk_level"] = "teacher_review"
+    risk_contract["requires_teacher_review"] = True
+    result["review_required"] = True
+    result["risk_flags"] = _unique([
+        *result.get("risk_flags", []),
+        "comprehensive_assessment_teacher_review",
+    ])
+    result["solution_validation"] = {
+        **deepcopy(result.get("solution_validation") or {}),
+        "status": "needs_review",
+        "auto_publish_eligible": False,
+    }
+    result["domain_validation"] = deepcopy(
+        result["solution_validation"]
+    )
+    return result
+
+
+def _cross_chapter_objective(
+    course_data: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    objective_by_node: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    selected = [
+        objective_by_node.get(str(node.get("node_id") or ""))
+        for node in nodes
+    ]
+    selected = [item for item in selected if item]
+    knowledge = _unique([
+        value
+        for item in selected
+        for value in item.get("knowledge") or []
+    ])
+    skills = _unique([
+        value
+        for item in selected
+        for value in item.get("skills") or []
+    ])
+    source_excerpt = "\n".join(
+        str(item.get("source_excerpt") or "").strip()
+        for item in selected
+        if str(item.get("source_excerpt") or "").strip()
+    )[:8000]
+    objective = "综合运用多个章节知识完成迁移任务并验证结果"
+    return {
+        "schema_version": "assessment_objective_v1",
+        "course_id": str(course_data.get("course_id") or ""),
+        "node_id": str(nodes[0].get("node_id") or "") if nodes else "",
+        "objective_id": stable_hash(
+            {
+                "course_id": course_data.get("course_id"),
+                "node_ids": [
+                    str(node.get("node_id") or "")
+                    for node in nodes
+                ],
+                "role": "cross_chapter_transfer",
+            },
+            prefix="aobj_",
+        ),
+        "objective": objective,
+        "knowledge": knowledge,
+        "skills": skills or [objective],
+        "misconceptions": _unique([
+            value
+            for item in selected
+            for value in item.get("misconceptions") or []
+        ]),
+        "observable_evidence": _unique([
+            value
+            for item in selected
+            for value in item.get("observable_evidence") or []
+        ]),
+        "source_refs": [
+            deepcopy(source)
+            for item in selected
+            for source in item.get("source_refs") or []
+        ],
+        "source_excerpt": source_excerpt,
+        "source_sufficiency": (
+            "sufficient" if len(source_excerpt) >= 80 else "insufficient"
+        ),
+        "answer_modalities": ["integrated_deliverable"],
+        "preferred_archetype_ids": ["integrated_performance"],
+        "difficulty_contract": {
+            "target_level": str(
+                course_data.get("difficulty") or "intermediate"
+            ),
+            "transfer_distance": "cross_chapter",
+            "minimum_steps": 3,
+        },
+        "confidence": "medium" if source_excerpt else "low",
+        "risk_level": "teacher_review",
+        "generation_status": "candidate_only",
+    }
+
+
+def _v2_final_item(
+    course_data: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    *,
+    index: int,
+    role: str,
+    objective: dict[str, Any],
+    contract: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    node_ids = _unique([
+        str(node.get("node_id") or "")
+        for node in nodes
+        if node.get("node_id")
+    ])
+    solution = deepcopy(contract["solution_envelope"])
+    item = {
+        "schema_version": QUESTION_ITEM_SCHEMA,
+        "course_id": str(course_data.get("course_id") or ""),
+        "item_id": stable_hash(
+            {
+                "course_id": course_data.get("course_id"),
+                "node_ids": node_ids,
+                "role": role,
+                "index": index,
+                "objective_id": objective.get("objective_id"),
+            },
+            prefix="qbi_",
+        ),
+        "parent_item_id": None,
+        "parent_revision_id": None,
+        "node_id": node_ids[0] if node_ids else None,
+        "node_ids": node_ids,
+        "prompt": contract["prompt"],
+        "subquestions": [contract["deliverable"]],
+        "options": [],
+        "explanation": "",
+        "score": max(20, round(100 / max(1, len(nodes)))),
+        "estimated_minutes": max(
+            25,
+            int(contract.get("estimated_minutes") or 25),
+        ),
+        "question_type": contract["question_type"],
+        "difficulty": str(
+            course_data.get("difficulty") or "intermediate"
+        ),
+        "practice_levels": ["final_assessment"],
+        "assessment_role": role,
+        "course_objective_refs": [objective.get("objective_id")],
+        "objective_id": objective.get("objective_id"),
+        "course_knowledge_refs": _unique([
+            ref
+            for node in nodes
+            for ref in _node_knowledge_refs(course_data, node)
+        ]),
+        "course_skill_refs": _unique([
+            ref
+            for node in nodes
+            for ref in _node_refs(node, "course_skill_refs")
+        ]),
+        "course_misconception_refs": _unique([
+            ref
+            for node in nodes
+            for ref in _node_refs(
+                node,
+                "course_misconception_refs",
+            )
+        ]),
+        "course_mastery_refs": _unique([
+            ref
+            for node in nodes
+            for ref in _node_refs(node, "course_mastery_refs")
+        ]),
+        "source_type": "generated",
+        "source_records": [
+            {
+                "source_type": "course_material",
+                "course_id": str(course_data.get("course_id") or ""),
+                "node_id": node_id,
+                "rights_basis": "course_generated",
+                "reuse_policy": "original_generation",
+            }
+            for node_id in node_ids
+        ],
+        "parse_confidence": "high",
+        "risk_flags": _unique([
+            *contract.get("risk_flags", []),
+            "comprehensive_assessment_teacher_review",
+        ]),
+        "review_required": True,
+        "lifecycle_status": "needs_review",
+        "review_status": "needs_review",
+        "review_history": [],
+        "formal_task_revision_id": None,
+        "deliverable": contract["deliverable"],
+        "input_materials": deepcopy(
+            contract.get("input_materials") or []
+        ),
+        "constraints": deepcopy(
+            contract.get("constraints") or []
+        ),
+        "reference_concepts": deepcopy(
+            objective.get("knowledge") or []
+        ),
+        "result_checks": deepcopy(
+            contract.get("result_checks") or []
+        ),
+        "question_spec": deepcopy(contract["question_spec"]),
+        "solution_revision_id": solution["solution_revision_id"],
+        "solution_validation": deepcopy(
+            contract["solution_validation"]
+        ),
+        "archetype_id": contract["question_spec"]["archetype_id"],
+        "validation_mode": solution["validation_mode"],
+        "risk_level": "teacher_review",
+        "generation_status": "waiting_review",
+        "domain_validation": deepcopy(
+            contract["solution_validation"]
+        ),
+        "created_at": _now(),
+        "_solution_envelope": solution,
+    }
+    item["hint_contract"] = _hint_contract(item)
+    item["quality_report"] = evaluate_question_item_quality(item)
+    item["revision_id"] = _item_revision_id(item)
+    item["formal_task"] = _formal_task_from_item(item)
+    item["formal_task_revision_id"] = item["formal_task"][
+        "revision_id"
+    ]
+    item.pop("_solution_envelope", None)
+    return item, solution
+
+
+def _legacy_comprehensive_items(
     course_data: dict[str, Any],
     nodes: list[dict[str, Any]],
     imported: list[dict[str, Any]],
