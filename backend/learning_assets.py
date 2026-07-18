@@ -651,9 +651,19 @@ def evaluate_learning_asset_quality(
             ]
             if value
         )
+        has_private_solution_ref = bool(
+            (task.get("question_spec") or {}).get(
+                "schema_version"
+            )
+            == "question_spec_v2"
+            and task.get("solution_revision_id")
+        )
         if (
             not task.get("revision_id")
-            or not task.get("answer_spec")
+            or (
+                not task.get("answer_spec")
+                and not has_private_solution_ref
+            )
             or not task.get("practice_contract_revision_id")
             or not task.get("input_contract")
         ):

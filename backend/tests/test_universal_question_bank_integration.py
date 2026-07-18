@@ -7,6 +7,7 @@ import pytest
 from question_bank import (
     build_question_bank,
     filter_question_bank_items,
+    formal_task_from_question_bank_item,
 )
 from routers.practice import _student_question_payload
 
@@ -171,7 +172,14 @@ def test_v2_solution_is_stored_privately_and_hydrated_only_for_internal_task():
     assert "solution_envelope" not in item
     assert "answer_spec" not in item
     assert item["formal_task"]["solution_revision_id"] == solution_id
-    assert item["formal_task"]["answer_spec"]
+    assert not item["formal_task"]["answer_spec"]
+    internal_task = formal_task_from_question_bank_item({
+        **item,
+        "_solution_envelope": bundle["solution_envelopes"][
+            solution_id
+        ],
+    })
+    assert internal_task["answer_spec"]
     assert item["formal_task"]["hint_contract"]["generator"] == (
         "solution_graph_v1"
     )

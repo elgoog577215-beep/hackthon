@@ -250,7 +250,7 @@ def revise_question_bank_item(
     item["hint_contract"] = _hint_contract(item)
     item["quality_report"] = evaluate_question_item_quality(item)
     item["revision_id"] = _item_revision_id(item)
-    item["formal_task"] = _formal_task_from_item(item)
+    item["formal_task"] = _stored_formal_task_from_item(item)
     item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
     item.pop("_solution_envelope", None)
     result["review_queue"] = _review_queue(result.get("items") or [])
@@ -363,7 +363,7 @@ def finalize_v2_question_bank_item(
     result["lifecycle_status"] = _initial_status(result)
     result["review_status"] = result["lifecycle_status"]
     result["revision_id"] = _item_revision_id(result)
-    result["formal_task"] = _formal_task_from_item(result)
+    result["formal_task"] = _stored_formal_task_from_item(result)
     result["formal_task_revision_id"] = result["formal_task"][
         "revision_id"
     ]
@@ -1035,7 +1035,7 @@ def _imported_item(
     item["lifecycle_status"] = _initial_status(item)
     item["review_status"] = item["lifecycle_status"]
     item["revision_id"] = _item_revision_id(item)
-    item["formal_task"] = _formal_task_from_item(item)
+    item["formal_task"] = _stored_formal_task_from_item(item)
     item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
     return item
 
@@ -1228,7 +1228,7 @@ def _generated_course_items(
                 )
             )
             item["revision_id"] = _item_revision_id(item)
-            item["formal_task"] = _formal_task_from_item(item)
+            item["formal_task"] = _stored_formal_task_from_item(item)
             item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
             item.pop("_solution_envelope", None)
             solutions[solution_envelope["solution_revision_id"]] = (
@@ -1830,7 +1830,7 @@ def _v2_final_item(
     item["hint_contract"] = _hint_contract(item)
     item["quality_report"] = evaluate_question_item_quality(item)
     item["revision_id"] = _item_revision_id(item)
-    item["formal_task"] = _formal_task_from_item(item)
+    item["formal_task"] = _stored_formal_task_from_item(item)
     item["formal_task_revision_id"] = item["formal_task"][
         "revision_id"
     ]
@@ -1996,7 +1996,7 @@ def _apply_assessment_distribution(
             }
         item["quality_report"] = evaluate_question_item_quality(item)
         item["revision_id"] = _item_revision_id(item)
-        item["formal_task"] = _formal_task_from_item(item)
+        item["formal_task"] = _stored_formal_task_from_item(item)
         item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
         item.pop("_solution_envelope", None)
 
@@ -2139,7 +2139,7 @@ def _final_item(
     item["hint_contract"] = _hint_contract(item)
     item["quality_report"] = evaluate_question_item_quality(item)
     item["revision_id"] = _item_revision_id(item)
-    item["formal_task"] = _formal_task_from_item(item)
+    item["formal_task"] = _stored_formal_task_from_item(item)
     item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
     return item
 
@@ -2274,7 +2274,7 @@ def _deduplicate_imported_items(items: list[dict[str, Any]]) -> list[dict[str, A
             existing["review_status"] = "needs_review"
         existing["quality_report"] = evaluate_question_item_quality(existing)
         existing["revision_id"] = _item_revision_id(existing)
-        existing["formal_task"] = _formal_task_from_item(existing)
+        existing["formal_task"] = _stored_formal_task_from_item(existing)
         existing["formal_task_revision_id"] = existing["formal_task"]["revision_id"]
     return result
 
@@ -2307,7 +2307,7 @@ def _mark_near_duplicate_risks(items: list[dict[str, Any]]) -> None:
                     item["review_status"] = "needs_review"
                     item["quality_report"] = evaluate_question_item_quality(item)
                     item["revision_id"] = _item_revision_id(item)
-                    item["formal_task"] = _formal_task_from_item(item)
+                    item["formal_task"] = _stored_formal_task_from_item(item)
                     item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
 
 
@@ -2650,6 +2650,19 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         prefix="pcr_",
     )
     task["revision_id"] = stable_hash(task, prefix="qr_")
+    return task
+
+
+def _stored_formal_task_from_item(
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist a task shell without duplicating the private V2 solution."""
+    task = _formal_task_from_item(item)
+    if (
+        (item.get("question_spec") or {}).get("schema_version")
+        == "question_spec_v2"
+    ):
+        task["answer_spec"] = {}
     return task
 
 
