@@ -32,6 +32,7 @@ from practice_attempts import (
 )
 from practice_grading import practice_grader
 from question_bank import approved_formal_tasks, question_bank_repository
+from question_bank_jobs import question_bank_rebuild_job_repository
 from solution_presentation import (
     present_solution_representation,
     present_solution_value,
@@ -94,6 +95,16 @@ async def get_practice(
     user_id = require_user_id(request.headers.get("X-User-Id"))
     questions = _questions(course, node_id=node_id, scope=scope)
     attempts = await run_in_threadpool(practice_attempt_repository.list, user_id, course_id)
+    question_bank_state = {
+        "bundle": await run_in_threadpool(
+            question_bank_repository.load_bundle,
+            course_id,
+        ),
+        "job": await run_in_threadpool(
+            question_bank_rebuild_job_repository.latest_for_course,
+            course_id,
+        ),
+    }
     return {
         "schema_version": "formal_practice_api_v1",
         "course_id": course_id,
@@ -106,6 +117,7 @@ async def get_practice(
             scope=scope,
             node_id=node_id,
             scoped_question_count=len(questions),
+            question_bank_state=question_bank_state,
         ),
         "questions": [_student_question_payload(item) for item in questions],
         "active_attempts": [

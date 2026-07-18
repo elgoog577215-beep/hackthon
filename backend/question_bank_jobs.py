@@ -127,6 +127,28 @@ class QuestionBankRebuildJobRepository:
             return None
         return self._read(path)
 
+    def latest_for_course(
+        self,
+        course_id: str,
+    ) -> dict[str, Any] | None:
+        directory = self.root_dir / _storage_id(course_id)
+        if not directory.exists():
+            return None
+        jobs = [
+            self._read(path)
+            for path in directory.glob("*.json")
+            if path.is_file()
+        ]
+        if not jobs:
+            return None
+        return deepcopy(max(
+            jobs,
+            key=lambda job: (
+                str(job.get("created_at") or ""),
+                str(job.get("job_id") or ""),
+            ),
+        ))
+
     def start(self, job_id: str) -> dict[str, Any]:
         with self._lock:
             path, job = self._load_by_job_id(job_id)

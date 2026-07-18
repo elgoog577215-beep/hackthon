@@ -69,6 +69,7 @@ def project_practice_availability(
     scope: Literal["node", "final", "all"],
     node_id: str | None,
     scoped_question_count: int,
+    question_bank_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Explain why a concrete practice scope is available or empty."""
     learning = project_course_learning_availability(course)
@@ -76,6 +77,18 @@ def project_practice_availability(
         return {
             "status": "available",
             "reason_code": "formal_practice_available",
+            "scope": scope,
+            "node_id": node_id,
+        }
+
+    precise_state = _question_bank_empty_state(
+        question_bank_state or {},
+        scope=scope,
+        node_id=node_id,
+    )
+    if precise_state:
+        return {
+            **precise_state,
             "scope": scope,
             "node_id": node_id,
         }
@@ -100,6 +113,138 @@ def project_practice_availability(
         "scope": scope,
         "node_id": node_id,
     }
+
+
+def _question_bank_empty_state(
+    state: dict[str, Any],
+    *,
+    scope: str,
+    node_id: str | None,
+) -> dict[str, Any] | None:
+    job = state.get("job") or {}
+    if job and _job_applies(job, scope=scope, node_id=node_id):
+        job_status = str(job.get("status") or "")
+        base = {
+            "job_id": job.get("job_id"),
+            "progress": int(job.get("progress") or 0),
+            "current_stage": job.get("current_stage"),
+            "message": job.get("message"),
+        }
+        if job_status in {"queued", "running"}:
+            return {
+                "status": "generating",
+                "reason_code": "question_generation_in_progress",
+                **base,
+            }
+        if job_status == "failed":
+            return {
+                "status": "blocked",
+                "reason_code": "question_generation_failed",
+                **base,
+                "error": job.get("error"),
+            }
+
+    bundle = state.get("bundle")
+    if not isinstance(bundle, dict):
+        return None
+    matching_items = [
+        item
+        for item in bundle.get("items") or []
+        if _item_applies(item, scope=scope, node_id=node_id)
+    ]
+    statuses = {
+        str(item.get("generation_status") or "")
+        for item in matching_items
+    }
+    if (
+        "waiting_review" in statuses
+        or (
+            job
+            and str(job.get("status") or "") == "waiting_review"
+            and _job_applies(job, scope=scope, node_id=node_id)
+        )
+    ):
+        return {
+            "status": "blocked",
+            "reason_code": "question_review_pending",
+            "blocking_count": sum(
+                1
+                for item in matching_items
+                if item.get("generation_status") == "waiting_review"
+            ),
+        }
+    if "validation_failed" in statuses:
+        return {
+            "status": "blocked",
+            "reason_code": "question_validation_failed",
+            "failed_count": sum(
+                1
+                for item in matching_items
+                if item.get("generation_status") == "validation_failed"
+            ),
+        }
+
+    objectives = [
+        objective
+        for objective in bundle.get("assessment_objectives") or []
+        if (
+            scope != "node"
+            or str(objective.get("node_id") or "")
+            == str(node_id or "")
+        )
+    ]
+    if objectives and any(
+        objective.get("source_sufficiency") == "insufficient"
+        for objective in objectives
+    ):
+        return {
+            "status": "blocked",
+            "reason_code": "question_source_insufficient",
+        }
+    if scope == "node" and node_id and not objectives:
+        return {
+            "status": "unavailable",
+            "reason_code": "node_assessment_not_enabled",
+        }
+    return None
+
+
+def _job_applies(
+    job: dict[str, Any],
+    *,
+    scope: str,
+    node_id: str | None,
+) -> bool:
+    if str(job.get("scope") or "course") == "course":
+        return True
+    if scope != "node":
+        return True
+    return str(node_id or "") in {
+        str(value)
+        for value in job.get("node_ids") or []
+    }
+
+
+def _item_applies(
+    item: dict[str, Any],
+    *,
+    scope: str,
+    node_id: str | None,
+) -> bool:
+    role = str(item.get("assessment_role") or "")
+    if scope == "final":
+        return role in {"coverage_task", "cross_chapter_transfer"}
+    if scope == "all":
+        return role not in {"coverage_task", "cross_chapter_transfer"}
+    item_nodes = {
+        str(value)
+        for value in (
+            item.get("node_ids")
+            or [item.get("node_id")]
+        )
+        if value
+    }
+    return str(node_id or "") in item_nodes
 
 
 def resolve_learning_mode(course: dict[str, Any]) -> LearningMode:
