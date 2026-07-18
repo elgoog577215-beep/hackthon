@@ -1609,8 +1609,11 @@ def _linear_algebra_semantic_case(
         "基与坐标", "基底", "维数", "矩阵的秩", "秩的",
     )):
         first = [1, 0, 1]
-        second = [0, 1, 1]
-        third = [1, 1, 2]
+        second = [0, 1, seed - 1]
+        third = [
+            first[index] + second[index]
+            for index in range(len(first))
+        ]
         return {
             "data": {
                 "case_kind": "linear_dependence",
@@ -1622,7 +1625,11 @@ def _linear_algebra_semantic_case(
                 "rank": 2,
                 "basis": [first, second],
             },
-            "input_text": "在 R³ 中给定 a=(1,0,1)、b=(0,1,1)、c=(1,1,2)。",
+            "input_text": (
+                f"在 R³ 中给定 a={_format_compact_vector(first)}、"
+                f"b={_format_compact_vector(second)}、"
+                f"c={_format_compact_vector(third)}。"
+            ),
             "task_text": (
                 "判断三向量是否线性无关；若相关，写出相关关系，"
                 "并从中选出生成同一子空间的一组基。"
@@ -2617,7 +2624,15 @@ def _expected_linear_algebra_answer(
         }
     if case_kind == "linear_dependence":
         vectors = data.get("vectors") or []
-        if vectors != [[1, 0, 1], [0, 1, 1], [1, 1, 2]]:
+        if (
+            len(vectors) != 3
+            or not vectors[0]
+            or any(len(vector) != len(vectors[0]) for vector in vectors)
+            or vectors[2] != [
+                vectors[0][index] + vectors[1][index]
+                for index in range(len(vectors[0]))
+            ]
+        ):
             return {}
         return {
             "dependent": True,

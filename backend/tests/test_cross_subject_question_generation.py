@@ -595,6 +595,7 @@ def test_primary_node_intent_outranks_incidental_concepts_in_node_content():
         and item["quality_report"]["checks"]["hint_actionability"]
         for item in generated
     )
+    assert len({item["prompt"] for item in generated}) == len(generated)
     levels = generated[0]["hint_contract"]["levels"]
     assert "α(1,0,1)+β(0,1,1)+γ(1,1,2)=(0,0,0)" in levels[0]["content"]
     assert "α+γ=0" in levels[1]["content"]
