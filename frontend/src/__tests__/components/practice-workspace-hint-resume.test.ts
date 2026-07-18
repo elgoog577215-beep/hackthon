@@ -97,11 +97,15 @@ describe('PracticeWorkspace resumed hints', () => {
     expect(wrapper.text()).toContain('先区分大小与方向。')
     const hintButtons = wrapper.findAll('.icon-command')
     expect(hintButtons).toHaveLength(3)
-    expect(hintButtons[0].attributes('disabled')).toBeUndefined()
-    expect(hintButtons[1].attributes('disabled')).toBeUndefined()
-    expect(hintButtons[2].attributes('disabled')).toBeDefined()
+    const [firstHintButton, secondHintButton, thirdHintButton] = hintButtons
+    if (!firstHintButton || !secondHintButton || !thirdHintButton) {
+      throw new Error('expected three hint buttons')
+    }
+    expect(firstHintButton.attributes('disabled')).toBeUndefined()
+    expect(secondHintButton.attributes('disabled')).toBeUndefined()
+    expect(thirdHintButton.attributes('disabled')).toBeDefined()
 
-    await hintButtons[0].trigger('click')
+    await firstHintButton.trigger('click')
     await flushPromises()
 
     expect(httpMock.post).toHaveBeenCalledWith(
