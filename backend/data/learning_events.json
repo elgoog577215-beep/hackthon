@@ -11783,5 +11783,161 @@
     },
     "created_at": "2026-07-18T16:44:46.581046",
     "schema_version": 8
+  },
+  {
+    "event_id": "evt_ca26197bbe1f423aa83b6ef5f9b168a6",
+    "event_type": "practice_hint_revealed",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_6dc3c7c182415793",
+    "task_revision_id": "qr_6dc3c7c182415793",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_16ee69caaa0f4fae8f660ea878a27b68:2:practice_hint_revealed",
+    "idempotency_key": "practice_hint_revealed:pa_16ee69caaa0f4fae8f660ea878a27b68:2",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "entity_revision": 2,
+    "evidence": {
+      "level": 1,
+      "kind": "orientation"
+    },
+    "result": {},
+    "metadata": {
+      "practice_level": "concept_check",
+      "attempt_number": 1,
+      "task_revision_id": "qr_6dc3c7c182415793",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:45:01.837044",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_268c526934284ef0936d751817b368df",
+    "event_type": "practice_hint_revealed",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_6dc3c7c182415793",
+    "task_revision_id": "qr_6dc3c7c182415793",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_16ee69caaa0f4fae8f660ea878a27b68:3:practice_hint_revealed",
+    "idempotency_key": "practice_hint_revealed:pa_16ee69caaa0f4fae8f660ea878a27b68:3",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "entity_revision": 3,
+    "evidence": {
+      "level": 2,
+      "kind": "method_skeleton"
+    },
+    "result": {},
+    "metadata": {
+      "practice_level": "concept_check",
+      "attempt_number": 1,
+      "task_revision_id": "qr_6dc3c7c182415793",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:45:06.884222",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_7be819646b2947c1be20d634451fd00b",
+    "event_type": "practice_hint_revealed",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_6dc3c7c182415793",
+    "task_revision_id": "qr_6dc3c7c182415793",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_16ee69caaa0f4fae8f660ea878a27b68:4:practice_hint_revealed",
+    "idempotency_key": "practice_hint_revealed:pa_16ee69caaa0f4fae8f660ea878a27b68:4",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "entity_revision": 4,
+    "evidence": {
+      "level": 3,
+      "kind": "local_scaffold"
+    },
+    "result": {},
+    "metadata": {
+      "practice_level": "concept_check",
+      "attempt_number": 1,
+      "task_revision_id": "qr_6dc3c7c182415793",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:45:14.486535",
+    "schema_version": 8
   }
 ]

@@ -111,14 +111,18 @@
     "status": "in_progress",
     "attempt_number": 1,
     "answer_payload": {},
-    "revealed_hint_levels": [],
+    "revealed_hint_levels": [
+      1,
+      2,
+      3
+    ],
     "solution_revealed": false,
     "ai_support_level": 0,
     "active_seconds": 0,
-    "revision": 1,
+    "revision": 4,
     "schema_version": 2,
     "started_at": "2026-07-18T08:44:46.579048+00:00",
     "created_at": "2026-07-18T08:44:46.579048+00:00",
-    "updated_at": "2026-07-18T08:44:46.579048+00:00"
+    "updated_at": "2026-07-18T08:45:14.484080+00:00"
   }
 ]
