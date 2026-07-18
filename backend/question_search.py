@@ -340,10 +340,10 @@ def _web_generated_item(
     objective = str(gap.get("objective") or "完成当前目标")
     knowledge = [str(value) for value in gap.get("knowledge_points") or [] if str(value).strip()]
     source_title = str(reference.get("title") or "可信公开资料")
+    scenario = _original_web_scenario(reference, knowledge)
     prompt = (
         f"联网情境变式｜{objective}\n"
-        f"输入材料：围绕“{source_title}”所代表的真实应用领域，构造一组新的数据、条件或材料；"
-        f"材料必须能够检验{'、'.join(knowledge[:3]) or '当前知识点'}。\n"
+        f"输入材料：{scenario}\n"
         f"任务：独立完成分析或求解，说明方法依据与关键过程，并执行结果检查。\n"
         f"限制条件：不得复制网页原文；至少改变一个有效条件和一种结果表征。"
     )
@@ -417,7 +417,7 @@ def _web_generated_item(
         "review_history": [],
         "formal_task_revision_id": None,
         "deliverable": "一份包含依据、过程与结果检查的原创解答",
-        "input_materials": [f"真实应用领域：{source_title}"],
+        "input_materials": [scenario, f"参考领域：{source_title}"],
         "constraints": ["不得复制网页原文", "改变有效条件", "改变结果表征"],
         "reference_concepts": knowledge,
         "result_checks": ["语义与目标一致", "结果可复核", "与网页原文相似度低于阈值"],
@@ -470,6 +470,20 @@ def _safe_query_term(value: str) -> str:
 
 def _similarity_text(value: str) -> str:
     return re.sub(r"[\W_]+", "", value, flags=re.UNICODE).lower()
+
+
+def _original_web_scenario(
+    reference: dict[str, Any],
+    knowledge: list[str],
+) -> str:
+    digest = str(reference.get("content_hash") or "0" * 8)
+    seed = int(digest[:6], 16) % 17 + 3
+    focus = "、".join(knowledge[:3]) or "当前知识点"
+    return (
+        f"案例 W{seed:02d} 的三次记录为 {seed * 2}、{seed * 2 + 3}、"
+        f"{seed * 2 + 7}，允许误差为 ±1；记录者另附一个未验证值 {seed * 3 + 2}。"
+        f"只可将网页用于确认应用领域，解题须基于这组原创记录检验{focus}。"
+    )
 
 
 def _clip_query(value: str) -> str:

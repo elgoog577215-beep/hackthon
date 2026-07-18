@@ -112,6 +112,8 @@ def test_question_bank_generates_specific_candidates_for_coverage_gaps():
     assert generated
     assert all("输入材料" in item["prompt"] for item in generated)
     assert all("限制条件" in item["prompt"] for item in generated)
+    assert all("给出一组" not in item["prompt"] for item in generated)
+    assert all("给出一个" not in item["prompt"] for item in generated)
     assert all(item["answer_spec"]["criteria"] for item in generated)
     assert all(item["course_knowledge_refs"] for item in generated)
     assert all(item["quality_report"]["passed"] for item in generated)
@@ -161,6 +163,7 @@ def test_comprehensive_tasks_are_multi_item_specific_and_require_teacher_review(
     assert all(item["input_materials"] for item in finals)
     assert all(item["constraints"] for item in finals)
     assert all(item["answer_spec"]["criteria"] for item in finals)
+    assert all("一个同时涉及" not in item["prompt"] for item in finals)
     assert all("综合运用全部章节完成最终任务" not in item["prompt"] for item in finals)
 
 
@@ -283,7 +286,13 @@ async def test_web_enrichment_only_runs_for_enabled_gaps_and_sanitizes_untrusted
     assert 1 <= len(calls) <= 2
     assert all("learner" not in query.lower() and "学生" not in query for query in calls)
     web_items = [item for item in enriched["items"] if item["source_type"] == "web_reference"]
+    web_generated = [
+        item for item in enriched["items"]
+        if item["assessment_role"] == "web_enriched_practice"
+    ]
     assert web_items
+    assert web_generated
+    assert all("构造一组" not in item["prompt"] for item in web_generated)
     assert web_items[0]["source_records"][0]["reuse_policy"] == "reference_only"
     assert "<script>" not in web_items[0]["reference_excerpt"]
     assert "Ignore previous instructions" not in web_items[0]["reference_excerpt"]

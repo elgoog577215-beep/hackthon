@@ -581,7 +581,7 @@ def _generated_course_items(
         assessments = _assessment_items(node)
         source_item = imported_by_node.get(node_id)
         for index, (level, label) in enumerate(level_specs):
-            condition = _variant_condition(node, index)
+            condition = _variant_condition(course_data, node, index)
             source_type = "variant" if source_item else "generated"
             item_id = stable_hash(
                 {
@@ -700,7 +700,7 @@ def _comprehensive_items(
         node_id = str(node.get("node_id") or "")
         assessment = _assessment_items(node)[0]
         key_points = _node_key_points(node)
-        input_material = _variant_condition(node, index + 3)
+        input_material = _variant_condition(course_data, node, index + 3)
         prompt = (
             f"综合测评任务 {index}｜{node.get('node_name') or node_id}\n"
             f"输入材料：{input_material}\n"
@@ -726,9 +726,10 @@ def _comprehensive_items(
         str(node.get("learning_objective") or "")
         for node in assessment_nodes
     ]
+    cross_material = _cross_chapter_material(course_data, assessment_nodes)
     cross_prompt = (
         f"跨章节迁移任务｜连接{_join_names(node_names[:4])}\n"
-        f"输入材料：一个同时涉及{_join_names(node_names[:3])}的新情境，包含相互制约的数据、条件或材料。\n"
+        f"输入材料：{cross_material}\n"
         f"最终产物：提交一份完整解决方案，分别说明各章节概念如何参与，并对最终结论执行一致性检查。\n"
         f"限制条件：至少建立两处跨章节连接；不得省略关键假设；结论必须能够由给定材料复核。"
     )
@@ -739,7 +740,7 @@ def _comprehensive_items(
         role="cross_chapter_transfer",
         prompt=cross_prompt,
         deliverable="一份包含跨章节连接、推理过程与结果验证的完整解决方案",
-        input_materials=[f"新情境覆盖：{_join_names(objectives[:4])}"],
+        input_materials=[cross_material, f"目标约束：{_join_names(objectives[:4])}"],
         constraints=["至少连接两个章节", "明确关键假设", "提供可执行的结果检查"],
     ))
     _apply_assessment_distribution(course_data, items, imported, purpose)
@@ -1351,18 +1352,90 @@ def _generated_criteria(node: dict[str, Any], level: str) -> list[str]:
     return _assessment_items(node) + ["说明关键依据", "展示可复核过程", "执行结果检查"]
 
 
-def _variant_condition(node: dict[str, Any], index: int) -> str:
+def _variant_condition(
+    course_data: dict[str, Any],
+    node: dict[str, Any],
+    index: int,
+) -> str:
     key_points = _node_key_points(node)
-    focus = _join_names(key_points[:2])
-    variants = [
-        f"给出一组围绕{focus}的具体数据，并包含一个容易混淆的边界条件",
-        f"给出一个与正文例题不同的实际情境，要求在{focus}之间作出选择",
-        f"给出两种表征相同问题的材料，要求比较后独立完成任务",
-        f"给出一份含有效信息与干扰信息的材料，要求筛选后处理{focus}",
-        f"改变原任务的约束和结果呈现方式，要求重新验证{focus}",
-        f"提供一个反例候选与一个正例候选，要求基于{focus}判别",
-    ]
+    seed = index + 2
+    mode = str(
+        (course_data.get("subject_pedagogy_profile") or {}).get("primary_mode")
+        or "general"
+    )
+    joined = " ".join(key_points)
+    if mode == "math_formal" or any(
+        term in joined for term in ("矩阵", "行列式", "方程", "线性")
+    ):
+        variants = [
+            f"数据对象 A=[[{seed},2],[1,{seed + 1}]]，向量 b=[{seed + 3},{seed + 5}]；边界条件为第二行不得整体约去",
+            f"记录表含三组值 (1,{seed})、(2,{seed + 2})、(3,{seed + 5})，另有候选异常值 (3,{seed - 1})",
+            f"对象甲用矩阵 [[{seed},1],[0,{seed + 1}]] 表示，对象乙用关系式 y={seed}x+1 表示；二者均须保留原始量纲",
+        ]
+    elif mode == "programming_engineering":
+        variants = [
+            f'输入 JSON={{"records":[{seed},{seed + 2},{seed + 2},null],"limit":{seed + 5}}}；null 必须单独处理',
+            f"日志依次为 START、VALUE={seed}、VALUE={seed + 3}、RETRY、END；最多允许 1 次重试",
+            f"接口样例包含状态码 200、409、503，请求预算为 {seed + 4} 次且结果必须可重放",
+        ]
+    elif mode in {"natural_science", "life_medical"}:
+        variants = [
+            f"对照组观测值为 {seed}、{seed + 1}、{seed + 2}，实验组为 {seed + 3}、{seed + 4}、{seed + 8}；第三次测量存在仪器漂移",
+            f"样本甲在 0、10、20 分钟的读数为 {seed}、{seed + 2}、{seed + 5}，样本乙为 {seed}、{seed + 1}、{seed + 1}；环境温度恒定",
+            f"案例记录包含基线值 {seed * 5}、干预后值 {seed * 4} 与复测值 {seed * 4 + 2}；不得据此推断未记录因素",
+        ]
+    elif mode in {"humanities_social", "language_learning"}:
+        variants = [
+            f"材料甲主张“{key_points[0]}是首要因素”，材料乙以编号 E{seed} 的反例提出限制；两份材料的时间背景相差 10 年",
+            f"对话记录中发言者 A 陈述事实 F{seed}，发言者 B 提出结论 C{seed + 1}，但省略了连接二者的依据",
+            f"短文包含观点 P{seed}、证据 E{seed} 与一个无关细节 N{seed}；结论不得超出证据范围",
+        ]
+    elif mode == "business_career":
+        variants = [
+            f"方案甲成本 {seed * 10} 万元、周期 {seed + 2} 周，方案乙成本 {seed * 12} 万元、周期 {seed} 周；预算上限 {seed * 11} 万元",
+            f"三期数据为收入 {seed * 20}/{seed * 22}/{seed * 25} 万元，投诉率 2%/3%/5%；不得只按收入排序",
+            f"客户 A 权重 0.5、客户 B 权重 0.3、客户 C 权重 0.2；候选方案评分分别为 {seed + 1}、{seed + 3}、{seed + 2}",
+        ]
+    else:
+        variants = [
+            f"案例 Q{seed} 含事实 F1={seed * 3}、F2={seed * 3 + 4}，约束 C1 为总量不得超过 {seed * 7}；另有无关记录 N={seed + 9}",
+            f"对象甲满足条件“{key_points[0]}”，对象乙只满足“{key_points[-1]}”；记录编号分别为 A{seed} 与 B{seed + 1}",
+            f"材料表列出基线值 {seed * 4}、调整值 {seed * 4 + 3} 和复核值 {seed * 4 + 2}；允许误差为 ±1",
+        ]
     return variants[index % len(variants)]
+
+
+def _cross_chapter_material(
+    course_data: dict[str, Any],
+    nodes: list[dict[str, Any]],
+) -> str:
+    mode = str(
+        (course_data.get("subject_pedagogy_profile") or {}).get("primary_mode")
+        or "general"
+    )
+    labels = [
+        str(node.get("node_name") or node.get("node_id") or "")
+        for node in nodes[:3]
+    ]
+    if mode == "programming_engineering":
+        return (
+            f"项目 R7 收到 120 条记录，其中 8 条缺失、12 条重复；处理时限 2 秒，"
+            f"失败后只允许重试 1 次。验收同时检查{_join_names(labels)}。"
+        )
+    if mode in {"natural_science", "life_medical"}:
+        return (
+            f"同一对象在 0、10、20 分钟的读数为 12、17、19，对照读数为 12、13、13；"
+            f"第二次测量存在 ±1 误差，结论须联合解释{_join_names(labels)}。"
+        )
+    if mode == "business_career":
+        return (
+            f"方案 A 成本 80 万、周期 6 周、风险评分 3；方案 B 成本 65 万、周期 9 周、"
+            f"风险评分 2；预算上限 75 万且必须联合运用{_join_names(labels)}。"
+        )
+    return (
+        f"案例 Z9 的基线记录为 24、31、29，调整后记录为 27、30、34；总量上限 95，"
+        f"其中记录 34 仍待复核。分析必须分别调用{_join_names(labels)}并说明连接依据。"
+    )
 
 
 def _assessment_items(node: dict[str, Any]) -> list[str]:
