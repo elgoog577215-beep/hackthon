@@ -41,6 +41,17 @@ CAPABILITY_CONTRACTS: dict[str, dict[str, Any]] = {
     "programming.data_processing": {
         "adapter_id": "programming.data_processing",
     },
+    "programming.dynamic_array": {
+        "adapter_id": "programming.dynamic_array",
+        "case_kinds": ("dynamic_array_growth",),
+        "target_markers": (
+            "动态数组",
+            "容量耗尽",
+            "扩容",
+            "摊还",
+            "可变长数组",
+        ),
+    },
     "java.inner_and_anonymous_class": {
         "adapter_id": "programming.java_object_model",
         "case_kinds": ("java_inner_anonymous_class",),
@@ -120,6 +131,7 @@ STIMULUS_KIND_BY_ADAPTER = {
     "computer_science.avl_tree": "tree_operations",
     "programming.system_design": "system_requirements",
     "programming.data_processing": "programming_case",
+    "programming.dynamic_array": "programming_case",
     "programming.java_object_model": "programming_case",
     "math.quantitative_reasoning": "quantitative_problem",
     "math.calculus": "quantitative_problem",
@@ -300,6 +312,7 @@ def validate_question_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "computer_science.avl_tree": _validate_tree_spec,
         "programming.system_design": _validate_rubric_spec,
         "programming.data_processing": _validate_programming_spec,
+        "programming.dynamic_array": _validate_dynamic_array_spec,
         "programming.java_object_model": _validate_java_object_model_spec,
         "math.quantitative_reasoning": _validate_math_spec,
         "math.calculus": _validate_calculus_spec,
@@ -684,6 +697,13 @@ def _capability_routes() -> tuple[CapabilityRoute, ...]:
             "programming.java_object_model",
             _build_java_object_model_spec,
             ("内部类", "匿名类", "anonymous class", "inner class"),
+            ("programming_engineering",),
+        ),
+        CapabilityRoute(
+            "programming.dynamic_array",
+            "programming.dynamic_array",
+            _build_dynamic_array_spec,
+            ("动态数组", "扩容", "摊还", "可变长数组"),
             ("programming_engineering",),
         ),
         CapabilityRoute(
@@ -1723,6 +1743,110 @@ def _build_thermodynamics_spec(context: AdapterContext) -> dict[str, Any]:
             "数值、符号和单位可复算",
             "结果通过守恒、量纲或范围检查",
         ],
+    }
+
+
+def _build_dynamic_array_spec(
+    context: AdapterContext,
+) -> dict[str, Any]:
+    initial_capacity = 2
+    insert_count = context.variant_index + 6
+    growth_factor = 2
+    canonical = _solve_dynamic_array_growth(
+        initial_capacity,
+        insert_count,
+        growth_factor,
+    )
+    return {
+        "archetype_id": "dynamic_array_growth_trace",
+        "stimulus": {
+            "kind": "programming_case",
+            "data": {
+                "case_kind": "dynamic_array_growth",
+                "initial_capacity": initial_capacity,
+                "insert_count": insert_count,
+                "growth_factor": growth_factor,
+                "append_values": list(range(1, insert_count + 1)),
+            },
+            "rendered_text": (
+                f"动态数组初始容量为{initial_capacity}，按{growth_factor}倍扩容；"
+                f"依次插入整数1至{insert_count}。扩容时复制全部已有元素。"
+            ),
+        },
+        "task": {
+            "action": "implement_transform_and_test",
+            "rendered_text": (
+                "实现 append，记录每次扩容前后的容量与复制元素数；"
+                "给出最终数组，并区分单次最坏复杂度和连续插入的摊还复杂度。"
+            ),
+            "deliverable": "可运行append实现、扩容轨迹、复制总数、最终数组和复杂度说明",
+        },
+        "constraints": [
+            "只能在size等于capacity时扩容",
+            "每次扩容后的容量必须为原容量的2倍",
+            "必须运行正常插入、恰好满容量和触发扩容三类测试",
+        ],
+        "response_contract": {
+            "format": "code_and_trace",
+            "required_parts": [
+                "implementation",
+                "resize_trace",
+                "final_state",
+                "complexity",
+                "tests",
+            ],
+        },
+        "answer_spec": _base_answer_spec(
+            context,
+            [
+                f"正确使用“{context.key_points[0]}”判断扩容时机",
+                "说明容量耗尽后执行倍增扩容的依据",
+                "扩容过程、轨迹和累计复制次数正确",
+                "最终长度、容量与元素顺序正确",
+                "通过结果检查区分O(n)单次最坏成本与O(1)摊还成本",
+            ],
+            validation_mode="deterministic_dynamic_array_trace",
+            canonical_answer=canonical,
+        ),
+        "result_checks": [
+            "逐次核对size与capacity关系",
+            "复制总数等于各次扩容前长度之和",
+            "最终数组保持插入顺序且没有遗漏",
+        ],
+    }
+
+
+def _solve_dynamic_array_growth(
+    initial_capacity: int,
+    insert_count: int,
+    growth_factor: int,
+) -> dict[str, Any]:
+    capacity = initial_capacity
+    size = 0
+    copied = 0
+    resize_trace: list[dict[str, int]] = []
+    values: list[int] = []
+    for value in range(1, insert_count + 1):
+        if size == capacity:
+            previous = capacity
+            copied += size
+            capacity *= growth_factor
+            resize_trace.append({
+                "size_before": size,
+                "capacity_before": previous,
+                "capacity_after": capacity,
+                "copied_elements": size,
+            })
+        values.append(value)
+        size += 1
+    return {
+        "final_values": values,
+        "final_size": size,
+        "final_capacity": capacity,
+        "resize_trace": resize_trace,
+        "total_copied_elements": copied,
+        "single_resize_worst_case": "O(n)",
+        "append_amortized": "O(1)",
     }
 
 
@@ -2835,6 +2959,7 @@ def _question_type_for_spec(spec: dict[str, Any]) -> str:
         "computer_science.avl_tree": "worked_solution",
         "programming.system_design": "scenario_deliverable",
         "programming.data_processing": "implementation_task",
+        "programming.dynamic_array": "implementation_task",
         "programming.java_object_model": "implementation_task",
         "math.quantitative_reasoning": "worked_solution",
         "math.calculus": "worked_solution",
@@ -3113,6 +3238,39 @@ def _validate_java_object_model_spec(
         "member_access": "base",
         "step_is_effectively_final": True,
     }
+    return (
+        []
+        if canonical == expected
+        else [_issue("question:canonical_answer_mismatch", "critical")]
+    )
+
+
+def _validate_dynamic_array_spec(
+    spec: dict[str, Any],
+) -> list[dict[str, str]]:
+    data = (spec.get("stimulus") or {}).get("data") or {}
+    if data.get("case_kind") != "dynamic_array_growth":
+        return [_issue("question:input_material_missing", "critical")]
+    initial_capacity = data.get("initial_capacity")
+    insert_count = data.get("insert_count")
+    growth_factor = data.get("growth_factor")
+    if (
+        not isinstance(initial_capacity, int)
+        or not isinstance(insert_count, int)
+        or not isinstance(growth_factor, int)
+        or initial_capacity < 1
+        or insert_count < 1
+        or growth_factor < 2
+    ):
+        return [_issue("question:input_material_missing", "critical")]
+    expected = _solve_dynamic_array_growth(
+        initial_capacity,
+        insert_count,
+        growth_factor,
+    )
+    canonical = (spec.get("answer_spec") or {}).get(
+        "canonical_answer"
+    ) or {}
     return (
         []
         if canonical == expected
