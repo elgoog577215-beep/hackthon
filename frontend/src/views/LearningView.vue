@@ -49,12 +49,16 @@
         :location="dockLocation"
         :record-count="recordCount"
         :practice-available="Boolean(currentPracticeNode)"
+        :practice-repair-available="questionBankRepairAvailable"
         :resume-action-label="resumeActionLabel"
         :resume-action-available="resumableAction?.availability === 'available'"
         :resume-action-busy="continuityBusy"
         :active-domain="activeDomain"
-        @learning="activateLearningDomain"
-        @resources="activateResourceDomain"
+        @practice="openCurrentPractice"
+        @records="openRecords"
+        @stats="openStats"
+        @knowledge-library="openKnowledgeLibrary"
+        @teaching-resources="openTeachingResources"
         @ai="openAi()"
         @resume="runResumeAction"
       />
@@ -133,18 +137,13 @@
       <span>{{ resumeActionLabel }}</span>
     </button>
 
-    <nav v-if="!isGenerationPreview" class="mobile-learning-nav" :aria-label="t('learningShell.mobileNavigation', '学习导航')">
-      <button type="button" :class="{ active: activeDomain === 'learning' }" @click="activateLearningDomain"><GraduationCap :size="17" /><span>{{ t('learningDock.learning', '学习') }}</span></button>
-      <button type="button" :class="{ active: activeDomain === 'resources' }" @click="activateResourceDomain"><Layers3 :size="17" /><span>{{ t('learningDock.resourceDomain', '资源') }}</span></button>
-      <button type="button" :class="{ active: activeDomain === 'assistant' }" @click="openAi()"><MessageSquareText :size="17" /><span>{{ t('learningDock.assistant', '智能助教') }}</span></button>
-    </nav>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { GraduationCap, History, Layers3, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, X } from 'lucide-vue-next'
+import { History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, X } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import LearningContextTabs from '../components/LearningContextTabs.vue'
@@ -203,8 +202,6 @@ const aiBlockTarget = ref<CourseBlockEditTarget | undefined>(undefined)
 const autoFollowGeneration = ref(true)
 const loadedLearningCourseId = ref('')
 const activeDomain = ref<'learning' | 'resources' | 'assistant'>('learning')
-const activeLearningItem = ref<'practice' | 'records' | 'stats'>('practice')
-const activeResourceItem = ref<'knowledge-library' | 'teaching-resources'>('knowledge-library')
 
 const isNarrow = computed(() => windowWidth.value < 1024)
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
@@ -276,8 +273,6 @@ watch(() => route.params.courseId, async value => {
   autoFollowGeneration.value = true
   aiVisible.value = false
   activeDomain.value = 'learning'
-  activeLearningItem.value = 'practice'
-  activeResourceItem.value = 'knowledge-library'
   recordsOpen.value = false
   statsOpen.value = false
   resourcesOpen.value = false
@@ -296,7 +291,6 @@ watch(() => route.params.courseId, async value => {
 watch(() => courseStore.showTeachingResources, visible => {
   if (!visible) return
   activeDomain.value = 'resources'
-  activeResourceItem.value = 'teaching-resources'
 })
 
 async function loadPublishedLearningContext(courseId: string) {
@@ -444,7 +438,6 @@ function openAiForPractice(payload: { text: string; nodeId: string }) {
 
 function openRecords() {
   activeDomain.value = 'learning'
-  activeLearningItem.value = 'records'
   recordsOpen.value = true
   statsOpen.value = false
   taskOpen.value = false
@@ -454,7 +447,6 @@ function openRecords() {
 
 function openKnowledgeLibrary() {
   activeDomain.value = 'resources'
-  activeResourceItem.value = 'knowledge-library'
   resourcesOpen.value = false
   courseStore.showKnowledgeLibrary = true
   if (isNarrow.value) navigatorOpen.value = false
@@ -462,7 +454,6 @@ function openKnowledgeLibrary() {
 
 function openTeachingResources() {
   activeDomain.value = 'resources'
-  activeResourceItem.value = 'teaching-resources'
   resourcesOpen.value = true
   recordsOpen.value = false
   statsOpen.value = false
@@ -472,7 +463,6 @@ function openTeachingResources() {
 
 function openCurrentPractice() {
   activeDomain.value = 'learning'
-  activeLearningItem.value = 'practice'
   recordsOpen.value = false
   statsOpen.value = false
   const targetNode = currentPracticeNode.value
@@ -482,43 +472,10 @@ function openCurrentPractice() {
 
 function openStats() {
   activeDomain.value = 'learning'
-  activeLearningItem.value = 'stats'
   statsOpen.value = true
   recordsOpen.value = false
   taskOpen.value = false
   resourcesOpen.value = false
-}
-
-function activateLearningDomain() {
-  activeDomain.value = 'learning'
-  aiVisible.value = false
-  resourcesOpen.value = false
-  courseStore.showKnowledgeLibrary = false
-  if (activeLearningItem.value === 'records') {
-    openRecords()
-    return
-  }
-  if (activeLearningItem.value === 'stats') {
-    openStats()
-    return
-  }
-  if (currentPracticeNode.value || questionBankRepairAvailable.value) {
-    openCurrentPractice()
-    return
-  }
-  openRecords()
-}
-
-function activateResourceDomain() {
-  aiVisible.value = false
-  recordsOpen.value = false
-  statsOpen.value = false
-  taskOpen.value = false
-  if (activeResourceItem.value === 'teaching-resources') {
-    openTeachingResources()
-    return
-  }
-  openKnowledgeLibrary()
 }
 
 function closeAi() {
@@ -633,7 +590,6 @@ function closeMobileSurfaces() {
 .records-tool { flex: 1; min-width: 0; min-height: 0; }
 .stats-tool { flex:1; min-width:0; min-height:0; }
 .surface-backdrop { display: none; }
-.mobile-learning-nav { display: none; }
 .focus-mode .learning-main { max-width: 1040px; margin: 0 auto; }
 .focus-mode :deep(.learning-context-bar) { display: none; }
 .slide-left-enter-active, .slide-left-leave-active, .slide-right-enter-active, .slide-right-leave-active { transition: transform .2s ease, opacity .2s ease; }
@@ -646,20 +602,16 @@ function closeMobileSurfaces() {
   .surface-backdrop { position: fixed; inset: 0; z-index: 100; display: block; background: rgba(49, 46, 129, .18); backdrop-filter: blur(2px); }
 }
 @media (max-width: 767px) {
-  .learning-view { padding-bottom:calc(52px + env(safe-area-inset-bottom, 0px)); }
-  .learning-view.has-mobile-resume { padding-bottom:calc(96px + env(safe-area-inset-bottom, 0px)); }
-  .navigator-surface { left:0; top:56px; bottom:calc(52px + env(safe-area-inset-bottom, 0px)); border-radius:0 16px 0 0; }
+  .learning-view { padding-bottom:calc(58px + env(safe-area-inset-bottom, 0px)); }
+  .learning-view.has-mobile-resume { padding-bottom:calc(102px + env(safe-area-inset-bottom, 0px)); }
+  .navigator-surface { left:0; top:56px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); border-radius:0 16px 0 0; }
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
   .generation-meter { width:92px; grid-template-columns:auto minmax(44px,1fr); }
-  .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:56px 0 calc(52px + env(safe-area-inset-bottom, 0px)); }
-  .learning-tool-overlay { position:fixed; inset:56px 0 calc(52px + env(safe-area-inset-bottom, 0px)); z-index:105; }
-  .mobile-resume-prompt { position:fixed; left:10px; right:10px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); z-index:119; min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #15803d; border-radius:11px; color:#fff; background:#15803d; box-shadow:0 8px 22px rgba(21,128,61,.2); font-size:12px; font-weight:750; }
+  .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); }
+  .learning-tool-overlay { position:fixed; inset:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); z-index:105; }
+  .mobile-resume-prompt { position:fixed; left:10px; right:10px; bottom:calc(64px + env(safe-area-inset-bottom, 0px)); z-index:119; min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #15803d; border-radius:11px; color:#fff; background:#15803d; box-shadow:0 8px 22px rgba(21,128,61,.2); font-size:12px; font-weight:750; }
   .mobile-resume-prompt:disabled { opacity:.6; }
   .mobile-resume-prompt__spin { animation:mobile-resume-spin .8s linear infinite; }
-  .mobile-learning-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 120; height: calc(52px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(3, 1fr); padding-bottom: env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--lz-border); background: #fff; }
-  .mobile-learning-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; color: var(--lz-text-muted); background: transparent; font-size: 9px; }
-  .mobile-learning-nav button.active { color: var(--lz-brand-strong); }
-  .mobile-learning-nav button:disabled { color:#cbd5e1; }
 }
 @media (min-width:768px) { .mobile-resume-prompt { display:none; } }
 @keyframes mobile-resume-spin { to { transform:rotate(360deg); } }
