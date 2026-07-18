@@ -83,6 +83,38 @@ def _payload(**extra):
     }
 
 
+def test_solution_payload_exposes_steps_structured_answer_and_checks():
+    payload = practice_router._solution_payload({
+        "answer_spec": {
+            "criteria": ["旋转判断正确"],
+            "canonical_answer": {
+                "preorder": [30, 20, 10, 25, 40, 50],
+                "rotations": ["在30执行LL右旋", "在20执行RR左旋"],
+            },
+            "solution_spec": {
+                "schema_version": "solution_spec_v1",
+                "summary": "逐次插入并在首次失衡祖先处旋转。",
+                "steps": ["插入10后在30执行LL右旋", "插入50后在20执行RR左旋"],
+                "final_answer": {
+                    "preorder": [30, 20, 10, 25, 40, 50],
+                },
+                "checks": ["中序严格递增", "所有平衡因子绝对值不超过1"],
+                "representation": {
+                    "kind": "tree",
+                    "content": "    30\n   /  \\\n 20    40",
+                },
+            },
+        },
+        "result_checks": ["最终高度正确"],
+    })
+
+    assert payload["schema_version"] == "solution_spec_v1"
+    assert payload["steps"][0].startswith("插入10")
+    assert payload["final_answer"]["preorder"] == [30, 20, 10, 25, 40, 50]
+    assert payload["checks"] == ["中序严格递增", "所有平衡因子绝对值不超过1"]
+    assert payload["representation"]["kind"] == "tree"
+
+
 def test_attempt_repository_preserves_retries_and_rejects_stale_drafts(tmp_path):
     repository = PracticeAttemptRepository(tmp_path)
     first, created = repository.create_once("u1", "c1", _payload(attempt_id="a1"))

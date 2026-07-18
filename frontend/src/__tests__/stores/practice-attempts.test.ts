@@ -266,6 +266,24 @@ describe('formal practice attempt store', () => {
     expect(httpMock.get).toHaveBeenCalledWith('/api/courses/c1/learning-runtime', { params: undefined })
   })
 
+  it('恢复已揭示解析的 Attempt 时保留结构化答案', async () => {
+    httpMock.post.mockResolvedValueOnce({ data: {
+      attempt: attempt({ revision: 4, status: 'graded', solution_revealed: true }),
+      solution: {
+        schema_version: 'solution_spec_v1',
+        steps: ['先定位首次失衡节点'],
+        final_answer: { preorder: [30, 20, 10, 25, 40, 50] },
+        checks: ['中序严格递增'],
+      },
+    } })
+    const store = useCourseWorkspaceStore()
+
+    await store.startPracticeAttempt('c1', 'qr1')
+
+    expect(store.revealedSolution?.steps).toEqual(['先定位首次失衡节点'])
+    expect(store.revealedSolution?.final_answer.preorder).toEqual([30, 20, 10, 25, 40, 50])
+  })
+
   it('连续性动作精确恢复第二道题的活动 Attempt', async () => {
     const secondQuestion = { ...question, asset_id: 'q2', revision_id: 'qr2', task_revision_id: 'qr2', prompt: '解释矩阵。' }
     const secondAttempt = attempt({

@@ -22,4 +22,12 @@ describe('PracticeWorkspace expanded desktop layout', () => {
     )
     expect(componentSource).toContain('.answer-editor { min-height:180px; }')
   })
+
+  it('renders structured solution steps, final answer, checks and representation', () => {
+    expect(componentSource).toContain('solution-steps')
+    expect(componentSource).toContain('solution-final-answer')
+    expect(componentSource).toContain('workspace.revealedSolution.checks')
+    expect(componentSource).toContain('workspace.revealedSolution.representation')
+    expect(componentSource).toContain('formatSolutionValue')
+  })
 })

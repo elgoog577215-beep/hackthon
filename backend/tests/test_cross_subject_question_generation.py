@@ -107,6 +107,59 @@ def test_graph_questions_use_a_solvable_graph_contract_and_course_evidence():
     )
 
 
+def test_avl_implementation_target_emits_code_tests_domain_hints_and_solution():
+    course = _course_for(
+        mode="programming_engineering",
+        topic="3.3 AVL树实现与测试",
+        objective="构建可运行AVL树并验证平衡",
+        key_points=["AVL插入实现", "旋转操作", "性能测试"],
+        assessment="提交AVL实现并运行正确性与性能测试",
+    )
+
+    generated = _practice_items(course)
+
+    assert len(generated) == 3
+    assert all(
+        item["question_spec"]["archetype_id"]
+        == "avl_implementation_validation"
+        for item in generated
+    )
+    assert all(
+        item["question_spec"]["stimulus"]["data"]["case_kind"]
+        == "avl_implementation"
+        and "def rebalance" in item["question_spec"]["stimulus"]["data"]["code_skeleton"]
+        and item["question_spec"]["stimulus"]["data"]["test_cases"]
+        for item in generated
+    )
+    assert all(
+        "实现" in item["question_spec"]["task"]["rendered_text"]
+        and "测试" in item["question_spec"]["task"]["rendered_text"]
+        and "性能" in item["question_spec"]["task"]["rendered_text"]
+        for item in generated
+    )
+    assert all(
+        item["domain_validation"]["checks"]["semantic_alignment"] is True
+        and item["domain_validation"]["passed"] is True
+        for item in generated
+    )
+    assert all(
+        item["answer_spec"]["solution_spec"]["schema_version"]
+        == "solution_spec_v1"
+        and item["answer_spec"]["solution_spec"]["steps"]
+        and item["answer_spec"]["solution_spec"]["checks"]
+        and item["answer_spec"]["solution_spec"]["representation"]["kind"]
+        == "code"
+        for item in generated
+    )
+
+    first_hints = generated[0]["hint_contract"]["levels"]
+    assert "30、20、10" in first_hints[0]["content"]
+    assert "BST定位" in first_hints[1]["content"]
+    assert "[50, 30, 40]" in first_hints[2]["content"]
+    assert "LR" in first_hints[2]["content"]
+    assert generated[0]["hint_contract"]["leakage_check"]["passed"] is True
+
+
 @pytest.mark.parametrize(
     ("mode", "topic", "objective", "key_points", "assessment", "stimulus_kind"),
     [
