@@ -15,14 +15,21 @@ describe('resource workspace shell', () => {
     }
   })
 
-  it('defines the shared desktop and mobile dimensions in one stylesheet', () => {
+  it('treats both resource workspaces as full-screen surfaces on every viewport', () => {
     const workspaceStyles = readSource('../../styles/resource-workspace.css')
+    const knowledgeLibrary = readSource('../../components/KnowledgeLibrary.vue')
 
-    expect(workspaceStyles).toContain('width: min(1320px, calc(100vw - 48px))')
-    expect(workspaceStyles).toContain('height: min(850px, calc(100vh - 48px))')
-    expect(workspaceStyles).toContain('min-height: 560px')
+    expect(workspaceStyles).toContain('place-items: stretch')
+    expect(workspaceStyles).toContain('padding: 0')
+    expect(workspaceStyles).toContain('width: 100vw')
+    expect(workspaceStyles).toContain('height: 100dvh')
+    expect(workspaceStyles).toContain('min-height: 0')
+    expect(workspaceStyles).toContain('border-radius: 0')
+    expect(workspaceStyles).toContain('box-shadow: none')
     expect(workspaceStyles).toContain('min-height: 72px')
-    expect(workspaceStyles).toContain('@media (max-width: 700px)')
+    expect(workspaceStyles).not.toContain('width: min(1320px')
+    expect(workspaceStyles).not.toContain('backdrop-filter')
+    expect(knowledgeLibrary).not.toContain('scale(.995)')
   })
 
   it('keeps PPT out of teaching resources and exposes a first-class workspace entry', () => {
