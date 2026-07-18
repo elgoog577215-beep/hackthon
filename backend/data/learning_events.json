@@ -12720,5 +12720,106 @@
     "metadata": {},
     "created_at": "2026-07-18T16:47:13.402264",
     "schema_version": 8
+  },
+  {
+    "event_id": "evt_783242eb63804712976e701cf19218ec",
+    "event_type": "practice_attempt_started",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-5-2",
+    "node_name": "5.2 基本图算法",
+    "objective_id": "lo_208b9daf7582c69e",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_c99e3ab4362588d0",
+      "ckp_fe862f8a3f2a4505"
+    ],
+    "skill_unit_ids": [
+      "cks_db17bb6da296bf5f",
+      "cks_7eaa2e5fc4f887db"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_29cbe936d9714723",
+    "task_revision_id": "qr_29cbe936d9714723",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_4259eb040fc241b09d102114f70c560d",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_4259eb040fc241b09d102114f70c560d:1:practice_attempt_started",
+    "idempotency_key": "practice_attempt_started:pa_4259eb040fc241b09d102114f70c560d:1",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_4259eb040fc241b09d102114f70c560d",
+    "entity_revision": 1,
+    "evidence": {},
+    "result": {},
+    "metadata": {
+      "practice_level": "concept_check",
+      "attempt_number": 1,
+      "task_revision_id": "qr_29cbe936d9714723",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:47:27.754940",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_ab2f48f8a1234109a8bb09331abac486",
+    "event_type": "practice_hint_revealed",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-5-2",
+    "node_name": "5.2 基本图算法",
+    "objective_id": "lo_208b9daf7582c69e",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_c99e3ab4362588d0",
+      "ckp_fe862f8a3f2a4505"
+    ],
+    "skill_unit_ids": [
+      "cks_db17bb6da296bf5f",
+      "cks_7eaa2e5fc4f887db"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_29cbe936d9714723",
+    "task_revision_id": "qr_29cbe936d9714723",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_4259eb040fc241b09d102114f70c560d",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_4259eb040fc241b09d102114f70c560d:2:practice_hint_revealed",
+    "idempotency_key": "practice_hint_revealed:pa_4259eb040fc241b09d102114f70c560d:2",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_4259eb040fc241b09d102114f70c560d",
+    "entity_revision": 2,
+    "evidence": {
+      "level": 1,
+      "kind": "orientation"
+    },
+    "result": {},
+    "metadata": {
+      "practice_level": "concept_check",
+      "attempt_number": 1,
+      "task_revision_id": "qr_29cbe936d9714723",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:47:49.636380",
+    "schema_version": 8
   }
 ]
