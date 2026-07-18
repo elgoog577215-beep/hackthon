@@ -916,6 +916,11 @@
     "records": { "title": "学习记录", "ask": "问 AI", "note": "记笔记", "later": "稍后处理", "issue": "这里不懂", "review": "需要复习", "bookmark": "仅做书签", "issueTitle": "未解决问题", "reviewTitle": "复习任务", "bookmarkTitle": "阅读书签", "saved": "已保存", "saveAiNote": "保存为笔记", "saveUnavailable": "当前回答缺少可保存的课程位置", "locationMissing": "无法定位选区所在章节", "search": "搜索学习记录...", "exportNotes": "导出笔记", "noMatch": "没有匹配的记录", "empty": "暂无学习记录", "emptyHint": "选中课程内容后可以记笔记或稍后处理", "wrongBook": "错题本", "wrongCount": "共 {count} 道错题", "recordCount": "共 {count} 条记录", "tabs": { "all": "全部", "notes": "笔记", "issues": "问题", "reviews": "复习", "bookmarks": "书签" }, "type": { "issue": "问题", "review": "复习", "bookmark": "书签", "aiNote": "AI 笔记", "note": "笔记" }, "status": { "active": "有效", "open": "待解决", "explaining": "解释中", "awaiting_verification": "待验证", "resolved": "已解决", "reopened": "再次出现", "pending": "待复习", "due": "已到期", "completed": "已完成", "dismissed": "已忽略" }, "actions": { "reopen": "重新打开", "resolve": "标记解决", "reviewAgain": "再次复习", "complete": "完成复习" } }
   },
   "courseAvailability": {
+    "rebuildQuestions": "重新生成题目",
+    "rebuildingQuestions": "正在按新版链路生成题目",
+    "rebuildQuestionsHelp": "将按当前课程目标重建题库、题目修订与正式练习契约；历史作答记录会保留。",
+    "rebuildQuestionsSuccess": "题目已按新版链路生成，可以开始正式练习。",
+    "rebuildQuestionsFailed": "题目生成失败，旧题库和历史记录未被覆盖，请稍后重试。",
     "practice": {
       "declared_reading_only": { "title": "这门课程按设计只提供阅读学习", "body": "当前课程没有生成正式题目。阅读进度可以继续，但不会据此确认掌握。" },
       "legacy_reading_compatible": { "title": "这是一门旧版兼容课程", "body": "正文仍可继续学习，但旧课程没有可追踪的正式练习与掌握证据。" },

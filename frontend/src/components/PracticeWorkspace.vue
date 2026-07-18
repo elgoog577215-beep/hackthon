@@ -72,6 +72,28 @@
         <ClipboardCheck v-else :size="28" />
         <strong>{{ emptyState.title }}</strong>
         <span>{{ emptyState.body }}</span>
+        <div v-if="canRebuildQuestionBank" class="question-bank-rebuild">
+          <button
+            type="button"
+            class="primary-command"
+            data-testid="rebuild-question-bank"
+            :disabled="questionBankRebuilding"
+            @click="rebuildQuestionBank"
+          >
+            <LoaderCircle v-if="questionBankRebuilding" :size="16" class="animate-spin" />
+            <RefreshCw v-else :size="16" />
+            {{ questionBankRebuilding
+              ? t('courseAvailability.rebuildingQuestions', '正在按新版链路生成题目')
+              : t('courseAvailability.rebuildQuestions', '重新生成题目') }}
+          </button>
+          <small>{{ t(
+            'courseAvailability.rebuildQuestionsHelp',
+            '将按当前课程目标重建题库、题目修订与正式练习契约；历史作答记录会保留。',
+          ) }}</small>
+          <small v-if="questionBankRebuildError" class="question-bank-rebuild__error">
+            {{ questionBankRebuildError }}
+          </small>
+        </div>
       </div>
 
       <main v-else class="question-stage">
@@ -237,8 +259,9 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowRight, BookOpenCheck, CheckCircle2, Circle, CircleAlert, ClipboardCheck, Clock3, History,
-  Lightbulb, LoaderCircle, MessageCircleQuestion, RotateCcw, Send,
+  Lightbulb, LoaderCircle, MessageCircleQuestion, RefreshCw, RotateCcw, Send,
 } from 'lucide-vue-next'
+import http from '../utils/http'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { t } from '../shared/i18n'
 import { practiceAvailabilityCopy } from '../utils/course-availability'
@@ -258,10 +281,17 @@ const workspace = useCourseWorkspaceStore()
 const practiceView = ref<'current' | 'history' | 'needs_review'>(workspace.practiceLandingView)
 const submitting = ref(false)
 const targetedRetryingId = ref('')
+const questionBankRebuilding = ref(false)
+const questionBankRebuildError = ref('')
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 const questions = computed(() => workspace.practice?.questions || [])
 const currentQuestion = computed(() => workspace.currentPracticeQuestion)
+const canRebuildQuestionBank = computed(() => (
+  ['legacy_reading_compatible', 'required_practice_missing'].includes(
+    workspace.practice?.practice_availability?.reason_code || '',
+  )
+))
 const currentNodeLabel = computed(() => props.nodeLabel || t('courseWorkspace.allCourse', '全课程'))
 const practiceScopeLabel = computed(() => {
   const kind = practiceScopeKind(props.scope)
@@ -332,6 +362,7 @@ watch(
   () => [props.courseId, props.nodeId, props.scope],
   async () => {
     if (!props.courseId) return
+    questionBankRebuildError.value = ''
     await workspace.loadPractice(props.courseId, props.nodeId, props.scope)
     await ensureAttempt()
   },
@@ -497,6 +528,38 @@ function selectView(view: 'current') {
   workspace.practiceLandingView = view
 }
 
+async function rebuildQuestionBank() {
+  if (!props.courseId || questionBankRebuilding.value) return
+  questionBankRebuilding.value = true
+  questionBankRebuildError.value = ''
+  try {
+    await http.post(`/api/courses/${props.courseId}/question-bank/rebuild`, {
+      request_id: crypto.randomUUID(),
+    })
+    workspace.currentQuestionIndex = 0
+    workspace.currentAttempt = null
+    workspace.currentDraft = {}
+    workspace.practiceResult = null
+    await workspace.loadPractice(props.courseId, props.nodeId, props.scope)
+    ElMessage.success(t(
+      'courseAvailability.rebuildQuestionsSuccess',
+      '题目已按新版链路生成，可以开始正式练习。',
+    ))
+  } catch (error: any) {
+    const detail = error?.response?.data?.detail
+    questionBankRebuildError.value = (
+      typeof detail === 'string'
+        ? detail
+        : detail?.message
+    ) || t(
+      'courseAvailability.rebuildQuestionsFailed',
+      '题目生成失败，旧题库和历史记录未被覆盖，请稍后重试。',
+    )
+  } finally {
+    questionBankRebuilding.value = false
+  }
+}
+
 function statusLabel(attempt: any) {
   if (attempt.status === 'grading') return t('courseWorkspace.practice.pendingReview', '等待评阅')
   if (attempt.result?.passed) return t('courseWorkspace.practice.passed', '达到本题标准')
@@ -521,6 +584,7 @@ function statusLabel(attempt: any) {
 .remediation-context { margin-bottom:22px; padding:14px 0; border-top:1px solid #99f6e4; border-bottom:1px solid #99f6e4; }.remediation-context strong { color:#115e59; }.remediation-context p { margin:8px 0; line-height:1.65; }.remediation-context small { color:#64748b; }.workflow-result strong { color:#172033; }.workflow-result.warning svg { color:#b45309; }
 .practice-feedback { color:#9a3412; }.practice-feedback[data-passed="true"] { color:#047857; }.feedback-heading { display:flex; gap:9px; align-items:center; }.feedback-heading span { margin-left:auto; font-size:22px; font-weight:800; }.practice-feedback>p { color:#475569; }.rubric-list { display:grid; gap:7px; margin:12px 0; }.rubric-list>div { display:grid; grid-template-columns:18px minmax(120px,auto) 1fr; gap:7px; align-items:start; color:#334155; }.rubric-list small { color:#64748b; }
 .practice-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:#64748b; }.state-notice { display:flex; gap:9px; padding:12px; margin-bottom:14px; border:1px solid #fecaca; color:#b91c1c; background:#fef2f2; border-radius:6px; }
+.question-bank-rebuild { display:flex; max-width:520px; flex-direction:column; align-items:center; gap:8px; margin-top:8px; text-align:center; }.question-bank-rebuild small { color:#64748b; font-size:11px; line-height:1.55; }.question-bank-rebuild__error { color:#b91c1c!important; }
 .history-row { padding:16px 0; border-bottom:1px solid #dbe3ed; }.history-row>div { display:flex; justify-content:space-between; gap:20px; }.history-row span,.history-row small { color:#64748b; }.history-row.legacy { border-left:3px solid #94a3b8; padding-left:12px; }
 .history-row-actions { display:flex; align-items:center; gap:10px; }.targeted-retry-command { min-height:30px; display:inline-flex; align-items:center; gap:5px; padding:0 9px; border:1px solid #99f6e4; border-radius:6px; color:#0f766e; background:#f0fdfa; font-size:11px; font-weight:700; }.targeted-retry-command:disabled { opacity:.55; }.targeted-retry-context { display:flex; align-items:flex-start; gap:10px; margin-bottom:20px; padding:12px 14px; border:1px solid #99f6e4; border-radius:7px; color:#115e59; background:#f0fdfa; }.targeted-retry-context>div { min-width:0; }.targeted-retry-context strong { font-size:12px; }.targeted-retry-context p { margin:3px 0 0; color:#526174; font-size:11px; line-height:1.55; }
 @media (max-width:640px) { .practice-header { padding:12px 16px; align-items:flex-start; }.attempt-count { display:none; }.practice-tabs { margin-top:8px; padding:0 10px; overflow-x:auto; }.practice-tabs button { flex:0 0 auto; }.workflow-band { width:calc(100% - 28px); display:grid; gap:8px; }.workflow-band p { max-width:none; }.question-stage,.history-list { width:calc(100% - 28px); padding-top:18px; }.question-content h3 { font-size:17px; }.answer-editor { min-height:180px; }.practice-actions { padding-bottom:max(12px,env(safe-area-inset-bottom)); }.text-command { width:40px; padding:0; font-size:0; }.support-actions { gap:5px; }.icon-command { width:38px; }.primary-command { padding:0 11px; }.hint-result { grid-template-columns:1fr; gap:3px; } }
