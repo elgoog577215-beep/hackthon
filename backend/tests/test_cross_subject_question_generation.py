@@ -565,6 +565,38 @@ def test_math_topic_reasoning_fallback_is_blocked_instead_of_auto_published():
     )
 
 
+def test_primary_node_intent_outranks_incidental_concepts_in_node_content():
+    course = _course_for(
+        mode="math_formal",
+        topic="1.5 线性组合与生成集",
+        objective="识别线性组合并判断向量组的生成关系",
+        key_points=[],
+        assessment="",
+    )
+    node = course["nodes"][0]
+    node["node_content"] = (
+        "引入线性组合，定义由集合生成的子空间，"
+        "并讨论生成集的最小性问题。"
+    )
+    node.pop("key_points")
+    node.pop("assessment")
+
+    generated = _practice_items(course)
+
+    assert generated
+    assert all(
+        item["question_spec"]["archetype_id"]
+        == "linear_independence_and_basis"
+        for item in generated
+    )
+    assert all(
+        item["question_spec"]["reasoning_path"]["operator_family"]
+        == "solve_and_verify"
+        and item["quality_report"]["checks"]["hint_actionability"]
+        for item in generated
+    )
+
+
 def test_semantic_practice_variants_change_the_actual_problem_data():
     course = _course_for(
         mode="math_formal",

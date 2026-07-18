@@ -545,6 +545,19 @@ def _format_compact_vector(values: list[Any]) -> str:
     return f"({','.join(str(value) for value in values)})"
 
 
+def _format_sqrt2_half(numerator: int | float) -> str:
+    if isinstance(numerator, float) and numerator.is_integer():
+        numerator = int(numerator)
+    if isinstance(numerator, int) and numerator % 2 == 0:
+        coefficient = numerator // 2
+        if coefficient == 1:
+            return "√2"
+        if coefficient == -1:
+            return "-√2"
+        return f"{coefficient}√2"
+    return f"{numerator}√2/2"
+
+
 def _build_graph_spec(context: AdapterContext) -> dict[str, Any]:
     variants = [
         {
@@ -1102,6 +1115,18 @@ def insert(root, key):
 def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
     seed = context.variant_index + 2
     topic = context.topic_text.lower()
+    primary_topic = " ".join([
+        str(context.node.get("node_name") or ""),
+        str(context.node.get("learning_objective") or ""),
+        *[
+            str(value)
+            for value in context.node.get("key_points") or []
+        ],
+        *[
+            str(value)
+            for value in context.node.get("assessment") or []
+        ],
+    ]).lower()
     focus = context.key_points[0]
     level_action = {
         "concept_check": "准确辨析",
@@ -1114,7 +1139,10 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
         "给出可复核的计算或推理过程",
         "检查结果并说明适用边界",
     ]
-    semantic_case = _linear_algebra_semantic_case(topic, seed)
+    semantic_case = (
+        _linear_algebra_semantic_case(primary_topic, seed)
+        or _linear_algebra_semantic_case(topic, seed)
+    )
     if semantic_case:
         data = semantic_case["data"]
         canonical = semantic_case["canonical"]
@@ -1440,11 +1468,12 @@ def _linear_algebra_semantic_case(
         "标准正交基", "orthonormal", "正交基", "内积空间",
         "正交向量", "内积",
     )):
+        target = [seed + 1, seed - 1]
         return {
             "data": {
                 "case_kind": "orthonormal_basis",
                 "vectors": [[1, 1], [1, -1]],
-                "target": [3, 1],
+                "target": target,
             },
             "canonical": {
                 "dot_product": 0,
@@ -1453,9 +1482,15 @@ def _linear_algebra_semantic_case(
                     "(1/√2)(1,1)",
                     "(1/√2)(1,-1)",
                 ],
-                "target_coordinates": ["2√2", "√2"],
+                "target_coordinates": [
+                    _format_sqrt2_half(target[0] + target[1]),
+                    _format_sqrt2_half(target[0] - target[1]),
+                ],
             },
-            "input_text": "在 R² 中给定 a=(1,1)、b=(1,-1) 和 w=(3,1)。",
+            "input_text": (
+                "在 R² 中给定 a=(1,1)、b=(1,-1) "
+                f"和 w={_format_compact_vector(target)}。"
+            ),
             "task_text": (
                 "把 a、b 归一化为标准正交基，"
                 "求 w 在该基下的坐标，并用重构检查。"
@@ -2511,9 +2546,10 @@ def _expected_linear_algebra_answer(
             "orthogonal_dot_product": 0,
         }
     if case_kind == "orthonormal_basis":
+        target = data.get("target") or []
         if (
             data.get("vectors") != [[1, 1], [1, -1]]
-            or data.get("target") != [3, 1]
+            or len(target) != 2
         ):
             return {}
         return {
@@ -2523,7 +2559,10 @@ def _expected_linear_algebra_answer(
                 "(1/√2)(1,1)",
                 "(1/√2)(1,-1)",
             ],
-            "target_coordinates": ["2√2", "√2"],
+            "target_coordinates": [
+                _format_sqrt2_half(target[0] + target[1]),
+                _format_sqrt2_half(target[0] - target[1]),
+            ],
         }
     if case_kind == "eigenpair":
         matrix = data.get("matrix") or []

@@ -351,9 +351,13 @@ const isChoiceQuestion = computed(() => currentQuestion.value?.input_contract?.m
 const answerLocked = computed(() => !!workspace.currentAttempt && workspace.currentAttempt.status !== 'in_progress')
 const hasAnswer = computed(() => Object.values(workspace.currentDraft || {}).some(value => value !== '' && value !== null && value !== undefined))
 const hasNext = computed(() => workspace.currentQuestionIndex < questions.value.length - 1)
+const normalizedCurrentPrompt = computed(() => String(currentQuestion.value?.prompt || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase())
 const canRefreshQuestion = computed(() => (
   !!currentQuestion.value
-  && questions.value.length > 1
+  && questions.value.some((question: any) => (
+    String(question?.prompt || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+    !== normalizedCurrentPrompt.value
+  ))
   && workflowPhase.value === 'practice'
   && workspace.practiceSaveState !== 'saving'
   && workspace.practiceSaveState !== 'conflict'

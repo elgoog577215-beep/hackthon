@@ -250,6 +250,8 @@ async def refresh_practice_question(
         item
         for item in questions
         if _task_revision_id(item) != payload.current_task_revision_id
+        and _normalized_question_prompt(item)
+        != _normalized_question_prompt(current)
     ]
     if not alternatives:
         raise HTTPException(
@@ -708,6 +710,10 @@ def _task_revision_id(question: dict[str, Any]) -> str:
         or question.get("revision_id")
         or ""
     )
+
+
+def _normalized_question_prompt(question: dict[str, Any]) -> str:
+    return " ".join(str(question.get("prompt") or "").split()).casefold()
 
 
 def _find_question(course: dict[str, Any], revision_id: str) -> dict[str, Any] | None:
