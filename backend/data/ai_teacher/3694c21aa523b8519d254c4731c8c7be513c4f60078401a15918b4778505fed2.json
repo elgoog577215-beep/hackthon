@@ -6,11 +6,47 @@
       "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
       "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
       "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
-      "title": "新对话",
-      "revision": 1,
-      "messages": [],
+      "title": "请换一种更容易理解的方式解释当前内容。",
+      "revision": 2,
+      "messages": [
+        {
+          "role": "user",
+          "content": "请换一种更容易理解的方式解释当前内容。",
+          "context_ref": {
+            "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+            "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+            "node_id": "L2-4-2",
+            "node_name": "4.2 哈希表实现与性能分析",
+            "objective_id": "lo_e53ec242e0627f76",
+            "objective_revision_id": "lor_39e9163184037d45"
+          },
+          "task_ref": {
+            "kind": "reading",
+            "object_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+            "task_revision_id": "",
+            "status": "stale",
+            "context": {
+              "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+              "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+              "chapter_id": "L1-4",
+              "node_id": "L2-4-2",
+              "objective_id": "lo_e53ec242e0627f76",
+              "objective_revision_id": "lor_39e9163184037d45",
+              "content_anchor": null
+            },
+            "return_node_id": "L2-4-2"
+          },
+          "sources": [],
+          "proposal_id": "",
+          "receipt_id": "",
+          "status": "complete",
+          "message_id": "aim_9a52647b414a4217a5ee6a8f453a4e31",
+          "conversation_id": "aic_c01d953002f3447787f1f17cb0bb5e51",
+          "created_at": "2026-07-18T08:46:09.459154+00:00"
+        }
+      ],
       "created_at": "2026-07-18T08:02:29.230263+00:00",
-      "updated_at": "2026-07-18T08:02:29.230263+00:00"
+      "updated_at": "2026-07-18T08:46:09.459154+00:00"
     }
   ],
   "proposals": [],

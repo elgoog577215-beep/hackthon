@@ -12171,5 +12171,178 @@
     },
     "created_at": "2026-07-18T16:45:49.968555",
     "schema_version": 8
+  },
+  {
+    "event_id": "evt_a21fbd86e53947e28fc1db9848fe64c4",
+    "event_type": "practice_ai_support_used",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_2e6a9a9ee889af07",
+    "task_revision_id": "qr_2e6a9a9ee889af07",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_f52a9c84f7674a5c86b5585d9bd16f74:2:practice_ai_support_used",
+    "idempotency_key": "practice_ai_support_used:pa_f52a9c84f7674a5c86b5585d9bd16f74:2",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "entity_revision": 2,
+    "evidence": {
+      "level": 1,
+      "summary": "在正式练习中打开 AI 老师"
+    },
+    "result": {},
+    "metadata": {
+      "practice_level": "objective_practice",
+      "attempt_number": 1,
+      "task_revision_id": "qr_2e6a9a9ee889af07",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:46:05.517552",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_5bb4b8035a3d42559b0317f6112345dd",
+    "event_type": "assistant_question_submitted",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "ai_teacher.ask_events",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": null,
+    "objective_revision_id": null,
+    "concept_ids": [],
+    "skill_unit_ids": [],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": null,
+    "task_revision_id": null,
+    "task_purpose": null,
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": null,
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "evt_5bb4b8035a3d42559b0317f6112345dd",
+    "idempotency_key": null,
+    "entity_type": null,
+    "entity_id": null,
+    "entity_revision": null,
+    "evidence": {
+      "question": "请换一种更容易理解的方式解释当前内容。",
+      "selection": "情境应用｜4.2 哈希表实现与性能分析 输入材料：散列表容量 m=10，哈希函数 h(k)=(3k+1) mod 10，依次插入键 12、22、32、7；冲突采用线性探测（步长为 1），表初始为空 任务：按线性探测规则完成全部插入，写出最终槽位，并记录每个键的探测次数 限制条件：必须使用负载因子管理、性能分析，写出依据、过程和结果检查。",
+      "entrypoint": "practice",
+      "conversation_id": "aic_c01d953002f3447787f1f17cb0bb5e51"
+    },
+    "result": {},
+    "metadata": {
+      "task_ref": {
+        "kind": "reading",
+        "object_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+        "task_revision_id": "",
+        "status": "stale",
+        "context": {
+          "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+          "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+          "chapter_id": "L1-4",
+          "node_id": "L2-4-2",
+          "objective_id": "lo_e53ec242e0627f76",
+          "objective_revision_id": "lor_39e9163184037d45"
+        },
+        "return_node_id": "L2-4-2"
+      },
+      "context_ref": {
+        "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+        "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+        "node_id": "L2-4-2",
+        "node_name": "4.2 哈希表实现与性能分析",
+        "objective_id": "lo_e53ec242e0627f76",
+        "objective_revision_id": "lor_39e9163184037d45"
+      }
+    },
+    "created_at": "2026-07-18T16:46:09.464158",
+    "schema_version": 8
+  },
+  {
+    "event_id": "evt_f3f1b921bc6549dfbb3845dc84e98b2c",
+    "event_type": "practice_attempt_submitted",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "practice.attempts",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "objective_revision_id": null,
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": "qr_2e6a9a9ee889af07",
+    "task_revision_id": "qr_2e6a9a9ee889af07",
+    "task_purpose": "course_practice",
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "attempt:pa_f52a9c84f7674a5c86b5585d9bd16f74:3:practice_attempt_submitted",
+    "idempotency_key": "practice_attempt_submitted:pa_f52a9c84f7674a5c86b5585d9bd16f74:3",
+    "entity_type": "practice_attempt",
+    "entity_id": "pa_f52a9c84f7674a5c86b5585d9bd16f74",
+    "entity_revision": 3,
+    "evidence": {
+      "answer": {
+        "text": "不知道"
+      },
+      "active_seconds": 28,
+      "support_level": 1
+    },
+    "result": {},
+    "metadata": {
+      "practice_level": "objective_practice",
+      "attempt_number": 1,
+      "task_revision_id": "qr_2e6a9a9ee889af07",
+      "task_purpose": "course_practice",
+      "practice_intent": "standard"
+    },
+    "created_at": "2026-07-18T16:46:18.307507",
+    "schema_version": 8
   }
 ]
