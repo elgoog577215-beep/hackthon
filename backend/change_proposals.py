@@ -10,6 +10,8 @@ proposal or overlay circuit here.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
@@ -17,11 +19,11 @@ import os
 from pathlib import Path
 import re
 import threading
-from typing import Any, Callable, Literal
+from typing import Any, AsyncIterator, Callable, Iterator, Literal
 import uuid
 
 from course_commands import CourseCommandService
-from course_document import stable_hash
+from course_document import refresh_block_revision, stable_hash
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 
 
@@ -30,12 +32,16 @@ COURSE_AUTHORING_CHANGE_SCHEMA = "course_authoring_change_v1"
 # explicit authoring schema below.
 CHANGE_PROPOSAL_SCHEMA = COURSE_AUTHORING_CHANGE_SCHEMA
 _SAFE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+# Demo-only process-local transaction boundary; this is not a distributed lock.
+_TRANSITION_LOCKS: dict[str, threading.Lock] = {}
+_TRANSITION_LOCKS_GUARD = threading.Lock()
 
 ChangeProposalScope = Literal["block", "section", "sections", "chapters", "book"]
 ChangeProposalSource = Literal[
     "manual",
     "representation_semantic",
     "block_regeneration",
+    "personalization",
     "evidence",
     "kb_link",
 ]
@@ -188,6 +194,53 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _transition_locks(proposal_id: str, course_id: str) -> list[threading.Lock]:
+    keys = sorted({f"proposal:{proposal_id}", f"course:{course_id}"})
+    with _TRANSITION_LOCKS_GUARD:
+        return [_TRANSITION_LOCKS.setdefault(key, threading.Lock()) for key in keys]
+
+
+def _proposal_course_ids(
+    repository: ChangeProposalRepository,
+    proposal_id: str,
+) -> tuple[str, str]:
+    proposal = repository.load(proposal_id)
+    return proposal_id, str(proposal.get("course_id") or "")
+
+
+@contextmanager
+def _proposal_transition(
+    repository: ChangeProposalRepository,
+    proposal_id: str,
+) -> Iterator[None]:
+    locks = _transition_locks(*_proposal_course_ids(repository, proposal_id))
+    for lock in locks:
+        lock.acquire()
+    try:
+        yield
+    finally:
+        for lock in reversed(locks):
+            lock.release()
+
+
+@asynccontextmanager
+async def _async_proposal_transition(
+    repository: ChangeProposalRepository,
+    proposal_id: str,
+) -> AsyncIterator[None]:
+    locks = _transition_locks(*_proposal_course_ids(repository, proposal_id))
+    acquired: list[threading.Lock] = []
+    try:
+        for lock in locks:
+            while not lock.acquire(blocking=False):
+                await asyncio.sleep(0.001)
+            acquired.append(lock)
+        yield
+    finally:
+        for lock in reversed(acquired):
+            lock.release()
+
+
 def create_proposal(
     repository: ChangeProposalRepository,
     course_id: str,
@@ -237,6 +290,8 @@ def create_proposal(
             "before": raw_item.get("before"),
             "after": raw_item.get("after"),
             "reason": str(raw_item.get("reason") or ""),
+            "selected": bool(raw_item.get("selected", True)),
+            "expected_block_revision": str(raw_item.get("expected_block_revision") or ""),
             "status": "pending",
             "resolved_at": None,
             "resolution_reason": None,
@@ -274,7 +329,7 @@ def create_authoring_change(
     scope: ChangeProposalScope,
     target_block_ids: list[str],
     items: list[dict[str, Any]],
-    source: Literal["manual", "representation_semantic", "block_regeneration"] = "manual",
+    source: Literal["manual", "representation_semantic", "block_regeneration", "personalization"] = "manual",
     generation_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a base-course authoring change through the compatibility store."""
@@ -309,7 +364,61 @@ def _recompute_status(proposal: dict[str, Any]) -> dict[str, Any]:
     return proposal
 
 
+def _require_no_pending_operation(proposal: dict[str, Any]) -> None:
+    if proposal.get("pending_operation") is not None:
+        raise ChangeProposalConflict(
+            "Proposal has an operation awaiting recovery",
+            proposal=proposal,
+        )
+
+
+def require_single_item_apply(
+    proposal: dict[str, Any],
+    *,
+    expected_document_revision: str | None = None,
+) -> None:
+    if proposal.get("source") == "personalization":
+        raise ChangeProposalConflict(
+            "Personalization proposals must use the atomic apply-selected endpoint",
+            proposal=proposal,
+        )
+    base_revision = str(
+        (proposal.get("generation_meta") or {}).get("base_document_revision") or ""
+    )
+    if (
+        base_revision
+        and expected_document_revision is not None
+        and expected_document_revision != base_revision
+    ):
+        raise ChangeProposalConflict(
+            "Current revision does not match the proposal base document revision",
+            proposal=proposal,
+        )
+
+
 async def apply_item(
+    repository: ChangeProposalRepository,
+    command_service: CourseCommandService,
+    proposal_id: str,
+    item_id: str,
+    *,
+    expected_document_revision: str,
+    expected_block_revision: str,
+    actor: str,
+) -> dict[str, Any]:
+    async with _async_proposal_transition(repository, proposal_id):
+        return await _apply_item_locked(
+            repository,
+            command_service,
+            proposal_id,
+            item_id,
+            expected_document_revision=expected_document_revision,
+            expected_block_revision=expected_block_revision,
+            actor=actor,
+        )
+
+
+async def _apply_item_locked(
     repository: ChangeProposalRepository,
     command_service: CourseCommandService,
     proposal_id: str,
@@ -325,6 +434,11 @@ async def apply_item(
     raises ChangeProposalConflict instead of silently overwriting it.
     """
     proposal = repository.load(proposal_id)
+    _require_no_pending_operation(proposal)
+    require_single_item_apply(
+        proposal,
+        expected_document_revision=expected_document_revision,
+    )
     if proposal.get("write_target") == "personal_overlay" or proposal.get("source") == "evidence":
         raise ChangeProposalConflict(
             "Personal adaptation cannot modify the base course document",
@@ -394,7 +508,233 @@ async def apply_item(
     return updated
 
 
+async def apply_selected_items(
+    repository: ChangeProposalRepository,
+    course_repository: CourseDocumentRepository,
+    proposal_id: str,
+    item_ids: list[str],
+    *,
+    expected_document_revision: str,
+    actor: str,
+) -> dict[str, Any]:
+    async with _async_proposal_transition(repository, proposal_id):
+        return await _apply_selected_items_locked(
+            repository,
+            course_repository,
+            proposal_id,
+            item_ids,
+            expected_document_revision=expected_document_revision,
+            actor=actor,
+        )
+
+
+async def _apply_selected_items_locked(
+    repository: ChangeProposalRepository,
+    course_repository: CourseDocumentRepository,
+    proposal_id: str,
+    item_ids: list[str],
+    *,
+    expected_document_revision: str,
+    actor: str,
+) -> dict[str, Any]:
+    """Validate and apply selected course-block items in one document commit."""
+    proposal = repository.load(proposal_id)
+    if proposal.get("write_target") not in {None, "base_course"}:
+        raise ChangeProposalConflict(
+            "This change does not target the base course document",
+            proposal=proposal,
+        )
+    normalized_ids = [str(item_id) for item_id in item_ids if str(item_id)]
+    if not normalized_ids or len(set(normalized_ids)) != len(normalized_ids):
+        raise ChangeProposalConflict(
+            "At least one unique change item must be selected",
+            proposal=proposal,
+        )
+
+    base_revision = str((proposal.get("generation_meta") or {}).get("base_document_revision") or "")
+    if proposal.get("source") == "personalization" and not base_revision:
+        raise ChangeProposalConflict(
+            "Personalization proposal is missing its base document revision",
+            proposal=proposal,
+        )
+    if base_revision and expected_document_revision != base_revision:
+        raise ChangeProposalConflict(
+            "Apply revision does not match the proposal base document revision",
+            proposal=proposal,
+        )
+
+    sorted_ids = sorted(normalized_ids)
+    selected_ids = set(normalized_ids)
+    course_id = str(proposal.get("course_id") or "")
+    command_id = f"apply-selected-{proposal_id}-{'-'.join(sorted_ids)}"
+    for item_id in normalized_ids:
+        _find_item(proposal, item_id)
+
+    pending_operation = proposal.get("pending_operation")
+    if pending_operation is not None and (
+        pending_operation.get("kind") != "apply_selected"
+        or pending_operation.get("command_id") != command_id
+        or sorted(pending_operation.get("item_ids") or []) != sorted_ids
+        or pending_operation.get("expected_document_revision") != expected_document_revision
+    ):
+        raise ChangeProposalConflict(
+            "Another proposal operation is awaiting recovery",
+            proposal=proposal,
+        )
+
+    def finalize(receipt: dict[str, Any]) -> dict[str, Any]:
+        def _apply_updater(current: dict[str, Any]) -> dict[str, Any]:
+            current_pending = current.get("pending_operation")
+            if current_pending is not None and current_pending.get("command_id") != command_id:
+                raise ChangeProposalConflict(
+                    "Another proposal operation is awaiting recovery",
+                    proposal=current,
+                )
+            for current_item in current.get("items") or []:
+                if current_item.get("item_id") not in selected_ids:
+                    continue
+                current_item["status"] = "applied"
+                current_item["resolved_at"] = current_item.get("resolved_at") or _now()
+                current_item["receipt"] = receipt
+            current["pending_operation"] = None
+            return _recompute_status(current)
+
+        updated = repository.update(proposal_id, _apply_updater)
+        return {
+            "proposal": updated,
+            "receipt": receipt,
+            "document": course_repository.document_envelope(course_id),
+        }
+
+    existing_receipt = course_repository.receipt_for_command(course_id, command_id)
+    if existing_receipt:
+        return finalize(existing_receipt)
+
+    document, canonical = course_repository.load_document(course_id)
+    if not canonical:
+        raise ChangeProposalConflict(
+            "Course must be migrated before applying changes",
+            proposal=proposal,
+        )
+    if document.document_revision != expected_document_revision:
+        raise ChangeProposalConflict("Course document revision changed", proposal=proposal)
+
+    blocks_by_id = {block.block_id: block for block in document.blocks}
+    prepared: list[tuple[dict[str, Any], Any, dict[str, Any]]] = []
+    for item_id in normalized_ids:
+        item = _find_item(proposal, item_id)
+        if (item.get("target_kind") or "course_block") != "course_block":
+            raise ChangeProposalConflict(
+                "Selected change item does not target a course block",
+                proposal=proposal,
+            )
+        if item.get("status") != "pending":
+            raise ChangeProposalConflict(
+                f"Item cannot be applied from status {item.get('status')}",
+                proposal=proposal,
+            )
+        target = blocks_by_id.get(str(item.get("block_id") or ""))
+        if target is None:
+            raise ChangeProposalConflict("Course block not found", proposal=proposal)
+        expected_block_revision = str(item.get("expected_block_revision") or "")
+        if not expected_block_revision or target.internal_revision != expected_block_revision:
+            raise ChangeProposalConflict("Course block revision changed", proposal=proposal)
+
+        before = item.get("before")
+        after = item.get("after")
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            raise ChangeProposalConflict(
+                "Selected change item requires structured before and after values",
+                proposal=proposal,
+            )
+        if str(before.get("block_id") or "") != target.block_id:
+            raise ChangeProposalConflict("Course block identity changed", proposal=proposal)
+        before_payload = before.get("payload")
+        after_payload = after.get("payload")
+        if not isinstance(before_payload, dict) or before_payload != target.payload:
+            raise ChangeProposalConflict("Course block content changed", proposal=proposal)
+        if not isinstance(after_payload, dict):
+            raise ChangeProposalConflict("Item 'after' payload is invalid", proposal=proposal)
+        prepared.append((item, target, deepcopy(after_payload)))
+
+    operation = {
+        "kind": "apply_selected",
+        "command_id": command_id,
+        "item_ids": sorted_ids,
+        "expected_document_revision": expected_document_revision,
+        "started_at": _now(),
+    }
+
+    if pending_operation is None:
+        def _set_pending_operation(current: dict[str, Any]) -> dict[str, Any]:
+            if current.get("pending_operation") is not None:
+                raise ChangeProposalConflict(
+                    "Another proposal operation is awaiting recovery",
+                    proposal=current,
+                )
+            for item_id in normalized_ids:
+                current_item = _find_item(current, item_id)
+                if current_item.get("status") != "pending":
+                    raise ChangeProposalConflict(
+                        f"Item cannot be applied from status {current_item.get('status')}",
+                        proposal=current,
+                    )
+            current["pending_operation"] = operation
+            return current
+
+        proposal = repository.update(proposal_id, _set_pending_operation)
+
+    for _item, target, payload in prepared:
+        target.payload = payload
+        refresh_block_revision(target)
+
+    affected_block_ids = [target.block_id for _item, target, _payload in prepared]
+    try:
+        receipt = await course_repository.commit_document(
+            str(proposal["course_id"]),
+            document,
+            expected_revision=expected_document_revision,
+            operation={
+                "command_id": command_id,
+                "operation": "apply_selected_authoring_changes",
+                "affected_block_ids": affected_block_ids,
+                "reason": "应用个性化课程改进",
+                "actor": actor,
+            },
+        )
+    except CourseDocumentConflict as exc:
+        try:
+            repository.update(
+                proposal_id,
+                lambda current: {**current, "pending_operation": None},
+            )
+        except Exception:
+            pass
+        raise ChangeProposalConflict(str(exc), proposal=proposal) from exc
+    return finalize(receipt)
+
+
 async def apply_objective_item(
+    repository: ChangeProposalRepository,
+    command_service: CourseCommandService,
+    proposal_id: str,
+    item_id: str,
+    *,
+    expected_document_revision: str,
+    actor: str,
+) -> dict[str, Any]:
+    async with _async_proposal_transition(repository, proposal_id):
+        return await _apply_objective_item_locked(
+            repository,
+            command_service,
+            proposal_id,
+            item_id,
+            expected_document_revision=expected_document_revision,
+            actor=actor,
+        )
+
+
+async def _apply_objective_item_locked(
     repository: ChangeProposalRepository,
     command_service: CourseCommandService,
     proposal_id: str,
@@ -405,6 +745,10 @@ async def apply_objective_item(
 ) -> dict[str, Any]:
     """Apply a section learning-objective authoring change to the course truth."""
     proposal = repository.load(proposal_id)
+    require_single_item_apply(
+        proposal,
+        expected_document_revision=expected_document_revision,
+    )
     if proposal.get("write_target") not in {None, "base_course"}:
         raise ChangeProposalConflict(
             "This change does not target the base course document",
@@ -493,6 +837,7 @@ def apply_kg_node_item(
     the course knowledge maintenance surface.
     """
     proposal = repository.load(proposal_id)
+    _require_no_pending_operation(proposal)
     item = _find_item(proposal, item_id)
     if item.get("status") != "pending":
         raise ChangeProposalConflict(
@@ -565,6 +910,22 @@ def reject_item(
     *,
     reason: str | None = None,
 ) -> dict[str, Any]:
+    with _proposal_transition(repository, proposal_id):
+        return _reject_item_locked(
+            repository,
+            proposal_id,
+            item_id,
+            reason=reason,
+        )
+
+
+def _reject_item_locked(
+    repository: ChangeProposalRepository,
+    proposal_id: str,
+    item_id: str,
+    *,
+    reason: str | None = None,
+) -> dict[str, Any]:
     """Reject one item and keep learner evidence separate from course authoring.
 
     Rejections flow back into the learner evidence trail only for proposals
@@ -573,6 +934,7 @@ def reject_item(
     and must not alter any learner model.
     """
     proposal = repository.load(proposal_id)
+    _require_no_pending_operation(proposal)
     item = _find_item(proposal, item_id)
     if item.get("status") != "pending":
         raise ChangeProposalConflict(
@@ -729,6 +1091,26 @@ def regenerate_item(
     generated_after: dict[str, Any] | None = None,
     generation_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    with _proposal_transition(repository, proposal_id):
+        return _regenerate_item_locked(
+            repository,
+            proposal_id,
+            item_id,
+            extra_instruction=extra_instruction,
+            generated_after=generated_after,
+            generation_meta=generation_meta,
+        )
+
+
+def _regenerate_item_locked(
+    repository: ChangeProposalRepository,
+    proposal_id: str,
+    item_id: str,
+    *,
+    extra_instruction: str | None = None,
+    generated_after: dict[str, Any] | None = None,
+    generation_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Mark the original item rejected (recording the regeneration request as the
     reason) and append a fresh item for the same block.
 
@@ -752,6 +1134,7 @@ def regenerate_item(
         raise ValueError("Regenerated content requires an object payload")
 
     proposal = repository.load(proposal_id)
+    _require_no_pending_operation(proposal)
     item = _find_item(proposal, item_id)
     if item.get("status") != "pending":
         raise ChangeProposalConflict(
@@ -823,6 +1206,7 @@ __all__ = [
     "ChangeProposalNotFound",
     "ChangeProposalRepository",
     "apply_item",
+    "apply_selected_items",
     "change_proposal_repository",
     "create_authoring_change",
     "create_proposal",

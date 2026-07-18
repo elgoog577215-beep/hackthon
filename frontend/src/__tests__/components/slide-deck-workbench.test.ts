@@ -35,6 +35,42 @@ beforeEach(() => {
 })
 
 describe('SlideDeckWorkbench', () => {
+  it('switches preview themes without rebuilding and applies the theme to normal and full-screen canvases', async () => {
+    const store = useTeachingRepresentationsStore()
+    const build = vi.spyOn(store, 'buildProgressive')
+    const demoSlides = Array.from({ length: 15 }, (_, index) => ({
+      ...slides[index % slides.length]!,
+      unit_id: `slide:${index + 1}`,
+      title: `Demo ${index + 1}`,
+    }))
+    const wrapper = mount(SlideDeckWorkbench, {
+      attachTo: document.body,
+      props: {
+        courseId: 'course-1', representationId: 'slides-1', deckTitle: '数据结构', slides: demoSlides,
+        staleUnitIds: [], building: false, progress: 100, stage: 'complete', error: '',
+        quality: { passed: true, score: 1 }, standalone: true,
+      },
+    })
+
+    expect(wrapper.find('.deck-canvas').attributes('data-theme')).toBe('qingfeng-classroom')
+    expect(wrapper.find('.slide-workbench__count').text()).toContain('15')
+    expect(wrapper.find('.slide-workbench__count').text()).toContain('12–18')
+
+    await wrapper.find('[data-theme-option="academic-bluegray"]').trigger('click')
+    expect(wrapper.find('.deck-canvas').attributes('data-theme')).toBe('academic-bluegray')
+    expect(wrapper.emitted('rebuild')).toBeUndefined()
+    expect(build).not.toHaveBeenCalled()
+
+    const present = wrapper.findAll('.slide-workbench__commands button')
+      .find(button => button.attributes('title') === '全屏演示')
+    await present!.trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('.deck-presentation .deck-canvas')?.getAttribute('data-theme'))
+      .toBe('academic-bluegray')
+
+    wrapper.unmount()
+  })
+
   it('uses the same structured slide spec for thumbnails, canvas, and source inspection', async () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {
@@ -53,7 +89,9 @@ describe('SlideDeckWorkbench', () => {
     expect(wrapper.find('.slide-inspector__refs').text()).toContain('向量定义')
     expect(wrapper.find('.slide-inspector__refs').text()).toContain('识别向量')
 
-    await wrapper.find('.slide-workbench__commands button').trigger('click')
+    const askAiButton = wrapper.findAll('.slide-workbench__commands button')
+      .find(button => button.attributes('title') === '交给 AI 老师讨论')
+    await askAiButton!.trigger('click')
     const event = wrapper.emitted('ask-ai')?.[0]?.[0] as Record<string, any>
     expect(event.nodeId).toBe('section-a')
     expect(event.anchor.slide_unit_id).toBe('slide:section-a')
@@ -85,9 +123,77 @@ describe('SlideDeckWorkbench', () => {
     const exportButton = wrapper.find('.slide-workbench__export')
     await exportButton.trigger('click')
     await flushPromises()
-    expect(download).toHaveBeenCalledWith('slides-1', '数据结构')
+    expect(download).toHaveBeenCalledWith('slides-1', '数据结构', 'qingfeng-classroom')
 
     wrapper.unmount()
+  })
+
+  it('shows unpublished slide and layout quality issues with actionable suggestions', async () => {
+    const store = useTeachingRepresentationsStore()
+    const download = vi.spyOn(store, 'downloadSlides').mockResolvedValue(undefined)
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1', representationId: 'slides-1', deckTitle: '数据结构', slides,
+        staleUnitIds: [], building: false, progress: 100, stage: 'quality', error: 'quality_gate_failed',
+        previewSource: 'draft',
+        quality: {
+          passed: false,
+          issues: [{
+            severity: 'critical',
+            code: 'slide_item_overflow',
+            slide_id: 'slide:section-a',
+            layout: 'concept',
+            message: '页面要点数量超过版式容量。',
+            suggestion: '将可见要点压缩到版式允许的数量。',
+          }],
+        },
+      },
+    })
+
+    const preview = wrapper.find('.slide-workbench__failed-preview')
+    expect(preview.text()).toContain('未发布问题预览')
+    expect(preview.text()).toContain('slide:section-a')
+    expect(preview.text()).toContain('概念')
+    expect(preview.text()).toContain('页面要点数量超过版式容量。')
+    expect(preview.text()).toContain('将可见要点压缩到版式允许的数量。')
+    expect(wrapper.attributes('data-preview-source')).toBe('draft')
+    expect(wrapper.find('.slide-workbench__export').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.slide-workbench__export').attributes('title')).toContain('问题草稿不可导出')
+    await wrapper.find('.slide-workbench__export').trigger('click')
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('restores export when a successful rebuild changes the preview from draft to published', async () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1', representationId: 'slides-1', deckTitle: '数据结构', slides,
+        staleUnitIds: [], building: false, progress: 100, stage: 'quality', error: 'quality_gate_failed',
+        previewSource: 'draft', quality: { passed: false },
+      },
+    })
+
+    expect(wrapper.find('.slide-workbench__export').attributes('disabled')).toBeDefined()
+
+    await wrapper.setProps({
+      previewSource: 'published', error: '', stage: 'complete', quality: { passed: true },
+    })
+
+    expect(wrapper.attributes('data-preview-source')).toBe('published')
+    expect(wrapper.find('.slide-workbench__export').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('.slide-workbench__export').attributes('title')).toBe('导出 PPTX')
+  })
+
+  it('keeps a useful fallback for legacy failed payloads without issues', () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1', representationId: 'slides-1', deckTitle: '数据结构', slides,
+        staleUnitIds: [], building: false, progress: 100, stage: 'quality', error: 'quality_gate_failed',
+        quality: { passed: false },
+      },
+    })
+
+    expect(wrapper.find('.slide-workbench__failed-preview').text()).toContain('未发布问题预览')
+    expect(wrapper.find('.slide-workbench__failed-preview').text()).toContain('未返回逐页问题')
   })
 
   it('shows semantic impact, confirms in place, and reports changed versus reused units', async () => {

@@ -13,15 +13,22 @@ import threading
 from typing import Any, Callable
 import uuid
 
+from change_proposals import ChangeProposalRepository, create_authoring_change
 from course_commands import CourseCommandService
 from course_document import CourseBlock, stable_hash
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
-from learning_events import summarize_text
+from learning_events import record_learning_event, summarize_text
 from storage import DATA_DIR
 
 
 BLOCK_REGENERATION_SCHEMA = "block_regeneration_candidate_v1"
 BLOCK_REGENERATION_PROCESS_ID = uuid.uuid4().hex
+PERSONALIZATION_RELATED_TIMEOUT_SECONDS = 8.0
+PERSONALIZATION_IDEMPOTENCY_WAIT_SECONDS = 30.0
+_PERSONALIZATION_REQUEST_TASKS: dict[
+    tuple[str, str], tuple[str, asyncio.Task[dict[str, Any]]]
+] = {}
+_PERSONALIZATION_REQUEST_TASKS_GUARD = threading.Lock()
 _SAFE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 _CONTENT_KEYS = {"markdown", "text"}
 _ERROR_MARKERS = (
@@ -32,6 +39,20 @@ _ERROR_MARKERS = (
     "i cannot comply",
     "i can't comply",
 )
+_PERSONALIZATION_ROLE_PRIORITY = {
+    "simplify": (
+        "prerequisite", "misconception", "example", "concept", "reasoning",
+        "summary", "checkpoint", "remediation",
+    ),
+    "expand": (
+        "reasoning", "example", "application", "counterexample", "transfer",
+        "concept", "summary", "checkpoint",
+    ),
+    "custom": (
+        "concept", "reasoning", "example", "application", "misconception",
+        "counterexample", "summary", "transfer",
+    ),
+}
 
 
 class BlockRegenerationNotFound(KeyError):
@@ -42,6 +63,10 @@ class BlockRegenerationConflict(RuntimeError):
     def __init__(self, message: str, *, candidate: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.candidate = deepcopy(candidate) if candidate else None
+
+
+class PersonalizationGenerationInProgress(RuntimeError):
+    """A matching personalization request is still producing its proposal."""
 
 
 class BlockRegenerationCandidateRepository:
@@ -213,8 +238,30 @@ class BlockRegenerationService:
         user_id: str,
     ) -> dict[str, Any]:
         candidate_id = self.candidate_repository.candidate_id_for(course_id, block_id, request_id)
+        instruction = instruction.strip() or "提升这段内容的准确性、清晰度和教学效果。"
+        request_fingerprint = stable_hash(
+            {
+                "course_id": course_id,
+                "block_id": block_id,
+                "expected_document_revision": expected_document_revision,
+                "expected_block_revision": expected_block_revision,
+                "instruction": instruction,
+                "action_type": action_type,
+                "user_id": user_id,
+            },
+            prefix="brf_",
+        )
         existing = self.candidate_repository.load_optional(candidate_id)
         if existing:
+            self._require_matching_request(
+                existing,
+                request_fingerprint=request_fingerprint,
+                instruction=instruction,
+                action_type=action_type,
+                expected_document_revision=expected_document_revision,
+                expected_block_revision=expected_block_revision,
+                user_id=user_id,
+            )
             return self._recover_interrupted_candidate(existing)
 
         document, target, _section, _neighbors = self._generation_context(
@@ -224,7 +271,6 @@ class BlockRegenerationService:
             expected_block_revision=expected_block_revision,
         )
         original_payload = deepcopy(target.payload)
-        instruction = instruction.strip() or "提升这段内容的准确性、清晰度和教学效果。"
         now = datetime.now(timezone.utc).isoformat()
         run_id = uuid.uuid4().hex
         placeholder = {
@@ -237,6 +283,8 @@ class BlockRegenerationService:
             "status": "generating",
             "action_type": action_type,
             "instruction": instruction,
+            "request_fingerprint": request_fingerprint,
+            "requested_by": user_id,
             "expected_document_revision": expected_document_revision,
             "expected_block_revision": expected_block_revision,
             "original_payload": original_payload,
@@ -260,6 +308,15 @@ class BlockRegenerationService:
         }
         candidate, created = self.candidate_repository.create_once(placeholder)
         if not created:
+            self._require_matching_request(
+                candidate,
+                request_fingerprint=request_fingerprint,
+                instruction=instruction,
+                action_type=action_type,
+                expected_document_revision=expected_document_revision,
+                expected_block_revision=expected_block_revision,
+                user_id=user_id,
+            )
             return self._recover_interrupted_candidate(candidate)
         return await self._generate_candidate(candidate, user_id=user_id, run_id=run_id)
 
@@ -627,6 +684,37 @@ class BlockRegenerationService:
             raise BlockRegenerationNotFound(str(candidate.get("candidate_id") or ""))
 
     @staticmethod
+    def _require_matching_request(
+        candidate: dict[str, Any],
+        *,
+        request_fingerprint: str,
+        instruction: str,
+        action_type: str,
+        expected_document_revision: str,
+        expected_block_revision: str,
+        user_id: str,
+    ) -> None:
+        stored_fingerprint = str(candidate.get("request_fingerprint") or "")
+        if stored_fingerprint:
+            matches = stored_fingerprint == request_fingerprint
+        else:
+            requested_by = str(candidate.get("requested_by") or "")
+            matches = (
+                str(candidate.get("instruction") or "") == instruction
+                and str(candidate.get("action_type") or "rewrite") == action_type
+                and str(candidate.get("expected_document_revision") or "")
+                == expected_document_revision
+                and str(candidate.get("expected_block_revision") or "")
+                == expected_block_revision
+                and (not requested_by or requested_by == user_id)
+            )
+        if not matches:
+            raise BlockRegenerationConflict(
+                "request_id reused with different payload",
+                candidate=candidate,
+            )
+
+    @staticmethod
     def _content_key(payload: dict[str, Any]) -> str:
         if "markdown" in payload or "text" not in payload:
             return "markdown"
@@ -655,6 +743,317 @@ class BlockRegenerationService:
             "previous": context(siblings[index - 1] if index > 0 else None),
             "next": context(siblings[index + 1] if index + 1 < len(siblings) else None),
         }
+
+
+class PersonalizationProposalService:
+    """Build a small authoring proposal from one learner-feedback submission."""
+
+    def __init__(
+        self,
+        course_repository: CourseDocumentRepository,
+        candidate_repository: BlockRegenerationCandidateRepository,
+        proposal_repository: ChangeProposalRepository,
+        *,
+        generator: Any | None = None,
+        event_recorder: Callable[..., dict[str, Any]] = record_learning_event,
+    ) -> None:
+        self.course_repository = course_repository
+        self.proposal_repository = proposal_repository
+        self.regeneration_service = BlockRegenerationService(
+            course_repository,
+            candidate_repository,
+            generator=generator,
+        )
+        self.event_recorder = event_recorder
+
+    async def create_proposal(
+        self,
+        course_id: str,
+        block_id: str,
+        *,
+        request_id: str,
+        expected_document_revision: str,
+        expected_block_revision: str,
+        direction: str,
+        feedback: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        proposal_id = self.proposal_repository.proposal_id_for(course_id, request_id)
+        feedback_hash = stable_hash({"feedback": feedback.strip()}, prefix="pfh_")
+        request_fingerprint = stable_hash(
+            {
+                "user_id": user_id,
+                "block_id": block_id,
+                "expected_document_revision": expected_document_revision,
+                "expected_block_revision": expected_block_revision,
+                "direction": direction,
+                "feedback_hash": feedback_hash,
+            },
+            prefix="ppf_",
+        )
+        request_key = (str(self.proposal_repository.root_dir.resolve()), proposal_id)
+        created = False
+        with _PERSONALIZATION_REQUEST_TASKS_GUARD:
+            inflight = _PERSONALIZATION_REQUEST_TASKS.get(request_key)
+            if inflight is not None:
+                inflight_fingerprint, task = inflight
+                if inflight_fingerprint != request_fingerprint:
+                    raise BlockRegenerationConflict(
+                        "Personalization request ID was already used with different inputs"
+                    )
+            else:
+                task = asyncio.create_task(self._create_proposal(
+                    course_id,
+                    block_id,
+                    request_id=request_id,
+                    expected_document_revision=expected_document_revision,
+                    expected_block_revision=expected_block_revision,
+                    direction=direction,
+                    feedback=feedback,
+                    user_id=user_id,
+                    proposal_id=proposal_id,
+                    feedback_hash=feedback_hash,
+                    request_fingerprint=request_fingerprint,
+                ))
+                _PERSONALIZATION_REQUEST_TASKS[request_key] = (request_fingerprint, task)
+                created = True
+
+        if created:
+            def clear_inflight(completed: asyncio.Task[dict[str, Any]]) -> None:
+                with _PERSONALIZATION_REQUEST_TASKS_GUARD:
+                    current = _PERSONALIZATION_REQUEST_TASKS.get(request_key)
+                    if current is not None and current[1] is completed:
+                        _PERSONALIZATION_REQUEST_TASKS.pop(request_key, None)
+
+            task.add_done_callback(clear_inflight)
+            return await task
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(task),
+                timeout=PERSONALIZATION_IDEMPOTENCY_WAIT_SECONDS,
+            )
+        except TimeoutError as exc:
+            raise PersonalizationGenerationInProgress(
+                "Personalization request is still being generated"
+            ) from exc
+
+    async def _create_proposal(
+        self,
+        course_id: str,
+        block_id: str,
+        *,
+        request_id: str,
+        expected_document_revision: str,
+        expected_block_revision: str,
+        direction: str,
+        feedback: str,
+        user_id: str,
+        proposal_id: str,
+        feedback_hash: str,
+        request_fingerprint: str,
+    ) -> dict[str, Any]:
+        existing = self.proposal_repository.load_optional(proposal_id)
+        if existing is not None:
+            existing_fingerprint = str(
+                (existing.get("generation_meta") or {}).get("request_fingerprint") or ""
+            )
+            if existing_fingerprint != request_fingerprint:
+                raise BlockRegenerationConflict(
+                    "Personalization request ID was already used with different inputs"
+                )
+            return existing
+
+        document, canonical = self.course_repository.load_document(course_id)
+        if not canonical:
+            raise BlockRegenerationConflict("Course must be migrated before personalization")
+        if document.document_revision != expected_document_revision:
+            raise BlockRegenerationConflict("Course document revision changed before personalization")
+        target = next((item for item in document.blocks if item.block_id == block_id), None)
+        if target is None:
+            raise BlockRegenerationNotFound(block_id)
+        if target.internal_revision != expected_block_revision:
+            raise BlockRegenerationConflict("Course block revision changed before personalization")
+
+        instruction = self._instruction(direction, feedback, related=False)
+        target_candidate = await self.regeneration_service.create_candidate(
+            course_id,
+            block_id,
+            request_id=f"{request_id}-{block_id}",
+            expected_document_revision=expected_document_revision,
+            expected_block_revision=expected_block_revision,
+            instruction=instruction,
+            action_type=self._action_type(direction),
+            user_id=user_id,
+        )
+        if target_candidate.get("status") != "ready":
+            raise BlockRegenerationConflict(
+                "Target block personalization could not produce a usable candidate",
+                candidate=target_candidate,
+            )
+
+        generated: list[tuple[CourseBlock, dict[str, Any]]] = [(target, target_candidate)]
+
+        async def generate_related(
+            related: CourseBlock,
+        ) -> tuple[CourseBlock, dict[str, Any]] | None:
+            try:
+                candidate = await asyncio.wait_for(
+                    self.regeneration_service.create_candidate(
+                        course_id,
+                        related.block_id,
+                        request_id=f"{request_id}-{related.block_id}",
+                        expected_document_revision=expected_document_revision,
+                        expected_block_revision=related.internal_revision,
+                        instruction=self._instruction(direction, feedback, related=True),
+                        action_type=self._action_type(direction),
+                        user_id=user_id,
+                    ),
+                    timeout=PERSONALIZATION_RELATED_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                return None
+            if candidate.get("status") == "ready":
+                return related, candidate
+            return None
+
+        related_results = await asyncio.gather(*(
+            generate_related(related)
+            for related in self._related_blocks(document.blocks, target, direction)[:2]
+        ))
+        generated.extend(result for result in related_results if result is not None)
+
+        items = [
+            {
+                "block_id": block.block_id,
+                "before": block.model_dump(mode="json"),
+                "after": self._redact_feedback(candidate["proposed_block"], feedback),
+                "reason": self._reason(block.block_id == target.block_id, direction),
+                "selected": True,
+                "expected_block_revision": block.internal_revision,
+            }
+            for block, candidate in generated
+        ]
+        target_block_ids = [item["block_id"] for item in items]
+        proposal = create_authoring_change(
+            self.proposal_repository,
+            course_id,
+            request_id=request_id,
+            scope="section" if len(items) > 1 else "block",
+            target_block_ids=target_block_ids,
+            items=items,
+            source="personalization",
+            generation_meta={
+                "direction": direction,
+                "feedback_hash": feedback_hash,
+                "request_fingerprint": request_fingerprint,
+                "base_document_revision": expected_document_revision,
+                "target_block_id": block_id,
+            },
+        )
+        persisted_fingerprint = str(
+            (proposal.get("generation_meta") or {}).get("request_fingerprint") or ""
+        )
+        if persisted_fingerprint != request_fingerprint:
+            raise BlockRegenerationConflict(
+                "Personalization request ID was concurrently used with different inputs"
+            )
+        self.event_recorder(
+            event_type="personalization_feedback_submitted",
+            actor="learner",
+            source="personalization_proposals",
+            user_id=user_id,
+            course_id=course_id,
+            course_version_id=expected_document_revision,
+            node_id=block_id,
+            objective_id=(target.objective_refs or [None])[0],
+            operation_id=proposal["proposal_id"],
+            idempotency_key=request_id,
+            entity_type="course_block",
+            entity_id=block_id,
+            entity_revision=expected_block_revision,
+            evidence={
+                "direction": direction,
+                "feedback_summary": summarize_text(feedback, limit=240),
+            },
+            result={
+                "proposal_id": proposal["proposal_id"],
+                "changed_block_ids": target_block_ids,
+            },
+        )
+        return proposal
+
+    @staticmethod
+    def _action_type(direction: str) -> str:
+        return direction if direction in {"simplify", "expand"} else "rewrite"
+
+    @staticmethod
+    def _instruction(direction: str, feedback: str, *, related: bool) -> str:
+        direction_text = {
+            "simplify": "降低理解门槛，用更直观、清楚的表达解释关键概念。",
+            "expand": "补充必要的推理、例子或应用，让解释更完整。",
+            "custom": "严格根据学生的具体反馈改进正文。",
+        }.get(direction, "严格根据学生的具体反馈改进正文。")
+        relation_text = (
+            "这是与目标块同章节、同学习目标的相关块；只做少量协调改进，避免重复目标块。"
+            if related
+            else "这是学生当前反馈所指向的目标块，必须对反馈作出明显、直接的响应。"
+        )
+        return f"{direction_text}\n{relation_text}\n学生反馈：{feedback}"
+
+    @staticmethod
+    def _reason(is_target: bool, direction: str) -> str:
+        subject = "直接优化反馈所指向的当前块" if is_target else "协调同目标的相关块"
+        return f"{subject}；方向：{direction}"
+
+    @staticmethod
+    def _redact_feedback(value: Any, feedback: str) -> Any:
+        """Keep generated content while avoiding verbatim feedback persistence."""
+        needle = feedback.strip()
+        if not needle:
+            return deepcopy(value)
+        if isinstance(value, str):
+            return value.replace(needle, "（反馈原文已省略）")
+        if isinstance(value, list):
+            return [PersonalizationProposalService._redact_feedback(item, needle) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: PersonalizationProposalService._redact_feedback(item, needle)
+                for key, item in value.items()
+            }
+        return deepcopy(value)
+
+    @staticmethod
+    def _related_blocks(
+        blocks: list[CourseBlock],
+        target: CourseBlock,
+        direction: str,
+    ) -> list[CourseBlock]:
+        target_objectives = set(target.objective_refs)
+        if not target_objectives:
+            return []
+        priorities = list(_PERSONALIZATION_ROLE_PRIORITY.get(direction, _PERSONALIZATION_ROLE_PRIORITY["custom"]))
+        if direction == "custom" and target.role in priorities:
+            priorities.remove(target.role)
+            priorities.insert(0, target.role)
+        role_rank = {role: index for index, role in enumerate(priorities)}
+        related = [
+            block
+            for block in blocks
+            if block.block_id != target.block_id
+            and block.section_id == target.section_id
+            and block.status != "retired"
+            and bool(target_objectives.intersection(block.objective_refs))
+        ]
+        return sorted(
+            related,
+            key=lambda block: (
+                role_rank.get(block.role, len(role_rank)),
+                abs(block.position - target.position),
+                block.position,
+                block.block_id,
+            ),
+        )
 
 
 def evaluate_block_candidate(
@@ -721,6 +1120,8 @@ __all__ = [
     "BlockRegenerationConflict",
     "BlockRegenerationNotFound",
     "BlockRegenerationService",
+    "PersonalizationGenerationInProgress",
+    "PersonalizationProposalService",
     "block_regeneration_candidate_repository",
     "evaluate_block_candidate",
 ]

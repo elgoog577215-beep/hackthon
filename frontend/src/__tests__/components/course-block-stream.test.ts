@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
@@ -5,6 +7,9 @@ import CourseBlockStream from '@/components/CourseBlockStream.vue'
 import { useCourseStore } from '@/stores/course'
 import { useLearningProgressStore } from '@/stores/learningProgress'
 import type { Node as CourseNode, Note } from '@/stores/types'
+
+const componentSource = readFileSync(resolve(process.cwd(), 'src/components/CourseBlockStream.vue'), 'utf8')
+const desktopStyles = componentSource.slice(0, componentSource.indexOf('@media (max-width:880px)'))
 
 const baseNode: CourseNode = {
   node_id: 'node-1',
@@ -270,7 +275,7 @@ describe('CourseBlockStream', () => {
     )
   })
 
-  it('为课程块提供原位 AI 协作入口并带出稳定块引用', async () => {
+  it('canonical 正文块只保留一个正式个性化入口并带出稳定块引用', async () => {
     const block = {
       block_id: 'canonical', section_id: 'node-1', position: 0, kind: 'rich_text' as const, role: 'concept' as const,
       payload: { title: '向量定义', markdown: '向量具有大小和方向。' }, asset_refs: [], objective_refs: ['lo-1'],
@@ -282,14 +287,14 @@ describe('CourseBlockStream', () => {
       global,
     })
 
-    const entry = wrapper.get('.inline-block-ai-stub')
-    expect(entry.attributes('data-block-id')).toBe('canonical')
+    expect(wrapper.find('.inline-block-ai-stub').exists()).toBe(false)
+    expect(wrapper.findAll('.block-formal-improvement')).toHaveLength(1)
+    const entry = wrapper.get('.block-formal-improvement')
+    expect(entry.text()).toContain('根据我的反馈优化本段')
+    expect(desktopStyles).toMatch(/\.block-formal-improvement\s*\{[^}]*color:#1e293b;/s)
+    expect(desktopStyles).toMatch(/\.block-formal-improvement\s*\{[^}]*opacity:\.68;[^}]*pointer-events:auto;/s)
+    expect(desktopStyles).toMatch(/\.block-formal-improvement:hover,\s*\.block-formal-improvement:focus-visible,\s*\.course-content-block:hover > \.block-formal-improvement\s*\{[^}]*opacity:1;/s)
     await entry.trigger('click')
-
-    expect(wrapper.findComponent({ name: 'InlineCourseBlockAI' }).props('active')).toBe(true)
-
-    expect(wrapper.findAll('.block-ai-menu button')).toHaveLength(0)
-    await wrapper.get('.block-formal-improvement').trigger('click')
     expect(wrapper.emitted('improveBlock')).toEqual([[
       expect.objectContaining({ nodeId: 'node-1', block: expect.objectContaining({ block_id: 'canonical' }) }),
     ]])

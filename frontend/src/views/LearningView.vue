@@ -432,7 +432,7 @@ function openBlockImprovement(target: CourseBlockEditTarget) {
     block_id: target.block.block_id,
     block_revision_id: target.block.internal_revision,
   }
-  aiPrefill.value = t('courseWorkspace.blockRegeneration.defaultInstruction', '把这段内容讲得更准确、更清楚，并保持与前后文衔接。')
+  aiPrefill.value = ''
   aiEntrypoint.value = 'selection'
   aiVisible.value = true
   if (isNarrow.value) navigatorOpen.value = false

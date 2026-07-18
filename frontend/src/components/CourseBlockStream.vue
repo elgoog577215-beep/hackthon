@@ -18,12 +18,12 @@
           v-if="canImproveBlock(item.block.block_id)"
           type="button"
           class="block-formal-improvement"
-          :title="t('courseWorkspace.blockRegeneration.open', '改进正式正文')"
-          :aria-label="t('courseWorkspace.blockRegeneration.open', '改进正式正文')"
+          :title="t('courseWorkspace.personalization.open', '根据我的反馈优化本段')"
+          :aria-label="t('courseWorkspace.personalization.open', '根据我的反馈优化本段')"
           @click="requestBlockImprovement(item.block.block_id)"
         >
           <PencilLine :size="13" />
-          <span>{{ t('courseWorkspace.blockRegeneration.open', '改进正式正文') }}</span>
+          <span>{{ t('courseWorkspace.personalization.open', '根据我的反馈优化本段') }}</span>
         </button>
         <CourseEvolutionContentBlock
           v-if="item.block.metadata?.course_evolution"
@@ -43,6 +43,7 @@
         />
         <MarkdownRenderer v-else :content="item.block.content || ''" :search-words="searchWords" />
         <InlineCourseBlockAI
+          v-if="!isCanonicalBlock(item.block.block_id)"
           :node="node"
           :block="item.block"
           :active="activeBlockId === item.block.block_id"
@@ -169,7 +170,11 @@ function blockLabel(type: ContentBlock['type'] | string) {
 }
 
 function canImproveBlock(blockId: string) {
-  return props.canImproveBlocks && Boolean(props.node.course_blocks?.some(block => block.block_id === blockId))
+  return props.canImproveBlocks && isCanonicalBlock(blockId)
+}
+
+function isCanonicalBlock(blockId: string) {
+  return Boolean(props.node.course_blocks?.some(block => block.block_id === blockId))
 }
 
 function requestBlockImprovement(blockId: string) {
@@ -212,7 +217,7 @@ async function deleteAiRecord(note: Note) {
 .course-content-block.can-improve-formal .block-heading { padding-right:120px; }
 .block-heading span { flex:0 0 auto; display:inline-flex; align-items:center; min-height:25px; padding:3px 8px; border:1px solid color-mix(in srgb,var(--block-accent) 18%,white); border-radius:8px; color:var(--block-accent); background:var(--block-soft); font-size:11px; font-weight:800; line-height:1; }
 .block-heading h4 { margin:0; color:var(--lz-text-strong); font-size:18px; font-weight:750; line-height:1.35; }
-.block-formal-improvement { position:absolute; top:-2px; right:0; z-index:3; min-height:29px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border:1px solid rgba(203,213,225,.7); border-radius:8px; color:var(--lz-text-muted); background:rgba(255,255,255,.9); font-size:10px; opacity:0; pointer-events:none; cursor:pointer; transition:opacity .16s ease,color .16s ease,border-color .16s ease,background .16s ease,transform .16s ease; }
+.block-formal-improvement { position:absolute; top:-2px; right:0; z-index:3; min-height:29px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border:1px solid rgba(203,213,225,.7); border-radius:8px; color:#1e293b; background:rgba(255,255,255,.9); font-size:10px; opacity:.68; pointer-events:auto; cursor:pointer; transition:opacity .16s ease,color .16s ease,border-color .16s ease,background .16s ease,transform .16s ease; }
 .block-formal-improvement:hover,.block-formal-improvement:focus-visible,.course-content-block:hover > .block-formal-improvement { opacity:1; pointer-events:auto; color:var(--lz-text-secondary); border-color:#cbd5e1; background:#fff; outline:none; transform:translateY(-1px); }
 .course-content-block[data-content-block-type="intro"],
 .course-content-block[data-content-block-type="orientation"] { --block-accent:#7c3aed; --block-soft:#f5f3ff; }

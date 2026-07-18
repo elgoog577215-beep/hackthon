@@ -1,21 +1,40 @@
 import { defineStore } from 'pinia'
 import http from '../utils/http'
-import type { ChangeProposal, ChangeProposalItem, ChangeProposalScope } from '../types/changeProposal'
+import type {
+  ApplySelectedChangeProposalResult,
+  ChangeProposal,
+  ChangeProposalItem,
+  ChangeProposalScope,
+  CreatePersonalizationProposalInput,
+  RepresentationSyncResult,
+} from '../types/changeProposal'
 import logger from '../utils/logger'
 
 interface ChangeProposalsState {
   courseId: string
+  courseRequestToken: number
   proposals: ChangeProposal[]
   loading: boolean
+  fetchRequestToken: number
+  personalizationLoading: boolean
+  personalizationRequestToken: number
+  applyingSelected: boolean
+  applySelectedRequestToken: number
   actingItemIds: Set<string>
-  lastRepresentationSync: Record<string, any> | null
+  lastRepresentationSync: RepresentationSyncResult | null
 }
 
 export const useChangeProposalsStore = defineStore('changeProposals', {
   state: (): ChangeProposalsState => ({
     courseId: '',
+    courseRequestToken: 0,
     proposals: [],
     loading: false,
+    fetchRequestToken: 0,
+    personalizationLoading: false,
+    personalizationRequestToken: 0,
+    applyingSelected: false,
+    applySelectedRequestToken: 0,
     actingItemIds: new Set<string>(),
     lastRepresentationSync: null,
   }),
@@ -25,6 +44,8 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
     // 但为了防御性展示，同时以 item.status 过滤）。
     pendingProposals(state): ChangeProposal[] {
       return state.proposals.filter(proposal => (
+        proposal.source !== 'personalization'
+        &&
         proposal.status === 'pending' && proposal.items.some(item => item.status === 'pending')
       ))
     },
@@ -59,23 +80,127 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
   },
 
   actions: {
+    switchCourse(courseId: string) {
+      if (this.courseId === courseId) return
+      this.courseId = courseId
+      this.courseRequestToken += 1
+      this.proposals = []
+      this.loading = false
+      this.personalizationLoading = false
+      this.applyingSelected = false
+      this.actingItemIds.clear()
+      this.lastRepresentationSync = null
+    },
+
+    isCurrentCourseRequest(courseId: string, courseRequestToken: number) {
+      return this.courseId === courseId && this.courseRequestToken === courseRequestToken
+    },
+
     async fetchChangeProposals(courseId: string) {
       if (!courseId) return
-      this.courseId = courseId
+      this.switchCourse(courseId)
+      const courseRequestToken = this.courseRequestToken
+      const requestToken = ++this.fetchRequestToken
       this.loading = true
       try {
         const response = await http.get(`/api/courses/${courseId}/authoring-changes`)
         const data = response.data
-        this.proposals = Array.isArray(data) ? data : (data?.proposals || [])
+        if (this.isCurrentCourseRequest(courseId, courseRequestToken) && this.fetchRequestToken === requestToken) {
+          this.proposals = Array.isArray(data) ? data : (data?.proposals || [])
+        }
       } catch (error) {
-        logger.warn('Failed to fetch change proposals', error)
+        if (this.isCurrentCourseRequest(courseId, courseRequestToken) && this.fetchRequestToken === requestToken) {
+          logger.warn('Failed to fetch change proposals', error)
+        }
       } finally {
-        this.loading = false
+        if (this.isCurrentCourseRequest(courseId, courseRequestToken) && this.fetchRequestToken === requestToken) {
+          this.loading = false
+        }
       }
     },
 
     findProposal(proposalId: string): ChangeProposal | undefined {
       return this.proposals.find(proposal => proposal.proposal_id === proposalId)
+    },
+
+    upsertProposal(proposal: ChangeProposal) {
+      const index = this.proposals.findIndex(candidate => candidate.proposal_id === proposal.proposal_id)
+      if (index >= 0) this.proposals.splice(index, 1, proposal)
+      else this.proposals.unshift(proposal)
+    },
+
+    async createPersonalizationProposal(input: CreatePersonalizationProposalInput): Promise<ChangeProposal> {
+      this.switchCourse(input.courseId)
+      const courseRequestToken = this.courseRequestToken
+      const requestToken = ++this.personalizationRequestToken
+      this.personalizationLoading = true
+      try {
+        const response = await http.post(
+          `/api/courses/${input.courseId}/blocks/${input.blockId}/personalization-proposals`,
+          {
+            request_id: input.requestId,
+            expected_document_revision: input.expectedDocumentRevision,
+            expected_block_revision: input.expectedBlockRevision,
+            direction: input.direction,
+            feedback: input.feedback,
+          },
+        )
+        const proposal = response.data as ChangeProposal
+        if (
+          this.isCurrentCourseRequest(input.courseId, courseRequestToken)
+          && this.personalizationRequestToken === requestToken
+        ) {
+          this.upsertProposal(proposal)
+        }
+        return proposal
+      } finally {
+        if (
+          this.isCurrentCourseRequest(input.courseId, courseRequestToken)
+          && this.personalizationRequestToken === requestToken
+        ) {
+          this.personalizationLoading = false
+        }
+      }
+    },
+
+    async applySelectedItems(
+      proposalId: string,
+      itemIds: string[],
+      expectedDocumentRevision: string,
+    ): Promise<ApplySelectedChangeProposalResult> {
+      if (!this.courseId) throw new Error('Missing current course')
+      if (!itemIds.length) throw new Error('At least one change item must be selected')
+      const courseId = this.courseId
+      const courseRequestToken = this.courseRequestToken
+      const requestToken = ++this.applySelectedRequestToken
+      this.applyingSelected = true
+      itemIds.forEach(itemId => this.actingItemIds.add(itemId))
+      try {
+        const response = await http.post(
+          `/api/courses/${courseId}/authoring-changes/${proposalId}/apply-selected`,
+          {
+            item_ids: itemIds,
+            expected_document_revision: expectedDocumentRevision,
+          },
+        )
+        const result = response.data as ApplySelectedChangeProposalResult
+        if (
+          this.isCurrentCourseRequest(courseId, courseRequestToken)
+          && this.applySelectedRequestToken === requestToken
+        ) {
+          this.upsertProposal(result.proposal)
+          this.lastRepresentationSync = result.representation_sync || null
+        }
+        return result
+      } finally {
+        if (
+          this.isCurrentCourseRequest(courseId, courseRequestToken)
+          && this.applySelectedRequestToken === requestToken
+        ) {
+          this.applyingSelected = false
+          itemIds.forEach(itemId => this.actingItemIds.delete(itemId))
+        }
+      }
     },
 
     // 硬性要求：处理某个 item（apply/reject/regenerate）只更新该 item 自身的状态，
