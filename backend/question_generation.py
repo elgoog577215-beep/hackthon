@@ -540,7 +540,6 @@ def _adapter_context(
         if str(value).strip()
     ] or [_default_assessment_action(mode, concise_target)]
     routing_text = " ".join([
-        str(course_data.get("course_name") or ""),
         node_name,
         *[
             str(node.get(field) or "")
@@ -555,8 +554,12 @@ def _adapter_context(
             for value in node.get("assessment") or []
         ],
     ])
-    topic_text = " ".join([
+    subject_text = " ".join([
+        str(course_data.get("course_name") or ""),
         routing_text,
+    ])
+    topic_text = " ".join([
+        subject_text,
         objective,
         node_content,
         *key_points,
@@ -566,7 +569,7 @@ def _adapter_context(
         mode == "general"
         and not bool(persisted_profile.get("user_locked"))
     ):
-        mode = _infer_subject_family(routing_text)
+        mode = _infer_subject_family(subject_text)
     return AdapterContext(
         course_data=course_data,
         node=node,
@@ -608,9 +611,9 @@ def _select_adapter(context: AdapterContext) -> CapabilityRoute:
                 (),
             )
         return CapabilityRoute(
-            "programming.data_processing",
-            "programming.data_processing",
-            _build_programming_spec,
+            "unregistered",
+            "fallback.teacher_review",
+            _build_fallback_spec,
             (),
         )
     if context.subject_family == "life_medical":
@@ -681,6 +684,20 @@ def _capability_routes() -> tuple[CapabilityRoute, ...]:
             "programming.java_object_model",
             _build_java_object_model_spec,
             ("内部类", "匿名类", "anonymous class", "inner class"),
+            ("programming_engineering",),
+        ),
+        CapabilityRoute(
+            "programming.data_processing",
+            "programming.data_processing",
+            _build_programming_spec,
+            (
+                "数据清洗",
+                "记录处理",
+                "数据转换",
+                "标准输出",
+                "输出副作用",
+                "print 返回值",
+            ),
             ("programming_engineering",),
         ),
         CapabilityRoute(

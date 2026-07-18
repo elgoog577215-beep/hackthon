@@ -1,8 +1,7 @@
 from copy import deepcopy
 
 import pytest
-from fastapi import FastAPI
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from course_versions import CourseVersionRepository
