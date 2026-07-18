@@ -35,6 +35,18 @@ class BlueprintService:
                 "enabled_module_ids": [],
                 "user_locked": True,
             },
+            "course_composition_profile": {
+                "style": "example_driven",
+                "label": "案例实战",
+                "summary": "增加典型案例与真实场景。",
+                "rhythm": ["讲解", "补充案例", "真实场景", "学习者行动", "检查反馈"],
+            },
+            "course_block_distribution": {
+                "style": "example_driven",
+                "total_blocks": 2,
+                "composition_added_blocks": 1,
+                "role_counts": {"concept": 1, "example": 1},
+            },
             "nodes": [{
                 "node_id": "L2-1-1",
                 "node_level": 2,
@@ -87,6 +99,21 @@ class BlueprintService:
                 "assessment": ["解释概念"],
                 "difficulty_contract": {},
                 "grounding_contract": {},
+                "module_plan": [{
+                    "module_id": "core_explanation",
+                    "module_instance_id": "L2-1-1:core_explanation:1",
+                    "label": "核心教学",
+                    "block_role": "concept",
+                    "composition_source": "subject_required",
+                    "block_difficulty_contract": {"target_level": "intermediate"},
+                }, {
+                    "module_id": "composition_case_extension",
+                    "module_instance_id": "L2-1-1:composition_case_extension:1",
+                    "label": "补充案例",
+                    "block_role": "example",
+                    "composition_source": "composition_style",
+                    "block_difficulty_contract": {"target_level": "intermediate"},
+                }],
                 "generation_status": "pending",
             }],
         })
@@ -221,7 +248,13 @@ async def test_guided_job_waits_for_knowledge_then_teaching_confirmation(tmp_pat
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"
     assert task["guided_workflow"]["review_step"] == "teaching"
-    assert manager.get_generation_review(job["course_id"])["step"] == "teaching"
+    teaching_review = manager.get_generation_review(job["course_id"])
+    assert teaching_review["step"] == "teaching"
+    assert teaching_review["artifact"]["composition_profile"]["style"] == "example_driven"
+    assert teaching_review["artifact"]["block_distribution"]["role_counts"]["example"] == 1
+    assert teaching_review["artifact"]["sections"][0]["module_plan"][1][
+        "composition_source"
+    ] == "composition_style"
 
     await manager.confirm_generation_step(job["course_id"], "teaching")
     assert await manager._task_queue.get() == job["job_id"]

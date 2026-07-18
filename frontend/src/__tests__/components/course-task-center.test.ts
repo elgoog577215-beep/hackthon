@@ -221,6 +221,92 @@ describe('CourseTaskCenter', () => {
     expect(confirm).toHaveBeenCalledWith('course-1', 'knowledge')
   })
 
+  it('教学方案展示课程编排画像、角色分布、块序列和块级难度', async () => {
+    const generation = useGenerationStore()
+    const workspace = useCourseWorkspaceStore()
+    const workflow = {
+      schema_version: 'guided_course_generation_v1', current_step: 'teaching', review_step: 'teaching',
+      steps: [
+        { number: 1, key: 'requirements', status: 'confirmed' },
+        { number: 2, key: 'outline', status: 'confirmed' },
+        { number: 3, key: 'knowledge', status: 'confirmed' },
+        { number: 4, key: 'teaching', status: 'waiting_for_confirmation' },
+        { number: 5, key: 'content', status: 'locked' },
+        { number: 6, key: 'release', status: 'locked' },
+      ],
+    }
+    generation.globalTasks = [{
+      id: 'task-teaching', course_id: 'course-1', course_name: '线性代数',
+      status: 'waiting_for_review', progress: 62, current_phase: 'teaching_ready',
+      guided_workflow: workflow,
+    }]
+    vi.spyOn(workspace, 'loadGenerationReview').mockResolvedValue({
+      step: 'teaching',
+      can_confirm: true,
+      guided_workflow: workflow,
+      artifact: {
+        composition_profile: {
+          style: 'example_driven',
+          label: '案例实战',
+          summary: '增加典型案例与真实场景。',
+          rhythm: ['讲解', '补充案例', '真实场景', '学习者行动', '检查反馈'],
+        },
+        block_distribution: {
+          role_counts: { concept: 4, example: 6, application: 3, activity: 4 },
+        },
+        sections: [{
+          node_id: 'L2-1-1',
+          name: '1.1 向量空间',
+          learning_objective: '判断集合是否构成向量空间',
+          module_plan: [
+            {
+              module_id: 'core_explanation',
+              module_instance_id: 'L2-1-1:core_explanation:1',
+              label: '核心教学',
+              block_role: 'concept',
+              composition_source: 'subject_required',
+              block_difficulty_contract: {
+                target_level: 'intermediate',
+                learner_autonomy: 'shared',
+                scaffold_intensity: 'medium',
+              },
+            },
+            {
+              module_id: 'composition_case_extension',
+              module_instance_id: 'L2-1-1:composition_case_extension:1',
+              label: '补充案例',
+              block_role: 'example',
+              composition_source: 'composition_style',
+              block_difficulty_contract: {
+                target_level: 'intermediate',
+                learner_autonomy: 'guided',
+                scaffold_intensity: 'medium',
+              },
+            },
+          ],
+        }],
+      },
+    })
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('案例实战')
+    expect(wrapper.text()).toContain('讲解 → 补充案例 → 真实场景')
+    expect(wrapper.text()).toContain('案例')
+    expect(wrapper.text()).toContain('补充案例')
+    expect(wrapper.text()).toContain('偏好新增')
+    expect(wrapper.text()).toContain('进阶 · 引导完成 · 中支架')
+    expect(wrapper.text()).toContain('2 个课程块 · 编排偏好新增 1 个')
+
+    await setLocale('en')
+    await flushPromises()
+    expect(wrapper.find('.composition-review').text()).toContain('Case practice')
+    expect(wrapper.find('.composition-review').text()).toContain('Explanation → Additional example')
+    expect(wrapper.find('.composition-review').text()).not.toContain('案例实战')
+    expect(wrapper.find('.module-sequence').text()).toContain('Example')
+    expect(wrapper.find('.module-sequence').text()).not.toContain('补充案例')
+  })
+
   it('英文模式完整显示六步和当前确认动作，不泄漏翻译键或中文', async () => {
     const generation = useGenerationStore()
     const workspace = useCourseWorkspaceStore()

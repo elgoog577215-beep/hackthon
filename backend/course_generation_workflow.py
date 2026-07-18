@@ -771,6 +771,8 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
         "prerequisites": plan.get("prerequisites", []),
         "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
         "subject_pedagogy_profile": artifacts.get("subject_pedagogy_profile") or plan.get("subject_pedagogy_profile") or {},
+        "course_composition_profile": artifacts.get("course_composition_profile") or plan.get("course_composition_profile") or {},
+        "course_block_distribution": plan.get("course_block_distribution") or {},
         "difficulty_profile": artifacts.get("difficulty_profile") or plan.get("difficulty_profile") or {},
         "difficulty_gap_assessment": artifacts.get("difficulty_gap_assessment") or {},
         "adaptation_decision": artifacts.get("adaptation_decision") or {},
@@ -935,8 +937,6 @@ def _build_brief(
         "讲清底层原理",
         "关键知识点配例题和练习",
     ]
-    if style:
-        style_requirements.append(f"前端教学风格：{style}")
     hard_constraints = [
         "用户上传资料优先于模型常识",
         "用户未上传资料不得作为强依据",

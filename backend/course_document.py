@@ -197,6 +197,15 @@ def document_from_legacy_course(course_data: dict[str, Any]) -> CourseDocument:
                 "summary": str(legacy_block.get("summary") or ""),
                 "knowledge_binding_status": metadata.get("knowledge_binding_status"),
             }
+            for trace_key in (
+                "module_id",
+                "module_instance_id",
+                "composition_source",
+                "composition_style",
+                "block_difficulty_contract",
+            ):
+                if metadata.get(trace_key) not in (None, "", {}):
+                    payload[trace_key] = deepcopy(metadata.get(trace_key))
             if role == "feedback":
                 payload = enrich_feedback_payload(payload)
             block = CourseBlock(

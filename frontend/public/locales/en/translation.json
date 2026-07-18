@@ -193,6 +193,40 @@
       "relations": "Knowledge relations",
       "noObjective": "Learning objective needs review",
       "standardTeachingPlan": "Explanation, examples, and practice are organized around this lesson objective",
+      "compositionProfile": "Course composition preference",
+      "rhythm": "Primary rhythm",
+      "preferenceAdded": "Added by preference",
+      "blockPlanSummary": "{blocks} course blocks · {added} added by the composition preference",
+      "roles": {
+        "orientation": "Orientation",
+        "prerequisite": "Prerequisite",
+        "objective": "Objective",
+        "concept": "Explanation",
+        "reasoning": "Reasoning",
+        "example": "Example",
+        "counterexample": "Boundary & counterexample",
+        "application": "Application",
+        "activity": "Hands-on task",
+        "feedback": "Feedback",
+        "misconception": "Error analysis",
+        "checkpoint": "Checkpoint",
+        "remediation": "Remediation",
+        "summary": "Summary",
+        "transfer": "Transfer",
+        "custom": "Teaching block"
+      },
+      "difficulty": {
+        "default": "Uses section difficulty",
+        "beginner": "Beginner",
+        "intermediate": "Intermediate",
+        "advanced": "Advanced",
+        "guided": "Guided",
+        "shared": "Partly independent",
+        "independent": "Independent",
+        "highScaffold": "High scaffold",
+        "mediumScaffold": "Medium scaffold",
+        "lowScaffold": "Low scaffold"
+      },
       "contentReady": "The complete course is ready",
       "contentReadyHelp": "Open the course to review each lesson, then return here to confirm the content.",
       "contentStats": "{characters} characters · {blocks} content blocks",
@@ -731,7 +765,9 @@
       "topic": "Course topic",
       "topicPlaceholder": "For example: quantum mechanics, Python programming, Western philosophy...",
       "difficulty": "Difficulty",
-      "style": "Teaching style",
+      "style": "Legacy teaching style",
+      "compositionStyle": "Course composition preference",
+      "compositionStyleHelp": "Controls how examples, reasoning, applications, and project blocks are distributed",
       "strategy": "Course strategy",
       "strategyHelp": "Fine-tune how the course is organized and how source materials guide generation.",
       "coursePurpose": "Course purpose",
@@ -761,6 +797,33 @@
       "industrial": "Industry practice",
       "socratic": "Socratic",
       "humorous": "Engaging"
+    },
+    "compositionStyles": {
+      "balanced": {
+        "label": "Balanced",
+        "detail": "Balances explanation, examples, action, and feedback",
+        "rhythm": "Goal → Explanation → Demonstration or application → Learner action → Feedback"
+      },
+      "theoryDriven": {
+        "label": "Theory-driven",
+        "detail": "Adds reasoning chains, boundaries, and counterexamples",
+        "rhythm": "Concept → Deep reasoning → Boundary test → Example → Practice feedback"
+      },
+      "exampleDriven": {
+        "label": "Case practice",
+        "detail": "Adds typical examples and realistic application blocks",
+        "rhythm": "Explanation → Additional example → Realistic scenario → Learner action → Feedback"
+      },
+      "projectDriven": {
+        "label": "Project-driven",
+        "detail": "Adds project tasks and deliverables as the course progresses",
+        "rhythm": "Scenario → Essential knowledge → Project task → Execution feedback → Transfer"
+      },
+      "inquiryDriven": {
+        "label": "Inquiry-driven",
+        "detail": "Organizes blocks around questions, hypotheses, reasoning, and tests",
+        "rhythm": "Key question → Hypothesis and concept → Evidence reasoning → Boundary test → Reflection"
+      }
     },
     "pedagogy": {
       "label": "Teaching structure",

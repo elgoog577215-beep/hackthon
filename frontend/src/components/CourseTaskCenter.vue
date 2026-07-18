@@ -121,13 +121,42 @@
                 </div>
               </template>
               <template v-else-if="reviewArtifact && currentReviewStep === 'teaching'">
-                <div class="review-cards">
+                <div class="composition-review">
+                  <div class="composition-review__heading">
+                    <span>{{ t('courseTasks.review.compositionProfile', '课程编排偏好') }}</span>
+                    <strong>{{ compositionProfileLabel }}</strong>
+                    <p>{{ compositionProfileSummary }}</p>
+                  </div>
+                  <div v-if="compositionRhythm" class="composition-review__rhythm">
+                    <span>{{ t('courseTasks.review.rhythm', '主要节奏') }}</span>
+                    <p>{{ compositionRhythm }}</p>
+                  </div>
+                  <dl v-if="teachingRoleDistribution.length" class="role-distribution">
+                    <div v-for="entry in teachingRoleDistribution" :key="entry.role">
+                      <dt>{{ blockRoleLabel(entry.role) }}</dt>
+                      <dd>{{ entry.count }}</dd>
+                    </div>
+                  </dl>
+                </div>
+                <div class="review-cards review-cards--teaching">
                   <article v-for="(section, index) in reviewArtifact.sections || []" :key="section.node_id || index">
                     <span>{{ String(index + 1).padStart(2, '0') }}</span>
                     <div>
                       <strong>{{ section.name }}</strong>
                       <p>{{ section.learning_objective || t('courseTasks.review.noObjective', '本节学习目标待补充') }}</p>
                       <small>{{ teachingPlanSummary(section) }}</small>
+                      <div v-if="Array.isArray(section.module_plan)" class="module-sequence">
+                        <span
+                          v-for="module in section.module_plan"
+                          :key="module.module_instance_id || module.module_id"
+                          class="module-sequence__item"
+                          :data-added="module.composition_source === 'composition_style'"
+                        >
+                          <b>{{ moduleDisplayLabel(module) }}</b>
+                          <em>{{ blockRoleLabel(module.block_role) }} · {{ blockDifficultySummary(module.block_difficulty_contract) }}</em>
+                          <i v-if="module.composition_source === 'composition_style'">{{ t('courseTasks.review.preferenceAdded', '偏好新增') }}</i>
+                        </span>
+                      </div>
                     </div>
                   </article>
                 </div>
@@ -221,7 +250,7 @@ import { useCourseStore } from '@/stores/course'
 import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import { useGenerationStore } from '@/stores/generation'
 import type { GuidedGenerationStepKey, Task } from '@/stores/types'
-import { t } from '@/shared/i18n'
+import { activeLocale, t } from '@/shared/i18n'
 
 type TaskView = Task & { updatedAt?: string }
 
@@ -344,6 +373,33 @@ const releaseIssues = computed<any[]>(() => [
   ...(reviewArtifact.value?.blocking_issues || []),
   ...(reviewArtifact.value?.source_chain?.issues || []),
 ])
+const compositionI18nKey = computed(() => ({
+  balanced: 'balanced',
+  theory_driven: 'theoryDriven',
+  example_driven: 'exampleDriven',
+  project_driven: 'projectDriven',
+  inquiry_driven: 'inquiryDriven',
+}[String(reviewArtifact.value?.composition_profile?.style || 'balanced')] || 'balanced'))
+const compositionProfileLabel = computed(() => t(
+  `courseGeneration.compositionStyles.${compositionI18nKey.value}.label`,
+  String(reviewArtifact.value?.composition_profile?.label || '智能均衡'),
+))
+const compositionProfileSummary = computed(() => t(
+  `courseGeneration.compositionStyles.${compositionI18nKey.value}.detail`,
+  String(
+    reviewArtifact.value?.composition_profile?.summary
+    || '讲解、示例、行动与反馈均衡推进'
+  ),
+))
+const compositionRhythm = computed(() => t(
+  `courseGeneration.compositionStyles.${compositionI18nKey.value}.rhythm`,
+  (reviewArtifact.value?.composition_profile?.rhythm || []).join(' → '),
+))
+const teachingRoleDistribution = computed(() => (
+  Object.entries(reviewArtifact.value?.block_distribution?.role_counts || {})
+    .map(([role, count]) => ({ role, count: Number(count || 0) }))
+    .sort((a, b) => b.count - a.count || a.role.localeCompare(b.role))
+))
 
 watch(() => props.modelValue, async open => {
   if (!open) return
@@ -500,15 +556,56 @@ function workflowStatusLabel(status: string) {
   }[status] || status
 }
 function teachingPlanSummary(section: any) {
-  const modulePlan = section?.module_plan || {}
-  const values = [
-    modulePlan.primary_method,
-    modulePlan.teaching_method,
-    modulePlan.flow,
-    section?.examples_plan?.summary,
-    section?.exercise_plan?.summary,
-  ].filter(Boolean)
-  return values.join(' · ') || t('courseTasks.review.standardTeachingPlan', '讲解、示例与练习按本节目标编排')
+  const modules = Array.isArray(section?.module_plan) ? section.module_plan : []
+  const added = modules.filter((item: any) => item?.composition_source === 'composition_style').length
+  return t('courseTasks.review.blockPlanSummary', '{blocks} 个课程块 · 编排偏好新增 {added} 个')
+    .replace('{blocks}', String(modules.length))
+    .replace('{added}', String(added))
+}
+function blockRoleLabel(role: string) {
+  const labels: Record<string, string> = {
+    orientation: t('courseTasks.review.roles.orientation', '引入'),
+    prerequisite: t('courseTasks.review.roles.prerequisite', '前置'),
+    objective: t('courseTasks.review.roles.objective', '目标'),
+    concept: t('courseTasks.review.roles.concept', '讲解'),
+    reasoning: t('courseTasks.review.roles.reasoning', '推演'),
+    example: t('courseTasks.review.roles.example', '案例'),
+    counterexample: t('courseTasks.review.roles.counterexample', '边界反例'),
+    application: t('courseTasks.review.roles.application', '应用'),
+    activity: t('courseTasks.review.roles.activity', '实战行动'),
+    feedback: t('courseTasks.review.roles.feedback', '反馈'),
+    misconception: t('courseTasks.review.roles.misconception', '易错分析'),
+    checkpoint: t('courseTasks.review.roles.checkpoint', '检查'),
+    remediation: t('courseTasks.review.roles.remediation', '补救'),
+    summary: t('courseTasks.review.roles.summary', '总结'),
+    transfer: t('courseTasks.review.roles.transfer', '迁移'),
+  }
+  return labels[role] || role || t('courseTasks.review.roles.custom', '教学块')
+}
+function moduleDisplayLabel(module: any) {
+  if (activeLocale.value === 'zh') {
+    return String(module?.label || blockRoleLabel(String(module?.block_role || '')))
+  }
+  return blockRoleLabel(String(module?.block_role || ''))
+}
+function blockDifficultySummary(contract: any) {
+  if (!contract) return t('courseTasks.review.difficulty.default', '沿用本节难度')
+  const target = {
+    beginner: t('courseTasks.review.difficulty.beginner', '入门'),
+    intermediate: t('courseTasks.review.difficulty.intermediate', '进阶'),
+    advanced: t('courseTasks.review.difficulty.advanced', '高阶'),
+  }[contract.target_level as 'beginner' | 'intermediate' | 'advanced'] || contract.target_level
+  const autonomy = {
+    guided: t('courseTasks.review.difficulty.guided', '引导完成'),
+    shared: t('courseTasks.review.difficulty.shared', '半独立'),
+    independent: t('courseTasks.review.difficulty.independent', '独立完成'),
+  }[contract.learner_autonomy as 'guided' | 'shared' | 'independent'] || contract.learner_autonomy
+  const scaffold = {
+    high: t('courseTasks.review.difficulty.highScaffold', '高支架'),
+    medium: t('courseTasks.review.difficulty.mediumScaffold', '中支架'),
+    low: t('courseTasks.review.difficulty.lowScaffold', '低支架'),
+  }[contract.scaffold_intensity as 'high' | 'medium' | 'low'] || contract.scaffold_intensity
+  return [target, autonomy, scaffold].filter(Boolean).join(' · ')
 }
 function phaseLabel(phase: string | undefined, status: Task['status']) {
   const labels: Record<string, string> = {
@@ -663,7 +760,9 @@ function formatDuration(seconds: number) {
 .generation-review { padding:24px 0 4px; }.generation-review > header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:16px; }.generation-review > header > div { position:relative; padding-left:42px; }.generation-review__step { position:absolute; left:0; top:-2px; width:31px; height:31px; display:grid; place-items:center; border-radius:8px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-family:ui-monospace,monospace; font-size:10px; font-weight:800; }.generation-review h4 { margin:0; color:var(--lz-text-strong); font-size:14px; }.generation-review header p { margin:5px 0 0; color:var(--lz-text-muted); font-size:11px; }
 .blueprint-course-name span { display:block; margin-bottom:6px; color:var(--lz-text-muted); font-size:10px; }.blueprint-course-name input,.blueprint-nodes input,.blueprint-nodes textarea { width:100%; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; outline:none; }.blueprint-course-name input { height:38px; padding:0 10px; font-weight:650; }.blueprint-nodes { margin-top:12px; }.blueprint-nodes article { display:grid; grid-template-columns:28px minmax(0,1fr); gap:9px; padding:11px 0; border-top:1px solid rgba(226,232,240,.76); }.blueprint-nodes article > span { padding-top:9px; color:var(--lz-text-muted); font-size:10px; font-family:ui-monospace,monospace; }.blueprint-nodes input { height:36px; padding:0 9px; font-size:12px; font-weight:650; }.blueprint-nodes textarea { min-height:54px; margin-top:6px; padding:8px 9px; resize:vertical; font-size:11px; line-height:1.45; }.blueprint-course-name input:focus,.blueprint-nodes input:focus,.blueprint-nodes textarea:focus { border-color:var(--lz-brand); box-shadow:0 0 0 3px rgba(99,102,241,.08); }.blueprint-error,.blueprint-empty { color:var(--lz-warning); font-size:11px; }
 .review-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-bottom:15px; }.review-metrics div { padding:13px; border:1px solid var(--lz-border); border-radius:9px; background:var(--lz-surface-muted); }.review-metrics strong,.review-metrics span { display:block; }.review-metrics strong { color:var(--lz-text-strong); font-size:20px; }.review-metrics span { margin-top:3px; color:var(--lz-text-muted); font-size:9px; }
+.composition-review { margin-bottom:16px; padding:14px; border:1px solid rgba(99,102,241,.18); border-radius:10px; background:var(--lz-brand-soft); }.composition-review__heading > span,.composition-review__rhythm > span { display:block; margin-bottom:3px; color:var(--lz-text-muted); font-size:9px; }.composition-review__heading strong { color:var(--lz-text-strong); font-size:14px; }.composition-review__heading p,.composition-review__rhythm p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }.composition-review__rhythm { margin-top:10px; padding-top:10px; border-top:1px solid rgba(99,102,241,.12); }.role-distribution { display:flex; flex-wrap:wrap; gap:6px; margin:11px 0 0; }.role-distribution div { display:inline-flex; align-items:center; gap:5px; padding:4px 7px; border:1px solid rgba(99,102,241,.14); border-radius:999px; color:var(--lz-text-secondary); background:#fff; }.role-distribution dt,.role-distribution dd { margin:0; font-size:9px; }.role-distribution dd { color:var(--lz-brand-strong); font-weight:800; }
 .review-cards { border-top:1px solid var(--lz-border); }.review-cards article { display:grid; grid-template-columns:30px minmax(0,1fr); gap:10px; padding:12px 0; border-bottom:1px solid rgba(226,232,240,.75); }.review-cards article > span { color:var(--lz-text-muted); font-family:ui-monospace,monospace; font-size:9px; }.review-cards strong { display:block; color:var(--lz-text-strong); font-size:12px; }.review-cards p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }.review-cards small { display:block; margin-top:6px; color:var(--lz-brand-strong); font-size:9px; line-height:1.45; }.review-cards--compact article { padding:9px 0; }
+.module-sequence { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }.module-sequence__item { position:relative; min-width:130px; max-width:220px; display:grid; gap:2px; padding:7px 8px; border-left:2px solid var(--lz-border); color:var(--lz-text-secondary); background:var(--lz-surface-muted); }.module-sequence__item[data-added="true"] { border-left-color:var(--lz-brand); background:var(--lz-brand-soft); }.module-sequence__item b { overflow:hidden; color:var(--lz-text-strong); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.module-sequence__item em { color:var(--lz-text-muted); font-size:8px; font-style:normal; line-height:1.35; }.module-sequence__item i { color:var(--lz-brand-strong); font-size:8px; font-style:normal; font-weight:700; }
 .review-callout,.release-verdict { display:flex; gap:11px; align-items:flex-start; padding:14px; border:1px solid rgba(99,102,241,.18); border-radius:10px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.review-callout strong,.release-verdict strong { display:block; color:var(--lz-text-strong); font-size:12px; }.review-callout p,.release-verdict p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }
 .release-verdict[data-pass="false"] { border-color:rgba(217,119,6,.2); color:var(--lz-warning); background:var(--lz-warning-soft); }.release-issues { margin:12px 0 0; padding:0 0 0 18px; color:var(--lz-warning); font-size:10px; line-height:1.6; }
 .task-notice { margin-top:20px; display:flex; gap:10px; padding:13px 14px; border-left:3px solid var(--lz-warning); color:var(--lz-warning); background:var(--lz-warning-soft); }.task-notice strong { display:block; font-size:12px; }.task-notice p { margin:4px 0 0; font-size:11px; line-height:1.5; }.task-error-detail,.recovery-checkpoint { display:block; margin-top:7px; color:inherit; font-size:9px; line-height:1.5; opacity:.88; }

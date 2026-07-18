@@ -253,6 +253,7 @@ def artifact_revision(
                 "subject",
                 "target_audience",
                 "difficulty",
+                "composition_style",
                 "style",
                 "requirements",
                 "course_purpose",
@@ -297,6 +298,12 @@ def artifact_revision(
             {
                 "knowledge_revision": artifact_revision("knowledge", course_data),
                 "course_module_plan": course_data.get("course_module_plan") or {},
+                "course_composition_profile": (
+                    course_data.get("course_composition_profile") or {}
+                ),
+                "course_block_distribution": (
+                    course_data.get("course_block_distribution") or {}
+                ),
                 "learning_asset_plan": course_data.get("learning_asset_plan") or {},
                 "nodes": [
                     {

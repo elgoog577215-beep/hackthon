@@ -193,6 +193,40 @@
       "relations": "知识关系",
       "noObjective": "本节学习目标待补充",
       "standardTeachingPlan": "讲解、示例与练习按本节目标编排",
+      "compositionProfile": "课程编排偏好",
+      "rhythm": "主要节奏",
+      "preferenceAdded": "偏好新增",
+      "blockPlanSummary": "{blocks} 个课程块 · 编排偏好新增 {added} 个",
+      "roles": {
+        "orientation": "引入",
+        "prerequisite": "前置",
+        "objective": "目标",
+        "concept": "讲解",
+        "reasoning": "推演",
+        "example": "案例",
+        "counterexample": "边界反例",
+        "application": "应用",
+        "activity": "实战行动",
+        "feedback": "反馈",
+        "misconception": "易错分析",
+        "checkpoint": "检查",
+        "remediation": "补救",
+        "summary": "总结",
+        "transfer": "迁移",
+        "custom": "教学块"
+      },
+      "difficulty": {
+        "default": "沿用本节难度",
+        "beginner": "入门",
+        "intermediate": "进阶",
+        "advanced": "高阶",
+        "guided": "引导完成",
+        "shared": "半独立",
+        "independent": "独立完成",
+        "highScaffold": "高支架",
+        "mediumScaffold": "中支架",
+        "lowScaffold": "低支架"
+      },
       "contentReady": "完整课程已经生成",
       "contentReadyHelp": "可以先进入课程逐节查看，再回到这里确认内容。",
       "contentStats": "{characters} 字 · {blocks} 个内容块",
@@ -731,7 +765,9 @@
       "topic": "课程主题",
       "topicPlaceholder": "例如：量子力学基础、Python编程、西方哲学史...",
       "difficulty": "难度等级",
-      "style": "教学风格",
+      "style": "旧教学风格",
+      "compositionStyle": "课程编排偏好",
+      "compositionStyleHelp": "决定案例、推演、应用与项目块怎样分布",
       "strategy": "课程策略",
       "strategyHelp": "进一步控制课程如何组织，以及资料在生成中的作用。",
       "coursePurpose": "课程目的",
@@ -761,6 +797,33 @@
       "industrial": "工业实战",
       "socratic": "苏格拉底",
       "humorous": "生动幽默"
+    },
+    "compositionStyles": {
+      "balanced": {
+        "label": "智能均衡",
+        "detail": "讲解、示例、行动与反馈均衡推进",
+        "rhythm": "目标 → 讲解 → 示范或应用 → 学习者行动 → 检查反馈"
+      },
+      "theoryDriven": {
+        "label": "理论推导",
+        "detail": "更多推演、条件边界与反例块",
+        "rhythm": "概念 → 深入推演 → 边界检验 → 例子 → 练习反馈"
+      },
+      "exampleDriven": {
+        "label": "案例实战",
+        "detail": "更多典型案例与真实场景块",
+        "rhythm": "讲解 → 补充案例 → 真实场景 → 学习者行动 → 检查反馈"
+      },
+      "projectDriven": {
+        "label": "项目驱动",
+        "detail": "沿课程进程增加项目任务与成果块",
+        "rhythm": "场景 → 必要知识 → 项目任务 → 执行反馈 → 成果迁移"
+      },
+      "inquiryDriven": {
+        "label": "问题探究",
+        "detail": "用问题、假设、推演与检验组织块",
+        "rhythm": "关键问题 → 假设与概念 → 依据推演 → 边界检验 → 反思反馈"
+      }
     },
     "pedagogy": {
       "label": "教学结构",

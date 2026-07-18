@@ -538,6 +538,7 @@ export const useGenerationStore = defineStore('generation', {
         phaseDetail: {},
         logs: [], shouldStop: false,
         difficulty: options.difficulty,
+        compositionStyle: options.composition_style,
         style: options.style,
         requirements: options.requirements,
       }
@@ -700,7 +701,8 @@ export const useGenerationStore = defineStore('generation', {
           id: task.id, courseId: task.courseId, courseName: task.courseName, status: task.status,
           progress: task.progress, currentStep: task.currentStep,
           currentPhase: task.currentPhase, phaseProgress: task.phaseProgress, phaseDetail: task.phaseDetail,
-          difficulty: task.difficulty, style: task.style, requirements: task.requirements,
+          difficulty: task.difficulty, compositionStyle: task.compositionStyle,
+          style: task.style, requirements: task.requirements,
           recovery: task.recovery,
           publicationAllowed: task.publicationAllowed,
           qualityStatus: task.qualityStatus,

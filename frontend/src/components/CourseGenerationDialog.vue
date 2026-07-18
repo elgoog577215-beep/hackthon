@@ -75,25 +75,31 @@
                 </div>
               </fieldset>
 
-              <fieldset class="choice-group style-group">
+              <fieldset class="choice-group composition-group">
                 <legend class="choice-group__title">
                   <span class="field-icon field-icon--rose"><WandSparkles :size="14" /></span>
-                  {{ t('courseGeneration.form.style', '教学风格') }}
+                  <span>
+                    {{ t('courseGeneration.form.compositionStyle', '课程编排偏好') }}
+                    <small>{{ t('courseGeneration.form.compositionStyleHelp', '决定案例、推演、应用与项目块怎样分布') }}</small>
+                  </span>
                 </legend>
-                <div class="style-options">
+                <div class="composition-options">
                   <button
-                    v-for="item in styleOptions"
+                    v-for="item in compositionOptions"
                     :key="item.value"
                     type="button"
-                    class="style-option"
-                    :class="{ active: form.style === item.value }"
-                    :aria-pressed="form.style === item.value"
+                    class="composition-option"
+                    :class="{ active: form.compositionStyle === item.value, 'composition-option--wide': item.value === 'balanced' }"
+                    :aria-pressed="form.compositionStyle === item.value"
                     :disabled="busy"
-                    @click="form.style = item.value"
+                    @click="form.compositionStyle = item.value"
                   >
-                    <span class="style-option__icon"><component :is="item.icon" :size="20" /></span>
-                    <strong>{{ item.label }}</strong>
-                    <span class="style-option__check"><Check :size="11" /></span>
+                    <span class="composition-option__icon"><component :is="item.icon" :size="19" /></span>
+                    <span class="composition-option__copy">
+                      <strong>{{ item.label }}</strong>
+                      <small>{{ item.detail }}</small>
+                    </span>
+                    <span class="composition-option__check"><Check :size="11" /></span>
                   </button>
                 </div>
               </fieldset>
@@ -189,7 +195,6 @@ import {
   LoaderCircle,
   MessageCircleQuestion,
   Route,
-  Smile,
   Sparkles,
   Target,
   Trophy,
@@ -202,10 +207,10 @@ import { t } from '@/shared/i18n'
 import {
   PEDAGOGY_MODE_OPTIONS,
   type CourseGenerationOptions,
+  type CourseCompositionStyle,
   type CourseMaterialDraft,
   type DifficultyLevel,
   type PedagogyModeSelection,
-  type TeachingStyle,
 } from '@/shared/prompt-config'
 
 const props = withDefaults(defineProps<{ modelValue: boolean; busy?: boolean }>(), { busy: false })
@@ -226,7 +231,7 @@ const busy = computed(() => props.busy || uploading.value)
 const form = reactive({
   subject: '',
   difficulty: 'intermediate' as DifficultyLevel,
-  style: 'academic' as TeachingStyle,
+  compositionStyle: 'balanced' as CourseCompositionStyle,
   pedagogyMode: 'auto' as PedagogyModeSelection,
   coursePurpose: 'systematic' as 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial',
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
@@ -238,11 +243,37 @@ const difficultyOptions = computed(() => ([
   { value: 'intermediate' as const, tone: 'blue', label: t('courseGeneration.difficulty.intermediate.label', '进阶'), detail: t('courseGeneration.difficulty.intermediate.detail', '独立分析 · 典型问题') },
   { value: 'advanced' as const, tone: 'violet', label: t('courseGeneration.difficulty.advanced.label', '高阶'), detail: t('courseGeneration.difficulty.advanced.detail', '开放约束 · 权衡迁移') },
 ]))
-const styleOptions = computed(() => ([
-  { value: 'academic' as const, icon: GraduationCap, label: t('courseGeneration.styles.academic', '学术严谨') },
-  { value: 'industrial' as const, icon: Wrench, label: t('courseGeneration.styles.industrial', '工业实战') },
-  { value: 'socratic' as const, icon: MessageCircleQuestion, label: t('courseGeneration.styles.socratic', '苏格拉底') },
-  { value: 'humorous' as const, icon: Smile, label: t('courseGeneration.styles.humorous', '生动幽默') },
+const compositionOptions = computed(() => ([
+  {
+    value: 'balanced' as const,
+    icon: WandSparkles,
+    label: t('courseGeneration.compositionStyles.balanced.label', '智能均衡'),
+    detail: t('courseGeneration.compositionStyles.balanced.detail', '讲解、示例、行动与反馈均衡推进'),
+  },
+  {
+    value: 'theory_driven' as const,
+    icon: GraduationCap,
+    label: t('courseGeneration.compositionStyles.theoryDriven.label', '理论推导'),
+    detail: t('courseGeneration.compositionStyles.theoryDriven.detail', '更多推演、条件边界与反例块'),
+  },
+  {
+    value: 'example_driven' as const,
+    icon: Wrench,
+    label: t('courseGeneration.compositionStyles.exampleDriven.label', '案例实战'),
+    detail: t('courseGeneration.compositionStyles.exampleDriven.detail', '更多典型案例与真实场景块'),
+  },
+  {
+    value: 'project_driven' as const,
+    icon: Target,
+    label: t('courseGeneration.compositionStyles.projectDriven.label', '项目驱动'),
+    detail: t('courseGeneration.compositionStyles.projectDriven.detail', '沿课程进程增加项目任务与成果块'),
+  },
+  {
+    value: 'inquiry_driven' as const,
+    icon: MessageCircleQuestion,
+    label: t('courseGeneration.compositionStyles.inquiryDriven.label', '问题探究'),
+    detail: t('courseGeneration.compositionStyles.inquiryDriven.detail', '用问题、假设、推演与检验组织块'),
+  },
 ]))
 const pedagogyOptions = computed(() => PEDAGOGY_MODE_OPTIONS.map(item => ({ value: item.value, label: t(item.labelKey, item.value) })))
 const purposeOptions = computed(() => ([
@@ -284,7 +315,7 @@ async function submit() {
       : []
     const options: CourseGenerationOptions = {
       difficulty: form.difficulty,
-      style: form.style,
+      composition_style: form.compositionStyle,
       pedagogy_mode: form.pedagogyMode,
       generation_mode: 'review_blueprint',
       course_purpose: form.coursePurpose,
@@ -337,6 +368,8 @@ async function submit() {
 .teaching-settings__core { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
 .choice-group { min-width: 0; margin: 0; padding: 0; border: 0; }
 .choice-group__title { width: 100%; display: flex; align-items: center; gap: 8px; margin: 0 0 11px; padding: 0; color: var(--lz-text); font-size: 12px; font-weight: 750; }
+.choice-group__title > span:last-child { display:grid; gap:2px; }
+.choice-group__title small { color:var(--lz-text-muted); font-size:9px; font-weight:500; line-height:1.35; }
 .field-icon { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid; border-radius: 8px; box-shadow: 0 2px 7px rgba(15,23,42,.04); }
 .field-icon--amber { border-color: #fde7b0; color: #d97706; background: #fffbeb; }
 .field-icon--rose { border-color: #fbcfe8; color: #db2777; background: #fdf2f8; }
@@ -352,18 +385,21 @@ async function submit() {
 .difficulty-option__copy { min-width: 0; display: block; }
 .difficulty-option__copy strong { display: block; color: var(--lz-text); font-size: 12px; }
 .difficulty-option__copy small { display: block; margin-top: 2px; overflow: hidden; color: var(--lz-text-muted); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.difficulty-option__check,.style-option__check { display: grid; place-items: center; border: 1px solid var(--lz-border); border-radius: 50%; color: transparent; background: var(--lz-surface-muted); transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
+.difficulty-option__check,.composition-option__check { display: grid; place-items: center; border: 1px solid var(--lz-border); border-radius: 50%; color: transparent; background: var(--lz-surface-muted); transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
 .difficulty-option__check { width: 20px; height: 20px; }
-.difficulty-option.active .difficulty-option__check,.style-option.active .style-option__check { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); transform: scale(1.06); }
-.style-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
-.style-option { position: relative; min-width: 0; min-height: 92px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 12px 8px; border: 1px solid rgba(226,232,240,.92); border-radius: 12px; color: var(--lz-text-secondary); background: #fff; box-shadow: 0 2px 8px rgba(15,23,42,.025); cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease; }
-.style-option:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(165,180,252,.72); box-shadow: 0 7px 16px rgba(79,70,229,.07); }
-.style-option.active { border-color: var(--lz-brand); color: var(--lz-brand-strong); background: linear-gradient(145deg,#fff,rgba(245,243,255,.82)); box-shadow: 0 8px 18px rgba(79,70,229,.09), inset 0 0 0 1px rgba(99,102,241,.08); }
-.style-option__icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: var(--lz-brand); background: var(--lz-brand-soft); transition: transform .16s ease, color .16s ease, background .16s ease; }
-.style-option.active .style-option__icon { transform: scale(1.05); color: #fff; background: var(--lz-brand); }
-.style-option strong { color: inherit; font-size: 11px; }
-.style-option__check { position: absolute; top: 8px; right: 8px; width: 17px; height: 17px; }
-.difficulty-option:disabled,.style-option:disabled { cursor: not-allowed; opacity: .6; }
+.difficulty-option.active .difficulty-option__check,.composition-option.active .composition-option__check { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); transform: scale(1.06); }
+.composition-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.composition-option { position: relative; min-width: 0; min-height: 72px; display: grid; grid-template-columns:30px minmax(0,1fr) 17px; align-items:center; gap:8px; padding:10px; border: 1px solid rgba(226,232,240,.92); border-radius: 12px; color: var(--lz-text-secondary); background: #fff; text-align:left; box-shadow: 0 2px 8px rgba(15,23,42,.025); cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease; }
+.composition-option--wide { grid-column:1 / -1; min-height:64px; }
+.composition-option:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(165,180,252,.72); box-shadow: 0 7px 16px rgba(79,70,229,.07); }
+.composition-option.active { border-color: var(--lz-brand); color: var(--lz-brand-strong); background: linear-gradient(145deg,#fff,rgba(245,243,255,.82)); box-shadow: 0 8px 18px rgba(79,70,229,.09), inset 0 0 0 1px rgba(99,102,241,.08); }
+.composition-option__icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; color: var(--lz-brand); background: var(--lz-brand-soft); transition: transform .16s ease, color .16s ease, background .16s ease; }
+.composition-option.active .composition-option__icon { transform: scale(1.05); color: #fff; background: var(--lz-brand); }
+.composition-option__copy { min-width:0; display:block; }
+.composition-option__copy strong { display:block; color: inherit; font-size: 11px; }
+.composition-option__copy small { display:block; margin-top:2px; color:var(--lz-text-muted); font-size:9px; line-height:1.35; }
+.composition-option__check { width: 17px; height: 17px; }
+.difficulty-option:disabled,.composition-option:disabled { cursor: not-allowed; opacity: .6; }
 .strategy-settings { padding-top: 18px; border-top: 1px dashed rgba(203,213,225,.72); }
 .strategy-settings__heading { display: flex; align-items: baseline; gap: 9px; margin-bottom: 11px; }
 .strategy-settings__heading strong { color: var(--lz-text); font-size: 12px; }
@@ -405,6 +441,8 @@ async function submit() {
   .generation-dialog__body { padding-inline: 16px; }
   .teaching-settings__core { grid-template-columns: 1fr; gap: 22px; }
   .compact-grid { grid-template-columns: 1fr 1fr; }
+  .composition-options { grid-template-columns:1fr; }
+  .composition-option--wide { grid-column:auto; }
   .generation-dialog__footer { align-items: stretch; flex-direction: column; padding: 10px 16px 14px; }
   .footer-actions,.footer-actions button { width: 100%; }
   .footer-actions button { flex: 1; }

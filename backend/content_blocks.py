@@ -265,9 +265,47 @@ def set_node_content_blocks(node: dict[str, Any], content: str) -> list[dict[str
             content,
             node_title=str(node.get("node_name") or ""),
         )
+    _attach_module_plan_metadata(blocks, node.get("module_plan") or [])
     node["content_blocks"] = blocks
     node["node_content"] = blocks_to_markdown(blocks) if blocks else content
     return blocks
+
+
+def _attach_module_plan_metadata(
+    blocks: list[dict[str, Any]],
+    module_plan: list[dict[str, Any]],
+) -> None:
+    """把已确认模块实例追溯信息挂到生成块，供 CourseDocument 落盘。"""
+    candidates = [
+        item for item in module_plan
+        if isinstance(item, dict) and str(item.get("label") or "").strip()
+    ]
+    for block in blocks:
+        title = _normalize_heading(str(block.get("title") or ""))
+        matched = next(
+            (
+                item
+                for item in candidates
+                if title == _normalize_heading(str(item.get("label") or ""))
+                or title.startswith(f"{_normalize_heading(str(item.get('label') or ''))}：")
+                or title.startswith(f"{_normalize_heading(str(item.get('label') or ''))}:")
+            ),
+            None,
+        )
+        if not matched:
+            continue
+        metadata = deepcopy(block.get("metadata") or {})
+        metadata.update({
+            "module_id": matched.get("module_id"),
+            "module_instance_id": matched.get("module_instance_id"),
+            "composition_source": matched.get("composition_source"),
+            "composition_style": matched.get("composition_style"),
+            "block_difficulty_contract": deepcopy(
+                matched.get("block_difficulty_contract") or {}
+            ),
+            "role": matched.get("block_role") or block.get("type"),
+        })
+        block["metadata"] = metadata
 
 
 def project_course_content_blocks(course_data: dict[str, Any]) -> dict[str, Any]:

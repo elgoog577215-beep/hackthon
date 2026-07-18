@@ -46,6 +46,10 @@ from course_difficulty import (
     format_node_difficulty_contract,
     parse_difficulty_level,
 )
+from course_composition import (
+    attach_composition_to_plan,
+    compile_composition_profile,
+)
 from course_generation_strategy import (
     PERSONALIZED_NODE_EXPLANATION,
     WEAKNESS_REMEDIATION_CONTENT,
@@ -242,7 +246,8 @@ class CourseService(AIBase):
         topic: str,
         target_audience: str = "大学生",
         depth: str = "intermediate",
-        style: str = "academic",
+        style: str | None = None,
+        composition_style: str | None = None,
         requirements: str = "",
         materials: list[Any] | None = None,
         material_bindings: list[Any] | None = None,
@@ -263,6 +268,10 @@ class CourseService(AIBase):
         audience = self._parse_audience(target_audience)
         material_inputs = materials or []
         existing = existing_course_data or {}
+        composition_profile = compile_composition_profile(
+            composition_style,
+            legacy_style=style,
+        )
 
         await self._notify_phase(
             on_phase,
@@ -302,6 +311,9 @@ class CourseService(AIBase):
                 "difficulty_profile": existing.get("difficulty_profile") or {},
                 "difficulty_gap_assessment": existing.get("difficulty_gap_assessment") or {},
                 "adaptation_decision": existing.get("adaptation_decision") or {},
+                "course_composition_profile": (
+                    existing.get("course_composition_profile") or composition_profile
+                ),
             }
             profile = coerce_persisted_profile(existing)
             await self._notify_phase(
@@ -368,6 +380,8 @@ class CourseService(AIBase):
                 )
             attach_pedagogy_profile(artifacts, profile)
 
+        artifacts["course_composition_profile"] = composition_profile
+
         difficulty_profile = compile_difficulty_profile(
             difficulty,
             primary_mode=profile.primary_mode,
@@ -397,6 +411,7 @@ class CourseService(AIBase):
             "difficulty_profile": difficulty_profile.to_dict(),
             "difficulty_gap_assessment": gap_assessment.to_dict(),
             "adaptation_decision": adaptation_decision.to_dict(),
+            "course_composition_profile": composition_profile,
             "generation_status": "difficulty_compiled",
         })
 
@@ -515,6 +530,11 @@ class CourseService(AIBase):
             profile=difficulty_profile,
             adaptation=adaptation_decision,
         )
+        composition_artifacts = attach_composition_to_plan(
+            plan,
+            composition_profile["style"],
+        )
+        artifacts.update(composition_artifacts)
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
         outline_plan = self._outline_only_plan(plan)
@@ -534,6 +554,7 @@ class CourseService(AIBase):
             "generation_request": {
                 "subject": topic,
                 "difficulty": difficulty,
+                "composition_style": composition_profile["style"],
                 "style": style,
                 "requirements": requirements,
                 "target_audience": audience,
@@ -547,6 +568,7 @@ class CourseService(AIBase):
                 "grounding_strategy": grounding_strategy,
             },
             "difficulty": difficulty,
+            "composition_style": composition_profile["style"],
             "style": style,
             "requirements": requirements,
             "target_audience": audience,
@@ -555,6 +577,9 @@ class CourseService(AIBase):
             "difficulty_gap_assessment": gap_assessment.to_dict(),
             "adaptation_decision": adaptation_decision.to_dict(),
             "course_difficulty_curve": course_difficulty_curve,
+            "course_composition_profile": composition_profile,
+            "course_block_distribution": composition_artifacts["course_block_distribution"],
+            "course_module_plan": deepcopy(plan.get("course_module_plan") or []),
             "nodes": nodes,
             "course_plan": plan,
             "course_outline": outline_plan,
@@ -612,6 +637,14 @@ class CourseService(AIBase):
         course_data.update({
             "course_name": plan.get("course_title", topic),
             "course_plan": plan,
+            "course_module_plan": deepcopy(plan.get("course_module_plan") or []),
+            "course_composition_profile": deepcopy(
+                plan.get("course_composition_profile") or composition_profile
+            ),
+            "course_block_distribution": deepcopy(
+                plan.get("course_block_distribution")
+                or composition_artifacts["course_block_distribution"]
+            ),
             "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
             "nodes": self._merge_generation_nodes(
                 self._convert_plan_to_nodes(plan, course_id),
@@ -1226,7 +1259,8 @@ class CourseService(AIBase):
             topic=topic,
             target_audience=target_audience,
             depth=depth,
-            style=str(kwargs.get("style") or "academic"),
+            style=kwargs.get("style"),
+            composition_style=kwargs.get("composition_style"),
             requirements=str(kwargs.get("requirements") or ""),
             materials=kwargs.get("materials") or [],
             material_bindings=kwargs.get("material_bindings") or [],

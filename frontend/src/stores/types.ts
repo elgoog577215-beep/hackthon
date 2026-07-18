@@ -365,6 +365,7 @@ export interface Task {
     logs: string[]
     shouldStop: boolean
     difficulty?: string
+    compositionStyle?: string
     style?: string
     requirements?: string
     error?: string

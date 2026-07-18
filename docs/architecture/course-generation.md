@@ -38,6 +38,8 @@ LearningEvent + 正式领域仓库
 /api/course-generation/generate
   -> routers/courses.py
   -> CourseService.generate_course()
+  -> 学科教学法模块计划
+  -> course_composition 编译课程编排画像、块分布与块级难度
   -> GenerationJob + 隔离生成工作区
   -> 生成质量门
   -> CourseDocumentRepository 幂等发布 CourseDocument
@@ -68,6 +70,20 @@ LearningEvent + 正式领域仓库
 关键约束：
 
 - `CourseService` 是课程 AI 能力的唯一生产入口。
+- 新建课程的“课程编排偏好”是课程结构控制量，不是 AI 助手人格、文字语气或页面排版主题。正式输入使用 `composition_style`；旧 `style` 只作为历史客户端和节点级能力的兼容字段。
+- 课程块计划按以下顺序确定，后层不得反向删除前层的必需模块：
+
+  ```text
+  学科必需模块
+    -> 编排偏好补充模块与节奏顺序
+    -> 章节难度契约投影到每个课程块
+    -> 证据边界与质量门
+    -> CourseDocument + ordered CourseBlock[]
+  ```
+
+- 当前编排预设包括智能均衡、理论推导、案例实战、项目驱动和问题探究。预设只能调整讲解、推演、案例、真实场景、项目任务、探究、边界与反例等块的占比和顺序，不能用“实战型”等偏好删掉学科必需推导或安全边界。
+- 每个生成模块必须携带稳定的 `module_instance_id`、`block_role`、`composition_source` 和 `block_difficulty_contract`。这些信息从教学审阅、Prompt 约束一路进入最终 `CourseBlock.payload`，使用户能够在生成前审阅、生成后追溯。
+- 课程难度与编排偏好是两个正交控制量：难度决定推理跨度、支架、迁移与自主度；编排偏好决定通过哪类课程块组织学习。两者最终在块级难度契约中汇合。
 - 课程生成分三类策略：
   - 通用课程结构蓝图：不使用单个学习者状态改变目录主线。
   - 个性化节点解释：只在当前节点内部调整讲法。
@@ -199,6 +215,7 @@ LearningEvent + LearningSnapshot + LearningRecord + PracticeAttempt + 诊断
 ## 9. 新功能接入规则
 
 - 课件生成、内容改写、内容扩展、内容摘要：接 `CourseService`。
+- 新建课程的块组成、块顺序和块级难度：接 `course_composition`，并由 `CourseService` 在学科模块计划之后统一编译；不得重新用自然语言 `style` 提示词做旁路控制。
 - Markdown 选区级局部改写：接 `CourseService.rewrite_selection()`，只返回候选；确认写入必须进入统一课程命令，未完成接线前不得绕回旧节点保存覆盖已迁移课程。
 - 学习行为证据：写入 `LearningEvent`。
 - 正式题目与评分契约：接 `learning_assets` 与 `practice_contracts`；作答事实只写 `PracticeAttempt`，再追加 `LearningEvent`。

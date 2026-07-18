@@ -35,6 +35,7 @@ from course_coherence import (
     compile_course_coherence_contract,
     evaluate_course_coherence,
 )
+from course_composition import compile_composition_profile
 from course_document import document_from_generation_draft
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
@@ -408,6 +409,11 @@ class TaskManager:
         if not subject:
             raise ValueError("Course subject cannot be blank")
         request_snapshot["subject"] = subject
+        composition_profile = compile_composition_profile(
+            request_snapshot.get("composition_style"),
+            legacy_style=request_snapshot.get("style"),
+        )
+        request_snapshot["composition_style"] = composition_profile["style"]
         # First-time generation has one product path: every product artifact is
         # reviewed in the six-step workflow. Keep the legacy field only as a
         # transport compatibility detail.
@@ -968,12 +974,18 @@ class TaskManager:
             plan = course_data.get("learning_asset_plan") or {}
             artifact = {
                 "enabled_assets": deepcopy(plan.get("enabled_assets") or plan.get("enabled") or {}),
+                "composition_profile": deepcopy(
+                    course_data.get("course_composition_profile") or {}
+                ),
+                "block_distribution": deepcopy(
+                    course_data.get("course_block_distribution") or {}
+                ),
                 "sections": [
                     {
                         "node_id": str(node.get("node_id") or ""),
                         "name": str(node.get("node_name") or ""),
                         "learning_objective": str(node.get("learning_objective") or ""),
-                        "module_plan": deepcopy(node.get("module_plan") or {}),
+                        "module_plan": deepcopy(node.get("module_plan") or []),
                         "examples_plan": deepcopy(node.get("examples_plan") or {}),
                         "exercise_plan": deepcopy(node.get("exercise_plan") or {}),
                     }
@@ -2190,7 +2202,8 @@ class TaskManager:
                 topic=str(request.get("subject") or course_data.get("course_name") or ""),
                 target_audience=str(request.get("target_audience") or "大学生"),
                 depth=str(request.get("difficulty") or "intermediate"),
-                style=str(request.get("style") or "academic"),
+                style=request.get("style"),
+                composition_style=request.get("composition_style"),
                 requirements=str(request.get("requirements") or ""),
                 materials=request.get("materials") or [],
                 material_bindings=request.get("material_bindings") or [],

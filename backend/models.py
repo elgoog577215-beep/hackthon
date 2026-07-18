@@ -1,6 +1,6 @@
 
 from typing import Any, List, Optional, Literal, Dict
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 import uuid
 import sys
@@ -9,7 +9,7 @@ from pathlib import Path
 # 添加项目根目录到系统路径以导入共享配置
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-from shared.prompt_config import DifficultyLevel, TeachingStyle
+from shared.prompt_config import CourseCompositionStyle, DifficultyLevel, TeachingStyle
 
 # === 课程相关 ===
 class ContentBlock(BaseModel):
@@ -86,7 +86,8 @@ class CourseGenerationRequest(BaseModel):
     subject: str = Field(..., min_length=1, max_length=200)
     target_audience: Optional[str] = Field(default="大学生", max_length=500)
     difficulty: Optional[DifficultyLevel] = "intermediate"
-    style: Optional[TeachingStyle] = "academic"
+    composition_style: Optional[CourseCompositionStyle] = None
+    style: Optional[TeachingStyle] = None
     requirements: Optional[str] = Field(default="", max_length=5000)
     materials: List[CourseMaterialInput] = Field(default_factory=list, max_length=30)
     material_bindings: List[CourseMaterialBindingInput] = Field(default_factory=list, max_length=30)
@@ -133,6 +134,16 @@ class CourseGenerationRequest(BaseModel):
         "personalized_remedial",
     ] = "systematic"
     asset_preferences: Dict[str, bool] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_new_composition_style(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if "composition_style" not in normalized and not normalized.get("style"):
+            normalized["composition_style"] = CourseCompositionStyle.BALANCED.value
+        return normalized
 
     @field_validator("subject", mode="before")
     @classmethod

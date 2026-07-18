@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from course_coherence import course_coherence_prompt_context
+from course_composition import format_block_difficulty, format_composition_profile
 from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
@@ -349,7 +350,11 @@ class CoursePromptComposer:
         module_contract = "\n".join(
             (
                 f"- {'必需' if item.get('required', True) else '可选'}模块 "
-                f"`## {item.get('label')}` [角色={item.get('block_role') or module_block_role(item.get('module_id'))}]："
+                f"`## {item.get('label')}` "
+                f"[角色={item.get('block_role') or module_block_role(item.get('module_id'))}] "
+                f"[来源={item.get('composition_source') or 'subject_required'}；"
+                f"实例={item.get('module_instance_id') or item.get('module_id')}；"
+                f"难度={format_block_difficulty(item.get('block_difficulty_contract') or {})}]："
                 f"{item.get('output_contract')}；{item.get('prompt_instruction')}"
             )
             for item in modules
@@ -395,6 +400,9 @@ class CoursePromptComposer:
 - 名称：{course_data.get('course_name', '')}
 - 学习对象：{course_data.get('target_audience', '大学生')}
 - 教学画像：{json.dumps(profile, ensure_ascii=False)}
+
+## 课程块编排画像
+{format_composition_profile(course_data.get('course_composition_profile') or {})}
 
 ## 全课难度能力契约
 {format_difficulty_profile(difficulty_profile)}
