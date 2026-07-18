@@ -414,7 +414,8 @@ def test_compiler_builds_five_bound_representations_and_exports_pptx(tmp_path):
     with ZipFile(output) as archive:
         first_slide_xml = archive.read("ppt/slides/slide1.xml")
     assert b"<a:ea" in first_slide_xml
-    assert "Hiragino Sans GB".encode() in first_slide_xml
+    assert "Noto Sans SC".encode() in first_slide_xml
+    assert "Microsoft YaHei".encode() in first_slide_xml
 
 
 def test_slide_quality_gate_rejects_raw_course_copy_and_markdown(tmp_path):
@@ -527,8 +528,8 @@ def test_layout_fitter_rechecks_item_budget_after_teaching_support_enrichment():
     fitted = _fit_blocks_for_layout("misconception", blocks)
 
     assert sum(len(block.items) for block in fitted) == LAYOUT_CAPACITY["misconception"]["items"]
-    assert fitted[0].items == [f"错误线索 {index}" for index in range(6)]
-    assert fitted[1].items == ["边界 0", "边界 1"]
+    assert len(fitted) == 1
+    assert fitted[0].items == [f"错误线索 {index}" for index in range(4)]
 
 
 def test_compiled_representations_track_stale_units_instead_of_whole_course(tmp_path):
@@ -550,6 +551,7 @@ def test_compiled_representations_track_stale_units_instead_of_whole_course(tmp_
 
     assert by_type["slide_deck"].status == "stale"
     assert by_type["slide_deck"].stale_unit_ids == [
+        "slide:recap",
         "slide:section-a",
         "slide:section-a:check",
         "slide:section-a:content:1",
@@ -990,7 +992,7 @@ def test_compiler_upgrade_rebuilds_ready_units_instead_of_reusing_old_payload(tm
     )
 
     assert current_spec.payload["content"]["slides"][0]["title"] == original_title
-    assert current_spec.payload["compiler_version"].endswith("structured_slide_compiler_v8")
+    assert current_spec.payload["compiler_version"].endswith("structured_slide_compiler_v9")
     assert slide_build["reused_unit_ids"] == []
 
 
@@ -1045,3 +1047,54 @@ def test_progressive_build_streams_each_slide_before_atomic_completion(tmp_path,
     assert body.index("event: slide_upsert") < body.index("event: build_complete")
     registry = representation_repository.load("course-1")
     assert all(item.status == "ready" for item in registry.representations)
+
+
+@pytest.mark.asyncio
+async def test_compile_registry_reconciles_before_reusing_units(tmp_path, monkeypatch):
+    from routers import teaching_representations as representation_router
+
+    storage = MemoryStorage(legacy_course())
+    course_repository = CourseDocumentRepository(storage)
+    preview = course_repository.document_envelope("course-1")
+    await course_repository.migrate_legacy_course(
+        "course-1",
+        expected_source_checksum=preview["migration"]["source_checksum"],
+    )
+    document, _ = course_repository.load_document("course-1")
+    representation_repository = TeachingRepresentationRepository(tmp_path / "representations")
+    compile_core_representations(
+        document,
+        course_repository.load_course_view("course-1"),
+        representation_repository,
+    )
+    target = document.blocks[0]
+    marker = "fresh canonical unit text"
+    await CourseCommandService(course_repository).replace_block(
+        "course-1",
+        command_id="canonical-change-before-first-build",
+        expected_document_revision=document.document_revision,
+        expected_block_revision=target.internal_revision,
+        block_id=target.block_id,
+        payload={**target.payload, "markdown": marker},
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "get_teaching_representation_repository",
+        lambda: representation_repository,
+    )
+
+    representation_router._compile_registry("course-1")
+
+    registry = representation_repository.load("course-1")
+    handout = next(
+        item for item in registry.representations
+        if item.representation_type == "handout"
+    )
+    handout_spec = next(item for item in registry.specs if item.spec_id == handout.spec_id)
+    assert marker in str(handout_spec.payload)
+    assert handout.status == "ready"

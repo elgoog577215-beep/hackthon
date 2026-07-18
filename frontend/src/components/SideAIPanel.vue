@@ -251,88 +251,130 @@
         </div>
       </section>
 
-      <section v-if="props.blockTarget" class="block-edit-workspace" aria-live="polite">
-        <header class="block-edit-heading">
+      <section v-if="props.blockTarget" class="personalization-workspace" aria-live="polite">
+        <header class="personalization-heading">
           <div>
             <span><WandSparkles :size="14" /></span>
             <div>
-              <small>{{ t('courseWorkspace.blockRegeneration.candidate', '正文候选') }}</small>
+              <small>{{ t('courseWorkspace.personalization.eyebrow', '个性化正文优化') }}</small>
               <strong>{{ blockTargetTitle }}</strong>
             </div>
           </div>
-          <button type="button" class="icon-button" :title="t('courseWorkspace.blockRegeneration.returnToChat', '返回对话')" @click="clearBlockTarget">
+          <button type="button" class="icon-button" :title="t('courseWorkspace.personalization.returnToChat', '返回对话')" @click="clearBlockTarget">
             <X :size="16" />
           </button>
         </header>
 
-        <div v-if="blockEditLoading && !blockCandidate" class="block-edit-state">
-          <LoaderCircle class="spin" :size="20" />
-          <span>{{ t('courseWorkspace.blockRegeneration.generating', '正在生成并检查候选') }}</span>
+        <div class="personalization-directions" role="radiogroup" :aria-label="t('courseWorkspace.personalization.direction', '优化方向')">
+          <button
+            v-for="direction in personalizationDirections"
+            :key="direction.value"
+            type="button"
+            class="personalization-direction-chip"
+            :class="{ active: personalizationDirection === direction.value }"
+            role="radio"
+            :aria-checked="personalizationDirection === direction.value"
+            :disabled="personalizationBusy || Boolean(personalizationProposal)"
+            @click="personalizationDirection = direction.value"
+          >
+            <component :is="direction.icon" :size="14" />
+            {{ direction.label }}
+          </button>
         </div>
 
-        <div v-else-if="blockEditError" class="block-edit-error">
+        <label class="personalization-feedback-wrap">
+          <span>{{ t('courseWorkspace.personalization.feedback', '你的反馈') }}</span>
+          <textarea
+            v-model="personalizationFeedback"
+            class="personalization-feedback"
+            rows="4"
+            :disabled="personalizationBusy || Boolean(personalizationProposal)"
+            :placeholder="personalizationFeedbackPlaceholder"
+          />
+        </label>
+
+        <div v-if="!personalizationProposal" class="personalization-original-preview">
+          <small>{{ t('courseWorkspace.personalization.currentContent', '当前正文') }}</small>
+          <MarkdownRenderer :content="blockOriginalContent" />
+        </div>
+
+        <button
+          v-if="!personalizationProposal"
+          type="button"
+          class="primary-command personalization-generate"
+          :disabled="!canGeneratePersonalization"
+          @click="generatePersonalizationProposal"
+        >
+          <LoaderCircle v-if="personalizationGenerationLoading" class="spin" :size="14" />
+          <WandSparkles v-else :size="14" />
+          {{ t('courseWorkspace.personalization.generate', '生成优化对比') }}
+        </button>
+
+        <div v-if="personalizationError" class="personalization-error">
           <AlertCircle :size="16" />
-          <span>{{ blockEditError }}</span>
+          <span>{{ personalizationError }}</span>
         </div>
 
-        <template v-else-if="blockCandidate">
-          <div :class="['block-candidate-status', `is-${blockCandidate.status}`]">
-            <LoaderCircle v-if="blockCandidate.status === 'generating'" class="spin" :size="15" />
-            <CheckCircle2 v-else-if="blockCandidate.status === 'ready' || blockCandidate.status === 'applied'" :size="15" />
-            <AlertCircle v-else :size="15" />
-            <span>{{ blockCandidateStatus }}</span>
-            <small>{{ t('courseWorkspace.blockRegeneration.attempts', '生成 {count} 次').replace('{count}', String(blockCandidate.attempts?.length || 0)) }}</small>
+        <template v-if="personalizationProposal">
+          <div class="personalization-proposal-summary">
+            <FileDiff :size="15" />
+            <span>{{ t('courseWorkspace.personalization.reviewCount', '请核对 {count} 个受影响课程块').replace('{count}', String(personalizationProposal.items.length)) }}</span>
           </div>
 
-          <div v-if="blockCandidate.status !== 'generating' && blockCandidateContent" class="block-candidate-preview">
-            <MarkdownRenderer :content="blockCandidateContent" />
+          <div class="personalization-diff-list">
+            <article
+              v-for="(item, index) in personalizationProposal.items"
+              :key="item.item_id"
+              class="personalization-diff-card"
+              :class="{ selected: selectedPersonalizationItemIds.has(item.item_id) }"
+            >
+              <header>
+                <label>
+                  <input
+                    class="personalization-item-check"
+                    type="checkbox"
+                    :checked="selectedPersonalizationItemIds.has(item.item_id)"
+                    :disabled="personalizationBusy || Boolean(personalizationResult)"
+                    @change="togglePersonalizationItem(item.item_id, $event)"
+                  />
+                  <span>{{ personalizationItemTitle(item, index) }}</span>
+                </label>
+                <small>{{ item.block_id }}</small>
+              </header>
+              <div class="personalization-diff-columns">
+                <div class="personalization-before">
+                  <span>{{ t('courseWorkspace.personalization.before', '优化前') }}</span>
+                  <MarkdownRenderer :content="proposalItemContent(item.before)" />
+                </div>
+                <div class="personalization-after">
+                  <span>{{ t('courseWorkspace.personalization.after', '优化后') }}</span>
+                  <MarkdownRenderer :content="proposalItemContent(item.after)" />
+                </div>
+              </div>
+              <p v-if="item.reason">{{ item.reason }}</p>
+            </article>
           </div>
 
-          <p v-if="blockCandidate.status === 'generation_failed'" class="block-generation-failure">
-            {{ blockCandidateFailureHelp }}
-          </p>
-
-          <ul v-if="failedQualityGates.length" class="block-quality-issues">
-            <li v-for="gate in failedQualityGates" :key="gate.key">{{ qualityGateLabel(gate.key, gate.message) }}</li>
-          </ul>
-
-          <div v-if="blockCandidate.status === 'ready'" class="block-candidate-actions">
-            <button type="button" class="primary-command" :disabled="blockEditApplying" @click="applyBlockCandidate">
-              <LoaderCircle v-if="blockEditApplying" class="spin" :size="14" />
-              <Check v-else :size="14" />
-              {{ t('courseWorkspace.blockRegeneration.apply', '应用到正文') }}
-            </button>
-            <button type="button" class="secondary-command" :disabled="blockEditApplying" @click="rejectBlockCandidate">
-              {{ t('courseWorkspace.blockRegeneration.discard', '放弃候选') }}
-            </button>
-          </div>
-
-          <div v-else-if="blockCandidate.status === 'applied'" class="block-applied-receipt">
-            <CheckCircle2 :size="16" />
-            <span>{{ t('courseWorkspace.blockRegeneration.applied', '已应用到正式课程正文') }}</span>
-          </div>
-
-          <div v-else-if="blockCandidate.status === 'generation_failed'" class="block-candidate-actions">
-            <button type="button" class="primary-command" :disabled="blockEditLoading || !isOnline" @click="retryBlockCandidate">
-              <LoaderCircle v-if="blockEditLoading" class="spin" :size="14" />
-              <RotateCcw v-else :size="14" />
-              {{ t('courseWorkspace.blockRegeneration.resume', '继续生成') }}
-            </button>
-            <button type="button" class="secondary-command" :disabled="blockEditLoading" @click="rejectBlockCandidate">
-              {{ t('courseWorkspace.blockRegeneration.discard', '放弃候选') }}
-            </button>
-          </div>
-
-          <div v-else-if="blockCandidate.status !== 'generating'" class="block-candidate-actions">
-            <button type="button" class="secondary-command" @click="rejectBlockCandidate">
-              {{ t('courseWorkspace.blockRegeneration.discard', '放弃候选') }}
-            </button>
-          </div>
+          <button
+            v-if="!personalizationResult"
+            type="button"
+            class="primary-command personalization-apply"
+            :disabled="selectedPersonalizationItemIds.size === 0 || personalizationBusy"
+            @click="applySelectedPersonalization"
+          >
+            <LoaderCircle v-if="personalizationApplying" class="spin" :size="14" />
+            <Check v-else :size="14" />
+            {{ t('courseWorkspace.personalization.applySelected', '应用所选优化') }}
+          </button>
         </template>
 
-        <div v-else class="block-original-preview">
-          <small>{{ t('courseWorkspace.blockRegeneration.currentContent', '当前正文') }}</small>
-          <MarkdownRenderer :content="blockOriginalContent" />
+        <div v-if="personalizationResult" class="personalization-apply-receipt">
+          <CheckCircle2 :size="18" />
+          <div>
+            <strong>{{ t('courseWorkspace.personalization.applied', '所选优化已写入课程真源') }}</strong>
+            <span>{{ t('courseWorkspace.personalization.affectedBlocks', '影响课程块') }}：{{ personalizationAffectedBlockIds.join('、') }}</span>
+            <span>{{ personalizationRepresentationSummary }}</span>
+          </div>
         </div>
       </section>
 
@@ -423,7 +465,7 @@
         </article>
       </main>
 
-      <footer class="ai-teacher-composer">
+      <footer v-if="!props.blockTarget" class="ai-teacher-composer">
         <div v-if="!props.blockTarget && !aiStore.messages.length && !aiStore.loadingConversations" class="quick-actions">
           <button v-for="item in quickPrompts" :key="item.prompt" type="button" @click="sendPrompt(item.prompt)">
             <component :is="item.icon" :size="14" />
@@ -431,9 +473,9 @@
           </button>
         </div>
 
-        <div v-if="aiStore.loading || blockGenerationActive" class="composer-status">
+        <div v-if="aiStore.loading" class="composer-status">
           <LoaderCircle class="spin" :size="13" />
-          <span>{{ props.blockTarget ? t('courseWorkspace.blockRegeneration.generating', '正在生成并检查候选') : t('courseWorkspace.aiTeacher.generating', '正在生成回答') }}</span>
+          <span>{{ t('courseWorkspace.aiTeacher.generating', '正在生成回答') }}</span>
         </div>
 
         <div v-if="!isOnline" class="offline-notice">
@@ -454,13 +496,12 @@
           <button
             type="button"
             class="send-button"
-            :class="{ 'is-stop': aiStore.loading && !props.blockTarget }"
+            :class="{ 'is-stop': aiStore.loading }"
             :disabled="composerButtonDisabled"
             :title="composerButtonTitle"
             @click="handleComposerAction"
           >
-            <LoaderCircle v-if="blockGenerationActive" class="spin" :size="15" />
-            <Square v-else-if="aiStore.loading" :size="14" />
+            <Square v-if="aiStore.loading" :size="14" />
             <Send v-else :size="17" />
           </button>
         </div>
@@ -470,7 +511,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import {
   AlertCircle,
   BookOpenText,
@@ -502,8 +543,9 @@ import { useLearningProgressStore } from '../stores/learningProgress'
 import { useNoteStore } from '../stores/notes'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { t } from '../shared/i18n'
-import type { BlockRegenerationCandidate, CourseBlockEditTarget } from '../stores/types'
+import type { CourseBlockEditTarget } from '../stores/types'
 import type {
+  ApplySelectedChangeProposalResult,
   ChangeProposal,
   ChangeProposalAfterPayload,
   ChangeProposalBlockPayload,
@@ -511,6 +553,7 @@ import type {
   ChangeProposalItem,
   ChangeProposalScope,
   ChangeProposalSource,
+  PersonalizationDirection,
 } from '../types/changeProposal'
 import logger from '../utils/logger'
 
@@ -542,11 +585,16 @@ const isOnline = ref(navigator.onLine)
 const messageList = ref<HTMLElement | null>(null)
 const inputElement = ref<HTMLTextAreaElement | null>(null)
 const selectedConversationId = ref('')
-const blockCandidate = ref<BlockRegenerationCandidate | null>(null)
-const blockEditLoading = ref(false)
-const blockEditApplying = ref(false)
-const blockEditError = ref('')
-let blockCandidatePollTimer: number | null = null
+const personalizationDirection = ref<PersonalizationDirection>('simplify')
+const personalizationFeedback = ref('')
+const personalizationProposal = ref<ChangeProposal | null>(null)
+const selectedPersonalizationItemIds = reactive(new Set<string>())
+const personalizationResult = ref<ApplySelectedChangeProposalResult | null>(null)
+const personalizationError = ref('')
+const personalizationGenerationLoading = ref(false)
+const personalizationApplying = ref(false)
+let personalizationGenerationToken = 0
+let personalizationApplyToken = 0
 
 const isOverlayMode = computed(() => windowWidth.value < 1280)
 const panelClasses = computed(() => isOverlayMode.value ? 'is-overlay' : 'is-docked')
@@ -578,65 +626,66 @@ const currentConversationTitle = computed(() => (
 ))
 const blockTargetTitle = computed(() => String(props.blockTarget?.block.payload.title || props.blockTarget?.nodeName || ''))
 const blockOriginalContent = computed(() => String(props.blockTarget?.block.payload.markdown || props.blockTarget?.block.payload.text || ''))
-const blockCandidateContent = computed(() => String(blockCandidate.value?.proposed_block.payload.markdown || blockCandidate.value?.proposed_block.payload.text || ''))
-const blockCandidateStatus = computed(() => {
-  const status = blockCandidate.value?.status
-  return ({
-    ready: t('courseWorkspace.blockRegeneration.ready', '候选已通过检查'),
-    generating: t('courseWorkspace.blockRegeneration.generating', '正在生成并检查候选'),
-    generation_failed: t('courseWorkspace.blockRegeneration.interrupted', '生成已中断，可继续'),
-    quality_failed: t('courseWorkspace.blockRegeneration.qualityFailed', '候选未通过检查'),
-    applied: t('courseWorkspace.blockRegeneration.applied', '已应用到正式课程正文'),
-    rejected: t('courseWorkspace.blockRegeneration.rejected', '候选已放弃'),
-    stale: t('courseWorkspace.blockRegeneration.stale', '课程已变化，请重新生成'),
-  } as Record<string, string>)[status || ''] || ''
-})
 const representationSyncUnitCount = computed(() => (
   (changeProposalsStore.lastRepresentationSync?.rebuilt || []).reduce(
     (total: number, item: Record<string, any>) => total + (item.rebuilt_unit_ids?.length || 0),
     0,
   )
 ))
-const blockCandidateFailureHelp = computed(() => {
-  const failureCode = blockCandidate.value?.failure_code || ''
-  return ({
-    process_interrupted: t('courseWorkspace.blockRegeneration.failures.processInterrupted', '生成服务曾中断，请从当前候选继续。'),
-    provider_error: t('courseWorkspace.blockRegeneration.failures.providerError', '生成服务暂时不可用，请稍后继续。'),
-    request_cancelled: t('courseWorkspace.blockRegeneration.failures.requestCancelled', '上次生成被中止，请从当前候选继续。'),
-    revision_conflict: t('courseWorkspace.blockRegeneration.failures.revisionConflict', '课程内容已经变化，请重新发起改进。'),
-  } as Record<string, string>)[failureCode]
-    || t('courseWorkspace.blockRegeneration.interruptedHelp', '请求和检查点已经保留，可以直接继续。')
+const personalizationDirections = computed(() => [
+  {
+    value: 'simplify' as const,
+    icon: BookOpenText,
+    label: t('courseWorkspace.personalization.directions.simplify', '更通俗易懂'),
+  },
+  {
+    value: 'expand' as const,
+    icon: Lightbulb,
+    label: t('courseWorkspace.personalization.directions.expand', '讲得更深入'),
+  },
+  {
+    value: 'custom' as const,
+    icon: MessageSquareText,
+    label: t('courseWorkspace.personalization.directions.custom', '自定义'),
+  },
+])
+const personalizationBusy = computed(() => (
+  personalizationGenerationLoading.value || personalizationApplying.value
+))
+const canGeneratePersonalization = computed(() => Boolean(
+  personalizationFeedback.value.trim()
+  && courseStore.currentCourseId
+  && courseStore.currentDocumentRevision
+  && isOnline.value
+  && !personalizationBusy.value,
+))
+const personalizationFeedbackPlaceholder = computed(() => ({
+  simplify: t('courseWorkspace.personalization.placeholders.simplify', '告诉我哪里难懂，或希望换成怎样的直观说法'),
+  expand: t('courseWorkspace.personalization.placeholders.expand', '告诉我希望补充哪些推导、例子或应用'),
+  custom: t('courseWorkspace.personalization.placeholders.custom', '具体描述你希望如何调整本段'),
+})[personalizationDirection.value])
+const personalizationAffectedBlockIds = computed(() => (
+  personalizationResult.value?.receipt.affected_block_ids || []
+))
+const personalizationRepresentationSummary = computed(() => {
+  const sync = personalizationResult.value?.representation_sync
+  if (!sync) return ''
+  if (sync.status === 'synchronized') {
+    return t('courseWorkspace.personalization.representationSynced', '表示同步完成，共重建 {count} 个单元')
+      .replace('{count}', String(representationSyncUnitCount.value))
+  }
+  return t('courseWorkspace.personalization.representationFallback', '表示同步未通过，继续使用上一可用版本')
 })
-const failedQualityGates = computed(() => (
-  blockCandidate.value?.quality_report?.gates.filter(gate => !gate.passed) || []
-))
-const blockEditFinished = computed(() => blockCandidate.value?.status === 'applied')
-const blockGenerationActive = computed(() => (
-  blockEditLoading.value || blockCandidate.value?.status === 'generating'
-))
 const canSend = computed(() => Boolean(
   input.value.trim()
   && isOnline.value
-  && (props.blockTarget
-    ? !blockGenerationActive.value && !blockEditApplying.value && !blockEditFinished.value
-    : !aiStore.loading),
+  && !aiStore.loading,
 ))
-const composerPlaceholder = computed(() => props.blockTarget
-  ? t('courseWorkspace.blockRegeneration.placeholder', '说明希望如何改进这一段')
-  : t('courseWorkspace.aiTeacher.placeholder', '询问当前内容或作答过程'))
-const composerDisabled = computed(() => !isOnline.value || (props.blockTarget
-  ? blockGenerationActive.value || blockEditApplying.value || blockEditFinished.value
-  : aiStore.loading))
-const composerButtonDisabled = computed(() => props.blockTarget
-  ? !canSend.value
-  : !aiStore.loading && !canSend.value)
-
-function qualityGateLabel(key: string, fallback: string) {
-  return t(`courseWorkspace.blockRegeneration.gates.${key}`, fallback)
-}
+const composerPlaceholder = computed(() => t('courseWorkspace.aiTeacher.placeholder', '询问当前内容或作答过程'))
+const composerDisabled = computed(() => !isOnline.value || aiStore.loading)
+const composerButtonDisabled = computed(() => !aiStore.loading && !canSend.value)
 const composerButtonTitle = computed(() => {
-  if (aiStore.loading && !props.blockTarget) return t('courseWorkspace.aiTeacher.stop', '停止')
-  if (props.blockTarget) return t('courseWorkspace.blockRegeneration.generate', '生成候选')
+  if (aiStore.loading) return t('courseWorkspace.aiTeacher.stop', '停止')
   return t('courseWorkspace.aiTeacher.send', '发送')
 })
 const quickPrompts = computed(() => [
@@ -667,6 +716,7 @@ function contextRef() {
 
 async function initialize() {
   if (!courseStore.currentCourseId) return
+  if (props.blockTarget) return
   await aiStore.load(courseStore.currentCourseId, currentNode.value?.node_id)
   selectedConversationId.value = aiStore.currentConversationId
   if (props.prefill) input.value = props.prefill
@@ -682,10 +732,6 @@ async function sendPrompt(prompt: string) {
 }
 
 async function send() {
-  if (props.blockTarget) {
-    await generateBlockCandidate()
-    return
-  }
   const question = input.value.trim()
   if (!question || !courseStore.currentCourseId) return
   input.value = ''
@@ -711,128 +757,211 @@ async function send() {
 }
 
 function handleComposerAction() {
-  if (aiStore.loading && !props.blockTarget) {
+  if (aiStore.loading) {
     aiStore.cancel()
     return
   }
   void send()
 }
 
-async function generateBlockCandidate() {
+function resetPersonalization() {
+  personalizationGenerationToken += 1
+  personalizationApplyToken += 1
+  personalizationGenerationLoading.value = false
+  personalizationApplying.value = false
+  personalizationDirection.value = 'simplify'
+  personalizationFeedback.value = props.prefill || ''
+  personalizationProposal.value = null
+  personalizationResult.value = null
+  personalizationError.value = ''
+  selectedPersonalizationItemIds.clear()
+}
+
+function personalizationErrorText(error: any, fallback: string) {
+  const detail = error?.response?.data?.detail
+  if (detail?.code === 'personalization_generation_in_progress') {
+    return t(
+      'courseWorkspace.personalization.generationInProgress',
+      '同一内容的优化正在生成，请稍后重试',
+    )
+  }
+  if (error?.response?.status === 409) {
+    return t(
+      'courseWorkspace.personalization.conflict',
+      '课程内容已变化，未应用任何优化；请关闭后重新发起',
+    )
+  }
+  return detail?.message
+    || fallback
+}
+
+interface PersonalizationTargetSnapshot {
+  courseId: string
+  blockId: string
+  expectedDocumentRevision: string
+  expectedBlockRevision: string
+  direction: PersonalizationDirection
+  feedback: string
+}
+
+function personalizationTargetSnapshot(
+  target: CourseBlockEditTarget,
+  expectedDocumentRevision: string,
+): PersonalizationTargetSnapshot {
+  return {
+    courseId: courseStore.currentCourseId,
+    blockId: target.block.block_id,
+    expectedDocumentRevision,
+    expectedBlockRevision: target.block.internal_revision,
+    direction: personalizationDirection.value,
+    feedback: personalizationFeedback.value.trim(),
+  }
+}
+
+function isCurrentPersonalizationTarget(snapshot: PersonalizationTargetSnapshot) {
   const target = props.blockTarget
-  const instruction = input.value.trim()
-  if (!target || !instruction || blockEditLoading.value) return
-  blockEditLoading.value = true
-  blockEditError.value = ''
-  blockCandidate.value = null
-  scheduleBlockCandidatePoll()
-  try {
-    blockCandidate.value = await courseStore.createBlockRegenerationCandidate(target, instruction)
-  } catch (candidateError: any) {
-    const conflictCandidate = candidateError?.response?.data?.detail?.candidate
-    if (conflictCandidate) blockCandidate.value = conflictCandidate
-    if (!blockCandidate.value) blockCandidate.value = await findLatestBlockCandidate()
-    if (!blockCandidate.value) {
-      blockEditError.value = candidateError?.response?.data?.detail?.message
-        || t('courseWorkspace.blockRegeneration.generateFailed', '候选生成失败，请稍后重试')
-    }
-  } finally {
-    blockEditLoading.value = false
-    if (blockCandidate.value?.status === 'generating') scheduleBlockCandidatePoll()
-    else stopBlockCandidatePoll()
-  }
+  return Boolean(
+    target
+    && courseStore.currentCourseId === snapshot.courseId
+    && courseStore.currentDocumentRevision === snapshot.expectedDocumentRevision
+    && target.block.block_id === snapshot.blockId
+    && target.block.internal_revision === snapshot.expectedBlockRevision
+    && personalizationDirection.value === snapshot.direction
+    && personalizationFeedback.value.trim() === snapshot.feedback,
+  )
 }
 
-async function retryBlockCandidate() {
-  if (!blockCandidate.value || blockCandidate.value.status !== 'generation_failed' || blockEditLoading.value) return
-  blockEditLoading.value = true
-  blockEditError.value = ''
-  try {
-    blockCandidate.value = await courseStore.retryBlockRegenerationCandidate(blockCandidate.value)
-  } catch (retryError: any) {
-    const conflictCandidate = retryError?.response?.data?.detail?.candidate
-    if (conflictCandidate) blockCandidate.value = conflictCandidate
-    blockEditError.value = retryError?.response?.data?.detail?.message
-      || t('courseWorkspace.blockRegeneration.retryFailed', '候选未能继续生成，请稍后重试')
-  } finally {
-    blockEditLoading.value = false
-    if (blockCandidate.value?.status === 'generating') scheduleBlockCandidatePoll()
-  }
-}
-
-async function findLatestBlockCandidate() {
+async function generatePersonalizationProposal() {
   const target = props.blockTarget
-  if (!target || !isOnline.value) return null
+  const feedback = personalizationFeedback.value.trim()
+  if (!target || !feedback || !canGeneratePersonalization.value) return
+  const snapshot = personalizationTargetSnapshot(target, courseStore.currentDocumentRevision)
+  const requestToken = ++personalizationGenerationToken
+  personalizationError.value = ''
+  personalizationGenerationLoading.value = true
   try {
-    return await courseStore.getLatestBlockRegenerationCandidate(target)
-  } catch (restoreError) {
-    logger.warn('Failed to restore block regeneration candidate', restoreError)
-    return null
-  }
-}
-
-async function restoreBlockCandidate() {
-  const target = props.blockTarget
-  if (!target) return
-  const targetKey = `${target.block.block_id}:${target.block.internal_revision}`
-  const restored = await findLatestBlockCandidate()
-  if (`${props.blockTarget?.block.block_id || ''}:${props.blockTarget?.block.internal_revision || ''}` !== targetKey) return
-  if (restored?.status === 'rejected') return
-  blockCandidate.value = restored
-  if (restored?.status === 'generating') scheduleBlockCandidatePoll()
-}
-
-function scheduleBlockCandidatePoll() {
-  stopBlockCandidatePoll()
-  blockCandidatePollTimer = window.setTimeout(async () => {
-    const current = blockCandidate.value
-    try {
-      blockCandidate.value = current
-        ? await courseStore.getBlockRegenerationCandidate(current)
-        : await findLatestBlockCandidate()
-    } catch (pollError) {
-      logger.warn('Failed to refresh block regeneration candidate', pollError)
+    const proposal = await changeProposalsStore.createPersonalizationProposal({
+      courseId: snapshot.courseId,
+      blockId: snapshot.blockId,
+      requestId: crypto.randomUUID(),
+      expectedDocumentRevision: snapshot.expectedDocumentRevision,
+      expectedBlockRevision: snapshot.expectedBlockRevision,
+      direction: snapshot.direction,
+      feedback: snapshot.feedback,
+    })
+    if (requestToken !== personalizationGenerationToken || !isCurrentPersonalizationTarget(snapshot)) return
+    personalizationProposal.value = proposal
+    selectedPersonalizationItemIds.clear()
+    for (const item of proposal.items) {
+      if (item.selected !== false) selectedPersonalizationItemIds.add(item.item_id)
     }
-    if (isOnline.value && (blockCandidate.value?.status === 'generating' || (blockEditLoading.value && !blockCandidate.value))) {
-      scheduleBlockCandidatePoll()
-    }
-  }, 800)
-}
-
-function stopBlockCandidatePoll() {
-  if (blockCandidatePollTimer !== null) {
-    window.clearTimeout(blockCandidatePollTimer)
-    blockCandidatePollTimer = null
-  }
-}
-
-async function applyBlockCandidate() {
-  if (!blockCandidate.value || !props.blockTarget || blockEditApplying.value) return
-  blockEditApplying.value = true
-  blockEditError.value = ''
-  try {
-    const result = await courseStore.applyBlockRegenerationCandidate(blockCandidate.value)
-    blockCandidate.value = result.candidate
-    emit('blockApplied', props.blockTarget)
-  } catch (applyError: any) {
-    const conflictCandidate = applyError?.response?.data?.detail?.candidate
-    if (conflictCandidate) blockCandidate.value = conflictCandidate
-    blockEditError.value = applyError?.response?.data?.detail?.message
-      || t('courseWorkspace.blockRegeneration.applyFailed', '候选未能应用，请重新生成')
+  } catch (error: any) {
+    if (requestToken !== personalizationGenerationToken || !isCurrentPersonalizationTarget(snapshot)) return
+    personalizationError.value = personalizationErrorText(
+      error,
+      t('courseWorkspace.personalization.generateFailed', '优化对比生成失败，请刷新课程后重试'),
+    )
   } finally {
-    blockEditApplying.value = false
+    if (requestToken === personalizationGenerationToken) {
+      personalizationGenerationLoading.value = false
+    }
   }
 }
 
-async function rejectBlockCandidate() {
-  if (blockCandidate.value && blockCandidate.value.status !== 'applied') {
-    try {
-      blockCandidate.value = await courseStore.rejectBlockRegenerationCandidate(blockCandidate.value)
-    } catch (rejectError) {
-      logger.warn('Failed to reject block regeneration candidate', rejectError)
+function togglePersonalizationItem(itemId: string, event: Event) {
+  const checked = (event.target as HTMLInputElement).checked
+  if (checked) selectedPersonalizationItemIds.add(itemId)
+  else selectedPersonalizationItemIds.delete(itemId)
+}
+
+function invalidatePersonalizationProposal() {
+  personalizationProposal.value = null
+  personalizationResult.value = null
+  selectedPersonalizationItemIds.clear()
+}
+
+function personalizationItemTitle(item: ChangeProposalItem, index: number) {
+  const before = item.before
+  if (before && typeof before === 'object') {
+    const payload = 'payload' in before && before.payload && typeof before.payload === 'object'
+      ? before.payload as ChangeProposalBlockPayload
+      : before as ChangeProposalBlockPayload
+    if (typeof payload.title === 'string' && payload.title.trim()) return payload.title.trim()
+  }
+  return t('courseWorkspace.personalization.blockFallback', '课程块 {index}')
+    .replace('{index}', String(index + 1))
+}
+
+async function applySelectedPersonalization() {
+  const proposal = personalizationProposal.value
+  const target = props.blockTarget
+  if (!proposal || !target || !selectedPersonalizationItemIds.size || personalizationBusy.value) return
+  const itemIds = proposal.items
+    .filter(item => selectedPersonalizationItemIds.has(item.item_id))
+    .map(item => item.item_id)
+  const expectedRevision = String(
+    proposal.generation_meta?.base_document_revision || courseStore.currentDocumentRevision,
+  )
+  const targetProposalItem = proposal.items.find(item => item.block_id === target.block.block_id)
+  if (
+    expectedRevision !== courseStore.currentDocumentRevision
+    || targetProposalItem?.expected_block_revision !== target.block.internal_revision
+  ) {
+    invalidatePersonalizationProposal()
+    personalizationError.value = personalizationErrorText(
+      { response: { status: 409 } },
+      t('courseWorkspace.personalization.conflict', '课程内容已变化，未应用任何优化；请关闭后重新发起'),
+    )
+    return
+  }
+  const snapshot = personalizationTargetSnapshot(target, expectedRevision)
+  const requestToken = ++personalizationApplyToken
+  personalizationError.value = ''
+  personalizationApplying.value = true
+  try {
+    const result = await changeProposalsStore.applySelectedItems(
+      proposal.proposal_id,
+      itemIds,
+      expectedRevision,
+    )
+    const responseCourseId = result.document.course_id
+    const shouldWriteCurrentTarget = requestToken === personalizationApplyToken
+      && isCurrentPersonalizationTarget(snapshot)
+    const shouldRefreshCurrentCourse = Boolean(
+      responseCourseId && responseCourseId === courseStore.currentCourseId,
+    )
+    if (shouldRefreshCurrentCourse) {
+      courseStore.applyCourseDocumentEnvelope(result.document)
+    }
+    if (!shouldWriteCurrentTarget) {
+      if (shouldRefreshCurrentCourse) {
+        void courseStore.refreshCourseData(responseCourseId).catch(error => {
+          logger.warn('Course refresh deferred after personalization apply', error)
+        })
+      }
+      return
+    }
+    personalizationProposal.value = result.proposal
+    personalizationResult.value = result
+    emit('blockApplied', target)
+    if (shouldRefreshCurrentCourse) {
+      void courseStore.refreshCourseData(responseCourseId).catch(error => {
+        logger.warn('Course refresh deferred after personalization apply', error)
+      })
+    }
+  } catch (error: any) {
+    if (requestToken !== personalizationApplyToken || !isCurrentPersonalizationTarget(snapshot)) return
+    personalizationError.value = personalizationErrorText(
+      error,
+      error?.response?.status === 409
+        ? t('courseWorkspace.personalization.conflict', '课程内容已变化，未应用任何优化；请关闭后重新发起')
+        : t('courseWorkspace.personalization.applyFailed', '所选优化应用失败，请稍后重试'),
+    )
+  } finally {
+    if (requestToken === personalizationApplyToken) {
+      personalizationApplying.value = false
     }
   }
-  clearBlockTarget()
 }
 
 // --- 多节点变更提案（change_proposals） ---
@@ -904,6 +1033,7 @@ function sourceLabel(source: ChangeProposalSource) {
     manual: '',
     representation_semantic: t('courseWorkspace.changeProposals.source.representationSemantic', '教学资源语义修改'),
     block_regeneration: t('courseWorkspace.changeProposals.source.blockRegeneration', '正式正文改进'),
+    personalization: t('courseWorkspace.changeProposals.source.personalization', '个性化正文优化'),
     evidence: t('courseWorkspace.changeProposals.source.evidence', '旧个人证据提案'),
     kb_link: t('courseWorkspace.changeProposals.source.kbLink', '联动至知识库'),
   } as Record<ChangeProposalSource, string>)[source] || ''
@@ -960,9 +1090,7 @@ async function handleApplyItem(proposalId: string, itemId: string) {
 }
 
 function clearBlockTarget() {
-  stopBlockCandidatePoll()
-  blockCandidate.value = null
-  blockEditError.value = ''
+  resetPersonalization()
   emit('clearBlockTarget')
 }
 
@@ -1030,29 +1158,31 @@ function scrollToBottom() {
 }
 
 function handleResize() { windowWidth.value = window.innerWidth }
-function handleOnline() { isOnline.value = true; void restoreBlockCandidate() }
-function handleOffline() { isOnline.value = false; stopBlockCandidatePoll() }
+function handleOnline() { isOnline.value = true }
+function handleOffline() { isOnline.value = false }
 
 watch(() => props.quoteText, value => { quoteVisible.value = Boolean(value) })
 watch(() => props.prefill, value => {
-  if (!value) return
-  input.value = value
-  nextTick(resizeComposer)
+  if (props.blockTarget) {
+    if (personalizationProposal.value || personalizationResult.value) {
+      invalidatePersonalizationProposal()
+    }
+    personalizationFeedback.value = value || ''
+  } else if (value) {
+    input.value = value
+    nextTick(resizeComposer)
+  }
 })
 watch(() => `${props.blockTarget?.block.block_id || ''}:${props.blockTarget?.block.internal_revision || ''}`, () => {
-  stopBlockCandidatePoll()
-  blockCandidate.value = null
-  blockEditError.value = ''
-  if (props.blockTarget) {
-    input.value = props.prefill || t('courseWorkspace.blockRegeneration.defaultInstruction', '把这段内容讲得更准确、更清楚，并保持与前后文衔接。')
-    nextTick(resizeComposer)
-    void restoreBlockCandidate()
-  }
+  resetPersonalization()
 }, { immediate: true })
 watch(() => aiStore.currentConversationId, value => { selectedConversationId.value = value })
 watch(() => aiStore.messages.length, scrollToBottom)
 watch(() => aiStore.loading, scrollToBottom)
-watch(() => courseStore.currentCourseId, () => { void initialize() })
+watch(() => courseStore.currentCourseId, () => {
+  resetPersonalization()
+  void initialize()
+})
 
 onMounted(() => {
   window.addEventListener('resize', handleResize)
@@ -1062,7 +1192,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  stopBlockCandidatePoll()
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('online', handleOnline)
   window.removeEventListener('offline', handleOffline)
@@ -1153,31 +1282,51 @@ onUnmounted(() => {
 .change-item-prompt textarea { width:100%; border:1px solid rgba(203,213,225,.9); border-radius:8px; padding:7px 8px; color:var(--lz-text); background:#fff; font:inherit; font-size:11px; resize:vertical; }
 .change-item-prompt-actions { display:flex; gap:6px; margin-top:6px; }
 
-.block-edit-workspace { min-height:0; flex:1; overflow-y:auto; padding:8px 14px 20px; background:#fff; }
-.block-edit-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
-.block-edit-heading > div { min-width:0; display:flex; align-items:center; gap:9px; }
-.block-edit-heading > div > span { width:30px; height:30px; flex:0 0 auto; display:grid; place-items:center; border-radius:8px; color:var(--lz-brand); background:var(--lz-brand-soft); }
-.block-edit-heading > div > div { min-width:0; display:flex; flex-direction:column; }
-.block-edit-heading small,.block-original-preview > small { color:var(--lz-text-muted); font-size:9px; }
-.block-edit-heading strong { overflow:hidden; color:var(--lz-text-strong); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
-.block-edit-state { min-height:180px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; color:var(--lz-brand); font-size:11px; }
-.block-edit-error { display:flex; align-items:flex-start; gap:7px; margin-bottom:10px; padding:9px 10px; border-left:3px solid var(--lz-danger); color:var(--lz-danger); background:var(--lz-danger-soft); font-size:10px; line-height:1.5; }
-.block-candidate-status { display:grid; grid-template-columns:16px minmax(0,1fr) auto; align-items:center; gap:7px; margin-bottom:10px; padding:8px 9px; border-left:3px solid var(--lz-success); color:#166534; background:var(--lz-success-soft); font-size:10px; }
-.block-candidate-status.is-quality_failed,.block-candidate-status.is-stale,.block-candidate-status.is-rejected { border-left-color:var(--lz-warning); color:#92400e; background:var(--lz-warning-soft); }
-.block-candidate-status.is-generating { border-left-color:var(--lz-brand); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
-.block-candidate-status.is-generation_failed { border-left-color:var(--lz-danger); color:#991b1b; background:var(--lz-danger-soft); }
-.block-candidate-status small { color:inherit; font-size:8px; opacity:.78; }
-.block-candidate-preview,.block-original-preview { padding:14px 13px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text); background:#fff; font-size:12px; line-height:1.72; }
-.block-original-preview { color:var(--lz-text-secondary); background:var(--lz-surface-muted); }
-.block-original-preview > small { display:block; margin-bottom:8px; }
-.block-candidate-preview :deep(.markdown-renderer),.block-original-preview :deep(.markdown-renderer) { color:inherit; font-size:inherit; line-height:inherit; }
-.block-candidate-preview :deep(.markdown-renderer > :first-child),.block-original-preview :deep(.markdown-renderer > :first-child) { margin-top:0; }
-.block-candidate-preview :deep(.markdown-renderer > :last-child),.block-original-preview :deep(.markdown-renderer > :last-child) { margin-bottom:0; }
-.block-quality-issues { display:grid; gap:5px; margin:10px 0 0; padding:9px 10px 9px 26px; color:#92400e; background:var(--lz-warning-soft); font-size:9px; line-height:1.5; }
-.block-generation-failure { margin:10px 0 0; padding:9px 10px; border-left:3px solid var(--lz-danger); color:#991b1b; background:var(--lz-danger-soft); font-size:10px; line-height:1.5; }
-.block-candidate-actions { display:flex; align-items:center; gap:7px; margin-top:12px; }
-.block-candidate-actions button:disabled { opacity:.55; cursor:not-allowed; }
-.block-applied-receipt { display:flex; align-items:center; gap:7px; margin-top:12px; padding:9px 10px; border-left:3px solid var(--lz-success); color:#166534; background:var(--lz-success-soft); font-size:10px; }
+.personalization-workspace { min-height:0; flex:1; overflow-y:auto; padding:8px 14px 20px; background:linear-gradient(180deg,#fff 0%,#fbfcff 100%); }
+.personalization-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; }
+.personalization-heading > div { min-width:0; display:flex; align-items:center; gap:9px; }
+.personalization-heading > div > span { width:30px; height:30px; flex:0 0 auto; display:grid; place-items:center; border-radius:8px; color:var(--lz-brand); background:var(--lz-brand-soft); }
+.personalization-heading > div > div { min-width:0; display:flex; flex-direction:column; }
+.personalization-heading small,.personalization-original-preview > small { color:var(--lz-text-muted); font-size:9px; }
+.personalization-heading strong { overflow:hidden; color:var(--lz-text-strong); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+.personalization-directions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-bottom:12px; }
+.personalization-direction-chip { min-height:38px; display:flex; align-items:center; justify-content:center; gap:5px; padding:6px; border:1px solid #dbe3f2; border-radius:9px; color:var(--lz-text-secondary); background:#fff; font-size:9px; font-weight:700; cursor:pointer; transition:border-color .16s ease,color .16s ease,background .16s ease,transform .16s ease; }
+.personalization-direction-chip:hover:not(:disabled) { transform:translateY(-1px); border-color:#a5b4fc; color:var(--lz-brand-strong); }
+.personalization-direction-chip.active { border-color:#818cf8; color:#3730a3; background:#eef2ff; box-shadow:0 0 0 2px rgba(99,102,241,.08); }
+.personalization-direction-chip:disabled { opacity:.65; cursor:not-allowed; }
+.personalization-feedback-wrap { display:grid; gap:6px; margin-bottom:10px; }
+.personalization-feedback-wrap > span { color:var(--lz-text-secondary); font-size:10px; font-weight:750; }
+.personalization-feedback { width:100%; min-height:86px; resize:vertical; border:1px solid #dbe3f2; border-radius:10px; padding:9px 10px; color:var(--lz-text); background:#fff; font:inherit; font-size:11px; line-height:1.55; outline:none; }
+.personalization-feedback:focus { border-color:#a5b4fc; box-shadow:0 0 0 3px rgba(99,102,241,.08); }
+.personalization-feedback:disabled { color:var(--lz-text-muted); background:#f8fafc; }
+.personalization-original-preview { margin-bottom:10px; padding:10px 11px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-secondary); background:var(--lz-surface-muted); font-size:10px; line-height:1.6; }
+.personalization-original-preview > small { display:block; margin-bottom:5px; }
+.personalization-original-preview :deep(.markdown-renderer > :first-child),.personalization-original-preview :deep(.markdown-renderer > :last-child) { margin-block:0; }
+.personalization-generate,.personalization-apply { width:100%; min-height:36px; }
+.personalization-generate:disabled,.personalization-apply:disabled { opacity:.5; cursor:not-allowed; }
+.personalization-error { display:flex; align-items:flex-start; gap:7px; margin-top:10px; padding:9px 10px; border-left:3px solid var(--lz-danger); border-radius:0 8px 8px 0; color:var(--lz-danger); background:var(--lz-danger-soft); font-size:10px; line-height:1.5; }
+.personalization-proposal-summary { display:flex; align-items:center; gap:7px; margin:13px 0 8px; color:var(--lz-brand-strong); font-size:10px; font-weight:750; }
+.personalization-diff-list { display:grid; gap:9px; }
+.personalization-diff-card { padding:9px; border:1px solid #e2e8f0; border-radius:10px; background:#fff; transition:border-color .16s ease,box-shadow .16s ease; }
+.personalization-diff-card.selected { border-color:#a5b4fc; box-shadow:0 0 0 2px rgba(99,102,241,.07); }
+.personalization-diff-card > header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+.personalization-diff-card > header label { min-width:0; display:flex; align-items:center; gap:7px; color:var(--lz-text-strong); font-size:10px; font-weight:750; cursor:pointer; }
+.personalization-item-check { width:15px; height:15px; flex:0 0 auto; accent-color:var(--lz-brand); }
+.personalization-diff-card > header small { max-width:42%; overflow:hidden; color:var(--lz-text-muted); font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.personalization-diff-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
+.personalization-before,.personalization-after { min-width:0; padding:8px; border-radius:8px; font-size:9.5px; line-height:1.55; overflow-wrap:anywhere; }
+.personalization-before { color:#64748b; background:#f8fafc; }
+.personalization-after { color:#334155; background:#f0fdf4; }
+.personalization-before > span,.personalization-after > span { display:block; margin-bottom:5px; font-size:8px; font-weight:800; }
+.personalization-before > span { color:#991b1b; }
+.personalization-after > span { color:#166534; }
+.personalization-before :deep(.markdown-renderer > :first-child),.personalization-before :deep(.markdown-renderer > :last-child),.personalization-after :deep(.markdown-renderer > :first-child),.personalization-after :deep(.markdown-renderer > :last-child) { margin-block:0; }
+.personalization-diff-card > p { margin:7px 1px 0; color:var(--lz-text-muted); font-size:9px; line-height:1.45; }
+.personalization-apply { margin-top:11px; }
+.personalization-apply-receipt { display:grid; grid-template-columns:20px minmax(0,1fr); align-items:start; gap:8px; margin-top:12px; padding:10px; border-left:3px solid var(--lz-success); border-radius:0 9px 9px 0; color:#166534; background:var(--lz-success-soft); }
+.personalization-apply-receipt > div { min-width:0; display:grid; gap:3px; }
+.personalization-apply-receipt strong { font-size:10px; }
+.personalization-apply-receipt span { color:#47705b; font-size:9px; line-height:1.45; overflow-wrap:anywhere; }
 
 .ai-teacher-messages { min-height: 0; flex: 1; overflow-y: auto; padding: 20px 18px 30px; background: linear-gradient(180deg,#fff 0%,#fbfcff 46%,#fff 100%); scroll-behavior: smooth; }
 .panel-state { height: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--lz-text-muted); font-size: 11px; }
@@ -1294,8 +1443,7 @@ onUnmounted(() => {
   .proposal-actions { align-items: stretch; flex-direction: column; }
   .primary-command,.secondary-command { width: 100%; }
   .action-receipt { align-items: flex-start; flex-wrap: wrap; }
-  .block-edit-workspace { padding-inline:10px; }
-  .block-candidate-actions { align-items:stretch; flex-direction:column; }
-  .block-candidate-actions button { width:100%; }
+  .personalization-workspace { padding-inline:10px; }
+  .personalization-diff-columns { grid-template-columns:1fr; }
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <section class="slide-workbench" :class="{ 'is-standalone': standalone }">
+  <section class="slide-workbench" :class="{ 'is-standalone': standalone }" :data-theme="theme" :data-preview-source="previewSource">
     <header class="slide-workbench__toolbar">
       <div class="slide-workbench__identity">
         <button v-if="standalone" type="button" class="slide-workbench__back" :title="t('pptWorkspace.backToCourse', '返回课程')" @click="emit('back')">
@@ -15,9 +15,25 @@
           <TriangleAlert v-else :size="13" />
           {{ error ? t('teachingRepresentations.slides.buildFailed', '生成失败') : building ? stageLabel : qualityPassed ? t('teachingRepresentations.slides.qualityPassed', '质量检查通过') : t('teachingRepresentations.slides.qualityReview', '需要检查') }}
         </span>
-        <small class="slide-workbench__count">{{ t('teachingRepresentations.slides.pageCount', '{count} 页').replace('{count}', String(slides.length)) }}</small>
+        <small class="slide-workbench__count">{{ t('teachingRepresentations.slides.demoPageCount', '{count} 页 · Demo 标准 12–18 页').replace('{count}', String(slides.length)) }}</small>
       </div>
       <div class="slide-workbench__commands">
+        <div class="slide-workbench__theme" role="radiogroup" :aria-label="t('pptWorkspace.themeLabel', '课件主题')">
+          <button
+            type="button"
+            data-theme-option="qingfeng-classroom"
+            :aria-pressed="theme === 'qingfeng-classroom'"
+            :class="{ active: theme === 'qingfeng-classroom' }"
+            @click="theme = 'qingfeng-classroom'"
+          >{{ t('pptWorkspace.themes.qingfeng', '清风课堂') }}</button>
+          <button
+            type="button"
+            data-theme-option="academic-bluegray"
+            :aria-pressed="theme === 'academic-bluegray'"
+            :class="{ active: theme === 'academic-bluegray' }"
+            @click="theme = 'academic-bluegray'"
+          >{{ t('pptWorkspace.themes.academic', '学术蓝灰') }}</button>
+        </div>
         <button v-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuild', '同步课程最新内容')" @click="emit('rebuild')">
           <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ t('pptWorkspace.sync', '同步课程') }}</span>
         </button>
@@ -27,7 +43,7 @@
         <button type="button" :disabled="!activeSlide || building" :title="t('pptWorkspace.present', '全屏演示')" @click="openPresentation">
           <Play :size="16" /><span>{{ t('pptWorkspace.present', '全屏演示') }}</span>
         </button>
-        <button type="button" class="slide-workbench__export" :disabled="building || exportBusy || !representationId" :title="t('teachingRepresentations.exportPptx', '导出 PPTX')" @click="downloadSlides">
+        <button type="button" class="slide-workbench__export" :disabled="exportDisabled" :title="exportTitle" @click="downloadSlides">
           <LoaderCircle v-if="exportBusy" :size="16" class="spinning" />
           <Download v-else :size="16" /><span>{{ t('teachingRepresentations.exportPptx', '导出 PPTX') }}</span>
         </button>
@@ -66,6 +82,7 @@
           :page-number="activeIndex + 1"
           :page-count="slides.length"
           :deck-title="deckTitle"
+          :theme="theme"
         />
         <div v-else class="slide-stage__empty">
           <LoaderCircle v-if="building" :size="24" class="spinning" />
@@ -75,6 +92,29 @@
       </main>
 
       <aside class="slide-inspector">
+        <section v-if="error && previewSource === 'draft' && slides.length" class="slide-workbench__failed-preview">
+          <header>
+            <span><TriangleAlert :size="14" />{{ t('pptWorkspace.failedPreview', '未发布问题预览') }}</span>
+            <b>{{ qualityIssues.length }}</b>
+          </header>
+          <p>{{ t('pptWorkspace.failedPreviewHelp', '这是本次构建的未发布页面；修复以下问题后再同步课程。') }}</p>
+          <ol v-if="qualityIssues.length">
+            <li v-for="issue in qualityIssues" :key="issue.key" :data-severity="issue.severity">
+              <div>
+                <span>{{ issue.slide }}</span>
+                <i>{{ layoutLabel(issue.layout) }}</i>
+                <code>{{ issue.code }}</code>
+              </div>
+              <strong>{{ issue.message }}</strong>
+              <small>{{ issue.suggestion }}</small>
+            </li>
+          </ol>
+          <small v-else>{{ t('pptWorkspace.legacyQualityFallback', '后端未返回逐页问题，请检查本次预览后重试。') }}</small>
+        </section>
+        <section v-else-if="error && previewSource === 'published'" class="slide-inspector__receipt" data-state="failed_using_last_available">
+          <TriangleAlert :size="15" />
+          <div><strong>{{ t('pptWorkspace.publishedFailureFallback', '本次生成失败，当前展示上一可用版本') }}</strong></div>
+        </section>
         <template v-if="activeSlide">
           <section>
             <header><span>{{ t('teachingRepresentations.slides.pageQuality', '本页质量') }}</span><b :data-passed="slideQualityPassed">{{ slideQualityPassed ? t('teachingRepresentations.slides.passed', '通过') : t('teachingRepresentations.slides.review', '检查') }}</b></header>
@@ -235,6 +275,7 @@
             :page-number="activeIndex + 1"
             :page-count="slides.length"
             :deck-title="deckTitle"
+            :theme="theme"
             presenting
           />
           <aside v-if="notesVisible">
@@ -264,6 +305,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Down
 import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
+import type { SlideDeckPreviewSource, SlideDeckTheme } from '../stores/teachingRepresentations'
 import type { ChangeProposal, ChangeProposalContent, ChangeProposalItem } from '../types/changeProposal'
 import SlideCanvas from './SlideCanvas.vue'
 import TeachingImpactDialog from './TeachingImpactDialog.vue'
@@ -311,6 +353,7 @@ const props = withDefaults(defineProps<{
   stage: string
   error: string
   quality?: Record<string, any> | null
+  previewSource?: SlideDeckPreviewSource
   standalone?: boolean
 }>(), {
   standalone: false,
@@ -343,6 +386,7 @@ const presentationOpen = ref(false)
 const notesVisible = ref(false)
 const presentationBlank = ref(false)
 const presentationSurface = ref<HTMLElement | null>(null)
+const theme = ref<SlideDeckTheme>('qingfeng-classroom')
 const layouts = ['cover', 'roadmap', 'chapter', 'objective', 'concept', 'comparison', 'process', 'code', 'misconception', 'practice', 'recap']
 let autoPreviewTimer: number | undefined
 
@@ -350,6 +394,42 @@ const activeIndex = computed(() => Math.max(0, props.slides.findIndex(slide => s
 const activeSlide = computed(() => props.slides[activeIndex.value] || null)
 const qualityPassed = computed(() => props.quality?.passed === true)
 const slideQualityPassed = computed(() => activeSlide.value?.quality?.passed === true)
+const previewSource = computed<SlideDeckPreviewSource>(() => (
+  props.previewSource || (props.error ? 'draft' : 'published')
+))
+const exportDisabled = computed(() => (
+  props.building || exportBusy.value || !props.representationId || previewSource.value === 'draft'
+))
+const exportTitle = computed(() => (
+  previewSource.value === 'draft'
+    ? t('pptWorkspace.draftExportDisabled', '问题草稿不可导出；同步成功后可导出 PPTX')
+    : t('teachingRepresentations.exportPptx', '导出 PPTX')
+))
+const qualityIssues = computed(() => {
+  const deckIssues = Array.isArray(props.quality?.issues) ? props.quality.issues : []
+  const slideIssues = props.slides.flatMap(slide => (
+    Array.isArray(slide.quality?.issues)
+      ? slide.quality.issues.map(issue => ({ ...issue, __slide: slide }))
+      : []
+  ))
+  const seen = new Set<string>()
+  return [...deckIssues, ...slideIssues].flatMap((raw: Record<string, any>) => {
+    const slide = String(raw.slide_id || raw.slide || raw.target || raw.__slide?.unit_id || 'deck')
+    const matchingSlide = props.slides.find(item => item.unit_id === slide) || raw.__slide
+    const issue = {
+      key: `${raw.code || 'quality_issue'}:${slide}:${raw.message || ''}`,
+      severity: String(raw.severity || 'critical'),
+      code: String(raw.code || 'quality_issue'),
+      message: String(raw.message || t('pptWorkspace.legacyIssueMessage', '该页未通过质量检查。')),
+      suggestion: String(raw.suggestion || t('pptWorkspace.legacyIssueSuggestion', '请检查该页内容与版式后重试。')),
+      slide,
+      layout: String(raw.layout || matchingSlide?.layout || 'deck'),
+    }
+    if (seen.has(issue.key)) return []
+    seen.add(issue.key)
+    return [issue]
+  })
+})
 const sourceCount = computed(() => {
   const slide = activeSlide.value
   if (!slide) return 0
@@ -466,10 +546,10 @@ function handlePresentationKey(event: KeyboardEvent) {
 }
 
 async function downloadSlides() {
-  if (!props.representationId || exportBusy.value) return
+  if (exportDisabled.value) return
   exportBusy.value = true
   try {
-    await store.downloadSlides(props.representationId, props.deckTitle)
+    await store.downloadSlides(props.representationId, props.deckTitle, theme.value)
   } finally {
     exportBusy.value = false
   }
@@ -686,6 +766,9 @@ function classificationLabel(value: string) {
 .slide-workbench__status { min-height:24px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border-radius:6px; color:#047857; background:#ecfdf5; font-size:9px; font-weight:700; }.slide-workbench__status[data-state="building"] { color:#4f46e5; background:#eef2ff; }.slide-workbench__status[data-state="warning"] { color:#b45309; background:#fffbeb; }
 .slide-workbench__status[data-state="error"] { color:#b42318; background:#fef3f2; }
 .slide-workbench__commands { flex:none; display:flex; gap:6px; }.slide-workbench__commands button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; cursor:pointer; }.slide-workbench__commands button:hover { color:var(--lz-brand-strong); border-color:#c7d2fe; background:var(--lz-brand-soft); }.slide-workbench__commands button:disabled { opacity:.45; cursor:not-allowed; }
+.slide-workbench__theme { display:grid; grid-template-columns:1fr 1fr; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
+.slide-workbench__commands .slide-workbench__theme button { min-height:28px; padding:0 9px; border:0; border-radius:6px; color:#697586; background:transparent; box-shadow:none; }
+.slide-workbench__commands .slide-workbench__theme button.active { color:#1f4fbe; background:#fff; box-shadow:0 2px 7px rgba(32,55,86,.12); }
 .slide-workbench__progress { position:absolute; inset:auto 0 -1px; height:2px; background:#eef0f8; }.slide-workbench__progress i { display:block; height:100%; background:#6d5dfb; transition:width .2s ease; }
 .slide-workbench__body { min-width:0; min-height:0; display:grid; grid-template-columns:176px minmax(430px,1fr) 236px; }
 .slide-thumbnails { min-height:0; overflow:auto; padding:10px 8px 18px; border-right:1px solid var(--lz-border); background:#fbfcff; }.slide-thumbnails > button { width:100%; display:grid; grid-template-columns:20px minmax(0,1fr); align-items:start; gap:5px; margin:0 0 6px; padding:5px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-muted); background:transparent; cursor:pointer; }.slide-thumbnails > button:hover { background:#f3f5fb; }.slide-thumbnails > button.active { border-color:#a5b4fc; color:var(--lz-brand); background:#fff; box-shadow:0 4px 12px rgba(79,70,229,.08); }.slide-thumbnails > button.stale { border-left-color:#f59e0b; }.slide-thumbnails > button > span { padding-top:3px; font:700 8px ui-monospace,monospace; text-align:center; }
@@ -700,6 +783,16 @@ function classificationLabel(value: string) {
 .slide-canvas footer { position:absolute; inset:auto 6% 3.4%; display:flex; justify-content:space-between; color:#98a2b3; font-size:.8cqw; }.slide-canvas__rail { position:absolute; inset:7% auto 12% 4%; width:5px; border-radius:3px; background:#6d5dfb; }.slide-cover__brand { position:absolute; inset:8% 6% auto auto; width:8%; aspect-ratio:1; display:grid; place-items:center; border-radius:8px; color:#fff; background:#14866d; font-size:1.25cqw; font-weight:800; }.slide-cover__content { position:absolute; inset:13% 22% 12% 8%; }.slide-cover__content small,.slide-chapter__content small { color:#6d5dfb; font-size:1.35cqw; font-weight:750; }.slide-cover__content h2 { margin-top:6%; font-size:4.2cqw; line-height:1.14; }.slide-cover__content p { margin:5% 0 0; color:#667085; font-size:1.55cqw; }.slide-cover__content blockquote { margin-top:8%; padding:3% 4%; border-radius:7px; background:#f6f7fc; font-size:1.55cqw; font-weight:700; }.slide-chapter__number { position:absolute; inset:0 auto 0 0; width:31%; display:grid; place-items:center; color:#6d5dfb; background:#eeeafe; font-size:7cqw; font-weight:800; }.slide-chapter__content { position:absolute; inset:20% 8% 16% 36%; }.slide-chapter__content h2 { margin-top:6%; font-size:3.45cqw; line-height:1.18; }.slide-chapter__content blockquote { margin-top:10%; padding:4%; border:1px solid #dfe3ee; border-radius:7px; font-size:1.65cqw; font-weight:700; }
 .slide-stage__empty { display:flex; flex-direction:column; align-items:center; gap:10px; color:var(--lz-text-muted); font-size:11px; }
 .slide-inspector { min-height:0; overflow:auto; padding:12px; border-left:1px solid var(--lz-border); background:#fff; }.slide-inspector section { padding:4px 0 14px; border-bottom:1px solid #edf0f5; }.slide-inspector section + section { padding-top:14px; }.slide-inspector section > header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; color:var(--lz-text-strong); font-size:10px; font-weight:750; }.slide-inspector section > header b { padding:3px 6px; border-radius:5px; color:var(--lz-text-muted); background:#f3f4f7; font-size:8px; }.slide-inspector section > header b[data-passed="true"] { color:#047857; background:#ecfdf5; }
+.slide-workbench__failed-preview { margin-bottom:16px; padding:14px !important; border:1px solid #f2c6bd; border-radius:10px; background:#fff8f6; }
+.slide-workbench__failed-preview > header span { display:flex; align-items:center; gap:6px; color:#a83b2f; }
+.slide-workbench__failed-preview > p { margin:0 0 10px; color:#7a4a43; font-size:10px; line-height:1.55; }
+.slide-workbench__failed-preview > ol { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.slide-workbench__failed-preview li { padding:10px; border-left:3px solid #d14c3e; border-radius:0 7px 7px 0; background:#fff; }
+.slide-workbench__failed-preview li[data-severity="major"] { border-left-color:#d28a28; }
+.slide-workbench__failed-preview li > div { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
+.slide-workbench__failed-preview li span,.slide-workbench__failed-preview li i,.slide-workbench__failed-preview li code { padding:2px 5px; border-radius:4px; color:#75534f; background:#f9ece9; font-size:8px; font-style:normal; }
+.slide-workbench__failed-preview li strong { display:block; margin-top:7px; color:#532f2b; font-size:10px; line-height:1.45; }
+.slide-workbench__failed-preview li small,.slide-workbench__failed-preview > small { display:block; margin-top:4px; color:#795d59; font-size:9px; line-height:1.5; }
 .slide-inspector dl { margin:0; }.slide-inspector dl div { display:flex; justify-content:space-between; gap:10px; padding:4px 0; font-size:9px; }.slide-inspector dt { color:var(--lz-text-muted); }.slide-inspector dd { margin:0; color:var(--lz-text-secondary); text-align:right; }.slide-inspector__refs { display:flex; flex-wrap:wrap; gap:4px; }.slide-inspector__refs span { max-width:100%; overflow:hidden; padding:4px 6px; border-radius:5px; color:#4f46e5; background:#eef2ff; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }.slide-inspector__refs span[data-kind="ability"] { color:#047857; background:#ecfdf5; }.slide-inspector__refs small { color:var(--lz-text-muted); font-size:8px; }.slide-inspector section > p { display:flex; align-items:center; gap:5px; margin:8px 0 0; color:var(--lz-text-secondary); font-size:8px; }
 .slide-inspector__edit label { display:block; margin-top:9px; }.slide-inspector__edit label > span { display:block; margin-bottom:5px; color:var(--lz-text-muted); font-size:8px; }.slide-inspector__edit select,.slide-inspector__edit textarea { width:100%; box-sizing:border-box; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text); background:#fff; font:9px/1.45 inherit; outline:none; }.slide-inspector__edit select { height:30px; padding:0 7px; }.slide-inspector__edit textarea { resize:vertical; min-height:72px; padding:7px; }.slide-inspector__edit select:focus,.slide-inspector__edit textarea:focus { border-color:#818cf8; }
 .slide-inspector__impact { margin-top:9px; padding:9px; border-left:3px solid #eab308; background:#fffbea; }.slide-inspector__impact > strong { color:#854d0e; font-size:9px; }.slide-inspector__impact .semantic-change { margin:4px 0 7px; color:#713f12; font-size:9px; font-weight:700; line-height:1.45; }.slide-inspector__impact ul { display:grid; gap:3px; margin:0 0 7px; padding:0; list-style:none; }.slide-inspector__impact li { display:flex; align-items:center; justify-content:space-between; gap:6px; color:#475569; font-size:8px; }.slide-inspector__impact li b { color:#a16207; font-size:8px; }.slide-inspector__impact small { color:#78716c; font-size:8px; }.slide-inspector__impact .protected { display:flex; align-items:center; gap:4px; margin:6px 0 0; color:#64748b; font-size:8px; }
@@ -752,6 +845,9 @@ function classificationLabel(value: string) {
 .is-standalone .slide-workbench__status { min-height:26px; padding:0 9px; font-size:10px; }
 .is-standalone .slide-workbench__count { color:#8fa0b4; font-size:10px; }
 .is-standalone .slide-workbench__commands { gap:7px; }
+.is-standalone .slide-workbench__theme { border-color:rgba(255,255,255,.12); background:rgba(255,255,255,.05); }
+.is-standalone .slide-workbench__commands .slide-workbench__theme button { min-height:30px; color:#9cacbf; background:transparent; }
+.is-standalone .slide-workbench__commands .slide-workbench__theme button.active { color:#fff; background:#304052; box-shadow:0 2px 8px rgba(0,0,0,.22); }
 .is-standalone .slide-workbench__commands button {
   min-height:38px;
   padding:0 12px;
@@ -949,6 +1045,7 @@ function classificationLabel(value: string) {
   .is-standalone .slide-workbench__commands button { width:38px; padding:0; }
   .is-standalone .slide-workbench__commands .slide-workbench__export { width:auto; padding:0 12px; }
   .is-standalone .slide-workbench__commands .slide-workbench__export span { display:inline; }
+  .is-standalone .slide-workbench__commands .slide-workbench__theme button { width:auto; padding:0 8px; }
 }
 @media (max-width:900px) {
   .slide-workbench.is-standalone { grid-template-rows:auto minmax(0,1fr); }
@@ -964,8 +1061,9 @@ function classificationLabel(value: string) {
 @media (max-width:620px) {
   .is-standalone .slide-workbench__identity > div { display:none; }
   .is-standalone .slide-workbench__commands { margin-left:auto; }
-  .is-standalone .slide-workbench__commands button:nth-child(1),
-  .is-standalone .slide-workbench__commands button:nth-child(2) { display:none; }
+  .is-standalone .slide-workbench__theme { display:none; }
+  .is-standalone .slide-workbench__commands > button:nth-of-type(1),
+  .is-standalone .slide-workbench__commands > button:nth-of-type(2) { display:none; }
   .deck-presentation > main { padding:8px; }
   .deck-presentation > main > aside { position:absolute; inset:auto 8px 66px; width:auto; max-height:32vh; }
   .deck-presentation > footer small { display:none; }

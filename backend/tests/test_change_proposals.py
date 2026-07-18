@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
+import threading
 
 import pytest
 
@@ -9,6 +11,7 @@ from change_proposals import (
     ChangeProposalNotFound,
     ChangeProposalRepository,
     apply_item,
+    apply_objective_item,
     create_proposal,
     reject_item,
     regenerate_item,
@@ -241,6 +244,74 @@ async def test_apply_item_writes_via_course_command_service_and_is_isolated(tmp_
     )
     assert resolved["status"] == "resolved"
     assert resolved["resolved_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_objective_apply_blocks_reject_until_course_and_proposal_are_committed(
+    tmp_path,
+    monkeypatch,
+):
+    _storage, repository, proposals, command_service, document = await canonical_setup(tmp_path)
+    section = document.sections[0]
+    next_objective = "能够解释向量方向与大小的关系"
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="objective-apply-reject-race",
+        scope="section",
+        target_block_ids=[section.section_id],
+        items=[{
+            "block_id": section.section_id,
+            "target_kind": "course_objective",
+            "before": {
+                "learning_objective": section.learning_objective,
+                "objective_revision_id": section.objective_revision_id,
+            },
+            "after": {"learning_objective": next_objective},
+            "reason": "明确学习目标",
+        }],
+    )
+    item_id = proposal["items"][0]["item_id"]
+    objective_committed = asyncio.Event()
+    release_apply = asyncio.Event()
+    original_update = command_service.update_section_objective
+
+    async def pause_after_course_commit(*args, **kwargs):
+        receipt = await original_update(*args, **kwargs)
+        objective_committed.set()
+        await release_apply.wait()
+        return receipt
+
+    monkeypatch.setattr(command_service, "update_section_objective", pause_after_course_commit)
+    apply_task = asyncio.create_task(apply_objective_item(
+        proposals,
+        command_service,
+        proposal["proposal_id"],
+        item_id,
+        expected_document_revision=document.document_revision,
+        actor="teacher-1",
+    ))
+    await asyncio.wait_for(objective_committed.wait(), timeout=1)
+    reject_task = asyncio.create_task(asyncio.to_thread(
+        reject_item,
+        proposals,
+        proposal["proposal_id"],
+        item_id,
+        reason="concurrent reject",
+    ))
+    await asyncio.wait({reject_task}, timeout=0.1)
+    release_apply.set()
+
+    applied, rejected = await asyncio.wait_for(
+        asyncio.gather(apply_task, reject_task, return_exceptions=True),
+        timeout=1,
+    )
+
+    assert not isinstance(applied, BaseException)
+    assert isinstance(rejected, ChangeProposalConflict)
+    assert proposals.load(proposal["proposal_id"])["items"][0]["status"] == "applied"
+    updated_document, _canonical = repository.load_document("course-1")
+    assert updated_document.sections[0].learning_objective == next_objective
 
 
 @pytest.mark.asyncio
@@ -534,6 +605,122 @@ async def test_router_base_course_apply_returns_representation_sync_receipt(tmp_
     updated, canonical = course_repository.load_document("course-1")
     assert canonical is True
     assert block(updated, target.block_id).payload["content"] == "向量不仅有坐标，还表达大小与方向。"
+
+
+@pytest.mark.asyncio
+async def test_router_rejects_personalization_through_single_item_apply(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import routers.change_proposals as change_proposals_router
+
+    storage, course_repository, proposals, _command_service, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="personalization-single-apply",
+        scope="block",
+        target_block_ids=[target.block_id],
+        items=[{
+            "block_id": target.block_id,
+            "before": target.model_dump(mode="json"),
+            "after": {
+                **target.model_dump(mode="json"),
+                "payload": {**target.payload, "markdown": "personalized content"},
+            },
+            "reason": "learner feedback",
+            "expected_block_revision": target.internal_revision,
+        }],
+        source="personalization",
+        generation_meta={"base_document_revision": document.document_revision},
+    )
+    before = deepcopy(storage.course)
+    monkeypatch.setattr(change_proposals_router, "get_change_proposal_repository", lambda: proposals)
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        change_proposals_router,
+        "synchronize_teaching_representations",
+        lambda _course_id: {"status": "unexpected"},
+    )
+    app = FastAPI()
+    app.include_router(change_proposals_router.router)
+
+    response = TestClient(app).post(
+        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{proposal['items'][0]['item_id']}/apply",
+        headers={"X-User-Id": "student-1"},
+    )
+
+    assert response.status_code == 409
+    assert "apply-selected" in response.json()["detail"]["message"]
+    assert storage.course == before
+    assert proposals.load(proposal["proposal_id"])["items"][0]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_single_item_apply_rejects_when_proposal_base_revision_is_stale(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import routers.change_proposals as change_proposals_router
+
+    _storage, course_repository, proposals, command_service, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    unrelated = block(document, "block-2")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="base-revision-single-apply",
+        scope="block",
+        target_block_ids=[target.block_id],
+        items=[{
+            "block_id": target.block_id,
+            "before": target.model_dump(mode="json"),
+            "after": {
+                **target.model_dump(mode="json"),
+                "payload": {**target.payload, "markdown": "proposal content"},
+            },
+            "reason": "authoring change",
+            "expected_block_revision": target.internal_revision,
+        }],
+        generation_meta={"base_document_revision": document.document_revision},
+    )
+    await command_service.replace_block(
+        "course-1",
+        command_id="unrelated-change-after-proposal",
+        expected_document_revision=document.document_revision,
+        expected_block_revision=unrelated.internal_revision,
+        block_id=unrelated.block_id,
+        payload={**unrelated.payload, "markdown": "unrelated newer content"},
+    )
+    monkeypatch.setattr(change_proposals_router, "get_change_proposal_repository", lambda: proposals)
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        change_proposals_router,
+        "synchronize_teaching_representations",
+        lambda _course_id: {"status": "unexpected"},
+    )
+    app = FastAPI()
+    app.include_router(change_proposals_router.router)
+
+    response = TestClient(app).post(
+        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{proposal['items'][0]['item_id']}/apply",
+        headers={"X-User-Id": "teacher-1"},
+    )
+
+    assert response.status_code == 409
+    assert "base document revision" in response.json()["detail"]["message"]
+    current, _ = course_repository.load_document("course-1")
+    assert block(current, target.block_id).payload == target.payload
+    assert proposals.load(proposal["proposal_id"])["items"][0]["status"] == "pending"
 
 
 def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeypatch):

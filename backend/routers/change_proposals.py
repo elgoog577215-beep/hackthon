@@ -21,9 +21,11 @@ from change_proposals import (
     apply_item,
     apply_kg_node_item,
     apply_objective_item,
+    apply_selected_items,
     change_proposal_repository,
     reject_item,
     regenerate_item,
+    require_single_item_apply,
 )
 from course_commands import CourseCommandService
 from course_document import stable_hash
@@ -51,6 +53,11 @@ class RejectChangeProposalItemRequest(BaseModel):
 
 class RegenerateChangeProposalItemRequest(BaseModel):
     extra_instruction: str | None = Field(default=None, max_length=3000)
+
+
+class ApplySelectedAuthoringChangesRequest(BaseModel):
+    item_ids: list[str] = Field(..., min_length=1, max_length=3)
+    expected_document_revision: str = Field(..., min_length=1, max_length=160)
 
 
 def get_change_proposal_repository() -> ChangeProposalRepository:
@@ -108,6 +115,41 @@ async def list_change_proposals(course_id: str, request: Request):
     ]
 
 
+@authoring_router.post("/{proposal_id}/apply-selected")
+async def apply_selected_authoring_changes(
+    course_id: str,
+    proposal_id: str,
+    body: ApplySelectedAuthoringChangesRequest,
+    request: Request,
+):
+    repository = get_change_proposal_repository()
+    course_repository = get_course_document_repository()
+    try:
+        proposal = repository.load(proposal_id)
+        if proposal.get("course_id") != course_id:
+            raise ChangeProposalNotFound(proposal_id)
+        result = await apply_selected_items(
+            repository,
+            course_repository,
+            proposal_id,
+            body.item_ids,
+            expected_document_revision=body.expected_document_revision,
+            actor=require_user_id(request.headers.get("X-User-Id")),
+        )
+        result["representation_sync"] = await run_in_threadpool(
+            synchronize_teaching_representations,
+            course_id,
+        )
+        return result
+    except (ChangeProposalNotFound, CourseDocumentNotFound) as exc:
+        raise HTTPException(status_code=404, detail="Change proposal or item not found") from exc
+    except (ChangeProposalConflict, CourseDocumentConflict) as exc:
+        detail: dict[str, Any] = {"code": "change_proposal_conflict", "message": str(exc)}
+        if isinstance(exc, ChangeProposalConflict):
+            detail["proposal"] = exc.proposal
+        raise HTTPException(status_code=409, detail=detail) from exc
+
+
 @router.post("/{proposal_id}/items/{item_id}/apply")
 @authoring_router.post("/{proposal_id}/items/{item_id}/apply")
 async def apply_change_proposal_item(
@@ -123,6 +165,7 @@ async def apply_change_proposal_item(
         proposal = repository.load(proposal_id)
         if proposal.get("course_id") != course_id:
             raise ChangeProposalNotFound(proposal_id)
+        require_single_item_apply(proposal)
         block_id = None
         target_kind = "course_block"
         for item in proposal.get("items") or []:
@@ -211,7 +254,13 @@ async def reject_change_proposal_item(
         proposal = repository.load(proposal_id)
         if proposal.get("course_id") != course_id:
             raise ChangeProposalNotFound(proposal_id)
-        return reject_item(repository, proposal_id, item_id, reason=reason)
+        return await run_in_threadpool(
+            reject_item,
+            repository,
+            proposal_id,
+            item_id,
+            reason=reason,
+        )
     except ChangeProposalNotFound as exc:
         raise HTTPException(status_code=404, detail="Change proposal or item not found") from exc
     except ChangeProposalConflict as exc:
@@ -325,7 +374,8 @@ async def regenerate_change_proposal_item(
                     "message": "Regenerated content payload is missing",
                 },
             )
-        return regenerate_item(
+        return await run_in_threadpool(
+            regenerate_item,
             repository,
             proposal_id,
             item_id,

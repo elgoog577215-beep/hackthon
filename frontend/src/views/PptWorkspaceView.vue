@@ -1,6 +1,6 @@
 <template>
   <section class="ppt-workspace-view">
-    <div v-if="initializing || (!slideRepresentation && store.building)" class="ppt-workspace-state">
+    <div v-if="initializing || (!slideRepresentation && store.building && !store.liveSlides.length)" class="ppt-workspace-state">
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
       <small>{{ t('pptWorkspace.eyebrow', 'PPT 工作台') }}</small>
       <h1>{{ courseTitle }}</h1>
@@ -9,7 +9,15 @@
       <b>{{ store.building ? `${store.buildProgress}%` : '···' }}</b>
     </div>
 
-    <div v-else-if="!slideRepresentation" class="ppt-workspace-state is-empty">
+    <div v-else-if="documentLoadError" class="ppt-workspace-state is-empty">
+      <button type="button" class="ppt-workspace-state__back" @click="backToCourse"><ArrowLeft :size="18" /></button>
+      <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
+      <small>{{ t('pptWorkspace.eyebrow', 'PPT 工作台') }}</small>
+      <h1>{{ courseTitle }}</h1>
+      <p>{{ documentLoadError }}</p>
+    </div>
+
+    <div v-else-if="documentEnvelope?.source_format !== 'legacy_projection' && !slideRepresentation && !store.liveSlides.length" class="ppt-workspace-state is-empty">
       <button type="button" class="ppt-workspace-state__back" @click="backToCourse"><ArrowLeft :size="18" /></button>
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
       <small>{{ t('pptWorkspace.emptyEyebrow', '课堂课件尚未生成') }}</small>
@@ -20,20 +28,33 @@
       </button>
     </div>
 
+    <div v-else-if="documentEnvelope?.source_format === 'legacy_projection'" class="ppt-workspace-state is-empty">
+      <button type="button" class="ppt-workspace-state__back" @click="backToCourse"><ArrowLeft :size="18" /></button>
+      <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
+      <small>{{ t('pptWorkspace.legacyMigrationEyebrow', '课程源升级') }}</small>
+      <h1>{{ t('pptWorkspace.legacyMigrationTitle', '旧课程需要先升级') }}</h1>
+      <p>{{ t('pptWorkspace.legacyMigrationDescription', '升级后会使用统一课程源生成 PPT，不会直接基于旧投影视图构建。') }}</p>
+      <p v-if="migrationMessage">{{ migrationMessage }}</p>
+      <button type="button" class="ppt-workspace-state__build ppt-workspace-state__migrate" :disabled="migrating" @click="migrateCourse">
+        <Sparkles :size="17" />{{ migrating ? t('pptWorkspace.migrating', '正在升级课程…') : t('pptWorkspace.migrateAndBuild', '升级课程后生成PPT') }}
+      </button>
+    </div>
+
     <template v-else>
       <SlideDeckWorkbench
         class="ppt-workspace-view__deck"
         standalone
         :course-id="courseId"
-        :representation-id="slideRepresentation.representation_id"
+        :representation-id="slideRepresentation?.representation_id || ''"
         :deck-title="content?.title || courseTitle"
         :slides="displaySlides"
-        :stale-unit-ids="slideRepresentation.stale_unit_ids"
+        :stale-unit-ids="slideRepresentation?.stale_unit_ids || []"
         :building="store.building"
         :progress="store.buildProgress"
         :stage="store.buildStage"
         :error="store.buildError"
         :quality="store.slideQuality"
+        :preview-source="store.slidePreviewSource"
         @back="backToCourse"
         @rebuild="rebuild"
         @ask-ai="openAiForSlide"
@@ -65,6 +86,8 @@ import SlideDeckWorkbench from '../components/SlideDeckWorkbench.vue'
 import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
+import type { CourseDocumentEnvelope } from '../stores/types'
+import http from '../utils/http'
 
 const route = useRoute()
 const router = useRouter()
@@ -76,6 +99,11 @@ const aiQuote = ref('')
 const aiNodeId = ref('')
 const aiAnchor = ref<Record<string, unknown> | undefined>(undefined)
 const aiPrefill = ref('')
+const documentEnvelope = ref<CourseDocumentEnvelope | null>(null)
+const migrating = ref(false)
+const migrationMessage = ref('')
+const documentLoadError = ref('')
+let workspaceAttempt = 0
 
 const courseId = computed(() => String(route.params.courseId || ''))
 const courseTitle = computed(() => (
@@ -88,7 +116,7 @@ const slideRepresentation = computed(() => (
 ))
 const content = computed(() => store.selectedSpec?.payload?.content || null)
 const displaySlides = computed(() => (
-  store.building && store.liveSlides.length
+  store.liveSlides.length && store.slidePreviewSource === 'draft'
     ? store.liveSlides
     : (content.value?.slides || [])
 ))
@@ -106,16 +134,70 @@ const stageLabel = computed(() => ({
 }[store.buildStage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
 
 async function loadWorkspace() {
-  if (!courseId.value) return
+  const id = courseId.value
+  if (!id) return
+  const attempt = ++workspaceAttempt
   initializing.value = true
+  documentEnvelope.value = null
+  migrating.value = false
+  migrationMessage.value = ''
+  documentLoadError.value = ''
   try {
-    if (courseStore.currentCourseId !== courseId.value) {
-      await courseStore.loadCourse(courseId.value)
-    }
-    await store.ensure(courseId.value)
+    const envelope = await loadDocumentEnvelope(id, attempt)
+    if (!envelope || !isCurrentAttempt(id, attempt) || envelope.source_format !== 'canonical') return
+    await store.ensure(id)
+    if (!isCurrentAttempt(id, attempt)) return
     if (slideRepresentation.value) await store.select(slideRepresentation.value.representation_id)
+  } catch {
+    if (isCurrentAttempt(id, attempt)) {
+      documentLoadError.value = t('pptWorkspace.documentLoadFailed', '加载课程源失败，请重试')
+    }
   } finally {
-    initializing.value = false
+    if (isCurrentAttempt(id, attempt)) initializing.value = false
+  }
+}
+
+function isCurrentAttempt(id: string, attempt: number) {
+  return courseId.value === id && workspaceAttempt === attempt
+}
+
+async function loadDocumentEnvelope(id: string, attempt: number) {
+  const response = await http.get<CourseDocumentEnvelope>(`/api/courses/${id}/document`)
+  const envelope = response.data
+  if (!envelope?.document || !isCurrentAttempt(id, attempt)) return null
+  courseStore.applyCourseDocumentEnvelope(envelope)
+  documentEnvelope.value = envelope
+  return envelope
+}
+
+async function migrateCourse() {
+  const id = courseId.value
+  const envelope = documentEnvelope.value
+  const attempt = workspaceAttempt
+  if (!id || !envelope || envelope.source_format !== 'legacy_projection' || migrating.value) return
+
+  migrating.value = true
+  migrationMessage.value = ''
+  try {
+    const response = await http.post<CourseDocumentEnvelope>(`/api/courses/${id}/document/migrate`, {
+      confirm: true,
+      source_checksum: envelope.migration.source_checksum,
+    })
+    if (!response.data?.document || !isCurrentAttempt(id, attempt)) return
+    courseStore.applyCourseDocumentEnvelope(response.data)
+    documentEnvelope.value = response.data
+    if (response.data.source_format !== 'canonical') return
+    await store.ensure(id)
+    if (!isCurrentAttempt(id, attempt)) return
+    if (slideRepresentation.value) await store.select(slideRepresentation.value.representation_id)
+  } catch (error: any) {
+    if (error?.response?.status !== 409 || !isCurrentAttempt(id, attempt)) return
+    const refreshed = await loadDocumentEnvelope(id, attempt)
+    if (refreshed && isCurrentAttempt(id, attempt)) {
+      migrationMessage.value = t('pptWorkspace.migrationPreviewRefreshed', '课程源已变化，迁移预览已刷新，请确认后重试')
+    }
+  } finally {
+    if (isCurrentAttempt(id, attempt)) migrating.value = false
   }
 }
 

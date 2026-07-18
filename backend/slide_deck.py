@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
 from typing import Any, Literal
 
@@ -12,8 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 
 SLIDE_DECK_SCHEMA = "slide_deck_v2"
-SLIDE_DECK_COMPILER_VERSION = "structured_slide_compiler_v8"
+SLIDE_DECK_COMPILER_VERSION = "structured_slide_compiler_v9"
 SLIDES_PER_SECTION_MAX = 5
+DEMO_PLAN_SECTION_THRESHOLD = 4
+DEMO_PLAN_DEFAULT_SLIDES = 15
 
 SlideBlockType = Literal[
     "statement",
@@ -80,15 +84,50 @@ class SlideSpec(_StrictModel):
     quality: dict[str, Any] = Field(default_factory=dict)
 
 
+class PlannedSlideV1(_StrictModel):
+    slide_id: str
+    layout: Literal["cover", "roadmap", "concept", "practice", "recap"]
+    slide_purpose: str
+    section_id: str | None = None
+    source_section_ids: list[str] = Field(default_factory=list)
+    source_block_ids: list[str] = Field(default_factory=list)
+
+
+class SlideDeckPlanV1(_StrictModel):
+    schema_version: Literal["slide_deck_plan_v1"] = "slide_deck_plan_v1"
+    title: str
+    target_slide_count: int = Field(ge=12, le=18)
+    slides: list[PlannedSlideV1] = Field(min_length=12, max_length=18)
+    planner: Literal["ai", "deterministic_fallback"] = "ai"
+    fallback_reason: str = ""
+
+    @model_validator(mode="after")
+    def validate_plan(self) -> SlideDeckPlanV1:
+        if len(self.slides) != self.target_slide_count:
+            raise ValueError("Plan target must match the number of slides")
+        slide_ids = [slide.slide_id for slide in self.slides]
+        if len(slide_ids) != len(set(slide_ids)):
+            raise ValueError("Planned slide IDs must be unique")
+        if [slide.layout for slide in self.slides[:2]] != ["cover", "roadmap"]:
+            raise ValueError("Plan must start with cover and roadmap slides")
+        if self.slides[-1].layout != "recap":
+            raise ValueError("Plan must end with a recap slide")
+        for slide in self.slides[2:-1]:
+            if not slide.section_id or not slide.source_section_ids or not slide.source_block_ids:
+                raise ValueError("Every teaching slide must retain section and block sources")
+        return self
+
+
 class SlideDeckContent(_StrictModel):
     schema_version: Literal["slide_deck_v2"] = SLIDE_DECK_SCHEMA
     title: str
-    theme: str = "lingzhi-classroom-v2"
+    theme: str = "qingfeng-classroom"
     aspect_ratio: Literal["16:9"] = "16:9"
     slides: list[SlideSpec]
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
     override_conflicts: list[dict[str, Any]] = Field(default_factory=list)
     quality_summary: dict[str, Any] = Field(default_factory=dict)
+    quality_report: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_slide_order(self) -> SlideDeckContent:
@@ -101,16 +140,16 @@ class SlideDeckContent(_StrictModel):
 
 
 LAYOUT_CAPACITY: dict[str, dict[str, int]] = {
-    "cover": {"blocks": 2, "characters": 420, "items": 4},
-    "roadmap": {"blocks": 2, "characters": 720, "items": 8},
-    "chapter": {"blocks": 2, "characters": 480, "items": 4},
-    "objective": {"blocks": 3, "characters": 780, "items": 8},
-    "concept": {"blocks": 4, "characters": 900, "items": 10},
-    "comparison": {"blocks": 3, "characters": 1100, "items": 12},
-    "process": {"blocks": 3, "characters": 950, "items": 8},
-    "code": {"blocks": 3, "characters": 1700, "items": 6},
-    "misconception": {"blocks": 3, "characters": 850, "items": 8},
-    "practice": {"blocks": 3, "characters": 1000, "items": 8},
+    "cover": {"blocks": 1, "characters": 420, "items": 0},
+    "roadmap": {"blocks": 1, "characters": 720, "items": 8},
+    "chapter": {"blocks": 1, "characters": 480, "items": 0},
+    "objective": {"blocks": 3, "characters": 520, "items": 4},
+    "concept": {"blocks": 3, "characters": 620, "items": 9},
+    "comparison": {"blocks": 1, "characters": 1100, "items": 0},
+    "process": {"blocks": 1, "characters": 520, "items": 5},
+    "code": {"blocks": 2, "characters": 1700, "items": 4},
+    "misconception": {"blocks": 1, "characters": 620, "items": 4},
+    "practice": {"blocks": 2, "characters": 1000, "items": 8},
     "recap": {"blocks": 3, "characters": 720, "items": 8},
 }
 
@@ -121,6 +160,7 @@ def compile_slide_deck(
     *,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] | None = None,
+    deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile a course into a teachable page sequence instead of copied prose."""
     sections = sorted(document.sections, key=lambda item: item.position)
@@ -132,6 +172,12 @@ def compile_slide_deck(
     ]
     chapter_sections = [section for section in sections if section.level == 1]
     knowledge_index = _KnowledgeIndex(course_data)
+    resolved_plan = (
+        _resolve_demo_plan(document, course_data, deck_plan)
+        if len(learning_sections) >= DEMO_PLAN_SECTION_THRESHOLD
+        else None
+    )
+    estimated_slide_count = len(resolved_plan.slides) if resolved_plan else _estimated_slide_count(learning_sections)
     slides: list[SlideSpec] = []
 
     def append(slide: SlideSpec) -> None:
@@ -141,7 +187,7 @@ def compile_slide_deck(
         if progress_callback:
             progress_callback({
                 "event": "slide_upsert",
-                "progress": min(94, 6 + round((len(slides) / max(1, _estimated_slide_count(learning_sections))) * 88)),
+                "progress": min(94, 6 + round((len(slides) / max(1, estimated_slide_count)) * 88)),
                 "slide": slide.model_dump(mode="json"),
             })
 
@@ -151,8 +197,10 @@ def compile_slide_deck(
             "progress": 4,
             "title": document.title,
             "section_count": len(learning_sections),
-            "estimated_slide_count": _estimated_slide_count(learning_sections),
-            "strategy": "plan_then_fill",
+            "estimated_slide_count": estimated_slide_count,
+            "strategy": "demo_plan_v1" if resolved_plan else "plan_then_fill",
+            "planner": resolved_plan.planner if resolved_plan else None,
+            "fallback_reason": resolved_plan.fallback_reason if resolved_plan else "",
         })
 
     append(SlideSpec(
@@ -171,7 +219,15 @@ def compile_slide_deck(
             content=_course_learning_promise(learning_sections),
         )],
         speaker_notes="先说明课程解决什么问题、学习者最终能够完成什么任务。",
-        source_keys=["course_title"],
+        source_keys=_unique([
+            "course_title",
+            *[f"section_structure:{section.section_id}" for section in sections],
+            *[
+                f"objective:{section.objective_id}"
+                for section in learning_sections
+                if section.objective_id
+            ],
+        ]),
     ))
 
     append(SlideSpec(
@@ -185,37 +241,50 @@ def compile_slide_deck(
         blocks=[SlideBlockSpec(
             block_id="slide:roadmap:chapters",
             type="process",
-            items=[_trim(_strip_chapter_prefix(section.title), 42) for section in chapter_sections[:8]],
+            items=[_concise_point(_strip_chapter_prefix(section.title), 42) for section in chapter_sections[:8]],
         )],
         speaker_notes="用章节路线帮助学习者定位当前内容在全课中的作用。",
         source_keys=[f"section_structure:{section.section_id}" for section in chapter_sections[:8]],
     ))
 
-    last_chapter_id = ""
-    for section in learning_sections:
-        blocks = [block for block in blocks_by_section.get(section.section_id, []) if block.status != "retired"]
-        if not blocks:
-            continue
-        chapter = section_by_id.get(section.parent_section_id or "")
-        if chapter and chapter.section_id != last_chapter_id:
-            append(_chapter_slide(chapter, section))
-            last_chapter_id = chapter.section_id
+    if resolved_plan:
+        for planned_slide in resolved_plan.slides[2:-1]:
+            section = section_by_id[planned_slide.section_id or ""]
+            blocks = [
+                block for block in blocks_by_section.get(section.section_id, [])
+                if block.status != "retired" and block.block_id in planned_slide.source_block_ids
+            ]
+            context = _merge_block_knowledge(
+                knowledge_index.for_section(section.section_id, section),
+                blocks,
+            )
+            append(_materialize_planned_slide(planned_slide, section, blocks, context, course_data))
+    else:
+        last_chapter_id = ""
+        for section in learning_sections:
+            blocks = [block for block in blocks_by_section.get(section.section_id, []) if block.status != "retired"]
+            if not blocks:
+                continue
+            chapter = section_by_id.get(section.parent_section_id or "")
+            if chapter and chapter.section_id != last_chapter_id:
+                append(_chapter_slide(chapter, section))
+                last_chapter_id = chapter.section_id
 
-        context = _merge_block_knowledge(
-            knowledge_index.for_section(section.section_id, section),
-            blocks,
-        )
-        append(_objective_slide(section, blocks, context))
-        if len(blocks) <= 2:
-            append(_compact_section_slide(section, blocks, context))
-        else:
-            selected = _select_instructional_blocks(blocks)
-            for selected_index, block in enumerate(selected[: SLIDES_PER_SECTION_MAX - 2]):
-                append(_slide_for_block(section, block, context, selected_index))
+            context = _merge_block_knowledge(
+                knowledge_index.for_section(section.section_id, section),
+                blocks,
+            )
+            append(_objective_slide(section, blocks, context))
+            if len(blocks) <= 2:
+                append(_compact_section_slide(section, blocks, context))
+            else:
+                selected = _select_instructional_blocks(blocks)
+                for selected_index, block in enumerate(selected[: SLIDES_PER_SECTION_MAX - 2]):
+                    append(_slide_for_block(section, block, context, selected_index))
 
-        assessment = _assessment_slide(section, blocks, context, course_data)
-        if assessment:
-            append(assessment)
+            assessment = _assessment_slide(section, blocks, context, course_data)
+            if assessment:
+                append(assessment)
 
     append(_recap_slide(document, learning_sections, knowledge_index))
 
@@ -223,6 +292,7 @@ def compile_slide_deck(
     if presentation_overrides:
         content = apply_presentation_overrides(content, presentation_overrides)
     quality = validate_slide_deck(content.model_dump(mode="json"), course_data=course_data)
+    content.quality_report = deepcopy(quality)
     content.quality_summary = {
         "passed": quality["passed"],
         "score": quality["score"],
@@ -232,6 +302,298 @@ def compile_slide_deck(
     if progress_callback:
         progress_callback({"event": "slide_quality", "progress": 97, "quality": quality})
     return content.model_dump(mode="json")
+
+
+async def plan_slide_deck(
+    document: CourseDocument,
+    course_data: dict[str, Any],
+    *,
+    ai_planner: Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None = None,
+    timeout_seconds: float = 8.0,
+) -> SlideDeckPlanV1:
+    """Return a validated AI plan or a network-free deterministic fallback."""
+    if ai_planner is None:
+        return _deterministic_slide_deck_plan(document, course_data, fallback_reason="no_ai_planner")
+
+    request = {
+        "schema_version": "slide_deck_plan_request_v1",
+        "title": document.title,
+        "target_slide_count": DEMO_PLAN_DEFAULT_SLIDES,
+        "sections": [
+            {
+                "section_id": section.section_id,
+                "title": section.title,
+                "learning_objective": section.learning_objective,
+                "source_block_ids": [
+                    block.block_id for block in document.blocks
+                    if block.section_id == section.section_id and block.status != "retired"
+                ],
+            }
+            for section in sorted(document.sections, key=lambda item: item.position)
+        ],
+    }
+
+    async def invoke() -> Any:
+        if inspect.iscoroutinefunction(ai_planner):
+            return await ai_planner(request)
+        result = await asyncio.to_thread(ai_planner, request)
+        return await result if inspect.isawaitable(result) else result
+
+    try:
+        raw_plan = await asyncio.wait_for(invoke(), timeout=timeout_seconds)
+    except TimeoutError:
+        return _deterministic_slide_deck_plan(document, course_data, fallback_reason="timeout")
+    except Exception:
+        return _deterministic_slide_deck_plan(document, course_data, fallback_reason="planner_error")
+
+    try:
+        plan = SlideDeckPlanV1.model_validate(raw_plan)
+        plan.planner = "ai"
+        plan.fallback_reason = ""
+        _validate_plan_sources(plan, document)
+        return plan
+    except Exception:
+        return _deterministic_slide_deck_plan(document, course_data, fallback_reason="invalid_plan")
+
+
+def _resolve_demo_plan(
+    document: CourseDocument,
+    course_data: dict[str, Any],
+    plan: SlideDeckPlanV1 | dict[str, Any] | None,
+) -> SlideDeckPlanV1:
+    if plan is None:
+        return _deterministic_slide_deck_plan(document, course_data, fallback_reason="no_ai_planner")
+    try:
+        validated = SlideDeckPlanV1.model_validate(plan)
+        _validate_plan_sources(validated, document)
+        return validated
+    except Exception:
+        return _deterministic_slide_deck_plan(document, course_data, fallback_reason="invalid_plan")
+
+
+def _deterministic_slide_deck_plan(
+    document: CourseDocument,
+    course_data: dict[str, Any],
+    *,
+    fallback_reason: str,
+) -> SlideDeckPlanV1:
+    blocks_by_section = _blocks_by_section(document)
+    sections = [
+        section for section in sorted(document.sections, key=lambda item: item.position)
+        if any(block.status != "retired" for block in blocks_by_section.get(section.section_id, []))
+    ]
+    if not sections:
+        raise ValueError("Cannot plan a slide deck without active course sections")
+
+    target_slide_count = DEMO_PLAN_DEFAULT_SLIDES if len(sections) >= 12 else 12
+    teaching_count = target_slide_count - 3
+    if len(sections) >= teaching_count:
+        indices = [
+            round(index * (len(sections) - 1) / max(1, teaching_count - 1))
+            for index in range(teaching_count)
+        ]
+    else:
+        indices = [index % len(sections) for index in range(teaching_count)]
+    selected_sections = [sections[index] for index in indices]
+
+    question_sections = {
+        str(item.get("node_id") or "")
+        for item in _asset_records(course_data, "questions")
+        if item.get("node_id")
+    }
+    practice_indices = [
+        index for index, section in enumerate(selected_sections)
+        if section.section_id in question_sections
+    ][:2]
+    if not practice_indices:
+        practice_indices = [teaching_count - 1]
+
+    planned_slides = [
+        PlannedSlideV1(
+            slide_id="slide:title",
+            layout="cover",
+            slide_purpose="orientation",
+        ),
+        PlannedSlideV1(
+            slide_id="slide:roadmap",
+            layout="roadmap",
+            slide_purpose="course_route",
+        ),
+    ]
+    for index, section in enumerate(selected_sections):
+        source_blocks = [
+            block.block_id for block in blocks_by_section.get(section.section_id, [])
+            if block.status != "retired"
+        ]
+        is_practice = index in practice_indices
+        planned_slides.append(PlannedSlideV1(
+            slide_id=f"slide:demo:{index + 1}:{section.section_id}",
+            layout="practice" if is_practice else "concept",
+            slide_purpose="mastery_check" if is_practice else "core_concept",
+            section_id=section.section_id,
+            source_section_ids=[section.section_id],
+            source_block_ids=source_blocks,
+        ))
+    planned_slides.append(PlannedSlideV1(
+        slide_id="slide:recap",
+        layout="recap",
+        slide_purpose="course_recap",
+    ))
+    return SlideDeckPlanV1(
+        title=document.title,
+        target_slide_count=target_slide_count,
+        slides=planned_slides,
+        planner="deterministic_fallback",
+        fallback_reason=fallback_reason,
+    )
+
+
+def _validate_plan_sources(plan: SlideDeckPlanV1, document: CourseDocument) -> None:
+    section_ids = {section.section_id for section in document.sections}
+    block_sections = {block.block_id: block.section_id for block in document.blocks if block.status != "retired"}
+    for slide in plan.slides[2:-1]:
+        if slide.section_id not in section_ids or slide.source_section_ids != [slide.section_id]:
+            raise ValueError("Plan references an unknown or inconsistent section")
+        if any(block_sections.get(block_id) != slide.section_id for block_id in slide.source_block_ids):
+            raise ValueError("Plan references an unknown or cross-section block")
+
+
+def _materialize_planned_slide(
+    planned: PlannedSlideV1,
+    section: CourseSection,
+    blocks: list[CourseBlock],
+    context: dict[str, list[str]],
+    course_data: dict[str, Any],
+) -> SlideSpec:
+    source_notes = _trim(
+        "\n\n".join(
+            _plain_text(_block_markdown(block))
+            for block in blocks
+            if _block_markdown(block).strip()
+        ),
+        1800,
+    )
+    if planned.layout == "practice":
+        slide = _assessment_slide(section, blocks, context, course_data)
+        visible_points = sum(len(block.items) if block.items else bool(block.content.strip()) for block in slide.blocks)
+        if visible_points < 3 and len(slide.blocks) < 3:
+            slide.blocks.append(SlideBlockSpec(
+                block_id=f"{planned.slide_id}:checks",
+                type="bullets",
+                title="作答检查",
+                items=["先独立作答", "说明判断依据", "给出边界或反例"],
+            ))
+        slide.blocks = _cap_demo_practice_points(_fit_blocks_for_layout("practice", slide.blocks))
+        slide.unit_id = planned.slide_id
+        slide.source_section_ids = list(planned.source_section_ids)
+        slide.source_block_ids = list(planned.source_block_ids)
+        slide.speaker_notes = _trim(
+            f"{slide.speaker_notes}\n\n"
+            f"练习对应目标：{section.learning_objective or section.title}。\n\n{source_notes}\n\n"
+            "先让学习者独立作答，再按检查项追问理由；页面不展示完整答案。",
+            1800,
+        )
+        return slide
+
+    points = _demo_section_points(section, blocks, context)
+    primary_role = next((block.role for block in blocks if block.role != "objective"), "concept")
+    return SlideSpec(
+        unit_id=planned.slide_id,
+        position=0,
+        layout="concept",
+        slide_purpose=planned.slide_purpose,
+        eyebrow="示例与应用" if primary_role in {"example", "application", "transfer"} else "核心概念",
+        title=_concise_point(_strip_section_prefix(section.title), 48),
+        key_message=_demo_key_message(section),
+        blocks=_fit_blocks_for_layout("concept", [SlideBlockSpec(
+            block_id=f"{planned.slide_id}:points",
+            type="bullets",
+            title="本页要点",
+            items=points,
+        )]),
+        speaker_notes=_trim(
+            f"本页服务于：{section.learning_objective or section.title}。\n\n{source_notes}\n\n"
+            "讲授时只在页面保留关键判断，定义、条件、推导和补充例子放在讲者备注中展开。",
+            1800,
+        ),
+        section_id=section.section_id,
+        source_section_ids=list(planned.source_section_ids),
+        source_block_ids=list(planned.source_block_ids),
+        learning_objective_ids=[section.objective_id] if section.objective_id else [],
+        **_context_refs(context),
+    )
+
+
+def _cap_demo_practice_points(blocks: list[SlideBlockSpec]) -> list[SlideBlockSpec]:
+    result: list[SlideBlockSpec] = []
+    remaining = 5
+    for source in blocks:
+        block = source.model_copy(deep=True)
+        if block.items:
+            block.items = block.items[:remaining]
+            used = len(block.items)
+        elif block.content.strip():
+            used = 1
+        else:
+            continue
+        if used:
+            result.append(block)
+            remaining -= used
+        if remaining == 0:
+            break
+
+    visible_points = 5 - remaining
+    if visible_points < 3:
+        generated = ["先独立作答", "说明判断依据", "给出边界或反例"][:3 - visible_points]
+        if result and len(result) >= LAYOUT_CAPACITY["practice"]["blocks"]:
+            target = result[-1]
+            current = target.items or ([target.content] if target.content.strip() else [])
+            target.content = ""
+            target.items = _unique([*current, *generated])[:4]
+        else:
+            result.append(SlideBlockSpec(
+                block_id="slide:demo:practice-checks",
+                type="bullets",
+                title="作答检查",
+                items=generated,
+            ))
+    return result
+
+
+def _demo_section_points(
+    section: CourseSection,
+    blocks: list[CourseBlock],
+    context: dict[str, list[str]],
+) -> list[str]:
+    section_title = _normalize_visible(_strip_section_prefix(section.title))
+    paragraph_candidates = [
+        paragraph
+        for block in blocks
+        for paragraph in _paragraphs(_block_markdown(block))
+        if _normalize_visible(paragraph) != section_title
+        and _normalize_visible(paragraph) not in {
+            "本节要解决的问题",
+            "完成本节后你将能够",
+            "完成本节后你将可以",
+        }
+    ]
+    candidates = list(paragraph_candidates)
+    candidates.extend(context["knowledge_labels"])
+    candidates.extend(context["ability_labels"])
+    candidates.extend([
+        f"核心问题：{_strip_section_prefix(section.title)}",
+        "检查方式：能用自己的话解释并举出一个例子",
+        "迁移要求：说明适用条件与边界",
+    ])
+    return [_concise_point(value, 58) for value in _unique(candidates)[:5]][:5]
+
+
+def _demo_key_message(section: CourseSection) -> str:
+    objective = _plain_text(section.learning_objective).strip()
+    if objective and len(objective) <= 58:
+        return objective
+    title = _concise_point(_strip_section_prefix(section.title), 46)
+    return f"本页聚焦：{title}"
 
 
 def validate_slide_deck(
@@ -245,16 +607,22 @@ def validate_slide_deck(
     try:
         deck = SlideDeckContent.model_validate(content)
     except Exception as exc:
+        issue = _issue(
+            "critical",
+            "invalid_slide_deck_contract",
+            str(exc),
+            "deck",
+            layout="deck",
+        )
         return {
             "passed": False,
             "score": 0.0,
-            "semantic": {"passed": False, "issues": [{
-                "severity": "critical",
-                "code": "invalid_slide_deck_contract",
-                "message": str(exc),
-            }]},
+            "semantic": {"passed": False, "issues": [issue]},
             "visual": {"passed": False, "issues": []},
-            "issues": [{"severity": "critical", "code": "invalid_slide_deck_contract", "message": str(exc)}],
+            "issues": [issue],
+            "blockers": [issue],
+            "warnings": [],
+            "slide_count": len(content.get("slides") or []) if isinstance(content, dict) else 0,
         }
 
     if len(deck.slides) < 2:
@@ -271,12 +639,7 @@ def validate_slide_deck(
         unit_ids.add(slide.unit_id)
         if not slide.title.strip():
             semantic_issues.append(_issue("critical", "slide_title_missing", "幻灯片缺少标题。", slide.unit_id))
-        if slide.section_id and not (
-            slide.source_block_ids
-            or slide.source_section_ids
-            or slide.source_keys
-            or slide.practice_source_revisions
-        ):
+        if slide.section_id and (not slide.source_section_ids or not slide.source_block_ids):
             semantic_issues.append(_issue("critical", "slide_source_missing", "教学页没有课程来源绑定。", slide.unit_id))
         if slide.layout not in LAYOUT_CAPACITY:
             visual_issues.append(_issue("critical", "unknown_slide_layout", "幻灯片使用了未知版式。", slide.unit_id))
@@ -332,13 +695,20 @@ def validate_slide_deck(
         slide.section_id for slide in deck.slides
         if slide.section_id and slide.layout == "practice"
     }
-    for section_id in sorted(section_ids - practice_sections):
-        semantic_issues.append(_issue(
+    compressed_practice_sections = sorted(section_ids - practice_sections)
+    if compressed_practice_sections:
+        issue = _issue(
             "major",
             "formal_practice_not_represented",
-            "本节已有正式题目，但课件没有安排对应检查页。",
-            section_id,
-        ))
+            f"Demo 课件压缩了 {len(compressed_practice_sections)} 个小节的正式题目，未逐节安排检查页。",
+            "deck",
+            layout="practice",
+        )
+        issue.update({
+            "count": len(compressed_practice_sections),
+            "section_ids": compressed_practice_sections,
+        })
+        semantic_issues.append(issue)
     for slide in deck.slides:
         if slide.section_id and not slide.knowledge_refs:
             semantic_issues.append(_issue(
@@ -348,8 +718,12 @@ def validate_slide_deck(
                 slide.unit_id,
             ))
 
+    slide_layouts = {slide.unit_id: slide.layout for slide in deck.slides}
+    semantic_issues = [_attach_issue_layout(item, slide_layouts) for item in semantic_issues]
+    visual_issues = [_attach_issue_layout(item, slide_layouts) for item in visual_issues]
     all_issues = [*semantic_issues, *visual_issues]
     blocking = [item for item in all_issues if item["severity"] == "critical"]
+    warnings = [item for item in all_issues if item["severity"] != "critical"]
     weighted = sum({"critical": 24, "major": 6, "minor": 1}[item["severity"]] for item in all_issues)
     score = max(0.0, round(1 - (weighted / max(24, len(deck.slides) * 8)), 3))
     return {
@@ -364,12 +738,15 @@ def validate_slide_deck(
             "issues": visual_issues,
         },
         "issues": all_issues,
+        "blockers": blocking,
+        "warnings": warnings,
         "slide_count": len(deck.slides),
     }
 
 
 def slide_quality(slide: SlideSpec) -> dict[str, Any]:
     issues = [*_capacity_issues(slide), *_layout_content_issues(slide)]
+    issues = [_attach_issue_layout(item, {slide.unit_id: slide.layout}) for item in issues]
     return {
         "passed": not any(item["severity"] == "critical" for item in issues),
         "issues": issues,
@@ -443,14 +820,16 @@ def _objective_slide(
 ) -> SlideSpec:
     objective_block = next((block for block in blocks if block.role == "objective"), None)
     problem = _trim(_first_question(_block_markdown(objective_block)), 84) if objective_block else ""
-    knowledge = context["knowledge_labels"][:4] or [
+    knowledge_details = context["knowledge_labels"] or [
         _trim(str(block.payload.get("title") or _block_key_message(block)), 42)
         for block in blocks
         if block.role in {"concept", "prerequisite", "reasoning"}
-    ][:4]
-    abilities = context["ability_labels"][:3] or (
+    ]
+    ability_details = context["ability_labels"] or (
         [_trim(section.learning_objective, 62)] if section.learning_objective else []
     )
+    knowledge = knowledge_details[:4]
+    abilities = ability_details[:3]
     slide_blocks = [SlideBlockSpec(
         block_id=f"slide:{section.section_id}:objective",
         type="callout",
@@ -471,6 +850,7 @@ def _objective_slide(
             title="完成后能够",
             items=abilities,
         ))
+    slide_blocks = _fit_blocks_for_layout("objective", slide_blocks)
     return SlideSpec(
         unit_id=f"slide:{section.section_id}",
         position=0,
@@ -481,11 +861,12 @@ def _objective_slide(
         key_message=_trim(section.learning_objective or problem or section.title, 150),
         blocks=slide_blocks,
         speaker_notes=_trim(
-            "先用一个真实问题唤起学生已有经验，再明确本节结束时需要做到什么。"
-            f"本节目标是：{section.learning_objective or section.title}。"
-            f"{'需要建立的知识坐标包括：' + '、'.join(knowledge) + '。' if knowledge else ''}"
+            "先用一个真实问题唤起学生已有经验，再明确本节结束时需要做到什么。\n"
+            f"本节目标是：{section.learning_objective or section.title}。\n"
+            f"{'完整知识坐标：' + '、'.join(knowledge_details) + '。' if knowledge_details else ''}\n"
+            f"{'完整能力目标：' + '、'.join(ability_details) + '。' if ability_details else ''}\n"
             "不要在目标页提前给出结论；请让学生知道后续每一页如何帮助他们完成这个目标。",
-            520,
+            1800,
         ),
         section_id=section.section_id,
         source_section_ids=[section.section_id],
@@ -525,7 +906,15 @@ def _compact_section_slide(
         title=section.title,
         key_message=_trim(section.learning_objective or _first_meaningful_line(blocks), 150),
         blocks=slide_blocks,
-        speaker_notes=f"围绕本节目标讲清概念并检查理解：{section.learning_objective or section.title}",
+        speaker_notes=_trim(
+            f"围绕本节目标讲清概念并检查理解：{section.learning_objective or section.title}\n\n"
+            + "\n\n".join(
+                _plain_text(_block_markdown(block))
+                for block in blocks
+                if _block_markdown(block).strip()
+            ),
+            1800,
+        ),
         section_id=section.section_id,
         source_section_ids=[section.section_id],
         source_block_ids=[block.block_id for block in blocks],
@@ -574,6 +963,7 @@ def _slide_for_block(
         blocks=blocks,
         speaker_notes=_speaker_notes(block, section),
         section_id=section.section_id,
+        source_section_ids=[section.section_id],
         source_block_ids=[block.block_id],
         learning_objective_ids=_unique([
             *block.objective_refs,
@@ -599,9 +989,12 @@ def _assessment_slide(
     practice_ids: list[str] = []
     practice_revisions: dict[str, str] = {}
     source_blocks: list[str] = []
+    full_prompt = ""
+    action_detail = ""
     if questions:
         question = questions[0]
         prompt = str(question.get("prompt") or question.get("question") or "").strip()
+        full_prompt = _plain_text(prompt)
         practice_id = str(question.get("question_id") or question.get("asset_id") or "")
         practice_ids = [practice_id] if practice_id else []
         practice_revision = str(question.get("revision_id") or "")
@@ -627,6 +1020,7 @@ def _assessment_slide(
             ))
     elif action_block:
         source_blocks.append(action_block.block_id)
+        action_detail = _plain_text(_block_markdown(action_block))
         slide_blocks.extend(_block_to_slide_blocks(action_block)[:1])
     else:
         source_blocks.extend([block.block_id for block in blocks[:2]])
@@ -654,8 +1048,20 @@ def _assessment_slide(
             block_id=f"slide:{section.section_id}:misconceptions",
             type="misconception",
             title="作答前检查",
-            items=[_trim(item, 38) for item in misconceptions[:3]],
+            items=[_concise_point(item, 110) for item in misconceptions[:3]],
         ))
+    practice_note_values = _unique([
+        full_prompt,
+        action_detail,
+        *misconceptions,
+        *[
+            value
+            for block in slide_blocks
+            for value in (block.items or [block.content])
+            if value
+        ],
+    ])
+    slide_blocks = _fit_blocks_for_layout("practice", slide_blocks)
     return SlideSpec(
         unit_id=f"slide:{section.section_id}:check",
         position=0,
@@ -663,12 +1069,21 @@ def _assessment_slide(
         slide_purpose="mastery_check",
         eyebrow="理解检查",
         title=f"你能独立完成吗：{_strip_section_prefix(section.title)}",
-        key_message=_trim(section.learning_objective or "用一个可回答的任务验证是否真正理解。", 150),
+        key_message=_concise_point(
+            section.learning_objective or "用一个可回答的任务验证是否真正理解。",
+            96,
+        ),
         blocks=slide_blocks,
-        speaker_notes="先让学习者作答，再显示判断标准；不要把答案与题目同时展示。",
+        speaker_notes=_trim(
+            "先让学习者作答，再显示判断标准；不要把答案与题目同时展示。\n\n"
+            "完整题目与检查细节：\n"
+            + "\n".join(f"- {value}" for value in practice_note_values),
+            1800,
+        ),
         section_id=section.section_id,
+        source_section_ids=[section.section_id],
         source_keys=[f"section_structure:{section.section_id}"] if not source_blocks else [],
-        source_block_ids=source_blocks,
+        source_block_ids=_unique([*source_blocks, *[block.block_id for block in blocks]]),
         practice_task_ids=practice_ids,
         practice_source_revisions=practice_revisions,
         learning_objective_ids=[section.objective_id] if section.objective_id else [],
@@ -699,7 +1114,7 @@ def _recap_slide(
         )
     if not _unique(abilities):
         abilities.extend(
-            _trim(section.learning_objective, 68)
+            _concise_point(section.learning_objective, 68)
             for section in learning_sections
             if section.learning_objective.strip()
         )
@@ -728,16 +1143,22 @@ def _recap_slide(
                 block_id="slide:recap:knowledge",
                 type="bullets",
                 title="核心知识",
-                items=_unique(labels)[:4],
+                items=[_concise_point(value, 64) for value in _unique(labels)[:4]],
             ),
             SlideBlockSpec(
                 block_id="slide:recap:ability",
                 type="bullets",
                 title="可观察能力",
-                items=_unique(abilities)[:4],
+                items=[_concise_point(value, 78) for value in _unique(abilities)[:4]],
             ),
         ],
         speaker_notes="最后不要重复目录，而要让学习者说明自己现在能独立完成什么。",
+        source_section_ids=_unique(section.section_id for section in learning_sections),
+        learning_objective_ids=_unique(
+            section.objective_id
+            for section in learning_sections
+            if section.objective_id
+        ),
         source_keys=["course_title"],
         knowledge_refs=_unique(refs),
     )
@@ -781,13 +1202,13 @@ class _KnowledgeIndex:
                     "ability_refs": ability_refs,
                     "misconception_refs": misconception_refs,
                     "mastery_refs": mastery_refs,
-                    "knowledge_labels": [_trim(str(self.points.get(key, {}).get("name") or key), 42) for key in knowledge_refs],
+                    "knowledge_labels": [_concise_point(str(self.points.get(key, {}).get("name") or key), 42) for key in knowledge_refs],
                     "ability_labels": [
-                        _trim(str(self.skills.get(key, {}).get("observable_behavior") or self.skills.get(key, {}).get("name") or key), 62)
+                        _concise_point(str(self.skills.get(key, {}).get("observable_behavior") or self.skills.get(key, {}).get("name") or key), 62)
                         for key in ability_refs
                     ],
                     "misconception_labels": [
-                        _trim(str(self.mistakes.get(key, {}).get("observable_error_pattern") or self.mistakes.get(key, {}).get("name") or key), 72)
+                        _concise_point(str(self.mistakes.get(key, {}).get("observable_error_pattern") or self.mistakes.get(key, {}).get("name") or key), 110)
                         for key in misconception_refs
                     ],
                     "mastery_labels": [
@@ -808,17 +1229,19 @@ class _KnowledgeIndex:
         ])
         if not knowledge_refs:
             knowledge_refs = _unique([item.get("mapping_id") for item in mappings])
-        knowledge_labels = [_trim(str(item.get("local_name") or ""), 42) for item in mappings if item.get("local_name")]
-        ability_labels = [_trim(str(item.get("local_capability") or ""), 62) for item in mappings if item.get("local_capability")]
+        knowledge_labels = [_concise_point(str(item.get("local_name") or ""), 42) for item in mappings if item.get("local_name")]
+        ability_labels = [_concise_point(str(item.get("local_capability") or ""), 62) for item in mappings if item.get("local_capability")]
         if not knowledge_labels:
             for group in section.attributes.get("knowledge_structure") or []:
                 for point in group.get("knowledge_points") or []:
                     if point.get("name"):
-                        knowledge_labels.append(_trim(str(point["name"]), 42))
+                        knowledge_labels.append(_concise_point(str(point["name"]), 42))
                     if point.get("capability"):
-                        ability_labels.append(_trim(str(point["capability"]), 62))
+                        ability_labels.append(_concise_point(str(point["capability"]), 62))
         misconception_labels = [
-            _trim(str(item), 72) for item in section.attributes.get("misconceptions") or [] if str(item).strip()
+            _concise_point(str(item), 110)
+            for item in section.attributes.get("misconceptions") or []
+            if str(item).strip()
         ]
         return {
             "knowledge_refs": knowledge_refs,
@@ -834,6 +1257,7 @@ class _KnowledgeIndex:
 
 def _block_to_slide_blocks(block: CourseBlock) -> list[SlideBlockSpec]:
     markdown = _block_markdown(block)
+    contains_formula = _looks_like_raw_latex(markdown)
     code_blocks = _code_blocks(markdown)
     table = _markdown_table(markdown)
     bullets = _markdown_bullets(markdown)
@@ -879,6 +1303,7 @@ def _block_to_slide_blocks(block: CourseBlock) -> list[SlideBlockSpec]:
                 type=preferred_type,
                 title=title if not result else "核心判断",
                 content=first,
+                metadata={"formula": True} if contains_formula else {},
             ))
         supporting = [_trim(item, 90) for item in paragraphs[1:4] if item]
         if supporting and not bullets and len(result) < 3:
@@ -1084,12 +1509,12 @@ def _fit_blocks_for_layout(
 ) -> list[SlideBlockSpec]:
     """Normalize visible content to the actual geometry of each renderer."""
     capacity = LAYOUT_CAPACITY[layout]
-    result = [block.model_copy(deep=True) for block in blocks[:capacity["blocks"]]]
+    source = [block.model_copy(deep=True) for block in blocks]
     if layout == "code":
-        code = next((block for block in result if block.type == "code"), None)
+        code = next((block for block in source if block.type == "code"), None)
         insights = _unique([
             value
-            for block in result if block.type != "code"
+            for block in source if block.type != "code"
             for value in (block.items or [block.content])
             if value
         ])
@@ -1099,28 +1524,125 @@ def _fit_blocks_for_layout(
                 block_id=f"{code.block_id if code else 'slide'}:insights",
                 type="bullets",
                 title="阅读线索",
-                items=[_trim(value, 54) for value in insights[:4]],
+                items=[_concise_point(value, 54) for value in insights[:4]],
             ))
         return fitted
+    if layout == "comparison":
+        comparison = next((block for block in source if block.type == "comparison"), None)
+        return [comparison or source[0]] if source else []
+    if layout == "process":
+        values = _unique([
+            value
+            for block in source
+            for value in (block.items or [block.content])
+            if value
+        ])
+        if not values:
+            return []
+        return [SlideBlockSpec(
+            block_id=f"{source[0].block_id}:steps",
+            type="process",
+            title=source[0].title,
+            items=[_concise_point(value, 48) for value in values[:5]],
+        )]
+    if layout == "misconception":
+        values = _unique([
+            value
+            for block in source
+            for value in (block.items or [block.content])
+            if value
+        ])
+        if not values:
+            return []
+        return [SlideBlockSpec(
+            block_id=f"{source[0].block_id}:mistakes",
+            type="misconception",
+            title=source[0].title,
+            items=[_concise_point(value, 44) for value in values[:4]],
+        )]
+    if layout == "practice":
+        if not source:
+            return []
+        exercise = next((block for block in source if block.type == "exercise"), source[0])
+        exercise = exercise.model_copy(deep=True)
+        exercise_limit = 110 if exercise.type == "misconception" else 52
+        if exercise.items:
+            exercise.items = [_concise_point(value, exercise_limit) for value in exercise.items[:4]]
+            exercise.content = ""
+        else:
+            exercise.content = _concise_point(exercise.content, 180)
+        checks: list[str] = []
+        for block in source:
+            if block.block_id == exercise.block_id:
+                continue
+            limit = 110 if block.type == "misconception" else 52
+            checks.extend(
+                _concise_point(value, limit)
+                for value in (block.items or [block.content])
+                if value
+            )
+        fitted = [exercise]
+        if checks:
+            fitted.append(SlideBlockSpec(
+                block_id=f"{exercise.block_id}:checks",
+                type="bullets",
+                title="检查标准",
+                items=_unique(checks)[:4],
+            ))
+        return fitted
+    if layout == "objective":
+        if not source:
+            return []
+        question = next((block for block in source if block.type == "callout"), source[0])
+        result = [question, *[block for block in source if block is not question][:2]]
+        for block in result:
+            block.title = _concise_point(block.title, 24)
+            if block is question:
+                block.content = _concise_point(
+                    block.content or (block.items[0] if block.items else ""),
+                    84,
+                )
+                block.items = []
+            elif block.items:
+                block.items = [_concise_point(value, 58) for value in block.items[:2]]
+                block.content = ""
+            else:
+                block.content = _concise_point(block.content, 58)
+        return result
+    if layout == "concept":
+        result = source[:3]
+        for block in result:
+            block.title = _concise_point(block.title, 24)
+            if block.items:
+                block.items = [_concise_point(value, 32) for value in block.items[:3]]
+                block.content = ""
+            else:
+                block.content = _concise_point(block.content, 96)
+        overflow = source[3:]
+        if overflow and result:
+            overflow_points = _unique([
+                f"{block.title}：{value}" if block.title else value
+                for block in overflow
+                for value in (block.items or [block.content])[:1]
+                if value
+            ])
+            if overflow_points:
+                last = result[-1]
+                current = last.items or ([last.content] if last.content else [])
+                overflow_summary = _concise_point("；".join(overflow_points), 32)
+                last.content = ""
+                last.items = [
+                    _concise_point(value, 32)
+                    for value in _unique(current)[:2]
+                ]
+                if overflow_summary:
+                    last.items.append(overflow_summary)
+        return result
+
+    result = source[:capacity["blocks"]]
     for block in result:
-        if layout == "process" and block.items:
-            block.items = [_trim(value, 48) for value in block.items[:5]]
-        elif layout == "concept":
-            block.content = _trim(block.content, 150)
-            block.items = [_trim(value, 58) for value in block.items[:5]]
-        elif layout == "practice":
-            if block.type == "exercise":
-                block.content = _trim(block.content, 220)
-                block.items = [_trim(value, 52) for value in block.items[:4]]
-            elif block.type == "misconception":
-                block.content = _trim(block.content, 90)
-                block.items = [_trim(value, 38) for value in block.items[:3]]
-        elif layout == "misconception":
-            block.content = _trim(block.content, 120)
-            block.items = [_trim(value, 44) for value in block.items]
-        elif layout == "objective":
-            block.content = _trim(block.content, 110 if block.type != "callout" else 84)
-            block.items = [_trim(value, 58) for value in block.items[:4]]
+        if block.items:
+            block.content = ""
     remaining_items = capacity["items"]
     for block in result:
         block.items = block.items[:remaining_items]
@@ -1161,13 +1683,17 @@ def _layout_content_issues(slide: SlideSpec) -> list[dict[str, Any]]:
         if len(insight_values) > 4 or any(len(value) > 54 for value in insight_values):
             issues.append(_issue("critical", "code_insight_overflow", "代码页阅读线索超过侧栏容量。", slide.unit_id))
     if slide.layout == "objective" and any(
-        len(block.content) > (84 if block.type == "callout" else 110)
+        len(block.content) > (84 if block.type == "callout" else 58)
+        or len(block.items) > (0 if block.type == "callout" else 2)
         or any(len(item) > 58 for item in block.items)
         for block in visible_blocks
     ):
         issues.append(_issue("critical", "objective_content_overflow", "目标页内容超过左右栏容量。", slide.unit_id))
     if slide.layout == "concept" and any(
-        len(block.content) > 150 or any(len(item) > 58 for item in block.items)
+        len(block.content) > 96
+        or len(block.items) > 3
+        or any(len(item) > 32 for item in block.items)
+        or bool(block.content.strip() and block.items)
         for block in visible_blocks
     ):
         issues.append(_issue("critical", "concept_card_overflow", "概念页卡片内容超过实际容量。", slide.unit_id))
@@ -1180,11 +1706,29 @@ def _layout_content_issues(slide: SlideSpec) -> list[dict[str, Any]]:
             len(block.content) > 220 or any(len(item) > 52 for item in block.items)
         ))
         or (block.type == "misconception" and (
-            len(block.content) > 90 or any(len(item) > 38 for item in block.items)
+            len(block.content) > 90 or any(len(item) > 110 for item in block.items)
         ))
         for block in visible_blocks
     ):
         issues.append(_issue("critical", "practice_content_overflow", "练习页题目或检查项超过实际容量。", slide.unit_id))
+    if slide.layout == "practice":
+        exercise = next(
+            (block for block in slide.blocks if block.type == "exercise"),
+            slide.blocks[0] if slide.blocks else None,
+        )
+        check_values = [
+            value
+            for block in slide.blocks if block is not exercise
+            for value in (block.items or [block.content])
+            if value
+        ]
+        if len(check_values) > 4:
+            issues.append(_issue(
+                "critical",
+                "practice_check_overflow",
+                "练习页检查区超过四项，PPTX 将无法完整显示。",
+                slide.unit_id,
+            ))
     return issues
 
 
@@ -1501,8 +2045,99 @@ def _first_mapping(value: Any) -> Mapping[str, Any] | None:
     return None
 
 
-def _issue(severity: str, code: str, message: str, target: str = "") -> dict[str, Any]:
-    return {"severity": severity, "code": code, "message": message, "target": target}
+_ISSUE_SUGGESTIONS = {
+    "invalid_slide_deck_contract": "修复缺失或非法字段后重新生成结构化计划。",
+    "slide_deck_too_short": "补充至少一个绑定课程来源的正文页。",
+    "slide_cover_missing": "在第一页加入 cover 版式封面。",
+    "instructional_slide_missing": "加入至少一个带 section_id 和来源绑定的教学页。",
+    "duplicate_slide_unit": "为重复页面生成唯一且稳定的 slide_id。",
+    "slide_title_missing": "补充能概括本页教学任务的短标题。",
+    "slide_source_missing": "补齐 source_section_ids 和 source_block_ids 后重新发布。",
+    "unknown_slide_layout": "改用已注册版式或为该版式补充渲染器。",
+    "recap_evidence_missing": "为总结卡片补充来自课程的核心知识或能力要点。",
+    "raw_markdown_leaked": "把 Markdown 标记转成卡片、要点或表格结构。",
+    "raw_latex_leaked": "把 LaTeX 转为可直接显示的数学文本或原生公式文本。",
+    "text_encoding_corrupted": "用 UTF-8 重新读取来源并替换乱码后再导出。",
+    "paragraph_copy_detected": "把长段落压缩为 3–5 个要点，细节移入 speaker notes。",
+    "formal_practice_not_represented": "如需逐节覆盖正式题，请拆分课件；Demo 版保留少量代表性练习即可。",
+    "knowledge_binding_missing": "为该页补充正式知识 ID；现有课程块来源可暂时保留。",
+    "slide_block_overflow": "减少卡片数量或拆分页面，直到符合版式块容量。",
+    "slide_text_overflow": "精简可见文字并把解释细节移入 speaker notes。",
+    "slide_item_overflow": "将可见要点压缩到版式允许的数量。",
+    "slide_title_too_long": "将标题压缩为一个核心判断，背景信息移入 speaker notes。",
+    "slide_key_message_too_long": "只保留一句结论，其余解释移入 speaker notes。",
+    "chapter_message_overflow": "把章节主线压缩为一句短判断。",
+    "code_insight_overflow": "侧栏最多保留四条短阅读线索。",
+    "objective_content_overflow": "缩短目标页问题和能力描述，细节移入备注。",
+    "concept_card_overflow": "每张概念卡只保留一个短判断或少量要点。",
+    "process_step_overflow": "缩短步骤文字，必要时拆分为两页。",
+    "practice_content_overflow": "缩短题干和检查项，答案与讲解移入备注。",
+    "practice_check_overflow": "检查区最多保留四项，其余细节移入备注。",
+}
+
+
+def _issue(
+    severity: str,
+    code: str,
+    message: str,
+    target: str = "",
+    *,
+    layout: str = "",
+) -> dict[str, Any]:
+    slide_id = target or "deck"
+    return {
+        "severity": severity,
+        "code": code,
+        "message": message,
+        "target": target,
+        "slide_id": slide_id,
+        "layout": layout,
+        "suggestion": _ISSUE_SUGGESTIONS.get(code, "根据问题描述精简或补全该页后重新检查。"),
+    }
+
+
+def _attach_issue_layout(
+    issue: dict[str, Any],
+    slide_layouts: dict[str, SlideLayout],
+) -> dict[str, Any]:
+    result = dict(issue)
+    slide_id = str(result.get("slide_id") or result.get("target") or "deck")
+    result["slide_id"] = slide_id
+    if not result.get("layout"):
+        result["layout"] = slide_layouts.get(slide_id) or (
+            "practice" if result.get("code") == "formal_practice_not_represented" else "deck"
+        )
+    return result
+
+
+def _concise_point(value: str, limit: int) -> str:
+    """Shorten projected copy at a semantic boundary; details stay in notes."""
+    text = " ".join(str(value).split()).strip().strip("\"'“”")
+    if len(text) <= limit:
+        return text.rstrip("…").rstrip()
+
+    sentence_breaks = ("。", "！", "？", ". ", "! ", "? ")
+    clause_breaks = ("；", "; ", "：", ": ", "，", ", ")
+    for token in (*sentence_breaks, *clause_breaks):
+        index = text.find(token)
+        if index < 11 or index >= limit:
+            continue
+        include_punctuation = token in sentence_breaks
+        end = index + (1 if include_punctuation else 0)
+        return text[:end].rstrip(" ,，;；:：").strip()
+
+    shortened = text[:limit].rstrip()
+    word_boundary = shortened.rfind(" ")
+    if word_boundary >= 11:
+        shortened = shortened[:word_boundary]
+    shortened = shortened.rstrip(" ,，;；:：…").strip()
+    dangling_words = {
+        "a", "an", "the", "and", "or", "to", "of", "for", "with", "that",
+        "which", "in", "on", "at", "by", "from", "as",
+    }
+    while len(shortened.split()) > 3 and shortened.rsplit(" ", 1)[-1].lower() in dangling_words:
+        shortened = shortened.rsplit(" ", 1)[0].rstrip(" ,，;；:：…").strip()
+    return shortened
 
 
 def _trim(value: str, limit: int) -> str:
@@ -1531,11 +2166,14 @@ __all__ = [
     "LAYOUT_CAPACITY",
     "SLIDE_DECK_COMPILER_VERSION",
     "SLIDE_DECK_SCHEMA",
+    "PlannedSlideV1",
     "SlideBlockSpec",
     "SlideDeckContent",
+    "SlideDeckPlanV1",
     "SlideSpec",
     "apply_presentation_overrides",
     "compile_slide_deck",
+    "plan_slide_deck",
     "slide_quality",
     "validate_slide_deck",
 ]

@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import http, { learnerIdentityHeaders, withApiBase } from '../utils/http'
 
 export type RepresentationType = 'outline' | 'lesson_plan' | 'handout' | 'practice_sheet' | 'slide_deck'
+export type SlideDeckTheme = 'qingfeng-classroom' | 'academic-bluegray'
+export type SlideDeckPreviewSource = 'draft' | 'published'
 
 export interface TeachingRepresentation {
   representation_id: string
@@ -76,12 +78,19 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     selectedSpec: null as TeachingRepresentationSpec | null,
     quality: null as Record<string, any> | null,
     slideQuality: null as Record<string, any> | null,
+    publishedSlideQuality: null as Record<string, any> | null,
+    draftSlideQuality: null as Record<string, any> | null,
+    slidePreviewSource: 'published' as SlideDeckPreviewSource,
     liveSlides: [] as Array<Record<string, any>>,
     buildProgress: 0,
     buildStage: '',
     buildError: '',
     loading: false,
     building: false,
+    courseRequestToken: 0,
+    loadRequestToken: 0,
+    specRequestToken: 0,
+    buildAttemptToken: 0,
   }),
   getters: {
     representations(state): TeachingRepresentation[] {
@@ -94,32 +103,77 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     },
   },
   actions: {
-    async load(courseId: string) {
-      this.loading = true
+    switchCourse(courseId: string) {
+      if (this.courseId === courseId) return
       this.courseId = courseId
+      this.courseRequestToken += 1
+      this.loadRequestToken += 1
+      this.specRequestToken += 1
+      this.buildAttemptToken += 1
+      this.registry = null
+      this.selectedId = ''
+      this.selectedSpec = null
+      this.quality = null
+      this.slideQuality = null
+      this.publishedSlideQuality = null
+      this.draftSlideQuality = null
+      this.slidePreviewSource = 'published'
+      this.liveSlides = []
+      this.buildProgress = 0
+      this.buildStage = ''
+      this.buildError = ''
+      this.loading = false
+      this.building = false
+    },
+    async load(courseId: string) {
+      this.switchCourse(courseId)
+      const courseToken = this.courseRequestToken
+      const requestToken = ++this.loadRequestToken
+      this.specRequestToken += 1
+      const isCurrentRequest = () => (
+        this.courseId === courseId
+        && this.courseRequestToken === courseToken
+        && this.loadRequestToken === requestToken
+      )
+      this.loading = true
       try {
         const response = await http.get(`/api/courses/${courseId}/teaching-representations`)
+        if (!isCurrentRequest()) return null
         this.registry = response.data.registry
         const available = this.representations
         if (!this.selectedId || !available.some(item => item.representation_id === this.selectedId)) {
           this.selectedId = available[0]?.representation_id || ''
         }
         if (this.selectedId) await this.loadSpec(this.selectedId)
+        if (!isCurrentRequest()) return null
         return this.registry
       } finally {
-        this.loading = false
+        if (isCurrentRequest()) this.loading = false
       }
     },
     async build(courseId: string) {
       return this.buildProgressive(courseId)
     },
     async buildProgressive(courseId: string) {
+      this.switchCourse(courseId)
+      this.loadRequestToken += 1
+      this.loading = false
+      const courseToken = this.courseRequestToken
+      const attemptToken = ++this.buildAttemptToken
+      this.specRequestToken += 1
+      const isCurrentAttempt = () => (
+        this.courseId === courseId
+        && this.courseRequestToken === courseToken
+        && this.buildAttemptToken === attemptToken
+      )
       this.building = true
-      this.courseId = courseId
       this.buildProgress = 0
       this.buildStage = 'planning'
       this.buildError = ''
       this.liveSlides = []
+      this.draftSlideQuality = null
+      this.slidePreviewSource = 'published'
+      this.slideQuality = this.publishedSlideQuality
       try {
         const response = await fetch(
           withApiBase(`/api/courses/${courseId}/teaching-representations/build/stream`),
@@ -127,34 +181,64 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         )
         const completedRef: { value?: TeachingRepresentationBuildEvent } = {}
         await consumeTeachingRepresentationStream(response, event => {
+          if (!isCurrentAttempt()) return
           this.buildProgress = Math.max(this.buildProgress, Number(event.progress || 0))
           if (event.stage) this.buildStage = event.stage
           if (event.event === 'deck_plan') this.buildStage = 'slide_plan'
           if (event.event === 'slide_upsert' && event.slide) {
             this.buildStage = 'slide_build'
+            if (this.slidePreviewSource !== 'draft') {
+              this.slidePreviewSource = 'draft'
+              this.slideQuality = this.draftSlideQuality
+            }
             const index = this.liveSlides.findIndex(slide => slide.unit_id === event.slide?.unit_id)
             if (index >= 0) this.liveSlides.splice(index, 1, event.slide)
             else this.liveSlides.push(event.slide)
           }
           if (event.event === 'slide_quality' && event.quality) {
             this.buildStage = 'quality'
-            this.slideQuality = event.quality
+            this.draftSlideQuality = event.quality
+            if (this.liveSlides.length) {
+              this.slidePreviewSource = 'draft'
+              this.slideQuality = event.quality
+            }
           }
-          if (event.event === 'build_blocked') this.buildError = 'quality_gate_failed'
+          if (event.event === 'build_blocked') {
+            if (event.quality) {
+              this.draftSlideQuality = event.quality
+              if (this.liveSlides.length) {
+                this.slidePreviewSource = 'draft'
+                this.slideQuality = event.quality
+              }
+            }
+            this.buildError = 'quality_gate_failed'
+          }
           if (event.event === 'build_complete') completedRef.value = event
           if (
             event.event === 'build_complete'
             && String(event.build?.status || '').startsWith('failed')
           ) {
+            if (event.quality) {
+              this.draftSlideQuality = event.quality
+              if (this.liveSlides.length) {
+                this.slidePreviewSource = 'draft'
+                this.slideQuality = event.quality
+              }
+            }
             this.buildError = 'quality_gate_failed'
           }
           if (event.event === 'error') this.buildError = event.message || 'Teaching representation build failed'
         })
+        if (!isCurrentAttempt()) return completedRef.value
         if (this.buildError) throw new Error(this.buildError)
         const completed = completedRef.value
         if (!completed?.registry) throw new Error('Teaching representation build ended without a registry')
         this.registry = completed.registry
         this.quality = completed.quality || null
+        this.slidePreviewSource = 'published'
+        this.publishedSlideQuality = completed.quality || this.draftSlideQuality
+        this.draftSlideQuality = null
+        this.slideQuality = this.publishedSlideQuality
         this.buildProgress = 100
         this.buildStage = 'complete'
         const available = this.representations
@@ -164,14 +248,17 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         if (this.selectedId) await this.loadSpec(this.selectedId)
         return completed
       } catch (error) {
-        this.buildError = error instanceof Error ? error.message : String(error)
+        if (isCurrentAttempt()) {
+          this.buildError = error instanceof Error ? error.message : String(error)
+        }
         throw error
       } finally {
-        this.building = false
+        if (isCurrentAttempt()) this.building = false
       }
     },
     async ensure(courseId: string) {
-      await this.load(courseId)
+      const registry = await this.load(courseId)
+      if (!registry || this.courseId !== courseId) return
       if (!this.representations.length) {
         await this.buildProgressive(courseId)
         return
@@ -191,21 +278,37 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     },
     async loadSpec(representationId: string) {
       if (!this.courseId || !representationId) return null
+      const courseId = this.courseId
+      const courseToken = this.courseRequestToken
+      const requestToken = ++this.specRequestToken
       const response = await http.get(
-        `/api/courses/${this.courseId}/teaching-representations/${representationId}/spec`,
+        `/api/courses/${courseId}/teaching-representations/${representationId}/spec`,
       )
-      this.selectedSpec = response.data.spec
-      if (this.selectedSpec?.payload?.content?.schema_version === 'slide_deck_v2') {
-        const summary = this.selectedSpec.payload.content.quality_summary
-        if (summary) this.slideQuality = summary
+      if (
+        this.courseId !== courseId
+        || this.courseRequestToken !== courseToken
+        || this.specRequestToken !== requestToken
+      ) return null
+      const spec = (response.data.spec || null) as TeachingRepresentationSpec | null
+      this.selectedSpec = spec
+      if (spec?.payload?.content?.schema_version === 'slide_deck_v2') {
+        const summary = spec.payload.content.quality_summary
+        if (summary) {
+          this.publishedSlideQuality = summary
+          if (this.slidePreviewSource === 'published') this.slideQuality = summary
+        }
       }
-      return this.selectedSpec
+      return spec
     },
-    async downloadSlides(representationId: string, deckTitle?: string) {
+    async downloadSlides(
+      representationId: string,
+      deckTitle?: string,
+      theme: SlideDeckTheme = 'qingfeng-classroom',
+    ) {
       if (!this.courseId) return
       const response = await http.get(
         `/api/courses/${this.courseId}/teaching-representations/${representationId}/export.pptx`,
-        { responseType: 'blob' },
+        { params: { theme }, responseType: 'blob' },
       )
       const url = URL.createObjectURL(response.data)
       const anchor = document.createElement('a')

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from copy import deepcopy
+from collections.abc import Callable
 from pathlib import Path
 from queue import Queue
 from typing import Any
@@ -15,6 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from change_proposals import change_proposal_repository, create_authoring_change
+from ai_base import AIBase
 from course_document import stable_hash
 from course_revisions import revision_vector_for_document
 from dependencies import get_course_document_repository, get_course_or_404
@@ -24,6 +27,8 @@ from representation_compiler import (
     rebuild_core_representations_safely,
     validate_compiled_representations,
 )
+from slide_deck import SlideDeckPlanV1, plan_slide_deck
+from slide_deck_renderer import SlideDeckQualityError, validate_theme
 from storage import DATA_DIR
 from teaching_representations import (
     RepresentationConflict,
@@ -44,6 +49,33 @@ router = APIRouter(
 
 def get_teaching_representation_repository() -> TeachingRepresentationRepository:
     return teaching_representation_repository
+
+
+def get_slide_deck_ai_planner() -> Callable[[dict[str, Any]], Any] | None:
+    """Return the opt-in OpenAI-compatible planner used by production builds."""
+    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return None
+    provider = AIBase()
+    if provider.client is None:
+        return None
+
+    async def planner(request: dict[str, Any]) -> dict[str, Any]:
+        response = await provider._call_llm(
+            json.dumps(request, ensure_ascii=False),
+            system_prompt=(
+                "Return only a valid slide_deck_plan_v1 JSON object. Preserve every provided "
+                "section_id and source_block_id exactly, use 12-18 slides, and include cover, "
+                "roadmap, concise teaching slides, at most two practice slides, and recap."
+            ),
+            use_fast_model=True,
+            retry_count=1,
+            enable_thinking=False,
+            raise_on_failure=True,
+        )
+        return provider._extract_json(response or "") or {}
+
+    return planner
 
 
 class RepresentationEditRequest(BaseModel):
@@ -74,19 +106,26 @@ def _compile_registry(
     course_id: str,
     *,
     progress_callback: Any | None = None,
+    deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
 ) -> dict:
     course_repository = get_course_document_repository()
     document, canonical = course_repository.load_document(course_id)
     if not canonical:
         raise RepresentationConflict("Course must be migrated before compiling representations")
     raw = course_repository.load_raw(course_id)
+    representation_repository = get_teaching_representation_repository()
+    representation_repository.reconcile_course_operation_log(
+        course_id,
+        list(raw.get("course_operation_log") or []),
+    )
     build = rebuild_core_representations_safely(
         document,
         course_repository.load_course_view(course_id),
-        get_teaching_representation_repository(),
+        representation_repository,
         progress_callback=progress_callback,
+        deck_plan=deck_plan,
     )
-    registry = get_teaching_representation_repository().reconcile_course_operation_log(
+    registry = representation_repository.reconcile_course_operation_log(
         course_id,
         list(raw.get("course_operation_log") or []),
     )
@@ -97,6 +136,23 @@ def _compile_registry(
         "quality": build.get("quality") or validate_compiled_representations(current_specs),
         "registry": registry.model_dump(mode="json"),
     }
+
+
+def _load_registry_slide_source(course_id: str) -> tuple[Any, dict[str, Any]]:
+    course_repository = get_course_document_repository()
+    document, canonical = course_repository.load_document(course_id)
+    if not canonical:
+        raise RepresentationConflict("Course must be migrated before compiling representations")
+    return document, course_repository.load_course_view(course_id)
+
+
+async def _plan_registry_slide_deck(course_id: str) -> SlideDeckPlanV1:
+    document, course_view = await run_in_threadpool(_load_registry_slide_source, course_id)
+    return await plan_slide_deck(
+        document,
+        course_view,
+        ai_planner=get_slide_deck_ai_planner(),
+    )
 
 
 @router.get("")
@@ -147,7 +203,8 @@ async def build_teaching_representations(course_id: str, request: Request) -> di
     require_user_id(request.headers.get("X-User-Id"))
     await get_course_or_404(course_id)
     try:
-        result = await run_in_threadpool(_compile_registry, course_id)
+        deck_plan = await _plan_registry_slide_deck(course_id)
+        result = await run_in_threadpool(_compile_registry, course_id, deck_plan=deck_plan)
     except RepresentationConflict as exc:
         raise HTTPException(status_code=409, detail={
             "code": "teaching_representation_conflict",
@@ -163,6 +220,27 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
     await get_course_or_404(course_id)
 
     async def event_stream():
+        sequence = 1
+        planning = {
+            "event": "planner_started",
+            "progress": 1,
+            "sequence": sequence,
+        }
+        yield f"id: {sequence}\nevent: planner_started\ndata: {json.dumps(planning, ensure_ascii=False)}\n\n"
+        try:
+            deck_plan = await _plan_registry_slide_deck(course_id)
+        except RepresentationConflict as exc:
+            sequence += 1
+            payload = {
+                "event": "error",
+                "progress": 100,
+                "code": "teaching_representation_conflict",
+                "message": str(exc),
+                "sequence": sequence,
+            }
+            yield f"id: {sequence}\nevent: error\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            return
+
         events: Queue[dict[str, Any] | None] = Queue()
 
         def publish(payload: dict[str, Any]) -> None:
@@ -170,7 +248,11 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
 
         def worker() -> None:
             try:
-                result = _compile_registry(course_id, progress_callback=publish)
+                result = _compile_registry(
+                    course_id,
+                    progress_callback=publish,
+                    deck_plan=deck_plan,
+                )
                 publish({"event": "build_complete", "progress": 100, **result})
             except Exception as exc:
                 publish({
@@ -182,7 +264,6 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
                 events.put(None)
 
         task = asyncio.create_task(asyncio.to_thread(worker))
-        sequence = 0
         while True:
             payload = await asyncio.to_thread(events.get)
             if payload is None:
@@ -487,7 +568,15 @@ async def export_teaching_slide_deck(
     course_id: str,
     representation_id: str,
     request: Request,
+    theme: str = "qingfeng-classroom",
 ) -> FileResponse:
+    try:
+        validate_theme(theme)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "invalid_slide_theme",
+            "message": str(exc),
+        }) from exc
     payload = await get_teaching_representation_spec(course_id, representation_id, request)
     representation = payload["representation"]
     if representation["representation_type"] != "slide_deck":
@@ -495,9 +584,16 @@ async def export_teaching_slide_deck(
     from teaching_representations import TeachingRepresentationSpec
 
     spec = TeachingRepresentationSpec.model_validate(payload["spec"])
-    output_path = Path(DATA_DIR) / "teaching_exports" / f"{representation_id}-{spec.revision}.pptx"
+    output_path = Path(DATA_DIR) / "teaching_exports" / f"{representation_id}-{spec.revision}-{theme}.pptx"
     try:
-        await run_in_threadpool(export_slide_deck_pptx, spec, output_path)
+        await run_in_threadpool(export_slide_deck_pptx, spec, output_path, theme=theme)
+    except SlideDeckQualityError as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "slide_export_quality_blocked",
+            "message": str(exc),
+            "blockers": exc.report["blockers"],
+            "warnings": exc.report["warnings"],
+        }) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={
             "code": "slide_export_quality_blocked",

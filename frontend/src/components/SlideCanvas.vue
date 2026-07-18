@@ -3,6 +3,7 @@
     class="deck-canvas"
     :class="{ 'is-presenting': presenting }"
     :data-layout="slide.layout"
+    :data-theme="theme"
     :aria-label="`${pageNumber} / ${pageCount} · ${slide.title}`"
   >
     <template v-if="slide.layout === 'cover'">
@@ -87,6 +88,7 @@
 
 <script setup lang="ts">
 import { t } from '../shared/i18n'
+import type { SlideDeckTheme } from '../stores/teachingRepresentations'
 
 interface SlideBlock {
   block_id: string
@@ -112,8 +114,10 @@ withDefaults(defineProps<{
   pageNumber: number
   pageCount: number
   deckTitle: string
+  theme?: SlideDeckTheme
   presenting?: boolean
 }>(), {
+  theme: 'qingfeng-classroom',
   presenting: false,
 })
 
@@ -140,21 +144,57 @@ function layoutLabel(value: string) {
 
 <style scoped>
 .deck-canvas {
-  --deck-ink:#17202c;
-  --deck-muted:#667085;
-  --deck-blue:#2556d8;
-  --deck-blue-soft:#e9efff;
+  --deck-bg:#F7FAFC;
+  --deck-main:#2B6CB0;
+  --deck-title:#1A365D;
+  --deck-accent:#ED8936;
+  --deck-body:#4A5568;
+  --deck-chart:#E2E8F0;
+  --deck-ink:var(--deck-title);
+  --deck-muted:var(--deck-body);
+  --deck-blue:var(--deck-main);
+  --deck-blue-soft:#EBF8FF;
   --deck-teal:#087f74;
-  --deck-amber:#c56b20;
+  --deck-amber:var(--deck-accent);
+  --deck-paper:var(--deck-bg);
+  --deck-card:#fff;
+  --deck-line:var(--deck-chart);
+  --deck-message-bg:#EBF8FF;
+  --deck-callout:var(--deck-main);
+  --deck-title-font:"Noto Sans SC","Microsoft YaHei","微软雅黑",sans-serif;
+  --deck-body-font:"Noto Sans SC","Microsoft YaHei","微软雅黑",sans-serif;
+  --deck-cover-wash:linear-gradient(155deg,var(--deck-title),var(--deck-main) 58%,var(--deck-accent));
   position:relative;
   width:min(100%, 980px);
   aspect-ratio:16/9;
   overflow:hidden;
   color:var(--deck-ink);
-  background:#fff;
+  background:var(--deck-paper);
   box-shadow:0 28px 72px rgba(20,31,52,.18);
   container-type:inline-size;
-  font-family:"Avenir Next","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  font-family:var(--deck-body-font);
+}
+.deck-canvas[data-theme="academic-bluegray"] {
+  --deck-bg:#FCFCFD;
+  --deck-title:#2C3E50;
+  --deck-body:#5D6D7E;
+  --deck-blue:#2E86C1;
+  --deck-chart:#E8EBEE;
+  --deck-main:var(--deck-blue);
+  --deck-accent:var(--deck-blue);
+  --deck-ink:var(--deck-title);
+  --deck-muted:var(--deck-body);
+  --deck-blue-soft:#F1F5F8;
+  --deck-teal:#61768b;
+  --deck-amber:#846947;
+  --deck-paper:var(--deck-bg);
+  --deck-card:#fff;
+  --deck-line:var(--deck-chart);
+  --deck-message-bg:#F3F6F8;
+  --deck-callout:var(--deck-blue);
+  --deck-title-font:"Noto Serif SC","SimSun","宋体",serif;
+  --deck-body-font:"Noto Sans SC","Microsoft YaHei","微软雅黑",sans-serif;
+  --deck-cover-wash:linear-gradient(155deg,var(--deck-title),#63778D 58%,#AAB3BD);
 }
 .deck-canvas::after {
   content:"";
@@ -182,7 +222,7 @@ function layoutLabel(value: string) {
   justify-content:space-between;
   gap:4%;
   padding-bottom:2.2%;
-  border-bottom:1px solid #d9dfe8;
+  border-bottom:1px solid var(--deck-line);
 }
 .deck-canvas__heading > div { min-width:0; }
 .deck-canvas__heading small {
@@ -195,7 +235,7 @@ function layoutLabel(value: string) {
 .deck-canvas__heading h2 {
   margin-top:.7%;
   max-width:78cqw;
-  font-family:"Songti SC","STSong","Noto Serif CJK SC",serif;
+  font-family:var(--deck-title-font);
   font-size:2.72cqw;
   font-weight:700;
   line-height:1.16;
@@ -211,8 +251,8 @@ function layoutLabel(value: string) {
   min-height:8.7%;
   padding:1.35% 1.8%;
   border-left:.42cqw solid var(--deck-blue);
-  color:#23324a;
-  background:#f1f5ff;
+  color:var(--deck-ink);
+  background:var(--deck-message-bg);
   font-size:1.36cqw;
   font-weight:720;
   line-height:1.42;
@@ -235,9 +275,9 @@ function layoutLabel(value: string) {
   min-width:0;
   overflow:hidden;
   padding:7%;
-  border:1px solid #dfe4eb;
+  border:1px solid var(--deck-line);
   border-radius:1.15cqw;
-  background:#fff;
+  background:var(--deck-card);
 }
 .deck-canvas__blocks section > header {
   display:flex;
@@ -256,7 +296,7 @@ function layoutLabel(value: string) {
 }
 .deck-canvas__blocks p,.deck-canvas__blocks li {
   margin:0;
-  color:#2d394a;
+  color:var(--deck-ink);
   font-size:1.18cqw;
   line-height:1.52;
 }
@@ -287,20 +327,20 @@ function layoutLabel(value: string) {
 .deck-canvas__blocks section[data-type="misconception"] > header span { color:#b54735; }
 .deck-canvas__blocks section[data-type="exercise"] { border-color:#ead5b5; background:#fff9ed; }
 .deck-canvas__blocks section[data-type="exercise"] > header span { color:var(--deck-amber); }
-.deck-canvas__blocks section[data-type="callout"] { color:#fff; border-color:#163e9d; background:#1f4fbe; }
+.deck-canvas__blocks section[data-type="callout"] { color:#fff; border-color:var(--deck-callout); background:var(--deck-callout); }
 .deck-canvas__blocks section[data-type="callout"] p,
 .deck-canvas__blocks section[data-type="callout"] li,
 .deck-canvas__blocks section[data-type="callout"] > header span { color:#fff; }
 .deck-canvas table { width:100%; border-collapse:collapse; font-size:1cqw; }
-.deck-canvas th,.deck-canvas td { padding:.55em .65em; border-bottom:1px solid #dfe4eb; text-align:left; }
-.deck-canvas th { color:var(--deck-blue); background:#edf2ff; }
+.deck-canvas th,.deck-canvas td { padding:.55em .65em; border-bottom:1px solid var(--deck-line); text-align:left; }
+.deck-canvas th { color:var(--deck-blue); background:var(--deck-blue-soft); }
 .deck-cover__wash {
   position:absolute;
   inset:0 0 0 auto;
   width:31%;
   background:
     radial-gradient(circle at 72% 26%,rgba(255,255,255,.24) 0 1.2%,transparent 1.4%),
-    linear-gradient(155deg,#173f9e,#1f65cc 58%,#0d7b82);
+    var(--deck-cover-wash);
 }
 .deck-cover__wash::before {
   content:"";
@@ -333,7 +373,7 @@ function layoutLabel(value: string) {
 }
 .deck-cover__content h2 {
   margin-top:5%;
-  font-family:"Songti SC","STSong","Noto Serif CJK SC",serif;
+  font-family:var(--deck-title-font);
   font-size:4.35cqw;
   line-height:1.12;
   letter-spacing:-.035em;
@@ -344,7 +384,7 @@ function layoutLabel(value: string) {
   padding:3% 3.5%;
   border-left:.35cqw solid var(--deck-teal);
   color:#2c3746;
-  background:#f4f7f8;
+  background:var(--deck-message-bg);
   font-size:1.42cqw;
   font-weight:700;
   line-height:1.45;
@@ -358,7 +398,7 @@ function layoutLabel(value: string) {
   align-items:center;
   justify-content:center;
   color:#fff;
-  background:linear-gradient(155deg,#173f9e,#1d5cc6 58%,#0b7e78);
+  background:var(--deck-cover-wash);
 }
 .deck-chapter__panel small { font-size:.9cqw; font-weight:800; letter-spacing:.28em; opacity:.75; }
 .deck-chapter__panel strong { margin-top:8%; font:800 7.8cqw/1 "Aptos Mono","SFMono-Regular",monospace; }
@@ -366,11 +406,11 @@ function layoutLabel(value: string) {
 .deck-chapter__content small { color:var(--deck-teal); font-size:1.12cqw; font-weight:800; letter-spacing:.16em; }
 .deck-chapter__content h2 {
   margin-top:5%;
-  font-family:"Songti SC","STSong","Noto Serif CJK SC",serif;
+  font-family:var(--deck-title-font);
   font-size:3.55cqw;
   line-height:1.18;
 }
 .deck-chapter__content i { display:block; width:12%; height:.34cqw; margin-top:6%; background:var(--deck-blue); }
-.deck-chapter__content blockquote { margin-top:7%; color:#536073; font-size:1.48cqw; font-weight:650; line-height:1.48; }
+.deck-chapter__content blockquote { margin-top:7%; color:var(--deck-muted); font-size:1.48cqw; font-weight:650; line-height:1.48; }
 .deck-canvas.is-presenting { width:min(92vw, 166vh); max-height:88vh; box-shadow:0 32px 96px rgba(0,0,0,.4); }
 </style>

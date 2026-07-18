@@ -140,7 +140,7 @@ async def test_candidate_is_isolated_preserves_block_contract_and_is_request_ide
         request_id="request-1",
         expected_document_revision=document.document_revision,
         expected_block_revision=target.internal_revision,
-        instruction="这一项不会触发第二次生成",
+        instruction="把定义讲得更清楚",
         user_id="user-1",
     )
 
@@ -157,6 +157,51 @@ async def test_candidate_is_isolated_preserves_block_contract_and_is_request_ide
     current, _ = service.course_repository.load_document("course-1")
     assert current.document_revision == document.document_revision
     assert current.blocks[0].payload == target.payload
+
+
+@pytest.mark.asyncio
+async def test_candidate_request_id_reuse_with_different_payload_returns_409(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from routers import block_regeneration as regeneration_router
+
+    generator = SequenceGenerator(
+        "A vector has magnitude and direction and can be represented with coordinates."
+    )
+    _storage, _repository, _candidates, service, document, target = await canonical_service(
+        tmp_path,
+        generator,
+    )
+    await service.create_candidate(
+        "course-1",
+        "block-1",
+        request_id="reused-request-id",
+        expected_document_revision=document.document_revision,
+        expected_block_revision=target.internal_revision,
+        instruction="explain the definition",
+        action_type="rewrite",
+        user_id="user-1",
+    )
+    monkeypatch.setattr(regeneration_router, "get_block_regeneration_service", lambda: service)
+    app = FastAPI()
+    app.include_router(regeneration_router.router)
+
+    response = TestClient(app).post(
+        "/courses/course-1/blocks/block-1/regeneration-candidates",
+        headers={"X-User-Id": "user-1"},
+        json={
+            "request_id": "reused-request-id",
+            "expected_document_revision": document.document_revision,
+            "expected_block_revision": target.internal_revision,
+            "instruction": "use simpler examples based on new feedback",
+            "action_type": "simplify",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["message"] == "request_id reused with different payload"
+    assert len(generator.calls) == 1
 
 
 @pytest.mark.asyncio
@@ -366,6 +411,70 @@ async def test_apply_uses_course_command_preserves_identity_and_is_idempotent(tm
     assert result["document"]["current_course_version_id"] == updated.document_revision
     assert len(storage.course["course_operation_log"]) == 1
     assert "nodes" not in storage.course
+
+
+@pytest.mark.asyncio
+async def test_apply_route_reconciles_representations_after_canonical_write(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from representation_compiler import compile_core_representations
+    from routers import block_regeneration as regeneration_router
+    from teaching_representations import TeachingRepresentationRepository
+
+    generator = SequenceGenerator(
+        "A vector is determined by magnitude and direction, with coordinates as one representation."
+    )
+    _storage, course_repository, _candidates, service, document, target = await canonical_service(
+        tmp_path,
+        generator,
+    )
+    representation_repository = TeachingRepresentationRepository(tmp_path / "representations")
+    compile_core_representations(
+        document,
+        course_repository.load_course_view("course-1"),
+        representation_repository,
+    )
+    candidate = await service.create_candidate(
+        "course-1",
+        "block-1",
+        request_id="request-route-reconcile",
+        expected_document_revision=document.document_revision,
+        expected_block_revision=target.internal_revision,
+        instruction="improve the definition",
+        user_id="user-1",
+    )
+    monkeypatch.setattr(regeneration_router, "get_block_regeneration_service", lambda: service)
+    monkeypatch.setattr(
+        regeneration_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        regeneration_router,
+        "teaching_representation_repository",
+        representation_repository,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        regeneration_router,
+        "propose_kb_linkage_from_block_change",
+        lambda *_args, **_kwargs: None,
+    )
+    app = FastAPI()
+    app.include_router(regeneration_router.router)
+
+    response = TestClient(app).post(
+        f"/courses/course-1/blocks/block-1/regeneration-candidates/{candidate['candidate_id']}/apply",
+        headers={"X-User-Id": "user-1"},
+    )
+
+    assert response.status_code == 200
+    reconcile = response.json()["representation_reconcile"]
+    assert reconcile["status"] == "reconciled"
+    assert reconcile["stale_representation_ids"]
+    registry = representation_repository.load("course-1")
+    assert any(item.status == "stale" for item in registry.representations)
 
 
 @pytest.mark.asyncio

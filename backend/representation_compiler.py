@@ -14,6 +14,7 @@ from course_document import CourseBlock, CourseDocument, stable_hash
 from course_revisions import revision_vector_for_document
 from slide_deck import (
     SLIDE_DECK_COMPILER_VERSION,
+    SlideDeckPlanV1,
     compile_slide_deck,
     validate_slide_deck,
 )
@@ -39,6 +40,7 @@ def compile_core_representations(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] | None = None,
     baseline_registry: Any | None = None,
+    deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     vector = revision_vector_for_document(document).revisions
@@ -89,6 +91,7 @@ def compile_core_representations(
             course_data,
             progress_callback=progress_callback,
             presentation_overrides=presentation_overrides,
+            deck_plan=deck_plan,
         ),
     }
     built: list[dict[str, Any]] = []
@@ -117,10 +120,23 @@ def compile_core_representations(
             for values in unit_bindings.values()
             for binding in values
         ])
+        unit_count = len(payload.get("units") or payload.get("slides") or payload.get("sections") or [])
+        payload_quality = (
+            validate_slide_deck(payload, course_data=course_data)
+            if representation_type == "slide_deck"
+            else {"passed": bool(unit_count), "issues": []}
+        )
+        if representation_type == "slide_deck":
+            payload["quality_report"] = deepcopy(payload_quality)
         spec_payload = {
             "compiler_version": compiler_version,
             "representation_type": representation_type,
             "content": payload,
+            **(
+                {"quality_report": deepcopy(payload_quality)}
+                if representation_type == "slide_deck"
+                else {}
+            ),
         }
         spec_id = stable_hash({
             "course_id": document.course_id,
@@ -129,12 +145,6 @@ def compile_core_representations(
             "payload": spec_payload,
         }, prefix="trs_")
         spec_revision = stable_hash(spec_payload, prefix="tsr_")
-        unit_count = len(payload.get("units") or payload.get("slides") or payload.get("sections") or [])
-        payload_quality = (
-            validate_slide_deck(payload, course_data=course_data)
-            if representation_type == "slide_deck"
-            else {"passed": bool(unit_count), "issues": []}
-        )
         representation_status = "ready" if unit_count and payload_quality["passed"] else "failed"
         spec = TeachingRepresentationSpec(
             spec_id=spec_id,
@@ -225,6 +235,7 @@ def rebuild_core_representations_safely(
     repository: TeachingRepresentationRepository,
     *,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile in isolation and publish only a complete, quality-passing set.
 
@@ -256,6 +267,7 @@ def rebuild_core_representations_safely(
                 progress_callback=progress_callback,
                 presentation_overrides=presentation_overrides,
                 baseline_registry=previous,
+                deck_plan=deck_plan,
             )
             candidate = shadow.load(document.course_id)
             current_spec_ids = {item.spec_id for item in candidate.representations}
@@ -358,11 +370,16 @@ def rebuild_core_representations_safely(
         }
 
 
-def export_slide_deck_pptx(spec: TeachingRepresentationSpec, output_path: str | Path) -> Path:
+def export_slide_deck_pptx(
+    spec: TeachingRepresentationSpec,
+    output_path: str | Path,
+    *,
+    theme: str = "qingfeng-classroom",
+) -> Path:
     if spec.representation_type != "slide_deck":
         raise ValueError("Only slide deck specs can be exported to pptx")
     content = spec.payload.get("content") or {}
-    return export_structured_slide_deck(content, output_path)
+    return export_structured_slide_deck(content, output_path, theme=theme)
 
 
 def validate_compiled_representations(specs: list[TeachingRepresentationSpec]) -> dict[str, Any]:
