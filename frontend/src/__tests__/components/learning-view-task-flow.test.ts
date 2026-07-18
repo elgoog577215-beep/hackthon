@@ -191,4 +191,47 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
+  it('旧课程没有可用题目时仍可从顶层当前练习进入重建界面', async () => {
+    const workspace = useCourseWorkspaceStore()
+    workspace.assets = {
+      course_id: 'c1',
+      plan: {},
+      quality_report: {},
+      course_availability: {
+        schema_version: 'course_learning_availability_v1',
+        mode: 'compatibility',
+        reason_code: 'legacy_course',
+        capabilities: {},
+      },
+      assets: { questions: [] },
+    }
+
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          TeachingRepresentationsOverlay: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-domain="learning"]').trigger('click')
+    const practiceTab = wrapper.get('.records-overlay [data-context-item="practice"]')
+    expect(practiceTab.attributes('disabled')).toBeUndefined()
+
+    await practiceTab.trigger('click')
+    expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
+    expect(wrapper.get('.task-overlay-stub').text()).toContain(node.node_name)
+    wrapper.unmount()
+  })
+
 })
