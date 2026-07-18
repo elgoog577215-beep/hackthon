@@ -737,58 +737,154 @@ def _build_tree_spec(context: AdapterContext) -> dict[str, Any]:
 
 def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
     seed = context.variant_index + 2
-    x_value = seed
-    y_value = seed + 1
-    equations = [
-        {"a": 1, "b": 1, "c": x_value + y_value},
-        {"a": 2, "b": -1, "c": 2 * x_value - y_value},
+    topic = context.topic_text.lower()
+    focus = context.key_points[0]
+    assessments = "；".join(context.assessments)
+    level_action = {
+        "concept_check": "准确辨析",
+        "objective_practice": "准确应用",
+        "mastery_check": "独立运用",
+    }.get(context.practice_level, "准确运用")
+    criteria = [
+        f"{level_action}“{focus}”完成给定任务",
+        "说明所用定义或方法依据",
+        "给出可复核的计算或推理过程",
+        "检查结果并说明适用边界",
     ]
-    input_text = (
-        f"方程组为 x+y={equations[0]['c']}，"
-        f"2x-y={equations[1]['c']}；变量限定为实数。"
+    task_text = (
+        f"完成目标任务：{assessments}。"
+        f"评分检查点：{'；'.join(criteria)}"
     )
-    canonical = {"x": x_value, "y": y_value}
-    task_by_level = {
-        "concept_check": "判断方程组是否有唯一解，并写出判断依据",
-        "objective_practice": "使用消元法求出x、y，并把结果代回两个方程检查",
-        "mastery_check": "独立求解方程组，比较消元与代入两种思路并完成验算",
-    }
+    if "向量" in topic:
+        left = [seed, seed + 1]
+        right = [2, -1]
+        data = {
+            "case_kind": "vector_operations",
+            "left": left,
+            "right": right,
+        }
+        canonical: dict[str, Any] | None = {
+            "sum": [left[0] + right[0], left[1] + right[1]],
+            "dot_product": left[0] * right[0] + left[1] * right[1],
+            "left_norm_squared": left[0] ** 2 + left[1] ** 2,
+        }
+        input_text = (
+            f"给定二维向量 u={tuple(left)}、v={tuple(right)}，"
+            "坐标均在标准正交基下表示。"
+        )
+        archetype = "vector_operations_and_boundary_check"
+        deliverable = "向量运算结果、使用依据、完整过程和几何或代数检查"
+    elif "矩阵" in topic and "方程" not in topic:
+        left = [[seed, 1], [2, seed + 1]]
+        right = [[1, 2], [0, 1]]
+        product = [
+            [
+                left[row][0] * right[0][column]
+                + left[row][1] * right[1][column]
+                for column in range(2)
+            ]
+            for row in range(2)
+        ]
+        data = {
+            "case_kind": "matrix_operations",
+            "left": left,
+            "right": right,
+        }
+        canonical = {
+            "product": product,
+            "left_determinant": left[0][0] * left[1][1] - left[0][1] * left[1][0],
+        }
+        input_text = f"给定矩阵 A={left}、B={right}，两者均为2×2实矩阵。"
+        archetype = "matrix_product_and_determinant"
+        deliverable = "矩阵乘积、行列式、逐项计算过程和维度检查"
+    elif any(marker in topic for marker in ("线性空间", "向量空间", "基与坐标", "线性组合")):
+        basis = [[1, 0], [1, 1]]
+        target = [seed, seed + 1]
+        data = {
+            "case_kind": "basis_coordinates",
+            "basis": basis,
+            "target": target,
+        }
+        canonical = {
+            "coefficients": [target[0] - target[1], target[1]],
+            "reconstructed": target,
+        }
+        input_text = (
+            f"在 R² 中给定有序基 B=({tuple(basis[0])},{tuple(basis[1])})，"
+            f"目标向量 w={tuple(target)}。"
+        )
+        archetype = "basis_coordinate_reconstruction"
+        deliverable = "基下坐标、线性组合过程和重构检查"
+    elif any(marker in topic for marker in ("方程", "消元", "线性系统")):
+        x_value = seed
+        y_value = seed + 1
+        equations = [
+            {"a": 1, "b": 1, "c": x_value + y_value},
+            {"a": 2, "b": -1, "c": 2 * x_value - y_value},
+        ]
+        data = {
+            "case_kind": "linear_system",
+            "variables": ["x", "y"],
+            "domain": "real",
+            "equations": equations,
+        }
+        canonical = {"x": x_value, "y": y_value}
+        input_text = (
+            f"方程组为 x+y={equations[0]['c']}，"
+            f"2x-y={equations[1]['c']}；变量限定为实数。"
+        )
+        archetype = "two_variable_linear_system"
+        deliverable = "方程组的解、关键推导和代回验算"
+    else:
+        data = {
+            "case_kind": "topic_reasoning",
+            "topic_focus": focus,
+            "given_value": seed * 2,
+            "boundary_value": seed * 2 + 1,
+        }
+        canonical = None
+        input_text = (
+            f"围绕“{focus}”比较案例值 {data['given_value']} 与边界值"
+            f" {data['boundary_value']}，并严格使用课程给出的定义与条件。"
+        )
+        archetype = "topic_aligned_mathematical_reasoning"
+        deliverable = "结论、定义或方法依据、完整推理过程和边界检查"
     return {
-        "archetype_id": "two_variable_linear_system",
+        "archetype_id": archetype,
         "stimulus": {
             "kind": "quantitative_problem",
-            "data": {
-                "variables": ["x", "y"],
-                "domain": "real",
-                "equations": equations,
-            },
+            "data": data,
             "rendered_text": input_text,
         },
         "task": {
             "action": "solve_and_verify",
-            "rendered_text": task_by_level.get(
-                context.practice_level,
-                task_by_level["mastery_check"],
-            ),
-            "deliverable": "方程组的解、关键推导和代回验算",
+            "rendered_text": task_text,
+            "deliverable": deliverable,
         },
-        "constraints": ["不得只写最终数值", "必须检查两个原方程"],
+        "constraints": [
+            "不得只写最终结论",
+            "必须写出依据与关键过程",
+            "必须执行至少一项结果或边界检查",
+        ],
         "response_contract": {
             "format": "worked_solution",
             "required_parts": ["method", "steps", "answer", "verification"],
         },
         "answer_spec": _base_answer_spec(
             context,
-            ["消元步骤等价且正确", "x、y取值正确", "代回两个方程均成立"],
-            validation_mode="deterministic_solver",
+            criteria,
+            validation_mode=(
+                "deterministic_solver"
+                if canonical is not None
+                else "teacher_reviewed_mathematical_rubric"
+            ),
             canonical_answer=canonical,
-            solution_trace=[
-                "两式相加得到3x",
-                f"x={x_value}",
-                f"由x+y={x_value + y_value}得到y={y_value}",
-            ],
         ),
-        "result_checks": ["解满足两个原方程", "变量取值属于实数域"],
+        "result_checks": [
+            f"结果能够回应“{focus}”",
+            "关键步骤可由输入数据复算",
+            "结论未超出题目给定条件",
+        ],
     }
 
 
@@ -1423,8 +1519,67 @@ def _validate_programming_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
 
 def _validate_math_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
     data = (spec.get("stimulus") or {}).get("data") or {}
-    equations = data.get("equations") or []
+    case_kind = str(data.get("case_kind") or "")
     canonical = (spec.get("answer_spec") or {}).get("canonical_answer") or {}
+    if case_kind == "vector_operations":
+        left = data.get("left") or []
+        right = data.get("right") or []
+        if len(left) != 2 or len(right) != 2:
+            return [_issue("question:input_material_missing", "critical")]
+        expected = {
+            "sum": [left[0] + right[0], left[1] + right[1]],
+            "dot_product": left[0] * right[0] + left[1] * right[1],
+            "left_norm_squared": left[0] ** 2 + left[1] ** 2,
+        }
+        return (
+            []
+            if canonical == expected
+            else [_issue("question:canonical_answer_mismatch", "critical")]
+        )
+    if case_kind == "matrix_operations":
+        left = data.get("left") or []
+        right = data.get("right") or []
+        if (
+            len(left) != 2
+            or len(right) != 2
+            or any(len(row) != 2 for row in [*left, *right])
+        ):
+            return [_issue("question:input_material_missing", "critical")]
+        expected = {
+            "product": [
+                [
+                    left[row][0] * right[0][column]
+                    + left[row][1] * right[1][column]
+                    for column in range(2)
+                ]
+                for row in range(2)
+            ],
+            "left_determinant": left[0][0] * left[1][1] - left[0][1] * left[1][0],
+        }
+        return (
+            []
+            if canonical == expected
+            else [_issue("question:canonical_answer_mismatch", "critical")]
+        )
+    if case_kind == "basis_coordinates":
+        basis = data.get("basis") or []
+        target = data.get("target") or []
+        if basis != [[1, 0], [1, 1]] or len(target) != 2:
+            return [_issue("question:input_material_missing", "critical")]
+        expected = {
+            "coefficients": [target[0] - target[1], target[1]],
+            "reconstructed": target,
+        }
+        return (
+            []
+            if canonical == expected
+            else [_issue("question:canonical_answer_mismatch", "critical")]
+        )
+    if case_kind == "topic_reasoning":
+        if not str(data.get("topic_focus") or "").strip():
+            return [_issue("question:input_material_missing", "critical")]
+        return _validate_rubric_spec(spec)
+    equations = data.get("equations") or []
     if len(equations) != 2 or not {"x", "y"} <= set(canonical):
         return [_issue("question:input_material_missing", "critical")]
     x_value = canonical["x"]
