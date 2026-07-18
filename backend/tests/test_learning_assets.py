@@ -112,6 +112,11 @@ def test_assets_have_stable_revisions_and_five_passing_gates():
 
     assert question["question_type"] == "implementation_task"
     assert question["revision_id"].startswith("qr_")
+    assert question["assessment_intent_revision_id"].startswith("air_")
+    assert question["assessment_intent"]["target_knowledge"]
+    assert question["assessment_intent"]["target_skills"]
+    assert question["assessment_intent"]["observable_actions"]
+    assert question["assessment_intent"]["answer_invariants"]
     assert criterion["assessment_bindings"] == [question["revision_id"]]
     assert misconception["assessment_bindings"] == [question["revision_id"]]
     assert len(bundle["quality_report"]["gates"]) == 5
@@ -214,6 +219,24 @@ def test_quality_gate_rejects_missing_required_questions():
     report = evaluate_learning_asset_quality(course, bundle["plan"], bundle["assets"])
     assert report["passed"] is False
     assert any(item["asset_type"] == "questions" for item in report["blocking_issues"])
+
+
+def test_quality_gate_blocks_unanalyzed_question_when_analysis_is_required():
+    course = _course()
+    bundle = compile_learning_assets(course)
+    course["question_analysis_required"] = True
+
+    report = evaluate_learning_asset_quality(
+        course,
+        bundle["plan"],
+        bundle["assets"],
+    )
+
+    assert report["passed"] is False
+    assert any(
+        "独立解析" in item["message"]
+        for item in report["blocking_issues"]
+    )
 
 
 def test_quality_gate_rejects_missing_persisted_content_and_progression_contract():

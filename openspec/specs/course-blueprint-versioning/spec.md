@@ -14,16 +14,34 @@ TBD - created by archiving change unify-course-blueprint-and-learning-assets. Up
 - **AND** 确认时 MUST 创建不可变 BlueprintRevision
 - **AND** 生成任务 MUST 绑定该修订 ID
 
-### Requirement: 蓝图审阅必须在同一 GenerationJob 内等待
+### Requirement: 首次生成的每个产品步骤必须在同一 GenerationJob 内确认
 
-课程生成 MUST 支持快速模式和蓝图审阅模式。审阅模式 MUST 在同一任务的 `blueprint_ready` 阶段进入 `waiting_for_review`，确认后继续原任务；服务重启不得自动越过等待状态。
+课程生成 MUST 默认且只走六步确认路径。提交需求冻结需求修订；轻量目录、知识
+蓝图、教学方案、课程内容和质量发布检查分别完成后，MUST 在同一个任务中进入
+`waiting_for_review`。确认后继续原任务；服务重启不得自动越过等待状态。系统
+MUST NOT 为首次生成提供自动冻结目录并直接完成课程的用户入口。
 
-#### Scenario: 审阅模式生成课程
+#### Scenario: 六步确认生成课程
 
-- **WHEN** 请求使用 `review_blueprint`
-- **THEN** 系统 MUST 完成资料、教学画像、难度、蓝图和蓝图质量检查
-- **AND** MUST 暂停在 waiting_for_review
-- **AND** MUST 通过确认接口继续同一个 job_id
+- **WHEN** 用户提交首次课程生成请求
+- **THEN** 系统 MUST 将提交动作记录为需求步骤确认
+- **AND** 目录通过检查后 MUST 暂停在 waiting_for_review
+- **AND** MUST 通过带当前步骤标识的确认接口继续同一个 job_id
+- **AND** 每个后续步骤 MUST 只消费已经确认的上游修订
+- **AND** 质量与发布步骤确认前 MUST NOT 发布正式课程
+
+### Requirement: 上游修订必须确定性失效下游步骤
+
+六步工作流 MUST 为每一步记录 `artifact_revision` 和 `input_revisions`。已确认上游
+产物形成新修订时，所有消费旧修订的下游步骤 MUST 进入 `needs_regeneration`，
+不得继续显示为已确认或用于发布。
+
+#### Scenario: 用户重新确认修改后的目录
+
+- **WHEN** 已确认目录被修改并形成新目录修订
+- **THEN** 知识、教学、内容和发布步骤 MUST 标记为需要重做
+- **AND** 新一轮知识生成 MUST 绑定新目录修订
+- **AND** 旧正文 MUST 继续只作为历史工作区产物，不得成为当前正式课程
 
 ### Requirement: 修改必须产生确定性影响报告
 

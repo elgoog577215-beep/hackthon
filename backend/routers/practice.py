@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -29,6 +30,10 @@ from practice_attempts import (
     AttemptConflict,
     InvalidAttemptTransition,
     practice_attempt_repository,
+)
+from practice_analysis import (
+    practice_analysis_service,
+    unavailable_answer_diagnosis,
 )
 from practice_grading import practice_grader
 from question_bank import approved_formal_tasks, question_bank_repository
@@ -567,9 +572,12 @@ async def submit_attempt(
                 "support_level": _support_level(attempt),
             },
         )
-    try:
-        result = await practice_grader.grade(question, attempt)
-    except Exception:
+    grading_output, diagnosis_output = await asyncio.gather(
+        practice_grader.grade(question, attempt),
+        practice_analysis_service.diagnose_answer(question, attempt),
+        return_exceptions=True,
+    )
+    if isinstance(grading_output, BaseException):
         result = {
             "status": "pending_review",
             "score": None,
@@ -580,6 +588,14 @@ async def submit_attempt(
             "grading_method": "rubric_ai",
             "mastery_eligible": False,
         }
+    else:
+        result = grading_output
+    if isinstance(diagnosis_output, BaseException):
+        result["answer_diagnosis"] = unavailable_answer_diagnosis(
+            "analysis_model_failed"
+        )
+    else:
+        result["answer_diagnosis"] = diagnosis_output
     graded = await run_in_threadpool(
         practice_attempt_repository.apply_grade,
         user_id,
@@ -1136,6 +1152,9 @@ def _solution_payload(question: dict[str, Any]) -> dict[str, Any]:
         or question.get("explanation")
         or "对照标准步骤、最终答案和结果检查，定位本次作答缺失的证据。"
     )
+    reference = (question.get("question_analysis") or {}).get(
+        "reference_solution"
+    ) or {}
     return {
         "schema_version": "solution_spec_v1",
         "summary": summary,
@@ -1152,7 +1171,9 @@ def _solution_payload(question: dict[str, Any]) -> dict[str, Any]:
             if spec.get("correct_answer") is not None
             else None
         ),
-        "guidance": summary,
+        "guidance": reference.get("approach") or summary,
+        "key_steps": reference.get("key_steps") or [],
+        "self_check": reference.get("self_check") or "",
     }
 
 

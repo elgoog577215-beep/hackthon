@@ -142,4 +142,133 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.text()).toContain('持续证据已确认')
     expect(wrapper.text()).toContain('多个不同正式任务持续通过')
   })
+
+  it('在当前小节展示六步生长入口，并区分升级旧块与新增缺失块', async () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        source_kind: 'manual_section_request',
+        target_section_id: 's1',
+        growth_direction: 'challenge',
+        generation_status: 'ready',
+        requested_roles: ['reasoning', 'application'],
+        operations: [
+          {
+            operation_id: 'replace-reasoning',
+            operation_type: 'REPLACE_COURSE_BLOCK',
+            target_block_id: 'b1',
+            target_section_id: 's1',
+            scope: 'current',
+            reason: '保留块身份并强化理论推导。',
+            payload: {
+              action: 'REPLACE',
+              desired_role: 'reasoning',
+              before_preview: '原理论。',
+              after_preview: '更完整的理论推导。',
+            },
+          },
+          {
+            operation_id: 'insert-application',
+            operation_type: 'INSERT_COURSE_BLOCK',
+            target_block_id: 'b1',
+            target_section_id: 's1',
+            scope: 'current',
+            reason: '原本缺少实战应用。',
+            payload: {
+              action: 'INSERT',
+              desired_role: 'application',
+              after_preview: '新增实战任务。',
+            },
+          },
+        ],
+        impact_summary: {
+          ...plan.impact_summary,
+          affected_section_ids: ['s1'],
+          quality_report: { passed: true },
+          scene_analysis: {
+            analysis_source: 'ai_semantic',
+            scene_summary: '学习者已经掌握基础，希望升级理论推导并加入真实行业决策。',
+            rationale: '当前要求同时涉及解释深度和跨情境应用。',
+            source_requirement: 'verified_current_sources',
+            source_status: 'verification_required',
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1' },
+    })
+
+    expect(wrapper.findAll('.growth-steps li')).toHaveLength(6)
+    expect(wrapper.get('.evolution-diagnosis').text()).toContain('AI 场景理解')
+    expect(wrapper.get('.evolution-diagnosis').text()).toContain('升级理论推导并加入真实行业决策')
+    expect(wrapper.get('.source-requirement').text()).toContain('不会把模型记忆当成行业证据')
+    await wrapper.get('.evolution-details-toggle').trigger('click')
+    expect(wrapper.text()).toContain('升级')
+    expect(wrapper.text()).toContain('新增')
+    expect(wrapper.text()).toContain('结构化同源检查已通过')
+    expect(wrapper.text()).toContain('整体确认并更新课程')
+  })
+
+  it('把重复全对先呈现为挑战建议，不在候选生成前直接更新课程', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence.filter((item: any) => item.source_type === 'practice_attempt'),
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        target_section_id: 's1',
+        growth_direction: 'challenge',
+        generation_status: 'suggested',
+        operations: [],
+        impact_summary: {
+          ...plan.impact_summary,
+          affected_section_ids: ['s1'],
+          diagnosis: '当前小节已稳定通过，可以提升理论深度和迁移距离。',
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1' },
+    })
+
+    expect(wrapper.get('.challenge-suggestion').text()).toContain('当前难度已稳定通过')
+    expect(wrapper.get('.challenge-suggestion').text()).toContain('旧难度掌握记录会保留')
+    expect(wrapper.get('.challenge-suggestion button').text()).toContain('生成升级方案')
+    expect(wrapper.find('.evolution-actions').exists()).toBe(false)
+  })
+
+  it('AI 场景判断不可用时明确显示规则保底，而不是让流程卡住', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        target_section_id: 's1',
+        generation_status: 'ready',
+        impact_summary: {
+          ...plan.impact_summary,
+          affected_section_ids: ['s1'],
+          scene_analysis: {
+            analysis_source: 'deterministic_fallback',
+            scene_summary: '学习者当前存在理解阻力，需要通过例子讲解降低断点。',
+            rationale: '根据用户明确提到的理解信号进行规则判断。',
+            source_requirement: 'course_only',
+            source_status: 'course_grounded',
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1' },
+    })
+
+    expect(wrapper.get('.evolution-diagnosis').text()).toContain('规则保底判断')
+    expect(wrapper.get('.evolution-diagnosis').text()).toContain('通过例子讲解降低断点')
+    expect(wrapper.find('.source-requirement').exists()).toBe(false)
+  })
 })

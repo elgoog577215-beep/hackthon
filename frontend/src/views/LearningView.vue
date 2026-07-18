@@ -210,7 +210,9 @@ const generationProgress = computed(() => Math.max(0, Math.min(100, Math.round(g
 const activeGenerationNodeId = computed(() => generationTask.value?.currentNodes?.[0]?.node_id || generationStore.currentGeneratingNodeId || '')
 const generationStatusText = computed(() => (
   generationTask.value?.currentStep
-  || generationTask.value?.currentPhase
+  || (generationTask.value?.currentPhase
+    ? t(`courseGeneration.phases.${generationTask.value.currentPhase}`, generationTask.value.currentPhase)
+    : '')
   || t('courseGeneration.workspace.preparing', '正在准备课程结构')
 ))
 const navigatorVisible = computed(() => !courseStore.isFocusMode && (isNarrow.value ? navigatorOpen.value : navigatorOpen.value))

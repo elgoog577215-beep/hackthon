@@ -201,6 +201,44 @@
                 <small>{{ item.feedback }}</small>
               </div>
             </div>
+            <section v-if="answerDiagnosis" class="answer-diagnosis">
+              <header>
+                <strong>{{ t('courseWorkspace.practiceAnalysis.title', '题目解析与本次判断') }}</strong>
+                <span v-if="answerDiagnosis.diagnosis?.library_fit">
+                  {{ analysisFitLabel }}
+                </span>
+              </header>
+              <dl>
+                <div>
+                  <dt>{{ t('courseWorkspace.practiceAnalysis.taskGoal', '这道题在考什么') }}</dt>
+                  <dd>{{ answerDiagnosis.question_understanding?.task_goal }}</dd>
+                </div>
+                <div v-if="answerDiagnosis.student_response?.approach">
+                  <dt>{{ t('courseWorkspace.practiceAnalysis.studentApproach', '你采用了什么思路') }}</dt>
+                  <dd>{{ answerDiagnosis.student_response.approach }}</dd>
+                </div>
+                <div v-if="answerDiagnosis.student_response?.behavior_gap">
+                  <dt>{{ t('courseWorkspace.practiceAnalysis.behaviorGap', '当前最关键的差距') }}</dt>
+                  <dd>{{ answerDiagnosis.student_response.behavior_gap }}</dd>
+                </div>
+              </dl>
+              <div v-if="diagnosisTags.length" class="diagnosis-tags">
+                <span v-for="tag in diagnosisTags" :key="`${tag.kind}-${tag.id}`" :data-kind="tag.kind">
+                  {{ tag.name }}
+                </span>
+              </div>
+              <ul v-if="answerDiagnosis.diagnosis?.issues?.length" class="diagnosis-issues">
+                <li v-for="issue in answerDiagnosis.diagnosis.issues" :key="issue.issue_id">
+                  <strong>{{ issue.title }}</strong>
+                  <span>{{ issue.what_happened }}</span>
+                </li>
+              </ul>
+              <p class="diagnosis-summary">{{ answerDiagnosis.student_feedback?.summary }}</p>
+              <div class="diagnosis-next">
+                <span>{{ t('courseWorkspace.practiceAnalysis.nextAction', '下一步只做这一件事') }}</span>
+                <strong>{{ answerDiagnosis.student_feedback?.next_action }}</strong>
+              </div>
+            </section>
             <small>{{ evidenceLabel }}</small>
           </section>
 
@@ -245,6 +283,15 @@
             >
               {{ t('courseWorkspace.practice.referenceAnswer', '参考答案') }}：
               {{ formatSolutionValue(workspace.revealedSolution.correct_answer) }}
+            </p>
+            <ul v-if="workspace.revealedSolution.criteria?.length">
+              <li v-for="criterion in workspace.revealedSolution.criteria" :key="criterion">{{ criterion }}</li>
+            </ul>
+            <ol v-if="workspace.revealedSolution.key_steps?.length">
+              <li v-for="step in workspace.revealedSolution.key_steps" :key="step">{{ step }}</li>
+            </ol>
+            <p v-if="workspace.revealedSolution.self_check">
+              {{ t('courseWorkspace.practiceAnalysis.selfCheck', '自查方法') }}：{{ workspace.revealedSolution.self_check }}
             </p>
           </section>
         </article>
@@ -431,6 +478,23 @@ const canRefreshQuestion = computed(() => (
 ))
 const canRetry = computed(() => answerLocked.value && workspace.currentAttempt?.status !== 'grading')
 const canRevealSolution = computed(() => workspace.practiceResult?.passed === false && !workspace.currentAttempt?.solution_revealed)
+const answerDiagnosis = computed(() => {
+  const value = workspace.practiceResult?.answer_diagnosis
+  return value?.status === 'completed' ? value : null
+})
+const analysisFitLabel = computed(() => t(
+  `courseWorkspace.practiceAnalysis.fit.${answerDiagnosis.value?.diagnosis?.library_fit || 'MISS'}`,
+  ({ HIT: '已定位到本课目标', PARTIAL: '部分定位到本课目标', MISS: '暂未归入现有目标' } as Record<string, string>)[answerDiagnosis.value?.diagnosis?.library_fit || 'MISS'],
+))
+const diagnosisTags = computed(() => {
+  if (!answerDiagnosis.value) return []
+  const diagnosis = answerDiagnosis.value.diagnosis || {}
+  return [
+    ...(diagnosis.knowledge || []).map((item: any) => ({ ...item, kind: 'knowledge' })),
+    ...(diagnosis.skills || []).map((item: any) => ({ ...item, kind: 'skill' })),
+    ...(diagnosis.misconceptions || []).map((item: any) => ({ ...item, kind: 'misconception' })),
+  ]
+})
 const historyAttempts = computed(() => workspace.practiceHistory?.attempts || [])
 const legacyEvents = computed(() => workspace.practiceHistory?.legacy_events || [])
 const workflowPhase = computed(() => workspace.diagnosticWorkflow?.phase || 'practice')
@@ -806,10 +870,11 @@ function formatSolutionValue(value: unknown) {
 .solution-result { color:#334155; }.solution-result p,.solution-result li { line-height:1.65; }.solution-result ul,.solution-result ol { padding-left:20px; }.solution-result h4 { margin:14px 0 7px; font-size:13px; color:#172033; }.solution-result pre { margin:0; padding:12px 14px; max-height:420px; overflow:auto; border:1px solid #dbe3ed; border-radius:6px; background:#f1f5f9; color:#0f172a; font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }.solution-steps ol,.solution-checks ul { margin:6px 0; }
 .remediation-context { margin-bottom:22px; padding:14px 0; border-top:1px solid #99f6e4; border-bottom:1px solid #99f6e4; }.remediation-context strong { color:#115e59; }.remediation-context p { margin:8px 0; line-height:1.65; }.remediation-context small { color:#64748b; }.workflow-result strong { color:#172033; }.workflow-result.warning svg { color:#b45309; }
 .practice-feedback { color:#9a3412; }.practice-feedback[data-passed="true"] { color:#047857; }.feedback-heading { display:flex; gap:9px; align-items:center; }.feedback-heading span { margin-left:auto; font-size:22px; font-weight:800; }.practice-feedback>p { color:#475569; }.rubric-list { display:grid; gap:7px; margin:12px 0; }.rubric-list>div { display:grid; grid-template-columns:18px minmax(120px,auto) 1fr; gap:7px; align-items:start; color:#334155; }.rubric-list small { color:#64748b; }
+.answer-diagnosis { margin:18px 0 12px; padding:16px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; color:#172033; }.answer-diagnosis>header { display:flex; justify-content:space-between; gap:12px; align-items:center; padding-bottom:12px; border-bottom:1px solid #e2e8f0; }.answer-diagnosis>header span { color:#0f766e; font-size:11px; font-weight:700; }.answer-diagnosis dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin:14px 0; }.answer-diagnosis dl>div { min-width:0; }.answer-diagnosis dt { color:#64748b; font-size:11px; font-weight:700; }.answer-diagnosis dd { margin:5px 0 0; color:#334155; line-height:1.55; overflow-wrap:anywhere; }.diagnosis-tags { display:flex; flex-wrap:wrap; gap:6px; }.diagnosis-tags span { padding:4px 8px; border-radius:999px; background:#f1f5f9; color:#475569; font-size:11px; }.diagnosis-tags span[data-kind="skill"] { background:#ecfeff; color:#0e7490; }.diagnosis-tags span[data-kind="misconception"] { background:#fff7ed; color:#c2410c; }.diagnosis-issues { display:grid; gap:8px; padding:0; margin:14px 0; list-style:none; }.diagnosis-issues li { display:grid; gap:3px; padding-left:10px; border-left:2px solid #f59e0b; }.diagnosis-issues span,.diagnosis-summary { color:#475569; line-height:1.6; }.diagnosis-next { display:grid; gap:4px; margin-top:14px; padding:11px 12px; border-left:3px solid #0f766e; background:#f0fdfa; }.diagnosis-next span { color:#0f766e; font-size:11px; }.diagnosis-next strong { color:#115e59; line-height:1.5; }
 .practice-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:#64748b; }.state-notice { display:flex; gap:9px; padding:12px; margin-bottom:14px; border:1px solid #fecaca; color:#b91c1c; background:#fef2f2; border-radius:6px; }
 .question-bank-rebuild { display:flex; max-width:520px; flex-direction:column; align-items:center; gap:8px; margin-top:8px; text-align:center; }.question-bank-rebuild small { color:#64748b; font-size:11px; line-height:1.55; }.question-bank-rebuild__error { color:#b91c1c!important; }
 .question-bank-rebuild__progress { width:min(380px,100%); display:grid; grid-template-columns:1fr auto; gap:6px 10px; align-items:center; color:#475569; font-size:11px; text-align:left; }.question-bank-rebuild__progress strong { color:#0f766e; }.question-bank-rebuild__progress i { grid-column:1/-1; height:5px; overflow:hidden; border-radius:999px; background:#dbe3ed; }.question-bank-rebuild__progress b { display:block; height:100%; border-radius:inherit; background:#0f766e; transition:width .25s ease; }
 .history-row { padding:16px 0; border-bottom:1px solid #dbe3ed; }.history-row>div { display:flex; justify-content:space-between; gap:20px; }.history-row span,.history-row small { color:#64748b; }.history-row.legacy { border-left:3px solid #94a3b8; padding-left:12px; }
 .history-row-actions { display:flex; align-items:center; gap:10px; }.targeted-retry-command { min-height:30px; display:inline-flex; align-items:center; gap:5px; padding:0 9px; border:1px solid #99f6e4; border-radius:6px; color:#0f766e; background:#f0fdfa; font-size:11px; font-weight:700; }.targeted-retry-command:disabled { opacity:.55; }.targeted-retry-context { display:flex; align-items:flex-start; gap:10px; margin-bottom:20px; padding:12px 14px; border:1px solid #99f6e4; border-radius:7px; color:#115e59; background:#f0fdfa; }.targeted-retry-context>div { min-width:0; }.targeted-retry-context strong { font-size:12px; }.targeted-retry-context p { margin:3px 0 0; color:#526174; font-size:11px; line-height:1.55; }
-@media (max-width:640px) { .practice-header { padding:12px 16px; align-items:flex-start; }.attempt-count { display:none; }.practice-tabs { margin-top:8px; padding:0 10px; overflow-x:auto; }.practice-tabs button { flex:0 0 auto; }.workflow-band { width:calc(100% - 28px); display:grid; gap:8px; }.workflow-band p { max-width:none; }.question-stage,.history-list { width:calc(100% - 28px); padding-top:18px; }.question-content h3 { font-size:17px; }.answer-editor { min-height:180px; }.practice-actions { padding-bottom:max(12px,env(safe-area-inset-bottom)); }.text-command { width:40px; padding:0; font-size:0; }.support-actions { gap:5px; }.icon-command { width:38px; }.primary-command { padding:0 11px; }.hint-result { grid-template-columns:1fr; gap:3px; } }
+@media (max-width:640px) { .practice-header { padding:12px 16px; align-items:flex-start; }.attempt-count { display:none; }.practice-tabs { margin-top:8px; padding:0 10px; overflow-x:auto; }.practice-tabs button { flex:0 0 auto; }.workflow-band { width:calc(100% - 28px); display:grid; gap:8px; }.workflow-band p { max-width:none; }.question-stage,.history-list { width:calc(100% - 28px); padding-top:18px; }.question-content h3 { font-size:17px; }.answer-editor { min-height:180px; }.practice-actions { padding-bottom:max(12px,env(safe-area-inset-bottom)); }.text-command { width:40px; padding:0; font-size:0; }.support-actions { gap:5px; }.icon-command { width:38px; }.primary-command { padding:0 11px; }.hint-result { grid-template-columns:1fr; gap:3px; }.answer-diagnosis dl { grid-template-columns:1fr; }.answer-diagnosis>header { align-items:flex-start; } }
 </style>

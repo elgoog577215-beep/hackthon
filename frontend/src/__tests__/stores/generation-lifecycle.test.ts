@@ -236,6 +236,24 @@ describe('course generation lifecycle reconciliation', () => {
     expect(refreshList).toHaveBeenCalledTimes(1)
   })
 
+  it('没有本地投影时也能清除后端终态任务', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    generation.globalTasks = [{
+      id: 'job-completed', course_id: 'course-completed', course_name: '已发布课程',
+      status: 'completed', progress: 100,
+    }]
+    vi.spyOn(generation, 'ensureJobId').mockResolvedValue('job-completed')
+    vi.spyOn(http, 'delete').mockResolvedValue({ data: { status: 'deleted' } })
+    const refreshList = vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    await generation.deleteTask('course-completed')
+
+    expect(http.delete).toHaveBeenCalledWith('/api/tasks/job-completed')
+    expect(generation.globalTasks).toHaveLength(0)
+    expect(refreshList).toHaveBeenCalledTimes(1)
+  })
+
   it('发现其他标签页创建的新任务时自动补读课程列表', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()

@@ -11,7 +11,10 @@ from diagnostic_service import (
     invalidate_stale_workflows,
     workflow_view,
 )
-from diagnostic_workflows import DiagnosticWorkflowRepository
+from diagnostic_workflows import (
+    DiagnosticWorkflowRepository,
+    diagnostic_hypotheses,
+)
 from practice_attempts import PracticeAttemptRepository
 from learning_progress import project_learning_objective_bindings
 from routers import diagnostics as diagnostics_router
@@ -141,6 +144,42 @@ def test_two_failures_open_one_case_and_bind_tasks(monkeypatch, tmp_path):
     projection = advance_workflow_after_grade(course, user_id="u1", attempt=second, task=task)
     assert projection["phase"] == "diagnostic"
     assert projection["current_task"]["task_purpose"] == "diagnostic_probe"
+
+
+def test_answer_diagnosis_drives_the_next_diagnostic_hypothesis():
+    course = _course()
+    task = course["learning_assets"]["questions"][0]
+    attempt = {
+        "attempt_id": "a-diagnosed",
+        "result": {
+            "passed": False,
+            "rubric_results": [{"criterion": "笼统量规", "met": False}],
+            "answer_diagnosis": {
+                "status": "completed",
+                "diagnosis": {
+                    "issues": [{
+                        "title": "遗漏方向",
+                        "what_happened": "学生只比较大小，没有比较方向",
+                        "confidence": 0.9,
+                        "knowledge_ids": ["math.vector"],
+                        "skill_ids": ["skill.vector.describe"],
+                        "misconception_ids": ["mistake.vector.direction"],
+                    }],
+                },
+            },
+        },
+    }
+
+    hypotheses = diagnostic_hypotheses(course, task, attempt)
+
+    assert hypotheses[0]["claim"] == "学生只比较大小，没有比较方向"
+    assert hypotheses[0]["concept_ids"] == ["math.vector"]
+    assert hypotheses[0]["skill_unit_ids"] == ["skill.vector.describe"]
+    assert hypotheses[0]["candidate_mistake_point_ids"] == [
+        "mistake.vector.direction"
+    ]
+    assert hypotheses[0]["confidence_level"] == "medium"
+    assert hypotheses[0]["evidence_for"][0]["kind"] == "answer_diagnosis"
 
 
 def test_confirm_remediate_and_close_only_after_independent_validation(monkeypatch, tmp_path):

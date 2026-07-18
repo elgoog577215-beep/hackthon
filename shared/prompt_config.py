@@ -22,11 +22,20 @@ class DifficultyLevel(str, Enum):
 
 
 class TeachingStyle(str, Enum):
-    """教学风格"""
+    """旧节点级文案风格；仅用于历史接口兼容。"""
     ACADEMIC = "academic"
     INDUSTRIAL = "industrial"
     SOCRATIC = "socratic"
     HUMOROUS = "humorous"
+
+
+class CourseCompositionStyle(str, Enum):
+    """课程块编排偏好。"""
+    BALANCED = "balanced"
+    THEORY_DRIVEN = "theory_driven"
+    EXAMPLE_DRIVEN = "example_driven"
+    PROJECT_DRIVEN = "project_driven"
+    INQUIRY_DRIVEN = "inquiry_driven"
 
 
 class NodeLevel(int, Enum):
@@ -60,6 +69,14 @@ TEACHING_STYLES = {
     "INDUSTRIAL": "industrial",
     "SOCRATIC": "socratic",
     "HUMOROUS": "humorous"
+}
+
+COURSE_COMPOSITION_STYLES = {
+    "BALANCED": "balanced",
+    "THEORY_DRIVEN": "theory_driven",
+    "EXAMPLE_DRIVEN": "example_driven",
+    "PROJECT_DRIVEN": "project_driven",
+    "INQUIRY_DRIVEN": "inquiry_driven",
 }
 
 # 节点层级常量
@@ -97,6 +114,13 @@ VALID_DIFFICULTY_LEVELS: List[str] = ["beginner", "intermediate", "advanced"]
 
 # 有效的教学风格列表
 VALID_TEACHING_STYLES: List[str] = ["academic", "industrial", "socratic", "humorous"]
+VALID_COURSE_COMPOSITION_STYLES: List[str] = [
+    "balanced",
+    "theory_driven",
+    "example_driven",
+    "project_driven",
+    "inquiry_driven",
+]
 
 # 有效的节点类型列表
 VALID_NODE_TYPES: List[str] = ["original", "expanded", "redefined"]
@@ -113,6 +137,11 @@ def validate_difficulty(difficulty: str) -> bool:
 def validate_style(style: str) -> bool:
     """验证教学风格"""
     return style in VALID_TEACHING_STYLES
+
+
+def validate_composition_style(style: str) -> bool:
+    """验证课程块编排偏好。"""
+    return style in VALID_COURSE_COMPOSITION_STYLES
 
 
 def validate_node_type(node_type: str) -> bool:

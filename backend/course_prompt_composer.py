@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from course_coherence import course_coherence_prompt_context
+from course_composition import format_block_difficulty, format_composition_profile
 from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
@@ -16,7 +17,7 @@ from course_knowledge_base import (
 )
 from course_pedagogy import MODULES, TEMPLATES, SubjectPedagogyProfile, module_block_role
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v11"
+PROMPT_CONTRACT_VERSION = "course_prompt_v13"
 
 
 class CoursePromptComposer:
@@ -71,18 +72,11 @@ class CoursePromptComposer:
         material_context: str,
     ) -> str:
         profile_data = profile.to_dict()
-        enabled_modules = [
-            MODULES[module_id].to_dict(
-                source_mode="allowed",
-                required=MODULES[module_id].frequency.value.endswith("required"),
-            )
-            for module_id in profile.enabled_module_ids
-            if module_id in MODULES
-        ]
         primary = TEMPLATES[profile.primary_mode]
         guardrails = "\n".join(f"- {item}" for item in primary.quality_guardrails)
         return f"""## 输出契约
-你负责生成课程蓝图，不生成正文。只输出有效 JSON，不输出寒暄、计划或 Markdown 代码围栏。
+你只负责生成供用户审阅的轻量课程目录，不生成知识点、知识关系、正文或练习。
+只输出有效 JSON，不输出寒暄、计划或 Markdown 代码围栏。
 
 ## 课程输入
 - 主题：{subject}
@@ -103,36 +97,21 @@ class CoursePromptComposer:
 
 主模式决定课程顺序和最终考核。辅模式只在主任务依赖它的位置注入。不要把两套目录简单拼接。
 
-## 可用教学模块
-{json.dumps(enabled_modules, ensure_ascii=False)}
-
 ## 主模式质量边界
 {guardrails}
 
 ## 资料上下文
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
 
-## 知识身份边界
-知识库只属于当前课程。只从本次课程要求、上传资料和当前蓝图生成知识点，
-不得读取、复用或输出其他课程的知识 ID。
-
-## 蓝图要求
+## 目录要求
 1. 用户明确指定章数或小节总数时必须精确满足；未指定时才由知识和能力依赖决定。不要为了凑数重复主题，也不要用节数表示难度。
-2. 每个小节必须承担明确的能力推进，后端会根据整体顺序编译锯齿型难度曲线。
-3. 每个小节给出可观察学习目标、前置节点、范围边界、误区和验收标准。
-4. `suggested_module_ids` 只能从可用模块中选择；后端会补齐必备模块并校验辅模式注入。
-5. 每个小节必须给出 `node_id`，统一使用 `L2-章号-节号`，例如第 1 章第 1 节是 `L2-1-1`。
-6. 前置依赖只能引用已经出现的 `node_id`，不得使用 `1.1`、`L1-1` 或尚未出现的节点。
-7. `knowledge_structure` 就是当前课程自己的知识蓝图，不是章节标题索引，也不依赖外部学科库。每节按实际内容组织 1-4 个 `concept_group`，概念组名称必须表达知识问题域，禁止复制小节标题。
-8. 每个概念组包含 2-5 个可单独解释、练习和诊断的原子知识点。每个知识点必须写出独立 `statement`、`knowledge_type`、成立 `conditions` 或适用 `boundaries`；不得把定义、公式、图像和应用打包成一个粗节点。
-9. 每个原子知识点至少包含一个可观察 `capability_points` 和一个可验证 `mastery_criteria`。`misconceptions` 只有存在具体错误表现、判别方法和修复策略时才生成，允许为空，禁止模板填充。
-10. `ImprovementPoint` 已退出知识库。稳定提升目标写成能力，具体训练进入练习，个性化建议留给学习阶段 AI，不得在蓝图中生成 `improvement_points`。
-11. 同一知识在本课程内只能有一个名称身份；后续小节再次使用时不得在 `knowledge_structure` 重建，必须把前序规范名称写入该小节的 `reused_knowledge_names`，由绑定表示巩固或应用。不得从其他课程借用知识身份。
-12. 不编造论文、链接、书目、年份或未上传资料。
-13. 从整门课程角度分配小节责任：相邻小节的学习目标不得只是换句话重复；需要承接的前置必须写入 `prerequisite_node_ids`，只需上下文衔接但可并行生成的内容不要伪造成硬依赖。
-14. 每节只完整展开自己的知识与能力产出。允许简短回顾前置，但不得复制前节实质讲解；后续小节的核心知识只能提示方向，不能在当前小节提前讲完。
-15. 全课程使用统一术语和符号。相同概念优先复用规范名称，把其他叫法写入知识点 `aliases`，不得在不同章节把同一概念写成互不关联的新知识点。
-16. 只允许六类知识关系：`prerequisite / derives / equivalent_to / contrasts_with / applies_to / generalizes`。禁止 `related`。每条关系必须给出具体理由；推导给步骤，对比给判别维度；没有入边的真正入口知识必须写 `entry_reason`。
+2. 每个小节只承担一个明确、可观察、与其他小节不同的学习责任。
+3. 每个小节给出可观察学习目标、前置小节、范围边界和验收任务。
+4. 每个小节必须给出 `node_id`，统一使用 `L2-章号-节号`，例如第 1 章第 1 节是 `L2-1-1`。
+5. 前置依赖只能引用已经出现的 `node_id`，不得引用尚未出现的小节。
+6. 只需上下文衔接但可以独立生成的内容不要伪造成硬依赖。
+7. 不输出 `knowledge_structure`、`knowledge_relations`、`reused_knowledge_names`、正文、题目或内部知识 ID。
+8. 不编造论文、链接、书目、年份或未上传资料。
 
 ## JSON Schema
 {{
@@ -140,19 +119,6 @@ class CoursePromptComposer:
   "positioning": "课程定位与最终成果",
   "learning_objectives": ["可观察成果"],
   "prerequisites": ["必要前置"],
-  "knowledge_relations": [
-    {{
-      "source_name": "来源知识点规范名称",
-      "target_name": "目标知识点规范名称",
-      "relation_type": "prerequisite",
-      "reason": "为什么属于该关系，而不是课程先后顺序",
-      "conditions": [],
-      "distinction": "仅 contrasts_with 必填",
-      "derivation_steps": ["仅 derives 必填"],
-      "necessity": "required",
-      "priority": "core"
-    }}
-  ],
   "chapters": [
     {{
       "chapter_number": 1,
@@ -163,60 +129,10 @@ class CoursePromptComposer:
           "node_id": "L2-1-1",
           "section_number": "1.1",
           "title": "小节名",
-          "key_points": ["核心知识点"],
-          "knowledge_structure": [
-            {{
-              "concept_group": "知识问题域，不得复制小节标题",
-              "description": "本主题在本节中的作用与边界",
-              "knowledge_points": [
-                {{
-                  "name": "可单独解释和检测的细知识点",
-                  "statement": "脱离章节标题也能独立成立的知识命题或操作规则",
-                  "knowledge_type": "definition",
-                  "conditions": ["成立条件；普遍成立时写明适用域"],
-                  "boundaries": ["不适用范围或易混边界"],
-                  "counterexamples": [],
-                  "capability_points": [
-                    {{
-                      "name": "细颗粒能力名称",
-                      "observable_behavior": "学习者在不依赖答案时可观察到的动作",
-                      "required_evidence_types": ["practice_attempt"]
-                    }}
-                  ],
-                  "misconceptions": [
-                    {{
-                      "name": "常见错误模式",
-                      "observable_error_pattern": "学生会以什么具体方式出错",
-                      "confused_with": "容易与什么混淆",
-                      "discrimination": "靠什么条件或反例区分",
-                      "repair_strategy": "如何辨别并修复"
-                    }}
-                  ],
-                  "mastery_criteria": [
-                    {{
-                      "name": "掌握标准名称",
-                      "observable_performance": "出现什么独立表现才算掌握",
-                      "required_independence": "independent",
-                      "required_transfer": "variation",
-                      "verification_method": "用何种题目、产物或行为验证",
-                      "required_evidence_types": ["practice_attempt"]
-                    }}
-                  ],
-                  "aliases": [],
-                  "entry_reason": "只有真正入口知识才填写",
-                  "prerequisite_names": [],
-                  "relations": []
-                }}
-              ]
-            }}
-          ],
-          "reused_knowledge_names": ["仅填写前序小节已经定义、当前小节再次巩固或应用的规范知识名称"],
           "learning_objective": "学完后能完成的任务",
           "prerequisite_node_ids": [],
-          "misconceptions": ["需要澄清的误区"],
           "assessment": ["验收标准或任务"],
-          "scope_boundary": "本节边界",
-          "suggested_module_ids": ["module_id"]
+          "scope_boundary": "本节负责什么，以及明确不提前展开什么"
         }}
       ]
     }}
@@ -235,20 +151,196 @@ class CoursePromptComposer:
         ) or "- 上一次输出不是完整有效的 JSON"
         shape = brief.get("course_shape_constraints") or {}
         return f"""
-## 蓝图纠正任务
+## 轻量目录纠正任务
 
-上一次课程蓝图未通过确定性验收：
+上一次轻量课程目录未通过确定性验收：
 {issue_text}
 
 用户明确课程形状：
 - 章数：{shape.get('chapter_count') or '由教学设计决定'}
 - 小节总数：{shape.get('section_count') or '由教学设计决定'}
 
-请从头重新输出一份完整 JSON。不得输出截断 JSON、Markdown 围栏、简化占位大纲或解释。
-所有原始要求、学科模式、知识结构和难度契约仍以下面的完整原始契约为准。
+请重新输出一份完整的轻量目录 JSON。不得输出知识点、知识关系、正文、Markdown
+围栏、占位目录或解释。所有原始要求、学科模式和难度契约仍以下面的原始契约为准。
 
 {original_prompt}
 """.strip()
+
+    def build_section_knowledge_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        section: dict[str, Any],
+        available_knowledge_names: list[str],
+        material_context: str,
+        course_scope_contract: dict[str, Any] | None = None,
+    ) -> str:
+        return f"""## 输出契约
+你只负责一个已经冻结的小节知识包，不得修改课程名称、章节、小节、顺序、学习目标或范围。
+只输出有效 JSON，不输出 Markdown 围栏或解释。
+
+## 课程上下文
+- 课程：{course_title}
+- 定位：{positioning}
+- 当前小节：{json.dumps(section, ensure_ascii=False)}
+- 前序已存在知识规范名称：{json.dumps(available_knowledge_names, ensure_ascii=False)}
+
+## 已冻结的全课知识责任地图
+{json.dumps(course_scope_contract or {}, ensure_ascii=False)}
+
+当前知识包必须服务本节唯一学习责任，并显式避让 `later_reserved_sections` 中后续小节
+负责的主要知识任务。可以为承接引用前序知识，但不得提前完成后续小节的核心教学。
+
+## 资料上下文
+{material_context or '当前没有上传资料；不得伪装资料引用。'}
+
+## 生成要求
+1. 当前小节组织 1-3 个概念组，每组包含 2-5 个可单独解释、练习和诊断的原子知识点。
+2. 概念组名称表达知识问题域，禁止复制小节标题。
+3. 每个新知识点必须有独立 `statement`、`knowledge_type`、`conditions` 或 `boundaries`、可观察能力和可验证掌握标准。
+4. 后续再次使用前序知识时写入 `reused_knowledge_names`，不得重新创建同名知识。
+5. 易错点允许为空；生成时必须包含具体错误表现、辨别方法和修复策略。
+6. 关系只能使用 `prerequisite / derives / equivalent_to / contrasts_with / applies_to / generalizes`。
+7. 关系端点只能引用本次新知识或前序已存在规范名称；每条关系必须有理由，推导必须有步骤，对比必须有判别维度。
+8. 没有关系入边的真正入口知识必须填写 `entry_reason`。
+9. 不输出 ImprovementPoint、章节关系、课程顺序关系或泛化的 `related`。
+
+## JSON Schema
+{{
+  "knowledge_structure": [
+    {{
+      "concept_group": "知识问题域",
+      "description": "该问题域在本节中的作用与边界",
+      "knowledge_points": [
+        {{
+          "name": "原子知识规范名称",
+          "statement": "独立成立的知识命题或操作规则",
+          "knowledge_type": "definition",
+          "conditions": ["成立条件"],
+          "boundaries": ["不适用范围或易混边界"],
+          "counterexamples": [],
+          "capability_points": [
+            {{
+              "name": "能力名称",
+              "observable_behavior": "不依赖答案时可以观察到的动作",
+              "required_evidence_types": ["practice_attempt"]
+            }}
+          ],
+          "misconceptions": [
+            {{
+              "name": "错误模式",
+              "observable_error_pattern": "具体怎样出错",
+              "confused_with": "容易与什么混淆",
+              "discrimination": "用什么条件或反例区分",
+              "repair_strategy": "如何修复"
+            }}
+          ],
+          "mastery_criteria": [
+            {{
+              "name": "掌握标准",
+              "observable_performance": "独立表现",
+              "required_independence": "independent",
+              "required_transfer": "variation",
+              "verification_method": "验证方法",
+              "required_evidence_types": ["practice_attempt"]
+            }}
+          ],
+          "aliases": [],
+          "entry_reason": "只有真正入口知识填写",
+          "prerequisite_names": [],
+          "relations": []
+        }}
+      ]
+    }}
+  ],
+  "reused_knowledge_names": [],
+  "knowledge_relations": [
+    {{
+      "source_name": "来源知识规范名称",
+      "target_name": "目标知识规范名称",
+      "relation_type": "prerequisite",
+      "reason": "具体语义理由",
+      "conditions": [],
+      "distinction": "仅 contrasts_with 必填",
+      "derivation_steps": ["仅 derives 必填"],
+      "necessity": "required",
+      "priority": "core"
+    }}
+  ]
+}}"""
+
+    def build_section_knowledge_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 上一次输出不是完整有效的 JSON"
+        return f"""## 单节知识包纠正任务
+
+上一次只针对当前小节的知识包未通过检查：
+{issue_text}
+
+只重新输出当前小节知识包 JSON。不得修改课程目录，不得输出其他小节，不得输出解释。
+
+{original_prompt}
+""".strip()
+
+    def build_section_relation_correction_prompt(
+        self,
+        *,
+        section_title: str,
+        local_knowledge_names: list[str],
+        available_knowledge_names: list[str],
+        original_relations: list[dict[str, Any]],
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 当前小节关系批次不是完整有效的 JSON"
+        return f"""## 单节关系批次纠正任务
+
+当前小节「{section_title}」的知识结构已经冻结，不得新增、删除、改名或重写知识点。
+只修复 `reused_knowledge_names` 与 `knowledge_relations`，只输出有效 JSON。
+
+## 当前小节新知识规范名称
+{json.dumps(local_knowledge_names, ensure_ascii=False)}
+
+## 前序可复用知识规范名称
+{json.dumps(available_knowledge_names, ensure_ascii=False)}
+
+## 上一次关系批次
+{json.dumps(original_relations, ensure_ascii=False)}
+
+## 未通过的问题
+{issue_text}
+
+## 约束
+1. 关系端点只能引用上面两组规范名称中的两个不同知识点。
+2. 关系类型只允许 `prerequisite / derives / equivalent_to / contrasts_with / applies_to / generalizes`。
+3. 每条关系必须给出具体理由；`derives` 必须给出步骤；`contrasts_with` 必须给出判别维度。
+4. 不输出知识结构、课程目录、正文、解释或 Markdown 围栏。
+
+## JSON Schema
+{{
+  "reused_knowledge_names": [],
+  "knowledge_relations": [
+    {{
+      "source_name": "来源知识规范名称",
+      "target_name": "目标知识规范名称",
+      "relation_type": "prerequisite",
+      "reason": "具体语义理由",
+      "conditions": [],
+      "distinction": "",
+      "derivation_steps": [],
+      "necessity": "required",
+      "priority": "core"
+    }}
+  ]
+}}""".strip()
 
     def build_content_prompt(
         self,
@@ -265,7 +357,11 @@ class CoursePromptComposer:
         module_contract = "\n".join(
             (
                 f"- {'必需' if item.get('required', True) else '可选'}模块 "
-                f"`## {item.get('label')}` [角色={item.get('block_role') or module_block_role(item.get('module_id'))}]："
+                f"`## {item.get('label')}` "
+                f"[角色={item.get('block_role') or module_block_role(item.get('module_id'))}] "
+                f"[来源={item.get('composition_source') or 'subject_required'}；"
+                f"实例={item.get('module_instance_id') or item.get('module_id')}；"
+                f"难度={format_block_difficulty(item.get('block_difficulty_contract') or {})}]："
                 f"{item.get('output_contract')}；{item.get('prompt_instruction')}"
             )
             for item in modules
@@ -311,6 +407,9 @@ class CoursePromptComposer:
 - 名称：{course_data.get('course_name', '')}
 - 学习对象：{course_data.get('target_audience', '大学生')}
 - 教学画像：{json.dumps(profile, ensure_ascii=False)}
+
+## 课程块编排画像
+{format_composition_profile(course_data.get('course_composition_profile') or {})}
 
 ## 全课难度能力契约
 {format_difficulty_profile(difficulty_profile)}

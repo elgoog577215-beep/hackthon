@@ -27,6 +27,7 @@ try:
     from task_manager import TaskManager
     from course_repository import CourseDocumentRepository
     from dependencies import init_task_manager
+    from practice_analysis import practice_analysis_service
     from websocket_service import WebSocketService
     from course_service import get_course_service
 except ImportError:
@@ -36,6 +37,7 @@ except ImportError:
         from backend.task_manager import TaskManager
         from backend.course_repository import CourseDocumentRepository
         from backend.dependencies import init_task_manager
+        from backend.practice_analysis import practice_analysis_service
         from backend.websocket_service import WebSocketService
         from backend.course_service import get_course_service
     except ImportError as e:
@@ -76,6 +78,7 @@ try:
         course_service,
         ws_service,
         document_repository=course_repository,
+        practice_analysis_service=practice_analysis_service,
     )
     ws_service.set_command_handler(task_manager.handle_command)
     init_task_manager(task_manager)

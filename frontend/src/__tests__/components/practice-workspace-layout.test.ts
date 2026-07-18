@@ -38,4 +38,12 @@ describe('PracticeWorkspace expanded desktop layout', () => {
     expect(componentSource).toContain('workspace.refreshPracticeQuestion')
     expect(componentSource).toContain('当前未提交草稿会结束并保留为一次已放弃记录')
   })
+
+  it('shows independent answer diagnosis and the single next action', () => {
+    expect(componentSource).toContain('题目解析与本次判断')
+    expect(componentSource).toContain('你采用了什么思路')
+    expect(componentSource).toContain('当前最关键的差距')
+    expect(componentSource).toContain('下一步只做这一件事')
+    expect(componentSource).toContain('answerDiagnosis.value?.diagnosis')
+  })
 })

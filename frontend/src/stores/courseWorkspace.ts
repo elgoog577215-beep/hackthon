@@ -104,6 +104,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     practiceScope: 'node' as 'node' | 'final' | 'all',
     assets: null as LearningAssetsResponse | null,
     blueprint: null as any,
+    generationReview: null as any,
     versions: [] as any[],
     currentVersionId: '' as string,
     versionDiff: null as any,
@@ -462,7 +463,20 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       const sourceQuestion = questions.find(question => (
         (question.task_revision_id || question.revision_id) === sourceTaskRevisionId
       ))
-      const sourceSignals = { ...(sourceQuestion || {}), ...failedAttempt }
+      const diagnosed = failedAttempt.result?.answer_diagnosis?.diagnosis || {}
+      const sourceSignals = {
+        ...(sourceQuestion || {}),
+        ...failedAttempt,
+        concept_ids: diagnosed.knowledge_ids?.length
+          ? diagnosed.knowledge_ids
+          : (sourceQuestion?.concept_ids || failedAttempt.concept_ids || []),
+        skill_unit_ids: diagnosed.skill_ids?.length
+          ? diagnosed.skill_ids
+          : (sourceQuestion?.skill_unit_ids || failedAttempt.skill_unit_ids || []),
+        mistake_point_ids: diagnosed.misconception_ids?.length
+          ? diagnosed.misconception_ids
+          : (sourceQuestion?.mistake_point_ids || failedAttempt.mistake_point_ids || []),
+      }
       const ranked = questions
         .map((question, index) => ({
           question,
@@ -590,7 +604,30 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       }
     },
     async confirmBlueprint(courseId: string) {
-      const res = await http.post(`/api/courses/${courseId}/blueprint/confirm`)
+      return this.confirmGenerationStep(courseId, 'outline')
+    },
+    async loadGenerationReview(courseId: string) {
+      this.loading = true
+      try {
+        const res = await http.get(`/api/courses/${courseId}/generation/review`)
+        this.generationReview = res.data
+        return res.data
+      } finally {
+        this.loading = false
+      }
+    },
+    async confirmGenerationStep(
+      courseId: string,
+      step: 'outline' | 'knowledge' | 'teaching' | 'content' | 'release',
+    ) {
+      const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/confirm`)
+      return res.data
+    },
+    async reopenGenerationStep(
+      courseId: string,
+      step: 'outline',
+    ) {
+      const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/reopen`)
       return res.data
     },
     async discardBlueprint(courseId: string) {

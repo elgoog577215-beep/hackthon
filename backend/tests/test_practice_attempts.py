@@ -394,6 +394,35 @@ def test_practice_api_resumes_submits_idempotently_and_projects_mastery(monkeypa
     monkeypatch.setattr(practice_router, "practice_attempt_repository", repository)
     monkeypatch.setattr(learning_events, "storage", storage)
 
+    class FakePracticeAnalysis:
+        async def diagnose_answer(self, question, attempt):
+            return {
+                "status": "completed",
+                "question_understanding": {
+                    "task_goal": "说明向量的大小和方向",
+                },
+                "student_response": {
+                    "approach": "分别列出了两个属性",
+                    "behavior_gap": "",
+                },
+                "diagnosis": {
+                    "knowledge_ids": ["vector"],
+                    "skill_ids": ["describe-vector"],
+                    "misconception_ids": [],
+                    "issues": [],
+                },
+                "student_feedback": {
+                    "summary": "两个属性都已说明。",
+                    "next_action": "用一个具体向量再自查一次。",
+                },
+            }
+
+    monkeypatch.setattr(
+        practice_router,
+        "practice_analysis_service",
+        FakePracticeAnalysis(),
+    )
+
     async def fake_course(_course_id):
         return _course()
 
@@ -427,6 +456,12 @@ def test_practice_api_resumes_submits_idempotently_and_projects_mastery(monkeypa
     )
     assert submitted.status_code == 200
     assert submitted.json()["result"]["passed"] is True
+    assert (
+        submitted.json()["result"]["answer_diagnosis"]["student_response"][
+            "approach"
+        ]
+        == "分别列出了两个属性"
+    )
     assert repeated.json()["status"] == "already_submitted"
 
     stored = repository.list("u1", "c1")
