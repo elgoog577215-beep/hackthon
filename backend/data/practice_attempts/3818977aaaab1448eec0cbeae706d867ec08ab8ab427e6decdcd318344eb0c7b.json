@@ -1,0 +1,41 @@
+[
+  {
+    "practice_run_id": "d4c1230a-cc2b-40ea-b86f-700c250b9924",
+    "practice_level": "concept_check",
+    "task_revision_id": "qr_221730f3928b8da4",
+    "task_purpose": "course_practice",
+    "task_source": "course_asset",
+    "course_version_id": "cv3",
+    "node_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
+    "node_name": "1.1 向量空间的公理化定义",
+    "objective_id": "lo_c7f9554233a0a633",
+    "objective_revision_id": "lor_db569c22cd546002",
+    "question_revision_id": "qr_221730f3928b8da4",
+    "question_type": "short_answer",
+    "input_contract": {
+      "mode": "rich_text",
+      "required": true,
+      "supports_attachments": false
+    },
+    "concept_ids": [],
+    "skill_unit_ids": [],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "practice_intent": "standard",
+    "attempt_id": "pa_6ec9f4ebc13f445b8bbce07ca9e84f00",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
+    "status": "in_progress",
+    "attempt_number": 1,
+    "answer_payload": {},
+    "revealed_hint_levels": [],
+    "solution_revealed": false,
+    "ai_support_level": 0,
+    "active_seconds": 0,
+    "revision": 1,
+    "schema_version": 2,
+    "started_at": "2026-07-18T10:51:30.083369+00:00",
+    "created_at": "2026-07-18T10:51:30.083369+00:00",
+    "updated_at": "2026-07-18T10:51:30.083369+00:00"
+  }
+]
