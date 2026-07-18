@@ -96,7 +96,7 @@ async def get_practice(
             node_id=node_id,
             scoped_question_count=len(questions),
         ),
-        "questions": questions,
+        "questions": [_student_question_payload(item) for item in questions],
         "active_attempts": [item for item in attempts if item.get("status") == "in_progress"],
         "summary": _attempt_summary(attempts),
     }
@@ -609,6 +609,20 @@ def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> li
     if scope == "node" and node_id:
         questions = [item for item in questions if item.get("node_id") == node_id]
     return questions
+
+
+def _student_question_payload(question: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(question)
+    for field in (
+        "answer_spec",
+        "hint_contract",
+        "question_spec",
+        "grading_policy",
+        "quality_report",
+        "source_records",
+    ):
+        payload.pop(field, None)
+    return payload
 
 
 def _find_question(course: dict[str, Any], revision_id: str) -> dict[str, Any] | None:
