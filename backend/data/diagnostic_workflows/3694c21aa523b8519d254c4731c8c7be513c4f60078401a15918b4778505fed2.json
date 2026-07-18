@@ -272,7 +272,7 @@
           "course_version_id": "cdr_3a85a71a89107ae1bb0baa42"
         }
       ],
-      "current_task_revision_id": "dtr_c6b42aceb2b6cfed",
+      "current_task_revision_id": null,
       "decision_rule_version": "diagnostic_policy_v1",
       "return_anchor": {
         "node_id": "L2-4-2",
@@ -281,11 +281,11 @@
       "diagnostic_case_id": "dc_50230f9bc807458ba0bd37e1d4fcd82c",
       "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
       "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
-      "status": "testing",
-      "revision": 1,
+      "status": "stale",
+      "revision": 2,
       "schema_version": 1,
       "created_at": "2026-07-18T08:46:21.272347+00:00",
-      "updated_at": "2026-07-18T08:46:21.272347+00:00"
+      "updated_at": "2026-07-18T08:47:18.538231+00:00"
     }
   ],
   "sessions": []
