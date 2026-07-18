@@ -40,6 +40,7 @@ export interface PracticeAttempt {
   attempt_number: number
   answer_payload: Record<string, any>
   revealed_hint_levels: number[]
+  revealed_hints?: Array<Record<string, any>>
   solution_revealed: boolean
   ai_support_level: number
   active_seconds: number
@@ -161,6 +162,23 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         this.applyRequestedTask(courseId)
         this.currentQuestionIndex = Math.min(this.currentQuestionIndex, Math.max(0, (res.data.questions || []).length - 1))
         const question = this.currentPracticeQuestion
+        const questionTaskRevisionId = question?.task_revision_id || question?.revision_id || ''
+        const currentAttemptTaskRevisionId = (
+          this.currentAttempt?.task_revision_id || this.currentAttempt?.question_revision_id || ''
+        )
+        if (
+          this.currentAttempt
+          && (!questionTaskRevisionId || currentAttemptTaskRevisionId !== questionTaskRevisionId)
+        ) {
+          this.currentAttempt = null
+          this.currentDraft = {}
+          this.revealedHints = []
+          this.revealedSolution = null
+          this.practiceResult = null
+          this.practiceSaveState = 'idle'
+          this.practiceSubmitRequestId = ''
+          this.targetedRetryContext = null
+        }
         const active = question
           ? (res.data.active_attempts || []).find((item: PracticeAttempt) => (
               item.task_revision_id || item.question_revision_id
@@ -278,7 +296,9 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.currentDraft = local?.revision >= attempt.revision
         ? { ...(attempt.answer_payload || {}), ...(local.answer_payload || {}) }
         : { ...(attempt.answer_payload || {}) }
-      this.revealedHints = []
+      this.revealedHints = Array.isArray(attempt.revealed_hints)
+        ? attempt.revealed_hints.map(item => ({ ...item }))
+        : []
       this.revealedSolution = attempt.solution_revealed ? solution : null
       this.practiceSaveState = local?.revision > attempt.revision ? 'local_only' : 'saved'
       this.practiceSubmitRequestId = ''

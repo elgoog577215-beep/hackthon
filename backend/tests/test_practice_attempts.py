@@ -204,9 +204,10 @@ def test_practice_list_restores_only_hints_already_revealed_by_active_attempt(
     assert resumed.status_code == 200
     active = resumed.json()["active_attempts"][0]
     assert active["revealed_hint_levels"] == [1]
-    assert active["revealed_hints"] == [
-        {"level": 1, "kind": "orientation", "content": "先区分大小与方向。"},
-    ]
+    assert len(active["revealed_hints"]) == 1
+    assert active["revealed_hints"][0]["level"] == 1
+    assert active["revealed_hints"][0]["kind"] == "orientation"
+    assert active["revealed_hints"][0]["content"] == "先区分大小与方向。"
     assert "分别说明两个属性如何表示" not in resumed.text
 
 

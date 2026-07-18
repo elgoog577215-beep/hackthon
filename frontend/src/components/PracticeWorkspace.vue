@@ -472,8 +472,10 @@ async function ensureAttempt() {
 }
 
 function canRevealHint(level: number) {
-  const used = workspace.currentAttempt?.revealed_hint_levels || []
-  if (used.includes(level)) return false
+  const attempt = workspace.currentAttempt
+  if (!attempt || attempt.status !== 'in_progress') return false
+  const used = attempt.revealed_hint_levels || []
+  if (used.includes(level)) return true
   return level === 1 || used.includes(level - 1)
 }
 

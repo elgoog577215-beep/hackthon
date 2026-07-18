@@ -97,6 +97,7 @@ class PracticeAttemptRepository:
                 "attempt_number": attempt_number,
                 "answer_payload": _sanitize_value(payload.get("answer_payload") or {}),
                 "revealed_hint_levels": [],
+                "revealed_hints": [],
                 "solution_revealed": False,
                 "ai_support_level": 0,
                 "active_seconds": 0,
@@ -140,17 +141,35 @@ class PracticeAttemptRepository:
         *,
         expected_revision: int,
         level: int,
+        hint: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], bool]:
         if level not in {1, 2, 3}:
             raise ValueError("hint level must be 1, 2, or 3")
         current = self.get(user_id, course_id, attempt_id)
+        hint_snapshot = _sanitize_value(hint) if isinstance(hint, dict) else None
         if level in (current.get("revealed_hint_levels") or []):
+            stored_levels = {
+                int(item.get("level") or 0)
+                for item in current.get("revealed_hints") or []
+                if isinstance(item, dict)
+            }
+            if hint_snapshot and level not in stored_levels:
+                return self._update(
+                    user_id,
+                    course_id,
+                    attempt_id,
+                    expected_revision=expected_revision,
+                    allowed_statuses={"in_progress"},
+                    mutate=lambda item: _store_revealed_hint(item, level, hint_snapshot),
+                ), False
             return current, False
         if level > 1 and level - 1 not in (current.get("revealed_hint_levels") or []):
             raise InvalidAttemptTransition("hint levels must be revealed in order")
 
         def mutate(item: dict[str, Any]) -> None:
             item["revealed_hint_levels"] = sorted({*(item.get("revealed_hint_levels") or []), level})
+            if hint_snapshot:
+                _store_revealed_hint(item, level, hint_snapshot)
 
         return self._update(
             user_id,
@@ -391,6 +410,19 @@ def evidence_strength(attempt: dict[str, Any]) -> str:
         2: "supported",
         3: "scaffolded",
     }.get(highest, "scaffolded")
+
+
+def _store_revealed_hint(attempt: dict[str, Any], level: int, hint: dict[str, Any]) -> None:
+    snapshots = [
+        item
+        for item in attempt.get("revealed_hints") or []
+        if isinstance(item, dict) and int(item.get("level") or 0) != level
+    ]
+    snapshots.append({"level": level, **hint})
+    attempt["revealed_hints"] = sorted(
+        snapshots,
+        key=lambda item: int(item.get("level") or 0),
+    )
 
 
 def _sanitize_attempt(payload: dict[str, Any]) -> dict[str, Any]:

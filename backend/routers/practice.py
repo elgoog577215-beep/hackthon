@@ -103,7 +103,11 @@ async def get_practice(
             scoped_question_count=len(questions),
         ),
         "questions": [_student_question_payload(item) for item in questions],
-        "active_attempts": [item for item in attempts if item.get("status") == "in_progress"],
+        "active_attempts": [
+            _student_attempt_payload(course, user_id, item)
+            for item in attempts
+            if item.get("status") == "in_progress"
+        ],
         "summary": _attempt_summary(attempts),
     }
 
@@ -368,6 +372,7 @@ async def reveal_attempt_hint(
             attempt_id,
             expected_revision=payload.expected_revision,
             level=level,
+            hint=hint,
         )
     except AttemptConflict as exc:
         raise HTTPException(status_code=409, detail={"code": "attempt_conflict", "current": exc.current}) from exc
@@ -701,6 +706,42 @@ def _student_question_payload(question: dict[str, Any]) -> dict[str, Any]:
         "source_records",
     ):
         payload.pop(field, None)
+    return payload
+
+
+def _student_attempt_payload(
+    course: dict[str, Any],
+    user_id: str,
+    attempt: dict[str, Any],
+) -> dict[str, Any]:
+    payload = dict(attempt)
+    revealed_levels = {
+        int(level)
+        for level in attempt.get("revealed_hint_levels") or []
+        if int(level) in {1, 2, 3}
+    }
+    snapshots = {
+        int(item.get("level") or 0): dict(item)
+        for item in attempt.get("revealed_hints") or []
+        if isinstance(item, dict)
+        and int(item.get("level") or 0) in revealed_levels
+    }
+    missing_levels = revealed_levels.difference(snapshots)
+    if missing_levels:
+        task = _resolve_task(
+            course,
+            user_id,
+            str(attempt.get("task_revision_id") or attempt.get("question_revision_id") or ""),
+        )
+        for hint in ((task or {}).get("hint_contract") or {}).get("levels") or []:
+            level = int(hint.get("level") or 0)
+            if level in missing_levels:
+                snapshots[level] = dict(hint)
+    payload["revealed_hints"] = [
+        snapshots[level]
+        for level in sorted(revealed_levels)
+        if level in snapshots
+    ]
     return payload
 
 
