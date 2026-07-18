@@ -86,6 +86,32 @@ describe('CourseTaskCenter', () => {
     expect(pause).toHaveBeenCalledWith('course-1', 'task-pending')
   })
 
+  it('用中英文产品文案显示知识身份与并行关系阶段', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-skeleton', course_id: 'course-1', course_name: '线性代数', status: 'running',
+      progress: 35, current_phase: 'course_knowledge_skeleton', message: '正在规划知识身份',
+    }, {
+      id: 'task-relations', course_id: 'course-2', course_name: '微积分', status: 'running',
+      progress: 49, current_phase: 'course_relation_generation', message: '正在生成关系邻域',
+    }]
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('规划全课知识身份')
+    const rows = wrapper.findAll('.task-row')
+    await rows[1]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('并行生成知识关系邻域')
+
+    await setLocale('en')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Generating knowledge relation neighborhoods in parallel')
+    await rows[0]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Planning course-wide knowledge identities')
+  })
+
   it('同一课程的多次生成分别成行，并按所选任务 ID 执行控制', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [

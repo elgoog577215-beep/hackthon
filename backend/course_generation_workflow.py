@@ -26,7 +26,7 @@ from course_pedagogy import SubjectPedagogyProfile
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
-PIPELINE_VERSION = "course_generation_v6"
+PIPELINE_VERSION = "course_generation_v7"
 
 COURSE_RELATION_TYPES = {
     "prerequisite",
@@ -233,6 +233,279 @@ def build_course_knowledge_scope_contract(plan: dict[str, Any]) -> dict[str, Any
     }
     payload["revision_id"] = stable_hash(payload, prefix="kscope_")
     return payload
+
+
+def build_section_knowledge_scope_slice(
+    contract: dict[str, Any],
+    section_id: str,
+) -> dict[str, Any]:
+    """Return the O(n) context one section needs instead of the O(n²) contract."""
+    responsibilities = [
+        item
+        for item in contract.get("section_responsibilities") or []
+        if isinstance(item, dict)
+    ]
+    current = next(
+        (
+            deepcopy(item)
+            for item in responsibilities
+            if str(item.get("node_id") or "") == section_id
+        ),
+        {},
+    )
+    course_path = [
+        {
+            "node_id": str(item.get("node_id") or ""),
+            "title": str(item.get("title") or ""),
+            "learning_objective": str(item.get("learning_objective") or ""),
+            "scope_boundary": str(item.get("scope_boundary") or ""),
+            "prerequisite_node_ids": list(
+                item.get("prerequisite_node_ids") or []
+            ),
+        }
+        for item in responsibilities
+    ]
+    payload = {
+        "schema_version": "section_knowledge_scope_slice_v1",
+        "course_title": str(contract.get("course_title") or ""),
+        "positioning": str(contract.get("positioning") or ""),
+        "learning_objectives": list(
+            contract.get("learning_objectives") or []
+        ),
+        "current_section_responsibility": current,
+        "course_path": course_path,
+        "source_contract_revision_id": str(
+            contract.get("revision_id") or ""
+        ),
+    }
+    payload["revision_id"] = stable_hash(payload, prefix="kslice_")
+    return payload
+
+
+def normalize_course_knowledge_skeleton(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize the compact identity plan that makes section calls independent."""
+    sections = []
+    for item in payload.get("sections") or []:
+        if not isinstance(item, dict):
+            continue
+        sections.append({
+            "node_id": str(item.get("node_id") or "").strip(),
+            "owned_knowledge_names": _unique_strings(
+                item.get("owned_knowledge_names") or []
+            ),
+            "reused_knowledge_names": _unique_strings(
+                item.get("reused_knowledge_names") or []
+            ),
+        })
+    normalized = {
+        "schema_version": "course_knowledge_skeleton_v1",
+        "source_scope_revision_id": str(
+            payload.get("source_scope_revision_id") or ""
+        ),
+        "sections": sections,
+    }
+    normalized["revision_id"] = stable_hash(
+        normalized,
+        prefix="kskeleton_",
+    )
+    return normalized
+
+
+def validate_course_knowledge_skeleton(
+    payload: dict[str, Any],
+    *,
+    sections: list[dict[str, Any]],
+    locked_knowledge_names_by_section: dict[str, list[str]] | None = None,
+    expected_scope_revision_id: str | None = None,
+) -> dict[str, Any]:
+    """Protect canonical identity before bounded-parallel detail generation."""
+    skeleton = normalize_course_knowledge_skeleton(payload)
+    expected_ids = [
+        str(section.get("node_id") or "")
+        for section in sections
+        if str(section.get("node_id") or "")
+    ]
+    expected_positions = {
+        section_id: index
+        for index, section_id in enumerate(expected_ids)
+    }
+    actual_ids = [
+        str(item.get("node_id") or "")
+        for item in skeleton["sections"]
+    ]
+    issues: list[dict[str, Any]] = []
+    if (
+        expected_scope_revision_id is not None
+        and skeleton.get("source_scope_revision_id")
+        != expected_scope_revision_id
+    ):
+        issues.append(_plan_issue(
+            "knowledge_skeleton:stale_scope_revision",
+            "知识身份骨架对应的目录责任版本已经过期，必须重新规划",
+        ))
+    if actual_ids != expected_ids:
+        issues.append(_plan_issue(
+            "knowledge_skeleton:section_order_mismatch",
+            "知识身份骨架必须按目录顺序完整覆盖所有小节",
+        ))
+    if len(set(actual_ids)) != len(actual_ids):
+        issues.append(_plan_issue(
+            "knowledge_skeleton:duplicate_section",
+            "知识身份骨架包含重复小节",
+        ))
+    unexpected = sorted(set(actual_ids) - set(expected_ids))
+    if unexpected:
+        issues.append(_plan_issue(
+            "knowledge_skeleton:unknown_section",
+            "知识身份骨架引用了目录中不存在的小节",
+        ))
+
+    by_section = {
+        str(item.get("node_id") or ""): item
+        for item in skeleton["sections"]
+    }
+    owner_by_name: dict[str, str] = {}
+    for section_id in expected_ids:
+        item = by_section.get(section_id) or {}
+        owned = list(item.get("owned_knowledge_names") or [])
+        if not owned:
+            issues.append(_plan_issue(
+                "knowledge_skeleton:missing_owned_knowledge",
+                f"小节 {section_id} 没有首次负责的规范知识名称",
+            ))
+        if len(owned) > 8:
+            issues.append(_plan_issue(
+                "knowledge_skeleton:too_many_owned_knowledge",
+                f"小节 {section_id} 的规范知识名称超过 8 个",
+            ))
+        for name in owned:
+            normalized_name = _normalize_knowledge_name(name)
+            if not normalized_name:
+                issues.append(_plan_issue(
+                    "knowledge_skeleton:blank_knowledge_name",
+                    f"小节 {section_id} 包含空知识名称",
+                ))
+                continue
+            existing_owner = owner_by_name.get(normalized_name)
+            if existing_owner and existing_owner != section_id:
+                issues.append(_plan_issue(
+                    "knowledge_skeleton:duplicate_owner",
+                    f"规范知识名称「{name}」被多个小节重复首次负责",
+                ))
+            else:
+                owner_by_name[normalized_name] = section_id
+
+    for section_id in expected_ids:
+        item = by_section.get(section_id) or {}
+        owned = {
+            _normalize_knowledge_name(name)
+            for name in item.get("owned_knowledge_names") or []
+            if _normalize_knowledge_name(name)
+        }
+        for name in item.get("reused_knowledge_names") or []:
+            normalized_name = _normalize_knowledge_name(name)
+            owner = owner_by_name.get(normalized_name)
+            if normalized_name in owned:
+                issues.append(_plan_issue(
+                    "knowledge_skeleton:owned_and_reused",
+                    f"小节 {section_id} 不能同时首次负责和复用「{name}」",
+                ))
+            elif not owner:
+                issues.append(_plan_issue(
+                    "knowledge_skeleton:unknown_reuse",
+                    f"小节 {section_id} 复用了尚未定义的「{name}」",
+                ))
+            elif expected_positions.get(owner, -1) >= expected_positions.get(
+                section_id, -1
+            ):
+                issues.append(_plan_issue(
+                    "knowledge_skeleton:future_reuse",
+                    f"小节 {section_id} 不能复用后续小节才首次负责的「{name}」",
+                ))
+
+    for section_id, locked_names in (
+        locked_knowledge_names_by_section or {}
+    ).items():
+        expected_locked = {
+            str(name).strip()
+            for name in locked_names
+            if str(name).strip()
+        }
+        actual_locked = {
+            str(name).strip()
+            for name in (
+                by_section.get(section_id) or {}
+            ).get("owned_knowledge_names") or []
+            if str(name).strip()
+        }
+        if expected_locked and actual_locked != expected_locked:
+            issues.append(_plan_issue(
+                "knowledge_skeleton:locked_identity_changed",
+                f"小节 {section_id} 已完成知识包的规范名称不得在恢复时改变",
+            ))
+
+    return _constraint_report(
+        schema_version="course_knowledge_skeleton_validation_v1",
+        actual={
+            "section_count": len(actual_ids),
+            "owned_knowledge_count": sum(
+                len(item.get("owned_knowledge_names") or [])
+                for item in skeleton["sections"]
+            ),
+            "reused_knowledge_count": sum(
+                len(item.get("reused_knowledge_names") or [])
+                for item in skeleton["sections"]
+            ),
+        },
+        expected={"section_ids": expected_ids},
+        issues=issues,
+    )
+
+
+def build_section_knowledge_material_context(
+    artifacts: dict[str, Any],
+    section: dict[str, Any],
+) -> str:
+    """Keep section knowledge prompts grounded without repeating all materials."""
+    evidence = evidence_bundle_for_node(artifacts, section)
+    brief = artifacts.get("course_generation_brief") or {}
+    strategy = (
+        artifacts.get("evidence_coverage_plan") or {}
+    ).get("strategy", "material_first")
+    parts = [
+        f"- 生成目标：{brief.get('goal') or '电子课程资料'}",
+        f"- 证据策略：{strategy}",
+    ]
+    if evidence:
+        parts.extend([
+            "- 只依据下面与本节绑定的证据规划知识边界：",
+            _format_evidence_bundle(evidence),
+        ])
+    else:
+        parts.append(
+            "- 当前小节没有绑定可引用证据；不得伪装已读取资料。"
+        )
+    return "\n".join(parts)
+
+
+def build_section_knowledge_skeleton_evidence_hints(
+    artifacts: dict[str, Any],
+    section: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Give the identity planner compact evidence without rebroadcasting files."""
+    return [
+        {
+            "evidence_id": str(item.get("evidence_id") or ""),
+            "kind": str(item.get("kind") or ""),
+            "summary": _clip(
+                str(item.get("source_text") or ""),
+                237,
+            ),
+        }
+        for item in evidence_bundle_for_node(artifacts, section)[:4]
+    ]
 
 
 def normalize_course_plan_contract(plan: dict[str, Any]) -> dict[str, Any]:
@@ -631,6 +904,8 @@ def validate_section_knowledge_package(
     *,
     section_title: str,
     available_knowledge_names: list[str],
+    required_knowledge_names: list[str] | None = None,
+    required_reused_knowledge_names: list[str] | None = None,
     validate_relations: bool = True,
 ) -> dict[str, Any]:
     """Validate the smallest retryable knowledge unit.
@@ -741,6 +1016,47 @@ def validate_section_knowledge_package(
             f"小节「{section_title}」没有可用于教学的具名知识陈述",
         ))
 
+    required_local = {
+        _normalize_knowledge_name(name): str(name)
+        for name in required_knowledge_names or []
+        if _normalize_knowledge_name(name)
+    }
+    missing_required = [
+        original
+        for normalized, original in required_local.items()
+        if normalized not in local_names
+    ]
+    unexpected_local = [
+        original
+        for normalized, original in local_names.items()
+        if required_knowledge_names is not None
+        and normalized not in required_local
+    ]
+    renamed_local = [
+        f"{actual}（应为 {required_local[normalized]}）"
+        for normalized, actual in local_names.items()
+        if normalized in required_local
+        and actual != required_local[normalized]
+    ]
+    if missing_required:
+        issues.append(_plan_issue(
+            "section_knowledge:missing_skeleton_identity",
+            "知识包缺少全课身份骨架已冻结的知识点："
+            f"{'、'.join(missing_required)}",
+        ))
+    if unexpected_local:
+        issues.append(_plan_issue(
+            "section_knowledge:unexpected_skeleton_identity",
+            "知识包新增了全课身份骨架之外的知识点："
+            f"{'、'.join(unexpected_local)}",
+        ))
+    if renamed_local:
+        issues.append(_plan_issue(
+            "section_knowledge:renamed_skeleton_identity",
+            "知识包必须逐字沿用全课身份骨架中的规范名称："
+            f"{'、'.join(renamed_local)}",
+        ))
+
     all_names = {**available, **local_names}
     relations = [
         item for item in package.get("knowledge_relations") or []
@@ -816,7 +1132,45 @@ def validate_section_knowledge_package(
     reused = {
         _normalize_knowledge_name(name)
         for name in package.get("reused_knowledge_names") or []
+        if _normalize_knowledge_name(name)
     }
+    required_reused = {
+        _normalize_knowledge_name(name): str(name)
+        for name in required_reused_knowledge_names or []
+        if _normalize_knowledge_name(name)
+    }
+    if required_reused_knowledge_names is not None:
+        missing_reused = [
+            original
+            for normalized, original in required_reused.items()
+            if normalized not in reused
+        ]
+        unexpected_reused = [
+            str(name)
+            for name in package.get("reused_knowledge_names") or []
+            if _normalize_knowledge_name(name) not in required_reused
+        ]
+        renamed_reused = [
+            f"{str(name).strip()}（应为 "
+            f"{required_reused[_normalize_knowledge_name(name)]}）"
+            for name in package.get("reused_knowledge_names") or []
+            if _normalize_knowledge_name(name) in required_reused
+            and str(name).strip()
+            != required_reused[_normalize_knowledge_name(name)]
+        ]
+        if missing_reused or unexpected_reused or renamed_reused:
+            details = []
+            if missing_reused:
+                details.append(f"缺少：{'、'.join(missing_reused)}")
+            if unexpected_reused:
+                details.append(f"多出：{'、'.join(unexpected_reused)}")
+            if renamed_reused:
+                details.append(f"改名：{'、'.join(renamed_reused)}")
+            issues.append(_plan_issue(
+                "section_knowledge:reuse_contract_mismatch",
+                "复用知识必须与全课身份骨架一致（"
+                f"{'；'.join(details)}）",
+            ))
     invalid_reused = [
         name for name in package.get("reused_knowledge_names") or []
         if _normalize_knowledge_name(name) not in available
@@ -840,6 +1194,8 @@ def validate_section_knowledge_package(
             "knowledge_point_count": len(local_names),
             "usable_knowledge_point_count": usable_point_count,
             "relation_count": len(relations),
+            "required_knowledge_point_count": len(required_local),
+            "required_reused_knowledge_count": len(required_reused),
         },
         issues=issues,
     )

@@ -14,6 +14,8 @@ import asyncio
 import inspect
 import logging
 import os
+import re
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
@@ -68,11 +70,16 @@ from course_generation_workflow import (
     build_course_knowledge_scope_contract,
     build_node_generation_context,
     build_outline_generation_context,
+    build_section_knowledge_material_context,
+    build_section_knowledge_skeleton_evidence_hints,
+    build_section_knowledge_scope_slice,
     merge_course_relation_batches,
+    normalize_course_knowledge_skeleton,
     normalize_course_outline_contract,
     normalize_course_plan_contract,
     normalize_course_relation_batch,
     normalize_section_knowledge_node_package,
+    validate_course_knowledge_skeleton,
     validate_course_outline_constraints,
     validate_course_plan_constraints,
     validate_course_relation_batch,
@@ -107,6 +114,26 @@ from material_storage import MaterialRepository, material_repository
 from models import NodeGenerationConfig
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_COURSE_PLANNING_CONCURRENCY = 4
+MAX_COURSE_PLANNING_CONCURRENCY = 8
+
+
+def _resolve_course_planning_concurrency(value: int | None = None) -> int:
+    raw_value: Any = (
+        value
+        if value is not None
+        else os.getenv(
+            "COURSE_GENERATION_PLANNING_CONCURRENCY",
+            str(DEFAULT_COURSE_PLANNING_CONCURRENCY),
+        )
+    )
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        parsed = DEFAULT_COURSE_PLANNING_CONCURRENCY
+    return max(1, min(MAX_COURSE_PLANNING_CONCURRENCY, parsed))
+
 
 EVIDENCE_INDEX_FIELDS = (
     "evidence_id",
@@ -154,13 +181,19 @@ class CourseService(AIBase):
         context_manager: CourseContextManager | None = None,
         prompt_composer: CoursePromptComposer | None = None,
         materials: MaterialRepository | None = None,
+        planning_concurrency: int | None = None,
     ) -> None:
         super().__init__()
         self._context_manager = context_manager or get_context_manager()
         self._prompt_composer = prompt_composer or get_course_prompt_composer()
         self._material_repository = materials or material_repository
         self._course_generation_artifacts: dict[str, dict] = {}
-
+        self._planning_concurrency = _resolve_course_planning_concurrency(
+            planning_concurrency
+        )
+        self._planning_semaphore = asyncio.Semaphore(
+            self._planning_concurrency
+        )
 
     # ------------------------------------------------------------------
     # 解析辅助方法
@@ -326,6 +359,7 @@ class CourseService(AIBase):
             "course_generation_v4",
             "course_generation_v5",
             "course_generation_v6",
+            "course_generation_v7",
         }
         if checkpoint_ready:
             artifacts = {
@@ -641,10 +675,22 @@ class CourseService(AIBase):
             self.register_course_generation_metadata(course_id, course_data)
             return course_data
 
-        knowledge_scope_contract = (
+        current_scope_contract = build_course_knowledge_scope_contract(
+            plan
+        )
+        persisted_scope_contract = (
             deepcopy(course_data.get("course_knowledge_scope_contract"))
-            if isinstance(course_data.get("course_knowledge_scope_contract"), dict)
-            else build_course_knowledge_scope_contract(plan)
+            if isinstance(
+                course_data.get("course_knowledge_scope_contract"),
+                dict,
+            )
+            else {}
+        )
+        knowledge_scope_contract = (
+            persisted_scope_contract
+            if persisted_scope_contract.get("revision_id")
+            == current_scope_contract.get("revision_id")
+            else current_scope_contract
         )
         course_data["course_knowledge_scope_contract"] = knowledge_scope_contract
         course_data.setdefault("generation_stage_artifacts", {})["knowledge_scope"] = {
@@ -849,6 +895,359 @@ class CourseService(AIBase):
         )
         return working
 
+    async def _prepare_course_knowledge_skeleton(
+        self,
+        *,
+        course_data: dict[str, Any],
+        plan: dict[str, Any],
+        artifacts: dict[str, Any] | None,
+        on_phase: Callable[..., Awaitable[None] | None] | None,
+        on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+    ) -> dict[str, Any]:
+        """Freeze whole-course knowledge identity before parallel detail calls."""
+        sections = [
+            section
+            for chapter in plan.get("chapters") or []
+            if isinstance(chapter, dict)
+            for section in chapter.get("sections") or []
+            if isinstance(section, dict)
+        ]
+        current_scope_contract = build_course_knowledge_scope_contract(
+            plan
+        )
+        persisted_scope_contract = (
+            course_data.get("course_knowledge_scope_contract")
+            if isinstance(
+                course_data.get("course_knowledge_scope_contract"),
+                dict,
+            )
+            else {}
+        )
+        course_scope_contract = (
+            persisted_scope_contract
+            if persisted_scope_contract.get("revision_id")
+            == current_scope_contract.get("revision_id")
+            else current_scope_contract
+        )
+        course_data["course_knowledge_scope_contract"] = (
+            course_scope_contract
+        )
+        scope_revision_id = str(
+            course_scope_contract.get("revision_id") or ""
+        )
+        stage_artifacts = course_data.setdefault(
+            "generation_stage_artifacts", {}
+        )
+        skeleton_stage = stage_artifacts.setdefault(
+            "course_knowledge_skeleton", {}
+        )
+        persisted_skeleton_payload = (
+            course_data.get("course_knowledge_skeleton")
+            if isinstance(
+                course_data.get("course_knowledge_skeleton"),
+                dict,
+            )
+            else {}
+        )
+        persisted_skeleton_scope = str(
+            persisted_skeleton_payload.get(
+                "source_scope_revision_id"
+            )
+            or ""
+        )
+        scope_was_invalidated = bool(
+            persisted_skeleton_payload.get("sections")
+            and persisted_skeleton_scope != scope_revision_id
+        )
+        if scope_was_invalidated:
+            for section in sections:
+                section["knowledge_structure"] = []
+                section["reused_knowledge_names"] = []
+                section["knowledge_relations"] = []
+                section.pop("knowledge_package_status", None)
+                section.pop("knowledge_quality_report", None)
+            course_data.pop("course_knowledge_base", None)
+            course_data.pop("course_knowledge_map", None)
+            course_data.pop("course_knowledge_quality_report", None)
+            course_data.update({
+                "course_plan": deepcopy(plan),
+                "knowledge_relations": [],
+                "knowledge_relation_decisions": [],
+                "nodes": self._merge_generation_nodes(
+                    self._convert_plan_to_nodes(
+                        plan,
+                        str(course_data.get("course_id") or ""),
+                    ),
+                    course_data.get("nodes") or [],
+                ),
+            })
+            if artifacts:
+                course_data["course_blueprint"] = (
+                    build_course_blueprint_from_plan(
+                        plan,
+                        artifacts,
+                    )
+                )
+            skeleton_stage.clear()
+            skeleton_stage.update({
+                "status": "invalidated",
+                "reason": "scope_revision_changed",
+                "previous_scope_revision_id": (
+                    persisted_skeleton_scope
+                ),
+                "source_scope_revision_id": scope_revision_id,
+            })
+            await self._notify_checkpoint(
+                on_checkpoint,
+                course_data,
+            )
+        locked_names: dict[str, list[str]] = {}
+        locked_identity_keys: set[str] = set()
+        available_names: list[str] = []
+        for section in sections:
+            section_id = str(section.get("node_id") or "")
+            package = normalize_section_knowledge_node_package({
+                "knowledge_structure": section.get(
+                    "knowledge_structure"
+                )
+                or [],
+                "reused_knowledge_names": section.get(
+                    "reused_knowledge_names"
+                )
+                or [],
+            })
+            report = validate_section_knowledge_package(
+                package,
+                section_title=str(section.get("title") or section_id),
+                available_knowledge_names=available_names,
+                validate_relations=False,
+            )
+            if not report.get("passed"):
+                continue
+            names = [
+                str(point.get("name") or "").strip()
+                for group in package.get("knowledge_structure") or []
+                if isinstance(group, dict)
+                for point in group.get("knowledge_points") or []
+                if isinstance(point, dict)
+                and str(point.get("name") or "").strip()
+            ]
+            unique_owned_names = []
+            for name in names:
+                identity_key = re.sub(
+                    r"[^0-9a-z\u4e00-\u9fff]+",
+                    "",
+                    re.sub(
+                        r"^\d+(?:\.\d+)*\s*",
+                        "",
+                        name,
+                    ).lower(),
+                )
+                if (
+                    identity_key
+                    and identity_key not in locked_identity_keys
+                ):
+                    locked_identity_keys.add(identity_key)
+                    unique_owned_names.append(name)
+            if unique_owned_names:
+                locked_names[section_id] = unique_owned_names
+                available_names.extend(names)
+
+        existing_skeleton = normalize_course_knowledge_skeleton(
+            persisted_skeleton_payload
+        )
+        report = validate_course_knowledge_skeleton(
+            existing_skeleton,
+            sections=sections,
+            locked_knowledge_names_by_section=locked_names,
+            expected_scope_revision_id=scope_revision_id,
+        )
+        if report.get("passed"):
+            course_data["course_knowledge_skeleton"] = existing_skeleton
+            skeleton_stage.update({
+                "status": "completed",
+                "schema_version": existing_skeleton.get(
+                    "schema_version"
+                ),
+                "revision_id": existing_skeleton.get("revision_id"),
+                "quality_report": deepcopy(report),
+                "source_scope_revision_id": scope_revision_id,
+                "resumed": True,
+            })
+            return existing_skeleton
+
+        compact_sections = []
+        for section in sections:
+            compact_section = {
+                key: deepcopy(section.get(key))
+                for key in (
+                    "node_id",
+                    "section_number",
+                    "title",
+                    "learning_objective",
+                    "scope_boundary",
+                    "prerequisite_node_ids",
+                )
+            }
+            compact_section["evidence_hints"] = (
+                build_section_knowledge_skeleton_evidence_hints(
+                    artifacts or course_data,
+                    section,
+                )
+            )
+            compact_sections.append(compact_section)
+        prompt = (
+            self._prompt_composer
+            .build_course_knowledge_skeleton_prompt(
+                course_title=str(
+                    plan.get("course_title")
+                    or course_data.get("course_name")
+                    or ""
+                ),
+                positioning=str(plan.get("positioning") or ""),
+                sections=compact_sections,
+                locked_knowledge_names_by_section=locked_names,
+            )
+        )
+        await self._notify_phase(
+            on_phase,
+            "course_knowledge_skeleton",
+            35,
+            "正在一次性规划全课知识身份与复用边界",
+            phase_progress=0,
+            phase_detail={
+                "artifact_type": "course_knowledge_skeleton",
+                "item_total": len(sections),
+                "locked_section_count": len(locked_names),
+                "strategy": "global_identity_then_parallel_details",
+            },
+        )
+        started_at = time.monotonic()
+        async with self._planning_semaphore:
+            response = await self._call_llm_with_heartbeat(
+                "规划全课知识身份骨架，只输出 JSON。",
+                prompt,
+                enable_thinking=True,
+                on_phase=on_phase,
+                phase="course_knowledge_skeleton",
+                base_progress=35,
+                heartbeat_message="仍在等待 AI 规划全课知识身份骨架",
+                phase_detail={
+                    "artifact_type": "course_knowledge_skeleton",
+                    "item_total": len(sections),
+                },
+            )
+        parsed = self._extract_json(response) if response else None
+        skeleton_payload = (
+            parsed if isinstance(parsed, dict) else {}
+        )
+        skeleton_payload["source_scope_revision_id"] = (
+            scope_revision_id
+        )
+        skeleton = normalize_course_knowledge_skeleton(skeleton_payload)
+        report = validate_course_knowledge_skeleton(
+            skeleton,
+            sections=sections,
+            locked_knowledge_names_by_section=locked_names,
+            expected_scope_revision_id=scope_revision_id,
+        )
+        if not report.get("passed"):
+            correction_prompt = (
+                self._prompt_composer
+                .build_course_knowledge_skeleton_correction_prompt(
+                    original_prompt=prompt,
+                    issues=report.get("issues") or [],
+                )
+            )
+            async with self._planning_semaphore:
+                corrected = await self._call_llm_with_heartbeat(
+                    "修复全课知识身份骨架，只输出 JSON。",
+                    correction_prompt,
+                    enable_thinking=False,
+                    on_phase=on_phase,
+                    phase="course_knowledge_skeleton_validation",
+                    base_progress=35,
+                    heartbeat_message="仍在等待 AI 修复全课知识身份骨架",
+                    phase_detail={
+                        "artifact_type": "course_knowledge_skeleton",
+                        "item_total": len(sections),
+                    },
+                )
+            parsed = self._extract_json(corrected) if corrected else None
+            skeleton_payload = (
+                parsed if isinstance(parsed, dict) else {}
+            )
+            skeleton_payload["source_scope_revision_id"] = (
+                scope_revision_id
+            )
+            skeleton = normalize_course_knowledge_skeleton(
+                skeleton_payload
+            )
+            report = validate_course_knowledge_skeleton(
+                skeleton,
+                sections=sections,
+                locked_knowledge_names_by_section=locked_names,
+                expected_scope_revision_id=scope_revision_id,
+            )
+
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        if not report.get("passed"):
+            skeleton_stage.update({
+                "status": "failed",
+                "schema_version": "course_knowledge_skeleton_v1",
+                "quality_report": deepcopy(report),
+                "prompt_chars": len(prompt),
+                "duration_ms": duration_ms,
+            })
+            course_data["generation_status"] = (
+                "course_knowledge_skeleton_failed"
+            )
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            messages = "；".join(
+                str(item.get("message") or "未知知识身份错误")
+                for item in report.get("issues") or []
+            )
+            raise AIProviderRequestError(
+                "全课知识身份骨架未通过验收："
+                f"{messages or '无法解析骨架 JSON'}"
+            )
+
+        course_data["course_knowledge_skeleton"] = skeleton
+        skeleton_stage.update({
+            "status": "completed",
+            "schema_version": skeleton.get("schema_version"),
+            "revision_id": skeleton.get("revision_id"),
+            "source_scope_revision_id": scope_revision_id,
+            "quality_report": deepcopy(report),
+            "prompt_chars": len(prompt),
+            "duration_ms": duration_ms,
+            "locked_section_count": len(locked_names),
+            "owned_knowledge_count": (
+                report.get("actual") or {}
+            ).get("owned_knowledge_count", 0),
+            "reused_knowledge_count": (
+                report.get("actual") or {}
+            ).get("reused_knowledge_count", 0),
+            "strategy": "global_identity_then_parallel_details",
+        })
+        course_data["generation_status"] = (
+            "course_knowledge_skeleton_compiled"
+        )
+        await self._notify_checkpoint(on_checkpoint, course_data)
+        await self._notify_phase(
+            on_phase,
+            "course_knowledge_skeleton",
+            35,
+            "全课知识身份与复用边界已冻结",
+            phase_progress=100,
+            phase_detail={
+                "artifact_type": "course_knowledge_skeleton",
+                "item_total": len(sections),
+                "revision_id": skeleton.get("revision_id"),
+            },
+        )
+        return skeleton
+
     async def _enrich_section_knowledge_packages(
         self,
         *,
@@ -858,26 +1257,53 @@ class CourseService(AIBase):
         on_phase: Callable[..., Awaitable[None] | None] | None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
     ) -> dict[str, Any]:
-        """Generate and checkpoint the smallest retryable knowledge unit."""
+        """Generate independent section packages with bounded concurrency."""
         sections = [
             section
             for chapter in plan.get("chapters") or []
+            if isinstance(chapter, dict)
             for section in chapter.get("sections") or []
             if isinstance(section, dict)
         ]
         total = len(sections)
-        available_names: list[str] = []
+        skeleton = await self._prepare_course_knowledge_skeleton(
+            course_data=course_data,
+            plan=plan,
+            artifacts=artifacts,
+            on_phase=on_phase,
+            on_checkpoint=on_checkpoint,
+        )
+        skeleton_by_section = {
+            str(item.get("node_id") or ""): item
+            for item in skeleton.get("sections") or []
+            if isinstance(item, dict)
+        }
         stage_artifacts = course_data.setdefault("generation_stage_artifacts", {})
         package_states = stage_artifacts.setdefault("section_knowledge", {})
-        material_context = build_outline_generation_context(artifacts)[-7000:]
+        strategy_state = stage_artifacts.setdefault(
+            "section_knowledge_strategy", {}
+        )
         course_scope_contract = (
             course_data.get("course_knowledge_scope_contract")
             or build_course_knowledge_scope_contract(plan)
         )
+        state_lock = asyncio.Lock()
+        jobs: list[dict[str, Any]] = []
+        available_names: list[str] = []
+        resumed_count = 0
+        prompt_chars = 0
+        started_at = time.monotonic()
 
         for index, section in enumerate(sections, start=1):
             node_id = str(section.get("node_id") or f"section-{index}")
             section_title = str(section.get("title") or node_id)
+            identity = skeleton_by_section.get(node_id) or {}
+            required_names = list(
+                identity.get("owned_knowledge_names") or []
+            )
+            required_reused_names = list(
+                identity.get("reused_knowledge_names") or []
+            )
             existing_package = normalize_section_knowledge_node_package({
                 "knowledge_structure": section.get("knowledge_structure") or [],
                 "reused_knowledge_names": section.get("reused_knowledge_names") or [],
@@ -886,29 +1312,39 @@ class CourseService(AIBase):
                 existing_package,
                 section_title=section_title,
                 available_knowledge_names=available_names,
+                required_knowledge_names=required_names,
+                required_reused_knowledge_names=required_reused_names,
                 validate_relations=False,
             )
-            package = existing_package if package_report.get("passed") else None
-
-            if package is None:
-                await self._notify_phase(
-                    on_phase,
-                    "section_knowledge_generation",
-                    35 + int((index - 1) / max(1, total) * 13),
-                    f"正在生成第 {index}/{total} 个小节知识包：{section_title}",
-                    phase_progress=int((index - 1) / max(1, total) * 100),
-                    phase_detail={
-                        "artifact_type": "section_knowledge_package",
-                        "item_id": node_id,
-                        "item_name": section_title,
-                        "item_index": index,
-                        "item_total": total,
-                        "completed_items": index - 1,
-                        "total_items": total,
-                    },
+            if package_report.get("passed"):
+                resumed_count += 1
+                apply_section_knowledge_package(
+                    plan, node_id, existing_package
+                )
+                section["knowledge_quality_report"] = deepcopy(
+                    package_report
+                )
+                package_states[node_id] = {
+                    "status": "completed",
+                    "schema_version": existing_package.get(
+                        "schema_version"
+                    ),
+                    "item_index": index,
+                    "item_total": total,
+                    "quality_report": deepcopy(package_report),
+                    "resumed": True,
+                }
+            else:
+                scope_slice = build_section_knowledge_scope_slice(
+                    course_scope_contract,
+                    node_id,
                 )
                 prompt = self._prompt_composer.build_section_knowledge_prompt(
-                    course_title=str(plan.get("course_title") or course_data.get("course_name") or ""),
+                    course_title=str(
+                        plan.get("course_title")
+                        or course_data.get("course_name")
+                        or ""
+                    ),
                     positioning=str(plan.get("positioning") or ""),
                     section={
                         key: deepcopy(section.get(key))
@@ -923,152 +1359,389 @@ class CourseService(AIBase):
                         )
                     },
                     available_knowledge_names=available_names,
-                    material_context=material_context,
-                    course_scope_contract=course_scope_contract,
+                    material_context=(
+                        build_section_knowledge_material_context(
+                            artifacts,
+                            section,
+                        )
+                    ),
+                    course_scope_contract=scope_slice,
+                    knowledge_identity_contract=identity,
                 )
-                response = await self._call_llm_with_heartbeat(
-                    f"为小节「{section_title}」生成独立知识包，只输出 JSON。",
-                    prompt,
-                    enable_thinking=True,
-                    on_phase=on_phase,
-                    phase="section_knowledge_generation",
-                    base_progress=35 + int((index - 1) / max(1, total) * 13),
-                    heartbeat_message=f"仍在等待 AI 生成小节「{section_title}」的知识包",
+                prompt_chars += len(prompt)
+                jobs.append({
+                    "index": index,
+                    "section": section,
+                    "node_id": node_id,
+                    "section_title": section_title,
+                    "available_names": list(available_names),
+                    "required_names": required_names,
+                    "required_reused_names": required_reused_names,
+                    "prompt": prompt,
+                })
+            available_names.extend(required_names)
+
+        progress_state = {"completed": resumed_count}
+        strategy_state.update({
+            "status": "generating",
+            "strategy": "bounded_parallel_by_section",
+            "max_concurrency": self._planning_concurrency,
+            "total_item_count": total,
+            "resumed_item_count": resumed_count,
+            "generated_item_count": 0,
+            "prompt_chars": prompt_chars,
+            "scheduling": "bounded_fair_waves",
+            "critical_path_rounds": (
+                (len(jobs) + self._planning_concurrency - 1)
+                // self._planning_concurrency
+            ),
+        })
+
+        async def generate_job(job: dict[str, Any]) -> str:
+            index = int(job["index"])
+            node_id = str(job["node_id"])
+            section_title = str(job["section_title"])
+            prompt = str(job["prompt"])
+            detail = {
+                "artifact_type": "section_knowledge_package",
+                "item_id": node_id,
+                "item_name": section_title,
+                "item_index": index,
+                "item_total": total,
+                "max_concurrency": self._planning_concurrency,
+            }
+            report: dict[str, Any] = {}
+            try:
+                await self._notify_phase(
+                    on_phase,
+                    "section_knowledge_generation",
+                    35 + int(
+                        progress_state["completed"]
+                        / max(1, total)
+                        * 13
+                    ),
+                    (
+                        f"正在并行生成第 {index}/{total} 个小节知识包："
+                        f"{section_title}"
+                    ),
+                    phase_progress=int(
+                        progress_state["completed"]
+                        / max(1, total)
+                        * 100
+                    ),
                     phase_detail={
-                        "artifact_type": "section_knowledge_package",
-                        "item_id": node_id,
-                        "item_name": section_title,
-                        "item_index": index,
-                        "item_total": total,
-                        "completed_items": index - 1,
+                        **detail,
+                        "completed_items": progress_state["completed"],
                         "total_items": total,
                     },
                 )
-                package, package_report = self._validated_section_knowledge(
+                async with self._planning_semaphore:
+                    response = await self._call_llm_with_heartbeat(
+                        f"为小节「{section_title}」生成独立知识包，只输出 JSON。",
+                        prompt,
+                        enable_thinking=True,
+                        on_phase=on_phase,
+                        phase="section_knowledge_generation",
+                        base_progress=35 + int(
+                            (index - 1) / max(1, total) * 13
+                        ),
+                        heartbeat_message=(
+                            f"仍在等待 AI 生成小节「{section_title}」的知识包"
+                        ),
+                        phase_detail=detail,
+                    )
+                package, report = self._validated_section_knowledge(
                     response,
                     section_title=section_title,
-                    available_knowledge_names=available_names,
+                    available_knowledge_names=job["available_names"],
+                    required_knowledge_names=job["required_names"],
+                    required_reused_knowledge_names=job[
+                        "required_reused_names"
+                    ],
                 )
-                if not package_report.get("passed"):
+                if not report.get("passed"):
                     await self._notify_phase(
                         on_phase,
                         "section_knowledge_validation",
-                        35 + int((index - 1) / max(1, total) * 13),
-                        f"小节「{section_title}」知识包未通过检查，正在只修复当前小节",
-                        phase_progress=int((index - 1) / max(1, total) * 100),
+                        35 + int(
+                            progress_state["completed"]
+                            / max(1, total)
+                            * 13
+                        ),
+                        (
+                            f"小节「{section_title}」知识包未通过检查，"
+                            "正在只修复当前小节"
+                        ),
+                        phase_progress=int(
+                            progress_state["completed"]
+                            / max(1, total)
+                            * 100
+                        ),
                         phase_detail={
-                            "artifact_type": "section_knowledge_package",
-                            "item_id": node_id,
-                            "item_name": section_title,
-                            "item_index": index,
-                            "item_total": total,
-                            "completed_items": index - 1,
-                            "total_items": total,
+                            **detail,
                             "issue_codes": [
                                 item.get("code")
-                                for item in package_report.get("issues") or []
+                                for item in report.get("issues") or []
                             ],
                         },
                     )
-                    correction_prompt = self._prompt_composer.build_section_knowledge_correction_prompt(
-                        original_prompt=prompt,
-                        issues=package_report.get("issues") or [],
+                    correction_prompt = (
+                        self._prompt_composer
+                        .build_section_knowledge_correction_prompt(
+                            original_prompt=prompt,
+                            issues=report.get("issues") or [],
+                        )
                     )
-                    correction_user_prompt = (
-                        f"修复小节「{section_title}」知识包，只输出当前小节 JSON。"
-                    )
-                    correction_heartbeat = (
-                        f"仍在等待 AI 修复小节「{section_title}」的知识包"
-                    )
-                    corrected = await self._call_llm_with_heartbeat(
-                        correction_user_prompt,
-                        correction_prompt,
-                        enable_thinking=False,
-                        on_phase=on_phase,
-                        phase="section_knowledge_validation",
-                        base_progress=35 + int((index - 1) / max(1, total) * 13),
-                        heartbeat_message=correction_heartbeat,
-                        phase_detail={
-                            "artifact_type": "section_knowledge_package",
-                            "item_id": node_id,
-                            "item_name": section_title,
-                            "item_index": index,
-                            "item_total": total,
-                            "completed_items": index - 1,
-                            "total_items": total,
-                        },
-                    )
-                    package, package_report = self._validated_section_knowledge(
+                    async with self._planning_semaphore:
+                        corrected = await self._call_llm_with_heartbeat(
+                            (
+                                f"修复小节「{section_title}」知识包，"
+                                "只输出当前小节 JSON。"
+                            ),
+                            correction_prompt,
+                            enable_thinking=False,
+                            on_phase=on_phase,
+                            phase="section_knowledge_validation",
+                            base_progress=35 + int(
+                                (index - 1) / max(1, total) * 13
+                            ),
+                            heartbeat_message=(
+                                f"仍在等待 AI 修复小节「{section_title}」的知识包"
+                            ),
+                            phase_detail=detail,
+                        )
+                    package, report = self._validated_section_knowledge(
                         corrected,
                         section_title=section_title,
-                        available_knowledge_names=available_names,
+                        available_knowledge_names=job[
+                            "available_names"
+                        ],
+                        required_knowledge_names=job["required_names"],
+                        required_reused_knowledge_names=job[
+                            "required_reused_names"
+                        ],
                     )
-            if package is None or not package_report.get("passed"):
-                messages = "；".join(
-                    str(item.get("message") or "未知知识包错误")
-                    for item in package_report.get("issues") or []
-                )
-                package_states[node_id] = {
-                    "status": "failed",
-                    "item_index": index,
-                    "item_total": total,
-                    "issues": deepcopy(package_report.get("issues") or []),
-                }
-                course_data["generation_status"] = "section_knowledge_failed"
-                await self._notify_checkpoint(on_checkpoint, course_data)
-                raise AIProviderRequestError(
-                    f"小节「{section_title}」知识包未通过验收：{messages or '无法解析当前小节 JSON'}"
-                )
+                if package is None or not report.get("passed"):
+                    messages = "；".join(
+                        str(item.get("message") or "未知知识包错误")
+                        for item in report.get("issues") or []
+                    )
+                    raise AIProviderRequestError(
+                        f"小节「{section_title}」知识包未通过验收："
+                        f"{messages or '无法解析当前小节 JSON'}"
+                    )
 
-            apply_section_knowledge_package(plan, node_id, package)
-            section["knowledge_package_status"] = "completed"
-            section["knowledge_quality_report"] = deepcopy(package_report)
-            available_names = list(dict.fromkeys([
-                *available_names,
-                *[
-                    str(point.get("name") or "").strip()
-                    for group in package.get("knowledge_structure") or []
-                    if isinstance(group, dict)
-                    for point in group.get("knowledge_points") or []
-                    if isinstance(point, dict) and str(point.get("name") or "").strip()
-                ],
-            ]))
-            plan["knowledge_relations"] = []
-            plan["knowledge_relation_decisions"] = []
-            package_states[node_id] = {
-                "status": "completed",
-                "schema_version": package.get("schema_version"),
-                "item_index": index,
-                "item_total": total,
-                "quality_report": deepcopy(package_report),
-            }
-            course_data.update({
-                "course_plan": deepcopy(plan),
-                "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
-                "nodes": self._merge_generation_nodes(
-                    self._convert_plan_to_nodes(plan, str(course_data.get("course_id") or "")),
-                    course_data.get("nodes") or [],
+                async with state_lock:
+                    apply_section_knowledge_package(
+                        plan, node_id, package
+                    )
+                    job["section"]["knowledge_quality_report"] = (
+                        deepcopy(report)
+                    )
+                    plan["knowledge_relations"] = []
+                    plan["knowledge_relation_decisions"] = []
+                    package_states[node_id] = {
+                        "status": "completed",
+                        "schema_version": package.get(
+                            "schema_version"
+                        ),
+                        "item_index": index,
+                        "item_total": total,
+                        "quality_report": deepcopy(report),
+                    }
+                    progress_state["completed"] += 1
+                    strategy_state["generated_item_count"] = (
+                        int(
+                            strategy_state.get(
+                                "generated_item_count", 0
+                            )
+                        )
+                        + 1
+                    )
+                    course_data.update({
+                        "course_plan": deepcopy(plan),
+                        "knowledge_relations": [],
+                        "nodes": self._merge_generation_nodes(
+                            self._convert_plan_to_nodes(
+                                plan,
+                                str(
+                                    course_data.get("course_id") or ""
+                                ),
+                            ),
+                            course_data.get("nodes") or [],
+                        ),
+                        "course_blueprint": (
+                            build_course_blueprint_from_plan(
+                                plan, artifacts
+                            )
+                        ),
+                        "generation_status": (
+                            "section_knowledge_generation"
+                        ),
+                    })
+                    await self._notify_checkpoint(
+                        on_checkpoint, course_data
+                    )
+                    completed_now = progress_state["completed"]
+                await self._notify_phase(
+                    on_phase,
+                    "section_knowledge_generation",
+                    35 + int(completed_now / max(1, total) * 13),
+                    (
+                        f"已完成 {completed_now}/{total} 个小节知识包："
+                        f"{section_title}"
+                    ),
+                    phase_progress=int(
+                        completed_now / max(1, total) * 100
+                    ),
+                    phase_detail={
+                        **detail,
+                        "completed_items": completed_now,
+                        "total_items": total,
+                    },
+                )
+                return node_id
+            except Exception as exc:
+                async with state_lock:
+                    if (
+                        package_states.get(node_id) or {}
+                    ).get("status") != "completed":
+                        package_states[node_id] = {
+                            "status": "failed",
+                            "item_index": index,
+                            "item_total": total,
+                            "issues": deepcopy(
+                                report.get("issues") or []
+                            ),
+                            "error": str(exc),
+                        }
+                    strategy_state["status"] = "failed"
+                    course_data["generation_status"] = (
+                        "section_knowledge_failed"
+                    )
+                    await self._notify_checkpoint(
+                        on_checkpoint, course_data
+                    )
+                raise
+
+        results: list[str | BaseException] = []
+        for offset in range(
+            0,
+            len(jobs),
+            self._planning_concurrency,
+        ):
+            wave_results = await asyncio.gather(
+                *(
+                    generate_job(job)
+                    for job in jobs[
+                        offset:offset
+                        + self._planning_concurrency
+                    ]
                 ),
-                "course_blueprint": build_course_blueprint_from_plan(plan, artifacts),
-                "generation_status": "section_knowledge_generation",
-            })
-            await self._notify_checkpoint(on_checkpoint, course_data)
-            await self._notify_phase(
-                on_phase,
-                "section_knowledge_generation",
-                35 + int(index / max(1, total) * 13),
-                f"已完成第 {index}/{total} 个小节知识包：{section_title}",
-                phase_progress=int(index / max(1, total) * 100),
-                phase_detail={
-                    "artifact_type": "section_knowledge_package",
-                    "item_id": node_id,
-                    "item_name": section_title,
-                    "item_index": index,
-                    "item_total": total,
-                    "completed_items": index,
-                    "total_items": total,
-                },
+                return_exceptions=True,
             )
+            results.extend(wave_results)
+            if any(
+                isinstance(result, Exception)
+                for result in wave_results
+            ):
+                break
+        failures = [
+            result
+            for result in results
+            if isinstance(result, Exception)
+        ]
+        if failures:
+            async with state_lock:
+                strategy_state.update({
+                    "status": "failed",
+                    "duration_ms": int(
+                        (time.monotonic() - started_at) * 1000
+                    ),
+                    "failed_item_count": sum(
+                        1
+                        for state in package_states.values()
+                        if isinstance(state, dict)
+                        and state.get("status") == "failed"
+                    ),
+                })
+                course_data["generation_status"] = (
+                    "section_knowledge_failed"
+                )
+                await self._notify_checkpoint(
+                    on_checkpoint,
+                    course_data,
+                )
+            first = failures[0]
+            if isinstance(first, AIProviderRequestError):
+                raise first
+            raise AIProviderRequestError(
+                f"小节知识包生成失败：{first}"
+            ) from first
+
+        final_available_names: list[str] = []
+        for index, section in enumerate(sections, start=1):
+            node_id = str(section.get("node_id") or f"section-{index}")
+            identity = skeleton_by_section.get(node_id) or {}
+            package = normalize_section_knowledge_node_package({
+                "knowledge_structure": section.get(
+                    "knowledge_structure"
+                )
+                or [],
+                "reused_knowledge_names": section.get(
+                    "reused_knowledge_names"
+                )
+                or [],
+            })
+            final_report = validate_section_knowledge_package(
+                package,
+                section_title=str(section.get("title") or node_id),
+                available_knowledge_names=final_available_names,
+                required_knowledge_names=list(
+                    identity.get("owned_knowledge_names") or []
+                ),
+                required_reused_knowledge_names=list(
+                    identity.get("reused_knowledge_names") or []
+                ),
+                validate_relations=False,
+            )
+            if not final_report.get("passed"):
+                raise AIProviderRequestError(
+                    f"小节「{section.get('title') or node_id}」"
+                    "在确定性合并后未通过知识身份验收"
+                )
+            final_available_names.extend(
+                identity.get("owned_knowledge_names") or []
+            )
+
+        strategy_state.update({
+            "status": "completed",
+            "completed_item_count": total,
+            "failed_item_count": 0,
+            "duration_ms": int(
+                (time.monotonic() - started_at) * 1000
+            ),
+            "merge_order": [
+                str(section.get("node_id") or "")
+                for section in sections
+            ],
+        })
+        course_data.update({
+            "course_plan": deepcopy(plan),
+            "knowledge_relations": [],
+            "nodes": self._merge_generation_nodes(
+                self._convert_plan_to_nodes(
+                    plan,
+                    str(course_data.get("course_id") or ""),
+                ),
+                course_data.get("nodes") or [],
+            ),
+            "course_blueprint": build_course_blueprint_from_plan(
+                plan, artifacts
+            ),
+            "generation_status": "section_knowledge_compiled",
+        })
+        await self._notify_checkpoint(on_checkpoint, course_data)
         return plan
 
     async def _enrich_course_knowledge_relations(
@@ -1079,7 +1752,7 @@ class CourseService(AIBase):
         on_phase: Callable[..., Awaitable[None] | None] | None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
     ) -> dict[str, Any]:
-        """Build one whole-course graph after every knowledge node is frozen."""
+        """Build validated relation neighborhoods with bounded concurrency."""
         course_id = str(course_data.get("course_id") or "")
         course_data.pop("course_knowledge_base", None)
         course_data.pop("course_knowledge_map", None)
@@ -1117,6 +1790,7 @@ class CourseService(AIBase):
             for section in chapter.get("sections") or []
             if isinstance(section, dict)
         ]
+        total = len(sections)
         section_by_id = {
             str(section.get("node_id") or ""): section
             for section in sections
@@ -1139,12 +1813,16 @@ class CourseService(AIBase):
                 section_refs[0], []
             ).append(point)
             for section_id in section_refs:
-                points_by_section.setdefault(section_id, []).append(point)
+                points_by_section.setdefault(
+                    section_id, []
+                ).append(point)
 
         stage_artifacts = course_data.setdefault(
             "generation_stage_artifacts", {}
         )
-        relation_stage = stage_artifacts.setdefault("course_relations", {})
+        relation_stage = stage_artifacts.setdefault(
+            "course_relations", {}
+        )
         registry_revision_id = str(registry.get("revision_id") or "")
         if (
             relation_stage.get("knowledge_registry_revision_id")
@@ -1154,32 +1832,41 @@ class CourseService(AIBase):
             relation_stage.update({
                 "status": "generating",
                 "schema_version": "course_relation_plan_v1",
-                "knowledge_registry_revision_id": registry_revision_id,
+                "knowledge_registry_revision_id": (
+                    registry_revision_id
+                ),
                 "batches": {},
             })
         batch_states = relation_stage.setdefault("batches", {})
-        completed_payloads: list[dict[str, Any]] = []
-        previous_section_id = ""
-        chapter_prior_section_ids: list[str] = []
-        current_chapter_marker = object()
-        active_chapter: Any = current_chapter_marker
-        section_chapter: dict[str, Any] = {
+        section_chapter = {
             str(section.get("node_id") or ""): chapter
             for chapter in plan.get("chapters") or []
             if isinstance(chapter, dict)
             for section in chapter.get("sections") or []
             if isinstance(section, dict)
         }
-        total = len(sections)
+        active_chapter: Any = object()
+        previous_section_id = ""
+        chapter_prior_section_ids: list[str] = []
+        specs: list[dict[str, Any]] = []
+        resumed_count = 0
+        prompt_chars = 0
+        started_at = time.monotonic()
 
         for index, section in enumerate(sections, start=1):
-            section_id = str(section.get("node_id") or f"section-{index}")
-            section_title = str(section.get("title") or section_id)
+            section_id = str(
+                section.get("node_id") or f"section-{index}"
+            )
+            section_title = str(
+                section.get("title") or section_id
+            )
             chapter = section_chapter.get(section_id)
             if chapter is not active_chapter:
                 active_chapter = chapter
                 chapter_prior_section_ids = []
-            target_points = primary_points_by_section.get(section_id, [])
+            target_points = primary_points_by_section.get(
+                section_id, []
+            )
             target_ids = [
                 str(point.get("knowledge_id") or "")
                 for point in target_points
@@ -1188,13 +1875,17 @@ class CourseService(AIBase):
                 batch_states[section_id] = {
                     "status": "completed",
                     "schema_version": "course_relation_batch_v1",
-                    "knowledge_registry_revision_id": registry_revision_id,
+                    "knowledge_registry_revision_id": (
+                        registry_revision_id
+                    ),
                     "target_knowledge_ids": [],
+                    "allowed_knowledge_ids": [],
                     "payload": {
                         "node_decisions": [],
                         "relations": [],
                     },
                 }
+                resumed_count += 1
                 previous_section_id = section_id
                 chapter_prior_section_ids.append(section_id)
                 continue
@@ -1203,121 +1894,222 @@ class CourseService(AIBase):
                 section_id,
                 *[
                     str(item)
-                    for item in section.get("prerequisite_node_ids") or []
+                    for item in section.get(
+                        "prerequisite_node_ids"
+                    )
+                    or []
                     if str(item)
                 ],
                 *chapter_prior_section_ids,
-                *([previous_section_id] if previous_section_id else []),
+                *(
+                    [previous_section_id]
+                    if previous_section_id
+                    else []
+                ),
             ]))
             context_points_by_id: dict[str, dict[str, Any]] = {}
             for context_section_id in context_section_ids:
-                for point in points_by_section.get(context_section_id, []):
-                    knowledge_id = str(point.get("knowledge_id") or "")
+                for point in points_by_section.get(
+                    context_section_id, []
+                ):
+                    knowledge_id = str(
+                        point.get("knowledge_id") or ""
+                    )
                     if knowledge_id:
                         context_points_by_id[knowledge_id] = point
             for point in target_points:
-                context_points_by_id[str(point.get("knowledge_id") or "")] = point
+                knowledge_id = str(
+                    point.get("knowledge_id") or ""
+                )
+                if knowledge_id:
+                    context_points_by_id[knowledge_id] = point
             context_points = list(context_points_by_id.values())
             allowed_ids = list(context_points_by_id)
             existing_state = batch_states.get(section_id) or {}
-            payload = existing_state.get("payload")
+            existing_payload = existing_state.get("payload")
             report = validate_course_relation_batch(
-                payload if isinstance(payload, dict) else {},
+                (
+                    existing_payload
+                    if isinstance(existing_payload, dict)
+                    else {}
+                ),
                 target_knowledge_ids=target_ids,
                 allowed_knowledge_ids=allowed_ids,
             )
             can_resume = (
                 existing_state.get("status") == "completed"
-                and existing_state.get("knowledge_registry_revision_id")
+                and existing_state.get(
+                    "knowledge_registry_revision_id"
+                )
                 == registry_revision_id
-                and existing_state.get("target_knowledge_ids") == target_ids
+                and existing_state.get(
+                    "target_knowledge_ids"
+                )
+                == target_ids
                 and report.get("passed")
             )
+            prompt = ""
+            if can_resume:
+                resumed_count += 1
+            else:
+                prompt = (
+                    self._prompt_composer
+                    .build_course_relation_batch_prompt(
+                        course_title=str(
+                            plan.get("course_title")
+                            or course_data.get("course_name")
+                            or ""
+                        ),
+                        positioning=str(
+                            plan.get("positioning") or ""
+                        ),
+                        batch_id=f"relation:{section_id}",
+                        section={
+                            "node_id": section_id,
+                            "title": section_title,
+                            "learning_objective": section.get(
+                                "learning_objective"
+                            ),
+                            "scope_boundary": section.get(
+                                "scope_boundary"
+                            ),
+                            "prerequisite_node_ids": (
+                                section.get(
+                                    "prerequisite_node_ids"
+                                )
+                                or []
+                            ),
+                        },
+                        target_points=[
+                            self._relation_prompt_point(
+                                point, section_title_by_id
+                            )
+                            for point in target_points
+                        ],
+                        context_points=[
+                            self._relation_prompt_point(
+                                point, section_title_by_id
+                            )
+                            for point in context_points
+                        ],
+                    )
+                )
+                prompt_chars += len(prompt)
+            specs.append({
+                "index": index,
+                "section_id": section_id,
+                "section_title": section_title,
+                "target_ids": target_ids,
+                "allowed_ids": allowed_ids,
+                "prompt": prompt,
+                "can_resume": can_resume,
+            })
+            previous_section_id = section_id
+            chapter_prior_section_ids.append(section_id)
 
-            if not can_resume:
+        jobs = [
+            spec for spec in specs if not spec["can_resume"]
+        ]
+        progress_state = {"completed": resumed_count}
+        relation_stage.update({
+            "status": "generating",
+            "strategy": "bounded_parallel_by_section",
+            "max_concurrency": self._planning_concurrency,
+            "completed_batch_count": resumed_count,
+            "total_batch_count": total,
+            "resumed_batch_count": resumed_count,
+            "generated_batch_count": 0,
+            "prompt_chars": prompt_chars,
+            "scheduling": "bounded_fair_waves",
+            "critical_path_rounds": (
+                (len(jobs) + self._planning_concurrency - 1)
+                // self._planning_concurrency
+            ),
+        })
+        state_lock = asyncio.Lock()
+
+        def ordered_payloads() -> list[dict[str, Any]]:
+            payloads = []
+            for section in sections:
+                section_id = str(section.get("node_id") or "")
+                state = batch_states.get(section_id) or {}
+                payload = state.get("payload")
+                if (
+                    state.get("status") == "completed"
+                    and isinstance(payload, dict)
+                ):
+                    payloads.append(
+                        normalize_course_relation_batch(payload)
+                    )
+            return payloads
+
+        async def generate_relation_batch(
+            spec: dict[str, Any],
+        ) -> str:
+            index = int(spec["index"])
+            section_id = str(spec["section_id"])
+            section_title = str(spec["section_title"])
+            prompt = str(spec["prompt"])
+            detail = {
+                "artifact_type": "course_relation_batch",
+                "item_id": section_id,
+                "item_name": section_title,
+                "item_index": index,
+                "item_total": total,
+                "max_concurrency": self._planning_concurrency,
+            }
+            report: dict[str, Any] = {}
+            try:
                 await self._notify_phase(
                     on_phase,
                     "course_relation_generation",
-                    48 + int((index - 1) / max(1, total) * 2),
-                    f"正在建立第 {index}/{total} 个知识关系邻域：{section_title}",
-                    phase_progress=int((index - 1) / max(1, total) * 100),
+                    48 + int(
+                        progress_state["completed"]
+                        / max(1, total)
+                        * 2
+                    ),
+                    (
+                        f"正在并行建立第 {index}/{total} 个知识关系邻域："
+                        f"{section_title}"
+                    ),
+                    phase_progress=int(
+                        progress_state["completed"]
+                        / max(1, total)
+                        * 100
+                    ),
                     phase_detail={
-                        "artifact_type": "course_relation_batch",
-                        "item_id": section_id,
-                        "item_name": section_title,
-                        "item_index": index,
-                        "item_total": total,
-                        "completed_items": len(completed_payloads),
+                        **detail,
+                        "completed_items": progress_state["completed"],
                         "total_items": total,
                     },
                 )
-                compact_target_points = [
-                    self._relation_prompt_point(
-                        point,
-                        section_title_by_id,
-                    )
-                    for point in target_points
-                ]
-                compact_context_points = [
-                    self._relation_prompt_point(
-                        point,
-                        section_title_by_id,
-                    )
-                    for point in context_points
-                ]
-                prompt = self._prompt_composer.build_course_relation_batch_prompt(
-                    course_title=str(
-                        plan.get("course_title")
-                        or course_data.get("course_name")
-                        or ""
-                    ),
-                    positioning=str(plan.get("positioning") or ""),
-                    batch_id=f"relation:{section_id}",
-                    section={
-                        "node_id": section_id,
-                        "title": section_title,
-                        "learning_objective": section.get(
-                            "learning_objective"
+                async with self._planning_semaphore:
+                    response = await self._call_llm_with_heartbeat(
+                        (
+                            f"为小节「{section_title}」建立知识关系邻域，"
+                            "只输出 JSON。"
                         ),
-                        "scope_boundary": section.get("scope_boundary"),
-                        "prerequisite_node_ids": section.get(
-                            "prerequisite_node_ids"
-                        )
-                        or [],
-                    },
-                    target_points=compact_target_points,
-                    context_points=compact_context_points,
-                )
-                response = await self._call_llm_with_heartbeat(
-                    f"为小节「{section_title}」建立知识关系邻域，只输出 JSON。",
-                    prompt,
-                    enable_thinking=True,
-                    on_phase=on_phase,
-                    phase="course_relation_generation",
-                    base_progress=48 + int(
-                        (index - 1) / max(1, total) * 2
-                    ),
-                    heartbeat_message=(
-                        f"仍在等待 AI 建立小节「{section_title}」的知识关系邻域"
-                    ),
-                    phase_detail={
-                        "artifact_type": "course_relation_batch",
-                        "item_id": section_id,
-                        "item_name": section_title,
-                        "item_index": index,
-                        "item_total": total,
-                        "completed_items": len(completed_payloads),
-                        "total_items": total,
-                    },
-                )
+                        prompt,
+                        enable_thinking=True,
+                        on_phase=on_phase,
+                        phase="course_relation_generation",
+                        base_progress=48 + int(
+                            (index - 1) / max(1, total) * 2
+                        ),
+                        heartbeat_message=(
+                            f"仍在等待 AI 建立小节「{section_title}」"
+                            "的知识关系邻域"
+                        ),
+                        phase_detail=detail,
+                    )
                 parsed = self._extract_json(response) if response else None
                 payload = normalize_course_relation_batch(
                     parsed if isinstance(parsed, dict) else {}
                 )
                 report = validate_course_relation_batch(
                     payload,
-                    target_knowledge_ids=target_ids,
-                    allowed_knowledge_ids=allowed_ids,
+                    target_knowledge_ids=spec["target_ids"],
+                    allowed_knowledge_ids=spec["allowed_ids"],
                 )
                 if not report.get("passed"):
                     correction_prompt = (
@@ -1327,28 +2119,25 @@ class CourseService(AIBase):
                             issues=report.get("issues") or [],
                         )
                     )
-                    corrected = await self._call_llm_with_heartbeat(
-                        f"修复小节「{section_title}」的关系批次结构，只输出 JSON。",
-                        correction_prompt,
-                        enable_thinking=False,
-                        on_phase=on_phase,
-                        phase="course_relation_validation",
-                        base_progress=48 + int(
-                            (index - 1) / max(1, total) * 2
-                        ),
-                        heartbeat_message=(
-                            f"仍在等待 AI 修复小节「{section_title}」的关系批次结构"
-                        ),
-                        phase_detail={
-                            "artifact_type": "course_relation_batch",
-                            "item_id": section_id,
-                            "item_name": section_title,
-                            "item_index": index,
-                            "item_total": total,
-                            "completed_items": len(completed_payloads),
-                            "total_items": total,
-                        },
-                    )
+                    async with self._planning_semaphore:
+                        corrected = await self._call_llm_with_heartbeat(
+                            (
+                                f"修复小节「{section_title}」的关系批次结构，"
+                                "只输出 JSON。"
+                            ),
+                            correction_prompt,
+                            enable_thinking=False,
+                            on_phase=on_phase,
+                            phase="course_relation_validation",
+                            base_progress=48 + int(
+                                (index - 1) / max(1, total) * 2
+                            ),
+                            heartbeat_message=(
+                                f"仍在等待 AI 修复小节「{section_title}」"
+                                "的关系批次结构"
+                            ),
+                            phase_detail=detail,
+                        )
                     parsed = (
                         self._extract_json(corrected)
                         if corrected
@@ -1359,85 +2148,194 @@ class CourseService(AIBase):
                     )
                     report = validate_course_relation_batch(
                         payload,
-                        target_knowledge_ids=target_ids,
-                        allowed_knowledge_ids=allowed_ids,
+                        target_knowledge_ids=spec["target_ids"],
+                        allowed_knowledge_ids=spec["allowed_ids"],
+                    )
+                if not report.get("passed"):
+                    messages = "；".join(
+                        str(
+                            item.get("message")
+                            or "未知关系结构错误"
+                        )
+                        for item in report.get("issues") or []
+                    )
+                    raise AIProviderRequestError(
+                        f"小节「{section_title}」关系建网未通过结构验收："
+                        f"{messages or '关系批次无法解析'}"
                     )
 
-            if not report.get("passed"):
-                batch_states[section_id] = {
+                payload = normalize_course_relation_batch(payload)
+                async with state_lock:
+                    batch_states[section_id] = {
+                        "status": "completed",
+                        "schema_version": payload.get(
+                            "schema_version"
+                        ),
+                        "knowledge_registry_revision_id": (
+                            registry_revision_id
+                        ),
+                        "target_knowledge_ids": list(
+                            spec["target_ids"]
+                        ),
+                        "allowed_knowledge_ids": list(
+                            spec["allowed_ids"]
+                        ),
+                        "validation_report": deepcopy(report),
+                        "payload": deepcopy(payload),
+                    }
+                    progress_state["completed"] += 1
+                    relation_stage["generated_batch_count"] = (
+                        int(
+                            relation_stage.get(
+                                "generated_batch_count", 0
+                            )
+                        )
+                        + 1
+                    )
+                    partial_decisions, partial_relations = (
+                        merge_course_relation_batches(
+                            ordered_payloads()
+                        )
+                    )
+                    relation_stage.update({
+                        "status": "generating",
+                        "completed_batch_count": (
+                            progress_state["completed"]
+                        ),
+                        "decision_count": len(
+                            partial_decisions
+                        ),
+                        "relation_count": len(
+                            partial_relations
+                        ),
+                    })
+                    course_data.update({
+                        "knowledge_relations": deepcopy(
+                            partial_relations
+                        ),
+                        "knowledge_relation_decisions": deepcopy(
+                            partial_decisions
+                        ),
+                        "generation_status": (
+                            "course_relation_generation"
+                        ),
+                    })
+                    await self._notify_checkpoint(
+                        on_checkpoint, course_data
+                    )
+                return section_id
+            except Exception as exc:
+                async with state_lock:
+                    if (
+                        batch_states.get(section_id) or {}
+                    ).get("status") != "completed":
+                        batch_states[section_id] = {
+                            "status": "failed",
+                            "schema_version": (
+                                "course_relation_batch_v1"
+                            ),
+                            "knowledge_registry_revision_id": (
+                                registry_revision_id
+                            ),
+                            "target_knowledge_ids": list(
+                                spec["target_ids"]
+                            ),
+                            "issues": (
+                                deepcopy(report.get("issues") or [])
+                                or [{
+                                    "code": (
+                                        "course_relations:"
+                                        "provider_or_validation_failure"
+                                    ),
+                                    "message": str(exc),
+                                }]
+                            ),
+                        }
+                    relation_stage["status"] = "failed"
+                    course_data["generation_status"] = (
+                        "course_relation_generation_failed"
+                    )
+                    await self._notify_checkpoint(
+                        on_checkpoint, course_data
+                    )
+                raise
+
+        results: list[str | BaseException] = []
+        for offset in range(
+            0,
+            len(jobs),
+            self._planning_concurrency,
+        ):
+            wave_results = await asyncio.gather(
+                *(
+                    generate_relation_batch(spec)
+                    for spec in jobs[
+                        offset:offset
+                        + self._planning_concurrency
+                    ]
+                ),
+                return_exceptions=True,
+            )
+            results.extend(wave_results)
+            if any(
+                isinstance(result, Exception)
+                for result in wave_results
+            ):
+                break
+        failures = [
+            result
+            for result in results
+            if isinstance(result, Exception)
+        ]
+        if failures:
+            async with state_lock:
+                relation_stage.update({
                     "status": "failed",
-                    "schema_version": "course_relation_batch_v1",
-                    "knowledge_registry_revision_id": registry_revision_id,
-                    "target_knowledge_ids": target_ids,
-                    "issues": deepcopy(report.get("issues") or []),
-                }
-                relation_stage["status"] = "failed"
+                    "duration_ms": int(
+                        (time.monotonic() - started_at) * 1000
+                    ),
+                    "failed_batch_count": sum(
+                        1
+                        for state in batch_states.values()
+                        if isinstance(state, dict)
+                        and state.get("status") == "failed"
+                    ),
+                })
                 course_data["generation_status"] = (
                     "course_relation_generation_failed"
                 )
-                await self._notify_checkpoint(on_checkpoint, course_data)
-                messages = "；".join(
-                    str(item.get("message") or "未知关系结构错误")
-                    for item in report.get("issues") or []
+                await self._notify_checkpoint(
+                    on_checkpoint,
+                    course_data,
                 )
-                raise AIProviderRequestError(
-                    f"小节「{section_title}」关系建网未通过结构验收："
-                    f"{messages or '关系批次无法解析'}"
-                )
-
-            payload = normalize_course_relation_batch(payload)
-            completed_payloads.append(payload)
-            batch_states[section_id] = {
-                "status": "completed",
-                "schema_version": payload.get("schema_version"),
-                "knowledge_registry_revision_id": registry_revision_id,
-                "target_knowledge_ids": target_ids,
-                "allowed_knowledge_ids": allowed_ids,
-                "validation_report": deepcopy(report),
-                "payload": deepcopy(payload),
-            }
-            partial_decisions, partial_relations = (
-                merge_course_relation_batches(completed_payloads)
-            )
-            course_data.update({
-                "knowledge_relations": deepcopy(partial_relations),
-                "knowledge_relation_decisions": deepcopy(
-                    partial_decisions
-                ),
-                "generation_status": "course_relation_generation",
-            })
-            relation_stage.update({
-                "status": "generating",
-                "completed_batch_count": len(completed_payloads),
-                "total_batch_count": total,
-                "decision_count": len(partial_decisions),
-                "relation_count": len(partial_relations),
-            })
-            await self._notify_checkpoint(on_checkpoint, course_data)
-            previous_section_id = section_id
-            chapter_prior_section_ids.append(section_id)
+            first = failures[0]
+            if isinstance(first, AIProviderRequestError):
+                raise first
+            raise AIProviderRequestError(
+                f"全课知识关系批次生成失败：{first}"
+            ) from first
 
         decisions, relations = merge_course_relation_batches(
-            completed_payloads
+            ordered_payloads()
         )
+        all_knowledge_ids = [
+            str(item.get("knowledge_id") or "")
+            for item in knowledge_points
+        ]
         global_report = validate_course_relation_batch(
             {
                 "node_decisions": decisions,
                 "relations": relations,
             },
-            target_knowledge_ids=[
-                str(item.get("knowledge_id") or "")
-                for item in knowledge_points
-            ],
-            allowed_knowledge_ids=[
-                str(item.get("knowledge_id") or "")
-                for item in knowledge_points
-            ],
+            target_knowledge_ids=all_knowledge_ids,
+            allowed_knowledge_ids=all_knowledge_ids,
         )
         if not global_report.get("passed"):
             relation_stage.update({
                 "status": "failed",
-                "global_validation_report": deepcopy(global_report),
+                "global_validation_report": deepcopy(
+                    global_report
+                ),
             })
             course_data["generation_status"] = (
                 "course_relation_generation_failed"
@@ -1448,7 +2346,7 @@ class CourseService(AIBase):
                 for item in global_report.get("issues") or []
             )
             raise AIProviderRequestError(
-                f"全课知识关系网未通过结构验收："
+                "全课知识关系网未通过结构验收："
                 f"{messages or '关系图不完整'}"
             )
 
@@ -1460,10 +2358,18 @@ class CourseService(AIBase):
         )
         relation_stage.update({
             "status": "completed",
-            "completed_batch_count": len(batch_states),
+            "completed_batch_count": total,
             "total_batch_count": total,
+            "failed_batch_count": 0,
             "decision_count": len(decisions),
             "relation_count": len(relations),
+            "duration_ms": int(
+                (time.monotonic() - started_at) * 1000
+            ),
+            "merge_order": [
+                str(section.get("node_id") or "")
+                for section in sections
+            ],
             "global_validation_report": deepcopy(global_report),
         })
         course_data.update({
@@ -1492,7 +2398,10 @@ class CourseService(AIBase):
                 "completed_items": len(decisions),
                 "total_items": len(knowledge_points),
                 "relation_count": len(relations),
-                "knowledge_registry_revision_id": registry_revision_id,
+                "knowledge_registry_revision_id": (
+                    registry_revision_id
+                ),
+                "max_concurrency": self._planning_concurrency,
             },
         )
         return plan
@@ -1853,6 +2762,8 @@ class CourseService(AIBase):
         *,
         section_title: str,
         available_knowledge_names: list[str],
+        required_knowledge_names: list[str] | None = None,
+        required_reused_knowledge_names: list[str] | None = None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         parsed = self._extract_json(response) if response else None
         if not isinstance(parsed, dict):
@@ -1861,6 +2772,10 @@ class CourseService(AIBase):
                 empty,
                 section_title=section_title,
                 available_knowledge_names=available_knowledge_names,
+                required_knowledge_names=required_knowledge_names,
+                required_reused_knowledge_names=(
+                    required_reused_knowledge_names
+                ),
                 validate_relations=False,
             )
         package = normalize_section_knowledge_node_package(parsed)
@@ -1868,6 +2783,10 @@ class CourseService(AIBase):
             package,
             section_title=section_title,
             available_knowledge_names=available_knowledge_names,
+            required_knowledge_names=required_knowledge_names,
+            required_reused_knowledge_names=(
+                required_reused_knowledge_names
+            ),
             validate_relations=False,
         )
         return package, report

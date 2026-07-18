@@ -37,6 +37,7 @@ from course_coherence import (
 )
 from course_composition import compile_composition_profile
 from course_document import document_from_generation_draft
+from course_generation_workflow import PIPELINE_VERSION
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,
@@ -473,7 +474,7 @@ class TaskManager:
         course_data = {
             "course_id": course_id,
             "course_name": subject,
-            "generation_schema_version": "course_generation_v6",
+            "generation_schema_version": PIPELINE_VERSION,
             "generation_status": "queued",
             "nodes": [],
             "generation_request": request_snapshot,

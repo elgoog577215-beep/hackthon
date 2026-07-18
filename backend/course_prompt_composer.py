@@ -17,7 +17,7 @@ from course_knowledge_base import (
 )
 from course_pedagogy import TEMPLATES, SubjectPedagogyProfile, module_block_role
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v14"
+PROMPT_CONTRACT_VERSION = "course_prompt_v15"
 
 
 class CoursePromptComposer:
@@ -166,6 +166,66 @@ class CoursePromptComposer:
 {original_prompt}
 """.strip()
 
+    def build_course_knowledge_skeleton_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        sections: list[dict[str, Any]],
+        locked_knowledge_names_by_section: dict[str, list[str]] | None = None,
+    ) -> str:
+        return f"""## 输出契约
+你只负责规划全课知识点的规范名称与首次归属，不生成知识陈述、能力、易错点、掌握标准、知识关系或正文。
+只输出有效 JSON，不输出 Markdown 围栏或解释。
+
+## 课程上下文
+- 课程：{course_title}
+- 定位：{positioning}
+- 按教学顺序排列的小节：{json.dumps(sections, ensure_ascii=False)}
+
+## 已完成小节的锁定知识名称
+{json.dumps(locked_knowledge_names_by_section or {}, ensure_ascii=False)}
+
+## 规划要求
+1. 必须按输入顺序完整返回每个 `node_id`，不得增删、改名或调序。
+2. 每个小节在 `owned_knowledge_names` 中放入 1-8 个本节首次完整教学的原子知识规范名称。
+3. 同一规范名称全课只能有一个首次负责小节；后续确实需要承接时，写入该小节的 `reused_knowledge_names`。
+4. 复用只能指向更早小节已经首次负责的规范名称，不能复用后续知识。
+5. 名称必须是可单独解释、练习和诊断的知识对象，不得复制小节标题，不得写成宽泛主题或教学动作。
+6. 必须遵守每节的学习目标和范围边界，不能提前完成后续小节的核心教学。
+7. 小节带有 `evidence_hints` 时，规范名称必须覆盖其中与本节目标直接相关的资料概念；不得虚构提示中不存在的资料结论。
+8. `locked_knowledge_names_by_section` 中的名称来自已完成检查点，必须原样作为对应小节的 `owned_knowledge_names` 返回，不得替换、增删或迁移。
+
+## JSON Schema
+{{
+  "sections": [
+    {{
+      "node_id": "L2-1-1",
+      "owned_knowledge_names": ["原子知识规范名称"],
+      "reused_knowledge_names": []
+    }}
+  ]
+}}"""
+
+    def build_course_knowledge_skeleton_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 上一次输出不是完整有效的 JSON"
+        return f"""## 全课知识身份骨架纠正任务
+
+上一次骨架未通过确定性检查：
+{issue_text}
+
+重新输出完整 JSON。不得改变目录，不得生成知识详情、关系、正文或解释。
+
+{original_prompt}
+""".strip()
+
     def build_section_knowledge_prompt(
         self,
         *,
@@ -175,6 +235,7 @@ class CoursePromptComposer:
         available_knowledge_names: list[str],
         material_context: str,
         course_scope_contract: dict[str, Any] | None = None,
+        knowledge_identity_contract: dict[str, Any] | None = None,
     ) -> str:
         return f"""## 输出契约
 你只负责一个已经冻结的小节知识包，不得修改课程名称、章节、小节、顺序、学习目标或范围。
@@ -184,22 +245,26 @@ class CoursePromptComposer:
 - 课程：{course_title}
 - 定位：{positioning}
 - 当前小节：{json.dumps(section, ensure_ascii=False)}
-- 前序已存在知识规范名称：{json.dumps(available_knowledge_names, ensure_ascii=False)}
+- 前序已冻结知识规范名称：{json.dumps(available_knowledge_names, ensure_ascii=False)}
 
-## 已冻结的全课知识责任地图
+## 当前小节知识责任切片
 {json.dumps(course_scope_contract or {}, ensure_ascii=False)}
 
-当前知识包必须服务本节唯一学习责任，并显式避让 `later_reserved_sections` 中后续小节
-负责的主要知识任务。可以为承接引用前序知识，但不得提前完成后续小节的核心教学。
+## 已冻结的知识身份契约
+{json.dumps(knowledge_identity_contract or {}, ensure_ascii=False)}
+
+当前知识包必须服务本节唯一学习责任，并遵守 `course_path` 中的全课边界。
+`owned_knowledge_names` 是本节必须且只能展开的新知识点名称，
+`reused_knowledge_names` 必须原样写入输出的同名字段。不得自行新增、删减、改名或迁移知识身份。
 
 ## 资料上下文
 {material_context or '当前没有上传资料；不得伪装资料引用。'}
 
 ## 生成要求
-1. 当前小节组织 1-3 个概念组，每组包含 2-5 个可单独解释、练习和诊断的原子知识点。
+1. 当前小节组织 1-3 个概念组，将所有 `owned_knowledge_names` 各展开为且只展开为一个可单独解释、练习和诊断的原子知识点。
 2. 概念组名称表达知识问题域，禁止复制小节标题。
 3. 每个新知识点必须有独立 `statement`、`knowledge_type`、`conditions` 或 `boundaries`、可观察能力和可验证掌握标准。
-4. 后续再次使用前序知识时写入 `reused_knowledge_names`，不得重新创建同名知识。
+4. 输出的 `reused_knowledge_names` 必须与知识身份契约完全一致，不得重新创建同名知识。
 5. 易错点允许为空；生成时必须包含具体错误表现、辨别方法和修复策略。
 6. 本阶段只冻结知识节点及其能力包。不得输出知识关系、入口判断、前置名称或内部知识 ID。
 7. 全课所有知识节点冻结并由系统分配 ID 后，会进入独立关系建网阶段；不要在这里提前猜关系。
