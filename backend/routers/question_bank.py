@@ -218,11 +218,18 @@ def _rebuild_response(
     *,
     deduplicated: bool,
 ) -> dict[str, Any]:
+    publication_mode = str(
+        asset_bundle.get("publication_mode") or "full_recompile"
+    )
     return {
         "schema_version": "question_bank_rebuild_v1",
         "course_id": course_id,
         "request_id": request_id,
-        "status": "completed",
+        "status": (
+            "partial"
+            if publication_mode.startswith("question_bank_partial")
+            else "completed"
+        ),
         "deduplicated": deduplicated,
         "bundle_revision_id": question_bank_bundle["bundle_revision_id"],
         "learning_asset_bundle_revision_id": asset_bundle[
@@ -231,10 +238,7 @@ def _rebuild_response(
         "course_version_id": course.get(
             "current_course_version_id"
         ),
-        "publication_mode": asset_bundle.get(
-            "publication_mode",
-            "full_recompile",
-        ),
+        "publication_mode": publication_mode,
         "coverage": question_bank_bundle["coverage"],
         "review_queue": question_bank_bundle["review_queue"],
         "web_enrichment": question_bank_bundle["web_enrichment"],
@@ -256,20 +260,21 @@ def _select_publishable_asset_bundle(
             "web_enriched_practice",
         }
     ]
+    approved_items_passed = bool(approved_items) and all(
+        (item.get("quality_report") or {}).get("passed")
+        for item in approved_items
+    )
+    coverage_complete = float(
+        (question_bank_bundle.get("coverage") or {}).get(
+            "coverage_ratio"
+        )
+        or 0
+    ) == 1
     publication_quality = {
         "schema_version": "question_bank_publication_quality_v1",
-        "passed": bool(approved_items)
-        and all(
-            (item.get("quality_report") or {}).get("passed")
-            for item in approved_items
-        )
-        and float(
-            (question_bank_bundle.get("coverage") or {}).get(
-                "coverage_ratio"
-            )
-            or 0
-        )
-        == 1,
+        "passed": approved_items_passed and coverage_complete,
+        "approved_subset_passed": approved_items_passed,
+        "coverage_complete": coverage_complete,
         "approved_task_count": len(approved_items),
         "coverage_ratio": (
             question_bank_bundle.get("coverage") or {}
@@ -282,7 +287,7 @@ def _select_publishable_asset_bundle(
             and (previous_assets.get("quality_report") or {}).get("passed")
         ),
     }
-    if not publication_quality["passed"]:
+    if not approved_items_passed:
         raise HTTPException(
             status_code=409,
             detail={
@@ -291,66 +296,126 @@ def _select_publishable_asset_bundle(
             },
         )
 
+    previous_assets_passed = bool(
+        previous_assets
+        and (previous_assets.get("quality_report") or {}).get("passed")
+    )
+    if not coverage_complete:
+        if previous_assets_passed:
+            return _overlay_question_bank_publication(
+                previous_assets,
+                question_bank_bundle,
+                approved_items,
+                publication_quality,
+                publication_mode="question_bank_partial_overlay",
+                compatibility_policy=(
+                    "preserve_passing_assets_and_overlay_safe_partial_bank"
+                ),
+            )
+        return _approved_question_subset_bundle(
+            compiled_assets,
+            question_bank_bundle,
+            approved_items,
+            publication_quality,
+            publication_mode="question_bank_partial",
+            quality_scope="approved_question_subset",
+        )
+
     if (compiled_assets.get("quality_report") or {}).get("passed"):
         selected = deepcopy(compiled_assets)
         selected["publication_mode"] = "full_recompile"
         selected["question_bank_publication_quality"] = publication_quality
         return selected
-    if not (
-        previous_assets
-        and (previous_assets.get("quality_report") or {}).get("passed")
-    ):
-        binding = _question_bank_publication_binding(
+    if not previous_assets_passed:
+        return _approved_question_subset_bundle(
+            compiled_assets,
             question_bank_bundle,
             approved_items,
             publication_quality,
-            compatibility_policy="question_bank_only",
+            publication_mode="question_bank_only",
+            quality_scope="question_bank_only",
         )
-        plan = deepcopy(compiled_assets.get("plan") or {})
-        plan["enabled_asset_types"] = ["questions"]
-        plan["reading_only_degraded"] = False
-        return {
-            "schema_version": "learning_assets_v2",
-            "plan": plan,
-            "assets": {
-                "questions": [
-                    deepcopy(item["formal_task"])
-                    for item in approved_items
-                    if isinstance(item.get("formal_task"), dict)
-                ],
-                "final_assessment": [],
-                "question_bank_publications": [binding],
-            },
-            "quality_report": {
-                "schema_version": "asset_quality_v1",
-                "scope": "question_bank_only",
-                "passed": True,
-                "gates": [{
-                    "gate": "question_bank_publication",
-                    "passed": True,
-                    "issues": [],
-                }],
-                "issues": [],
-                "blocking_issues": [],
-                "warnings": [],
-            },
-            "publication_mode": "question_bank_only",
-            "question_bank_publication_quality": publication_quality,
-        }
 
+    return _overlay_question_bank_publication(
+        previous_assets,
+        question_bank_bundle,
+        approved_items,
+        publication_quality,
+        publication_mode="question_bank_overlay",
+        compatibility_policy=(
+            "preserve_passing_legacy_assets_and_overlay_approved_bank_tasks"
+        ),
+    )
+
+
+def _approved_question_subset_bundle(
+    compiled_assets: dict[str, Any],
+    question_bank_bundle: dict[str, Any],
+    approved_items: list[dict[str, Any]],
+    publication_quality: dict[str, Any],
+    *,
+    publication_mode: str,
+    quality_scope: str,
+) -> dict[str, Any]:
     binding = _question_bank_publication_binding(
         question_bank_bundle,
         approved_items,
         publication_quality,
-        compatibility_policy=(
-            "preserve_passing_legacy_assets_and_overlay_approved_bank_tasks"
-        ),
+        compatibility_policy=quality_scope,
+    )
+    plan = deepcopy(compiled_assets.get("plan") or {})
+    plan["enabled_asset_types"] = ["questions"]
+    plan["reading_only_degraded"] = False
+    return {
+        "schema_version": "learning_assets_v2",
+        "plan": plan,
+        "assets": {
+            "questions": [
+                deepcopy(item["formal_task"])
+                for item in approved_items
+                if isinstance(item.get("formal_task"), dict)
+            ],
+            "final_assessment": [],
+            "question_bank_publications": [binding],
+        },
+        "quality_report": {
+            "schema_version": "asset_quality_v1",
+            "scope": quality_scope,
+            "passed": True,
+            "gates": [{
+                "gate": "approved_question_subset",
+                "passed": True,
+                "issues": [],
+            }],
+            "issues": [],
+            "blocking_issues": [],
+            "warnings": [],
+        },
+        "publication_mode": publication_mode,
+        "question_bank_publication_quality": publication_quality,
+    }
+
+
+def _overlay_question_bank_publication(
+    previous_assets: dict[str, Any],
+    question_bank_bundle: dict[str, Any],
+    approved_items: list[dict[str, Any]],
+    publication_quality: dict[str, Any],
+    *,
+    publication_mode: str,
+    compatibility_policy: str,
+) -> dict[str, Any]:
+    binding = _question_bank_publication_binding(
+        question_bank_bundle,
+        approved_items,
+        publication_quality,
+        compatibility_policy=compatibility_policy,
     )
     selected = deepcopy(previous_assets)
     selected.pop("bundle_revision_id", None)
     selected["assets"] = deepcopy(selected.get("assets") or {})
     selected["assets"]["question_bank_publications"] = [binding]
-    selected["publication_mode"] = "question_bank_overlay"
+    selected["publication_mode"] = publication_mode
     selected["question_bank_publication_quality"] = publication_quality
     return selected
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass, replace
+import re
 from typing import Any, Callable
 
 from course_pedagogy import coerce_persisted_profile
@@ -51,6 +52,11 @@ CAPABILITY_CONTRACTS: dict[str, dict[str, Any]] = {
             "摊还",
             "可变长数组",
         ),
+    },
+    "programming.default_arguments_and_overload": {
+        "adapter_id": "programming.function_overload",
+        "case_kinds": ("cpp_default_arguments_and_overload",),
+        "target_markers": ("默认参数", "函数重载", "重载", "overload"),
     },
     "java.inner_and_anonymous_class": {
         "adapter_id": "programming.java_object_model",
@@ -132,6 +138,7 @@ STIMULUS_KIND_BY_ADAPTER = {
     "programming.system_design": "system_requirements",
     "programming.data_processing": "programming_case",
     "programming.dynamic_array": "programming_case",
+    "programming.function_overload": "programming_case",
     "programming.java_object_model": "programming_case",
     "math.quantitative_reasoning": "quantitative_problem",
     "math.calculus": "quantitative_problem",
@@ -313,6 +320,7 @@ def validate_question_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "programming.system_design": _validate_rubric_spec,
         "programming.data_processing": _validate_programming_spec,
         "programming.dynamic_array": _validate_dynamic_array_spec,
+        "programming.function_overload": _validate_function_overload_spec,
         "programming.java_object_model": _validate_java_object_model_spec,
         "math.quantitative_reasoning": _validate_math_spec,
         "math.calculus": _validate_calculus_spec,
@@ -707,6 +715,13 @@ def _capability_routes() -> tuple[CapabilityRoute, ...]:
             ("programming_engineering",),
         ),
         CapabilityRoute(
+            "programming.default_arguments_and_overload",
+            "programming.function_overload",
+            _build_function_overload_spec,
+            ("默认参数", "函数重载", "overload"),
+            ("programming_engineering",),
+        ),
+        CapabilityRoute(
             "programming.data_processing",
             "programming.data_processing",
             _build_programming_spec,
@@ -805,21 +820,36 @@ def _default_assessment_action(mode: str, target: str) -> str:
 def _infer_subject_family(topic: str) -> str:
     lowered = topic.lower()
     if any(marker in lowered for marker in (
-        "线性代数", "向量", "矩阵", "方程", "函数", "概率", "几何",
-        "微积分", "行列式", "子空间", "线性组合", "生成集", "span",
-        "线性无关", "基底", "维数", "线性映射", "同构", "特征值",
-        "特征向量", "内积", "正交", "投影", "最小二乘", "奇异值",
-        "svd", "秩", "qr分解", "qr 分解",
-    )):
-        return "math_formal"
-    if any(marker in lowered for marker in (
-        "算法", "编程", "代码", "数据结构", "python", "java",
+        "编程",
+        "代码",
+        "数据结构",
+        "python",
+        "java",
+        "javascript",
+        "c++",
+        "c#",
+        "rust",
+        "golang",
+        "go语言",
     )):
         return "programming_engineering"
     if any(marker in lowered for marker in (
         "物理", "化学", "热力学", "力学", "电磁", "量子", "天文", "地质",
     )):
         return "natural_science"
+    if any(marker in lowered for marker in (
+        "线性代数", "微积分", "极限", "导数", "积分", "多项式",
+        "向量", "矩阵", "方程", "概率", "几何",
+        "行列式", "子空间", "线性组合", "生成集", "span",
+        "线性无关", "基底", "维数", "线性映射", "同构", "特征值",
+        "特征向量", "内积", "正交", "投影", "最小二乘", "奇异值",
+        "svd", "秩", "qr分解", "qr 分解",
+    )):
+        return "math_formal"
+    if "算法" in lowered:
+        return "programming_engineering"
+    if "函数" in lowered:
+        return "math_formal"
     return "general"
 
 
@@ -1847,6 +1877,112 @@ def _solve_dynamic_array_growth(
         "total_copied_elements": copied,
         "single_resize_worst_case": "O(n)",
         "append_amortized": "O(1)",
+    }
+
+
+def _build_function_overload_spec(
+    context: AdapterContext,
+) -> dict[str, Any]:
+    seed = context.variant_index + 2
+    default_step = 2
+    explicit_step = 3
+    floating_input = seed + 0.5
+    floating_result = floating_input / 2
+    stdout = (
+        f"{seed + default_step} "
+        f"{seed + explicit_step} "
+        f"{floating_result:g}"
+    )
+    code = (
+        "#include <iostream>\n"
+        f"int adjust(int value, int step = {default_step}) {{\n"
+        "    return value + step;\n"
+        "}\n"
+        "double adjust(double value) {\n"
+        "    return value / 2.0;\n"
+        "}\n"
+        "int main() {\n"
+        f"    std::cout << adjust({seed}) << ' '\n"
+        f"              << adjust({seed}, {explicit_step}) << ' '\n"
+        f"              << adjust({floating_input:g});\n"
+        "}"
+    )
+    return {
+        "archetype_id": "cpp_default_arguments_and_overload_trace",
+        "stimulus": {
+            "kind": "programming_case",
+            "data": {
+                "case_kind": "cpp_default_arguments_and_overload",
+                "language": "C++",
+                "code": code,
+                "calls": [
+                    {
+                        "expression": f"adjust({seed})",
+                        "argument_types": ["int"],
+                    },
+                    {
+                        "expression": (
+                            f"adjust({seed}, {explicit_step})"
+                        ),
+                        "argument_types": ["int", "int"],
+                    },
+                    {
+                        "expression": f"adjust({floating_input:g})",
+                        "argument_types": ["double"],
+                    },
+                ],
+            },
+            "rendered_text": (
+                "阅读并运行以下 C++17 代码：\n"
+                f"{code}"
+            ),
+        },
+        "task": {
+            "action": "trace_output_and_return",
+            "rendered_text": (
+                "写出标准输出；逐个调用说明选中的重载版本，"
+                "指出默认参数在哪一次调用中生效，并说明精确匹配为何优先。"
+            ),
+            "deliverable": "标准输出、三次重载决议、默认参数位置和规则依据",
+        },
+        "constraints": [
+            "按 C++17 重载决议规则判断",
+            "不得把默认参数视为新的函数重载",
+            "必须区分精确匹配与需要类型转换的候选",
+        ],
+        "response_contract": {
+            "format": "code_trace",
+            "required_parts": [
+                "stdout",
+                "overload_resolution",
+                "default_argument_use",
+                "explanation",
+            ],
+        },
+        "answer_spec": _base_answer_spec(
+            context,
+            [
+                f"正确使用“{context.key_points[0]}”分析三次调用",
+                "标准输出与给定代码的实际执行结果一致",
+                "逐次说明候选函数、精确匹配和最终重载决议",
+                "准确指出默认参数只在缺少第二实参时补入",
+            ],
+            validation_mode="deterministic_cpp_overload_trace",
+            canonical_answer={
+                "stdout": stdout,
+                "selected_overload_ids": [
+                    "integer_with_optional_step",
+                    "integer_with_optional_step",
+                    "floating_unary",
+                ],
+                "default_argument_call_ids": ["first_call"],
+            },
+        ),
+        "result_checks": [
+            "实际编译运行代码并核对标准输出",
+            "逐个调用核对实参数量与类型",
+            "确认默认参数没有改变函数签名",
+        ],
     }
 
 
@@ -2960,6 +3096,7 @@ def _question_type_for_spec(spec: dict[str, Any]) -> str:
         "programming.system_design": "scenario_deliverable",
         "programming.data_processing": "implementation_task",
         "programming.dynamic_array": "implementation_task",
+        "programming.function_overload": "implementation_task",
         "programming.java_object_model": "implementation_task",
         "math.quantitative_reasoning": "worked_solution",
         "math.calculus": "worked_solution",
@@ -3268,6 +3405,74 @@ def _validate_dynamic_array_spec(
         insert_count,
         growth_factor,
     )
+    canonical = (spec.get("answer_spec") or {}).get(
+        "canonical_answer"
+    ) or {}
+    return (
+        []
+        if canonical == expected
+        else [_issue("question:canonical_answer_mismatch", "critical")]
+    )
+
+
+def _validate_function_overload_spec(
+    spec: dict[str, Any],
+) -> list[dict[str, str]]:
+    data = (spec.get("stimulus") or {}).get("data") or {}
+    calls = data.get("calls") or []
+    if (
+        data.get("case_kind")
+        != "cpp_default_arguments_and_overload"
+        or data.get("language") != "C++"
+        or len(calls) != 3
+        or "int adjust(int value, int step" not in str(
+            data.get("code") or ""
+        )
+        or "double adjust(double value)" not in str(
+            data.get("code") or ""
+        )
+    ):
+        return [_issue("question:input_material_missing", "critical")]
+    code = str(data.get("code") or "")
+    default_match = re.search(
+        r"step\s*=\s*(-?\d+)",
+        code,
+    )
+    parsed_calls = [
+        re.fullmatch(
+            r"adjust\(\s*(-?\d+(?:\.\d+)?)"
+            r"(?:\s*,\s*(-?\d+(?:\.\d+)?))?\s*\)",
+            str(call.get("expression") or ""),
+        )
+        for call in calls
+    ]
+    if default_match is None or not all(parsed_calls):
+        return [_issue("question:input_material_missing", "critical")]
+    first_value = float(parsed_calls[0].group(1))
+    first_step = float(default_match.group(1))
+    second_value = float(parsed_calls[1].group(1))
+    second_step_text = parsed_calls[1].group(2)
+    third_value = float(parsed_calls[2].group(1))
+    if second_step_text is None:
+        return [_issue("question:input_material_missing", "critical")]
+    second_step = float(second_step_text)
+
+    def render_number(value: float) -> str:
+        return f"{value:g}"
+
+    expected = {
+        "stdout": " ".join([
+            render_number(first_value + first_step),
+            render_number(second_value + second_step),
+            render_number(third_value / 2),
+        ]),
+        "selected_overload_ids": [
+            "integer_with_optional_step",
+            "integer_with_optional_step",
+            "floating_unary",
+        ],
+        "default_argument_call_ids": ["first_call"],
+    }
     canonical = (spec.get("answer_spec") or {}).get(
         "canonical_answer"
     ) or {}
