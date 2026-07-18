@@ -380,11 +380,11 @@
     ],
     "solution_revealed": false,
     "ai_support_level": 0,
-    "active_seconds": 0,
-    "revision": 2,
+    "active_seconds": 100,
+    "revision": 3,
     "schema_version": 2,
     "started_at": "2026-07-18T08:47:27.752132+00:00",
     "created_at": "2026-07-18T08:47:27.752132+00:00",
-    "updated_at": "2026-07-18T08:47:49.634379+00:00"
+    "updated_at": "2026-07-18T08:49:08.005383+00:00"
   }
 ]

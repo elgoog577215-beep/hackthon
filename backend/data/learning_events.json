@@ -12821,5 +12821,46 @@
     },
     "created_at": "2026-07-18T16:47:49.636380",
     "schema_version": 8
+  },
+  {
+    "event_id": "evt_7507c8e14ba44b42b4655c7d828a3b57",
+    "event_type": "node_learning_started",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "learning_progress.reading",
+    "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
+    "course_version_id": null,
+    "node_id": "52317aeb-815b-4a14-aaa4-c599864d6a3d",
+    "node_name": "1.1 向量空间的公理化定义",
+    "objective_id": "lo_c7f9554233a0a633",
+    "objective_revision_id": "lor_db569c22cd546002",
+    "concept_ids": [],
+    "skill_unit_ids": [],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": null,
+    "task_revision_id": null,
+    "task_purpose": null,
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": null,
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "reading:learner_77949059-72b5-4e0b-a0be-ce1cad183ca2:lor_db569c22cd546002:start",
+    "idempotency_key": "lor_db569c22cd546002:start",
+    "entity_type": "learning_objective_progress",
+    "entity_id": "lo_c7f9554233a0a633",
+    "entity_revision": "lor_db569c22cd546002",
+    "evidence": {
+      "explicit_confirmation": false
+    },
+    "result": {
+      "reading_status": "in_progress"
+    },
+    "metadata": {},
+    "created_at": "2026-07-18T16:49:15.162175",
+    "schema_version": 8
   }
 ]
