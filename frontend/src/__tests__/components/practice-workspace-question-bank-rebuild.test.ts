@@ -7,8 +7,12 @@ const httpMock = vi.hoisted(() => ({
   post: vi.fn(),
   patch: vi.fn(),
 }))
+const rebuildMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@/utils/http', () => ({ default: httpMock }))
+vi.mock('@/utils/question-bank-rebuild', () => ({
+  runQuestionBankRebuild: rebuildMock,
+}))
 
 import PracticeWorkspace from '@/components/PracticeWorkspace.vue'
 
@@ -49,6 +53,26 @@ describe('PracticeWorkspace legacy question-bank repair', () => {
     httpMock.get.mockReset()
     httpMock.post.mockReset()
     httpMock.patch.mockReset()
+    rebuildMock.mockReset()
+    rebuildMock.mockImplementation(async (
+      _courseId: string,
+      _request: unknown,
+      options: { onUpdate?: (job: Record<string, unknown>) => void },
+    ) => {
+      options.onUpdate?.({
+        status: 'running',
+        progress: 55,
+        current_stage: 'question_generation',
+        message: '正在生成题目',
+      })
+      options.onUpdate?.({
+        status: 'completed',
+        progress: 100,
+        current_stage: 'publication',
+        message: '发布完成',
+      })
+      return { status: 'completed', progress: 100 }
+    })
 
     let practiceLoads = 0
     httpMock.get.mockImplementation((url: string) => {
@@ -68,14 +92,6 @@ describe('PracticeWorkspace legacy question-bank repair', () => {
       return Promise.resolve({ data: {} })
     })
     httpMock.post.mockImplementation((url: string) => {
-      if (url.endsWith('/question-bank/rebuild')) {
-        return Promise.resolve({
-          data: {
-            bundle_revision_id: 'question-bank-revision-1',
-            learning_asset_bundle_revision_id: 'asset-bundle-revision-1',
-          },
-        })
-      }
       return Promise.resolve({
         data: {
           attempt: {
@@ -111,9 +127,15 @@ describe('PracticeWorkspace legacy question-bank repair', () => {
     await rebuildButton.trigger('click')
     await flushPromises()
 
-    expect(httpMock.post).toHaveBeenCalledWith(
-      '/api/courses/legacy-course/question-bank/rebuild',
-      { request_id: expect.any(String) },
+    expect(rebuildMock).toHaveBeenCalledWith(
+      'legacy-course',
+      {
+        request_id: expect.any(String),
+        scope: 'nodes',
+        node_ids: ['node-1'],
+        mode: 'incremental',
+      },
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
     expect(wrapper.text()).toContain(rebuiltQuestion.prompt)
     expect(wrapper.find('[data-testid="rebuild-question-bank"]').exists()).toBe(false)
