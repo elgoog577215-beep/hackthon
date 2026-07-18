@@ -346,6 +346,66 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.find('.module-sequence').text()).not.toContain('证明与推导')
   })
 
+  it('内容确认步骤展示每道题为什么存在、实际考什么和同源命中结果', async () => {
+    const generation = useGenerationStore()
+    const workspace = useCourseWorkspaceStore()
+    const workflow = {
+      schema_version: 'guided_course_generation_v1', current_step: 'content', review_step: 'content',
+      steps: [
+        { number: 1, key: 'requirements', status: 'confirmed' },
+        { number: 2, key: 'outline', status: 'confirmed' },
+        { number: 3, key: 'knowledge', status: 'confirmed' },
+        { number: 4, key: 'teaching', status: 'confirmed' },
+        { number: 5, key: 'content', status: 'waiting_for_confirmation' },
+        { number: 6, key: 'release', status: 'locked' },
+      ],
+    }
+    generation.globalTasks = [{
+      id: 'task-content', course_id: 'course-1', course_name: '线性代数',
+      status: 'waiting_for_review', progress: 88, current_phase: 'content_ready',
+      guided_workflow: workflow,
+    }]
+    vi.spyOn(workspace, 'loadGenerationReview').mockResolvedValue({
+      step: 'content',
+      can_confirm: true,
+      guided_workflow: workflow,
+      artifact: {
+        quality_status: 'passed',
+        asset_quality_passed: true,
+        manual_review_count: 0,
+        asset_counts: { questions: 3 },
+        question_review: {
+          total: 3,
+          passed: 3,
+          blocked: 0,
+          samples: [{
+            question_id: 'q1',
+            practice_level: 'objective_practice',
+            prompt: '判断两个向量是否相同并说明依据。',
+            status: 'passed',
+            task_goal: '同时比较大小和方向',
+            why_this_question: '检查能否迁移向量相同的判断条件。',
+            library_fit: 'HIT',
+            target_skills: [{ id: 's1', name: '比较向量' }],
+            target_misconceptions: [{ id: 'm1', name: '只比较大小' }],
+            issues: [],
+          }],
+        },
+        sections: [],
+      },
+    })
+
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('逐题解析与评判检查')
+    expect(wrapper.text()).toContain('为什么出这道题')
+    expect(wrapper.text()).toContain('它实际在考什么')
+    expect(wrapper.text()).toContain('同时比较大小和方向')
+    expect(wrapper.text()).toContain('只比较大小')
+    expect(wrapper.text()).toContain('3 / 3')
+  })
+
   it('英文模式完整显示六步和当前确认动作，不泄漏翻译键或中文', async () => {
     const generation = useGenerationStore()
     const workspace = useCourseWorkspaceStore()

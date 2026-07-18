@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -28,6 +29,10 @@ from practice_attempts import (
     AttemptConflict,
     InvalidAttemptTransition,
     practice_attempt_repository,
+)
+from practice_analysis import (
+    practice_analysis_service,
+    unavailable_answer_diagnosis,
 )
 from practice_grading import practice_grader
 from storage import storage
@@ -435,9 +440,12 @@ async def submit_attempt(
                 "support_level": _support_level(attempt),
             },
         )
-    try:
-        result = await practice_grader.grade(question, attempt)
-    except Exception:
+    grading_output, diagnosis_output = await asyncio.gather(
+        practice_grader.grade(question, attempt),
+        practice_analysis_service.diagnose_answer(question, attempt),
+        return_exceptions=True,
+    )
+    if isinstance(grading_output, BaseException):
         result = {
             "status": "pending_review",
             "score": None,
@@ -448,6 +456,14 @@ async def submit_attempt(
             "grading_method": "rubric_ai",
             "mastery_eligible": False,
         }
+    else:
+        result = grading_output
+    if isinstance(diagnosis_output, BaseException):
+        result["answer_diagnosis"] = unavailable_answer_diagnosis(
+            "analysis_model_failed"
+        )
+    else:
+        result["answer_diagnosis"] = diagnosis_output
     graded = await run_in_threadpool(
         practice_attempt_repository.apply_grade,
         user_id,
@@ -734,11 +750,17 @@ def _record_attempt_event(
 
 def _solution_payload(question: dict[str, Any]) -> dict[str, Any]:
     spec = question.get("answer_spec") or {}
+    reference = (question.get("question_analysis") or {}).get(
+        "reference_solution"
+    ) or {}
     return {
         "criteria": spec.get("criteria") or [],
         "reference_concepts": spec.get("expected_keywords") or [],
         "correct_answer": spec.get("correct_answer"),
-        "guidance": "对照评分维度检查条件、过程、结论和验证是否完整。",
+        "guidance": reference.get("approach")
+        or "对照评分维度检查条件、过程、结论和验证是否完整。",
+        "key_steps": reference.get("key_steps") or [],
+        "self_check": reference.get("self_check") or "",
     }
 
 

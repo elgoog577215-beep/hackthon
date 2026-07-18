@@ -250,6 +250,69 @@ describe('formal practice attempt store', () => {
     }))
   })
 
+  it('针对再练优先使用本次答案诊断，而不是沿用题目上全部候选标签', async () => {
+    const sourceQuestion = {
+      ...question,
+      mistake_point_ids: ['mistake-old'],
+      skill_unit_ids: ['skill-old'],
+    }
+    const oldSignalQuestion = {
+      ...question,
+      asset_id: 'q-old',
+      revision_id: 'qr-old',
+      task_revision_id: 'qr-old',
+      mistake_point_ids: ['mistake-old'],
+      skill_unit_ids: ['skill-old'],
+    }
+    const diagnosedQuestion = {
+      ...question,
+      asset_id: 'q-diagnosed',
+      revision_id: 'qr-diagnosed',
+      task_revision_id: 'qr-diagnosed',
+      mistake_point_ids: ['mistake-real'],
+      skill_unit_ids: ['skill-real'],
+    }
+    const failedAttempt = attempt({
+      status: 'graded',
+      result: {
+        passed: false,
+        answer_diagnosis: {
+          status: 'completed',
+          diagnosis: {
+            knowledge_ids: [],
+            skill_ids: ['skill-real'],
+            misconception_ids: ['mistake-real'],
+          },
+        },
+      },
+    })
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        status: 'created',
+        attempt: attempt({
+          task_revision_id: 'qr-diagnosed',
+          question_revision_id: 'qr-diagnosed',
+        }),
+      },
+    })
+    const store = useCourseWorkspaceStore()
+    store.practice = {
+      course_id: 'c1',
+      scope: 'node',
+      questions: [sourceQuestion, oldSignalQuestion, diagnosedQuestion],
+      active_attempts: [],
+      summary: {},
+    } as any
+
+    await store.startTargetedRetry('c1', failedAttempt as any)
+
+    expect(store.currentQuestionIndex).toBe(2)
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/c1/practice/attempts',
+      expect.objectContaining({ task_revision_id: 'qr-diagnosed' }),
+    )
+  })
+
   it('查看完整解析后同步 Attempt 证据状态', async () => {
     httpMock.post.mockResolvedValue({ data: {
       attempt: attempt({ revision: 3, status: 'graded', solution_revealed: true }),

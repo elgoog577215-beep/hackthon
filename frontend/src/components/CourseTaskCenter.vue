@@ -223,6 +223,51 @@
                 <div v-if="assetCountEntries.length" class="asset-counts">
                   <span v-for="entry in assetCountEntries" :key="entry.type">{{ learningAssetLabel(entry.type) }} · {{ entry.count }}</span>
                 </div>
+                <section v-if="reviewArtifact.question_review?.total" class="question-review">
+                  <header>
+                    <div>
+                      <strong>{{ t('courseTasks.review.questionReview', '逐题解析与评判检查') }}</strong>
+                      <p>{{ t('courseTasks.review.questionReviewHelp', '系统先独立判断每道题实际在考什么，再核对是否真的命中本课知识、能力和易错点。') }}</p>
+                    </div>
+                    <span :data-blocked="Boolean(reviewArtifact.question_review.blocked)">
+                      {{ reviewArtifact.question_review.passed }} / {{ reviewArtifact.question_review.total }}
+                      {{ t('courseTasks.review.questionPassed', '题通过') }}
+                    </span>
+                  </header>
+                  <div class="question-review__list">
+                    <article
+                      v-for="(question, index) in reviewArtifact.question_review.samples || []"
+                      :key="question.question_id || index"
+                      :data-status="question.status"
+                    >
+                      <div class="question-review__index">{{ String(index + 1).padStart(2, '0') }}</div>
+                      <div>
+                        <div class="question-review__meta">
+                          <span>{{ question.practice_level }}</span>
+                          <b>{{ question.library_fit || t('courseTasks.review.questionPending', '待解析') }}</b>
+                        </div>
+                        <strong>{{ question.prompt }}</strong>
+                        <dl>
+                          <div>
+                            <dt>{{ t('courseTasks.review.questionWhy', '为什么出这道题') }}</dt>
+                            <dd>{{ question.why_this_question }}</dd>
+                          </div>
+                          <div>
+                            <dt>{{ t('courseTasks.review.questionActuallyTests', '它实际在考什么') }}</dt>
+                            <dd>{{ question.task_goal || t('courseTasks.review.questionPending', '待解析') }}</dd>
+                          </div>
+                        </dl>
+                        <div class="question-review__targets">
+                          <span v-for="skill in question.target_skills || []" :key="skill.id">{{ skill.name }}</span>
+                          <span v-for="mistake in question.target_misconceptions || []" :key="mistake.id" data-kind="mistake">{{ mistake.name }}</span>
+                        </div>
+                        <ul v-if="question.issues?.length">
+                          <li v-for="(issue, issueIndex) in question.issues" :key="`${issue.gate}-${issueIndex}`">{{ issue.message }}</li>
+                        </ul>
+                      </div>
+                    </article>
+                  </div>
+                </section>
                 <ul v-if="contentReviewIssues.length" class="release-issues">
                   <li v-for="(issue, index) in contentReviewIssues" :key="`${issue.code || 'content-issue'}-${index}`">{{ issue.message || issue }}</li>
                 </ul>
@@ -764,6 +809,9 @@ function phaseLabel(phase: string | undefined, status: Task['status']) {
     blueprint_validation: t('courseTasks.phases.blueprintValidation', '检查课程蓝图'),
     blueprint_ready: t('courseTasks.phases.blueprintReady', '等待确认课程蓝图'),
     content_generation: t('courseTasks.phases.contentGeneration', '生成课程内容'),
+    learning_assets: t('courseTasks.phases.learningAssets', '编译课程练习与掌握标准'),
+    question_analysis: t('courseTasks.phases.questionAnalysis', '逐题解析实际考查目标'),
+    content_validation: t('courseTasks.phases.contentValidation', '检查课程内容与题目质量'),
     content_ready: t('courseTasks.phases.contentReady', '等待确认课程内容'),
     content_confirmed: t('courseTasks.phases.contentConfirmed', '课程内容已确认'),
     release_ready: t('courseTasks.phases.releaseReady', '等待确认质量与发布'),
@@ -905,6 +953,7 @@ function formatDuration(seconds: number) {
 .module-sequence { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }.module-sequence__item { position:relative; min-width:130px; max-width:220px; display:grid; gap:2px; padding:7px 8px; border-left:2px solid var(--lz-border); color:var(--lz-text-secondary); background:var(--lz-surface-muted); }.module-sequence__item[data-added="true"] { border-left-color:var(--lz-brand); background:var(--lz-brand-soft); }.module-sequence__item[data-source="difficulty_level"] { border-left-color:var(--lz-warning); background:var(--lz-warning-soft); }.module-sequence__item b { overflow:hidden; color:var(--lz-text-strong); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.module-sequence__item em { color:var(--lz-text-muted); font-size:8px; font-style:normal; line-height:1.35; }.module-sequence__item i { color:var(--lz-brand-strong); font-size:8px; font-style:normal; font-weight:700; }.module-sequence__item[data-source="difficulty_level"] i { color:var(--lz-warning); }
 .review-callout,.release-verdict { display:flex; gap:11px; align-items:flex-start; padding:14px; border:1px solid rgba(99,102,241,.18); border-radius:10px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.review-callout strong,.release-verdict strong { display:block; color:var(--lz-text-strong); font-size:12px; }.review-callout p,.release-verdict p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }
 .content-evidence { margin:10px 0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }.content-evidence > div { padding:10px; border:1px solid var(--lz-border); border-radius:8px; background:var(--lz-surface-muted); }.content-evidence span,.content-evidence strong { display:block; }.content-evidence span { color:var(--lz-text-muted); font-size:9px; }.content-evidence strong { margin-top:4px; color:var(--lz-text-strong); font-size:13px; }.asset-counts { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px; }.asset-counts span { padding:4px 7px; border:1px solid rgba(99,102,241,.14); border-radius:999px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:8px; font-weight:650; }
+.question-review { margin:14px 0; padding:14px; border:1px solid rgba(14,116,144,.16); border-radius:10px; background:rgba(236,254,255,.42); }.question-review>header { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }.question-review>header strong { color:var(--lz-text-strong); font-size:12px; }.question-review>header p { margin:4px 0 0; max-width:460px; color:var(--lz-text-secondary); font-size:9px; line-height:1.5; }.question-review>header>span { flex:0 0 auto; padding:5px 8px; border-radius:999px; color:#047857; background:#ecfdf5; font-size:9px; font-weight:800; }.question-review>header>span[data-blocked="true"] { color:var(--lz-warning); background:var(--lz-warning-soft); }.question-review__list { margin-top:12px; display:grid; gap:8px; }.question-review__list>article { display:grid; grid-template-columns:28px minmax(0,1fr); gap:9px; padding:10px; border:1px solid rgba(14,116,144,.12); border-radius:8px; background:#fff; }.question-review__list>article[data-status="blocked"] { border-color:rgba(217,119,6,.28); }.question-review__index { color:#0e7490; font-family:ui-monospace,monospace; font-size:9px; font-weight:800; }.question-review__meta { display:flex; justify-content:space-between; gap:8px; margin-bottom:5px; color:var(--lz-text-muted); font-size:8px; }.question-review__meta b { color:#0e7490; }.question-review__list article>div>strong { display:block; color:var(--lz-text-strong); font-size:10px; line-height:1.5; }.question-review dl { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:9px 0; }.question-review dt { color:var(--lz-text-muted); font-size:8px; }.question-review dd { margin:3px 0 0; color:var(--lz-text-secondary); font-size:9px; line-height:1.45; }.question-review__targets { display:flex; flex-wrap:wrap; gap:4px; }.question-review__targets span { padding:3px 6px; border-radius:999px; color:#0e7490; background:#ecfeff; font-size:8px; }.question-review__targets span[data-kind="mistake"] { color:#c2410c; background:#fff7ed; }.question-review ul { margin:8px 0 0; padding-left:16px; color:var(--lz-warning); font-size:9px; line-height:1.5; }
 .release-verdict[data-pass="false"] { border-color:rgba(217,119,6,.2); color:var(--lz-warning); background:var(--lz-warning-soft); }.release-issues { margin:12px 0 0; padding:0 0 0 18px; color:var(--lz-warning); font-size:10px; line-height:1.6; }
 .task-notice { margin-top:20px; display:flex; gap:10px; padding:13px 14px; border-left:3px solid var(--lz-warning); color:var(--lz-warning); background:var(--lz-warning-soft); }.task-notice strong { display:block; font-size:12px; }.task-notice p { margin:4px 0 0; font-size:11px; line-height:1.5; }.task-error-detail,.recovery-checkpoint { display:block; margin-top:7px; color:inherit; font-size:9px; line-height:1.5; opacity:.88; }
 .task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px clamp(20px,4vw,38px); border-top:1px solid var(--lz-border); background:rgba(255,255,255,.98); box-shadow:0 -8px 22px rgba(15,23,42,.035); }.task-actions__open { margin-left:auto; }

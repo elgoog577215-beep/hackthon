@@ -77,7 +77,12 @@ from guided_generation import (
     step_state as guided_step_state,
 )
 from learning_asset_storage import LearningAssetRepository, learning_asset_repository
-from learning_assets import compile_learning_asset_plan, compile_learning_assets
+from learning_assets import (
+    assessment_assets,
+    compile_learning_asset_plan,
+    compile_learning_assets,
+    evaluate_learning_asset_quality,
+)
 from material_pipeline import ingest_legacy_material_inputs
 from material_storage import material_repository
 from models import (
@@ -120,6 +125,28 @@ class TaskStateConflict(RuntimeError):
     def __init__(self, message: str, *, status: str) -> None:
         super().__init__(message)
         self.status = status
+
+
+def _remap_assessment_revision_references(
+    assets: dict[str, Any],
+    revision_remap: dict[str, str],
+) -> None:
+    """Keep mastery and final-assessment links aligned after a prompt repair."""
+    for asset_type in ("mastery_criteria", "misconceptions"):
+        for item in assets.get(asset_type) or []:
+            if not isinstance(item, dict):
+                continue
+            item["assessment_bindings"] = [
+                revision_remap.get(str(value), str(value))
+                for value in item.get("assessment_bindings") or []
+            ]
+    for item in assets.get("final_assessment") or []:
+        if not isinstance(item, dict):
+            continue
+        item["question_revision_ids"] = [
+            revision_remap.get(str(value), str(value))
+            for value in item.get("question_revision_ids") or []
+        ]
 
 
 def fix_latex_content(content: str) -> str:
@@ -183,6 +210,7 @@ class TaskManager:
         asset_repository: LearningAssetRepository | None = None,
         workspace_repository: GenerationWorkspaceRepository | None = None,
         document_repository: CourseDocumentRepository | None = None,
+        practice_analysis_service: Any | None = None,
     ) -> None:
         self.storage = storage
         self.course_service = course_service
@@ -192,6 +220,7 @@ class TaskManager:
         self._learning_asset_repository = asset_repository or learning_asset_repository
         self._generation_workspace_repository = workspace_repository or generation_workspace_repository
         self._course_document_repository = document_repository or CourseDocumentRepository(storage)
+        self._practice_analysis_service = practice_analysis_service
         self.max_concurrency = max_concurrency
         self.max_course_concurrency = max_course_concurrency
 
@@ -1309,6 +1338,29 @@ class TaskManager:
             learning_assets = course_data.get("learning_assets") or {}
             quality_report = course_data.get("generation_quality_report") or {}
             asset_quality = course_data.get("asset_quality_report") or {}
+            assessment_items = assessment_assets(learning_assets)
+            questions = [item for _, item in assessment_items]
+            question_samples = []
+            for asset_type, question in assessment_items[:8]:
+                analysis = question.get("question_analysis") or {}
+                understanding = analysis.get("question_understanding") or {}
+                mapping = analysis.get("mapping") or {}
+                intent = question.get("assessment_intent") or {}
+                question_samples.append({
+                    "question_id": str(question.get("question_id") or ""),
+                    "asset_type": asset_type,
+                    "practice_level": str(question.get("practice_level") or ""),
+                    "prompt": str(question.get("prompt") or ""),
+                    "status": str(analysis.get("status") or "pending"),
+                    "task_goal": str(understanding.get("task_goal") or ""),
+                    "why_this_question": str(intent.get("why_this_question") or ""),
+                    "library_fit": str(mapping.get("library_fit") or ""),
+                    "target_skills": deepcopy(intent.get("target_skills") or []),
+                    "target_misconceptions": deepcopy(
+                        intent.get("target_misconceptions") or []
+                    ),
+                    "issues": deepcopy((analysis.get("quality") or {}).get("issues") or []),
+                })
             artifact = {
                 "section_count": len(content_nodes),
                 "completed_count": sum(self._is_content_complete(node) for node in content_nodes),
@@ -1323,6 +1375,18 @@ class TaskManager:
                     str(asset_type): len(values)
                     for asset_type, values in learning_assets.items()
                     if isinstance(values, list) and values
+                },
+                "question_review": {
+                    "total": len(questions),
+                    "passed": sum(
+                        (item.get("question_analysis") or {}).get("status") == "passed"
+                        for item in questions
+                    ),
+                    "blocked": sum(
+                        (item.get("question_analysis") or {}).get("status") == "blocked"
+                        for item in questions
+                    ),
+                    "samples": question_samples,
                 },
                 "blocking_issues": deepcopy(
                     quality_report.get("blocking_issues") or []
@@ -1369,10 +1433,21 @@ class TaskManager:
                 task.get("status") == "waiting_for_review"
                 and workflow.get("review_step") == step
                 and (
-                    step != "release"
-                    or (
-                        artifact.get("publication_allowed")
-                        and (artifact.get("source_chain") or {}).get("can_publish")
+                    (
+                        step != "content"
+                        or (
+                            artifact.get("asset_quality_passed")
+                            and not (artifact.get("question_review") or {}).get(
+                                "blocked"
+                            )
+                        )
+                    )
+                    and (
+                        step != "release"
+                        or (
+                            artifact.get("publication_allowed")
+                            and (artifact.get("source_chain") or {}).get("can_publish")
+                        )
                     )
                 )
             ),
@@ -3571,7 +3646,126 @@ class TaskManager:
             "正在编译课程练习、掌握标准和课程知识映射",
             phase_progress=20,
         )
+        fresh_course["question_analysis_required"] = bool(
+            self._practice_analysis_service
+        )
         asset_bundle = compile_learning_assets(fresh_course)
+        if self._practice_analysis_service:
+            fresh_course["learning_asset_plan"] = asset_bundle["plan"]
+            fresh_course["learning_assets"] = asset_bundle["assets"]
+            fresh_course["question_analysis_status"] = "running"
+            await self._save_task_course(task_id, fresh_course)
+            await self._update_phase(
+                task_id,
+                "question_analysis",
+                87,
+                "正在逐题解析实际考查目标，并核对知识、能力与易错点",
+                phase_progress=55,
+            )
+            try:
+                assessment_targets = [
+                    item
+                    for _, item in assessment_assets(asset_bundle["assets"])
+                ]
+                analyzed_questions = (
+                    await self._practice_analysis_service.analyze_questions(
+                        assessment_targets
+                    )
+                )
+                if hasattr(
+                    self._practice_analysis_service,
+                    "repair_blocked_questions",
+                ):
+                    try:
+                        repaired_questions = (
+                            await self._practice_analysis_service.repair_blocked_questions(
+                                analyzed_questions
+                            )
+                        )
+                        repair_targets = [
+                            item
+                            for item in repaired_questions
+                            if not item.get("question_analysis")
+                        ]
+                        if repair_targets:
+                            await self._update_phase(
+                                task_id,
+                                "question_analysis",
+                                87,
+                                "正在定点重写未通过解析的题目，并再次核对",
+                                phase_progress=72,
+                            )
+                            repaired_results = (
+                                await self._practice_analysis_service.analyze_questions(
+                                    repair_targets
+                                )
+                            )
+                            repaired_by_revision = {
+                                str(item.get("revision_id") or ""): item
+                                for item in repaired_results
+                            }
+                            analyzed_questions = [
+                                repaired_by_revision.get(
+                                    str(item.get("revision_id") or ""),
+                                    item,
+                                )
+                                for item in repaired_questions
+                            ]
+                    except Exception as repair_exc:
+                        logger.warning(
+                            "Question repair failed for %s; keeping blocked review: %s",
+                            task_id,
+                            repair_exc,
+                        )
+            except Exception as exc:
+                fresh_course["question_analysis_status"] = "failed"
+                fresh_course["question_analysis_error"] = str(exc)
+                await self._save_task_course(task_id, fresh_course)
+                raise
+            analyzed_by_source_revision = {
+                str(
+                    (item.get("question_repair") or {}).get("source_revision_id")
+                    or item.get("revision_id")
+                    or ""
+                ): item
+                for item in analyzed_questions
+            }
+            revision_remap: dict[str, str] = {}
+            for _, target in assessment_assets(asset_bundle["assets"]):
+                revision_id = str(target.get("revision_id") or "")
+                analyzed = analyzed_by_source_revision.get(revision_id)
+                if analyzed:
+                    analyzed_revision_id = str(analyzed.get("revision_id") or "")
+                    if analyzed_revision_id and analyzed_revision_id != revision_id:
+                        revision_remap[revision_id] = analyzed_revision_id
+                    target.clear()
+                    target.update(analyzed)
+            if revision_remap:
+                _remap_assessment_revision_references(
+                    asset_bundle["assets"],
+                    revision_remap,
+                )
+            asset_bundle["quality_report"] = evaluate_learning_asset_quality(
+                fresh_course,
+                asset_bundle["plan"],
+                asset_bundle["assets"],
+            )
+            fresh_course["question_analysis_status"] = (
+                "passed"
+                if asset_bundle["quality_report"].get("passed")
+                else "blocked"
+            )
+            fresh_course["question_analysis_summary"] = {
+                "total": len(analyzed_questions),
+                "passed": sum(
+                    (item.get("question_analysis") or {}).get("status") == "passed"
+                    for item in analyzed_questions
+                ),
+                "blocked": sum(
+                    (item.get("question_analysis") or {}).get("status") == "blocked"
+                    for item in analyzed_questions
+                ),
+            }
         asset_bundle = self._learning_asset_repository.save_bundle(
             str(task["course_id"]),
             asset_bundle,

@@ -256,6 +256,30 @@ class DiagnosticWorkflowRepository:
 
 def diagnostic_hypotheses(course: dict[str, Any], task: dict[str, Any], attempt: dict[str, Any]) -> list[dict[str, Any]]:
     result = attempt.get("result") or {}
+    answer_diagnosis = result.get("answer_diagnosis") or {}
+    diagnosis = answer_diagnosis.get("diagnosis") or {}
+    diagnosed_claims = []
+    if answer_diagnosis.get("status") == "completed":
+        for issue in diagnosis.get("issues") or []:
+            if not isinstance(issue, dict):
+                continue
+            claim = str(
+                issue.get("what_happened")
+                or issue.get("title")
+                or ""
+            ).strip()
+            if not claim:
+                continue
+            diagnosed_claims.append({
+                "claim": claim,
+                "concept_ids": list(issue.get("knowledge_ids") or []),
+                "skill_unit_ids": list(issue.get("skill_ids") or []),
+                "candidate_mistake_point_ids": list(
+                    issue.get("misconception_ids") or []
+                ),
+                "confidence": float(issue.get("confidence") or 0.0),
+                "source": "answer_diagnosis",
+            })
     failed = [
         str(item.get("criterion") or "").strip()
         for item in result.get("rubric_results") or []
@@ -267,18 +291,20 @@ def diagnostic_hypotheses(course: dict[str, Any], task: dict[str, Any], attempt:
         "objective_practice": "transfer_gap",
         "mastery_check": "process_error",
     }.get(level, "process_error")
-    claims = [
-        {"claim": claim, "candidate_mistake_point_ids": []}
-        for claim in failed[:2]
-    ] or [{
-        "claim": f"尚未稳定达到：{task.get('learning_objective') or task.get('prompt')}",
-        "candidate_mistake_point_ids": list(task.get("mistake_point_ids") or []),
-    }]
+    claims = diagnosed_claims[:2] or (
+        [
+            {"claim": claim, "candidate_mistake_point_ids": []}
+            for claim in failed[:2]
+        ] or [{
+            "claim": f"尚未稳定达到：{task.get('learning_objective') or task.get('prompt')}",
+            "candidate_mistake_point_ids": list(task.get("mistake_point_ids") or []),
+        }]
+    )
     misconceptions = [
         item for item in (course.get("learning_assets") or {}).get("misconceptions") or []
         if item.get("objective_revision_id") == task.get("objective_revision_id")
     ]
-    if misconceptions:
+    if misconceptions and not diagnosed_claims:
         matched_id = str(misconceptions[0].get("mistake_point_id") or "")
         claims.append({
             "claim": f"可能混淆：{misconceptions[0].get('error_pattern')}",
@@ -296,12 +322,33 @@ def diagnostic_hypotheses(course: dict[str, Any], task: dict[str, Any], attempt:
             "category": category,
             "claim": claim,
             "status": "testing",
-            "confidence_level": "low",
-            "concept_ids": list(task.get("concept_ids") or attempt.get("concept_ids") or []),
-            "skill_unit_ids": list(task.get("skill_unit_ids") or attempt.get("skill_unit_ids") or []),
+            "confidence_level": (
+                "medium"
+                if float(claim_entry.get("confidence") or 0.0) >= 0.7
+                else "low"
+            ),
+            "concept_ids": list(
+                claim_entry.get("concept_ids")
+                or task.get("concept_ids")
+                or attempt.get("concept_ids")
+                or []
+            ),
+            "skill_unit_ids": list(
+                claim_entry.get("skill_unit_ids")
+                or task.get("skill_unit_ids")
+                or attempt.get("skill_unit_ids")
+                or []
+            ),
             "candidate_mistake_point_ids": list(claim_entry.get("candidate_mistake_point_ids") or []),
             "confirmed_mistake_point_ids": [],
-            "evidence_for": [{"attempt_id": attempt.get("attempt_id"), "kind": "formal_failure"}],
+            "evidence_for": [{
+                "attempt_id": attempt.get("attempt_id"),
+                "kind": (
+                    "answer_diagnosis"
+                    if claim_entry.get("source") == "answer_diagnosis"
+                    else "formal_failure"
+                ),
+            }],
             "evidence_against": [],
         })
     return hypotheses

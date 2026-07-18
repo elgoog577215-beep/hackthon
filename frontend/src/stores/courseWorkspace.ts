@@ -394,7 +394,20 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       const sourceQuestion = questions.find(question => (
         (question.task_revision_id || question.revision_id) === sourceTaskRevisionId
       ))
-      const sourceSignals = { ...(sourceQuestion || {}), ...failedAttempt }
+      const diagnosed = failedAttempt.result?.answer_diagnosis?.diagnosis || {}
+      const sourceSignals = {
+        ...(sourceQuestion || {}),
+        ...failedAttempt,
+        concept_ids: diagnosed.knowledge_ids?.length
+          ? diagnosed.knowledge_ids
+          : (sourceQuestion?.concept_ids || failedAttempt.concept_ids || []),
+        skill_unit_ids: diagnosed.skill_ids?.length
+          ? diagnosed.skill_ids
+          : (sourceQuestion?.skill_unit_ids || failedAttempt.skill_unit_ids || []),
+        mistake_point_ids: diagnosed.misconception_ids?.length
+          ? diagnosed.misconception_ids
+          : (sourceQuestion?.mistake_point_ids || failedAttempt.mistake_point_ids || []),
+      }
       const ranked = questions
         .map((question, index) => ({
           question,
