@@ -186,6 +186,33 @@ def test_unregistered_programming_topic_is_not_approved_with_arbitrary_records()
     )
 
 
+def test_legacy_cpp_default_arguments_and_overloads_use_cpp_trace():
+    course = _legacy_course(
+        course_id="legacy-cpp-overload",
+        course_name="《C++：从基础语法到系统级编程》",
+        node_name="3.3 默认参数与函数重载",
+        node_content="",
+    )
+
+    generated = _practice_items(course)
+
+    assert generated
+    assert all(
+        item["question_spec"]["subject_family"]
+        == "programming_engineering"
+        and item["question_spec"]["adapter_id"]
+        == "programming.function_overload"
+        and item["question_spec"]["capability_id"]
+        == "programming.default_arguments_and_overload"
+        and item["question_spec"]["stimulus"]["data"]["language"]
+        == "C++"
+        and item["answer_spec"]["canonical_answer"]["stdout"]
+        and item["domain_validation"]["passed"]
+        and item["lifecycle_status"] == "approved"
+        for item in generated
+    )
+
+
 def test_unregistered_natural_science_topic_is_not_auto_approved_as_experiment():
     course = _legacy_course(
         course_id="legacy-physics-unregistered",

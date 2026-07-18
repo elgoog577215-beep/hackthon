@@ -328,3 +328,43 @@ def test_first_rebuild_refuses_partial_question_bank_publication(
         raised.value.detail["code"]
         == "question_bank_publication_quality_failed"
     )
+
+
+def test_safe_approved_subset_builds_explicit_partial_overlay():
+    formal_task = {
+        "revision_id": "task-approved",
+        "node_id": "node-approved",
+        "practice_level": "concept_check",
+        "prompt": "给定可运行代码，判断实际输出并说明规则。",
+    }
+    compiled_assets = {
+        "plan": {"enabled_asset_types": ["questions"]},
+        "quality_report": {"passed": False},
+        "assets": {"questions": []},
+    }
+    partial_bank = {
+        "course_id": "course-api",
+        "bundle_revision_id": "qbb-partial-safe",
+        "coverage": {"coverage_ratio": 0.5},
+        "items": [{
+            "assessment_role": "practice",
+            "lifecycle_status": "approved",
+            "quality_report": {"passed": True},
+            "formal_task_revision_id": "task-approved",
+            "formal_task": formal_task,
+        }],
+    }
+
+    selected = question_bank._select_publishable_asset_bundle(
+        None,
+        compiled_assets,
+        partial_bank,
+    )
+
+    assert selected["publication_mode"] == "question_bank_partial"
+    assert selected["quality_report"]["passed"] is True
+    assert selected["quality_report"]["scope"] == "approved_question_subset"
+    assert selected["question_bank_publication_quality"][
+        "coverage_complete"
+    ] is False
+    assert selected["assets"]["questions"] == [formal_task]
