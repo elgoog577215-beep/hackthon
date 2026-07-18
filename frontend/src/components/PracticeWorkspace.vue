@@ -208,7 +208,10 @@
               </ol>
             </div>
             <div
-              v-if="workspace.revealedSolution.representation?.content"
+              v-if="
+                workspace.revealedSolution.representation?.content
+                && workspace.revealedSolution.representation?.kind !== 'reasoning_path'
+              "
               class="solution-representation"
             >
               <h4>{{ t('courseWorkspace.practice.referenceImplementation', '参考实现或结构') }}</h4>
@@ -330,6 +333,7 @@ import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { t } from '../shared/i18n'
 import { isQuestionBankRepairReason, practiceAvailabilityCopy } from '../utils/course-availability'
 import { practiceScopeKind } from '../utils/learning-scope'
+import { presentSolutionValue } from '../utils/solution-presentation'
 
 const props = defineProps<{
   courseId: string
@@ -353,11 +357,24 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 const questions = computed(() => workspace.practice?.questions || [])
 const currentQuestion = computed(() => workspace.currentPracticeQuestion)
-const hintDisplayRows = computed(() => {
+
+interface HintDisplayRow {
+  level: number
+  content: string
+  loading: boolean
+  [key: string]: unknown
+}
+
+const hintDisplayRows = computed<HintDisplayRow[]>(() => {
   const loadingLevel = hintLoadingLevel.value
-  const rows = workspace.revealedHints
+  const rows: HintDisplayRow[] = workspace.revealedHints
     .filter(hint => Number(hint.level) !== loadingLevel)
-    .map(hint => ({ ...hint, loading: false }))
+    .map(hint => ({
+      ...hint,
+      level: Number(hint.level),
+      content: String(hint.content || ''),
+      loading: false,
+    }))
   if (loadingLevel !== null) {
     rows.push({
       level: loadingLevel,
@@ -730,13 +747,7 @@ function statusLabel(attempt: any) {
 }
 
 function formatSolutionValue(value: unknown) {
-  if (typeof value === 'string') return value
-  if (value === null || value === undefined) return ''
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
+  return presentSolutionValue(value)
 }
 </script>
 

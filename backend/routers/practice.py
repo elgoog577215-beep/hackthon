@@ -31,6 +31,10 @@ from practice_attempts import (
 )
 from practice_grading import practice_grader
 from question_bank import approved_formal_tasks, question_bank_repository
+from solution_presentation import (
+    present_solution_representation,
+    present_solution_value,
+)
 from storage import storage
 
 router = APIRouter(prefix="/courses/{course_id}/practice", tags=["practice"])
@@ -1133,12 +1137,18 @@ def _solution_payload(question: dict[str, Any]) -> dict[str, Any]:
         "schema_version": "solution_spec_v1",
         "summary": summary,
         "steps": steps,
-        "final_answer": final_answer,
+        "final_answer": present_solution_value(final_answer),
         "checks": checks,
-        "representation": structured.get("representation"),
+        "representation": present_solution_representation(
+            structured.get("representation")
+        ),
         "criteria": spec.get("criteria") or [],
         "reference_concepts": spec.get("expected_keywords") or [],
-        "correct_answer": spec.get("correct_answer"),
+        "correct_answer": (
+            present_solution_value(spec.get("correct_answer"))
+            if spec.get("correct_answer") is not None
+            else None
+        ),
         "guidance": summary,
     }
 
