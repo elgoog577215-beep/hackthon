@@ -114,4 +114,80 @@ describe('PracticeWorkspace resumed hints', () => {
     )
     expect(wrapper.text()).toContain('先区分大小与方向。')
   })
+
+  it('提示请求等待期间立即显示生成占位，完成后原位替换为正式提示', async () => {
+    const freshAttempt = {
+      ...activeAttempt,
+      revision: 1,
+      revealed_hint_levels: [],
+      revealed_hints: [],
+      ai_support_level: 0,
+    }
+    httpMock.get.mockImplementation((url: string) => {
+      if (url.endsWith('/practice')) {
+        return Promise.resolve({
+          data: {
+            course_id: 'c1',
+            course_version_id: 'cv1',
+            scope: 'node',
+            questions: [question],
+            active_attempts: [freshAttempt],
+            summary: {},
+          },
+        })
+      }
+      if (url.endsWith('/diagnostics/active')) {
+        return Promise.resolve({
+          data: { phase: 'practice', case: null, session: null, current_task: null },
+        })
+      }
+      return Promise.resolve({ data: {} })
+    })
+    let resolveHintRequest: ((value: unknown) => void) | undefined
+    const pendingHintRequest = new Promise(resolve => {
+      resolveHintRequest = resolve
+    })
+    httpMock.post.mockImplementation((url: string) => {
+      if (url.endsWith('/hints/1')) return pendingHintRequest
+      return Promise.resolve({ data: {} })
+    })
+    const wrapper = mount(PracticeWorkspace, {
+      props: {
+        courseId: 'c1',
+        nodeId: 'n1',
+        nodeLabel: '向量',
+        scope: 'node',
+      },
+    })
+    await flushPromises()
+
+    const firstHintButton = wrapper.findAll('.icon-command')[0]
+    if (!firstHintButton) throw new Error('expected first hint button')
+    await firstHintButton.trigger('click')
+
+    const loadingPlaceholder = wrapper.get('[data-testid="hint-loading-placeholder"]')
+    expect(loadingPlaceholder.text()).toContain('正在生成提示，请稍候')
+    expect(loadingPlaceholder.attributes('aria-live')).toBe('polite')
+    expect(loadingPlaceholder.attributes('aria-busy')).toBe('true')
+    expect(firstHintButton.attributes('disabled')).toBeDefined()
+
+    resolveHintRequest?.({
+      data: {
+        status: 'revealed',
+        attempt: {
+          ...freshAttempt,
+          revision: 2,
+          revealed_hint_levels: [1],
+          revealed_hints: [
+            { level: 1, kind: 'orientation', content: '先区分大小与方向。' },
+          ],
+        },
+        hint: { level: 1, kind: 'orientation', content: '先区分大小与方向。' },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="hint-loading-placeholder"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('先区分大小与方向。')
+  })
 })
