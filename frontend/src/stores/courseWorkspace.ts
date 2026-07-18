@@ -541,6 +541,13 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/confirm`)
       return res.data
     },
+    async reopenGenerationStep(
+      courseId: string,
+      step: 'outline',
+    ) {
+      const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/reopen`)
+      return res.data
+    },
     async discardBlueprint(courseId: string) {
       await http.delete(`/api/courses/${courseId}/blueprint/draft`)
       await this.loadBlueprint(courseId)

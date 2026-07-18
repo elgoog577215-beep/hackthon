@@ -7,6 +7,7 @@ from guided_generation import (
     mark_waiting,
     step_state,
 )
+import pytest
 
 
 def _course():
@@ -83,3 +84,23 @@ def test_outline_drift_is_detected_even_when_persisted_revision_id_is_stale():
 
     assert report["can_publish"] is False
     assert any(item["code"] == "outline_revision_mismatch" for item in report["issues"])
+
+
+def test_step_cannot_confirm_after_its_upstream_revision_changes():
+    request = {"subject": "线性代数", "difficulty": "intermediate"}
+    course = _course()
+    workflow = create_guided_workflow(request)
+    outline_revision = artifact_revision("outline", course, request=request)
+    mark_waiting(workflow, "outline", revision=outline_revision)
+    confirm_waiting_step(workflow, "outline", revision=outline_revision)
+
+    knowledge_revision = artifact_revision("knowledge", course, request=request)
+    mark_waiting(workflow, "knowledge", revision=knowledge_revision)
+    step_state(workflow, "outline")["artifact_revision"] = "outline_changed"
+
+    with pytest.raises(ValueError, match="stale upstream"):
+        confirm_waiting_step(
+            workflow,
+            "knowledge",
+            revision=knowledge_revision,
+        )

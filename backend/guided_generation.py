@@ -178,7 +178,11 @@ def mark_waiting(
     current = step_state(workflow, step)
     current["status"] = "waiting_for_confirmation"
     current["artifact_revision"] = revision
-    current["input_revisions"] = deepcopy(input_revisions or confirmed_revisions(workflow))
+    current["input_revisions"] = deepcopy(
+        input_revisions
+        if input_revisions is not None
+        else expected_input_revisions(workflow, step)
+    )
     workflow["current_step"] = step
     workflow["review_step"] = step
     workflow["updated_at"] = datetime.now().isoformat()
@@ -198,6 +202,16 @@ def confirm_waiting_step(
     expected_revision = str(current.get("artifact_revision") or "")
     if expected_revision and expected_revision != revision:
         raise ValueError("The reviewed artifact changed; reload it before confirming")
+    expected_inputs = expected_input_revisions(workflow, step)
+    actual_inputs = {
+        str(key): str(value)
+        for key, value in (current.get("input_revisions") or {}).items()
+        if value
+    }
+    if actual_inputs != expected_inputs:
+        raise ValueError(
+            "The reviewed artifact was generated from stale upstream revisions"
+        )
     current["status"] = "confirmed"
     current["artifact_revision"] = revision
     current["confirmed_at"] = datetime.now().isoformat()
@@ -220,10 +234,11 @@ def invalidate_after(workflow: dict[str, Any], step: str) -> list[str]:
     start = GUIDED_STEP_KEYS.index(step) + 1
     for key in GUIDED_STEP_KEYS[start:]:
         item = step_state(workflow, key)
-        if item.get("status") != "locked":
-            item["status"] = "needs_regeneration"
-            item["confirmed_at"] = None
-            changed.append(key)
+        item["status"] = "needs_regeneration"
+        item["confirmed_at"] = None
+        item["artifact_revision"] = None
+        item["input_revisions"] = {}
+        changed.append(key)
     workflow["current_step"] = GUIDED_STEP_KEYS[start] if start < len(GUIDED_STEP_KEYS) else step
     workflow["review_step"] = None
     workflow["updated_at"] = datetime.now().isoformat()
@@ -236,6 +251,21 @@ def confirmed_revisions(workflow: dict[str, Any]) -> dict[str, str]:
         for item in workflow.get("steps") or []
         if item.get("status") == "confirmed" and item.get("artifact_revision")
     }
+
+
+def expected_input_revisions(
+    workflow: dict[str, Any],
+    step: str,
+) -> dict[str, str]:
+    """Return the exact confirmed upstream revisions a stage is allowed to consume."""
+    end = GUIDED_STEP_KEYS.index(step)
+    expected: dict[str, str] = {}
+    for key in GUIDED_STEP_KEYS[:end]:
+        item = step_state(workflow, key)
+        revision = str(item.get("artifact_revision") or "")
+        if item.get("status") == "confirmed" and revision:
+            expected[key] = revision
+    return expected
 
 
 def artifact_revision(
@@ -323,6 +353,7 @@ def artifact_revision(
         return stable_hash(
             {
                 "knowledge_revision": artifact_revision("knowledge", course_data),
+                "teaching_revision": artifact_revision("teaching", course_data),
                 "nodes": [
                     {
                         "node_id": node.get("node_id"),
@@ -332,6 +363,11 @@ def artifact_revision(
                     for node in course_data.get("nodes") or []
                     if int(node.get("node_level") or 1) == 2
                 ],
+                "learning_assets": course_data.get("learning_assets") or {},
+                "learning_asset_bundle_revision_id": (
+                    course_data.get("learning_asset_bundle_revision_id") or ""
+                ),
+                "course_knowledge_map": course_data.get("course_knowledge_map") or {},
             },
             prefix="content_",
         )
@@ -362,22 +398,44 @@ def build_source_chain_report(
         expected = str(state.get("artifact_revision") or "")
         actual = artifact_revision(step, course_data, request=request)
         confirmed = state.get("status") == "confirmed"
-        passed = confirmed and bool(expected) and expected == actual
+        expected_inputs = expected_input_revisions(workflow, step)
+        actual_inputs = {
+            str(key): str(value)
+            for key, value in (state.get("input_revisions") or {}).items()
+            if value
+        }
+        inputs_passed = actual_inputs == expected_inputs
+        passed = confirmed and bool(expected) and expected == actual and inputs_passed
         checks.append(
             {
                 "step": step,
                 "confirmed": confirmed,
                 "expected_revision": expected,
                 "actual_revision": actual,
+                "expected_input_revisions": expected_inputs,
+                "actual_input_revisions": actual_inputs,
+                "inputs_passed": inputs_passed,
                 "passed": passed,
             }
         )
-        if not passed:
+        revision_passed = confirmed and bool(expected) and expected == actual
+        if not revision_passed:
             issues.append(
                 {
                     "code": f"{step}_revision_mismatch",
                     "step": step,
                     "message": f"{step} is not confirmed or no longer matches its confirmed revision",
+                }
+            )
+        if not inputs_passed:
+            issues.append(
+                {
+                    "code": f"{step}_input_revision_mismatch",
+                    "step": step,
+                    "message": (
+                        f"{step} was not produced from the currently confirmed "
+                        "upstream revisions"
+                    ),
                 }
             )
 
@@ -443,6 +501,7 @@ __all__ = [
     "confirmed_revisions",
     "confirm_waiting_step",
     "create_guided_workflow",
+    "expected_input_revisions",
     "invalidate_after",
     "is_confirmed",
     "mark_running",

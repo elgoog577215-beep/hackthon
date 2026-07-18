@@ -21,8 +21,48 @@ class MemoryStorage:
 
 
 class BlueprintService:
+    @staticmethod
+    def _attach_teaching(course):
+        course["course_composition_profile"] = {
+            "style": "example_driven",
+            "label": "案例实战",
+            "summary": "增加典型案例与真实场景。",
+            "rhythm": ["讲解", "补充案例", "真实场景", "学习者行动", "检查反馈"],
+        }
+        course["course_block_distribution"] = {
+            "style": "example_driven",
+            "total_blocks": 2,
+            "composition_added_blocks": 1,
+            "role_counts": {"concept": 1, "example": 1},
+        }
+        for node in course["nodes"]:
+            node["module_plan"] = [{
+                "module_id": "core_explanation",
+                "module_instance_id": "L2-1-1:core_explanation:1",
+                "label": "核心教学",
+                "block_role": "concept",
+                "composition_source": "subject_required",
+                "block_difficulty_contract": {"target_level": "intermediate"},
+            }, {
+                "module_id": "composition_case_extension",
+                "module_instance_id": "L2-1-1:composition_case_extension:1",
+                "label": "补充案例",
+                "block_role": "example",
+                "composition_source": "composition_style",
+                "block_difficulty_contract": {"target_level": "intermediate"},
+            }]
+        course.setdefault("generation_stage_artifacts", {})["teaching"] = {
+            "status": "completed",
+            "schema_version": "course_teaching_plan_v1",
+        }
+        return course
+
     async def build_course_draft(self, **kwargs):
         course = deepcopy(kwargs["existing_course_data"])
+        existing_nodes = {
+            str(node.get("node_id") or ""): deepcopy(node)
+            for node in course.get("nodes") or []
+        }
         course.update({
             "course_blueprint": {"nodes": []},
             "subject_pedagogy_profile": {
@@ -34,18 +74,6 @@ class BlueprintService:
                 "rationale": "test",
                 "enabled_module_ids": [],
                 "user_locked": True,
-            },
-            "course_composition_profile": {
-                "style": "example_driven",
-                "label": "案例实战",
-                "summary": "增加典型案例与真实场景。",
-                "rhythm": ["讲解", "补充案例", "真实场景", "学习者行动", "检查反馈"],
-            },
-            "course_block_distribution": {
-                "style": "example_driven",
-                "total_blocks": 2,
-                "composition_added_blocks": 1,
-                "role_counts": {"concept": 1, "example": 1},
             },
             "nodes": [{
                 "node_id": "L2-1-1",
@@ -99,29 +127,34 @@ class BlueprintService:
                 "assessment": ["解释概念"],
                 "difficulty_contract": {},
                 "grounding_contract": {},
-                "module_plan": [{
-                    "module_id": "core_explanation",
-                    "module_instance_id": "L2-1-1:core_explanation:1",
-                    "label": "核心教学",
-                    "block_role": "concept",
-                    "composition_source": "subject_required",
-                    "block_difficulty_contract": {"target_level": "intermediate"},
-                }, {
-                    "module_id": "composition_case_extension",
-                    "module_instance_id": "L2-1-1:composition_case_extension:1",
-                    "label": "补充案例",
-                    "block_role": "example",
-                    "composition_source": "composition_style",
-                    "block_difficulty_contract": {"target_level": "intermediate"},
-                }],
                 "generation_status": "pending",
             }],
         })
+        for node in course["nodes"]:
+            existing = existing_nodes.get(str(node.get("node_id") or "")) or {}
+            for field in (
+                "node_name",
+                "learning_objective",
+                "scope_boundary",
+                "assessment",
+                "prerequisite_node_ids",
+            ):
+                if field in existing:
+                    node[field] = deepcopy(existing[field])
         if kwargs.get("stop_after_outline"):
             for node in course["nodes"]:
                 node["knowledge_structure"] = []
                 node["key_points"] = []
-        return course
+                node["module_plan"] = []
+            return course
+        if kwargs.get("stop_after_knowledge"):
+            for node in course["nodes"]:
+                node["module_plan"] = []
+            return course
+        return self._attach_teaching(course)
+
+    def compile_teaching_plan(self, course):
+        return self._attach_teaching(deepcopy(course))
 
 
 @pytest.mark.asyncio
@@ -156,6 +189,8 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     workspace_course = manager.get_generation_workspace_course(job["course_id"])
     assert workspace_course is not None
     assert workspace_course["nodes"][0]["node_name"] == "概念"
+    assert workspace_course["nodes"][0].get("module_plan") == []
+    assert "course_block_distribution" not in workspace_course
     assert "knowledge_library_binding" not in workspace_course
     assert workspace_course["nodes"][0]["knowledge_structure"] == []
     assert "course_knowledge_base" not in workspace_course
@@ -255,6 +290,31 @@ async def test_guided_job_waits_for_knowledge_then_teaching_confirmation(tmp_pat
     assert teaching_review["artifact"]["sections"][0]["module_plan"][1][
         "composition_source"
     ] == "composition_style"
+
+    reopened = await manager.reopen_generation_step(job["course_id"], "outline")
+    assert reopened["invalidated_steps"] == [
+        "knowledge",
+        "teaching",
+        "content",
+        "release",
+    ]
+    assert task["guided_workflow"]["review_step"] == "outline"
+    edited_draft = manager._version_repository.load_draft(job["course_id"])
+    edited_draft["nodes"][0]["learning_objective"] = "能够比较概念的内涵与外延"
+    manager._version_repository.save_draft(job["course_id"], edited_draft)
+    await manager.confirm_generation_step(job["course_id"], "outline")
+    assert await manager._task_queue.get() == job["job_id"]
+    invalidated_course = manager.get_generation_workspace_course(job["course_id"])
+    assert "course_knowledge_base" not in invalidated_course
+    assert invalidated_course["nodes"][0].get("module_plan") is None
+    assert invalidated_course["nodes"][0]["generation_status"] == "pending"
+
+    await manager._process_task(job["job_id"])
+    assert manager.tasks[job["job_id"]]["guided_workflow"]["review_step"] == "knowledge"
+    await manager.confirm_generation_step(job["course_id"], "knowledge")
+    assert await manager._task_queue.get() == job["job_id"]
+    await manager._process_task(job["job_id"])
+    assert manager.tasks[job["job_id"]]["guided_workflow"]["review_step"] == "teaching"
 
     await manager.confirm_generation_step(job["course_id"], "teaching")
     assert await manager._task_queue.get() == job["job_id"]

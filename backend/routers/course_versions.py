@@ -229,6 +229,30 @@ async def confirm_generation_step(
         ) from exc
 
 
+@router.post("/generation/steps/{step}/reopen", status_code=202)
+async def reopen_generation_step(
+    course_id: str,
+    step: GenerationStep,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    await get_course_or_404(course_id)
+    try:
+        return await tm.reopen_generation_step(course_id, step)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except CourseVersionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TaskStateConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "task_state_conflict",
+                "message": str(exc),
+                "status": exc.status,
+            },
+        ) from exc
+
+
 @router.post("/regenerate", status_code=202)
 async def regenerate_course(
     course_id: str,

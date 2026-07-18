@@ -206,9 +206,24 @@ describe('CourseTaskCenter', () => {
         concept_group_count: 3,
         knowledge_point_count: 12,
         relation_count: 8,
+        section_responsibilities: [{
+          node_id: 'L2-1-1',
+          section_number: '1.1',
+          title: '向量空间',
+          learning_objective: '判断集合是否构成向量空间',
+          scope_boundary: '本节不展开线性映射',
+        }],
         concept_groups: [{ name: '向量与空间', summary: '建立线性空间的基本语言' }],
+        relations: [{
+          source_name: '向量加法',
+          target_name: '向量空间公理',
+          relation_type: 'prerequisite',
+          reason: '先理解运算，才能检查公理',
+        }],
       },
     })
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    const reopen = vi.spyOn(workspace, 'reopenGenerationStep').mockResolvedValue({ status: 'reopened' })
     const confirm = vi.spyOn(workspace, 'confirmGenerationStep').mockResolvedValue({ status: 'running' })
     const wrapper = mountCenter()
     await flushPromises()
@@ -216,6 +231,12 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('确认知识蓝图')
     expect(wrapper.text()).toContain('12')
     expect(wrapper.text()).toContain('向量与空间')
+    expect(wrapper.text()).toContain('每节负责教什么')
+    expect(wrapper.text()).toContain('本节不展开线性映射')
+    expect(wrapper.text()).toContain('向量加法')
+    await wrapper.get('.guided-workflow__step:not(:disabled)').trigger('click')
+    await flushPromises()
+    expect(reopen).toHaveBeenCalledWith('course-1', 'outline')
     await wrapper.get('.task-actions .primary-button').trigger('click')
     await flushPromises()
     expect(confirm).toHaveBeenCalledWith('course-1', 'knowledge')

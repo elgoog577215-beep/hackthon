@@ -64,6 +64,7 @@ from course_generation_workflow import (
     attach_pedagogy_profile,
     build_course_blueprint_from_plan,
     build_course_generation_artifacts,
+    build_course_knowledge_scope_contract,
     build_node_generation_context,
     build_outline_generation_context,
     normalize_course_outline_contract,
@@ -260,6 +261,7 @@ class CourseService(AIBase):
         secondary_intensity: str | None = None,
         existing_course_data: dict[str, Any] | None = None,
         stop_after_outline: bool = False,
+        stop_after_knowledge: bool = False,
         on_phase: Callable[..., Awaitable[None] | None] | None = None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
     ) -> dict[str, Any]:
@@ -523,18 +525,6 @@ class CourseService(AIBase):
             strategy=grounding_strategy,
         )
         artifacts["evidence_coverage_plan"] = evidence_coverage_plan
-        plan = attach_generation_artifacts_to_plan(plan, artifacts)
-        plan = attach_module_plans_to_plan(plan, profile)
-        course_difficulty_curve = attach_difficulty_contracts_to_plan(
-            plan,
-            profile=difficulty_profile,
-            adaptation=adaptation_decision,
-        )
-        composition_artifacts = attach_composition_to_plan(
-            plan,
-            composition_profile["style"],
-        )
-        artifacts.update(composition_artifacts)
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
         outline_plan = self._outline_only_plan(plan)
@@ -576,10 +566,7 @@ class CourseService(AIBase):
             "difficulty_profile": difficulty_profile.to_dict(),
             "difficulty_gap_assessment": gap_assessment.to_dict(),
             "adaptation_decision": adaptation_decision.to_dict(),
-            "course_difficulty_curve": course_difficulty_curve,
             "course_composition_profile": composition_profile,
-            "course_block_distribution": composition_artifacts["course_block_distribution"],
-            "course_module_plan": deepcopy(plan.get("course_module_plan") or []),
             "nodes": nodes,
             "course_plan": plan,
             "course_outline": outline_plan,
@@ -610,6 +597,18 @@ class CourseService(AIBase):
             self.register_course_generation_metadata(course_id, course_data)
             return course_data
 
+        knowledge_scope_contract = (
+            deepcopy(course_data.get("course_knowledge_scope_contract"))
+            if isinstance(course_data.get("course_knowledge_scope_contract"), dict)
+            else build_course_knowledge_scope_contract(plan)
+        )
+        course_data["course_knowledge_scope_contract"] = knowledge_scope_contract
+        course_data.setdefault("generation_stage_artifacts", {})["knowledge_scope"] = {
+            "status": "completed",
+            "schema_version": knowledge_scope_contract.get("schema_version"),
+            "revision_id": knowledge_scope_contract.get("revision_id"),
+        }
+        await self._notify_checkpoint(on_checkpoint, course_data)
         plan = await self._enrich_section_knowledge_packages(
             course_data=course_data,
             plan=plan,
@@ -637,14 +636,6 @@ class CourseService(AIBase):
         course_data.update({
             "course_name": plan.get("course_title", topic),
             "course_plan": plan,
-            "course_module_plan": deepcopy(plan.get("course_module_plan") or []),
-            "course_composition_profile": deepcopy(
-                plan.get("course_composition_profile") or composition_profile
-            ),
-            "course_block_distribution": deepcopy(
-                plan.get("course_block_distribution")
-                or composition_artifacts["course_block_distribution"]
-            ),
             "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
             "nodes": self._merge_generation_nodes(
                 self._convert_plan_to_nodes(plan, course_id),
@@ -697,8 +688,116 @@ class CourseService(AIBase):
                 "course_knowledge_base_revision_id": course_knowledge_base.get("revision_id"),
             },
         )
+        if not stop_after_knowledge:
+            course_data = self.compile_teaching_plan(course_data)
         self.register_course_generation_metadata(course_id, course_data)
         return course_data
+
+    def compile_teaching_plan(self, course_data: dict[str, Any]) -> dict[str, Any]:
+        """Compile the first real teaching artifact from a confirmed knowledge base."""
+        working = deepcopy(course_data)
+        knowledge_base = working.get("course_knowledge_base") or {}
+        if knowledge_base.get("lifecycle_status") != "active":
+            raise ValueError("Teaching design requires an active confirmed knowledge blueprint")
+        plan = deepcopy(working.get("course_plan") or {})
+        if not plan.get("chapters"):
+            raise ValueError("Teaching design requires a confirmed course outline")
+
+        request = working.get("generation_request") or {}
+        profile = coerce_persisted_profile(working)
+        difficulty_profile = compile_difficulty_profile(
+            request.get("difficulty") or working.get("difficulty") or "intermediate",
+            primary_mode=profile.primary_mode,
+            secondary_mode=profile.secondary_mode,
+        )
+        gap_assessment = assess_readiness(
+            difficulty_profile,
+            request.get("current_readiness"),
+        )
+        adaptation_decision = decide_adaptation(
+            gap_assessment,
+            str(request.get("adaptation_preference") or "preserve_target_extend"),
+        )
+        artifacts = {
+            **deepcopy(self._course_generation_artifacts.get(str(working.get("course_id") or "")) or {}),
+            "course_generation_brief": deepcopy(working.get("course_generation_brief") or {}),
+            "course_composition_profile": deepcopy(
+                working.get("course_composition_profile") or {}
+            ),
+            "difficulty_profile": difficulty_profile.to_dict(),
+            "difficulty_gap_assessment": gap_assessment.to_dict(),
+            "adaptation_decision": adaptation_decision.to_dict(),
+            "subject_pedagogy_profile": profile.to_dict(),
+            "evidence_coverage_plan": deepcopy(working.get("evidence_coverage_plan") or {}),
+        }
+
+        plan = attach_generation_artifacts_to_plan(plan, artifacts)
+        plan = attach_module_plans_to_plan(plan, profile)
+        difficulty_curve = attach_difficulty_contracts_to_plan(
+            plan,
+            profile=difficulty_profile,
+            adaptation=adaptation_decision,
+        )
+        composition_artifacts = attach_composition_to_plan(
+            plan,
+            request.get("composition_style")
+            or working.get("composition_style")
+            or (working.get("course_composition_profile") or {}).get("style"),
+            legacy_style=request.get("style") or working.get("style"),
+        )
+        artifacts.update(composition_artifacts)
+        blueprint = build_course_blueprint_from_plan(plan, artifacts)
+        for key in (
+            "course_outline_constraint_report",
+            "course_plan_constraint_report",
+            "course_knowledge_base_revision_id",
+            "course_coherence_revision_id",
+        ):
+            if key in (working.get("course_blueprint") or {}):
+                blueprint[key] = deepcopy(working["course_blueprint"][key])
+
+        working.update(
+            {
+                "course_plan": plan,
+                "course_module_plan": deepcopy(plan.get("course_module_plan") or []),
+                "course_composition_profile": deepcopy(
+                    composition_artifacts["course_composition_profile"]
+                ),
+                "course_block_distribution": deepcopy(
+                    composition_artifacts["course_block_distribution"]
+                ),
+                "course_difficulty_curve": difficulty_curve,
+                "difficulty_profile": difficulty_profile.to_dict(),
+                "difficulty_gap_assessment": gap_assessment.to_dict(),
+                "adaptation_decision": adaptation_decision.to_dict(),
+                "nodes": self._merge_generation_nodes(
+                    self._convert_plan_to_nodes(
+                        plan,
+                        str(working.get("course_id") or ""),
+                    ),
+                    working.get("nodes") or [],
+                ),
+                "course_blueprint": blueprint,
+                "blueprint_validation_report": validate_blueprint(blueprint),
+                "generation_status": "teaching_ready",
+            }
+        )
+        coherence_contract = compile_course_coherence_contract(working)
+        working["course_coherence_contract"] = coherence_contract
+        working["course_coherence_quality_report"] = coherence_contract["quality_report"]
+        working["course_blueprint"]["course_coherence_revision_id"] = (
+            coherence_contract["revision_id"]
+        )
+        working.setdefault("generation_stage_artifacts", {})["teaching"] = {
+            "status": "completed",
+            "schema_version": "course_teaching_plan_v1",
+            "knowledge_revision_id": knowledge_base.get("revision_id"),
+        }
+        self.register_course_generation_metadata(
+            str(working.get("course_id") or ""),
+            working,
+        )
+        return working
 
     async def _enrich_section_knowledge_packages(
         self,
@@ -721,6 +820,10 @@ class CourseService(AIBase):
         stage_artifacts = course_data.setdefault("generation_stage_artifacts", {})
         package_states = stage_artifacts.setdefault("section_knowledge", {})
         material_context = build_outline_generation_context(artifacts)[-7000:]
+        course_scope_contract = (
+            course_data.get("course_knowledge_scope_contract")
+            or build_course_knowledge_scope_contract(plan)
+        )
 
         for index, section in enumerate(sections, start=1):
             node_id = str(section.get("node_id") or f"section-{index}")
@@ -771,6 +874,7 @@ class CourseService(AIBase):
                     },
                     available_knowledge_names=available_names,
                     material_context=material_context,
+                    course_scope_contract=course_scope_contract,
                 )
                 response = await self._call_llm_with_heartbeat(
                     f"为小节「{section_title}」生成独立知识包，只输出 JSON。",

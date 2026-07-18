@@ -23,6 +23,7 @@ from course_difficulty import (
 )
 from course_knowledge_map import normalize_knowledge_structure
 from course_pedagogy import SubjectPedagogyProfile
+from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
 PIPELINE_VERSION = "course_generation_v5"
@@ -169,6 +170,58 @@ def normalize_course_outline_contract(plan: dict[str, Any]) -> dict[str, Any]:
     plan.setdefault("knowledge_relations", [])
     plan["outline_schema_version"] = "course_outline_v1"
     return plan
+
+
+def build_course_knowledge_scope_contract(plan: dict[str, Any]) -> dict[str, Any]:
+    """Freeze the whole-course responsibility map before local knowledge packages.
+
+    This contract is deliberately smaller than the final CourseKnowledgeBase.  Its
+    job is to make every local generation unit aware of the complete course path,
+    including later responsibilities it must not steal.
+    """
+    sections = [
+        {
+            "node_id": str(section.get("node_id") or ""),
+            "section_number": str(section.get("section_number") or ""),
+            "title": str(section.get("title") or ""),
+            "learning_objective": str(section.get("learning_objective") or ""),
+            "scope_boundary": str(section.get("scope_boundary") or ""),
+            "prerequisite_node_ids": list(section.get("prerequisite_node_ids") or []),
+        }
+        for chapter in plan.get("chapters") or []
+        if isinstance(chapter, dict)
+        for section in chapter.get("sections") or []
+        if isinstance(section, dict)
+    ]
+    responsibilities = []
+    for index, section in enumerate(sections):
+        responsibilities.append(
+            {
+                **deepcopy(section),
+                "earlier_section_ids": [
+                    item["node_id"] for item in sections[:index] if item["node_id"]
+                ],
+                "later_reserved_sections": [
+                    {
+                        "node_id": item["node_id"],
+                        "title": item["title"],
+                        "learning_objective": item["learning_objective"],
+                        "scope_boundary": item["scope_boundary"],
+                    }
+                    for item in sections[index + 1 :]
+                ],
+            }
+        )
+    payload = {
+        "schema_version": "course_knowledge_scope_v1",
+        "course_title": str(plan.get("course_title") or ""),
+        "positioning": str(plan.get("positioning") or ""),
+        "learning_objectives": list(plan.get("learning_objectives") or []),
+        "prerequisites": list(plan.get("prerequisites") or []),
+        "section_responsibilities": responsibilities,
+    }
+    payload["revision_id"] = stable_hash(payload, prefix="kscope_")
+    return payload
 
 
 def normalize_course_plan_contract(plan: dict[str, Any]) -> dict[str, Any]:

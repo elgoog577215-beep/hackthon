@@ -17,7 +17,7 @@ from course_knowledge_base import (
 )
 from course_pedagogy import MODULES, TEMPLATES, SubjectPedagogyProfile, module_block_role
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v12"
+PROMPT_CONTRACT_VERSION = "course_prompt_v13"
 
 
 class CoursePromptComposer:
@@ -174,6 +174,7 @@ class CoursePromptComposer:
         section: dict[str, Any],
         available_knowledge_names: list[str],
         material_context: str,
+        course_scope_contract: dict[str, Any] | None = None,
     ) -> str:
         return f"""## 输出契约
 你只负责一个已经冻结的小节知识包，不得修改课程名称、章节、小节、顺序、学习目标或范围。
@@ -184,6 +185,12 @@ class CoursePromptComposer:
 - 定位：{positioning}
 - 当前小节：{json.dumps(section, ensure_ascii=False)}
 - 前序已存在知识规范名称：{json.dumps(available_knowledge_names, ensure_ascii=False)}
+
+## 已冻结的全课知识责任地图
+{json.dumps(course_scope_contract or {}, ensure_ascii=False)}
+
+当前知识包必须服务本节唯一学习责任，并显式避让 `later_reserved_sections` 中后续小节
+负责的主要知识任务。可以为承接引用前序知识，但不得提前完成后续小节的核心教学。
 
 ## 资料上下文
 {material_context or '当前没有上传资料；不得伪装资料引用。'}

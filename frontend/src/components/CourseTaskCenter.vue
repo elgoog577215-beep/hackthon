@@ -69,15 +69,23 @@
             <section v-if="workflowSteps.length" class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成六步流程')">
               <ol>
                 <li v-for="step in workflowSteps" :key="step.key" :data-status="step.displayStatus">
-                  <div class="guided-workflow__marker">
-                    <CircleCheck v-if="step.displayStatus === 'confirmed'" :size="14" />
-                    <LoaderCircle v-else-if="step.displayStatus === 'in_progress'" class="spin" :size="14" />
-                    <span v-else>{{ step.number }}</span>
-                  </div>
-                  <div>
-                    <strong>{{ step.label }}</strong>
-                    <small>{{ workflowStatusLabel(step.displayStatus) }}</small>
-                  </div>
+                  <button
+                    type="button"
+                    class="guided-workflow__step"
+                    :disabled="!canReopenWorkflowStep(step)"
+                    :title="canReopenWorkflowStep(step) ? t('courseTasks.workflow.reopenHint', '返回修改课程目录；后续步骤将按新目录重建') : ''"
+                    @click="reopenWorkflowStep(step)"
+                  >
+                    <span class="guided-workflow__marker">
+                      <CircleCheck v-if="step.displayStatus === 'confirmed'" :size="14" />
+                      <LoaderCircle v-else-if="step.displayStatus === 'in_progress'" class="spin" :size="14" />
+                      <span v-else>{{ step.number }}</span>
+                    </span>
+                    <span class="guided-workflow__copy">
+                      <strong>{{ step.label }}</strong>
+                      <small>{{ canReopenWorkflowStep(step) ? t('courseTasks.workflow.clickToEdit', '可返回修改') : workflowStatusLabel(step.displayStatus) }}</small>
+                    </span>
+                  </button>
                 </li>
               </ol>
             </section>
@@ -113,12 +121,39 @@
                   <div><strong>{{ reviewArtifact.knowledge_point_count || 0 }}</strong><span>{{ t('courseTasks.review.knowledgePoints', '知识点') }}</span></div>
                   <div><strong>{{ reviewArtifact.relation_count || 0 }}</strong><span>{{ t('courseTasks.review.relations', '知识关系') }}</span></div>
                 </div>
+                <section v-if="reviewArtifact.section_responsibilities?.length" class="knowledge-scope">
+                  <header>
+                    <strong>{{ t('courseTasks.review.sectionResponsibilities', '每节负责教什么') }}</strong>
+                    <span>{{ t('courseTasks.review.sectionResponsibilitiesHelp', '先划清全课边界，再分别生成每节知识，避免前面讲完后面的内容。') }}</span>
+                  </header>
+                  <div>
+                    <article v-for="(section, index) in reviewArtifact.section_responsibilities" :key="section.node_id || index">
+                      <span>{{ section.section_number || String(index + 1).padStart(2, '0') }}</span>
+                      <div>
+                        <strong>{{ section.title }}</strong>
+                        <p>{{ section.learning_objective }}</p>
+                        <small v-if="section.scope_boundary">{{ t('courseTasks.review.scopeBoundary', '本节边界') }}：{{ section.scope_boundary }}</small>
+                      </div>
+                    </article>
+                  </div>
+                </section>
                 <div class="review-cards">
                   <article v-for="(group, index) in reviewArtifact.concept_groups || []" :key="`${group.name}-${index}`">
                     <span>{{ String(index + 1).padStart(2, '0') }}</span>
                     <div><strong>{{ group.name }}</strong><p v-if="group.summary">{{ group.summary }}</p></div>
                   </article>
                 </div>
+                <section v-if="reviewArtifact.relations?.length" class="knowledge-relations">
+                  <strong>{{ t('courseTasks.review.relationPath', '知识先后关系') }}</strong>
+                  <ul>
+                    <li v-for="(relation, index) in reviewArtifact.relations" :key="`${relation.source_name}-${relation.target_name}-${index}`">
+                      <span>{{ relation.source_name }}</span>
+                      <b>→</b>
+                      <span>{{ relation.target_name }}</span>
+                      <small v-if="relation.reason">{{ relation.reason }}</small>
+                    </li>
+                  </ul>
+                </section>
               </template>
               <template v-else-if="reviewArtifact && currentReviewStep === 'teaching'">
                 <div class="composition-review">
@@ -171,6 +206,26 @@
                     <p>{{ t('courseTasks.review.contentReadyHelp', '可以先进入课程逐节查看，再回到这里确认内容。') }}</p>
                   </div>
                 </div>
+                <div class="content-evidence">
+                  <div>
+                    <span>{{ t('courseTasks.review.contentQuality', '内容检查') }}</span>
+                    <strong>{{ contentQualityLabel }}</strong>
+                  </div>
+                  <div>
+                    <span>{{ t('courseTasks.review.learningAssets', '学习资产') }}</span>
+                    <strong>{{ totalLearningAssetCount }}</strong>
+                  </div>
+                  <div>
+                    <span>{{ t('courseTasks.review.manualReview', '需人工关注') }}</span>
+                    <strong>{{ reviewArtifact.manual_review_count || 0 }}</strong>
+                  </div>
+                </div>
+                <div v-if="assetCountEntries.length" class="asset-counts">
+                  <span v-for="entry in assetCountEntries" :key="entry.type">{{ learningAssetLabel(entry.type) }} · {{ entry.count }}</span>
+                </div>
+                <ul v-if="contentReviewIssues.length" class="release-issues">
+                  <li v-for="(issue, index) in contentReviewIssues" :key="`${issue.code || 'content-issue'}-${index}`">{{ issue.message || issue }}</li>
+                </ul>
                 <div class="review-cards review-cards--compact">
                   <article v-for="(section, index) in reviewArtifact.sections || []" :key="section.node_id || index">
                     <span>{{ String(index + 1).padStart(2, '0') }}</span>
@@ -402,6 +457,27 @@ const teachingRoleDistribution = computed(() => (
     .map(([role, count]) => ({ role, count: Number(count || 0) }))
     .sort((a, b) => b.count - a.count || a.role.localeCompare(b.role))
 ))
+const assetCountEntries = computed(() => (
+  Object.entries(reviewArtifact.value?.asset_counts || {})
+    .map(([type, count]) => ({ type, count: Number(count || 0) }))
+    .filter(entry => entry.count > 0)
+    .sort((a, b) => b.count - a.count || a.type.localeCompare(b.type))
+))
+const totalLearningAssetCount = computed(() => (
+  assetCountEntries.value.reduce((sum, entry) => sum + entry.count, 0)
+))
+const contentReviewIssues = computed<any[]>(() => [
+  ...(reviewArtifact.value?.blocking_issues || []),
+  ...(reviewArtifact.value?.warnings || []),
+])
+const contentQualityLabel = computed(() => {
+  const status = String(reviewArtifact.value?.quality_status || '')
+  if (status === 'passed') return t('courseTasks.review.qualityPassed', '通过')
+  if (status === 'completed_with_warnings') return t('courseTasks.review.qualityWarnings', '有提醒')
+  return status
+    ? t('courseTasks.review.qualityBlocked', '需处理')
+    : t('courseTasks.review.qualityPending', '待检查')
+})
 
 watch(() => props.modelValue, async open => {
   if (!open) return
@@ -490,6 +566,41 @@ async function confirmCurrentStep() {
     )
   })
 }
+function canReopenWorkflowStep(step: any) {
+  return (
+    selectedTask.value?.status === 'waiting_for_review'
+    && step?.key === 'outline'
+    && step?.status === 'confirmed'
+    && currentReviewStep.value !== 'outline'
+  )
+}
+async function reopenWorkflowStep(step: any) {
+  if (!selectedTask.value || !canReopenWorkflowStep(step)) return
+  try {
+    await ElMessageBox.confirm(
+      t(
+        'courseTasks.workflow.reopenConfirm',
+        '返回修改目录后，知识蓝图、教学方案、课程内容和发布检查都会失效，并按照新目录重新生成。',
+      ),
+      t('courseTasks.workflow.reopenTitle', '返回修改课程目录'),
+      {
+        type: 'warning',
+        confirmButtonText: t('courseTasks.workflow.reopenAction', '返回并修改'),
+        cancelButtonText: t('common.cancel', '取消'),
+      },
+    )
+    await runAction(() => workspace.reopenGenerationStep(
+      selectedTask.value!.courseId,
+      'outline',
+    ))
+    await loadSelectedReview()
+    ElMessage.success(t('courseTasks.workflow.reopened', '已返回目录步骤，可以修改后重新确认'))
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(t('courseTasks.actionFailed', '任务操作失败'))
+    }
+  }
+}
 async function deleteSelected() {
   if (!selectedTask.value) return
   const task = selectedTask.value
@@ -556,6 +667,23 @@ function workflowStatusLabel(status: string) {
     needs_regeneration: t('courseTasks.workflow.needsRegeneration', '需要重做'),
     failed: t('courseTasks.workflow.failed', '失败'),
   }[status] || status
+}
+function learningAssetLabel(type: string) {
+  return t(`courseTasks.review.assets.${type}`, {
+    questions: '练习题',
+    mastery_criteria: '掌握标准',
+    misconceptions: '易错点',
+    checklist: '检查清单',
+    final_assessment: '综合检测',
+    diagnostic_templates: '诊断题',
+    remediation_units: '补救单元',
+    validation_questions: '复验题',
+    course_knowledge_map: '知识地图',
+    course_knowledge_base: '知识库',
+    knowledge_library: '知识库视图',
+    overview: '课程总览',
+    chapter_progression_contracts: '章节进阶规则',
+  }[type] || type)
 }
 function teachingPlanSummary(section: any) {
   const modules = Array.isArray(section?.module_plan) ? section.module_plan : []
@@ -756,8 +884,10 @@ function formatDuration(seconds: number) {
 .guided-workflow ol { margin:0; padding:0; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); list-style:none; }
 .guided-workflow li { position:relative; min-width:0; display:grid; justify-items:center; gap:7px; color:var(--lz-text-muted); text-align:center; }
 .guided-workflow li:not(:last-child)::after { content:""; position:absolute; z-index:0; top:14px; left:calc(50% + 18px); right:calc(-50% + 18px); height:1px; background:var(--lz-border); }
+.guided-workflow__step { min-width:0; width:100%; display:grid; justify-items:center; gap:7px; padding:0 3px; border:0; color:inherit; background:transparent; text-align:center; }
+.guided-workflow__step:disabled { cursor:default; }.guided-workflow__step:not(:disabled) { cursor:pointer; }.guided-workflow__step:not(:disabled):hover .guided-workflow__marker { transform:translateY(-2px); box-shadow:0 5px 13px rgba(15,23,42,.12); }
 .guided-workflow__marker { position:relative; z-index:1; width:29px; height:29px; display:grid; place-items:center; border:1px solid var(--lz-border); border-radius:50%; color:var(--lz-text-muted); background:#fff; font-family:ui-monospace,monospace; font-size:10px; font-weight:750; }
-.guided-workflow li > div:last-child { min-width:0; }
+.guided-workflow__marker { transition:transform .16s ease,box-shadow .16s ease; }.guided-workflow__copy { min-width:0; max-width:100%; }
 .guided-workflow li strong,.guided-workflow li small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .guided-workflow li strong { color:var(--lz-text-secondary); font-size:10px; }.guided-workflow li small { margin-top:3px; font-size:9px; }
 .guided-workflow li[data-status="confirmed"] .guided-workflow__marker { border-color:rgba(5,150,105,.3); color:var(--lz-success); background:var(--lz-success-soft); }
@@ -768,10 +898,13 @@ function formatDuration(seconds: number) {
 .generation-review { padding:24px 0 4px; }.generation-review > header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:16px; }.generation-review > header > div { position:relative; padding-left:42px; }.generation-review__step { position:absolute; left:0; top:-2px; width:31px; height:31px; display:grid; place-items:center; border-radius:8px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-family:ui-monospace,monospace; font-size:10px; font-weight:800; }.generation-review h4 { margin:0; color:var(--lz-text-strong); font-size:14px; }.generation-review header p { margin:5px 0 0; color:var(--lz-text-muted); font-size:11px; }
 .blueprint-course-name span { display:block; margin-bottom:6px; color:var(--lz-text-muted); font-size:10px; }.blueprint-course-name input,.blueprint-nodes input,.blueprint-nodes textarea { width:100%; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; outline:none; }.blueprint-course-name input { height:38px; padding:0 10px; font-weight:650; }.blueprint-nodes { margin-top:12px; }.blueprint-nodes article { display:grid; grid-template-columns:28px minmax(0,1fr); gap:9px; padding:11px 0; border-top:1px solid rgba(226,232,240,.76); }.blueprint-nodes article > span { padding-top:9px; color:var(--lz-text-muted); font-size:10px; font-family:ui-monospace,monospace; }.blueprint-nodes input { height:36px; padding:0 9px; font-size:12px; font-weight:650; }.blueprint-nodes textarea { min-height:54px; margin-top:6px; padding:8px 9px; resize:vertical; font-size:11px; line-height:1.45; }.blueprint-course-name input:focus,.blueprint-nodes input:focus,.blueprint-nodes textarea:focus { border-color:var(--lz-brand); box-shadow:0 0 0 3px rgba(99,102,241,.08); }.blueprint-error,.blueprint-empty { color:var(--lz-warning); font-size:11px; }
 .review-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-bottom:15px; }.review-metrics div { padding:13px; border:1px solid var(--lz-border); border-radius:9px; background:var(--lz-surface-muted); }.review-metrics strong,.review-metrics span { display:block; }.review-metrics strong { color:var(--lz-text-strong); font-size:20px; }.review-metrics span { margin-top:3px; color:var(--lz-text-muted); font-size:9px; }
+.knowledge-scope { margin-bottom:16px; padding:14px; border:1px solid rgba(14,116,144,.16); border-radius:10px; background:rgba(236,254,255,.58); }.knowledge-scope > header strong,.knowledge-scope > header span { display:block; }.knowledge-scope > header strong { color:var(--lz-text-strong); font-size:12px; }.knowledge-scope > header span { margin-top:4px; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }.knowledge-scope > div { margin-top:10px; display:grid; gap:7px; }.knowledge-scope article { display:grid; grid-template-columns:34px minmax(0,1fr); gap:8px; padding-top:8px; border-top:1px solid rgba(14,116,144,.12); }.knowledge-scope article > span { color:#0e7490; font-family:ui-monospace,monospace; font-size:9px; font-weight:800; }.knowledge-scope article strong { display:block; color:var(--lz-text-strong); font-size:11px; }.knowledge-scope article p { margin:3px 0 0; color:var(--lz-text-secondary); font-size:9px; line-height:1.45; }.knowledge-scope article small { display:block; margin-top:4px; color:#0e7490; font-size:9px; line-height:1.4; }
+.knowledge-relations { margin-top:16px; }.knowledge-relations > strong { color:var(--lz-text-strong); font-size:11px; }.knowledge-relations ul { margin:8px 0 0; padding:0; display:grid; gap:6px; list-style:none; }.knowledge-relations li { display:grid; grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr); align-items:center; gap:5px; padding:8px 9px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:var(--lz-surface-muted); font-size:9px; }.knowledge-relations li b { color:var(--lz-brand-strong); text-align:center; }.knowledge-relations li small { grid-column:1 / -1; color:var(--lz-text-muted); line-height:1.4; }
 .composition-review { margin-bottom:16px; padding:14px; border:1px solid rgba(99,102,241,.18); border-radius:10px; background:var(--lz-brand-soft); }.composition-review__heading > span,.composition-review__rhythm > span { display:block; margin-bottom:3px; color:var(--lz-text-muted); font-size:9px; }.composition-review__heading strong { color:var(--lz-text-strong); font-size:14px; }.composition-review__heading p,.composition-review__rhythm p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }.composition-review__rhythm { margin-top:10px; padding-top:10px; border-top:1px solid rgba(99,102,241,.12); }.role-distribution { display:flex; flex-wrap:wrap; gap:6px; margin:11px 0 0; }.role-distribution div { display:inline-flex; align-items:center; gap:5px; padding:4px 7px; border:1px solid rgba(99,102,241,.14); border-radius:999px; color:var(--lz-text-secondary); background:#fff; }.role-distribution dt,.role-distribution dd { margin:0; font-size:9px; }.role-distribution dd { color:var(--lz-brand-strong); font-weight:800; }
 .review-cards { border-top:1px solid var(--lz-border); }.review-cards article { display:grid; grid-template-columns:30px minmax(0,1fr); gap:10px; padding:12px 0; border-bottom:1px solid rgba(226,232,240,.75); }.review-cards article > span { color:var(--lz-text-muted); font-family:ui-monospace,monospace; font-size:9px; }.review-cards strong { display:block; color:var(--lz-text-strong); font-size:12px; }.review-cards p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }.review-cards small { display:block; margin-top:6px; color:var(--lz-brand-strong); font-size:9px; line-height:1.45; }.review-cards--compact article { padding:9px 0; }
 .module-sequence { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }.module-sequence__item { position:relative; min-width:130px; max-width:220px; display:grid; gap:2px; padding:7px 8px; border-left:2px solid var(--lz-border); color:var(--lz-text-secondary); background:var(--lz-surface-muted); }.module-sequence__item[data-added="true"] { border-left-color:var(--lz-brand); background:var(--lz-brand-soft); }.module-sequence__item[data-source="difficulty_level"] { border-left-color:var(--lz-warning); background:var(--lz-warning-soft); }.module-sequence__item b { overflow:hidden; color:var(--lz-text-strong); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.module-sequence__item em { color:var(--lz-text-muted); font-size:8px; font-style:normal; line-height:1.35; }.module-sequence__item i { color:var(--lz-brand-strong); font-size:8px; font-style:normal; font-weight:700; }.module-sequence__item[data-source="difficulty_level"] i { color:var(--lz-warning); }
 .review-callout,.release-verdict { display:flex; gap:11px; align-items:flex-start; padding:14px; border:1px solid rgba(99,102,241,.18); border-radius:10px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.review-callout strong,.release-verdict strong { display:block; color:var(--lz-text-strong); font-size:12px; }.review-callout p,.release-verdict p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }
+.content-evidence { margin:10px 0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }.content-evidence > div { padding:10px; border:1px solid var(--lz-border); border-radius:8px; background:var(--lz-surface-muted); }.content-evidence span,.content-evidence strong { display:block; }.content-evidence span { color:var(--lz-text-muted); font-size:9px; }.content-evidence strong { margin-top:4px; color:var(--lz-text-strong); font-size:13px; }.asset-counts { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px; }.asset-counts span { padding:4px 7px; border:1px solid rgba(99,102,241,.14); border-radius:999px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:8px; font-weight:650; }
 .release-verdict[data-pass="false"] { border-color:rgba(217,119,6,.2); color:var(--lz-warning); background:var(--lz-warning-soft); }.release-issues { margin:12px 0 0; padding:0 0 0 18px; color:var(--lz-warning); font-size:10px; line-height:1.6; }
 .task-notice { margin-top:20px; display:flex; gap:10px; padding:13px 14px; border-left:3px solid var(--lz-warning); color:var(--lz-warning); background:var(--lz-warning-soft); }.task-notice strong { display:block; font-size:12px; }.task-notice p { margin:4px 0 0; font-size:11px; line-height:1.5; }.task-error-detail,.recovery-checkpoint { display:block; margin-top:7px; color:inherit; font-size:9px; line-height:1.5; opacity:.88; }
 .task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px clamp(20px,4vw,38px); border-top:1px solid var(--lz-border); background:rgba(255,255,255,.98); box-shadow:0 -8px 22px rgba(15,23,42,.035); }.task-actions__open { margin-left:auto; }
