@@ -204,8 +204,10 @@ describe('SideAIPanel', () => {
     const wrapper = mountPanel()
     const aiStore = useAITeacherStore()
     const progressStore = useLearningProgressStore()
-    vi.spyOn(aiStore, 'sendMessage').mockResolvedValue()
     const refreshRuntime = vi.spyOn(progressStore, 'loadRuntime').mockResolvedValue(null)
+    vi.spyOn(aiStore, 'sendMessage').mockImplementation(async payload => {
+      await payload.onQuestionRecorded?.()
+    })
 
     await wrapper.get('textarea').setValue('为什么是先做右边的变换？')
     await wrapper.get('.send-button').trigger('click')
@@ -215,8 +217,10 @@ describe('SideAIPanel', () => {
       courseId: 'course-1',
       nodeId: 'node-1',
       question: '为什么是先做右边的变换？',
+      onQuestionRecorded: expect.any(Function),
     }))
     expect(refreshRuntime).toHaveBeenCalledWith('course-1', 'node-1')
+    expect(refreshRuntime).toHaveBeenCalledTimes(1)
   })
 
   it('在移动视口使用同一 AI 工作区的覆盖形态', () => {

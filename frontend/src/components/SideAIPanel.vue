@@ -114,6 +114,7 @@
         v-if="!props.blockTarget && courseStore.currentCourseId"
         :course-id="courseStore.currentCourseId"
         :section-id="currentNode?.node_id"
+        :focus-plan-id="focusedEvolutionPlanId"
       />
 
       <section
@@ -541,6 +542,7 @@ import CourseEvolutionPanel from './CourseEvolutionPanel.vue'
 import { useAITeacherStore, type AIMessage } from '../stores/aiTeacher'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
+import { useCourseEvolutionStore } from '../stores/courseEvolution'
 import { useNoteStore } from '../stores/notes'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { t } from '../shared/i18n'
@@ -576,6 +578,7 @@ const emit = defineEmits<{
 const aiStore = useAITeacherStore()
 const courseStore = useCourseStore()
 const progressStore = useLearningProgressStore()
+const courseEvolutionStore = useCourseEvolutionStore()
 const noteStore = useNoteStore()
 const changeProposalsStore = useChangeProposalsStore()
 const input = ref('')
@@ -596,6 +599,7 @@ const personalizationGenerationLoading = ref(false)
 const personalizationApplying = ref(false)
 let personalizationGenerationToken = 0
 let personalizationApplyToken = 0
+const focusedEvolutionPlanId = ref('')
 
 const isOverlayMode = computed(() => windowWidth.value < 1280)
 const panelClasses = computed(() => isOverlayMode.value ? 'is-overlay' : 'is-docked')
@@ -735,8 +739,21 @@ async function sendPrompt(prompt: string) {
 async function send() {
   const question = input.value.trim()
   if (!question || !courseStore.currentCourseId) return
+  const pendingPlanIdsBeforeQuestion = new Set(
+    courseEvolutionStore.pendingPlans.map(plan => plan.change_set_id),
+  )
   input.value = ''
   resetComposerHeight()
+  let projectionRefresh: Promise<void> | null = null
+  const refreshCourseGrowth = () => {
+    if (!projectionRefresh) {
+      projectionRefresh = refreshCourseGrowthAfterQuestion(
+        question,
+        pendingPlanIdsBeforeQuestion,
+      )
+    }
+    return projectionRefresh
+  }
   await aiStore.sendMessage({
     courseId: courseStore.currentCourseId,
     courseVersionId: courseStore.currentCourseVersionId,
@@ -747,14 +764,31 @@ async function send() {
     entrypoint: props.entrypoint || (quoteVisible.value ? 'selection' : 'global'),
     contextRef: contextRef(),
     taskRef: progressStore.runtime?.active_task || {},
+    onQuestionRecorded: refreshCourseGrowth,
   })
-  await progressStore.loadRuntime(
-    courseStore.currentCourseId,
-    currentNode.value?.node_id,
-  ).catch(error => {
-    logger.warn('Course evolution refresh deferred after AI question', error)
-  })
+  await refreshCourseGrowth()
   scrollToBottom()
+}
+
+async function refreshCourseGrowthAfterQuestion(
+  question: string,
+  pendingPlanIdsBeforeQuestion: Set<string>,
+) {
+  try {
+    await progressStore.loadRuntime(
+      courseStore.currentCourseId,
+      currentNode.value?.node_id,
+    )
+    const triggeredPlan = [...courseEvolutionStore.pendingPlans].reverse().find(plan => (
+      !pendingPlanIdsBeforeQuestion.has(plan.change_set_id)
+      || plan.request_text === question
+    ))
+    if (triggeredPlan) {
+      focusedEvolutionPlanId.value = triggeredPlan.change_set_id
+    }
+  } catch (error) {
+    logger.warn('Course evolution refresh deferred after AI question', error)
+  }
 }
 
 function handleComposerAction() {

@@ -58,7 +58,14 @@
       <p v-if="store.generationError" class="generation-error"><TriangleAlert :size="12" />{{ store.generationError }}</p>
     </div>
 
-    <article v-for="plan in visiblePlans" :key="plan.change_set_id" :data-status="plan.status" :data-effect="planEffectState(plan)">
+    <article
+      v-for="plan in visiblePlans"
+      :key="plan.change_set_id"
+      :ref="element => setPlanElement(plan.change_set_id, element)"
+      :class="{ 'is-focus-plan': props.focusPlanId === plan.change_set_id }"
+      :data-status="plan.status"
+      :data-effect="planEffectState(plan)"
+    >
       <template v-if="plan.status === 'pending'">
         <div v-if="plan.generation_status === 'suggested'" class="challenge-suggestion">
           <span><BadgeCheck :size="14" />{{ t('courseEvolution.sectionGrowth.challengeReady', '当前难度已稳定通过') }}</span>
@@ -74,6 +81,22 @@
         <div class="plan-source">
           <span>{{ plan.source_kind === 'manual_section_request' ? t('courseEvolution.sectionGrowth.manualSource', '按你的要求') : t('courseEvolution.sectionGrowth.evidenceSource', '由学习证据触发') }}</span>
           <b v-if="plan.growth_direction === 'challenge'">{{ t('courseEvolution.sectionGrowth.challenge', '提高挑战') }}</b>
+        </div>
+        <div v-if="isStrongScopedPlan(plan)" class="strong-evidence-trigger" role="status">
+          <span><Sparkles :size="13" />{{ t('courseEvolution.strongTrigger.eyebrow', '已识别强学习证据') }}</span>
+          <strong>
+            {{
+              t('courseEvolution.strongTrigger.scopeSummary', '已生成本小节与 {count} 个相关后续节点的生长方案')
+                .replace('{count}', String(plan.impact_summary?.dependent_block_ids?.length || 0))
+            }}
+          </strong>
+          <small>{{ evidenceAssessment(plan).gate_reason || t('courseEvolution.strongTrigger.reason', '系统同时识别了已会内容、持续困难、需要的讲法和明确范围；确认前课程保持不变。') }}</small>
+          <div>
+            <b>{{ t('courseEvolution.strongTrigger.ability', '已会什么') }}</b>
+            <b>{{ t('courseEvolution.strongTrigger.gap', '卡在哪里') }}</b>
+            <b>{{ t('courseEvolution.strongTrigger.method', '希望怎样讲') }}</b>
+            <b>{{ t('courseEvolution.strongTrigger.scope', '调整到哪里') }}</b>
+          </div>
         </div>
         <div v-if="plan.source_kind === 'manual_section_request'" class="semantic-scope-summary" :data-scope="plan.scope_selection || 'current_section'">
           <span>
@@ -107,6 +130,9 @@
           </span>
           <span v-if="evidenceAssessment(plan).has_formal_evidence">
             <BadgeCheck :size="11" />{{ t('courseEvolution.formalEvidenceIncluded', '含正式证据') }}
+          </span>
+          <span v-if="evidenceAssessment(plan).has_explicit_scope">
+            <LocateFixed :size="11" />{{ t('courseEvolution.explicitScopeIncluded', '范围由学生明确指定') }}
           </span>
           <span>
             <ShieldCheck :size="11" />
@@ -251,7 +277,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowRight, BadgeCheck, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, Layers3, LoaderCircle, LocateFixed, Network, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
 import CourseEvolutionReviewOverlay from './CourseEvolutionReviewOverlay.vue'
 import { useCourseEvolutionStore, type CourseEvolutionPlan, type EvolutionEvidence } from '../stores/courseEvolution'
@@ -259,7 +285,7 @@ import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { t } from '../shared/i18n'
 
-const props = defineProps<{ courseId: string; sectionId?: string }>()
+const props = defineProps<{ courseId: string; sectionId?: string; focusPlanId?: string }>()
 const store = useCourseEvolutionStore()
 const courseStore = useCourseStore()
 const progressStore = useLearningProgressStore()
@@ -269,6 +295,7 @@ const requestScope = ref<'current_section' | 'whole_course'>('current_section')
 const reviewPlanId = ref('')
 const selectedScope = reactive<Record<string, 'current' | 'current_and_next'>>({})
 const reviewSelections = reactive<Record<string, string[]>>({})
+const planElements = new Map<string, HTMLElement>()
 const visiblePlans = computed(() => {
   const matchesSection = (plan: CourseEvolutionPlan) => (
     !props.sectionId
@@ -336,6 +363,23 @@ function targetRoleLabels(plan: CourseEvolutionPlan) {
 }
 function impactLabels(plan: CourseEvolutionPlan) { return [...(plan.impact_summary?.knowledge_labels || []), ...(plan.impact_summary?.ability_labels || []), ...(plan.impact_summary?.misconception_labels || [])].slice(0, 4) }
 function evidenceAssessment(plan: CourseEvolutionPlan) { return plan.impact_summary?.evidence_assessment || hypothesisFor(plan)?.evidence_assessment || {} }
+function isStrongScopedPlan(plan: CourseEvolutionPlan) {
+  const assessment = evidenceAssessment(plan)
+  return assessment.maturity === 'explicit_scoped_request'
+    && assessment.explicit_scope === 'current_and_next'
+}
+function setPlanElement(planId: string, element: unknown) {
+  if (element instanceof HTMLElement) planElements.set(planId, element)
+  else planElements.delete(planId)
+}
+async function focusPlan(planId: string) {
+  expandedId.value = planId
+  await nextTick()
+  const element = planElements.get(planId)
+  if (element && typeof element.scrollIntoView === 'function') {
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
 function planEffectState(plan: CourseEvolutionPlan) { return plan.status === 'pending' ? 'pending' : String(plan.effect_evaluation?.status || 'insufficient_evidence') }
 function effectIcon(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.status === 'effective' ? CheckCircle2 : plan.effect_evaluation?.status === 'ineffective' || plan.effect_evaluation?.status === 'harmful' ? TriangleAlert : CircleDot }
 function effectTitle(plan: CourseEvolutionPlan) {
@@ -428,6 +472,43 @@ async function load() {
     // The AI teacher remains usable when the evolution projection is offline.
   }
 }
+watch(
+  () => visiblePlans.value.map(plan => [
+    plan.change_set_id,
+    plan.status,
+    evidenceAssessment(plan).maturity,
+    evidenceAssessment(plan).explicit_scope,
+  ].join(':')).join('|'),
+  () => {
+    for (const plan of visiblePlans.value) {
+      if (!selectedScope[plan.change_set_id]) {
+        selectedScope[plan.change_set_id] = (
+          plan.allowed_scopes.includes('current_and_next')
+          && evidenceAssessment(plan).explicit_scope === 'current_and_next'
+        ) ? 'current_and_next' : 'current'
+      }
+      if (
+        plan.status === 'pending'
+        && (
+          props.focusPlanId === plan.change_set_id
+          || (!expandedId.value && isStrongScopedPlan(plan))
+        )
+      ) {
+        void focusPlan(plan.change_set_id)
+      }
+    }
+  },
+  { immediate: true },
+)
+watch(
+  () => props.focusPlanId,
+  (planId) => {
+    if (planId && visiblePlans.value.some(plan => plan.change_set_id === planId)) {
+      void focusPlan(planId)
+    }
+  },
+  { immediate: true },
+)
 watch(() => props.courseId, load)
 onMounted(load)
 </script>
@@ -463,6 +544,14 @@ onMounted(load)
 .generation-error { display:flex; align-items:flex-start; gap:5px; margin:0; color:#b91c1c; font-size:8px; line-height:1.4; }
 .evolution-panel article { padding:9px 10px; border:1px solid #e5e7eb; border-left:3px solid #8b5cf6; border-radius:8px; background:#fff; }
 .evolution-panel article + article { margin-top:7px; }
+.evolution-panel article.is-focus-plan { border-color:#8b5cf6; box-shadow:0 0 0 2px rgba(139,92,246,.13),0 10px 24px rgba(91,33,182,.1); animation:evolution-focus-pulse .9s ease-out; }
+.strong-evidence-trigger { display:grid; gap:5px; margin:7px 0 8px; padding:9px; border:1px solid rgba(124,58,237,.24); border-radius:8px; background:linear-gradient(125deg,rgba(237,233,254,.92),rgba(245,243,255,.72)); }
+.strong-evidence-trigger > span { display:flex; align-items:center; gap:4px; color:#6d28d9; font-size:8px; font-weight:800; letter-spacing:.04em; }
+.strong-evidence-trigger > strong { color:#3b0764; font-size:10px; line-height:1.45; }
+.strong-evidence-trigger > small { color:#6b7280; font-size:8px; line-height:1.5; }
+.strong-evidence-trigger > div { display:flex; flex-wrap:wrap; gap:4px; }
+.strong-evidence-trigger > div b { padding:2px 5px; border:1px solid rgba(139,92,246,.18); border-radius:999px; color:#6d28d9; background:rgba(255,255,255,.72); font-size:7px; font-weight:700; }
+@keyframes evolution-focus-pulse { 0% { transform:translateY(4px); opacity:.76; box-shadow:0 0 0 7px rgba(139,92,246,.2); } 100% { transform:translateY(0); opacity:1; box-shadow:0 0 0 2px rgba(139,92,246,.13),0 10px 24px rgba(91,33,182,.1); } }
 .challenge-suggestion { display:grid; gap:6px; }
 .challenge-suggestion > span { display:flex; align-items:center; gap:5px; color:#047857; font-size:8px; font-weight:800; }
 .challenge-suggestion strong { color:#1e293b; font-size:11px; line-height:1.5; }

@@ -89,6 +89,61 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.find('.evolution-details-toggle').exists()).toBe(true)
   })
 
+  it('把范围明确的强自述突出显示，并默认选中本小节及后续', () => {
+    const strongEvidence = [{
+      evidence_id: 'e-strong-scoped',
+      source_type: 'learning_event',
+      evidence_kind: 'explicit_comprehension_gap',
+      summary: '矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。',
+      strength: 0.96,
+      anchor: { section_id: 's1', block_id: 'b1', resolution_status: 'resolved' },
+    }] as any
+    const strongPlan = {
+      ...plan,
+      request_text: strongEvidence[0].summary,
+      evidence_ids: ['e-strong-scoped'],
+      operations: [
+        ...plan.operations,
+        {
+          operation_id: 'operation-next',
+          operation_type: 'ADD_TRANSITION_SUPPORT',
+          target_block_id: 'b2',
+          target_section_id: 's2',
+          scope: 'next',
+          reason: '当前概念是后续内容的前置。',
+          payload: {},
+        },
+      ],
+      impact_summary: {
+        ...plan.impact_summary,
+        evidence_assessment: {
+          maturity: 'explicit_scoped_request',
+          explicit_scope: 'current_and_next',
+          has_strong_self_report: true,
+          has_explicit_scope: true,
+          gate_reason: '学生明确说明已会内容、持续困难、所需讲法和后续范围，可立即生成当前位置及相关后续候选',
+        },
+      },
+    } as any
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: strongEvidence,
+      hypotheses: [],
+      course_evolution_plans: [strongPlan],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', focusPlanId: 'plan-1' },
+    })
+
+    expect(wrapper.get('article').classes()).toContain('is-focus-plan')
+    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('已识别强学习证据')
+    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('2 个相关后续节点')
+    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('已会什么')
+    expect(wrapper.get('.evidence-maturity').text()).toContain('范围由学生明确指定')
+    expect(wrapper.find('.evolution-details').exists()).toBe(true)
+    expect(wrapper.findAll('.scope-control button')[1]!.classes()).toContain('active')
+  })
+
   it('一次独立复验通过只显示初步支持，不冒充持续确认', () => {
     useCourseEvolutionStore().applyPayload('course-1', {
       evidence_items: evidence,

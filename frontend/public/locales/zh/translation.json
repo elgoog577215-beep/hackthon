@@ -383,8 +383,18 @@
     "evidenceConvergence": "多类证据汇聚",
     "independentSources": "{count} 类独立来源",
     "formalEvidenceIncluded": "含正式证据",
+    "explicitScopeIncluded": "范围由学生明确指定",
     "counterevidenceIncluded": "已纳入 {count} 条反证",
     "noCounterevidence": "暂无反证冲突",
+    "strongTrigger": {
+      "eyebrow": "已识别强学习证据",
+      "scopeSummary": "已生成本小节与 {count} 个相关后续节点的生长方案",
+      "reason": "系统同时识别了已会内容、持续困难、需要的讲法和明确范围；确认前课程保持不变。",
+      "ability": "已会什么",
+      "gap": "卡在哪里",
+      "method": "希望怎样讲",
+      "scope": "调整到哪里"
+    },
     "locateEvidence": "回到证据位置",
     "diagnosis": "AI 学习判断",
     "diagnosisFallback": "多条证据共同指向当前理解缺口",

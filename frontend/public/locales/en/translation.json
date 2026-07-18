@@ -383,8 +383,18 @@
     "evidenceConvergence": "Multiple evidence sources converge",
     "independentSources": "{count} independent source types",
     "formalEvidenceIncluded": "Includes formal evidence",
+    "explicitScopeIncluded": "Scope explicitly set by the learner",
     "counterevidenceIncluded": "{count} counter-evidence items included",
     "noCounterevidence": "No conflicting evidence yet",
+    "strongTrigger": {
+      "eyebrow": "Strong learning evidence recognized",
+      "scopeSummary": "A growth plan now covers this section and {count} related later nodes",
+      "reason": "The system recognized what the learner can do, the persistent gap, the requested teaching method, and the explicit boundary. The course stays unchanged until confirmation.",
+      "ability": "What I can do",
+      "gap": "Where I am stuck",
+      "method": "How to teach it",
+      "scope": "Where to adapt"
+    },
     "locateEvidence": "Return to evidence",
     "diagnosis": "AI learning diagnosis",
     "diagnosisFallback": "Multiple evidence traces point to the same understanding gap",

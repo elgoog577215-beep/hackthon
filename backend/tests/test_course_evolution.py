@@ -13,6 +13,7 @@ from course_evolution import (
     create_adjustment_plan,
     personal_course_overlay,
     project_applied_adaptive_blocks,
+    reject_change_set,
     synchronize_and_evaluate_course_evolution,
     undo_change_set,
 )
@@ -556,6 +557,215 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
         for block in undone_document.blocks
         if block.block_id in plan.applied_block_ids
     )
+
+
+def test_strong_scoped_ai_self_report_immediately_creates_related_course_plan(
+    tmp_path,
+    monkeypatch,
+):
+    course = _course_with_knowledge()
+    document = document_from_legacy_course(course)
+    target = next(item for item in document.blocks if item.section_id == "section-1")
+    question = (
+        "矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。"
+        "请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。"
+    )
+    monkeypatch.setattr(course_evolution, "load_learning_events", lambda **_kwargs: [{
+        "event_id": "event-strong-scoped-request",
+        "event_type": "assistant_question_submitted",
+        "course_id": document.course_id,
+        "node_id": "section-1",
+        "evidence": {"question": question},
+        "metadata": {"context_ref": {"content_anchor": {"block_id": target.block_id}}},
+        "created_at": "2026-07-19T09:00:00+00:00",
+    }])
+    monkeypatch.setattr(course_evolution.learning_record_repository, "list", lambda *_args: [])
+    monkeypatch.setattr(course_evolution.practice_attempt_repository, "list", lambda *_args: [])
+
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path),
+    )
+
+    assert len(state.evidence_items) == 1
+    assert state.evidence_items[0].evidence_kind == "explicit_comprehension_gap"
+    hypothesis = state.hypotheses[0]
+    assessment = hypothesis.evidence_assessment
+    assert hypothesis.status == "candidate_created"
+    assert hypothesis.claim == "学习者会执行计算，但尚未理解复合变换的先后顺序。"
+    assert hypothesis.recommended_scope == "current_and_next"
+    assert assessment["maturity"] == "explicit_scoped_request"
+    assert assessment["has_strong_self_report"] is True
+    assert assessment["has_explicit_scope"] is True
+    assert assessment["explicit_scope"] == "current_and_next"
+    assert assessment["explicit_request_contract"] == {
+        "is_strong": True,
+        "is_complete_contract": True,
+        "has_capability_boundary": True,
+        "has_explicit_gap": True,
+        "has_persistence": True,
+        "has_teaching_request": True,
+        "requested_supports": ["explanation", "animation", "practice"],
+        "scope": "current_and_next",
+    }
+    synonym_contract = course_evolution._strong_self_report_contract(
+        "基本运算我能做，但总是搞不清矩阵复合的顺序。"
+        "请把这一节以及后续相关小节用图形演示讲清楚，最后让我练习。"
+    )
+    assert synonym_contract["is_strong"] is True
+    assert synonym_contract["scope"] == "current_and_next"
+    assert synonym_contract["requested_supports"] == [
+        "explanation",
+        "animation",
+        "practice",
+    ]
+    assert course_evolution._strong_self_report_contract(
+        "这道题怎么算？"
+    )["is_strong"] is False
+    assert "后续范围" in assessment["gate_reason"]
+
+    plan = state.change_sets[0]
+    assert plan.status == "pending"
+    assert plan.request_text == question
+    assert plan.allowed_scopes == ["current", "current_and_next"]
+    assert plan.requested_roles == ["explanation", "animation", "practice"]
+    assert len(plan.impact_summary["dependent_block_ids"]) == 3
+    assert plan.impact_summary["trigger_contract"]["scope"] == "current_and_next"
+    assert [item.operation_type for item in plan.operations].count("ADD_ANIMATION") == 1
+    assert [item.operation_type for item in plan.operations].count("ADD_TRANSITION_SUPPORT") == 1
+    assert [item.operation_type for item in plan.operations].count("ADD_CHECKPOINT") == 2
+    assert {item.scope for item in plan.operations} == {"current", "next"}
+
+
+def test_resolved_strong_request_requires_new_strong_evidence_before_reproposal(
+    tmp_path,
+    monkeypatch,
+):
+    course = _course_with_knowledge()
+    document = document_from_legacy_course(course)
+    target = next(item for item in document.blocks if item.section_id == "section-1")
+    question = (
+        "矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。"
+        "请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。"
+    )
+    events = [{
+        "event_id": "event-strong-scoped-request-1",
+        "event_type": "assistant_question_submitted",
+        "course_id": document.course_id,
+        "node_id": "section-1",
+        "evidence": {"question": question},
+        "metadata": {"context_ref": {"content_anchor": {"block_id": target.block_id}}},
+        "created_at": "2026-07-19T09:00:00+00:00",
+    }]
+    monkeypatch.setattr(
+        course_evolution,
+        "load_learning_events",
+        lambda **_kwargs: deepcopy(events),
+    )
+    monkeypatch.setattr(course_evolution.learning_record_repository, "list", lambda *_args: [])
+    monkeypatch.setattr(course_evolution.practice_attempt_repository, "list", lambda *_args: [])
+    repository = CourseEvolutionRepository(tmp_path)
+
+    initial = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    first_plan = initial.change_sets[0]
+    rejected = reject_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id=first_plan.change_set_id,
+        repository=repository,
+    )
+    assert rejected.change_sets[0].status == "rejected"
+
+    unchanged = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    assert len(unchanged.change_sets) == 1
+    assert unchanged.change_sets[0].status == "rejected"
+    assert unchanged.hypotheses[0].evidence_assessment[
+        "blocked_by_previous_resolution"
+    ] is True
+
+    events.append({
+        "event_id": "event-strong-scoped-request-2",
+        "event_type": "assistant_question_submitted",
+        "course_id": document.course_id,
+        "node_id": "section-1",
+        "evidence": {"question": question},
+        "metadata": {"context_ref": {"content_anchor": {"block_id": target.block_id}}},
+        "created_at": "2026-07-19T09:05:00+00:00",
+    })
+    refreshed = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    assert len(refreshed.change_sets) == 2
+    assert refreshed.change_sets[-1].status == "pending"
+    assert refreshed.change_sets[-1].evidence_ids != first_plan.evidence_ids
+
+
+def test_undo_does_not_recreate_plan_from_the_same_strong_request(
+    tmp_path,
+    monkeypatch,
+):
+    course = _course_with_knowledge()
+    document = document_from_legacy_course(course)
+    target = next(item for item in document.blocks if item.section_id == "section-1")
+    question = (
+        "矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。"
+        "请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。"
+    )
+    monkeypatch.setattr(course_evolution, "load_learning_events", lambda **_kwargs: [{
+        "event_id": "event-strong-scoped-request",
+        "event_type": "assistant_question_submitted",
+        "course_id": document.course_id,
+        "node_id": "section-1",
+        "evidence": {"question": question},
+        "metadata": {"context_ref": {"content_anchor": {"block_id": target.block_id}}},
+        "created_at": "2026-07-19T09:00:00+00:00",
+    }])
+    monkeypatch.setattr(course_evolution.learning_record_repository, "list", lambda *_args: [])
+    monkeypatch.setattr(course_evolution.practice_attempt_repository, "list", lambda *_args: [])
+    repository = CourseEvolutionRepository(tmp_path)
+    document_repository = _document_repository(course)
+
+    initial = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    plan = initial.change_sets[0]
+    accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id=plan.change_set_id,
+        selected_scope="current_and_next",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    undo_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id=plan.change_set_id,
+        repository=repository,
+        document_repository=document_repository,
+    )
+
+    reevaluated = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    assert len(reevaluated.change_sets) == 1
+    assert reevaluated.change_sets[0].status == "undone"
+    assert reevaluated.hypotheses[0].status == "observing"
 
 
 def test_single_explicit_evidence_stays_local_instead_of_expanding_by_count(

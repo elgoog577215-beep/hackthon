@@ -900,6 +900,26 @@ def _evaluate_hypotheses_and_candidates(
             if item.evidence_kind == "explicit_comprehension_gap"
             and item.strength >= 0.82
         ]
+        explicit_contracts = [
+            (item, _strong_self_report_contract(item.summary))
+            for item in explicit_statements
+        ]
+        strong_explicit_statements = [
+            item
+            for item, contract in explicit_contracts
+            if contract["is_strong"]
+        ]
+        scoped_explicit_statements = [
+            item
+            for item, contract in explicit_contracts
+            if contract["is_strong"]
+            and contract["scope"] == "current_and_next"
+        ]
+        latest_explicit_contract = next((
+            contract
+            for _item, contract in reversed(explicit_contracts)
+            if contract["is_strong"]
+        ), {})
         repeated_formal_failure = len({
             item.source_id for item in formal_failures if item.source_id
         }) >= 2
@@ -908,17 +928,25 @@ def _evaluate_hypotheses_and_candidates(
             len(positive) == 1
             and len(explicit_statements) == 1
         )
+        strong_explicit_support = bool(strong_explicit_statements)
+        explicit_scoped_support = bool(scoped_explicit_statements)
         actionable = (
-            single_explicit_local_support
+            strong_explicit_support
+            or single_explicit_local_support
             or corroborated_formal_failure
             or repeated_formal_failure
         )
         scope = "current_and_next" if (
             actionable
-            and bool(formal_failures)
             and (
-                len(source_types) >= 3
-                or (repeated_formal_failure and len(source_types) >= 2)
+                explicit_scoped_support
+                or (
+                    bool(formal_failures)
+                    and (
+                        len(source_types) >= 3
+                        or (repeated_formal_failure and len(source_types) >= 2)
+                    )
+                )
             )
         ) else "current"
         evidence_assessment = {
@@ -928,24 +956,39 @@ def _evaluate_hypotheses_and_candidates(
             "formal_failure_count": len(formal_failures),
             "counterevidence_count": len(counter),
             "has_explicit_statement": bool(explicit_statements),
+            "has_strong_self_report": strong_explicit_support,
+            "has_explicit_scope": explicit_scoped_support,
+            "explicit_scope": "current_and_next" if explicit_scoped_support else (
+                str(latest_explicit_contract.get("scope") or "")
+            ),
+            "explicit_request_contract": deepcopy(latest_explicit_contract),
+            "requested_supports": list(
+                latest_explicit_contract.get("requested_supports") or []
+            ),
             "has_formal_evidence": bool(formal_failures),
             "actionable": actionable,
             "maturity": (
-                "confirmed_gap"
+                "explicit_scoped_request"
+                if explicit_scoped_support
+                else "confirmed_gap"
                 if scope == "current_and_next"
                 else "corroborated_gap"
                 if corroborated_formal_failure or repeated_formal_failure
                 else "explicit_local_support"
-                if single_explicit_local_support
+                if strong_explicit_support or single_explicit_local_support
                 else "observing"
             ),
             "gate_reason": (
-                "三类独立证据与正式失败共同指向同一缺口"
+                "学生明确说明已会内容、持续困难、所需讲法和后续范围，可立即生成当前位置及相关后续候选"
+                if explicit_scoped_support
+                else "三类独立证据与正式失败共同指向同一缺口"
                 if scope == "current_and_next"
                 else "正式失败已获得另一类独立证据支持"
                 if corroborated_formal_failure
                 else "同一能力出现重复正式失败"
                 if repeated_formal_failure
+                else "学生给出明确、可执行的当前位置学习请求，仅生成低风险局部候选"
+                if strong_explicit_support
                 else "学生明确表达理解困难，仅建议当前位置低风险支持"
                 if single_explicit_local_support
                 else "尚缺正式证据或重复独立信号，继续观察"
@@ -998,10 +1041,35 @@ def _evaluate_hypotheses_and_candidates(
             if hypothesis.status not in {"accepted", "evaluating", "effective"}:
                 hypothesis.status = "observing"
             continue
-        if hypothesis.status in {"rejected", "accepted", "evaluating", "effective"}:
+        if hypothesis.status in {"accepted", "evaluating", "effective"}:
+            continue
+        evidence_signature = stable_hash(sorted(hypothesis.support_evidence_ids), prefix="esg_")
+        latest_resolved = next((
+            item for item in reversed(state.change_sets)
+            if item.hypothesis_id == hypothesis_id
+            and item.status in {"rejected", "undone"}
+        ), None)
+        if latest_resolved is not None:
+            resolved_evidence_ids = set(latest_resolved.evidence_ids)
+            has_new_strong_request = any(
+                item.evidence_id not in resolved_evidence_ids
+                for item in strong_explicit_statements
+            )
+            if not has_new_strong_request:
+                hypothesis.status = (
+                    "rejected"
+                    if latest_resolved.status == "rejected"
+                    else "observing"
+                )
+                hypothesis.evidence_assessment["blocked_by_previous_resolution"] = True
+                hypothesis.evidence_assessment["gate_reason"] = (
+                    "同一批证据形成的方案已被学生拒绝或撤销；"
+                    "只有新的强学习请求才能再次生成候选。"
+                )
+                continue
+        if hypothesis.status == "rejected" and not strong_explicit_support:
             continue
         hypothesis.status = "actionable"
-        evidence_signature = stable_hash(sorted(hypothesis.support_evidence_ids), prefix="esg_")
         existing = next((
             item for item in state.change_sets
             if item.hypothesis_id == hypothesis_id
@@ -1016,7 +1084,7 @@ def _evaluate_hypotheses_and_candidates(
             if item.hypothesis_id == hypothesis_id and item.status == "rejected"
         ), None)
         cooldown = str((rejected.effect_evaluation if rejected else {}).get("cooldown_until") or "")
-        if cooldown and cooldown > now:
+        if cooldown and cooldown > now and not strong_explicit_support:
             continue
         change_set = _build_change_set(
             state,
@@ -1207,6 +1275,14 @@ def _build_change_set(
     knowledge_labels = _knowledge_labels(knowledge_base, knowledge_ids)
     ability_labels = _ability_labels(knowledge_base, ability_ids)
     misconception_labels = _misconception_labels(knowledge_base, misconception_ids)
+    explicit_request = next((
+        item
+        for item in reversed(linked_evidence)
+        if _strong_self_report_contract(item.summary)["is_strong"]
+    ), None)
+    requested_supports = list(
+        hypothesis.evidence_assessment.get("requested_supports") or []
+    )
     return CourseEvolutionPlan(
         change_set_id=stable_hash({
             "user_id": state.user_id,
@@ -1217,6 +1293,9 @@ def _build_change_set(
         user_id=state.user_id,
         course_id=state.course_id,
         hypothesis_id=hypothesis.hypothesis_id,
+        target_section_id=target.section_id,
+        request_text=explicit_request.summary if explicit_request else "",
+        requested_roles=requested_supports,
         base_revision_vector=bound_keys,
         evidence_ids=hypothesis.support_evidence_ids,
         operations=operations,
@@ -1239,6 +1318,12 @@ def _build_change_set(
             "diagnosis": hypothesis.claim,
             "validation_plan": hypothesis.validation_plan,
             "evidence_assessment": deepcopy(hypothesis.evidence_assessment),
+            "trigger_contract": deepcopy(
+                hypothesis.evidence_assessment.get("explicit_request_contract") or {}
+            ),
+            "scope_reason": str(
+                hypothesis.evidence_assessment.get("gate_reason") or ""
+            ),
             "evidence_source_types": sorted({item.source_type for item in linked_evidence}),
             "affected_section_ids": sorted(affected_section_ids),
             "source_practice_task_ids": source_practice_task_ids,
@@ -1840,15 +1925,103 @@ def _attempt_score(attempt: dict[str, Any] | None) -> float | None:
     return None
 
 
+def _strong_self_report_contract(statement: str) -> dict[str, Any]:
+    """Recognize a complete, actionable learner request without matching one script.
+
+    A broad course change needs an explicit semantic contract: the learner
+    distinguishes what they can already do from the conceptual gap, says the
+    gap is persistent, requests a supported teaching response, and names the
+    boundary. A weaker request can still become strong local evidence when it
+    precisely identifies the current scope and asks for a concrete explanation.
+    """
+    text = _compact(statement)
+    capability_patterns = (
+        r"(?:我)?(?:会|能|可以|已经掌握|已经会).{0,12}(?:计算|做题|操作|步骤|求解|套公式|运算)",
+        r"(?:计算|做题|操作|步骤|求解|套公式|运算).{0,6}(?:我)?(?:会|能|没问题)",
+    )
+    gap_patterns = (
+        r"(?:不理解|没理解|不明白|没明白|搞不清|弄不清|看不懂).{0,10}(?:为什么|原因|含义|原理|顺序)?",
+        r"(?:顺序|概念|原理|含义).{0,8}(?:理解反|弄反|搞反|不清楚)",
+        r"(?:卡在|困在).{0,16}(?:为什么|原因|含义|原理|顺序)",
+    )
+    persistence_markers = (
+        "一直", "总是", "反复", "始终", "经常", "老是", "每次", "仍然", "还是",
+    )
+    downstream_scope_patterns = (
+        r"本(?:小)?节.{0,12}(?:后面|后续|之后|接下来)",
+        r"(?:后面|后续|之后|接下来).{0,10}(?:相关内容|相关章节|相关小节|相关部分)",
+        r"(?:当前|这)(?:一)?节.{0,8}(?:以及|和|及).{0,8}(?:后面|后续|之后)",
+    )
+    local_scope_markers = (
+        "本节", "本小节", "这一节", "这节", "当前小节", "当前位置", "这里", "这部分",
+    )
+    support_markers = {
+        "explanation": (
+            "解释", "讲清", "说明原因", "说明为什么", "分步讲", "展开讲", "详细讲",
+        ),
+        "animation": (
+            "动画", "动态演示", "可视化", "几何图", "图形演示", "分步演示",
+        ),
+        "practice": (
+            "让我计算", "让我进行计算", "让我做题", "再做一题", "练习", "理解检查", "检查理解",
+        ),
+    }
+
+    has_capability = any(re.search(pattern, text) for pattern in capability_patterns)
+    has_gap = any(re.search(pattern, text) for pattern in gap_patterns)
+    has_persistence = any(marker in text for marker in persistence_markers)
+    requested_supports = [
+        support
+        for support, markers in support_markers.items()
+        if any(marker in text for marker in markers)
+    ]
+    if any(re.search(pattern, text) for pattern in downstream_scope_patterns):
+        scope = "current_and_next"
+    elif any(marker in text for marker in local_scope_markers):
+        scope = "current"
+    else:
+        scope = ""
+
+    complete_contract = bool(
+        has_capability
+        and has_gap
+        and has_persistence
+        and requested_supports
+        and scope
+    )
+    precise_local_request = bool(
+        has_gap
+        and scope == "current"
+        and requested_supports
+        and any(marker in text for marker in ("每一步", "具体", "详细", "逐步", "完整"))
+    )
+    return {
+        "is_strong": complete_contract or precise_local_request,
+        "is_complete_contract": complete_contract,
+        "has_capability_boundary": has_capability,
+        "has_explicit_gap": has_gap,
+        "has_persistence": has_persistence,
+        "has_teaching_request": bool(requested_supports),
+        "requested_supports": requested_supports,
+        "scope": scope,
+    }
+
+
 def _event_signal(event: dict[str, Any]) -> tuple[str, float, bool]:
     event_type = str(event.get("event_type") or "")
     statement = str((event.get("evidence") or {}).get("statement") or "")
     feedback = str((event.get("result") or {}).get("feedback") or "")
     if event_type == "learner_self_reported":
+        contract = _strong_self_report_contract(statement)
+        if contract["is_strong"]:
+            return "explicit_comprehension_gap", 0.96, False
         explicit = any(marker in statement for marker in ("完全看不懂", "不理解为什么", "推导跳步", "还是没懂", "没有解决"))
         return "explicit_comprehension_gap", 0.9 if explicit else 0.56, False
     if event_type == "assistant_question_submitted":
         question = str((event.get("evidence") or {}).get("question") or "")
+        contract = _strong_self_report_contract(question)
+        if contract["is_strong"]:
+            return "explicit_comprehension_gap", 0.96, False
         explicit = any(marker in question for marker in (
             "完全看不懂", "不理解为什么", "为什么要", "推导跳步", "还是没懂", "不会",
         ))
@@ -1984,10 +2157,11 @@ def _diagnosis_claim(
     ability_labels = _ability_labels(knowledge_base, ability_ids)
     misconception_labels = _misconception_labels(knowledge_base, misconception_ids)
     procedural_strength = any(marker in summaries for marker in (
-        "会计算", "会做", "能算", "步骤会", "计算会", "规则会",
+        "会计算", "会做", "能算", "步骤会", "计算会", "计算我会", "规则会",
     ))
     order_gap = any(marker in summaries for marker in (
-        "变换顺序", "乘法顺序", "复合顺序", "先做右边", "顺序总是理解反",
+        "变换顺序", "乘法顺序", "复合顺序", "复合变换的先后顺序", "先右后左",
+        "先做右边", "顺序总是理解反",
     ))
     ability_focus = _ability_focus(ability_labels[0]) if ability_labels else ""
 

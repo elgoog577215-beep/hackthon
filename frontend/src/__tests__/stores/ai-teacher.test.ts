@@ -70,6 +70,10 @@ describe('AI teacher store', () => {
 
     const store = useAITeacherStore()
     let observedAssistantMessage: AIMessage | undefined
+    let contentWhenQuestionRecorded = 'not-called'
+    const onQuestionRecorded = vi.fn(() => {
+      contentWhenQuestionRecorded = observedAssistantMessage?.content || ''
+    })
     await store.load('course-1', 'node-1')
     await store.sendMessage({
       courseId: 'course-1',
@@ -81,6 +85,7 @@ describe('AI teacher store', () => {
       selection: '变量用于保存可以变化的值',
       contextRef: { course_id: 'course-1', course_version_id: 'cv-1', node_id: 'node-1' },
       onAssistantMessage: message => { observedAssistantMessage = message },
+      onQuestionRecorded,
     })
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)
@@ -95,6 +100,8 @@ describe('AI teacher store', () => {
     expect(requestBody).not.toHaveProperty('history')
     expect(requestBody).not.toHaveProperty('user_notes')
     expect(isReactive(observedAssistantMessage)).toBe(true)
+    expect(onQuestionRecorded).toHaveBeenCalledTimes(1)
+    expect(contentWhenQuestionRecorded).toBe('')
     expect(observedAssistantMessage?.status).toBe('complete')
     expect(store.messages.at(-1)?.content).toBe('变量用于保存可变化的值。')
     expect(store.messages.at(-1)?.sources?.[0]?.source_id).toBe('block-rev-1')
