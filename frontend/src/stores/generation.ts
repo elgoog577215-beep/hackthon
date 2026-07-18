@@ -30,6 +30,36 @@ const isPublishedTask = (task: Task, backendTask?: Record<string, any>) => (
   task.status === 'completed'
   || (task.status === 'completed_with_warnings' && backendTask?.publication_allowed !== false)
 )
+const ACTIVE_BACKEND_TASK_STATUSES = new Set([
+  'pending',
+  'running',
+  'paused',
+  'waiting_for_review',
+])
+const backendTaskTimestamp = (task: Record<string, any>) => (
+  Date.parse(String(task.updated_at || task.created_at || '')) || 0
+)
+const currentBackendTasksByCourse = (tasks: Record<string, any>[]) => {
+  const selected = new Map<string, Record<string, any>>()
+  for (const task of tasks) {
+    const courseId = String(task?.course_id || '')
+    if (!courseId) continue
+    const current = selected.get(courseId)
+    if (!current) {
+      selected.set(courseId, task)
+      continue
+    }
+    const taskIsActive = ACTIVE_BACKEND_TASK_STATUSES.has(String(task.status || ''))
+    const currentIsActive = ACTIVE_BACKEND_TASK_STATUSES.has(String(current.status || ''))
+    if (
+      (taskIsActive && !currentIsActive)
+      || (taskIsActive === currentIsActive && backendTaskTimestamp(task) > backendTaskTimestamp(current))
+    ) {
+      selected.set(courseId, task)
+    }
+  }
+  return [...selected.values()]
+}
 const mergeStreamDelta = (existing: string, delta: string): string => {
   if (!delta || existing.endsWith(delta)) return existing
   const maxOverlap = Math.min(existing.length, delta.length)
@@ -186,6 +216,8 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSMessage(message: WSMessage) {
+      const currentTask = this.tasks.get(message.course_id)
+      if (currentTask?.id && message.task_id && currentTask.id !== message.task_id) return
       switch (message.type) {
         case 'progress_update':
           this.handleWSProgressUpdate(message)
@@ -217,6 +249,7 @@ export const useGenerationStore = defineStore('generation', {
     handleWSProgressUpdate(message: WSMessage) {
       const { course_id, task_id, payload } = message
       const localTask = this.tasks.get(course_id)
+      if (localTask?.id && task_id && localTask.id !== task_id) return
       if (localTask) {
         const status = (payload.status as string) || localTask.status
         if (status === 'running') localTask.status = 'running'
@@ -274,7 +307,9 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSNodeCompleted(message: WSMessage) {
-      const { course_id, payload } = message
+      const { course_id, task_id, payload } = message
+      const localTask = this.tasks.get(course_id)
+      if (localTask?.id && task_id && localTask.id !== task_id) return
       const cs = this._courseStore()
       if (course_id === cs.currentCourseId && payload.node_id) {
         const nodeId = payload.node_id as string
@@ -303,7 +338,9 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSNodeFinalized(message: WSMessage) {
-      const { course_id, payload } = message
+      const { course_id, task_id, payload } = message
+      const localTask = this.tasks.get(course_id)
+      if (localTask?.id && task_id && localTask.id !== task_id) return
       const cs = this._courseStore()
       if (course_id !== cs.currentCourseId || !payload.node_id) return
 
@@ -318,7 +355,9 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSStreamChunk(message: WSMessage) {
-      const { course_id, payload } = message
+      const { course_id, task_id, payload } = message
+      const localTask = this.tasks.get(course_id)
+      if (localTask?.id && task_id && localTask.id !== task_id) return
       const nodeId = payload.node_id as string
       const chunk = payload.chunk as string
       if (!nodeId || !chunk) return
@@ -354,8 +393,9 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSTaskError(message: WSMessage) {
-      const { course_id, payload } = message
+      const { course_id, task_id, payload } = message
       const localTask = this.tasks.get(course_id)
+      if (localTask?.id && task_id && localTask.id !== task_id) return
       if (localTask) {
         if (payload.node_id) {
           const cs = this._courseStore()
@@ -380,6 +420,8 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSFailureReport(message: WSMessage) {
+      const currentTask = this.tasks.get(message.course_id)
+      if (currentTask?.id && message.task_id && currentTask.id !== message.task_id) return
       const { payload } = message
       this.failureReport = {
         task_id: message.task_id,
@@ -548,7 +590,8 @@ export const useGenerationStore = defineStore('generation', {
 
     getTask(courseId: string) { return this.tasks.get(courseId) },
 
-    async ensureJobId(courseId: string) {
+    async ensureJobId(courseId: string, requestedTaskId?: string) {
+      if (requestedTaskId) return requestedTaskId
       let task = this.tasks.get(courseId)
       if (task?.id) return task.id
       const res = await http.get(`/api/courses/${courseId}/task`)
@@ -565,44 +608,55 @@ export const useGenerationStore = defineStore('generation', {
       return task.id
     },
 
-    async pauseTask(courseId: string) {
+    async pauseTask(courseId: string, requestedTaskId?: string) {
       const task = this.tasks.get(courseId)
       try {
-        const taskId = await this.ensureJobId(courseId)
-        if (taskId) await http.post(`/api/tasks/${taskId}/pause`)
+        const taskId = await this.ensureJobId(courseId, requestedTaskId)
+        if (!taskId) throw new Error('backend_task_not_found')
+        await http.post(`/api/tasks/${taskId}/pause`)
+        const backendTask = this.globalTasks.find(item => String(item?.id || '') === taskId)
+        if (backendTask) backendTask.status = 'paused'
+        const current = this.tasks.get(courseId) || task
+        if (current?.id === taskId) {
+          current.status = 'paused'
+          current.shouldStop = true
+          this.addLogToTask(courseId, '⏸️ 任务已暂停')
+        }
+        this.persistGenerationState()
       } catch (e) {
         console.error('Failed to pause task', e)
         ElMessage.error('暂停任务失败')
         throw e
       }
-      const current = this.tasks.get(courseId) || task
-      if (!current) return
-      current.status = 'paused'
-      current.shouldStop = true
-      this.addLogToTask(courseId, '⏸️ 任务已暂停')
-      this.persistGenerationState()
     },
 
-    async resumeTask(courseId: string) {
+    async resumeTask(courseId: string, requestedTaskId?: string) {
       try {
-        const taskId = await this.ensureJobId(courseId)
-        if (taskId) {
-          const response = await http.post(`/api/tasks/${taskId}/resume`)
-          const current = this.tasks.get(courseId)
-          if (current) {
-            const backendTask = response.data?.task || {}
-            current.status = backendTask.status === 'running' ? 'running' : 'pending'
-            current.progress = backendTask.progress ?? current.progress
-            current.currentStep = backendTask.message || current.currentStep
-            current.recovery = backendTask.recovery || current.recovery
-            current.shouldStop = false
-            this.addLogToTask(courseId, t('courseTasks.recovery.resumedLog', '已从保存点继续'))
-            this.persistGenerationState()
-          }
-          if (this.wsConnected) useTaskWebSocket().subscribe(courseId)
-          else this.startGlobalMonitor()
-          return
+        const taskId = await this.ensureJobId(courseId, requestedTaskId)
+        if (!taskId) throw new Error('backend_task_not_found')
+        const response = await http.post(`/api/tasks/${taskId}/resume`)
+        const backendTask = response.data?.task || {}
+        let current = this.tasks.get(courseId)
+        if (!current || current.id !== taskId) {
+          current = this.createTask(
+            taskId,
+            courseId,
+            backendTask.course_name
+              || this.globalTasks.find(item => String(item?.id || '') === taskId)?.course_name
+              || '后台生成任务',
+          )
         }
+        current.status = backendTask.status === 'running' ? 'running' : 'pending'
+        current.progress = backendTask.progress ?? current.progress
+        current.currentStep = backendTask.message || current.currentStep
+        current.recovery = backendTask.recovery || current.recovery
+        current.shouldStop = false
+        const listed = this.globalTasks.find(item => String(item?.id || '') === taskId)
+        if (listed) Object.assign(listed, backendTask)
+        this.addLogToTask(courseId, t('courseTasks.recovery.resumedLog', '已从保存点继续'))
+        this.persistGenerationState()
+        if (this.wsConnected) useTaskWebSocket().subscribe(courseId)
+        else this.startGlobalMonitor()
       } catch (e) {
         console.error('Failed to resume task', e)
         ElMessage.error('继续任务失败')
@@ -616,10 +670,12 @@ export const useGenerationStore = defineStore('generation', {
       else if (task?.status === 'pending' || task?.status === 'running') return
     },
 
-    async deleteTask(courseId: string) {
+    async deleteTask(courseId: string, requestedTaskId?: string) {
+      let taskId: string | null = null
       try {
-        const taskId = await this.ensureJobId(courseId)
-        if (taskId) await http.delete(`/api/tasks/${taskId}`)
+        taskId = await this.ensureJobId(courseId, requestedTaskId)
+        if (!taskId) throw new Error('backend_task_not_found')
+        await http.delete(`/api/tasks/${taskId}`)
       } catch (e: any) {
         if (e?.response?.status !== 404) {
           console.error('Failed to delete task', e)
@@ -627,8 +683,8 @@ export const useGenerationStore = defineStore('generation', {
           throw e
         }
       }
-      this.globalTasks = this.globalTasks.filter(task => String(task?.course_id || '') !== courseId)
-      this.dropLocalTaskState(courseId)
+      this.globalTasks = this.globalTasks.filter(task => String(task?.id || '') !== taskId)
+      this.dropLocalTaskState(courseId, taskId || undefined)
       this.persistGenerationState()
       await this._courseStore().fetchCourseList()
     },
@@ -637,8 +693,10 @@ export const useGenerationStore = defineStore('generation', {
       await this.deleteTask(courseId)
     },
 
-    dropLocalTaskState(courseId: string) {
+    dropLocalTaskState(courseId: string, expectedTaskId?: string) {
       const cs = this._courseStore()
+      const current = this.tasks.get(courseId)
+      if (expectedTaskId && current?.id !== expectedTaskId) return
       this.tasks.delete(courseId)
       delete this.taskProgress[courseId]
       if (cs.currentCourseId !== courseId) return
@@ -751,7 +809,7 @@ export const useGenerationStore = defineStore('generation', {
         this.globalTasks = [...listedTasks, ...recoveredTasks]
         const publishedCourseIds = new Set<string>()
         const discoveredCourseIds = new Set<string>()
-        this.globalTasks.forEach((backendTask: any) => {
+        currentBackendTasksByCourse(this.globalTasks).forEach((backendTask: any) => {
           const courseId = backendTask.course_id
           let localTask = this.tasks.get(courseId)
           if (!localTask && ['pending', 'running', 'paused', 'error', 'failed', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(backendTask.status)) {

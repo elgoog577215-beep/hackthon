@@ -54,9 +54,14 @@ describe('CourseTaskCenter', () => {
 
     expect(wrapper.text()).toContain('线性代数')
     expect(wrapper.text()).toContain('42%')
+    expect(wrapper.text()).toContain('暂停并保留草稿')
     await wrapper.find('.task-actions .secondary-button').trigger('click')
     await flushPromises()
-    expect(pause).toHaveBeenCalledWith('course-1')
+    expect(pause).toHaveBeenCalledWith('course-1', 'task-1')
+
+    await setLocale('en')
+    await flushPromises()
+    expect(wrapper.find('.task-actions .secondary-button').text()).toContain('Pause and keep draft')
 
     await wrapper.find('.task-actions__open').trigger('click')
     await flushPromises()
@@ -75,9 +80,46 @@ describe('CourseTaskCenter', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('取消并删除')
+    expect(wrapper.text()).toContain('停止本步并保留检查点')
     await wrapper.get('.task-actions .secondary-button:not(.task-actions__open)').trigger('click')
     await flushPromises()
-    expect(pause).toHaveBeenCalledWith('course-1')
+    expect(pause).toHaveBeenCalledWith('course-1', 'task-pending')
+  })
+
+  it('同一课程的多次生成分别成行，并按所选任务 ID 执行控制', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [
+      {
+        id: 'task-old', course_id: 'course-1', course_name: '线性代数', status: 'completed',
+        progress: 100, current_phase: 'completed', message: '旧任务已完成',
+        updated_at: '2026-07-18T10:00:00Z',
+      },
+      {
+        id: 'task-new', course_id: 'course-1', course_name: '线性代数', status: 'running',
+        progress: 42, current_phase: 'content_generation', message: '新任务正在生成',
+        updated_at: '2026-07-19T10:00:00Z',
+      },
+    ]
+    const pause = vi.spyOn(generation, 'pauseTask').mockResolvedValue(undefined)
+    const deleteTask = vi.spyOn(generation, 'deleteTask').mockResolvedValue(undefined)
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    const rows = wrapper.findAll('.task-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.text()).toContain('42%')
+    expect(rows[1]!.text()).toContain('100%')
+
+    await wrapper.get('.task-actions .secondary-button:not(.task-actions__open)').trigger('click')
+    await flushPromises()
+    expect(pause).toHaveBeenCalledWith('course-1', 'task-new')
+
+    await rows[1]!.trigger('click')
+    await flushPromises()
+    await wrapper.get('.task-actions .danger-button').trigger('click')
+    await flushPromises()
+    expect(deleteTask).toHaveBeenCalledWith('course-1', 'task-old')
   })
 
   it('失败任务可以删除未发布现场', async () => {
@@ -104,7 +146,7 @@ describe('CourseTaskCenter', () => {
       '删除任务',
       expect.any(Object),
     )
-    expect(deleteTask).toHaveBeenCalledWith('course-1')
+    expect(deleteTask).toHaveBeenCalledWith('course-1', 'task-failed')
   })
 
   it('清理已发布任务时明确保留正式课程', async () => {
@@ -127,7 +169,7 @@ describe('CourseTaskCenter', () => {
       '清除任务记录',
       expect.any(Object),
     )
-    expect(deleteTask).toHaveBeenCalledWith('course-1')
+    expect(deleteTask).toHaveBeenCalledWith('course-1', 'task-completed')
   })
 
   it('在等待审阅时读取、保存并确认同一份蓝图', async () => {
@@ -491,7 +533,7 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('从保存点继续')
     await wrapper.get('.task-actions .primary-button').trigger('click')
     await flushPromises()
-    expect(resume).toHaveBeenCalledWith('course-1')
+    expect(resume).toHaveBeenCalledWith('course-1', 'task-4')
   })
 
   it('显示当前知识包进度、真实失败原因和知识阶段检查点', async () => {

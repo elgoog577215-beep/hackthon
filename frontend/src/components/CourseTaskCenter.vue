@@ -31,13 +31,16 @@
               :key="task.id"
               type="button"
               class="task-row"
-              :class="{ active: selectedCourseId === task.courseId }"
-              @click="selectTask(task.courseId)"
+              :class="{ active: selectedTaskId === task.id }"
+              @click="selectTask(task.id)"
             >
               <span class="task-row__state" :data-status="task.status"><component :is="statusIcon(task.status)" :size="15" /></span>
               <span class="task-row__copy">
                 <strong>{{ task.courseName }}</strong>
-                <small>{{ statusLabel(task.status, task.recovery) }} · {{ Math.round(task.progress) }}%</small>
+                <small>
+                  {{ statusLabel(task.status, task.recovery) }} · {{ Math.round(task.progress) }}%
+                  <template v-if="task.updatedAt"> · {{ formatTaskTime(task.updatedAt) }}</template>
+                </small>
               </span>
               <ChevronRight :size="15" />
             </button>
@@ -316,8 +319,15 @@
             </div>
 
             <footer class="task-actions">
-              <button v-if="canPause(selectedTask)" type="button" class="secondary-button" :disabled="acting" @click="pauseSelected">
-                <Pause :size="16" />{{ t('courseGeneration.actions.pause', '暂停') }}
+              <button
+                v-if="canPause(selectedTask)"
+                type="button"
+                class="secondary-button"
+                :title="pauseActionHelp(selectedTask)"
+                :disabled="acting"
+                @click="pauseSelected"
+              >
+                <Pause :size="16" />{{ pauseActionLabel(selectedTask) }}
               </button>
               <button v-if="canResume(selectedTask)" type="button" class="primary-button" :disabled="acting" @click="resumeSelected">
                 <RotateCw :size="16" />{{ t('courseTasks.resumeCheckpoint', '从保存点继续') }}
@@ -370,7 +380,7 @@ const generationStore = useGenerationStore()
 const workspace = useCourseWorkspaceStore()
 const titleId = `course-task-center-${Math.random().toString(36).slice(2)}`
 const panelRef = ref<HTMLElement | null>(null)
-const selectedCourseId = ref('')
+const selectedTaskId = ref('')
 const refreshing = ref(false)
 const acting = ref(false)
 const blueprintDraft = ref<any>(null)
@@ -378,39 +388,46 @@ const generationReview = ref<any>(null)
 const reviewError = ref('')
 
 const tasks = computed<TaskView[]>(() => {
-  const byCourse = new Map<string, TaskView>()
+  const byTaskId = new Map<string, TaskView>()
   for (const raw of generationStore.globalTasks || []) {
     const local = generationStore.getTask(raw.course_id)
-    byCourse.set(raw.course_id, {
+    const matchingLocal = local?.id === raw.id ? local : undefined
+    byTaskId.set(raw.id, {
       id: raw.id,
       courseId: raw.course_id,
-      courseName: raw.course_name || local?.courseName || t('courseTasks.untitled', '未命名课程'),
+      courseName: raw.course_name || matchingLocal?.courseName || t('courseTasks.untitled', '未命名课程'),
       status: normalizeStatus(raw.status),
       progress: Math.max(0, Math.min(100, Number(raw.progress || 0))),
-      currentStep: raw.current_node_name ? String(raw.current_node_name) : String(raw.message || local?.currentStep || ''),
-      currentPhase: String(raw.current_phase || raw.phase || local?.currentPhase || ''),
-      phaseProgress: Number(raw.phase_progress || local?.phaseProgress || 0),
-      phaseDetail: raw.phase_detail || local?.phaseDetail || {},
-      error: raw.error ? String(raw.error) : local?.error,
-      recovery: raw.recovery || local?.recovery,
-      publicationAllowed: typeof raw.publication_allowed === 'boolean' ? raw.publication_allowed : local?.publicationAllowed,
-      qualityStatus: raw.quality_status || local?.qualityStatus,
-      guidedWorkflow: raw.guided_workflow || local?.guidedWorkflow,
-      logs: local?.logs || [],
+      currentStep: raw.current_node_name ? String(raw.current_node_name) : String(raw.message || matchingLocal?.currentStep || ''),
+      currentPhase: String(raw.current_phase || raw.phase || matchingLocal?.currentPhase || ''),
+      phaseProgress: Number(raw.phase_progress || matchingLocal?.phaseProgress || 0),
+      phaseDetail: raw.phase_detail || matchingLocal?.phaseDetail || {},
+      error: raw.error ? String(raw.error) : matchingLocal?.error,
+      recovery: raw.recovery || matchingLocal?.recovery,
+      publicationAllowed: typeof raw.publication_allowed === 'boolean' ? raw.publication_allowed : matchingLocal?.publicationAllowed,
+      qualityStatus: raw.quality_status || matchingLocal?.qualityStatus,
+      guidedWorkflow: raw.guided_workflow || matchingLocal?.guidedWorkflow,
+      logs: matchingLocal?.logs || [],
       shouldStop: false,
       updatedAt: raw.updated_at || raw.created_at,
     })
   }
   for (const local of generationStore.tasks.values()) {
-    if (!byCourse.has(local.courseId)) byCourse.set(local.courseId, { ...local })
+    if (!byTaskId.has(local.id)) byTaskId.set(local.id, { ...local })
   }
-  return [...byCourse.values()].sort((a, b) => {
+  return [...byTaskId.values()].sort((a, b) => {
     const priority = (task: TaskView) => taskNeedsAttention(task) ? 0 : 1
     return priority(a) - priority(b) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
   })
 })
-const selectedTask = computed(() => tasks.value.find(task => task.courseId === selectedCourseId.value) || null)
-const selectedProgress = computed(() => selectedTask.value ? generationStore.taskProgress[selectedTask.value.courseId] : null)
+const selectedTask = computed(() => tasks.value.find(task => task.id === selectedTaskId.value) || null)
+const selectedProgress = computed(() => {
+  if (!selectedTask.value) return null
+  const current = generationStore.getTask(selectedTask.value.courseId)
+  return current?.id === selectedTask.value.id
+    ? generationStore.taskProgress[selectedTask.value.courseId]
+    : null
+})
 const phaseItemProgress = computed(() => {
   const detail = selectedTask.value?.phaseDetail || {}
   const total = Number(detail.total_items || 0)
@@ -533,15 +550,17 @@ const contentQualityLabel = computed(() => {
 watch(() => props.modelValue, async open => {
   if (!open) return
   await refresh()
-  selectedCourseId.value = props.courseId || selectedCourseId.value || tasks.value[0]?.courseId || ''
+  if (!tasks.value.some(task => task.id === selectedTaskId.value)) {
+    selectedTaskId.value = preferredTaskId(props.courseId)
+  }
   await loadSelectedReview()
   await nextTick()
   panelRef.value?.focus()
 }, { immediate: true })
 watch(() => props.courseId, value => {
-  if (value) selectedCourseId.value = value
+  if (value) selectedTaskId.value = preferredTaskId(value)
 })
-watch(selectedCourseId, () => { void loadSelectedReview() })
+watch(selectedTaskId, () => { void loadSelectedReview() })
 watch(
   () => [
     selectedTask.value?.status,
@@ -559,7 +578,10 @@ function normalizeStatus(status: string): Task['status'] {
   return 'pending'
 }
 function close() { emit('update:modelValue', false) }
-function selectTask(courseId: string) { selectedCourseId.value = courseId }
+function preferredTaskId(courseId?: string) {
+  return tasks.value.find(task => task.courseId === courseId)?.id || tasks.value[0]?.id || ''
+}
+function selectTask(taskId: string) { selectedTaskId.value = taskId }
 async function refresh() {
   refreshing.value = true
   try { await Promise.all([generationStore.fetchGlobalTasks(), courseStore.fetchCourseList()]) }
@@ -583,11 +605,11 @@ async function loadSelectedReview() {
 }
 async function pauseSelected() {
   if (!selectedTask.value) return
-  await runAction(() => generationStore.pauseTask(selectedTask.value!.courseId))
+  await runAction(() => generationStore.pauseTask(selectedTask.value!.courseId, selectedTask.value!.id))
 }
 async function resumeSelected() {
   if (!selectedTask.value) return
-  await runAction(() => generationStore.resumeTask(selectedTask.value!.courseId))
+  await runAction(() => generationStore.resumeTask(selectedTask.value!.courseId, selectedTask.value!.id))
 }
 async function confirmCurrentStep() {
   if (!selectedTask.value || !canConfirmCurrentStep.value) return
@@ -669,8 +691,8 @@ async function deleteSelected() {
       title,
       { type: 'warning', confirmButtonText: title, cancelButtonText: t('common.cancel', '取消') },
     )
-    await runAction(() => generationStore.deleteTask(task.courseId))
-    selectedCourseId.value = tasks.value[0]?.courseId || ''
+    await runAction(() => generationStore.deleteTask(task.courseId, task.id))
+    selectedTaskId.value = tasks.value[0]?.id || ''
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(t('courseTasks.actionFailed', '任务操作失败'))
   }
@@ -684,6 +706,22 @@ async function runAction(action: () => Promise<unknown>) {
 function openCourse(courseId: string) { close(); void router.push({ name: 'learning', params: { courseId } }) }
 function courseExists(courseId: string) { return courseStore.courseList.some(course => course.course_id === courseId) }
 function canPause(task: TaskView) { return ['pending', 'running'].includes(task.status) }
+function pauseContinuesDraft(task: TaskView) {
+  return (
+    task.currentPhase === 'content_generation'
+    || Boolean(task.recovery?.checkpoint?.draft_node_ids?.length)
+  )
+}
+function pauseActionLabel(task: TaskView) {
+  return pauseContinuesDraft(task)
+    ? t('courseTasks.pauseKeepDraft', '暂停并保留草稿')
+    : t('courseTasks.pauseRestartStep', '停止本步并保留检查点')
+}
+function pauseActionHelp(task: TaskView) {
+  return pauseContinuesDraft(task)
+    ? t('courseTasks.pauseKeepDraftHelp', '停止当前模型调用；已经保存的正文草稿会保留，恢复后从草稿继续。')
+    : t('courseTasks.pauseRestartStepHelp', '停止当前模型调用；恢复后从最近完整产物继续，当前未完成步骤会重新生成。')
+}
 function canResume(task: TaskView) {
   if (task.recovery) return task.recovery.can_resume
   return ['paused', 'error'].includes(task.status)
@@ -697,6 +735,16 @@ function taskDeleteLabel(task: TaskView) {
     return t('courseTasks.cancelAndDelete', '取消并删除')
   }
   return t('courseTasks.deleteTask', '删除任务')
+}
+function formatTaskTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat(activeLocale.value === 'en' ? 'en-US' : 'zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
 }
 function guidedStepLabel(step: GuidedGenerationStepKey) {
   return {
