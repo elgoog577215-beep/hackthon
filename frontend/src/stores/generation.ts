@@ -628,23 +628,25 @@ export const useGenerationStore = defineStore('generation', {
       else if (task?.status === 'pending' || task?.status === 'running') return
     },
 
-    async cancelTask(courseId: string) {
-      const task = this.tasks.get(courseId)
-      if (task) {
-        try {
-          const taskId = await this.ensureJobId(courseId)
-          if (taskId) await http.delete(`/api/tasks/${taskId}`)
-        } catch (e: any) {
-          if (e?.response?.status !== 404) {
-            console.error('Failed to cancel task', e)
-            ElMessage.error('取消任务失败')
-            throw e
-          }
+    async deleteTask(courseId: string) {
+      try {
+        const taskId = await this.ensureJobId(courseId)
+        if (taskId) await http.delete(`/api/tasks/${taskId}`)
+      } catch (e: any) {
+        if (e?.response?.status !== 404) {
+          console.error('Failed to delete task', e)
+          ElMessage.error(t('courseTasks.deleteFailed', '删除任务失败'))
+          throw e
         }
-        this.dropLocalTaskState(courseId)
-        this.persistGenerationState()
-        await this._courseStore().fetchCourseList()
       }
+      this.globalTasks = this.globalTasks.filter(task => String(task?.course_id || '') !== courseId)
+      this.dropLocalTaskState(courseId)
+      this.persistGenerationState()
+      await this._courseStore().fetchCourseList()
+    },
+
+    async cancelTask(courseId: string) {
+      await this.deleteTask(courseId)
     },
 
     dropLocalTaskState(courseId: string) {

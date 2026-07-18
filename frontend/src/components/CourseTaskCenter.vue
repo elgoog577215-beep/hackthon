@@ -44,6 +44,7 @@
           </aside>
 
           <main v-if="selectedTask" class="task-detail">
+            <div class="task-detail__scroll">
             <section class="task-summary">
               <div class="task-summary__top">
                 <div>
@@ -99,9 +100,10 @@
                 <small v-if="selectedTask.recovery?.can_resume" class="recovery-checkpoint">{{ recoveryCheckpointLabel(selectedTask) }}</small>
               </div>
             </section>
+            </div>
 
             <footer class="task-actions">
-              <button v-if="selectedTask.status === 'running'" type="button" class="secondary-button" :disabled="acting" @click="pauseSelected">
+              <button v-if="canPause(selectedTask)" type="button" class="secondary-button" :disabled="acting" @click="pauseSelected">
                 <Pause :size="16" />{{ t('courseGeneration.actions.pause', '暂停') }}
               </button>
               <button v-if="canResume(selectedTask)" type="button" class="primary-button" :disabled="acting" @click="resumeSelected">
@@ -110,11 +112,11 @@
               <button v-if="selectedTask.status === 'waiting_for_review'" type="button" class="primary-button" :disabled="acting || workspace.loading || !blueprintDraft" @click="confirmBlueprint">
                 <CircleCheck :size="16" />{{ t('courseTasks.blueprint.confirm', '确认并继续生成') }}
               </button>
-              <button v-if="canCancel(selectedTask.status)" type="button" class="danger-button" :disabled="acting" @click="cancelSelected">
-                <Trash2 :size="16" />{{ t('courseGeneration.actions.cancelTask', '取消任务') }}
-              </button>
               <button v-if="courseExists(selectedTask.courseId)" type="button" class="secondary-button task-actions__open" @click="openCourse(selectedTask.courseId)">
                 <BookOpenText :size="16" />{{ t('courseTasks.openCourse', '进入课程') }}
+              </button>
+              <button type="button" class="danger-button" :disabled="acting" @click="deleteSelected">
+                <Trash2 :size="16" />{{ taskDeleteLabel(selectedTask) }}
               </button>
             </footer>
           </main>
@@ -261,15 +263,24 @@ async function confirmBlueprint() {
     ElMessage.success(t('courseTasks.blueprint.confirmed', '蓝图已确认，课程继续在后台生成'))
   })
 }
-async function cancelSelected() {
+async function deleteSelected() {
   if (!selectedTask.value) return
+  const task = selectedTask.value
+  const preservesCourse = deletePreservesCourse(task)
+  const active = ['pending', 'running', 'paused', 'waiting_for_review'].includes(task.status)
+  const title = taskDeleteLabel(task)
+  const message = preservesCourse
+    ? t('courseTasks.deleteRecordConfirm', '清除任务记录和生成现场后，已经发布的正式课程仍会保留。')
+    : active
+      ? t('courseTasks.deleteActiveConfirm', '这会停止后台生成，并删除未发布课程、草稿和任务工作区。此操作不可撤销。')
+      : t('courseTasks.deleteTaskConfirm', '这会删除未发布课程、草稿和任务工作区。此操作不可撤销。')
   try {
     await ElMessageBox.confirm(
-      t('courseGeneration.messages.cancelConfirm', '确定要取消此任务吗？已生成的内容将被保留。'),
-      t('courseGeneration.actions.cancelTask', '取消任务'),
-      { type: 'warning', confirmButtonText: t('courseGeneration.actions.cancelTask', '取消任务'), cancelButtonText: t('common.cancel', '取消') },
+      message,
+      title,
+      { type: 'warning', confirmButtonText: title, cancelButtonText: t('common.cancel', '取消') },
     )
-    await runAction(() => generationStore.cancelTask(selectedTask.value!.courseId))
+    await runAction(() => generationStore.deleteTask(task.courseId))
     selectedCourseId.value = tasks.value[0]?.courseId || ''
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(t('courseTasks.actionFailed', '任务操作失败'))
@@ -283,11 +294,21 @@ async function runAction(action: () => Promise<unknown>) {
 }
 function openCourse(courseId: string) { close(); void router.push({ name: 'learning', params: { courseId } }) }
 function courseExists(courseId: string) { return courseStore.courseList.some(course => course.course_id === courseId) }
+function canPause(task: TaskView) { return ['pending', 'running'].includes(task.status) }
 function canResume(task: TaskView) {
   if (task.recovery) return task.recovery.can_resume
   return ['paused', 'error'].includes(task.status)
 }
-function canCancel(status: Task['status']) { return ['running', 'pending', 'paused', 'waiting_for_review', 'conflict'].includes(status) }
+function deletePreservesCourse(task: TaskView) {
+  return courseExists(task.courseId) && (task.status === 'completed' || isPublishedWarning(task))
+}
+function taskDeleteLabel(task: TaskView) {
+  if (deletePreservesCourse(task)) return t('courseTasks.clearRecord', '清除任务记录')
+  if (['pending', 'running', 'paused', 'waiting_for_review'].includes(task.status)) {
+    return t('courseTasks.cancelAndDelete', '取消并删除')
+  }
+  return t('courseTasks.deleteTask', '删除任务')
+}
 function phaseLabel(phase: string | undefined, status: Task['status']) {
   const labels: Record<string, string> = {
     requirement_analysis: t('courseTasks.phases.requirementAnalysis', '整理课程需求'),
@@ -391,7 +412,8 @@ function formatDuration(seconds: number) {
 .task-row__state[data-status="running"],.task-row__state[data-status="waiting_for_review"] { color:var(--lz-brand-strong); }
 .task-row__state[data-status="completed"] { color:var(--lz-success); }.task-row__state[data-status="error"],.task-row__state[data-status="conflict"],.task-row__state[data-status="completed_with_warnings"] { color:var(--lz-warning); }
 .task-row__copy { min-width:0; display:block; }.task-row__copy strong,.task-row__copy small { overflow:hidden; display:block; text-overflow:ellipsis; white-space:nowrap; }.task-row__copy strong { color:var(--lz-text-strong); font-size:12px; }.task-row__copy small { margin-top:4px; color:var(--lz-text-muted); font-size:10px; }
-.task-detail { min-height:0; overflow:auto; padding:26px clamp(20px,4vw,38px); }
+.task-detail { min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; }
+.task-detail__scroll { min-height:0; overflow:auto; padding:26px clamp(20px,4vw,38px) 18px; }
 .task-summary { padding-bottom:24px; border-bottom:1px solid var(--lz-border); }
 .task-summary__top { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }.task-summary__top > div { min-width:0; }.task-summary__top > strong { color:var(--lz-brand-strong); font-size:28px; line-height:1; }
 .status-chip { display:inline-flex; min-height:24px; align-items:center; padding:0 8px; border-radius:5px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:10px; font-weight:700; }.status-chip[data-status="completed"] { color:var(--lz-success); background:var(--lz-success-soft); }.status-chip[data-status="error"],.status-chip[data-status="conflict"],.status-chip[data-status="completed_with_warnings"] { color:var(--lz-warning); background:var(--lz-warning-soft); }
@@ -401,8 +423,8 @@ function formatDuration(seconds: number) {
 .blueprint-review { padding:24px 0 4px; }.blueprint-review > header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:16px; }.blueprint-review h4 { margin:0; color:var(--lz-text-strong); font-size:14px; }.blueprint-review header p { margin:5px 0 0; color:var(--lz-text-muted); font-size:11px; }
 .blueprint-course-name span { display:block; margin-bottom:6px; color:var(--lz-text-muted); font-size:10px; }.blueprint-course-name input,.blueprint-nodes input,.blueprint-nodes textarea { width:100%; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; outline:none; }.blueprint-course-name input { height:38px; padding:0 10px; font-weight:650; }.blueprint-nodes { margin-top:12px; }.blueprint-nodes article { display:grid; grid-template-columns:28px minmax(0,1fr); gap:9px; padding:11px 0; border-top:1px solid rgba(226,232,240,.76); }.blueprint-nodes article > span { padding-top:9px; color:var(--lz-text-muted); font-size:10px; font-family:ui-monospace,monospace; }.blueprint-nodes input { height:36px; padding:0 9px; font-size:12px; font-weight:650; }.blueprint-nodes textarea { min-height:54px; margin-top:6px; padding:8px 9px; resize:vertical; font-size:11px; line-height:1.45; }.blueprint-course-name input:focus,.blueprint-nodes input:focus,.blueprint-nodes textarea:focus { border-color:var(--lz-brand); box-shadow:0 0 0 3px rgba(99,102,241,.08); }.blueprint-error,.blueprint-empty { color:var(--lz-warning); font-size:11px; }
 .task-notice { margin-top:20px; display:flex; gap:10px; padding:13px 14px; border-left:3px solid var(--lz-warning); color:var(--lz-warning); background:var(--lz-warning-soft); }.task-notice strong { display:block; font-size:12px; }.task-notice p { margin:4px 0 0; font-size:11px; line-height:1.5; }.recovery-checkpoint { display:block; margin-top:7px; color:inherit; font-size:9px; opacity:.82; }
-.task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding-top:22px; }.task-actions__open { margin-left:auto; }
+.task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px clamp(20px,4vw,38px); border-top:1px solid var(--lz-border); background:rgba(255,255,255,.98); box-shadow:0 -8px 22px rgba(15,23,42,.035); }.task-actions__open { margin-left:auto; }
 .primary-button,.secondary-button,.danger-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }.primary-button { border:1px solid var(--lz-brand-strong); color:#fff; background:var(--lz-brand-strong); }.secondary-button { border:1px solid var(--lz-border); color:var(--lz-text-secondary); background:#fff; }.danger-button { border:1px solid rgba(185,28,28,.22); color:var(--lz-danger); background:var(--lz-danger-soft); }.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled,.icon-button:disabled { cursor:not-allowed; opacity:.5; }
 .spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
-@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100vh - 56px); border-radius:14px 14px 0 0; }.task-center__body { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); }.task-list { max-height:168px; border-right:0; border-bottom:1px solid var(--lz-border); }.task-detail { padding:20px 16px; }.task-summary dl { grid-template-columns:1fr 1fr; }.task-actions__open { margin-left:0; } }
+@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100vh - 56px); border-radius:14px 14px 0 0; }.task-center__body { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); }.task-list { max-height:168px; border-right:0; border-bottom:1px solid var(--lz-border); }.task-detail__scroll { padding:20px 16px 14px; }.task-actions { padding:12px 16px calc(12px + env(safe-area-inset-bottom)); }.task-summary dl { grid-template-columns:1fr 1fr; }.task-actions__open { margin-left:0; } }
 </style>

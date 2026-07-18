@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ElMessageBox } from 'element-plus'
 import CourseTaskCenter from '@/components/CourseTaskCenter.vue'
 import { useCourseStore } from '@/stores/course'
 import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
@@ -55,6 +56,72 @@ describe('CourseTaskCenter', () => {
     expect(router.currentRoute.value.params.courseId).toBe('course-1')
   })
 
+  it('排队任务同样可以暂停，并明确提供取消删除', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-pending', course_id: 'course-1', course_name: '线性代数', status: 'pending',
+      progress: 8, current_phase: 'requirement_analysis', message: '等待生成',
+    }]
+    const pause = vi.spyOn(generation, 'pauseTask').mockResolvedValue(undefined)
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('取消并删除')
+    await wrapper.get('.task-actions .secondary-button:not(.task-actions__open)').trigger('click')
+    await flushPromises()
+    expect(pause).toHaveBeenCalledWith('course-1')
+  })
+
+  it('失败任务可以删除未发布现场', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-failed', course_id: 'course-1', course_name: '线性代数', status: 'failed',
+      progress: 38, current_phase: 'blueprint_generation', message: '生成中断',
+      recovery: {
+        state: 'manual_resume', can_resume: true, reason_code: 'checkpoint_available', reason: 'checkpoint available',
+        checkpoint: { phase: 'blueprint_generation', completed_nodes: 0, total_nodes: 4, draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [] },
+      },
+    }]
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    const deleteTask = vi.spyOn(generation, 'deleteTask').mockResolvedValue(undefined)
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('删除任务')
+    await wrapper.get('.task-actions .danger-button').trigger('click')
+    await flushPromises()
+
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
+      expect.stringContaining('删除未发布课程'),
+      '删除任务',
+      expect.any(Object),
+    )
+    expect(deleteTask).toHaveBeenCalledWith('course-1')
+  })
+
+  it('清理已发布任务时明确保留正式课程', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-completed', course_id: 'course-1', course_name: '线性代数', status: 'completed',
+      progress: 100, current_phase: 'completed', message: '课程生成完成',
+    }]
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    const deleteTask = vi.spyOn(generation, 'deleteTask').mockResolvedValue(undefined)
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('清除任务记录')
+    await wrapper.get('.task-actions .danger-button').trigger('click')
+    await flushPromises()
+
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
+      expect.stringContaining('正式课程仍会保留'),
+      '清除任务记录',
+      expect.any(Object),
+    )
+    expect(deleteTask).toHaveBeenCalledWith('course-1')
+  })
+
   it('在等待审阅时读取、保存并确认同一份蓝图', async () => {
     const generation = useGenerationStore()
     const workspace = useCourseWorkspaceStore()
@@ -85,7 +152,7 @@ describe('CourseTaskCenter', () => {
     expect(confirm).toHaveBeenCalledWith('course-1')
   })
 
-  it('把终态阶段翻译为用户文案，并隐藏无效的取消操作', async () => {
+  it('把质量阻断翻译为用户文案，并提供删除而非继续操作', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [{
       id: 'task-3', course_id: 'course-1', course_name: '线性代数', status: 'completed_with_warnings',
@@ -100,7 +167,8 @@ describe('CourseTaskCenter', () => {
 
     expect(wrapper.text()).toContain('质量检查未通过')
     expect(wrapper.text()).not.toContain('quality_failed')
-    expect(wrapper.find('.danger-button').exists()).toBe(false)
+    expect(wrapper.find('.danger-button').exists()).toBe(true)
+    expect(wrapper.find('.danger-button').text()).toContain('删除任务')
     expect(wrapper.find('.task-actions .primary-button').exists()).toBe(false)
     expect(wrapper.find('.task-actions__open').exists()).toBe(true)
   })
