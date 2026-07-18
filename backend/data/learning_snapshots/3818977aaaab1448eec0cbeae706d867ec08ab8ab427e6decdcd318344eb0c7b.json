@@ -1,0 +1,48 @@
+{
+  "course_version_id": "cv2",
+  "node_id": "id_1",
+  "node_name": "第一章 向量空间与子空间",
+  "content_anchor": {
+    "block_id": "id_1-1-custom",
+    "block_revision_id": "cbr_41eff3ffb0f13f256f9dd063",
+    "content_fingerprint": "",
+    "block_type": "concept",
+    "title": "概念正文本章介绍向量空间的公理化定义及其基本性质，包括子空间、生成集和线性无关性。 解释举例简化提问",
+    "progress": 0.6693488645687408,
+    "text_quote": "概念正文本章介绍向量空间的公理化定义及其基本性质，包括子空间、生成集和线性无关性。 解释举例简化提问"
+  },
+  "session": {
+    "session_id": "session_696f0e66-ccf5-40ea-877b-fa7105c2ddfe",
+    "device_id": "device_8b9e9382-2d56-4692-b5e0-5dac26cbb63f",
+    "started_at": "2026-07-18T09:06:06.313Z"
+  },
+  "task_state": {
+    "kind": "reading",
+    "object_id": "98758984-0268-4cf1-85ba-06d740d4fb25",
+    "task_revision_id": "",
+    "status": "active",
+    "context": {
+      "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
+      "course_version_id": "",
+      "node_id": "98758984-0268-4cf1-85ba-06d740d4fb25"
+    },
+    "return_node_id": "98758984-0268-4cf1-85ba-06d740d4fb25",
+    "draft_revision": 0,
+    "metadata": {}
+  },
+  "interaction_state": {
+    "conversation_id": "",
+    "issue_id": "",
+    "remediation_session_id": ""
+  },
+  "fallback_scroll_top": 316,
+  "activity_at": "2026-07-18T10:20:25.580Z",
+  "source": "live",
+  "snapshot_id": "ls_3818977aaaab1448eec0cbea",
+  "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+  "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
+  "revision": 3,
+  "schema_version": 2,
+  "created_at": "2026-07-18T10:20:12.348357+00:00",
+  "updated_at": "2026-07-18T10:20:27.116051+00:00"
+}
