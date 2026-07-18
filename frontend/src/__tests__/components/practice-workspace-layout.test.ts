@@ -29,6 +29,8 @@ describe('PracticeWorkspace expanded desktop layout', () => {
     expect(componentSource).toContain('workspace.revealedSolution.checks')
     expect(componentSource).toContain('workspace.revealedSolution.representation')
     expect(componentSource).toContain('formatSolutionValue')
+    expect(componentSource).toContain("representation?.kind !== 'reasoning_path'")
+    expect(componentSource).not.toContain('JSON.stringify(value, null, 2)')
   })
 
   it('exposes a manual refresh command backed by the frozen-question API', () => {

@@ -83,7 +83,7 @@ def _payload(**extra):
     }
 
 
-def test_solution_payload_exposes_steps_structured_answer_and_checks():
+def test_solution_payload_exposes_steps_readable_answer_and_checks():
     payload = practice_router._solution_payload({
         "answer_spec": {
             "criteria": ["旋转判断正确"],
@@ -110,9 +110,47 @@ def test_solution_payload_exposes_steps_structured_answer_and_checks():
 
     assert payload["schema_version"] == "solution_spec_v1"
     assert payload["steps"][0].startswith("插入10")
-    assert payload["final_answer"]["preorder"] == [30, 20, 10, 25, 40, 50]
+    assert payload["final_answer"] == "前序遍历：30 → 20 → 10 → 25 → 40 → 50"
     assert payload["checks"] == ["中序严格递增", "所有平衡因子绝对值不超过1"]
     assert payload["representation"]["kind"] == "tree"
+
+
+def test_solution_payload_hides_reasoning_path_and_humanizes_math_answer():
+    payload = practice_router._solution_payload({
+        "answer_spec": {
+            "solution_spec": {
+                "schema_version": "solution_spec_v1",
+                "summary": "按子空间判定条件逐项检查。",
+                "steps": ["先验证零向量，再验证加法与数乘封闭性。"],
+                "final_answer": {
+                    "zero_vector_in_set": True,
+                    "sum": [1, 0, -1],
+                    "scalar_multiple": [2, -2, 0],
+                    "basis": [[1, -1, 0], [0, 1, -1]],
+                    "dimension": 2,
+                },
+                "representation": {
+                    "kind": "reasoning_path",
+                    "content": [{
+                        "step_id": "verify",
+                        "uses_inputs": ["method"],
+                        "produces": ["verified_result"],
+                    }],
+                },
+            },
+        },
+    })
+
+    assert payload["representation"] is None
+    assert payload["final_answer"] == (
+        "零向量属于集合：是\n"
+        "向量和：(1, 0, -1)\n"
+        "数乘结果：(2, -2, 0)\n"
+        "一组基：(1, -1, 0)；(0, 1, -1)\n"
+        "维数：2"
+    )
+    assert "step_id" not in payload["final_answer"]
+    assert "{" not in payload["final_answer"]
 
 
 def test_practice_list_does_not_expose_answers_or_frozen_hint_contents(
