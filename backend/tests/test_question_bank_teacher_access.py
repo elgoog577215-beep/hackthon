@@ -84,6 +84,28 @@ def test_question_bank_management_requires_identity(monkeypatch, tmp_path):
     )
 
 
+def test_question_bank_list_keeps_private_answers_out_of_nested_tasks(
+    monkeypatch,
+    tmp_path,
+):
+    client, stored = _client(monkeypatch, tmp_path)
+
+    response = client.get(
+        "/api/courses/course-teacher/question-bank",
+        headers={"X-User-Id": "teacher-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"]
+    for item in response.json()["items"]:
+        assert not item.get("answer_spec")
+        assert not (item.get("formal_task") or {}).get(
+            "answer_spec"
+        )
+        assert "solution_envelope" not in item
+    assert stored["solution_envelopes"]
+
+
 def test_teacher_can_load_private_solution_by_item_revision(
     monkeypatch,
     tmp_path,
