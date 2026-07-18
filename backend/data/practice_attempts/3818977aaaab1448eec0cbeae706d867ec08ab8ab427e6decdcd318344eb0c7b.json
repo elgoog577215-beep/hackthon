@@ -37,5 +37,48 @@
     "started_at": "2026-07-18T10:51:30.083369+00:00",
     "created_at": "2026-07-18T10:51:30.083369+00:00",
     "updated_at": "2026-07-18T10:51:30.083369+00:00"
+  },
+  {
+    "practice_run_id": "d4c1230a-cc2b-40ea-b86f-700c250b9924",
+    "practice_level": "concept_check",
+    "task_revision_id": "qr_c3c1793865de3631",
+    "task_purpose": "course_practice",
+    "task_source": "course_asset",
+    "course_version_id": "cv4",
+    "node_id": "9d4aef8f-d52d-4c69-9de6-3c10c83a62f6",
+    "node_name": "1.5 线性组合与生成集",
+    "objective_id": "lo_e375c6fb9f5dd6ab",
+    "objective_revision_id": "lor_d01f630c2255ed0a",
+    "question_revision_id": "qr_c3c1793865de3631",
+    "question_type": "short_answer",
+    "input_contract": {
+      "mode": "rich_text",
+      "required": true,
+      "supports_attachments": false
+    },
+    "concept_ids": [],
+    "skill_unit_ids": [],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "practice_intent": "standard",
+    "attempt_id": "pa_b8eaad7406d0488982d3645bf864f42e",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
+    "status": "in_progress",
+    "attempt_number": 1,
+    "answer_payload": {},
+    "revealed_hint_levels": [
+      1,
+      2,
+      3
+    ],
+    "solution_revealed": false,
+    "ai_support_level": 0,
+    "active_seconds": 0,
+    "revision": 4,
+    "schema_version": 2,
+    "started_at": "2026-07-18T11:34:48.128399+00:00",
+    "created_at": "2026-07-18T11:34:48.128399+00:00",
+    "updated_at": "2026-07-18T11:35:02.715408+00:00"
   }
 ]
