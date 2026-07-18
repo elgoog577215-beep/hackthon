@@ -16,13 +16,6 @@ from typing import Any, Callable
 
 QUESTION_SPEC_SCHEMA = "question_spec_v1"
 
-PRACTICE_LABELS = {
-    "concept_check": "概念辨析",
-    "objective_practice": "情境应用",
-    "mastery_check": "独立达标",
-    "final_assessment": "综合测评",
-}
-
 STIMULUS_KIND_BY_ADAPTER = {
     "computer_science.graph_traversal": "graph",
     "computer_science.hashing": "hash_table",
@@ -341,13 +334,7 @@ def generate_cross_chapter_contract(
         },
     }
     validation = validate_question_spec(question_spec)
-    prompt = (
-        f"跨章节综合任务｜连接{'、'.join(objectives)}\n"
-        f"输入材料：{rendered_material}\n"
-        f"任务：{question_spec['task']['rendered_text']}\n"
-        f"限制条件：{'；'.join(question_spec['constraints'])}。\n"
-        f"输出要求：{question_spec['task']['deliverable']}。"
-    )
+    prompt = _render_student_prompt(question_spec)
     return {
         "prompt": prompt,
         "deliverable": question_spec["task"]["deliverable"],
@@ -1043,7 +1030,6 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
     seed = context.variant_index + 2
     topic = context.topic_text.lower()
     focus = context.key_points[0]
-    assessments = "；".join(context.assessments)
     level_action = {
         "concept_check": "准确辨析",
         "objective_practice": "准确应用",
@@ -1055,10 +1041,6 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
         "给出可复核的计算或推理过程",
         "检查结果并说明适用边界",
     ]
-    task_text = (
-        f"完成目标任务：{assessments}。"
-        f"评分检查点：{'；'.join(criteria)}"
-    )
     if "向量" in topic:
         left = [seed, seed + 1]
         right = [2, -1]
@@ -1076,6 +1058,7 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
             f"给定二维向量 u={tuple(left)}、v={tuple(right)}，"
             "坐标均在标准正交基下表示。"
         )
+        task_text = "计算 u+v、u·v 和 ‖u‖²，并用计算结果完成一次检验。"
         archetype = "vector_operations_and_boundary_check"
         deliverable = "向量运算结果、使用依据、完整过程和几何或代数检查"
     elif "矩阵" in topic and "方程" not in topic:
@@ -1099,6 +1082,7 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
             "left_determinant": left[0][0] * left[1][1] - left[0][1] * left[1][0],
         }
         input_text = f"给定矩阵 A={left}、B={right}，两者均为2×2实矩阵。"
+        task_text = "计算 AB 和 det(A)，写出关键步骤并检查矩阵维度。"
         archetype = "matrix_product_and_determinant"
         deliverable = "矩阵乘积、行列式、逐项计算过程和维度检查"
     elif any(marker in topic for marker in ("线性空间", "向量空间", "基与坐标", "线性组合")):
@@ -1117,6 +1101,7 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
             f"在 R² 中给定有序基 B=({tuple(basis[0])},{tuple(basis[1])})，"
             f"目标向量 w={tuple(target)}。"
         )
+        task_text = "求 w 在基 B 下的坐标，并用线性组合重构 w 进行检验。"
         archetype = "basis_coordinate_reconstruction"
         deliverable = "基下坐标、线性组合过程和重构检查"
     elif any(marker in topic for marker in ("方程", "消元", "线性系统")):
@@ -1137,6 +1122,7 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
             f"方程组为 x+y={equations[0]['c']}，"
             f"2x-y={equations[1]['c']}；变量限定为实数。"
         )
+        task_text = "求解该方程组，并把结果代回两个方程验算。"
         archetype = "two_variable_linear_system"
         deliverable = "方程组的解、关键推导和代回验算"
     else:
@@ -1151,6 +1137,7 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
             f"围绕“{focus}”比较案例值 {data['given_value']} 与边界值"
             f" {data['boundary_value']}，并严格使用课程给出的定义与条件。"
         )
+        task_text = "依据课程定义给出比较结论，并说明结论适用的边界。"
         archetype = "topic_aligned_mathematical_reasoning"
         deliverable = "结论、定义或方法依据、完整推理过程和边界检查"
     return {
@@ -1195,7 +1182,7 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
 def _build_programming_spec(context: AdapterContext) -> dict[str, Any]:
     seed = context.variant_index + 2
     focus = context.key_points[0]
-    assessments = "；".join(context.assessments)
+    assessment_actions = _meaningful_assessment_actions(context.assessments)
     output_topic = any(
         marker in context.topic_text.lower()
         for marker in ("print", "标准输出", "输出副作用", "返回值")
@@ -1223,6 +1210,10 @@ def _build_programming_spec(context: AdapterContext) -> dict[str, Any]:
             "print_return_value": None,
         }
         action = "execute_explain_and_modify"
+        task_text = (
+            "写出两行标准输出和 print 的返回值，说明二者区别，"
+            "再给出一处可运行修改及其结果。"
+        )
         deliverable = "运行结果、标准输出与返回值的区别，以及一处可运行修改"
     else:
         sample_id = f"CASE-{seed:02d}"
@@ -1236,12 +1227,15 @@ def _build_programming_spec(context: AdapterContext) -> dict[str, Any]:
             },
             "requirements": list(context.assessments),
         }
-        input_text = (
-            f"围绕“{focus}”处理输入 {data['sample_input']}。"
-            f"必须完成课程要求：{assessments}；并为正常、边界和异常输入各设计一个测试。"
-        )
+        input_text = f"待处理输入为 {data['sample_input']}。"
         canonical_answer = None
         action = "implement_explain_and_test"
+        task_text = (
+            f"实现“{focus}”，处理给定输入，并用正常、边界和异常"
+            "三类测试验证结果。"
+        )
+        if assessment_actions:
+            task_text += f"具体要求：{'；'.join(assessment_actions)}。"
         deliverable = "可运行实现、给定输入的结果、关键过程说明和三类测试"
     level_action = {
         "concept_check": "准确辨析",
@@ -1254,10 +1248,6 @@ def _build_programming_spec(context: AdapterContext) -> dict[str, Any]:
         "展示可复核的运行过程",
         "检查结果、边界与异常处理",
     ]
-    task_text = (
-        f"完成目标任务：{assessments}。"
-        f"评分检查点：{'；'.join(criteria)}"
-    )
     return {
         "archetype_id": (
             "stdout_and_return_value_trace"
@@ -1634,18 +1624,9 @@ def _render_question(
     spec: dict[str, Any],
 ) -> dict[str, Any]:
     stimulus_text = str(spec["stimulus"]["rendered_text"])
-    task_text = str(spec["task"]["rendered_text"])
     constraints = [str(value) for value in spec["constraints"]]
-    label = PRACTICE_LABELS.get(context.practice_level, "目标练习")
-    prompt = (
-        f"{label}｜{context.node.get('node_name') or context.node.get('node_id')}\n"
-        f"输入材料：{stimulus_text}\n"
-        f"任务：{task_text}\n"
-        f"限制条件：{'；'.join(constraints)}。\n"
-        f"输出要求：{spec['task']['deliverable']}。"
-    )
     return {
-        "prompt": prompt,
+        "prompt": _render_student_prompt(spec),
         "deliverable": str(spec["task"]["deliverable"]),
         "input_materials": [stimulus_text],
         "constraints": constraints,
@@ -1657,6 +1638,30 @@ def _render_question(
             else (15 if context.practice_level == "objective_practice" else 22)
         ),
     }
+
+
+def _render_student_prompt(spec: dict[str, Any]) -> str:
+    """Render only information a student needs to solve the question."""
+    stimulus_text = str((spec.get("stimulus") or {}).get("rendered_text") or "").strip()
+    task_text = str((spec.get("task") or {}).get("rendered_text") or "").strip()
+    return "\n".join(
+        value
+        for value in (stimulus_text, task_text)
+        if value
+    )
+
+
+def _meaningful_assessment_actions(actions: list[str]) -> list[str]:
+    placeholders = {
+        "完成当前任务",
+        "完成目标任务",
+        "按要求完成任务",
+    }
+    return [
+        action.strip()
+        for action in actions
+        if action.strip() and action.strip().rstrip("。") not in placeholders
+    ]
 
 
 def _question_type_for_spec(spec: dict[str, Any]) -> str:

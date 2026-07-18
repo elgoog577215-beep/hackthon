@@ -602,20 +602,19 @@ def evaluate_learning_asset_quality(
                 question,
             ))
         if question.get("practice_level") == "mastery_check":
-            normalized_prompt = " ".join(prompt.split())
-            hidden_criteria = [
-                str(item) for item in answer_spec.get("criteria") or []
-                if not _criterion_is_visible_in_prompt(
-                    str(item),
-                    normalized_prompt,
-                )
-            ]
-            if hidden_criteria:
+            question_spec = question.get("question_spec") or {}
+            target = question_spec.get("target") or {}
+            task = question_spec.get("task") or {}
+            if (
+                not target.get("assessment_actions")
+                or not str(task.get("rendered_text") or "").strip()
+                or not str(task.get("deliverable") or "").strip()
+            ):
                 issues.append(_asset_issue(
                     "semantic",
                     "critical",
                     "questions",
-                    f"掌握题存在未写入题干的隐藏评分要求：{hidden_criteria}",
+                    "掌握题缺少内部评测目标或明确任务产物",
                     question,
                 ))
         if len(prompt) < 12 or any(marker in prompt for marker in ("以下哪项", "随便谈谈", "待补充")):
@@ -1206,29 +1205,6 @@ def _evaluate_generated_task_quality(
         "status": "failed" if critical else ("needs_review" if issues else "passed"),
         "issues": issues,
     }
-
-
-def _criterion_is_visible_in_prompt(
-    criterion: str,
-    normalized_prompt: str,
-) -> bool:
-    normalized_criterion = " ".join(str(criterion or "").split())
-    if not normalized_criterion:
-        return True
-    if normalized_criterion in normalized_prompt:
-        return True
-    semantic_markers = (
-        "依据",
-        "过程",
-        "结果检查",
-        "最终产物",
-        "关键假设",
-        "限制条件",
-    )
-    return any(
-        marker in normalized_criterion and marker in normalized_prompt
-        for marker in semantic_markers
-    )
 
 
 def _refresh_quality_status(report: dict[str, Any]) -> None:
