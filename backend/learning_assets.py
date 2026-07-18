@@ -154,6 +154,7 @@ def compile_learning_assets(
     question_bank_course = {
         **deepcopy(course_data),
         "nodes": deepcopy(nodes),
+        "subject_pedagogy_profile": profile.to_dict(),
     }
     if question_bank_bundle is None:
         question_bank_bundle = build_question_bank(

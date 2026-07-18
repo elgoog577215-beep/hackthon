@@ -13,6 +13,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Any, Callable
 
+from course_pedagogy import coerce_persisted_profile
 from reasoning_paths import (
     compile_reasoning_support,
     validate_reasoning_support,
@@ -21,6 +22,97 @@ from reasoning_paths import (
 
 QUESTION_SPEC_SCHEMA = "question_spec_v1"
 
+CAPABILITY_CONTRACTS: dict[str, dict[str, Any]] = {
+    "computer_science.graph_traversal": {
+        "adapter_id": "computer_science.graph_traversal",
+    },
+    "computer_science.hashing": {
+        "adapter_id": "computer_science.hashing",
+    },
+    "computer_science.heap": {
+        "adapter_id": "computer_science.heap",
+    },
+    "computer_science.avl_tree": {
+        "adapter_id": "computer_science.avl_tree",
+    },
+    "programming.system_design": {
+        "adapter_id": "programming.system_design",
+    },
+    "programming.data_processing": {
+        "adapter_id": "programming.data_processing",
+    },
+    "java.inner_and_anonymous_class": {
+        "adapter_id": "programming.java_object_model",
+        "case_kinds": ("java_inner_anonymous_class",),
+        "target_markers": ("内部类", "匿名类", "inner class", "anonymous class"),
+    },
+    "math.quantitative_reasoning": {
+        "adapter_id": "math.quantitative_reasoning",
+    },
+    "calculus.derivative": {
+        "adapter_id": "math.calculus",
+        "case_kinds": ("polynomial_derivative",),
+        "target_markers": ("导数", "求导", "微分", "derivative"),
+    },
+    "calculus.integral": {
+        "adapter_id": "math.calculus",
+        "case_kinds": ("linear_definite_integral",),
+        "target_markers": ("积分", "integral"),
+    },
+    "calculus.limit": {
+        "adapter_id": "math.calculus",
+        "case_kinds": ("polynomial_limit",),
+        "target_markers": ("极限", "ε-δ", "limit"),
+    },
+    "thermodynamics.first_law": {
+        "adapter_id": "physics.thermodynamics",
+        "case_kinds": ("closed_system_energy_balance",),
+        "target_markers": ("热力学第一定律", "能量守恒", "能量平衡"),
+    },
+    "thermodynamics.ideal_gas": {
+        "adapter_id": "physics.thermodynamics",
+        "case_kinds": ("ideal_gas_state",),
+        "target_markers": ("理想气体", "状态方程", "p-v-t", "pvt"),
+    },
+    "thermodynamics.carnot_efficiency": {
+        "adapter_id": "physics.thermodynamics",
+        "case_kinds": ("carnot_efficiency",),
+        "target_markers": ("卡诺", "热机效率", "热力学第二定律", "熵变"),
+    },
+    "thermodynamics.system_classification": {
+        "adapter_id": "physics.thermodynamics",
+        "case_kinds": ("system_boundary_classification",),
+        "target_markers": (
+            "热力学第零定律",
+            "热平衡",
+            "开口系统",
+            "闭口系统",
+            "孤立系统",
+        ),
+    },
+    "science.controlled_experiment": {
+        "adapter_id": "science.controlled_experiment",
+    },
+    "life_science.mechanism_case": {
+        "adapter_id": "life_science.mechanism_case",
+    },
+    "humanities.evidence_argument": {
+        "adapter_id": "humanities.evidence_argument",
+    },
+    "language.contextual_production": {
+        "adapter_id": "language.contextual_production",
+    },
+    "business.constrained_decision": {
+        "adapter_id": "business.constrained_decision",
+    },
+    "cross_subject.integrated_performance": {
+        "adapter_id": "cross_subject.integrated_performance",
+    },
+    "unregistered": {
+        "adapter_id": "fallback.teacher_review",
+    },
+}
+
 STIMULUS_KIND_BY_ADAPTER = {
     "computer_science.graph_traversal": "graph",
     "computer_science.hashing": "hash_table",
@@ -28,7 +120,10 @@ STIMULUS_KIND_BY_ADAPTER = {
     "computer_science.avl_tree": "tree_operations",
     "programming.system_design": "system_requirements",
     "programming.data_processing": "programming_case",
+    "programming.java_object_model": "programming_case",
     "math.quantitative_reasoning": "quantitative_problem",
+    "math.calculus": "quantitative_problem",
+    "physics.thermodynamics": "thermodynamic_case",
     "science.controlled_experiment": "controlled_experiment",
     "life_science.mechanism_case": "mechanism_case",
     "humanities.evidence_argument": "source_set",
@@ -46,6 +141,8 @@ class AdapterContext:
     practice_level: str
     variant_index: int
     subject_family: str
+    capability_id: str
+    routing_text: str
     topic_text: str
     objective: str
     key_points: list[str]
@@ -53,6 +150,15 @@ class AdapterContext:
 
 
 AdapterBuilder = Callable[[AdapterContext], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class CapabilityRoute:
+    capability_id: str
+    adapter_id: str
+    builder: AdapterBuilder
+    markers: tuple[str, ...]
+    subject_families: tuple[str, ...] = ()
 
 
 def generate_question_contract(
@@ -68,7 +174,10 @@ def generate_question_contract(
         practice_level,
         variant_index,
     )
-    adapter_id, builder = _select_adapter(context)
+    route = _select_adapter(context)
+    adapter_id = route.adapter_id
+    builder = route.builder
+    context = replace(context, capability_id=route.capability_id)
     payload = builder(context)
     contrast_payload = builder(replace(
         context,
@@ -89,6 +198,7 @@ def generate_question_contract(
         "schema_version": QUESTION_SPEC_SCHEMA,
         "adapter_id": adapter_id,
         "subject_family": context.subject_family,
+        "capability_id": context.capability_id,
         "archetype_id": str(payload["archetype_id"]),
         "node_id": str(node.get("node_id") or ""),
         "practice_level": practice_level,
@@ -106,6 +216,7 @@ def generate_question_contract(
         "hint_contract": deepcopy(payload.get("hint_contract") or {}),
         "provenance": {
             "course_id": str(course_data.get("course_id") or ""),
+            "course_context": str(node.get("node_content") or "").strip(),
             "source_priority": (
                 "course_document"
                 if source_records
@@ -178,6 +289,7 @@ def validate_question_spec(spec: dict[str, Any]) -> dict[str, Any]:
         issues.append(_issue("question:task_missing", "critical"))
     if not (answer_spec.get("criteria") or answer_spec.get("canonical_answer") is not None):
         issues.append(_issue("question:answer_not_executable", "critical"))
+    issues.extend(_validate_capability_contract(spec))
     issues.extend(validate_reasoning_support(spec))
     issues.extend(_validate_target_action_alignment(spec))
 
@@ -188,7 +300,10 @@ def validate_question_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "computer_science.avl_tree": _validate_tree_spec,
         "programming.system_design": _validate_rubric_spec,
         "programming.data_processing": _validate_programming_spec,
+        "programming.java_object_model": _validate_java_object_model_spec,
         "math.quantitative_reasoning": _validate_math_spec,
+        "math.calculus": _validate_calculus_spec,
+        "physics.thermodynamics": _validate_thermodynamics_spec,
         "science.controlled_experiment": _validate_science_spec,
         "life_science.mechanism_case": _validate_rubric_spec,
         "humanities.evidence_argument": _validate_humanities_spec,
@@ -236,7 +351,10 @@ def validate_question_spec(spec: dict[str, Any]) -> dict[str, Any]:
                 for issue in issues
             ),
             "semantic_alignment": not any(
-                issue["code"] == "question:target_action_mismatch"
+                issue["code"] in {
+                    "question:target_action_mismatch",
+                    "question:capability_contract_mismatch",
+                }
                 for issue in issues
             ),
             "reasoning_path": not any(
@@ -298,6 +416,7 @@ def generate_cross_chapter_contract(
         "schema_version": QUESTION_SPEC_SCHEMA,
         "adapter_id": "cross_subject.integrated_performance",
         "subject_family": subject_family,
+        "capability_id": "cross_subject.integrated_performance",
         "archetype_id": "multi_objective_integrated_performance",
         "node_id": "",
         "practice_level": "final_assessment",
@@ -399,45 +518,63 @@ def _adapter_context(
     practice_level: str,
     variant_index: int,
 ) -> AdapterContext:
-    profile = course_data.get("subject_pedagogy_profile") or {}
-    mode = str(profile.get("primary_mode") or "general")
+    persisted_profile = course_data.get("subject_pedagogy_profile") or {}
+    profile = coerce_persisted_profile(course_data)
+    mode = profile.primary_mode.value
     node_name = str(node.get("node_name") or "").strip()
     node_content = str(node.get("node_content") or "").strip()
+    concise_target = _strip_node_number(node_name) or "当前知识点"
     objective = str(
         node.get("learning_objective")
-        or node_content
-        or node_name
+        or f"能够解释并应用{concise_target}"
         or "完成当前学习目标"
     ).strip()
     key_points = [
         str(value).strip()
         for value in node.get("key_points") or []
         if str(value).strip()
-    ] or _unique([
-        node_name or "当前知识点",
-        node_content,
-    ])
+    ] or [concise_target]
     assessments = [
         str(value).strip()
         for value in node.get("assessment") or []
         if str(value).strip()
-    ] or [objective]
-    topic_text = " ".join([
+    ] or [_default_assessment_action(mode, concise_target)]
+    routing_text = " ".join([
         str(course_data.get("course_name") or ""),
         node_name,
+        *[
+            str(node.get(field) or "")
+            for field in ("learning_objective",)
+        ],
+        *[
+            str(value)
+            for value in node.get("key_points") or []
+        ],
+        *[
+            str(value)
+            for value in node.get("assessment") or []
+        ],
+    ])
+    topic_text = " ".join([
+        routing_text,
         objective,
         node_content,
         *key_points,
         *assessments,
     ])
-    if mode == "general" and not profile.get("user_locked"):
-        mode = _infer_subject_family(topic_text)
+    if (
+        mode == "general"
+        and not bool(persisted_profile.get("user_locked"))
+    ):
+        mode = _infer_subject_family(routing_text)
     return AdapterContext(
         course_data=course_data,
         node=node,
         practice_level=practice_level,
         variant_index=variant_index,
         subject_family=mode,
+        capability_id="unregistered",
+        routing_text=routing_text,
         topic_text=topic_text,
         objective=objective,
         key_points=key_points,
@@ -445,35 +582,187 @@ def _adapter_context(
     )
 
 
-def _select_adapter(context: AdapterContext) -> tuple[str, AdapterBuilder]:
-    topic = context.topic_text.lower()
-    if any(marker in topic for marker in (
-        "bfs", "dfs", "图遍历", "图算法", "广度优先", "深度优先",
-    )):
-        return "computer_science.graph_traversal", _build_graph_spec
-    if any(marker in topic for marker in ("哈希", "散列表", "hash table", "hashing")):
-        return "computer_science.hashing", _build_hashing_spec
-    if any(marker in topic for marker in ("二叉堆", "最小堆", "最大堆", "优先队列", "堆操作")):
-        return "computer_science.heap", _build_heap_spec
-    if any(marker in topic for marker in ("avl", "平衡二叉", "二叉搜索树", "bst", "树旋转")):
-        return "computer_science.avl_tree", _build_tree_spec
+def _select_adapter(context: AdapterContext) -> CapabilityRoute:
+    topic = context.routing_text.lower()
+    for route in _capability_routes():
+        if (
+            route.subject_families
+            and context.subject_family not in route.subject_families
+        ):
+            continue
+        if any(marker in topic for marker in route.markers):
+            return route
     if context.subject_family == "math_formal":
-        return "math.quantitative_reasoning", _build_math_spec
+        return CapabilityRoute(
+            "math.quantitative_reasoning",
+            "math.quantitative_reasoning",
+            _build_math_spec,
+            (),
+        )
     if context.subject_family == "programming_engineering":
         if any(marker in topic for marker in ("系统", "架构", "项目设计", "需求定义")):
-            return "programming.system_design", _build_system_design_spec
-        return "programming.data_processing", _build_programming_spec
-    if context.subject_family == "natural_science":
-        return "science.controlled_experiment", _build_science_spec
+            return CapabilityRoute(
+                "programming.system_design",
+                "programming.system_design",
+                _build_system_design_spec,
+                (),
+            )
+        return CapabilityRoute(
+            "programming.data_processing",
+            "programming.data_processing",
+            _build_programming_spec,
+            (),
+        )
     if context.subject_family == "life_medical":
-        return "life_science.mechanism_case", _build_life_science_spec
+        return CapabilityRoute(
+            "life_science.mechanism_case",
+            "life_science.mechanism_case",
+            _build_life_science_spec,
+            (),
+        )
     if context.subject_family == "humanities_social":
-        return "humanities.evidence_argument", _build_humanities_spec
+        return CapabilityRoute(
+            "humanities.evidence_argument",
+            "humanities.evidence_argument",
+            _build_humanities_spec,
+            (),
+        )
     if context.subject_family == "language_learning":
-        return "language.contextual_production", _build_language_spec
+        return CapabilityRoute(
+            "language.contextual_production",
+            "language.contextual_production",
+            _build_language_spec,
+            (),
+        )
     if context.subject_family == "business_career":
-        return "business.constrained_decision", _build_business_spec
-    return "fallback.teacher_review", _build_fallback_spec
+        return CapabilityRoute(
+            "business.constrained_decision",
+            "business.constrained_decision",
+            _build_business_spec,
+            (),
+        )
+    return CapabilityRoute(
+        "unregistered",
+        "fallback.teacher_review",
+        _build_fallback_spec,
+        (),
+    )
+
+
+def _capability_routes() -> tuple[CapabilityRoute, ...]:
+    """Ordered, extensible capability registry for concrete question types."""
+    return (
+        CapabilityRoute(
+            "computer_science.graph_traversal",
+            "computer_science.graph_traversal",
+            _build_graph_spec,
+            ("bfs", "dfs", "图遍历", "图算法", "广度优先", "深度优先"),
+        ),
+        CapabilityRoute(
+            "computer_science.hashing",
+            "computer_science.hashing",
+            _build_hashing_spec,
+            ("哈希", "散列表", "hash table", "hashing"),
+        ),
+        CapabilityRoute(
+            "computer_science.heap",
+            "computer_science.heap",
+            _build_heap_spec,
+            ("二叉堆", "最小堆", "最大堆", "优先队列", "堆操作"),
+        ),
+        CapabilityRoute(
+            "computer_science.avl_tree",
+            "computer_science.avl_tree",
+            _build_tree_spec,
+            ("avl", "平衡二叉", "二叉搜索树", "bst", "树旋转"),
+        ),
+        CapabilityRoute(
+            "java.inner_and_anonymous_class",
+            "programming.java_object_model",
+            _build_java_object_model_spec,
+            ("内部类", "匿名类", "anonymous class", "inner class"),
+            ("programming_engineering",),
+        ),
+        CapabilityRoute(
+            "thermodynamics.first_law",
+            "physics.thermodynamics",
+            _build_thermodynamics_spec,
+            ("热力学第一定律", "能量守恒", "能量平衡"),
+            ("natural_science",),
+        ),
+        CapabilityRoute(
+            "thermodynamics.ideal_gas",
+            "physics.thermodynamics",
+            _build_thermodynamics_spec,
+            ("理想气体", "状态方程", "p-v-t", "pvt"),
+            ("natural_science",),
+        ),
+        CapabilityRoute(
+            "thermodynamics.carnot_efficiency",
+            "physics.thermodynamics",
+            _build_thermodynamics_spec,
+            ("卡诺", "热机效率", "热力学第二定律", "熵变"),
+            ("natural_science",),
+        ),
+        CapabilityRoute(
+            "thermodynamics.system_classification",
+            "physics.thermodynamics",
+            _build_thermodynamics_spec,
+            ("热力学第零定律", "热平衡", "开口系统", "闭口系统", "孤立系统"),
+            ("natural_science",),
+        ),
+        CapabilityRoute(
+            "calculus.derivative",
+            "math.calculus",
+            _build_calculus_spec,
+            ("导数", "求导", "微分", "derivative"),
+            ("math_formal",),
+        ),
+        CapabilityRoute(
+            "calculus.integral",
+            "math.calculus",
+            _build_calculus_spec,
+            ("积分", "定积分", "二重积分", "反常积分", "integral"),
+            ("math_formal",),
+        ),
+        CapabilityRoute(
+            "calculus.limit",
+            "math.calculus",
+            _build_calculus_spec,
+            ("极限", "ε-δ", "epsilon-delta", "limit"),
+            ("math_formal",),
+        ),
+        CapabilityRoute(
+            "science.controlled_experiment",
+            "science.controlled_experiment",
+            _build_science_spec,
+            ("对照实验", "控制变量", "实验数据", "测量误差"),
+            ("natural_science",),
+        ),
+    )
+
+
+def _strip_node_number(value: str) -> str:
+    parts = str(value or "").strip().split(maxsplit=1)
+    if len(parts) == 2 and all(
+        character.isdigit() or character == "."
+        for character in parts[0]
+    ):
+        return parts[1].strip()
+    return str(value or "").strip()
+
+
+def _default_assessment_action(mode: str, target: str) -> str:
+    action = {
+        "math_formal": "求解并验证",
+        "programming_engineering": "实现并测试",
+        "natural_science": "使用模型解释或计算",
+        "life_medical": "解释机制并限定边界",
+        "humanities_social": "基于材料论证",
+        "language_learning": "在语境中完成表达",
+        "business_career": "在约束下分析并决策",
+    }.get(mode, "完成可检查任务")
+    return f"{action}：{target}"
 
 
 def _infer_subject_family(topic: str) -> str:
@@ -490,6 +779,10 @@ def _infer_subject_family(topic: str) -> str:
         "算法", "编程", "代码", "数据结构", "python", "java",
     )):
         return "programming_engineering"
+    if any(marker in lowered for marker in (
+        "物理", "化学", "热力学", "力学", "电磁", "量子", "天文", "地质",
+    )):
+        return "natural_science"
     return "general"
 
 
@@ -1114,6 +1407,386 @@ def insert(root, key):
     else:
         return root
     return rebalance(root, key)"""
+
+
+def _build_calculus_spec(context: AdapterContext) -> dict[str, Any]:
+    seed = context.variant_index + 2
+    focus = context.key_points[0]
+    criteria = [
+        f"正确使用“{focus}”对应的定义或运算法则",
+        "保留关键变形或计算步骤",
+        "最终结果与给定条件一致",
+        "完成代入、反求导或边界检查",
+    ]
+    if context.capability_id == "calculus.derivative":
+        cubic = seed
+        quadratic = seed + 1
+        linear = seed - 1
+        point = 1 + context.variant_index
+        derivative_coefficients = [3 * cubic, 2 * quadratic, -linear]
+        derivative = _polynomial_text(
+            derivative_coefficients,
+            powers=(2, 1, 0),
+        )
+        derivative_at_point = (
+            derivative_coefficients[0] * point**2
+            + derivative_coefficients[1] * point
+            + derivative_coefficients[2]
+        )
+        data = {
+            "case_kind": "polynomial_derivative",
+            "variable": "x",
+            "coefficients": [cubic, quadratic, -linear, seed],
+            "point": point,
+        }
+        canonical = {
+            "derivative": derivative,
+            "derivative_coefficients": derivative_coefficients,
+            "derivative_at_point": derivative_at_point,
+        }
+        input_text = (
+            f"给定函数 f(x)={_polynomial_text(data['coefficients'])}，"
+            f"并给定检验点 x={point}。"
+        )
+        task_text = (
+            "求 f'(x) 与该点的导数值；写出所用求导法则，"
+            "并用差商或切线斜率含义完成一次检查。"
+        )
+        archetype = "polynomial_derivative"
+        deliverable = "导函数、指定点导数值、关键步骤和结果检查"
+    elif context.capability_id == "calculus.integral":
+        slope = seed
+        intercept = seed + 1
+        upper = 2
+        exact_value = slope * upper**2 // 2 + intercept * upper
+        data = {
+            "case_kind": "linear_definite_integral",
+            "variable": "x",
+            "integrand_coefficients": [slope, intercept],
+            "lower_bound": 0,
+            "upper_bound": upper,
+        }
+        canonical = {
+            "antiderivative": f"{slope}/2*x^2+{intercept}x+C",
+            "definite_integral": exact_value,
+        }
+        input_text = (
+            f"计算定积分 ∫₀²({slope}x+{intercept})dx。"
+        )
+        task_text = (
+            "先写出一个原函数，再代入上下限求值，"
+            "并用被积函数在区间上的正负性检查结果符号。"
+        )
+        archetype = "linear_definite_integral"
+        deliverable = "原函数、上下限代入过程、定积分值和符号检查"
+    else:
+        point = seed
+        linear = seed + 1
+        constant = seed - 1
+        limit_value = point**2 + linear * point + constant
+        data = {
+            "case_kind": "polynomial_limit",
+            "variable": "x",
+            "approach": point,
+            "coefficients": [1, linear, constant],
+        }
+        canonical = {
+            "limit": limit_value,
+            "direct_substitution_valid": True,
+        }
+        input_text = (
+            f"求 lim(x→{point}) "
+            f"({_polynomial_text(data['coefficients'], powers=(2, 1, 0))})。"
+        )
+        task_text = (
+            "说明能否直接代入，完成极限计算，"
+            "并用函数在该点的连续性检查方法适用条件。"
+        )
+        archetype = "polynomial_limit"
+        deliverable = "方法判断、极限计算过程、结果和连续性检查"
+    return {
+        "archetype_id": archetype,
+        "stimulus": {
+            "kind": "quantitative_problem",
+            "data": data,
+            "rendered_text": input_text,
+        },
+        "task": {
+            "action": "solve_and_verify",
+            "rendered_text": task_text,
+            "deliverable": deliverable,
+        },
+        "constraints": [
+            "不得只写最终结果",
+            "必须说明使用的定义或法则",
+            "必须执行题目指定的结果检查",
+        ],
+        "response_contract": {
+            "format": "worked_solution",
+            "required_parts": ["method", "steps", "answer", "verification"],
+        },
+        "answer_spec": _base_answer_spec(
+            context,
+            criteria,
+            validation_mode="deterministic_calculus_solver",
+            canonical_answer=canonical,
+        ),
+        "result_checks": [
+            "计算结果可由题目数据复算",
+            "方法适用条件与题目对象一致",
+            "检查结论与最终答案一致",
+        ],
+    }
+
+
+def _polynomial_text(
+    coefficients: list[int],
+    *,
+    powers: tuple[int, ...] | None = None,
+) -> str:
+    resolved_powers = powers or tuple(
+        range(len(coefficients) - 1, -1, -1)
+    )
+    terms: list[str] = []
+    for coefficient, power in zip(coefficients, resolved_powers):
+        if coefficient == 0:
+            continue
+        absolute = abs(coefficient)
+        if power == 0:
+            body = str(absolute)
+        elif power == 1:
+            body = f"{'' if absolute == 1 else absolute}x"
+        else:
+            body = f"{'' if absolute == 1 else absolute}x^{power}"
+        if not terms:
+            terms.append(f"-{body}" if coefficient < 0 else body)
+        else:
+            terms.append(f"{'-' if coefficient < 0 else '+'}{body}")
+    return "".join(terms) or "0"
+
+
+def _build_thermodynamics_spec(context: AdapterContext) -> dict[str, Any]:
+    seed = context.variant_index + 2
+    criteria = [
+        "正确识别热力学系统、过程和符号约定",
+        "选择与当前能力目标一致的物理规律",
+        "保留公式、代入、单位和关键计算",
+        "用量纲、范围或能量守恒检查结果",
+    ]
+    if context.capability_id == "thermodynamics.first_law":
+        heat = 100 + 10 * seed
+        work = 20 + 5 * seed
+        delta_internal_energy = heat - work
+        data = {
+            "case_kind": "closed_system_energy_balance",
+            "heat_kj": heat,
+            "work_kj": work,
+            "sign_convention": "系统吸热Q>0，系统对外做功W>0",
+            "system_type": "closed",
+        }
+        canonical = {
+            "equation": "ΔU=Q-W",
+            "internal_energy_change_kj": delta_internal_energy,
+            "energy_balance_check_kj": 0,
+        }
+        input_text = (
+            f"某闭口系统从外界吸热 Q={heat} kJ，同时对外做功 "
+            f"W={work} kJ；约定吸热和对外做功均取正值。"
+        )
+        task_text = (
+            "依据热力学第一定律计算系统内能变化 ΔU，"
+            "写出符号约定与代入过程，并回代检查能量平衡。"
+        )
+        archetype = "closed_system_energy_balance"
+        deliverable = "能量方程、带单位的计算过程、ΔU和守恒检查"
+    elif context.capability_id == "thermodynamics.ideal_gas":
+        amount = 1
+        temperature = 300 + 10 * seed
+        volume_l = 25
+        gas_constant = 8.314
+        pressure = round(amount * gas_constant * temperature / volume_l, 2)
+        data = {
+            "case_kind": "ideal_gas_state",
+            "amount_mol": amount,
+            "temperature_k": temperature,
+            "volume_l": volume_l,
+            "gas_constant_kpa_l_per_mol_k": gas_constant,
+        }
+        canonical = {
+            "equation": "pV=nRT",
+            "pressure_kpa": pressure,
+        }
+        input_text = (
+            f"{amount} mol 理想气体处于 T={temperature} K、"
+            f"V={volume_l} L 的平衡状态，取 "
+            f"R={gas_constant} kPa·L/(mol·K)。"
+        )
+        task_text = (
+            "使用理想气体状态方程求压力 p，"
+            "写出代入过程并检查单位与数量级。"
+        )
+        archetype = "ideal_gas_state"
+        deliverable = "状态方程、带单位代入、压力和量纲检查"
+    elif context.capability_id == "thermodynamics.carnot_efficiency":
+        hot = 500 + 10 * seed
+        cold = 300
+        efficiency = round(1 - cold / hot, 4)
+        data = {
+            "case_kind": "carnot_efficiency",
+            "hot_reservoir_k": hot,
+            "cold_reservoir_k": cold,
+        }
+        canonical = {
+            "equation": "η=1-Tc/Th",
+            "efficiency": efficiency,
+            "efficiency_percent": round(efficiency * 100, 2),
+        }
+        input_text = (
+            f"一台可逆热机在高温热源 Th={hot} K 与低温热源 "
+            f"Tc={cold} K 之间工作。"
+        )
+        task_text = (
+            "计算卡诺效率，说明温度必须使用绝对温标，"
+            "并检查效率是否位于0与1之间。"
+        )
+        archetype = "carnot_efficiency"
+        deliverable = "效率公式、代入计算、百分比结果和范围检查"
+    else:
+        data = {
+            "case_kind": "system_boundary_classification",
+            "container": "密闭、刚性且绝热的容器",
+            "mass_exchange": False,
+            "heat_exchange": False,
+            "boundary_work": False,
+        }
+        canonical = {
+            "classification": "isolated_system",
+            "mass_exchange": False,
+            "energy_exchange": False,
+        }
+        input_text = (
+            "一个理想化容器同时满足密闭、刚性和绝热条件；"
+            "观察期间没有其他形式的能量传递。"
+        )
+        task_text = (
+            "判断它属于开口、闭口还是孤立系统，"
+            "分别从质量与能量能否穿过边界说明依据。"
+        )
+        archetype = "system_boundary_classification"
+        deliverable = "系统分类、质量交换判断、能量交换判断和边界依据"
+    return {
+        "archetype_id": archetype,
+        "stimulus": {
+            "kind": "thermodynamic_case",
+            "data": data,
+            "rendered_text": input_text,
+        },
+        "task": {
+            "action": "solve_and_verify",
+            "rendered_text": task_text,
+            "deliverable": deliverable,
+        },
+        "constraints": [
+            "必须沿用题目给定的符号与单位",
+            "不得省略所用热力学规律",
+            "必须完成守恒、量纲或范围检查",
+        ],
+        "response_contract": {
+            "format": "worked_solution",
+            "required_parts": ["model", "steps", "answer", "verification"],
+        },
+        "answer_spec": _base_answer_spec(
+            context,
+            criteria,
+            validation_mode="deterministic_thermodynamics_solver",
+            canonical_answer=canonical,
+        ),
+        "result_checks": [
+            "物理规律与系统边界一致",
+            "数值、符号和单位可复算",
+            "结果通过守恒、量纲或范围检查",
+        ],
+    }
+
+
+def _build_java_object_model_spec(
+    context: AdapterContext,
+) -> dict[str, Any]:
+    seed = context.variant_index + 2
+    base = seed * 10
+    step = seed
+    expected = base + step
+    code = (
+        "class Counter {\n"
+        f"    private int base = {base};\n"
+        "    Runnable task(int step) {\n"
+        "        return new Runnable() {\n"
+        "            @Override public void run() {\n"
+        "                System.out.println(base + step);\n"
+        "            }\n"
+        "        };\n"
+        "    }\n"
+        "}\n"
+        f"new Counter().task({step}).run();"
+    )
+    return {
+        "archetype_id": "java_inner_anonymous_class_trace",
+        "stimulus": {
+            "kind": "programming_case",
+            "data": {
+                "case_kind": "java_inner_anonymous_class",
+                "language": "Java",
+                "code": code,
+                "rule": (
+                    "局部变量被匿名类捕获时必须是 final 或 effectively final；"
+                    "成员字段通过外部类实例访问。"
+                ),
+                "expected_stdout": str(expected),
+            },
+            "rendered_text": (
+                "阅读以下 Java 代码并按 Java 8+ 规则分析：\n"
+                f"{code}"
+            ),
+        },
+        "task": {
+            "action": "trace_output_and_return",
+            "rendered_text": (
+                "写出程序输出，指出匿名类捕获了哪个局部变量、"
+                "访问了哪个外部类成员，并解释为何该代码能够编译。"
+            ),
+            "deliverable": "标准输出、变量分类、捕获规则依据和编译结论",
+        },
+        "constraints": [
+            "按 Java 8+ 语言规则判断",
+            "必须区分局部变量与成员字段",
+            "必须给出实际标准输出",
+        ],
+        "response_contract": {
+            "format": "code_trace",
+            "required_parts": ["stdout", "captured_local", "member_access", "explanation"],
+        },
+        "answer_spec": _base_answer_spec(
+            context,
+            [
+                "标准输出计算正确",
+                "正确识别被捕获的局部变量step",
+                "正确识别外部类成员字段base",
+                "说明effectively final规则及其适用对象",
+            ],
+            validation_mode="deterministic_java_trace",
+            canonical_answer={
+                "stdout": str(expected),
+                "captured_local": "step",
+                "member_access": "base",
+                "step_is_effectively_final": True,
+            },
+        ),
+        "result_checks": [
+            "手工计算base+step并核对输出",
+            "检查step在方法体内没有被重新赋值",
+            "确认base属于Counter实例字段",
+        ],
+    }
 
 
 def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
@@ -2145,7 +2818,10 @@ def _question_type_for_spec(spec: dict[str, Any]) -> str:
         "computer_science.avl_tree": "worked_solution",
         "programming.system_design": "scenario_deliverable",
         "programming.data_processing": "implementation_task",
+        "programming.java_object_model": "implementation_task",
         "math.quantitative_reasoning": "worked_solution",
+        "math.calculus": "worked_solution",
+        "physics.thermodynamics": "worked_solution",
         "science.controlled_experiment": "evidence_analysis",
         "life_science.mechanism_case": "mechanism_explanation",
         "humanities.evidence_argument": "source_argument",
@@ -2302,6 +2978,41 @@ def _validate_tree_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
     )
 
 
+def _validate_capability_contract(
+    spec: dict[str, Any],
+) -> list[dict[str, str]]:
+    capability_id = str(spec.get("capability_id") or "")
+    contract = CAPABILITY_CONTRACTS.get(capability_id)
+    if not contract:
+        return [_issue("question:capability_contract_mismatch", "critical")]
+    if spec.get("adapter_id") != contract["adapter_id"]:
+        return [_issue("question:capability_contract_mismatch", "critical")]
+    case_kinds = tuple(contract.get("case_kinds") or ())
+    case_kind = str(
+        (((spec.get("stimulus") or {}).get("data") or {}).get("case_kind"))
+        or ""
+    )
+    if case_kinds and case_kind not in case_kinds:
+        return [_issue("question:capability_contract_mismatch", "critical")]
+    target_markers = tuple(contract.get("target_markers") or ())
+    if target_markers:
+        target = spec.get("target") or {}
+        target_text = " ".join([
+            str(target.get("objective") or ""),
+            *[
+                str(value)
+                for value in target.get("knowledge_points") or []
+            ],
+            *[
+                str(value)
+                for value in target.get("assessment_actions") or []
+            ],
+        ]).lower()
+        if not any(marker in target_text for marker in target_markers):
+            return [_issue("question:capability_contract_mismatch", "critical")]
+    return []
+
+
 def _validate_target_action_alignment(
     spec: dict[str, Any],
 ) -> list[dict[str, str]]:
@@ -2363,6 +3074,186 @@ def _validate_programming_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
     if canonical.get("output") != expected:
         return [_issue("question:canonical_answer_mismatch", "critical")]
     return []
+
+
+def _validate_java_object_model_spec(
+    spec: dict[str, Any],
+) -> list[dict[str, str]]:
+    data = (spec.get("stimulus") or {}).get("data") or {}
+    canonical = (spec.get("answer_spec") or {}).get(
+        "canonical_answer"
+    ) or {}
+    if (
+        data.get("case_kind") != "java_inner_anonymous_class"
+        or data.get("language") != "Java"
+        or "new Runnable()" not in str(data.get("code") or "")
+        or "effectively final" not in str(data.get("rule") or "")
+    ):
+        return [_issue("question:input_material_missing", "critical")]
+    expected = {
+        "stdout": str(data.get("expected_stdout") or ""),
+        "captured_local": "step",
+        "member_access": "base",
+        "step_is_effectively_final": True,
+    }
+    return (
+        []
+        if canonical == expected
+        else [_issue("question:canonical_answer_mismatch", "critical")]
+    )
+
+
+def _validate_calculus_spec(
+    spec: dict[str, Any],
+) -> list[dict[str, str]]:
+    data = (spec.get("stimulus") or {}).get("data") or {}
+    canonical = (spec.get("answer_spec") or {}).get(
+        "canonical_answer"
+    ) or {}
+    case_kind = str(data.get("case_kind") or "")
+    if case_kind == "polynomial_derivative":
+        coefficients = data.get("coefficients") or []
+        point = data.get("point")
+        if len(coefficients) != 4 or not isinstance(point, (int, float)):
+            return [_issue("question:input_material_missing", "critical")]
+        derivative_coefficients = [
+            3 * coefficients[0],
+            2 * coefficients[1],
+            coefficients[2],
+        ]
+        expected = {
+            "derivative": _polynomial_text(
+                derivative_coefficients,
+                powers=(2, 1, 0),
+            ),
+            "derivative_coefficients": derivative_coefficients,
+            "derivative_at_point": (
+                derivative_coefficients[0] * point**2
+                + derivative_coefficients[1] * point
+                + derivative_coefficients[2]
+            ),
+        }
+    elif case_kind == "linear_definite_integral":
+        coefficients = data.get("integrand_coefficients") or []
+        lower = data.get("lower_bound")
+        upper = data.get("upper_bound")
+        if (
+            len(coefficients) != 2
+            or not isinstance(lower, (int, float))
+            or not isinstance(upper, (int, float))
+            or upper <= lower
+        ):
+            return [_issue("question:input_material_missing", "critical")]
+        slope, intercept = coefficients
+        integral = (
+            slope * (upper**2 - lower**2) / 2
+            + intercept * (upper - lower)
+        )
+        if isinstance(integral, float) and integral.is_integer():
+            integral = int(integral)
+        expected = {
+            "antiderivative": f"{slope}/2*x^2+{intercept}x+C",
+            "definite_integral": integral,
+        }
+    elif case_kind == "polynomial_limit":
+        coefficients = data.get("coefficients") or []
+        point = data.get("approach")
+        if len(coefficients) != 3 or not isinstance(point, (int, float)):
+            return [_issue("question:input_material_missing", "critical")]
+        expected = {
+            "limit": (
+                coefficients[0] * point**2
+                + coefficients[1] * point
+                + coefficients[2]
+            ),
+            "direct_substitution_valid": True,
+        }
+    else:
+        return [_issue("question:input_material_missing", "critical")]
+    return (
+        []
+        if canonical == expected
+        else [_issue("question:canonical_answer_mismatch", "critical")]
+    )
+
+
+def _validate_thermodynamics_spec(
+    spec: dict[str, Any],
+) -> list[dict[str, str]]:
+    data = (spec.get("stimulus") or {}).get("data") or {}
+    canonical = (spec.get("answer_spec") or {}).get(
+        "canonical_answer"
+    ) or {}
+    case_kind = str(data.get("case_kind") or "")
+    if case_kind == "closed_system_energy_balance":
+        heat = data.get("heat_kj")
+        work = data.get("work_kj")
+        if not isinstance(heat, (int, float)) or not isinstance(
+            work,
+            (int, float),
+        ):
+            return [_issue("question:input_material_missing", "critical")]
+        expected = {
+            "equation": "ΔU=Q-W",
+            "internal_energy_change_kj": heat - work,
+            "energy_balance_check_kj": 0,
+        }
+    elif case_kind == "ideal_gas_state":
+        amount = data.get("amount_mol")
+        temperature = data.get("temperature_k")
+        volume = data.get("volume_l")
+        gas_constant = data.get("gas_constant_kpa_l_per_mol_k")
+        if (
+            not all(
+                isinstance(value, (int, float))
+                for value in (amount, temperature, volume, gas_constant)
+            )
+            or volume <= 0
+            or temperature <= 0
+        ):
+            return [_issue("question:input_material_missing", "critical")]
+        expected = {
+            "equation": "pV=nRT",
+            "pressure_kpa": round(
+                amount * gas_constant * temperature / volume,
+                2,
+            ),
+        }
+    elif case_kind == "carnot_efficiency":
+        hot = data.get("hot_reservoir_k")
+        cold = data.get("cold_reservoir_k")
+        if (
+            not isinstance(hot, (int, float))
+            or not isinstance(cold, (int, float))
+            or hot <= cold
+            or cold <= 0
+        ):
+            return [_issue("question:input_material_missing", "critical")]
+        efficiency = round(1 - cold / hot, 4)
+        expected = {
+            "equation": "η=1-Tc/Th",
+            "efficiency": efficiency,
+            "efficiency_percent": round(efficiency * 100, 2),
+        }
+    elif case_kind == "system_boundary_classification":
+        if not {
+            "mass_exchange",
+            "heat_exchange",
+            "boundary_work",
+        } <= set(data):
+            return [_issue("question:input_material_missing", "critical")]
+        expected = {
+            "classification": "isolated_system",
+            "mass_exchange": False,
+            "energy_exchange": False,
+        }
+    else:
+        return [_issue("question:input_material_missing", "critical")]
+    return (
+        []
+        if canonical == expected
+        else [_issue("question:canonical_answer_mismatch", "critical")]
+    )
 
 
 def _validate_math_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
