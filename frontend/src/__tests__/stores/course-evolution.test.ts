@@ -74,4 +74,33 @@ describe('course evolution store', () => {
     )
     expect(store.pendingPlans).toHaveLength(1)
   })
+
+  it('generates a section plan through the same canonical evolution store', async () => {
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.createSectionPlan('section-1', '强化理论推导与实战讲解')
+
+    expect(httpMock.post).toHaveBeenCalledTimes(1)
+    expect(httpMock.post.mock.calls[0]?.[0]).toBe(
+      '/api/courses/course-1/evolution/sections/section-1/plans',
+    )
+    expect(httpMock.post.mock.calls[0]?.[1]).toMatchObject({
+      instruction: '强化理论推导与实战讲解',
+    })
+    expect(store.pendingPlans).toHaveLength(1)
+  })
+
+  it('turns an evidence suggestion into candidates through the same plan endpoint', async () => {
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.generateSuggested('plan-1')
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/evolution/change-sets/plan-1/generate',
+    )
+  })
 })

@@ -34,6 +34,10 @@ from course_coherence import (
     compile_course_coherence_contract,
     evaluate_course_coherence,
 )
+from course_composition import (
+    attach_composition_to_plan,
+    compile_composition_profile,
+)
 from course_context import CourseContextManager, get_context_manager
 from course_difficulty import (
     assess_readiness,
@@ -45,10 +49,6 @@ from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
     parse_difficulty_level,
-)
-from course_composition import (
-    attach_composition_to_plan,
-    compile_composition_profile,
 )
 from course_generation_strategy import (
     PERSONALIZED_NODE_EXPLANATION,
@@ -77,6 +77,7 @@ from course_generation_workflow import (
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,
+    course_knowledge_base_prompt_context,
 )
 from course_knowledge_map import compile_course_knowledge_map, normalize_knowledge_structure
 from course_pedagogy import (
@@ -2095,6 +2096,7 @@ class CourseService(AIBase):
 - 内容形式 kind：{kind}
 - 教学作用 role：{role}
 - 标题：{block_title}
+- 课程知识引用：{', '.join(target_block.get('concept_refs') or []) or '无'}
 - 目标引用：{', '.join(target_block.get('objective_refs') or []) or '无'}
 - 证据引用：{', '.join(target_block.get('evidence_refs') or []) or '无'}
 
@@ -2144,6 +2146,116 @@ class CourseService(AIBase):
                 "kind": kind,
                 "role": role,
                 "action_type": action_type,
+                "is_quality_retry": bool(quality_feedback),
+            },
+            min_chars=12,
+        )
+        return content
+
+    async def generate_new_course_block_candidate(
+        self,
+        *,
+        course_id: str,
+        document_title: str,
+        section: dict[str, Any],
+        desired_role: str,
+        instruction: str,
+        previous_block: dict[str, Any] | None,
+        next_block: dict[str, Any] | None,
+        knowledge_context: str,
+        difficulty_delta: dict[str, Any],
+        quality_feedback: list[str] | None = None,
+        user_id: str = DEFAULT_USER_ID,
+    ) -> str:
+        """Generate one missing teaching-role block from the section contract."""
+        section_id = str(section.get("section_id") or "")
+        role_label = {
+            "reasoning": "理论推导",
+            "application": "实战应用",
+            "example": "例子讲解",
+            "checkpoint": "理解检查",
+            "concept": "核心概念",
+        }.get(desired_role, desired_role)
+        ledger = self._ledger_context(course_id, section_id)
+        ai_learning_context = self._ai_learning_context_prompt(
+            course_id=course_id,
+            node_id=section_id,
+            node_name=str(section.get("title") or ""),
+            question=instruction,
+            request_context=ledger,
+            user_id=user_id,
+            use_case=classify_generation_use_case(
+                requirement=instruction,
+                block_type=desired_role,
+                action_type="expand",
+                default=PERSONALIZED_NODE_EXPLANATION,
+            ),
+        )
+        feedback_text = "\n".join(
+            f"- {item}" for item in quality_feedback or []
+        ) or "无，这是首次生成。"
+
+        def neighbor_text(label: str, value: dict[str, Any] | None) -> str:
+            if not value:
+                return f"- {label}：无"
+            return (
+                f"- {label}：{value.get('title') or value.get('role') or '相邻内容'}\n"
+                f"  {value.get('content_summary') or ''}"
+            )
+
+        prompt = f"""你正在为正式课程文档补齐一个缺失的教学块。当前任务只生成一个“{role_label}”块，不得输出整节课程。
+
+## 课程与小节
+- 课程：{document_title}
+- 小节：{section.get('title') or section_id}
+- 学习目标：{section.get('learning_objective') or '未单独声明'}
+
+## 本节课程知识契约
+{knowledge_context or course_knowledge_base_prompt_context({}, section_id)}
+
+## 相邻上下文
+{neighbor_text('前一块', previous_block)}
+{neighbor_text('后一块', next_block)}
+
+## 课程上下文账本
+{ledger or '无额外账本。'}
+
+## AI Learning Context
+{ai_learning_context}
+
+## 用户要求
+{instruction}
+
+## 本次难度变化
+{difficulty_delta}
+
+## 上次质量反馈
+{feedback_text}
+
+## 输出要求
+1. 只输出“{role_label}”块的 Markdown 正文，不输出标题、确认话术或整节内容。
+2. 所有概念、术语、边界和能力要求必须来自上面的本节课程知识契约，不得另造知识点。
+3. 必须真正承担“{role_label}”的教学作用，并与相邻块自然衔接，避免重复。
+4. 如果是理论推导，要补足条件、关键步骤和结论之间的因果；如果是实战应用，要给出可迁移的真实任务、决策过程和结果判断。
+5. 难度提高不等于堆术语或加篇幅，要提高推理深度、任务复杂度或迁移距离。
+6. 不编造来源、论文、链接、年份、数据或不存在的术语。"""
+        response = await self._call_llm(
+            f"请生成课程小节“{section.get('title') or section_id}”的{role_label}块。",
+            prompt,
+        )
+        content = self.clean_response_text(response) if response else ""
+        content = strip_leading_heading(content, role_label)
+        self._record_generation_quality(
+            output_type="canonical_course_new_block_candidate",
+            output_text=content,
+            context_text=prompt,
+            source="course_service.generate_new_course_block_candidate",
+            course_id=course_id,
+            node_id=section_id,
+            node_name=str(section.get("title") or ""),
+            metadata={
+                "desired_role": desired_role,
+                "difficulty_delta": difficulty_delta,
                 "is_quality_retry": bool(quality_feedback),
             },
             min_chars=12,

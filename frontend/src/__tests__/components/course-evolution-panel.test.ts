@@ -142,4 +142,92 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.text()).toContain('持续证据已确认')
     expect(wrapper.text()).toContain('多个不同正式任务持续通过')
   })
+
+  it('在当前小节展示六步生长入口，并区分升级旧块与新增缺失块', async () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        source_kind: 'manual_section_request',
+        target_section_id: 's1',
+        growth_direction: 'challenge',
+        generation_status: 'ready',
+        requested_roles: ['reasoning', 'application'],
+        operations: [
+          {
+            operation_id: 'replace-reasoning',
+            operation_type: 'REPLACE_COURSE_BLOCK',
+            target_block_id: 'b1',
+            target_section_id: 's1',
+            scope: 'current',
+            reason: '保留块身份并强化理论推导。',
+            payload: {
+              action: 'REPLACE',
+              desired_role: 'reasoning',
+              before_preview: '原理论。',
+              after_preview: '更完整的理论推导。',
+            },
+          },
+          {
+            operation_id: 'insert-application',
+            operation_type: 'INSERT_COURSE_BLOCK',
+            target_block_id: 'b1',
+            target_section_id: 's1',
+            scope: 'current',
+            reason: '原本缺少实战应用。',
+            payload: {
+              action: 'INSERT',
+              desired_role: 'application',
+              after_preview: '新增实战任务。',
+            },
+          },
+        ],
+        impact_summary: {
+          ...plan.impact_summary,
+          affected_section_ids: ['s1'],
+          quality_report: { passed: true },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1' },
+    })
+
+    expect(wrapper.findAll('.growth-steps li')).toHaveLength(6)
+    await wrapper.get('.evolution-details-toggle').trigger('click')
+    expect(wrapper.text()).toContain('升级')
+    expect(wrapper.text()).toContain('新增')
+    expect(wrapper.text()).toContain('结构化同源检查已通过')
+    expect(wrapper.text()).toContain('整体确认并更新课程')
+  })
+
+  it('把重复全对先呈现为挑战建议，不在候选生成前直接更新课程', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence.filter((item: any) => item.source_type === 'practice_attempt'),
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        target_section_id: 's1',
+        growth_direction: 'challenge',
+        generation_status: 'suggested',
+        operations: [],
+        impact_summary: {
+          ...plan.impact_summary,
+          affected_section_ids: ['s1'],
+          diagnosis: '当前小节已稳定通过，可以提升理论深度和迁移距离。',
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1' },
+    })
+
+    expect(wrapper.get('.challenge-suggestion').text()).toContain('当前难度已稳定通过')
+    expect(wrapper.get('.challenge-suggestion').text()).toContain('旧难度掌握记录会保留')
+    expect(wrapper.get('.challenge-suggestion button').text()).toContain('生成升级方案')
+    expect(wrapper.find('.evolution-actions').exists()).toBe(false)
+  })
 })
