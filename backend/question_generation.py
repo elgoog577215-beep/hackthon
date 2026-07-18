@@ -558,6 +558,10 @@ def _format_sqrt2_half(numerator: int | float) -> str:
     return f"{numerator}√2/2"
 
 
+def _format_half(numerator: int) -> str:
+    return str(numerator // 2) if numerator % 2 == 0 else f"{numerator}/2"
+
+
 def _build_graph_spec(context: AdapterContext) -> dict[str, Any]:
     variants = [
         {
@@ -1445,18 +1449,23 @@ def _linear_algebra_semantic_case(
         "gram-schmidt", "gram schmidt", "施密特", "qr分解",
         "qr 分解", "正交投影", "投影矩阵",
     )):
+        multiplier = seed - 1
+        vectors = [[1, 1], [multiplier, 0]]
         return {
             "data": {
                 "case_kind": "gram_schmidt",
-                "vectors": [[1, 1], [1, 0]],
+                "vectors": vectors,
             },
             "canonical": {
                 "first_direction": [1, 1],
                 "second_orthogonal_direction": [1, -1],
-                "second_projection_coefficient": "1/2",
+                "second_projection_coefficient": _format_half(multiplier),
                 "orthogonal_dot_product": 0,
             },
-            "input_text": "给定 a=(1,1)、b=(1,0)，对有序组 (a,b) 做 Gram–Schmidt 正交化。",
+            "input_text": (
+                f"给定 a=(1,1)、b={_format_compact_vector(vectors[1])}，"
+                "对有序组 (a,b) 做 Gram–Schmidt 正交化。"
+            ),
             "task_text": (
                 "求第二个正交方向及相应投影系数，"
                 "再用内积验证两个方向正交。"
@@ -2544,12 +2553,21 @@ def _expected_linear_algebra_answer(
             ],
         }
     if case_kind == "gram_schmidt":
-        if data.get("vectors") != [[1, 1], [1, 0]]:
+        vectors = data.get("vectors") or []
+        if (
+            len(vectors) != 2
+            or vectors[0] != [1, 1]
+            or len(vectors[1]) != 2
+            or vectors[1][1] != 0
+            or not isinstance(vectors[1][0], int)
+            or vectors[1][0] == 0
+        ):
             return {}
+        multiplier = vectors[1][0]
         return {
             "first_direction": [1, 1],
             "second_orthogonal_direction": [1, -1],
-            "second_projection_coefficient": "1/2",
+            "second_projection_coefficient": _format_half(multiplier),
             "orthogonal_dot_product": 0,
         }
     if case_kind == "orthonormal_basis":
