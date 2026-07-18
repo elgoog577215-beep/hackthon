@@ -14,11 +14,17 @@ from urllib.parse import urlparse
 
 import httpx
 
+from assessment_contracts import (
+    compile_assessment_objectives,
+    compile_course_assessment_profile,
+)
+from assessment_generation import generate_universal_question_contract
 from course_versioning import stable_hash
 from question_generation import generate_question_contract, validate_question_spec
 from question_bank import (
     QUESTION_ITEM_SCHEMA,
     evaluate_question_item_quality,
+    finalize_v2_question_bank_item,
     formal_task_from_question_bank_item,
     refresh_question_bank_bundle,
 )
@@ -156,9 +162,18 @@ async def enrich_question_bank_with_web(
             source_count += 1
             reference_item = _web_reference_item(course_data, gap, sanitized)
             result.setdefault("items", []).append(reference_item)
-            result["items"].append(
-                _web_generated_item(course_data, gap, sanitized, reference_item)
+            generated_item, solution_envelope = (
+                _web_generated_item_v2(
+                    course_data,
+                    gap,
+                    sanitized,
+                    reference_item,
+                )
             )
+            result["items"].append(generated_item)
+            result.setdefault("solution_envelopes", {})[
+                solution_envelope["solution_revision_id"]
+            ] = solution_envelope
 
     result["web_enrichment"] = {
         **(result.get("web_enrichment") or {}),
@@ -330,7 +345,273 @@ def _web_reference_item(
     return item
 
 
-def _web_generated_item(
+def _web_generated_item_v2(
+    course_data: dict[str, Any],
+    gap: dict[str, Any],
+    reference: dict[str, Any],
+    parent: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    course_id = str(course_data.get("course_id") or "")
+    node_id = str(gap.get("node_id") or "")
+    objective_text = str(
+        gap.get("objective") or "完成当前课程目标"
+    )
+    knowledge = [
+        str(value)
+        for value in gap.get("knowledge_points") or []
+        if str(value).strip()
+    ]
+    fact_anchor = _web_fact_anchor(reference)
+    original_scenario = _original_web_scenario(reference, knowledge)
+    node = {
+        "node_id": node_id,
+        "node_level": 2,
+        "node_name": objective_text,
+        "node_content": (
+            f"联网事实锚点：{fact_anchor}\n"
+            f"原创任务情境：{original_scenario}"
+        ),
+        "learning_objective": objective_text,
+        "key_points": knowledge,
+        "assessment": [
+            f"使用给定事实与原创情境完成{objective_text}"
+        ],
+        "difficulty_contract": {
+            "target_level": str(
+                gap.get("difficulty")
+                or course_data.get("difficulty")
+                or "intermediate"
+            )
+        },
+        "grounding_contract": {"question_evidence_ids": []},
+    }
+    scoped_course = {
+        **deepcopy(course_data),
+        "nodes": [node],
+    }
+    profile = compile_course_assessment_profile(scoped_course)
+    objective = compile_assessment_objectives(
+        scoped_course,
+        profile,
+    )[0]
+    contract = generate_universal_question_contract(
+        scoped_course,
+        node,
+        profile=profile,
+        objective=objective,
+        practice_level="objective_practice",
+        variant_index=(
+            int(
+                str(reference.get("content_hash") or "0" * 8)[:6],
+                16,
+            )
+            % 3
+        ),
+    )
+    source_record = {
+        "source_type": "web",
+        "url": reference.get("url"),
+        "title": reference.get("title"),
+        "retrieved_at": reference.get("retrieved_at"),
+        "content_hash": reference.get("content_hash"),
+        "license": reference.get("license"),
+        "rights_basis": (
+            "open_license"
+            if reference.get("open_license")
+            else "license_unknown"
+        ),
+        "reuse_policy": "reference_only",
+    }
+    question_spec = contract["question_spec"]
+    question_spec["stimulus"] = {
+        "kind": question_spec.get("archetype_id"),
+        "data": {
+            "fact_anchor": fact_anchor,
+            "original_scenario": original_scenario,
+            "source_title": reference.get("title"),
+        },
+        "rendered_text": (
+            f"事实锚点：{fact_anchor}\n"
+            f"原创情境：{original_scenario}"
+        ),
+    }
+    question_spec["provenance"] = {
+        "course_id": course_id,
+        "source_priority": "trusted_web_reference",
+        "source_refs": [deepcopy(source_record)],
+        "untrusted_source_isolated": True,
+    }
+    question_spec["risk_contract"] = {
+        **deepcopy(question_spec.get("risk_contract") or {}),
+        "risk_level": "teacher_review",
+        "requires_teacher_review": True,
+    }
+    task_text = str(
+        (question_spec.get("task") or {}).get("rendered_text")
+        or ""
+    )
+    contract["prompt"] = (
+        f"{question_spec['stimulus']['rendered_text']}\n{task_text}"
+    ).strip()
+    contract["input_materials"] = [
+        question_spec["stimulus"]["rendered_text"]
+    ]
+    contract["review_required"] = True
+    contract["risk_flags"] = list(dict.fromkeys([
+        *contract.get("risk_flags", []),
+        (
+            "web_open_license_review"
+            if reference.get("open_license")
+            else "license_unknown"
+        ),
+    ]))
+    contract["solution_envelope"]["validation_mode"] = (
+        "expert_rubric_validator"
+    )
+    contract["solution_validation"] = {
+        **deepcopy(contract.get("solution_validation") or {}),
+        "passed": True,
+        "status": "needs_review",
+        "validation_mode": "expert_rubric_validator",
+        "deterministic": False,
+        "auto_publish_eligible": False,
+        "issues": [{
+            "code": "independent_solution_required",
+            "severity": "major",
+        }],
+    }
+    contract["domain_validation"] = deepcopy(
+        contract["solution_validation"]
+    )
+    generated_expression = " ".join([
+        original_scenario,
+        task_text,
+    ])
+    similarity = SequenceMatcher(
+        None,
+        _similarity_text(generated_expression),
+        _similarity_text(
+            str(reference.get("reference_text") or "")
+        ),
+    ).ratio()
+    if similarity >= 0.65:
+        contract["risk_flags"] = list(dict.fromkeys([
+            *contract["risk_flags"],
+            "web_similarity_high",
+        ]))
+
+    solution = deepcopy(contract["solution_envelope"])
+    item = {
+        "schema_version": QUESTION_ITEM_SCHEMA,
+        "course_id": course_id,
+        "item_id": stable_hash(
+            {
+                "course": course_id,
+                "url": reference.get("url"),
+                "node": node_id,
+                "kind": "v2_original_variant",
+            },
+            prefix="qbi_",
+        ),
+        "parent_item_id": parent.get("item_id"),
+        "parent_revision_id": parent.get("revision_id"),
+        "node_id": node_id,
+        "node_ids": [node_id] if node_id else [],
+        "prompt": contract["prompt"],
+        "subquestions": [],
+        "options": [],
+        "explanation": "",
+        "score": 100,
+        "estimated_minutes": contract["estimated_minutes"],
+        "question_type": contract["question_type"],
+        "difficulty": str(
+            gap.get("difficulty")
+            or course_data.get("difficulty")
+            or "intermediate"
+        ),
+        "practice_levels": ["objective_practice"],
+        "assessment_role": "web_enriched_practice",
+        "course_objective_refs": [objective["objective_id"]],
+        "objective_id": objective["objective_id"],
+        "course_knowledge_refs": [
+            stable_hash(
+                {
+                    "course": course_id,
+                    "node": node_id,
+                    "knowledge": value,
+                },
+                prefix="ck_",
+            )
+            for value in knowledge
+        ] or [
+            stable_hash(
+                {"course": course_id, "node": node_id},
+                prefix="ck_",
+            )
+        ],
+        "course_skill_refs": [],
+        "course_misconception_refs": [],
+        "course_mastery_refs": [],
+        "source_type": "variant",
+        "source_records": [deepcopy(source_record)],
+        "parse_confidence": "high",
+        "risk_flags": deepcopy(contract["risk_flags"]),
+        "review_required": True,
+        "lifecycle_status": "needs_review",
+        "review_status": "needs_review",
+        "review_history": [],
+        "formal_task_revision_id": None,
+        "deliverable": contract["deliverable"],
+        "input_materials": deepcopy(contract["input_materials"]),
+        "constraints": [
+            *deepcopy(contract["constraints"]),
+            "不得复制联网原文的表达",
+        ],
+        "reference_concepts": knowledge,
+        "result_checks": [
+            *deepcopy(contract["result_checks"]),
+            "原创任务表达与联网原文保持低相似度",
+        ],
+        "question_spec": deepcopy(question_spec),
+        "solution_revision_id": solution["solution_revision_id"],
+        "solution_validation": deepcopy(
+            contract["solution_validation"]
+        ),
+        "archetype_id": question_spec["archetype_id"],
+        "validation_mode": solution["validation_mode"],
+        "risk_level": "teacher_review",
+        "generation_status": "waiting_review",
+        "domain_validation": deepcopy(
+            contract["solution_validation"]
+        ),
+        "web_source_similarity": round(similarity, 4),
+        "created_at": _now(),
+    }
+    return finalize_v2_question_bank_item(item, solution), solution
+
+
+def _web_fact_anchor(reference: dict[str, Any]) -> str:
+    text = str(reference.get("reference_text") or "").strip()
+    if not text:
+        return str(reference.get("title") or "联网来源未提供摘要")
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(
+            r"(?<=[!?。！？])\s+|(?<!\d)\.(?!\d)\s+",
+            text,
+        )
+        if sentence.strip()
+    ]
+    numeric = [
+        sentence
+        for sentence in sentences
+        if re.search(r"\d", sentence)
+    ]
+    selected = (numeric or sentences)[:2]
+    return " ".join(selected)[:600]
+
+
+def _legacy_web_generated_item(
     course_data: dict[str, Any],
     gap: dict[str, Any],
     reference: dict[str, Any],

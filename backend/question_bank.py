@@ -338,6 +338,29 @@ def formal_task_from_question_bank_item(item: dict[str, Any]) -> dict[str, Any]:
     return _formal_task_from_item(item)
 
 
+def finalize_v2_question_bank_item(
+    item: dict[str, Any],
+    solution_envelope: dict[str, Any],
+) -> dict[str, Any]:
+    """Freeze one V2 item while keeping its solution outside the item."""
+    result = deepcopy(item)
+    result["_solution_envelope"] = deepcopy(solution_envelope)
+    result["solution_revision_id"] = solution_envelope.get(
+        "solution_revision_id"
+    )
+    result["hint_contract"] = _hint_contract(result)
+    result["quality_report"] = evaluate_question_item_quality(result)
+    result["lifecycle_status"] = _initial_status(result)
+    result["review_status"] = result["lifecycle_status"]
+    result["revision_id"] = _item_revision_id(result)
+    result["formal_task"] = _formal_task_from_item(result)
+    result["formal_task_revision_id"] = result["formal_task"][
+        "revision_id"
+    ]
+    result.pop("_solution_envelope", None)
+    return result
+
+
 def refresh_question_bank_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(bundle)
     result["review_queue"] = _review_queue(result.get("items") or [])
@@ -2968,6 +2991,7 @@ __all__ = [
     "build_question_bank",
     "evaluate_question_item_quality",
     "filter_question_bank_items",
+    "finalize_v2_question_bank_item",
     "formal_task_from_question_bank_item",
     "is_generic_generated_prompt",
     "question_bank_repository",
