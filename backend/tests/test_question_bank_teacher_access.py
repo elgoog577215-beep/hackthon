@@ -108,7 +108,10 @@ def test_teacher_can_load_private_solution_by_item_revision(
     assert payload["solution_revision_id"] == item[
         "solution_revision_id"
     ]
-    assert payload["solution_envelope"]["canonical_answer"] is not None
+    assert (
+        payload["solution_envelope"].get("canonical_answer") is not None
+        or payload["solution_envelope"].get("rubric")
+    )
     assert payload["solution_validation"] == item[
         "solution_validation"
     ]

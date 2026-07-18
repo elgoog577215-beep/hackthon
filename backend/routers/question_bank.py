@@ -117,7 +117,12 @@ async def get_question_bank(
     risk_level: str | None = Query(default=None, max_length=50),
     objective_id: str | None = Query(default=None, max_length=200),
     generation_status: str | None = Query(default=None, max_length=50),
+    x_user_id: str | None = Header(
+        default=None,
+        alias="X-User-Id",
+    ),
 ):
+    require_user_id(x_user_id)
     await get_course_or_404(course_id)
     bundle = question_bank_repository.load_bundle(course_id)
     if not bundle:
@@ -150,6 +155,7 @@ async def get_question_bank(
         "web_enrichment": bundle.get("web_enrichment") or {},
         "items": items,
         "total": len(items),
+        "access_scope": "teacher_authenticated_course_management",
     }
 
 
@@ -906,6 +912,62 @@ def _restore_bundle_pointer(
         pointer.unlink()
 
 
+@router.get("/items/{revision_id}/solution")
+async def get_question_bank_item_solution(
+    course_id: str,
+    revision_id: str,
+    x_user_id: str | None = Header(
+        default=None,
+        alias="X-User-Id",
+    ),
+):
+    require_user_id(x_user_id)
+    await get_course_or_404(course_id)
+    bundle = _require_bundle(course_id)
+    item = next(
+        (
+            candidate
+            for candidate in bundle.get("items") or []
+            if str(candidate.get("revision_id") or "")
+            == revision_id
+        ),
+        None,
+    )
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "question_bank_item_not_found"},
+        )
+    solution_revision_id = str(
+        item.get("solution_revision_id") or ""
+    )
+    solution = (
+        bundle.get("solution_envelopes") or {}
+    ).get(solution_revision_id)
+    if not solution:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "question_bank_solution_not_found",
+                "solution_revision_id": solution_revision_id,
+            },
+        )
+    return {
+        "schema_version": "question_bank_solution_api_v1",
+        "course_id": course_id,
+        "item_revision_id": revision_id,
+        "solution_revision_id": solution_revision_id,
+        "solution_envelope": deepcopy(solution),
+        "solution_validation": deepcopy(
+            item.get("solution_validation") or {}
+        ),
+        "hint_contract": deepcopy(
+            item.get("hint_contract") or {}
+        ),
+        "access_scope": "teacher_authenticated_course_management",
+    }
+
+
 @router.post("/items/{revision_id}/reviews")
 async def review_question(
     course_id: str,
@@ -913,6 +975,7 @@ async def review_question(
     payload: QuestionBankReviewRequest,
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
+    reviewer_id = require_user_id(x_user_id)
     await get_course_or_404(course_id)
     bundle = _require_bundle(course_id)
     _require_expected_revision(bundle, payload.expected_bundle_revision_id)
@@ -921,7 +984,7 @@ async def review_question(
             bundle,
             revision_id,
             decision=payload.decision,
-            reviewer_id=x_user_id or "local-teacher",
+            reviewer_id=reviewer_id,
             note=payload.note,
         )
     except KeyError as exc:
@@ -939,6 +1002,7 @@ async def revise_question(
     payload: QuestionBankRevisionRequest,
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
+    editor_id = require_user_id(x_user_id)
     await get_course_or_404(course_id)
     bundle = _require_bundle(course_id)
     _require_expected_revision(bundle, payload.expected_bundle_revision_id)
@@ -947,7 +1011,7 @@ async def revise_question(
             bundle,
             revision_id,
             patch=payload.patch,
-            editor_id=x_user_id or "local-teacher",
+            editor_id=editor_id,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
