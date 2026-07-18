@@ -418,17 +418,28 @@
     "attempt_id": "pa_bf348bb0c3634fbbacd817493b9a3b23",
     "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
     "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
-    "status": "in_progress",
+    "status": "submitted",
     "attempt_number": 1,
-    "answer_payload": {},
-    "revealed_hint_levels": [],
+    "answer_payload": {
+      "text": "不知道"
+    },
+    "revealed_hint_levels": [
+      1,
+      2,
+      3
+    ],
     "solution_revealed": false,
     "ai_support_level": 0,
-    "active_seconds": 0,
-    "revision": 1,
+    "active_seconds": 42,
+    "revision": 6,
     "schema_version": 2,
     "started_at": "2026-07-18T10:21:54.641792+00:00",
     "created_at": "2026-07-18T10:21:54.641792+00:00",
-    "updated_at": "2026-07-18T10:21:54.641792+00:00"
+    "updated_at": "2026-07-18T10:22:37.535036+00:00",
+    "submitted_answer_payload": {
+      "text": "不知道"
+    },
+    "submit_request_id": "2642263b-3653-49a3-b9f6-56b0a90a2c1e",
+    "submitted_at": "2026-07-18T10:22:37.535036+00:00"
   }
 ]
