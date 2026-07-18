@@ -12862,5 +12862,46 @@
     "metadata": {},
     "created_at": "2026-07-18T16:49:15.162175",
     "schema_version": 8
+  },
+  {
+    "event_id": "evt_ee04b68818f340dd925df94fc73d6452",
+    "event_type": "node_learning_started",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "actor": "user",
+    "source": "learning_progress.reading",
+    "course_id": "26f48457-6e7d-4edd-873c-50e1fafba5b9",
+    "course_version_id": null,
+    "node_id": "0e6ae942-bf26-494e-9d48-1240c78d757e",
+    "node_name": "1.1 C++ 简介与历史发展",
+    "objective_id": "lo_ea7b139da0a1d531",
+    "objective_revision_id": "lor_ef461073de6e3040",
+    "concept_ids": [],
+    "skill_unit_ids": [],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "question_revision_id": null,
+    "task_revision_id": null,
+    "task_purpose": null,
+    "criterion_id": null,
+    "criterion_revision_id": null,
+    "record_id": null,
+    "record_type": null,
+    "attempt_id": null,
+    "diagnostic_case_id": null,
+    "remediation_session_id": null,
+    "operation_id": "reading:learner_77949059-72b5-4e0b-a0be-ce1cad183ca2:lor_ef461073de6e3040:start",
+    "idempotency_key": "lor_ef461073de6e3040:start",
+    "entity_type": "learning_objective_progress",
+    "entity_id": "lo_ea7b139da0a1d531",
+    "entity_revision": "lor_ef461073de6e3040",
+    "evidence": {
+      "explicit_confirmation": false
+    },
+    "result": {
+      "reading_status": "in_progress"
+    },
+    "metadata": {},
+    "created_at": "2026-07-18T17:04:29.490673",
+    "schema_version": 8
   }
 ]
