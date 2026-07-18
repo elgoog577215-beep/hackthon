@@ -101,6 +101,7 @@ def generate_question_contract(
         "response_contract": deepcopy(payload["response_contract"]),
         "answer_spec": deepcopy(payload["answer_spec"]),
         "result_checks": list(payload["result_checks"]),
+        "hint_contract": deepcopy(payload.get("hint_contract") or {}),
         "provenance": {
             "course_id": str(course_data.get("course_id") or ""),
             "source_priority": (
@@ -126,6 +127,7 @@ def generate_question_contract(
         "question_spec": question_spec,
         "domain_validation": validation,
         "answer_spec": deepcopy(question_spec["answer_spec"]),
+        "hint_contract": deepcopy(question_spec["hint_contract"]),
         "risk_flags": risk_flags,
         "review_required": bool(
             question_spec["risk"]["requires_review"]
@@ -159,6 +161,7 @@ def validate_question_spec(spec: dict[str, Any]) -> dict[str, Any]:
         issues.append(_issue("question:task_missing", "critical"))
     if not (answer_spec.get("criteria") or answer_spec.get("canonical_answer") is not None):
         issues.append(_issue("question:answer_not_executable", "critical"))
+    issues.extend(_validate_target_action_alignment(spec))
 
     adapter_validator = {
         "computer_science.graph_traversal": _validate_graph_spec,
@@ -214,7 +217,10 @@ def validate_question_spec(spec: dict[str, Any]) -> dict[str, Any]:
                 }
                 for issue in issues
             ),
-            "semantic_alignment": not critical,
+            "semantic_alignment": not any(
+                issue["code"] == "question:target_action_mismatch"
+                for issue in issues
+            ),
         },
     }
 
@@ -460,6 +466,7 @@ def _base_answer_spec(
     validation_mode: str,
     canonical_answer: Any = None,
     solution_trace: list[str] | None = None,
+    solution_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     answer = {
         "type": "structured_rubric",
@@ -473,6 +480,8 @@ def _base_answer_spec(
         answer["canonical_answer"] = canonical_answer
     if solution_trace:
         answer["solution_trace"] = solution_trace
+    if solution_spec:
+        answer["solution_spec"] = deepcopy(solution_spec)
     return answer
 
 
@@ -697,6 +706,9 @@ def _build_heap_spec(context: AdapterContext) -> dict[str, Any]:
 
 
 def _build_tree_spec(context: AdapterContext) -> dict[str, Any]:
+    if _tree_target_requires_implementation(context):
+        return _build_avl_implementation_spec(context)
+
     variants = [
         [30, 20, 10, 25, 40, 50],
         [50, 30, 70, 20, 40, 35],
@@ -734,9 +746,297 @@ def _build_tree_spec(context: AdapterContext) -> dict[str, Any]:
             ],
             validation_mode="deterministic_solver",
             canonical_answer=canonical,
+            solution_trace=canonical["insertion_trace"],
+            solution_spec={
+                "schema_version": "solution_spec_v1",
+                "summary": "按BST规则逐键插入，并在从新节点向根回溯时修复第一个失衡祖先。",
+                "steps": canonical["insertion_trace"],
+                "final_answer": canonical,
+                "checks": [
+                    "中序序列严格递增",
+                    "所有节点平衡因子绝对值不超过1",
+                ],
+                "representation": {
+                    "kind": "tree_levels",
+                    "content": canonical["level_order"],
+                },
+            },
         ),
         "result_checks": ["中序序列递增", "每个节点平衡因子绝对值不超过1"],
+        "hint_contract": _avl_hint_contract(keys),
     }
+
+
+def _tree_target_requires_implementation(context: AdapterContext) -> bool:
+    target_text = " ".join([
+        context.objective,
+        *context.key_points,
+        *context.assessments,
+    ]).lower()
+    return any(
+        marker in target_text
+        for marker in ("实现", "编码", "代码", "可运行", "提交", "测试", "性能")
+    )
+
+
+def _build_avl_implementation_spec(
+    context: AdapterContext,
+) -> dict[str, Any]:
+    verification_keys = [30, 20, 10, 25, 40, 50]
+    test_inputs = {
+        "LL": [30, 20, 10],
+        "RR": [10, 20, 30],
+        "LR": [50, 30, 40],
+        "RL": [30, 50, 40],
+        "综合": verification_keys,
+    }
+    expected_tests: dict[str, dict[str, Any]] = {}
+    for name, keys in test_inputs.items():
+        solved = _solve_avl(keys)
+        expected_tests[name] = {
+            "preorder": solved["preorder"],
+            "inorder": solved["inorder"],
+            "rotations": solved["rotations"],
+        }
+    canonical = {
+        "expected_tests": expected_tests,
+        "performance_expectation": {
+            "input_size": 10_000,
+            "input_pattern": "按0到9999递增插入",
+            "height_upper_bound": 20,
+            "single_insert_complexity": "O(log n)",
+            "total_build_complexity": "O(n log n)",
+        },
+        "required_behaviors": [
+            "重复键不插入",
+            "每次插入后更新沿途节点高度",
+            "覆盖LL、RR、LR、RL四种失衡",
+            "任意节点平衡因子绝对值不超过1",
+        ],
+    }
+    code_skeleton = _avl_code_skeleton()
+    reference_code = _avl_reference_code()
+    task_by_level = {
+        "concept_check": (
+            "补全rebalance中缺失的LR、RL分支，形成可运行实现；"
+            "运行主序列前三个键的LL测试和LR序列的双旋测试，并说明树高如何影响插入性能"
+        ),
+        "objective_practice": (
+            "实现insert与rebalance，运行LL、RR、LR、RL及综合序列测试；"
+            "再运行10000个递增键的性能测试，报告树高、耗时和复杂度判断"
+        ),
+        "mastery_check": (
+            "独立完成可运行的AVL插入实现与自动化测试；覆盖四类旋转、重复键、"
+            "中序有序和平衡因子，并用10000个递增键完成性能测试与结论"
+        ),
+    }
+    steps = [
+        "实现height、update_height与balance_factor，统一空节点高度为0。",
+        "按BST规则递归插入；重复键直接返回，回溯时先更新当前节点高度。",
+        "在第一个|BF|>1的祖先处，根据新键落在重子树内侧或外侧选择LL、RR、LR、RL。",
+        "执行旋转后再次更新相关节点高度，并返回新的子树根。",
+        "运行四类旋转与综合序列，逐项核对先序、中序、树高和平衡因子。",
+        "递增插入0到9999，记录耗时与最终树高，并据此判断单次插入是否保持O(log n)。",
+    ]
+    checks = [
+        "LL、RR、LR、RL测试的先序结果与标准结果一致",
+        "所有测试的中序结果严格递增且无重复键",
+        "递归检查每个节点的高度字段与实际高度一致",
+        "所有节点平衡因子绝对值不超过1",
+        "10000个递增键构建后的树高不超过20",
+    ]
+    return {
+        "archetype_id": "avl_implementation_validation",
+        "stimulus": {
+            "kind": "tree_operations",
+            "data": {
+                "case_kind": "avl_implementation",
+                "tree_type": "AVL",
+                "language": "python",
+                "code_skeleton": code_skeleton,
+                "verification_keys": verification_keys,
+                "test_cases": [
+                    {"name": name, "insert_keys": keys}
+                    for name, keys in test_inputs.items()
+                ],
+                "performance_case": {
+                    "insert_keys": "range(10000)",
+                    "required_metrics": ["elapsed_ms", "tree_height"],
+                },
+            },
+            "rendered_text": (
+                "以下Python骨架缺少AVL插入后的完整再平衡逻辑：\n"
+                f"{code_skeleton}\n"
+                f"正确性主序列为 {verification_keys}；旋转测试输入依次为"
+                "LL=[30, 20, 10]、RR=[10, 20, 30]、"
+                "LR=[50, 30, 40]、RL=[30, 50, 40]；"
+                "性能输入为range(10000)。"
+            ),
+        },
+        "task": {
+            "action": "implement_test_and_analyze_avl",
+            "rendered_text": task_by_level.get(
+                context.practice_level,
+                task_by_level["mastery_check"],
+            ),
+            "deliverable": "可运行代码、测试输出、失败定位过程、树高与性能结论",
+        },
+        "constraints": [
+            "不得调用现成平衡树库",
+            "重复键不得插入",
+            "每次旋转后必须更新受影响节点高度",
+            "测试必须覆盖LL、RR、LR、RL和综合序列",
+            "性能测试必须报告输入规模、耗时和最终树高",
+        ],
+        "response_contract": {
+            "format": "code_and_test_report",
+            "required_parts": [
+                "implementation",
+                "correctness_tests",
+                "performance_test",
+                "result_check",
+            ],
+        },
+        "answer_spec": _base_answer_spec(
+            context,
+            [
+                "插入、高度更新及四类旋转实现正确",
+                "正确性测试覆盖完整且输出与标准结果一致",
+                "性能测试记录可复核并能据树高说明复杂度",
+                "能够用中序有序和逐节点平衡因子验证结果",
+            ],
+            validation_mode="rubric_ai_with_reference",
+            canonical_answer=canonical,
+            solution_trace=steps,
+            solution_spec={
+                "schema_version": "solution_spec_v1",
+                "summary": "先完成BST插入与高度回溯，再实现四类旋转，最后用正确性和性能两组证据验证。",
+                "steps": steps,
+                "final_answer": canonical,
+                "checks": checks,
+                "representation": {
+                    "kind": "code",
+                    "language": "python",
+                    "content": reference_code,
+                },
+            },
+        ),
+        "result_checks": checks,
+        "hint_contract": _avl_hint_contract(verification_keys),
+    }
+
+
+def _avl_hint_contract(keys: list[int]) -> dict[str, Any]:
+    key_text = "、".join(str(value) for value in keys[:3])
+    initial_root = keys[0] if keys else "根"
+    return {
+        "levels": [
+            {
+                "level": 1,
+                "kind": "orientation",
+                "content": (
+                    f"先只跟踪前三个键{key_text}。每插入一个键，从新节点向根回溯更新高度；"
+                    f"先算节点{initial_root}的平衡因子，找出第一次|BF|>1发生在哪一步。"
+                ),
+                "evidence_effect": "limited_mastery",
+                "support_level": 1,
+            },
+            {
+                "level": 2,
+                "kind": "method_skeleton",
+                "content": (
+                    "固定按“BST定位→递归返回时更新高度→找到第一个|BF|>1节点→"
+                    "判断新键落在重子树内侧或外侧→执行LL/RR/LR/RL→返回新子树根”实现。"
+                ),
+                "evidence_effect": "not_independent",
+                "support_level": 2,
+            },
+            {
+                "level": 3,
+                "kind": "worked_contrast",
+                "content": (
+                    "对照不同序列[50, 30, 40]：50左重，但新键40落在左孩子30的右侧，"
+                    "所以这是LR；先左旋30，再右旋50。把同一判定规则用于主序列，"
+                    "不要直接套用这个结果。"
+                ),
+                "evidence_effect": "not_mastery",
+                "support_level": 3,
+            },
+        ],
+    }
+
+
+def _avl_code_skeleton() -> str:
+    return """def insert(root, key):
+    if root is None:
+        return Node(key)
+    # TODO: 按BST规则递归插入；重复键直接返回
+    # TODO: 更新高度并调用rebalance
+
+def rebalance(root, key):
+    update_height(root)
+    bf = balance_factor(root)
+    if bf > 1 and key < root.left.key:
+        return rotate_right(root)
+    if bf < -1 and key > root.right.key:
+        return rotate_left(root)
+    # TODO: 补全LR、RL双旋并返回新的子树根
+    return root"""
+
+
+def _avl_reference_code() -> str:
+    return """class Node:
+    def __init__(self, key):
+        self.key, self.left, self.right, self.height = key, None, None, 1
+
+def height(node):
+    return node.height if node else 0
+
+def update_height(node):
+    node.height = 1 + max(height(node.left), height(node.right))
+
+def balance_factor(node):
+    return height(node.left) - height(node.right)
+
+def rotate_left(root):
+    pivot, moved = root.right, root.right.left
+    pivot.left, root.right = root, moved
+    update_height(root)
+    update_height(pivot)
+    return pivot
+
+def rotate_right(root):
+    pivot, moved = root.left, root.left.right
+    pivot.right, root.left = root, moved
+    update_height(root)
+    update_height(pivot)
+    return pivot
+
+def rebalance(root, key):
+    update_height(root)
+    bf = balance_factor(root)
+    if bf > 1 and key < root.left.key:
+        return rotate_right(root)
+    if bf < -1 and key > root.right.key:
+        return rotate_left(root)
+    if bf > 1 and key > root.left.key:
+        root.left = rotate_left(root.left)
+        return rotate_right(root)
+    if bf < -1 and key < root.right.key:
+        root.right = rotate_right(root.right)
+        return rotate_left(root)
+    return root
+
+def insert(root, key):
+    if root is None:
+        return Node(key)
+    if key < root.key:
+        root.left = insert(root.left, key)
+    elif key > root.key:
+        root.right = insert(root.right, key)
+    else:
+        return root
+    return rebalance(root, key)"""
 
 
 def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
@@ -1360,6 +1660,8 @@ def _render_question(
 
 
 def _question_type_for_spec(spec: dict[str, Any]) -> str:
+    if spec.get("archetype_id") == "avl_implementation_validation":
+        return "implementation_task"
     adapter_id = str(spec.get("adapter_id") or "")
     return {
         "computer_science.graph_traversal": "implementation_task",
@@ -1480,6 +1782,39 @@ def _validate_heap_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
 
 def _validate_tree_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
     data = (spec.get("stimulus") or {}).get("data") or {}
+    if data.get("case_kind") == "avl_implementation":
+        test_cases = data.get("test_cases") or []
+        skeleton = str(data.get("code_skeleton") or "")
+        canonical = (spec.get("answer_spec") or {}).get("canonical_answer") or {}
+        expected_tests = canonical.get("expected_tests") or {}
+        if (
+            "def rebalance" not in skeleton
+            or len(test_cases) < 4
+            or not data.get("performance_case")
+        ):
+            return [_issue("question:input_material_missing", "critical")]
+        recomputed: dict[str, dict[str, Any]] = {}
+        for case in test_cases:
+            solved = _solve_avl([
+                int(value)
+                for value in case.get("insert_keys") or []
+            ])
+            recomputed[str(case.get("name") or "")] = {
+                "preorder": solved["preorder"],
+                "inorder": solved["inorder"],
+                "rotations": solved["rotations"],
+            }
+        solution = (spec.get("answer_spec") or {}).get("solution_spec") or {}
+        if (
+            expected_tests != recomputed
+            or solution.get("schema_version") != "solution_spec_v1"
+            or not solution.get("steps")
+            or not solution.get("checks")
+            or (solution.get("representation") or {}).get("kind") != "code"
+        ):
+            return [_issue("question:canonical_answer_mismatch", "critical")]
+        return []
+
     keys = data.get("insert_keys") or []
     if not keys:
         return [_issue("question:input_material_missing", "critical")]
@@ -1490,6 +1825,40 @@ def _validate_tree_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
         if canonical == expected
         else [_issue("question:canonical_answer_mismatch", "critical")]
     )
+
+
+def _validate_target_action_alignment(
+    spec: dict[str, Any],
+) -> list[dict[str, str]]:
+    if spec.get("adapter_id") != "computer_science.avl_tree":
+        return []
+    target = spec.get("target") or {}
+    task = spec.get("task") or {}
+    target_text = " ".join([
+        str(target.get("objective") or ""),
+        *[str(value) for value in target.get("knowledge_points") or []],
+        *[str(value) for value in target.get("assessment_actions") or []],
+    ]).lower()
+    task_text = " ".join([
+        str(task.get("rendered_text") or ""),
+        str(task.get("deliverable") or ""),
+        *[str(value) for value in (
+            spec.get("response_contract") or {}
+        ).get("required_parts") or []],
+    ]).lower()
+    required_markers: list[tuple[str, ...]] = []
+    if any(marker in target_text for marker in ("实现", "编码", "代码", "可运行", "提交")):
+        required_markers.append(("实现", "编码", "代码", "可运行", "implementation"))
+    if "测试" in target_text:
+        required_markers.append(("测试", "test"))
+    if any(marker in target_text for marker in ("性能", "复杂度")):
+        required_markers.append(("性能", "复杂度", "performance"))
+    if any(
+        not any(marker in task_text for marker in markers)
+        for markers in required_markers
+    ):
+        return [_issue("question:target_action_mismatch", "critical")]
+    return []
 
 
 def _validate_programming_spec(spec: dict[str, Any]) -> list[dict[str, str]]:
@@ -1838,8 +2207,16 @@ def _heap_pop(heap: list[int]) -> int:
 def _solve_avl(keys: list[int]) -> dict[str, Any]:
     root: dict[str, Any] | None = None
     rotations: list[str] = []
+    insertion_trace: list[str] = []
     for key in keys:
+        rotation_count = len(rotations)
         root = _avl_insert(root, key, rotations)
+        current_preorder = _tree_traversal(root, order="preorder")
+        rotation_step = rotations[rotation_count:]
+        insertion_trace.append(
+            f"插入{key}：先序={current_preorder}；"
+            f"{'、'.join(rotation_step) if rotation_step else '无需旋转'}"
+        )
     preorder: list[int] = []
     inorder: list[int] = []
     balance_factors: dict[str, int] = {}
@@ -1862,7 +2239,52 @@ def _solve_avl(keys: list[int]) -> dict[str, Any]:
         "rotations": rotations,
         "height": _tree_height(root),
         "balance_factors": balance_factors,
+        "insertion_trace": insertion_trace,
+        "level_order": _tree_level_order(root),
     }
+
+
+def _tree_traversal(
+    node: dict[str, Any] | None,
+    *,
+    order: str,
+) -> list[int]:
+    result: list[int] = []
+
+    def visit(current: dict[str, Any] | None) -> None:
+        if not current:
+            return
+        if order == "preorder":
+            result.append(int(current["key"]))
+        visit(current["left"])
+        if order == "inorder":
+            result.append(int(current["key"]))
+        visit(current["right"])
+
+    visit(node)
+    return result
+
+
+def _tree_level_order(root: dict[str, Any] | None) -> list[list[int | None]]:
+    if not root:
+        return []
+    levels: list[list[int | None]] = []
+    current: list[dict[str, Any] | None] = [root]
+    while any(node is not None for node in current):
+        levels.append([
+            int(node["key"]) if node is not None else None
+            for node in current
+        ])
+        next_level: list[dict[str, Any] | None] = []
+        for node in current:
+            if node is None:
+                next_level.extend([None, None])
+            else:
+                next_level.extend([node["left"], node["right"]])
+        while next_level and next_level[-1] is None:
+            next_level.pop()
+        current = next_level
+    return levels
 
 
 def _avl_insert(

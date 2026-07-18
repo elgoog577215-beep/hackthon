@@ -165,12 +165,42 @@
 
           <section v-if="workspace.revealedSolution" class="solution-result">
             <strong>{{ t('courseWorkspace.practice.solutionTitle', '完整解析') }}</strong>
-            <p>{{ workspace.revealedSolution.guidance }}</p>
-            <ul v-if="workspace.revealedSolution.criteria?.length">
-              <li v-for="criterion in workspace.revealedSolution.criteria" :key="criterion">{{ criterion }}</li>
-            </ul>
-            <p v-if="workspace.revealedSolution.correct_answer">
-              {{ t('courseWorkspace.practice.referenceAnswer', '参考答案') }}：{{ workspace.revealedSolution.correct_answer }}
+            <p v-if="workspace.revealedSolution.summary || workspace.revealedSolution.guidance">
+              {{ workspace.revealedSolution.summary || workspace.revealedSolution.guidance }}
+            </p>
+            <div v-if="workspace.revealedSolution.steps?.length" class="solution-steps">
+              <h4>{{ t('courseWorkspace.practice.solutionSteps', '解题步骤') }}</h4>
+              <ol>
+                <li v-for="(step, index) in workspace.revealedSolution.steps" :key="`${index}-${step}`">
+                  {{ step }}
+                </li>
+              </ol>
+            </div>
+            <div
+              v-if="workspace.revealedSolution.representation?.content"
+              class="solution-representation"
+            >
+              <h4>{{ t('courseWorkspace.practice.referenceImplementation', '参考实现或结构') }}</h4>
+              <pre>{{ formatSolutionValue(workspace.revealedSolution.representation.content) }}</pre>
+            </div>
+            <div
+              v-if="workspace.revealedSolution.final_answer !== null && workspace.revealedSolution.final_answer !== undefined"
+              class="solution-final-answer"
+            >
+              <h4>{{ t('courseWorkspace.practice.referenceAnswer', '参考答案') }}</h4>
+              <pre>{{ formatSolutionValue(workspace.revealedSolution.final_answer) }}</pre>
+            </div>
+            <div v-if="workspace.revealedSolution.checks?.length" class="solution-checks">
+              <h4>{{ t('courseWorkspace.practice.resultChecks', '结果检查') }}</h4>
+              <ul>
+                <li v-for="check in workspace.revealedSolution.checks" :key="check">{{ check }}</li>
+              </ul>
+            </div>
+            <p
+              v-else-if="workspace.revealedSolution.correct_answer !== null && workspace.revealedSolution.correct_answer !== undefined"
+            >
+              {{ t('courseWorkspace.practice.referenceAnswer', '参考答案') }}：
+              {{ formatSolutionValue(workspace.revealedSolution.correct_answer) }}
             </p>
           </section>
         </article>
@@ -565,6 +595,16 @@ function statusLabel(attempt: any) {
   if (attempt.status === 'in_progress') return t('courseWorkspace.practice.inProgress', '进行中')
   return t('courseWorkspace.practice.notPassed', '尚未达到标准')
 }
+
+function formatSolutionValue(value: unknown) {
+  if (typeof value === 'string') return value
+  if (value === null || value === undefined) return ''
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
 </script>
 
 <style scoped>
@@ -579,7 +619,7 @@ function statusLabel(attempt: any) {
 .choice-list { display:grid; gap:10px; }.choice-list label { display:flex; gap:10px; padding:13px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; }
 .practice-actions { position:sticky; bottom:0; display:flex; justify-content:space-between; gap:14px; align-items:center; margin-top:22px; padding:12px 0; background:linear-gradient(to bottom,rgba(248,250,252,.86),#f8fafc 28%); }.support-actions { display:flex; gap:8px; align-items:center; }.icon-command,.text-command,.primary-command { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; padding:0 12px; color:#334155; }.icon-command { width:42px; padding:0; }.icon-command:disabled,.text-command:disabled,.primary-command:disabled { opacity:.45; cursor:not-allowed; }.primary-command { border-color:#0f766e; background:#0f766e; color:#fff; font-weight:700; }
 .hint-results,.practice-feedback,.solution-result { margin-top:18px; border-top:1px solid #dbe3ed; padding-top:16px; }.hint-result { display:grid; grid-template-columns:78px 1fr; gap:12px; margin:8px 0; }.hint-result span { color:#a16207; font-size:12px; font-weight:700; }.hint-result p { margin:0; line-height:1.6; }
-.solution-result { color:#334155; }.solution-result p,.solution-result li { line-height:1.65; }.solution-result ul { padding-left:20px; }
+.solution-result { color:#334155; }.solution-result p,.solution-result li { line-height:1.65; }.solution-result ul,.solution-result ol { padding-left:20px; }.solution-result h4 { margin:14px 0 7px; font-size:13px; color:#172033; }.solution-result pre { margin:0; padding:12px 14px; max-height:420px; overflow:auto; border:1px solid #dbe3ed; border-radius:6px; background:#f1f5f9; color:#0f172a; font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }.solution-steps ol,.solution-checks ul { margin:6px 0; }
 .remediation-context { margin-bottom:22px; padding:14px 0; border-top:1px solid #99f6e4; border-bottom:1px solid #99f6e4; }.remediation-context strong { color:#115e59; }.remediation-context p { margin:8px 0; line-height:1.65; }.remediation-context small { color:#64748b; }.workflow-result strong { color:#172033; }.workflow-result.warning svg { color:#b45309; }
 .practice-feedback { color:#9a3412; }.practice-feedback[data-passed="true"] { color:#047857; }.feedback-heading { display:flex; gap:9px; align-items:center; }.feedback-heading span { margin-left:auto; font-size:22px; font-weight:800; }.practice-feedback>p { color:#475569; }.rubric-list { display:grid; gap:7px; margin:12px 0; }.rubric-list>div { display:grid; grid-template-columns:18px minmax(120px,auto) 1fr; gap:7px; align-items:start; color:#334155; }.rubric-list small { color:#64748b; }
 .practice-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:#64748b; }.state-notice { display:flex; gap:9px; padding:12px; margin-bottom:14px; border:1px solid #fecaca; color:#b91c1c; background:#fef2f2; border-radius:6px; }

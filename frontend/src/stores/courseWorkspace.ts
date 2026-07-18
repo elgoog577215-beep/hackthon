@@ -262,20 +262,24 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
           practice_intent: context.practiceIntent,
         } : {}),
       })
-      this.applyPracticeAttempt(courseId, res.data.attempt)
+      this.applyPracticeAttempt(courseId, res.data.attempt, res.data.solution)
       this.practiceResult = res.data.attempt?.result || null
       this.practiceStartedAt = Date.now()
       await this.syncLearningTask(courseId)
       return res.data.attempt as PracticeAttempt
     },
-    applyPracticeAttempt(courseId: string, attempt: PracticeAttempt) {
+    applyPracticeAttempt(
+      courseId: string,
+      attempt: PracticeAttempt,
+      solution: Record<string, any> | null = null,
+    ) {
       this.currentAttempt = attempt
       const local = this.readPracticeDraft(courseId, attempt.attempt_id)
       this.currentDraft = local?.revision >= attempt.revision
         ? { ...(attempt.answer_payload || {}), ...(local.answer_payload || {}) }
         : { ...(attempt.answer_payload || {}) }
       this.revealedHints = []
-      this.revealedSolution = attempt.solution_revealed ? {} : null
+      this.revealedSolution = attempt.solution_revealed ? solution : null
       this.practiceSaveState = local?.revision > attempt.revision ? 'local_only' : 'saved'
       this.practiceSubmitRequestId = ''
       this.targetedRetryContext = attempt.practice_intent === 'targeted_retry' && attempt.origin_attempt_id

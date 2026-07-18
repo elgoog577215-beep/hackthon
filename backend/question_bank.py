@@ -1268,7 +1268,10 @@ def _hint_contract(item: dict[str, Any]) -> dict[str, Any]:
     concepts = item.get("reference_concepts") or item.get("course_knowledge_refs") or []
     constraints = item.get("constraints") or []
     criteria = (item.get("answer_spec") or {}).get("criteria") or []
-    levels = [
+    adapter_contract = deepcopy(
+        (item.get("question_spec") or {}).get("hint_contract") or {}
+    )
+    levels = adapter_contract.get("levels") or [
         {
             "level": 1,
             "kind": "orientation",
@@ -1300,9 +1303,31 @@ def _hint_contract(item: dict[str, Any]) -> dict[str, Any]:
             "support_level": 3,
         },
     ]
+    evidence_effects = {
+        1: ("limited_mastery", 1),
+        2: ("not_independent", 2),
+        3: ("not_mastery", 3),
+    }
+    for level in levels:
+        level_number = int(level.get("level") or 0)
+        effect, support = evidence_effects.get(
+            level_number,
+            ("not_mastery", max(1, level_number)),
+        )
+        level.setdefault("evidence_effect", effect)
+        level.setdefault("support_level", support)
     prompt = _normalize_text(str(item.get("prompt") or ""))
-    answer = _normalize_text(str((item.get("answer_spec") or {}).get("correct_answer") or ""))
-    leakage = bool(answer and any(answer in _normalize_text(level["content"]) for level in levels))
+    answer_spec = item.get("answer_spec") or {}
+    answer_fragments = _answer_fragments({
+        "correct_answer": answer_spec.get("correct_answer"),
+        "canonical_answer": answer_spec.get("canonical_answer"),
+        "solution_spec": answer_spec.get("solution_spec"),
+    })
+    leakage = any(
+        fragment in _normalize_text(str(level.get("content") or ""))
+        for fragment in answer_fragments
+        for level in levels
+    )
     return {
         "levels": levels,
         "solution_policy": "after_submission_or_repeated_failure",
@@ -1312,7 +1337,10 @@ def _hint_contract(item: dict[str, Any]) -> dict[str, Any]:
         },
         "frozen_with_item_revision": True,
         "leakage_check": {
-            "passed": not leakage and all(_normalize_text(level["content"]) != prompt for level in levels),
+            "passed": not leakage and all(
+                _normalize_text(str(level.get("content") or "")) != prompt
+                for level in levels
+            ),
             "checked_at_compile_time": True,
         },
     }
@@ -1354,7 +1382,12 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
             "method": (
                 "deterministic"
                 if (item.get("answer_spec") or {}).get("correct_answer") is not None
-                else "rubric_ai"
+                else (
+                    "rubric_ai_with_reference"
+                    if (item.get("answer_spec") or {}).get("canonical_answer")
+                    is not None
+                    else "rubric_ai"
+                )
             ),
             "pass_score": int((item.get("answer_spec") or {}).get("pass_score") or 70),
             "confidence_threshold": 0.72,
@@ -1793,6 +1826,35 @@ def _split_options(value: str) -> tuple[str, list[dict[str, str]]]:
 
 def _normalize_text(value: str) -> str:
     return re.sub(r"[\W_]+", "", value, flags=re.UNICODE).lower()
+
+
+def _answer_fragments(value: Any) -> list[str]:
+    fragments: list[str] = []
+
+    def visit(current: Any) -> None:
+        if isinstance(current, dict):
+            for nested in current.values():
+                visit(nested)
+            serialized = json.dumps(current, ensure_ascii=False, sort_keys=True)
+            normalized = _normalize_text(serialized)
+            if len(normalized) >= 8:
+                fragments.append(normalized)
+            return
+        if isinstance(current, list):
+            for nested in current:
+                visit(nested)
+            serialized = json.dumps(current, ensure_ascii=False)
+            normalized = _normalize_text(serialized)
+            if len(normalized) >= 8:
+                fragments.append(normalized)
+            return
+        if isinstance(current, str):
+            normalized = _normalize_text(current)
+            if len(normalized) >= 8:
+                fragments.append(normalized)
+
+    visit(value)
+    return _unique(fragments)
 
 
 def _storage_id(value: Any) -> str:

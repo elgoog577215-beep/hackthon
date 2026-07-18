@@ -94,6 +94,17 @@ class PracticeGrader(AIBase):
             "question_type": question.get("question_type"),
             "rubric": criteria,
             "reference_concepts": expected,
+            "reference_answer": {
+                "canonical_answer": spec.get("canonical_answer"),
+                "solution_trace": spec.get("solution_trace")
+                or (spec.get("solution_spec") or {}).get("steps")
+                or [],
+                "result_checks": (
+                    (spec.get("solution_spec") or {}).get("checks")
+                    or question.get("result_checks")
+                    or []
+                ),
+            },
             "pass_score": pass_score,
             "student_answer": text,
             "required_output": {
@@ -113,6 +124,8 @@ class PracticeGrader(AIBase):
             prompt,
             system_prompt=(
                 "你是严格的课程作答评阅器。只依据题目、量规和学生答案评分。"
+                "reference_answer是隐藏的标准依据，用它核对结果和过程，"
+                "但不要要求学生逐字复述，也不要在反馈中泄露完整标准答案。"
                 "不要因为出现关键词就判定正确，不得补写学生没有表达的推理。"
                 "如果量规不足以可靠判断，将 confidence 设为低值。只输出 JSON。"
                 "score 和 rubric_results[].score 必须是 0 到 100 的纯数字，"

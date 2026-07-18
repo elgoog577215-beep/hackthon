@@ -203,7 +203,15 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
     )
     if created:
         _record_attempt_event("practice_attempt_started", attempt, user_id=user_id)
-    return {"status": "created" if created else "resumed", "attempt": attempt}
+    return {
+        "status": "created" if created else "resumed",
+        "attempt": attempt,
+        "solution": (
+            _solution_payload(task)
+            if attempt.get("solution_revealed")
+            else None
+        ),
+    }
 
 
 @router.get("/attempts/active")
@@ -955,11 +963,37 @@ def _record_attempt_event(
 
 def _solution_payload(question: dict[str, Any]) -> dict[str, Any]:
     spec = question.get("answer_spec") or {}
+    structured = spec.get("solution_spec") or {}
+    final_answer = (
+        structured["final_answer"]
+        if "final_answer" in structured
+        else spec.get("canonical_answer")
+    )
+    if final_answer is None:
+        final_answer = spec.get("correct_answer")
+    steps = structured.get("steps") or spec.get("solution_trace") or []
+    checks = (
+        structured.get("checks")
+        or question.get("result_checks")
+        or spec.get("criteria")
+        or []
+    )
+    summary = str(
+        structured.get("summary")
+        or question.get("explanation")
+        or "对照标准步骤、最终答案和结果检查，定位本次作答缺失的证据。"
+    )
     return {
+        "schema_version": "solution_spec_v1",
+        "summary": summary,
+        "steps": steps,
+        "final_answer": final_answer,
+        "checks": checks,
+        "representation": structured.get("representation"),
         "criteria": spec.get("criteria") or [],
         "reference_concepts": spec.get("expected_keywords") or [],
         "correct_answer": spec.get("correct_answer"),
-        "guidance": "对照评分维度检查条件、过程、结论和验证是否完整。",
+        "guidance": summary,
     }
 
 
