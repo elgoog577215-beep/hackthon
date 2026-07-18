@@ -287,6 +287,66 @@ def test_legacy_linear_algebra_course_without_profile_infers_math_adapter():
     assert bundle["coverage"]["coverage_ratio"] == 1
 
 
+def test_math_student_prompt_is_concise_while_internal_contract_stays_complete():
+    course = _course_for(
+        mode="math_formal",
+        topic="1.1 向量空间的公理化定义",
+        objective="依据向量空间定义完成计算并检查结论",
+        key_points=["向量空间", "封闭性", "运算公理"],
+        assessment="完成当前任务",
+    )
+
+    generated = _practice_items(course)
+
+    assert generated
+    for item in generated:
+        prompt = item["prompt"]
+        spec = item["question_spec"]
+
+        assert len(prompt) <= 160
+        assert spec["stimulus"]["rendered_text"] in prompt
+        assert spec["task"]["rendered_text"] in prompt
+        assert all(
+            marker not in prompt
+            for marker in (
+                "评分检查点",
+                "完成目标任务",
+                "完成当前任务",
+                "输入材料：",
+                "限制条件：",
+                "输出要求：",
+                "概念辨析｜",
+                "情境应用｜",
+                "独立达标｜",
+            )
+        )
+        assert spec["answer_spec"]["criteria"]
+        assert spec["constraints"]
+        assert spec["result_checks"]
+
+
+def test_programming_student_prompt_omits_rubric_boilerplate():
+    course = _course_for(
+        mode="programming_engineering",
+        topic="Python 标准输出与返回值",
+        objective="区分 print 的标准输出副作用和返回值",
+        key_points=["标准输出", "print 返回值"],
+        assessment="运行代码并解释输出与返回值的区别",
+    )
+
+    generated = _practice_items(course)
+
+    assert generated
+    assert all("评分检查点" not in item["prompt"] for item in generated)
+    assert all("完成目标任务" not in item["prompt"] for item in generated)
+    assert all("限制条件：" not in item["prompt"] for item in generated)
+    assert all(
+        item["question_spec"]["answer_spec"]["criteria"]
+        and item["question_spec"]["constraints"]
+        for item in generated
+    )
+
+
 def test_unknown_subject_adapter_never_auto_publishes_or_counts_as_coverage():
     course = _course_for(
         mode="general",

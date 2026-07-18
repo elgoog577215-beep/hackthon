@@ -342,7 +342,7 @@ def test_compilation_uses_the_reviewed_question_bank_revision_as_source_of_truth
     )
 
 
-def test_mastery_prompt_exposes_every_scored_assessment_item():
+def test_mastery_keeps_scoring_contract_internal_and_prompt_concise():
     course = _course()
     course["nodes"][0]["assessment"] = [
         "提交可运行程序并说明输出",
@@ -356,10 +356,15 @@ def test_mastery_prompt_exposes_every_scored_assessment_item():
         if item["practice_level"] == "mastery_check"
     )
 
-    assert all(item in mastery["prompt"] for item in course["nodes"][0]["assessment"])
+    assert mastery["question_spec"]["target"]["assessment_actions"] == (
+        course["nodes"][0]["assessment"]
+    )
+    assert mastery["answer_spec"]["criteria"]
+    assert "评分检查点" not in mastery["prompt"]
+    assert "限制条件：" not in mastery["prompt"]
 
 
-def test_quality_gate_rejects_hidden_mastery_rubric_requirements():
+def test_quality_gate_accepts_internal_mastery_rubric_for_a_concrete_prompt():
     course = _course()
     course["nodes"][0]["assessment"] = [
         "提交可运行程序并说明输出",
@@ -370,15 +375,14 @@ def test_quality_gate_rejects_hidden_mastery_rubric_requirements():
         item for item in bundle["assets"]["questions"]
         if item["practice_level"] == "mastery_check"
     )
-    mastery["prompt"] = "请提交可运行程序并说明输出。"
+    mastery["prompt"] = (
+        "运行给定代码，写出两行标准输出和 print 的返回值，"
+        "并说明输出副作用与返回值的区别。"
+    )
 
     report = evaluate_learning_asset_quality(course, bundle["plan"], bundle["assets"])
 
-    assert report["passed"] is False
-    assert any(
-        item["asset_type"] == "questions" and "隐藏评分要求" in item["message"]
-        for item in report["blocking_issues"]
-    )
+    assert report["passed"] is True
 
 
 def test_asset_repository_keeps_immutable_bundle_revisions(tmp_path):

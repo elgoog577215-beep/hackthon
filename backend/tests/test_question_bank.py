@@ -112,8 +112,13 @@ def test_question_bank_generates_specific_candidates_for_coverage_gaps():
     ]
 
     assert generated
-    assert all("输入材料" in item["prompt"] for item in generated)
-    assert all("限制条件" in item["prompt"] for item in generated)
+    assert all(
+        item["question_spec"]["stimulus"]["rendered_text"] in item["prompt"]
+        and item["question_spec"]["task"]["rendered_text"] in item["prompt"]
+        for item in generated
+    )
+    assert all("限制条件：" not in item["prompt"] for item in generated)
+    assert all(item["constraints"] for item in generated)
     assert all("给出一组" not in item["prompt"] for item in generated)
     assert all("给出一个" not in item["prompt"] for item in generated)
     assert all(item["answer_spec"]["criteria"] for item in generated)
