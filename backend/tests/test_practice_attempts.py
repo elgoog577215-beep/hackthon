@@ -115,6 +115,51 @@ def test_solution_payload_exposes_steps_structured_answer_and_checks():
     assert payload["representation"]["kind"] == "tree"
 
 
+def test_practice_list_does_not_expose_answers_or_frozen_hint_contents(
+    monkeypatch,
+):
+    course = _course()
+    question = course["learning_assets"]["questions"][0]
+    question["answer_spec"]["canonical_answer"] = {
+        "preorder": [30, 20, 10],
+    }
+    question["answer_spec"]["solution_spec"] = {
+        "schema_version": "solution_spec_v1",
+        "steps": ["标准解题步骤"],
+        "final_answer": {"preorder": [30, 20, 10]},
+        "checks": ["中序递增"],
+    }
+    question["hint_contract"] = {
+        "levels": [
+            {"level": 1, "content": "只应通过提示接口返回"},
+        ],
+    }
+    question["question_spec"] = {
+        "answer_spec": deepcopy(question["answer_spec"]),
+        "hint_contract": deepcopy(question["hint_contract"]),
+    }
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    response = client.get(
+        "/api/courses/c1/practice",
+        params={"node_id": "n1", "scope": "node"},
+    )
+
+    assert response.status_code == 200
+    projected = response.json()["questions"][0]
+    assert projected["prompt"] == question["prompt"]
+    assert "answer_spec" not in projected
+    assert "hint_contract" not in projected
+    assert "question_spec" not in projected
+
+
 def test_attempt_repository_preserves_retries_and_rejects_stale_drafts(tmp_path):
     repository = PracticeAttemptRepository(tmp_path)
     first, created = repository.create_once("u1", "c1", _payload(attempt_id="a1"))
