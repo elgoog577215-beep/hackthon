@@ -104,7 +104,7 @@ describe('LearningDock', () => {
     const trigger = wrapper.get('[data-domain="learning"]')
 
     await trigger.trigger('click')
-    await wrapper.get('[data-tool-item="practice"]').element.focus()
+    ;(wrapper.get('[data-tool-item="practice"]').element as HTMLElement).focus()
     await wrapper.trigger('keydown', { key: 'Escape' })
 
     expect(wrapper.find('[data-tool-menu="learning"]').exists()).toBe(false)
