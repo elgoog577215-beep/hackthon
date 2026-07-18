@@ -90,17 +90,55 @@
         @stats="openStats"
       />
 
-      <section v-if="notebookOpen" class="learning-tool-overlay notebook-overlay" role="dialog" aria-modal="true" :aria-label="t('notebook.title', '笔记本')">
-        <NotesPanel class="notebook-tool" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
-      </section>
+      <Teleport to="body">
+        <Transition name="learning-modal">
+          <section
+            v-if="notebookOpen"
+            class="learning-tool-modal notebook-overlay"
+            role="dialog"
+            aria-modal="true"
+            :aria-label="t('notebook.title', '笔记本')"
+            @keydown.esc="closeNotebook"
+          >
+            <button
+              type="button"
+              class="learning-tool-modal__backdrop"
+              :aria-label="t('common.close', '关闭')"
+              @click="closeNotebook"
+            ></button>
+            <div class="learning-tool-modal__card is-notebook">
+              <NotesPanel class="notebook-tool" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
+            </div>
+          </section>
+        </Transition>
+      </Teleport>
 
-      <section v-if="mistakeBookOpen" class="learning-tool-overlay mistake-book-overlay" role="dialog" aria-modal="true" :aria-label="t('mistakeNotebook.title', '错题本')">
-        <MistakeNotebookPanel
-          :course-id="courseStore.currentCourseId"
-          @close="closeMistakeNotebook"
-          @retry="openMistakeRetry"
-        />
-      </section>
+      <Teleport to="body">
+        <Transition name="learning-modal">
+          <section
+            v-if="mistakeBookOpen"
+            class="learning-tool-modal mistake-book-overlay"
+            role="dialog"
+            aria-modal="true"
+            :aria-label="t('mistakeNotebook.title', '错题本')"
+            @keydown.esc="closeMistakeNotebook"
+          >
+            <button
+              type="button"
+              class="learning-tool-modal__backdrop"
+              :aria-label="t('mistakeNotebook.close', '关闭错题本')"
+              @click="closeMistakeNotebook"
+            ></button>
+            <div class="learning-tool-modal__card is-mistake-book">
+              <MistakeNotebookPanel
+                :course-id="courseStore.currentCourseId"
+                @close="closeMistakeNotebook"
+                @retry="openMistakeRetry"
+              />
+            </div>
+          </section>
+        </Transition>
+      </Teleport>
 
       <section v-if="statsOpen" class="learning-tool-overlay stats-overlay" role="dialog" aria-modal="true" :aria-label="t('learningDock.stats', '学习概况')">
         <LearningStats class="stats-tool" closable @close="closeStats" />
@@ -698,7 +736,15 @@ function closeMobileSurfaces() {
 .generation-meter b { height:100%; display:block; border-radius:inherit; background:#6366f1; transition:width .35s ease; }
 .learning-content { min-height: 0; flex: 1; }
 .learning-tool-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
-.notebook-tool,.mistake-book-overlay > * { flex:1; min-width:0; min-height:0; }
+.learning-tool-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:24px; }
+.learning-tool-modal__backdrop { position:absolute; inset:0; width:100%; height:100%; padding:0; border:0; border-radius:0; background:rgba(15,23,42,.42); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); cursor:default; }
+.learning-tool-modal__card { position:relative; z-index:1; width:min(768px,calc(100vw - 32px)); max-height:min(85vh,720px); overflow:hidden; border:1px solid rgba(255,255,255,.84); border-radius:20px; background:#fff; box-shadow:0 30px 80px rgba(15,23,42,.28),0 8px 28px rgba(79,70,229,.12); }
+.learning-tool-modal__card.is-mistake-book { width:min(700px,calc(100vw - 32px)); }
+.notebook-tool,.learning-tool-modal__card.is-mistake-book > * { min-width:0; min-height:0; }
+.learning-modal-enter-active,.learning-modal-leave-active { transition:opacity .22s ease; }
+.learning-modal-enter-active .learning-tool-modal__card,.learning-modal-leave-active .learning-tool-modal__card { transition:transform .24s cubic-bezier(.2,.8,.2,1),opacity .2s ease; }
+.learning-modal-enter-from,.learning-modal-leave-to { opacity:0; }
+.learning-modal-enter-from .learning-tool-modal__card,.learning-modal-leave-to .learning-tool-modal__card { opacity:0; transform:translateY(10px) scale(.96); }
 .stats-tool { flex:1; min-width:0; min-height:0; }
 .surface-backdrop { display: none; }
 .focus-mode .learning-main { max-width: 1040px; margin: 0 auto; }
@@ -725,6 +771,8 @@ function closeMobileSurfaces() {
   .generation-meter { width:92px; grid-template-columns:auto minmax(44px,1fr); }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); }
   .learning-tool-overlay { position:fixed; inset:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); z-index:105; }
+  .learning-tool-modal { padding:10px; }
+  .learning-tool-modal__card,.learning-tool-modal__card.is-mistake-book { width:calc(100vw - 20px); max-height:calc(100dvh - 20px); border-radius:18px; }
   .mobile-resume-prompt { position:fixed; left:10px; right:10px; bottom:calc(64px + env(safe-area-inset-bottom, 0px)); z-index:119; min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #15803d; border-radius:11px; color:#fff; background:#15803d; box-shadow:0 8px 22px rgba(21,128,61,.2); font-size:12px; font-weight:750; }
   .mobile-resume-prompt:disabled { opacity:.6; }
   .mobile-resume-prompt__spin { animation:mobile-resume-spin .8s linear infinite; }

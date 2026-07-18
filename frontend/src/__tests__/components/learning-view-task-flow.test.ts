@@ -145,6 +145,7 @@ describe('LearningView 正文任务覆盖层', () => {
           NotesPanel: true,
           SideAIPanel: { template: '<aside class="ai-panel-stub">AI 老师</aside>' },
           TeachingRepresentationsOverlay: true,
+          Teleport: true,
           Transition: false,
         },
       },
@@ -160,10 +161,13 @@ describe('LearningView 正文任务覆盖层', () => {
 
     await wrapper.get('.task-records').trigger('click')
     expect(wrapper.find('.notebook-overlay').exists()).toBe(true)
-    expect(wrapper.get('.notebook-overlay').classes()).toContain('learning-tool-overlay')
+    expect(wrapper.get('.notebook-overlay').classes()).toContain('learning-tool-modal')
+    expect(wrapper.find('.notebook-overlay .learning-tool-modal__backdrop').exists()).toBe(true)
+    expect(wrapper.find('.notebook-overlay .learning-tool-modal__card.is-notebook').exists()).toBe(true)
 
     await wrapper.get('[data-domain="mistake-book"]').trigger('click')
     expect(wrapper.find('.mistake-book-overlay').exists()).toBe(true)
+    expect(wrapper.find('.mistake-book-overlay .learning-tool-modal__card.is-mistake-book').exists()).toBe(true)
     expect(wrapper.find('.mistake-notebook-stub').exists()).toBe(true)
 
     await wrapper.get('[data-domain="overview"]').trigger('click')
