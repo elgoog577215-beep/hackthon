@@ -32,7 +32,7 @@ const ContentAreaStub = defineComponent({
 const TaskOverlayStub = defineComponent({
   props: ['courseId', 'nodeId', 'nodeLabel', 'originRect'],
   emits: ['close', 'graded', 'askTeacher', 'records', 'stats'],
-  template: '<div class="task-overlay-stub" :data-origin-top="originRect?.top"><span>{{ nodeLabel }}</span><button class="task-records" @click="$emit(\'records\')">records</button><button class="task-stats" @click="$emit(\'stats\')">stats</button><button class="close-task" @click="$emit(\'close\')">close</button></div>',
+  template: '<div class="task-overlay-stub" :data-node-id="nodeId" :data-origin-top="originRect?.top"><span>{{ nodeLabel }}</span><button class="task-records" @click="$emit(\'records\')">records</button><button class="task-stats" @click="$emit(\'stats\')">stats</button><button class="close-task" @click="$emit(\'close\')">close</button></div>',
 })
 
 describe('LearningView 正文任务覆盖层', () => {
@@ -239,6 +239,72 @@ describe('LearningView 正文任务覆盖层', () => {
     await practiceTab.trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     expect(wrapper.get('.task-overlay-stub').text()).toContain(node.node_name)
+    wrapper.unmount()
+  })
+
+  it('当前三级节点没有直连题目时使用最近父级的练习范围', async () => {
+    const parentNode: Node = {
+      ...node,
+      node_id: 'section-1',
+      parent_node_id: 'chapter-1',
+      node_name: '1.6 线性无关性',
+      node_level: 2,
+    }
+    const childNode: Node = {
+      ...node,
+      node_id: 'section-1-6',
+      parent_node_id: parentNode.node_id,
+      node_name: '1.6.6 线性无关性与矩阵可逆性的关联',
+      node_level: 3,
+    }
+    const course = useCourseStore()
+    course.nodes = [parentNode, childNode]
+    course.courseTree = [parentNode, childNode]
+    course.currentNode = childNode
+    await (globalThis as any).__learningTestRouter.replace('/course/c1/learn/section-1-6')
+
+    const workspace = useCourseWorkspaceStore()
+    workspace.assets = {
+      course_id: 'c1',
+      plan: {},
+      quality_report: {},
+      course_availability: {
+        schema_version: 'course_learning_availability_v1',
+        mode: 'standard',
+        reason_code: 'ready',
+        capabilities: {},
+      },
+      assets: {
+        questions: [{ asset_id: 'q-parent', revision_id: 'qr-parent', node_id: parentNode.node_id }],
+      },
+    }
+
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          TeachingRepresentationsOverlay: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('.open-practice').trigger('click')
+    await wrapper.get('.task-records').trigger('click')
+    const practiceTab = wrapper.get('.records-overlay [data-context-item="practice"]')
+    expect(practiceTab.attributes('disabled')).toBeUndefined()
+
+    await practiceTab.trigger('click')
+    expect(wrapper.get('.task-overlay-stub').attributes('data-node-id')).toBe(parentNode.node_id)
+    expect(wrapper.get('.task-overlay-stub').text()).toContain(parentNode.node_name)
     wrapper.unmount()
   })
 
