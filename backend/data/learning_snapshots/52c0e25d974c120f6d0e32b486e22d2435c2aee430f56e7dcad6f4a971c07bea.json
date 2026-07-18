@@ -1,0 +1,48 @@
+{
+  "course_version_id": "cdr_6ae2a47ca2c7a9cd4a1faef1",
+  "node_id": "L2-1-1",
+  "node_name": "1.1 前置知识诊断测试",
+  "content_anchor": {
+    "block_id": "L2-1-1-1-intro",
+    "block_revision_id": "cbr_2b3a99640d2fe83568a1ae64",
+    "content_fingerprint": "",
+    "block_type": "intro",
+    "title": "引入引入问题改进正式正文1.1 前置知识诊断测试 解释举例简化提问",
+    "progress": 0.0,
+    "text_quote": "引入引入问题改进正式正文1.1 前置知识诊断测试 解释举例简化提问"
+  },
+  "session": {
+    "session_id": "session_5dcffb83-0757-4ad3-95d1-cbea98cd379c",
+    "device_id": "device_2a4e7b35-6111-4ea1-b083-87a556ced52e",
+    "started_at": "2026-07-16T02:03:40.759Z"
+  },
+  "task_state": {
+    "kind": "reading",
+    "object_id": "L2-1-1",
+    "task_revision_id": "",
+    "status": "active",
+    "context": {
+      "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+      "course_version_id": "cdr_6ae2a47ca2c7a9cd4a1faef1",
+      "node_id": "L2-1-1"
+    },
+    "return_node_id": "L2-1-1",
+    "draft_revision": 0,
+    "metadata": {}
+  },
+  "interaction_state": {
+    "conversation_id": "",
+    "issue_id": "",
+    "remediation_session_id": ""
+  },
+  "fallback_scroll_top": 387,
+  "activity_at": "2026-07-16T02:03:40.759Z",
+  "source": "offline_recovery",
+  "snapshot_id": "ls_52c0e25d974c120f6d0e32b4",
+  "user_id": "learner_9b8e5277-a12d-45b6-8c20-1dd1c1b91514",
+  "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+  "revision": 15,
+  "schema_version": 2,
+  "created_at": "2026-07-17T02:58:37.483938+00:00",
+  "updated_at": "2026-07-17T04:11:12.637109+00:00"
+}

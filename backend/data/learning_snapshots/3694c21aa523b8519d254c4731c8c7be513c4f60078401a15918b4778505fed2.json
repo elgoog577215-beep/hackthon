@@ -1,0 +1,50 @@
+{
+  "course_version_id": "cdr_6ae2a47ca2c7a9cd4a1faef1",
+  "node_id": "L2-1-1",
+  "node_name": "1.1 前置知识诊断测试",
+  "content_anchor": {
+    "block_id": "L2-1-1-2-concept",
+    "block_revision_id": "cbr_f26364cdce974c427f06d230",
+    "content_fingerprint": "",
+    "block_type": "concept",
+    "title": "概念本节任务：完成诊断测试并识别个人知识缺口改进正式正文本节的目标是通过两个核心编程任务，快速检验你是否具备学习高级数据结构所需的前置能力。学完后，你应能： 在代码中正确实现数组插入操作，并解释其时间复杂度； 实现单链表节点的插入函数，处理空指针和边界条件； 运行并调试你的代码，观察输出是否符合预期； 根据测试结果判断自己是否需要复习基础内容。 如果你能独立完成这两个任务并正确解释机制，说明你已准备好进入下一节。否则，请根据反馈定位知识缺口。 解释举例简化提问",
+    "progress": 0.12611245331934198,
+    "text_quote": "概念本节任务：完成诊断测试并识别个人知识缺口改进正式正文本节的目标是通过两个核心编程任务，快速检验你是否具备学习高级数据结构所需的前置能力。学完后，你应能： 在代码中正确实现数组插入操作，并解释其时间复杂度； 实现单链表节点的插入函数，处理空指针和边界条件； 运行并调试你的代码，观察输出是否符合预期； 根据测试结果判断自己是否需要复习基础内容。 如果你能独立完成这两个任务并正确解释机制，说明你已准备好进入下一节。否则，请根据反馈定位知识缺口。 解释举例简化提问"
+  },
+  "session": {
+    "session_id": "session_281277b1-2a81-46c7-8ab8-9d69adda3094",
+    "device_id": "device_8b9e9382-2d56-4692-b5e0-5dac26cbb63f",
+    "started_at": "2026-07-16T02:14:09.803Z"
+  },
+  "task_state": {
+    "kind": "practice",
+    "object_id": "pa_c25cd35f4c534a82b1b78cab85b4b9c0",
+    "task_revision_id": "qr_8c5df97caec0604f",
+    "status": "in_progress",
+    "context": {
+      "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+      "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+      "node_id": "L2-1-1",
+      "objective_id": "lo_63475a24f4a3f6fd",
+      "objective_revision_id": "lor_2ac1f3c9e5d46b6b"
+    },
+    "return_node_id": "L2-1-1",
+    "draft_revision": 0,
+    "metadata": {}
+  },
+  "interaction_state": {
+    "conversation_id": "",
+    "issue_id": "",
+    "remediation_session_id": ""
+  },
+  "fallback_scroll_top": 700,
+  "activity_at": "2026-07-18T08:02:30.621Z",
+  "source": "offline_recovery",
+  "snapshot_id": "ls_3694c21aa523b8519d254c47",
+  "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+  "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+  "revision": 3,
+  "schema_version": 2,
+  "created_at": "2026-07-18T08:02:26.143641+00:00",
+  "updated_at": "2026-07-18T08:02:31.813101+00:00"
+}

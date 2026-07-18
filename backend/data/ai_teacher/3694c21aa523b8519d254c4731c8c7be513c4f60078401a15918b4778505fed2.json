@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "conversations": [
+    {
+      "conversation_id": "aic_c01d953002f3447787f1f17cb0bb5e51",
+      "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+      "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+      "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+      "title": "新对话",
+      "revision": 1,
+      "messages": [],
+      "created_at": "2026-07-18T08:02:29.230263+00:00",
+      "updated_at": "2026-07-18T08:02:29.230263+00:00"
+    }
+  ],
+  "proposals": [],
+  "receipts": [],
+  "suppressions": []
+}

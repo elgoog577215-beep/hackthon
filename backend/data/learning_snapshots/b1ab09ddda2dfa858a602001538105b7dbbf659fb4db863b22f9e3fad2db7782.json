@@ -1,0 +1,42 @@
+{
+  "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+  "node_id": "L2-1-1",
+  "node_name": "",
+  "content_anchor": null,
+  "session": {
+    "session_id": "session_f7a9db24-171d-45c2-8361-315bb8ff29a1",
+    "device_id": "device_953f8f57-74b6-4924-9b31-edde1d0094e5",
+    "started_at": "2026-07-17T03:52:50.736Z"
+  },
+  "task_state": {
+    "kind": "practice",
+    "object_id": "pa_72952490b4624cb1a5e1743e8f9bf9ab",
+    "task_revision_id": "qr_8c5df97caec0604f",
+    "status": "in_progress",
+    "context": {
+      "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+      "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+      "node_id": "L2-1-1",
+      "objective_id": "lo_63475a24f4a3f6fd",
+      "objective_revision_id": "lor_2ac1f3c9e5d46b6b"
+    },
+    "return_node_id": "L2-1-1",
+    "draft_revision": 0,
+    "metadata": {}
+  },
+  "interaction_state": {
+    "conversation_id": "",
+    "issue_id": "",
+    "remediation_session_id": ""
+  },
+  "fallback_scroll_top": 0,
+  "activity_at": "2026-07-17T03:54:47.291Z",
+  "source": "offline_recovery",
+  "snapshot_id": "ls_b1ab09ddda2dfa858a602001",
+  "user_id": "learner_e87e7469-6ace-465d-9534-aff765138714",
+  "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+  "revision": 4,
+  "schema_version": 2,
+  "created_at": "2026-07-17T03:52:50.766172+00:00",
+  "updated_at": "2026-07-17T04:11:12.599721+00:00"
+}

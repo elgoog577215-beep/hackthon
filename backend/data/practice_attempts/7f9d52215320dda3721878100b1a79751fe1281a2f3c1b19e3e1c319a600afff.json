@@ -1,0 +1,56 @@
+[
+  {
+    "practice_run_id": "9f400c11-09e1-48c2-b8ea-50f735821841",
+    "practice_level": "concept_check",
+    "task_revision_id": "qr_8c5df97caec0604f",
+    "task_purpose": "course_practice",
+    "task_source": "course_asset",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-1-1",
+    "node_name": "1.1 前置知识诊断测试",
+    "objective_id": "lo_63475a24f4a3f6fd",
+    "objective_revision_id": "lor_2ac1f3c9e5d46b6b",
+    "question_revision_id": "qr_8c5df97caec0604f",
+    "question_type": "short_answer",
+    "input_contract": {
+      "mode": "rich_text",
+      "required": true,
+      "supports_attachments": false
+    },
+    "concept_ids": [
+      "computer_science.data_structures.point.ad97e2c7733bff10",
+      "computer_science.data_structures.point.aaa90ce335fd8223",
+      "computer_science.data_structures.point.69cb9d3a9d158fa9",
+      "computer_science.data_structures.point.5acc66c801cc40d7",
+      "computer_science.data_structures.point.80d7ff82c2d0e490"
+    ],
+    "skill_unit_ids": [
+      "skill.computer_science.data_structures.c5672763c481fa4c",
+      "skill.computer_science.data_structures.be0c41eec93d4163"
+    ],
+    "mistake_point_ids": [
+      "mistake.computer_science.data_structures.7c29c709efbea6f0",
+      "mistake.computer_science.data_structures.29ebbd8f6fc80f83",
+      "mistake.computer_science.data_structures.faff1ffe5019df22"
+    ],
+    "improvement_point_ids": [
+      "improve.computer_science.data_structures.d2eca48fd528bd9e"
+    ],
+    "practice_intent": "standard",
+    "attempt_id": "pa_d71355c459464270a8a2f1549adba5f3",
+    "user_id": "learner_ff073ac5-659a-4bc0-b240-73b19ed68778",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "status": "in_progress",
+    "attempt_number": 1,
+    "answer_payload": {},
+    "revealed_hint_levels": [],
+    "solution_revealed": false,
+    "ai_support_level": 0,
+    "active_seconds": 18,
+    "revision": 8,
+    "schema_version": 2,
+    "started_at": "2026-07-17T03:42:35.197481+00:00",
+    "created_at": "2026-07-17T03:42:35.197481+00:00",
+    "updated_at": "2026-07-17T04:10:08.308529+00:00"
+  }
+]
