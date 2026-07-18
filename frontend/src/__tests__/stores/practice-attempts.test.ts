@@ -440,4 +440,57 @@ describe('formal practice attempt store', () => {
     expect(store.taskResumeError).toBe('')
     expect(store.requestedTaskRef).toBeNull()
   })
+
+  it('手动换题会保留旧记录并切换到服务端选择的冻结题目', async () => {
+    const alternateQuestion = {
+      ...question,
+      asset_id: 'q2',
+      revision_id: 'qr2',
+      task_revision_id: 'qr2',
+      prompt: '同目标的另一道题。',
+    }
+    httpMock.post
+      .mockResolvedValueOnce({
+        data: { status: 'abandoned', attempt: attempt({ status: 'abandoned', revision: 2 }) },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          question: alternateQuestion,
+          has_alternative: true,
+          selection_policy: 'frozen_course_question',
+        },
+      })
+    const store = useCourseWorkspaceStore()
+    store.practice = {
+      course_id: 'c1',
+      course_version_id: 'cv1',
+      scope: 'node',
+      questions: [question, alternateQuestion],
+      active_attempts: [],
+      summary: {},
+    } as any
+    store.currentAttempt = attempt() as any
+    store.currentDraft = { text: '未提交草稿' }
+
+    const refreshed = await store.refreshPracticeQuestion('c1', 'n1', 'node')
+
+    expect(httpMock.post).toHaveBeenNthCalledWith(
+      1,
+      '/api/courses/c1/practice/attempts/pa1/abandon',
+      { expected_revision: 1 },
+    )
+    expect(httpMock.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/courses/c1/practice/refresh',
+      {
+        current_task_revision_id: 'qr1',
+        node_id: 'n1',
+        scope: 'node',
+      },
+    )
+    expect(refreshed?.task_revision_id).toBe('qr2')
+    expect(store.currentQuestionIndex).toBe(1)
+    expect(store.currentAttempt).toBeNull()
+    expect(store.currentDraft).toEqual({})
+  })
 })

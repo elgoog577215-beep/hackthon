@@ -250,6 +250,17 @@ def test_supported_subject_families_emit_validated_structured_specs(
     assert all(item["domain_validation"]["passed"] for item in generated)
     assert all(item["answer_spec"]["criteria"] for item in generated)
     assert all(item["quality_report"]["checks"]["domain_validation"] for item in generated)
+    assert all(
+        item["question_spec"]["reasoning_path"]["schema_version"]
+        == "reasoning_path_v1"
+        and item["question_spec"]["reasoning_path"]["steps"]
+        and item["question_spec"]["reasoning_path"]["input_anchors"]
+        and item["hint_contract"]["generator"] == "reasoning_path_v1"
+        and len(item["hint_contract"]["levels"]) == 3
+        and item["answer_spec"]["solution_spec"]["schema_version"]
+        == "solution_spec_v1"
+        for item in generated
+    )
     if mode == "life_medical":
         assert all(item["lifecycle_status"] == "needs_review" for item in generated)
         assert all("high_stakes_domain" in item["risk_flags"] for item in generated)
@@ -285,6 +296,64 @@ def test_legacy_linear_algebra_course_without_profile_infers_math_adapter():
     )
     assert all("尚无可验证的专属题型契约" not in item["prompt"] for item in generated)
     assert bundle["coverage"]["coverage_ratio"] == 1
+
+
+def test_basis_coordinate_hints_are_derived_from_the_actual_reasoning_path():
+    course = _course_for(
+        mode="math_formal",
+        topic="1.5 线性组合与生成集",
+        objective="求向量在给定有序基下的坐标并重构检查",
+        key_points=["线性组合", "生成集", "基下坐标"],
+        assessment="求解组合系数并代回检查",
+    )
+
+    item = _practice_items(course)[0]
+    path = item["question_spec"]["reasoning_path"]
+    levels = item["hint_contract"]["levels"]
+
+    assert path["operator_family"] == "solve_and_verify"
+    assert path["archetype_id"] == "basis_coordinate_reconstruction"
+    assert any(anchor["path"] == "basis" for anchor in path["input_anchors"])
+    assert any(anchor["path"] == "target" for anchor in path["input_anchors"])
+    assert "w=a(1,0)+b(1,1)" in levels[0]["content"]
+    assert "(a+b,b)=(2,3)" in levels[1]["content"]
+    assert "对照例" in levels[2]["content"]
+    assert "(5,3)" in levels[2]["content"]
+    assert "a=2" in levels[2]["content"]
+    assert "b=3" in levels[2]["content"]
+    assert item["hint_contract"]["leakage_check"]["passed"] is True
+    assert item["quality_report"]["checks"]["hint_actionability"] is True
+
+
+def test_generated_question_without_reasoning_path_cannot_pass_quality_gate():
+    course = _course_for(
+        mode="humanities_social",
+        topic="工业革命史料分析",
+        objective="使用史料论证工业革命的社会影响",
+        key_points=["史料证据", "因果论证"],
+        assessment="形成有证据支持的历史论证",
+    )
+    item = deepcopy(_practice_items(course)[0])
+    item["question_spec"].pop("reasoning_path")
+    item["question_spec"]["hint_contract"] = {}
+    item["hint_contract"] = {
+        "levels": [
+            {"level": 1, "content": "先确认最终产物并回顾相关概念。"},
+            {"level": 2, "content": "整理输入、选择方法并检查结果。"},
+            {"level": 3, "content": "用不同情境做局部对照。"},
+        ],
+        "leakage_check": {"passed": True},
+    }
+
+    report = evaluate_question_item_quality(item)
+
+    assert report["passed"] is False
+    assert report["checks"]["hint_actionability"] is False
+    assert any(
+        issue["code"] == "question:reasoning_path_missing"
+        and issue["severity"] == "critical"
+        for issue in report["issues"]
+    )
 
 
 def test_math_student_prompt_is_concise_while_internal_contract_stays_complete():
@@ -397,4 +466,100 @@ def test_quality_gate_recomputes_domain_compatibility_instead_of_trusting_flags(
         issue["code"] == "question:input_task_incompatible"
         and issue["severity"] == "critical"
         for issue in report["issues"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("topic", "content", "expected_archetype"),
+    [
+        (
+            "2.1 子空间判定",
+            "依据向量空间公理判断给定集合是否为子空间。",
+            "subspace_closure_verification",
+        ),
+        (
+            "5.3 标准正交基（Orthonormal Basis）",
+            "讲解标准正交基的概念，以及如何简化向量表示与计算。",
+            "orthonormal_basis_verification",
+        ),
+        (
+            "6.2 特征值与特征向量",
+            "计算矩阵的特征值、特征向量并解释线性变换。",
+            "eigenpair_analysis",
+        ),
+        (
+            "7.4 最小二乘与正规方程",
+            "利用正规方程求解超定线性方程组。",
+            "least_squares_normal_equation",
+        ),
+        (
+            "8.2 奇异值分解与低秩近似",
+            "利用 SVD 构造最佳低秩近似并计算误差。",
+            "svd_low_rank_approximation",
+        ),
+        (
+            "9.1 梯度下降",
+            "对一元二次目标函数执行梯度下降并检查收敛。",
+            "quadratic_gradient_descent",
+        ),
+    ],
+)
+def test_linear_algebra_topics_use_solvable_semantic_archetypes(
+    topic: str,
+    content: str,
+    expected_archetype: str,
+):
+    course = _course_for(
+        mode="math_formal",
+        topic=topic,
+        objective="",
+        key_points=[],
+        assessment="",
+    )
+    node = course["nodes"][0]
+    node.pop("learning_objective")
+    node.pop("key_points")
+    node.pop("assessment")
+    node["node_content"] = content
+
+    generated = _practice_items(course)
+
+    assert generated
+    assert all(
+        item["question_spec"]["archetype_id"] == expected_archetype
+        for item in generated
+    )
+    assert all(item["domain_validation"]["passed"] for item in generated)
+    assert all(item["lifecycle_status"] == "approved" for item in generated)
+    assert all(
+        "案例值" not in item["prompt"] and "边界值" not in item["prompt"]
+        for item in generated
+    )
+    assert all(
+        content in item["question_spec"]["target"]["objective"]
+        or content in item["question_spec"]["target"]["knowledge_points"]
+        or content in item["question_spec"]["provenance"]["course_context"]
+        for item in generated
+    )
+
+
+def test_math_topic_reasoning_fallback_is_blocked_instead_of_auto_published():
+    course = _course_for(
+        mode="math_formal",
+        topic="尚无可验证题型的抽象数学主题",
+        objective="分析一个尚未定义的抽象性质",
+        key_points=["未知抽象性质"],
+        assessment="给出结论",
+    )
+
+    generated = _practice_items(course)
+
+    assert generated
+    assert all(item["lifecycle_status"] == "needs_review" for item in generated)
+    assert all(
+        any(
+            issue["code"] == "question:semantic_archetype_unavailable"
+            for issue in item["quality_report"]["issues"]
+        )
+        for item in generated
     )
