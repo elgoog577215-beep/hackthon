@@ -629,10 +629,11 @@ def _generated_course_items(
                 },
                 prefix="qbi_",
             )
-            task_text = (
-                "；".join(f"（{task_index}）{task}" for task_index, task in enumerate(assessments, start=1))
-                if level == "mastery_check"
-                else assessments[min(index, len(assessments) - 1)]
+            task_text = _generated_task_text(
+                node,
+                level,
+                assessments,
+                index,
             )
             prompt = (
                 f"{label}｜{node.get('node_name') or node_id}\n"
@@ -656,7 +657,7 @@ def _generated_course_items(
                 "node_id": node_id,
                 "node_ids": [node_id],
                 "prompt": prompt,
-                "subquestions": assessments if level == "mastery_check" else [],
+                "subquestions": [task_text] if level == "mastery_check" else [],
                 "options": [],
                 "answer_spec": {
                     "type": "rubric",
@@ -686,7 +687,7 @@ def _generated_course_items(
                 "review_status": "candidate",
                 "review_history": [],
                 "formal_task_revision_id": None,
-                "deliverable": assessments[min(index, len(assessments) - 1)],
+                "deliverable": task_text,
                 "input_materials": [condition],
                 "constraints": [f"必须使用{_join_names(key_points[:2])}", "必须写出可复核的结果检查"],
                 "reference_concepts": key_points,
@@ -1372,6 +1373,24 @@ def _question_type(course_data: dict[str, Any], level: str) -> str:
 
 def _generated_criteria(node: dict[str, Any], level: str) -> list[str]:
     key_points = _node_key_points(node)
+    if _topic_family(node) == "hashing":
+        if level == "concept_check":
+            return [
+                "正确计算每个键的初始哈希地址",
+                "准确标出发生冲突的键并说明原因",
+                "所有地址均满足 0≤h(k)<m",
+            ]
+        if level == "objective_practice":
+            return [
+                "按给定顺序和线性探测规则逐键插入",
+                "写出完整最终槽位并记录各键探测次数",
+                "复核每个键都能按同一规则查回",
+            ]
+        return [
+            "按给定哈希函数与链地址法完成实现",
+            "给出各桶内容和两次查询路径",
+            "正确计算负载因子并用测试结果验证实现",
+        ]
     if level == "concept_check":
         return [
             f"准确说明{next(iter(key_points), node.get('node_name') or '核心概念')}的含义",
@@ -1387,6 +1406,46 @@ def _generated_criteria(node: dict[str, Any], level: str) -> list[str]:
     return _assessment_items(node) + ["说明关键依据", "展示可复核过程", "执行结果检查"]
 
 
+def _generated_task_text(
+    node: dict[str, Any],
+    level: str,
+    assessments: list[str],
+    index: int,
+) -> str:
+    if _topic_family(node) == "hashing":
+        return {
+            "concept_check": (
+                "计算每个键的初始哈希地址，标出发生冲突的键，"
+                "并说明冲突产生的原因"
+            ),
+            "objective_practice": (
+                "按线性探测规则完成全部插入，写出最终槽位，"
+                "并记录每个键的探测次数"
+            ),
+            "mastery_check": (
+                "实现给定哈希表，给出各桶内容、两次查询路径和负载因子，"
+                "再用测试结果验证实现"
+            ),
+        }[level]
+    if level == "mastery_check":
+        return "；".join(
+            f"（{task_index}）{task}"
+            for task_index, task in enumerate(assessments, start=1)
+        )
+    return assessments[min(index, len(assessments) - 1)]
+
+
+def _topic_family(node: dict[str, Any]) -> str:
+    topic = " ".join([
+        str(node.get("node_name") or ""),
+        str(node.get("learning_objective") or ""),
+        *_node_key_points(node),
+    ])
+    if any(marker in topic for marker in ("哈希", "散列表", "散列")):
+        return "hashing"
+    return "general"
+
+
 def _variant_condition(
     course_data: dict[str, Any],
     node: dict[str, Any],
@@ -1399,7 +1458,23 @@ def _variant_condition(
         or "general"
     )
     joined = " ".join(key_points)
-    if mode == "math_formal" or any(
+    if _topic_family(node) == "hashing":
+        variants = [
+            (
+                "散列表容量 m=11，哈希函数 h(k)=k mod 11，"
+                "依次处理键 22、41、53、46、30；若地址重复只标记冲突，暂不插入"
+            ),
+            (
+                "散列表容量 m=10，哈希函数 h(k)=(3k+1) mod 10，"
+                "依次插入键 12、22、32、7；冲突采用线性探测（步长为 1），表初始为空"
+            ),
+            (
+                "散列表容量 m=13，哈希函数 h(k)=k mod 13，"
+                "依次插入键 18、41、22、44、59、32、31；冲突采用链地址法，"
+                "插入后依次查询键 44 和 35"
+            ),
+        ]
+    elif mode == "math_formal" or any(
         term in joined for term in ("矩阵", "行列式", "方程", "线性")
     ):
         variants = [
