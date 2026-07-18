@@ -75,6 +75,7 @@ class AdaptationHypothesis(BaseModel):
     counterevidence_ids: list[str] = Field(default_factory=list)
     confidence: float = 0.0
     confidence_reasons: list[str] = Field(default_factory=list)
+    evidence_assessment: dict[str, Any] = Field(default_factory=dict)
     recommended_scope: Literal["current", "current_and_next"] = "current"
     affected_block_ids: list[str] = Field(default_factory=list)
     temporary_support: str = ""
@@ -347,6 +348,40 @@ def accept_change_set(
         for item in insertions
     ]
     change_set.application_receipt = deepcopy(receipt)
+    hypothesis = _hypothesis(state, change_set.hypothesis_id)
+    baseline_evidence = [
+        item for item in state.evidence_items
+        if item.evidence_id in change_set.evidence_ids
+    ]
+    change_set.impact_summary["effect_baseline"] = {
+        "captured_at": change_set.accepted_at,
+        "problem_type": hypothesis.problem_type,
+        "diagnosis": hypothesis.claim,
+        "selected_scope": selected_scope,
+        "target_block_ids": [
+            operation.target_block_id
+            for operation in change_set.operations
+            if selected_scope == "current_and_next" or operation.scope == "current"
+        ],
+        "evidence_ids": list(change_set.evidence_ids),
+        "practice_attempt_ids": [
+            item.source_id
+            for item in baseline_evidence
+            if item.source_type == "practice_attempt"
+        ],
+        "practice_task_ids": list(
+            change_set.impact_summary.get("source_practice_task_ids") or []
+        ),
+        "knowledge_node_ids": list(
+            change_set.impact_summary.get("knowledge_node_ids") or []
+        ),
+        "ability_point_ids": list(
+            change_set.impact_summary.get("ability_point_ids") or []
+        ),
+        "misconception_point_ids": list(
+            change_set.impact_summary.get("misconception_point_ids") or []
+        ),
+    }
     if replaced is not None:
         replaced.status = "undone"
         replaced.resolved_at = change_set.accepted_at
@@ -362,7 +397,6 @@ def accept_change_set(
             "resolution": "replaced_by_adjustment",
             "replacement_change_set_id": change_set.change_set_id,
         }
-    hypothesis = _hypothesis(state, change_set.hypothesis_id)
     hypothesis.status = "evaluating"
     hypothesis.updated_at = change_set.accepted_at
     return repository.save(state)
@@ -637,7 +671,6 @@ def course_evolution_view(state: CourseEvolutionState) -> dict[str, Any]:
         "write_target": "course_document",
         "can_modify_current_course": True,
         "can_modify_other_courses": False,
-        "can_modify_other_learners": False,
         "can_modify_course_knowledge_base": False,
     }
     payload["summary"] = {
@@ -747,13 +780,66 @@ def _evaluate_hypotheses_and_candidates(
             continue
         score = _combined_strength(positive, counter)
         source_types = {item.source_type for item in positive}
-        strongest = max(item.strength for item in positive)
-        actionable = strongest >= 0.82 or score >= 1.18
+        formal_failures = [
+            item for item in positive
+            if item.evidence_kind == "formal_failure"
+        ]
+        explicit_statements = [
+            item for item in positive
+            if item.evidence_kind == "explicit_comprehension_gap"
+            and item.strength >= 0.82
+        ]
+        repeated_formal_failure = len({
+            item.source_id for item in formal_failures if item.source_id
+        }) >= 2
+        corroborated_formal_failure = bool(formal_failures) and len(source_types) >= 2
+        single_explicit_local_support = (
+            len(positive) == 1
+            and len(explicit_statements) == 1
+        )
+        actionable = (
+            single_explicit_local_support
+            or corroborated_formal_failure
+            or repeated_formal_failure
+        )
         scope = "current_and_next" if (
             actionable
-            and len(source_types) >= 2
-            and any(item.evidence_kind == "formal_failure" for item in positive)
+            and bool(formal_failures)
+            and (
+                len(source_types) >= 3
+                or (repeated_formal_failure and len(source_types) >= 2)
+            )
         ) else "current"
+        evidence_assessment = {
+            "evidence_count": len(positive),
+            "independent_source_count": len(source_types),
+            "source_types": sorted(source_types),
+            "formal_failure_count": len(formal_failures),
+            "counterevidence_count": len(counter),
+            "has_explicit_statement": bool(explicit_statements),
+            "has_formal_evidence": bool(formal_failures),
+            "actionable": actionable,
+            "maturity": (
+                "confirmed_gap"
+                if scope == "current_and_next"
+                else "corroborated_gap"
+                if corroborated_formal_failure or repeated_formal_failure
+                else "explicit_local_support"
+                if single_explicit_local_support
+                else "observing"
+            ),
+            "gate_reason": (
+                "三类独立证据与正式失败共同指向同一缺口"
+                if scope == "current_and_next"
+                else "正式失败已获得另一类独立证据支持"
+                if corroborated_formal_failure
+                else "同一能力出现重复正式失败"
+                if repeated_formal_failure
+                else "学生明确表达理解困难，仅建议当前位置低风险支持"
+                if single_explicit_local_support
+                else "尚缺正式证据或重复独立信号，继续观察"
+            ),
+        }
         hypothesis_id = stable_hash({
             "user_id": state.user_id,
             "course_id": state.course_id,
@@ -788,6 +874,7 @@ def _evaluate_hypotheses_and_candidates(
         # probability-like value and must never exceed 1.
         hypothesis.confidence = round(min(1.0, max(0.0, score)), 3)
         hypothesis.confidence_reasons = _confidence_reasons(positive, counter, source_types)
+        hypothesis.evidence_assessment = evidence_assessment
         hypothesis.recommended_scope = scope
         hypothesis.affected_block_ids = affected
         hypothesis.temporary_support = "先在当前位置补充原因解释、分步演示和一次不计入掌握的理解检查。"
@@ -1005,9 +1092,7 @@ def _build_change_set(
         for item in linked_evidence
         if item.anchor.practice_task_id
     })
-    validation_task_ids = [
-        targeted_practice["revision_id"],
-    ] if targeted_practice["revision_id"] else []
+    validation_task_ids = list(targeted_practice.get("validation_task_ids") or [])
     knowledge_labels = _knowledge_labels(knowledge_base, knowledge_ids)
     ability_labels = _ability_labels(knowledge_base, ability_ids)
     misconception_labels = _misconception_labels(knowledge_base, misconception_ids)
@@ -1042,6 +1127,7 @@ def _build_change_set(
             "misconception_labels": misconception_labels,
             "diagnosis": hypothesis.claim,
             "validation_plan": hypothesis.validation_plan,
+            "evidence_assessment": deepcopy(hypothesis.evidence_assessment),
             "evidence_source_types": sorted({item.source_type for item in linked_evidence}),
             "affected_section_ids": sorted(affected_section_ids),
             "source_practice_task_ids": source_practice_task_ids,
@@ -1061,7 +1147,7 @@ def _targeted_practice_for(
     binding: dict[str, list[str]],
     evidence: list[EvidenceItem],
     learning_assets: dict[str, Any],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Choose a current-course formal task; never borrow from another course."""
     candidates = [
         item
@@ -1094,17 +1180,39 @@ def _targeted_practice_for(
             value -= 100
         return value, revision_id
 
-    selected = max(candidates, key=score, default=None)
-    if selected is not None and score(selected)[0] > 0:
+    ranked: list[dict[str, Any]] = []
+    seen_revision_ids: set[str] = set()
+    for candidate in sorted(
+        candidates,
+        key=lambda item: (-score(item)[0], score(item)[1]),
+    ):
+        revision_id = str(
+            candidate.get("revision_id")
+            or candidate.get("task_revision_id")
+            or ""
+        )
+        if not revision_id or revision_id in seen_revision_ids or score(candidate)[0] <= 0:
+            continue
+        seen_revision_ids.add(revision_id)
+        ranked.append(candidate)
+
+    selected = ranked[0] if ranked else None
+    validation_task_ids = [
+        str(item.get("revision_id") or item.get("task_revision_id") or "")
+        for item in ranked
+    ]
+    if selected is not None:
         return {
             "asset_id": str(selected.get("asset_id") or selected.get("question_id") or ""),
             "revision_id": str(selected.get("revision_id") or selected.get("task_revision_id") or ""),
             "prompt": str(selected.get("prompt") or "完成这道针对性练习，并解释你的判断依据。"),
+            "validation_task_ids": validation_task_ids,
         }
     return {
         "asset_id": "",
         "revision_id": "",
         "prompt": "用自己的话说明：这一步为什么必要？如果省略，会在哪个后续结论上出错？",
+        "validation_task_ids": [],
     }
 
 
@@ -1276,19 +1384,36 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
     for change_set in state.change_sets:
         if change_set.status != "applied" or not change_set.accepted_at:
             continue
+        operation_ids = {
+            operation.operation_id for operation in change_set.operations
+        }
+        animation_operation_ids = {
+            operation.operation_id
+            for operation in change_set.operations
+            if operation.operation_type == "ADD_ANIMATION"
+        }
+        composition_operation_ids = {
+            operation.operation_id
+            for operation in change_set.operations
+            if operation.operation_type == "ADD_ANIMATION"
+            and str(
+                (((operation.payload.get("animation_spec") or {}).get("scene") or {}).get("renderer"))
+                or ""
+            ) == "linear_transform_composition_v1"
+        }
         feedback = [
             item for item in events
             if item.get("event_type") == "adaptive_block_feedback"
             and str(item.get("created_at") or "") >= change_set.accepted_at
             and str((item.get("metadata") or {}).get("adaptive_block_id") or "")
-            in {operation.operation_id for operation in change_set.operations}
+            in operation_ids
         ]
         interactions = [
             item for item in events
             if item.get("event_type") == "adaptive_block_interaction"
             and str(item.get("created_at") or "") >= change_set.accepted_at
             and str((item.get("metadata") or {}).get("adaptive_block_id") or "")
-            in {operation.operation_id for operation in change_set.operations}
+            in operation_ids
         ]
         later_attempts = [
             item for item in attempts
@@ -1296,13 +1421,47 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
             and str(item.get("graded_at") or item.get("updated_at") or "") >= change_set.accepted_at
             and _attempt_matches_change_set(item, change_set)
         ]
+        evidence_attempt_ids = {
+            item.source_id
+            for item in state.evidence_items
+            if item.evidence_id in change_set.evidence_ids
+            and item.source_type == "practice_attempt"
+        }
+        source_task_ids = set(
+            change_set.impact_summary.get("source_practice_task_ids") or []
+        )
+        baseline_attempts = [
+            item for item in attempts
+            if item.get("status") == "graded"
+            and (
+                str(item.get("attempt_id") or "") in evidence_attempt_ids
+                or (
+                    str(
+                        item.get("task_revision_id")
+                        or item.get("question_revision_id")
+                        or ""
+                    ) in source_task_ids
+                    and str(item.get("graded_at") or item.get("updated_at") or "")
+                    < change_set.accepted_at
+                )
+            )
+        ]
         helpful = any((item.get("result") or {}).get("feedback") == "helpful" for item in feedback)
         unhelpful = any((item.get("result") or {}).get("feedback") == "not_helpful" for item in feedback)
-        engaged = any(
-            (item.get("result") or {}).get("interaction")
-            in {"animation_played", "validation_started"}
+        correct_composition_answer = any(
+            str((item.get("metadata") or {}).get("adaptive_block_id") or "")
+            in composition_operation_ids
+            and (item.get("result") or {}).get("interaction") == "animation_answered"
+            and (item.get("result") or {}).get("correct") is True
             for item in interactions
         )
+        generic_animation_engagement = any(
+            str((item.get("metadata") or {}).get("adaptive_block_id") or "")
+            in (animation_operation_ids - composition_operation_ids)
+            and (item.get("result") or {}).get("interaction") == "animation_played"
+            for item in interactions
+        )
+        engaged = correct_composition_answer or generic_animation_engagement
         passed = any((item.get("result") or {}).get("passed") is True for item in later_attempts)
         failed = sum((item.get("result") or {}).get("passed") is False for item in later_attempts)
         if (helpful or engaged) and passed:
@@ -1313,11 +1472,89 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
             status = "ineffective"
         else:
             status = "insufficient_evidence"
+        passed_attempts = [
+            item for item in later_attempts
+            if (item.get("result") or {}).get("passed") is True
+        ]
+        passed_task_ids = {
+            str(
+                item.get("task_revision_id")
+                or item.get("question_revision_id")
+                or ""
+            )
+            for item in passed_attempts
+            if str(
+                item.get("task_revision_id")
+                or item.get("question_revision_id")
+                or ""
+            )
+        }
+        verification_level = (
+            "confirmed"
+            if status == "effective" and len(passed_task_ids) >= 2
+            else "initial_support"
+            if status == "effective"
+            else "not_verified"
+        )
+        baseline_latest = max(
+            baseline_attempts,
+            key=lambda item: str(item.get("graded_at") or item.get("updated_at") or ""),
+            default=None,
+        )
+        follow_up_best = max(
+            later_attempts,
+            key=lambda item: _attempt_score(item) if _attempt_score(item) is not None else -1,
+            default=None,
+        )
+        baseline_score = _attempt_score(baseline_latest)
+        follow_up_score = _attempt_score(follow_up_best)
+        score_delta = (
+            round(follow_up_score - baseline_score, 1)
+            if baseline_score is not None and follow_up_score is not None
+            else None
+        )
         change_set.effect_evaluation = {
             "status": status,
+            "verification_level": verification_level,
             "feedback_event_ids": [item.get("event_id") for item in feedback],
             "interaction_event_ids": [item.get("event_id") for item in interactions],
             "attempt_ids": [item.get("attempt_id") for item in later_attempts],
+            "verification_summary": {
+                "baseline": {
+                    "attempt_count": len(baseline_attempts),
+                    "attempt_id": str((baseline_latest or {}).get("attempt_id") or ""),
+                    "score": baseline_score,
+                    "passed": (
+                        ((baseline_latest or {}).get("result") or {}).get("passed")
+                        if baseline_latest else None
+                    ),
+                },
+                "course_change": {
+                    "applied_block_count": len(change_set.applied_block_ids),
+                    "interaction_completed": engaged,
+                    "composition_answer_correct": correct_composition_answer,
+                },
+                "follow_up": {
+                    "attempt_count": len(later_attempts),
+                    "passed_attempt_count": len(passed_attempts),
+                    "attempt_id": str((follow_up_best or {}).get("attempt_id") or ""),
+                    "score": follow_up_score,
+                    "passed": (
+                        ((follow_up_best or {}).get("result") or {}).get("passed")
+                        if follow_up_best else None
+                    ),
+                    "distinct_task_count": len(passed_task_ids),
+                    "task_ids": sorted(passed_task_ids),
+                },
+                "score_delta": score_delta,
+                "interpretation": (
+                    "本轮独立复验通过，原判断获得新证据支持；仍需后续不同任务持续确认。"
+                    if verification_level == "initial_support"
+                    else "多个不同正式任务持续通过，当前课程变化获得稳定证据支持。"
+                    if verification_level == "confirmed"
+                    else "证据尚不足以判断课程变化的效果。"
+                ),
+            },
             "recommended_action": (
                 "keep" if status == "effective"
                 else "rollback" if status == "harmful"
@@ -1359,10 +1596,12 @@ def _attempt_matches_change_set(
         or attempt.get("question_revision_id")
         or ""
     )
-    if task_id and task_id in set(impact.get("source_practice_task_ids") or []):
+    source_task_ids = set(impact.get("source_practice_task_ids") or [])
+    validation_task_ids = set(impact.get("validation_task_ids") or [])
+    if task_id and task_id in source_task_ids:
         return False
-    if task_id and task_id in set(impact.get("validation_task_ids") or []):
-        return True
+    if validation_task_ids:
+        return bool(task_id and task_id in validation_task_ids)
 
     section_ids = set(impact.get("affected_section_ids") or [])
     node_id = str(attempt.get("node_id") or (attempt.get("context") or {}).get("node_id") or "")
@@ -1392,6 +1631,21 @@ def _attempt_matches_change_set(
         (knowledge_ids and attempt_knowledge & knowledge_ids)
         or (ability_ids and attempt_abilities & ability_ids)
     )
+
+
+def _attempt_score(attempt: dict[str, Any] | None) -> float | None:
+    if not attempt:
+        return None
+    result = attempt.get("result") or {}
+    raw_score = result.get("score")
+    if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool):
+        return round(float(raw_score), 1)
+    passed = result.get("passed")
+    if passed is True:
+        return 100.0
+    if passed is False:
+        return 0.0
+    return None
 
 
 def _event_signal(event: dict[str, Any]) -> tuple[str, float, bool]:
@@ -1784,6 +2038,16 @@ def _course_block_insertions(
             "operation_id": operation.operation_id,
         }, prefix="ceb_")
         payload = deepcopy(operation.payload)
+        if operation.operation_type == "ADD_TARGETED_PRACTICE":
+            validation_task_ids = [
+                str(value).strip()
+                for value in change_set.impact_summary.get("validation_task_ids") or []
+                if str(value).strip()
+            ]
+            primary_task_id = str(payload.get("practice_task_id") or "").strip()
+            if primary_task_id and primary_task_id not in validation_task_ids:
+                validation_task_ids.insert(0, primary_task_id)
+            payload["validation_task_ids"] = list(dict.fromkeys(validation_task_ids))
         payload.update({
             "title": title_by_operation[operation.operation_type],
             "markdown": _course_evolution_markdown(operation),
@@ -1811,9 +2075,7 @@ def _course_block_insertions(
                 kind=kind_by_operation[operation.operation_type],
                 role=role_by_operation[operation.operation_type],
                 payload=payload,
-                asset_refs=[
-                    str(payload.get("practice_task_id"))
-                ] if payload.get("practice_task_id") else [],
+                asset_refs=list(payload.get("validation_task_ids") or []),
                 objective_refs=list(target.objective_refs),
                 concept_refs=knowledge_refs,
                 evidence_refs=list(change_set.evidence_ids),

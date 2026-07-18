@@ -84,7 +84,7 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.find('.evolution-details-toggle').exists()).toBe(true)
   })
 
-  it('只有后续复验支持后才显示绿色已生长状态', () => {
+  it('一次独立复验通过只显示初步支持，不冒充持续确认', () => {
     useCourseEvolutionStore().applyPayload('course-1', {
       evidence_items: evidence,
       hypotheses: [],
@@ -93,8 +93,15 @@ describe('CourseEvolutionPanel', () => {
         status: 'applied',
         effect_evaluation: {
           status: 'effective',
+          verification_level: 'initial_support',
           interaction_event_ids: ['interaction-1'],
           attempt_ids: ['attempt-2'],
+          verification_summary: {
+            baseline: { attempt_count: 1, passed: false },
+            course_change: { applied_block_count: 3, interaction_completed: true },
+            follow_up: { attempt_count: 1, passed: true, distinct_task_count: 1 },
+            interpretation: '本轮独立复验通过，原判断获得新证据支持；仍需后续不同任务持续确认。',
+          },
         },
       }],
     })
@@ -102,7 +109,37 @@ describe('CourseEvolutionPanel', () => {
     const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
 
     expect(wrapper.get('article').attributes('data-effect')).toBe('effective')
-    expect(wrapper.text()).toContain('课程变化已验证')
+    expect(wrapper.text()).toContain('本轮独立复验通过')
     expect(wrapper.text()).toContain('原判断获得新证据支持')
+    expect(wrapper.text()).toContain('调整前')
+    expect(wrapper.text()).toContain('课程生长')
+    expect(wrapper.text()).toContain('独立复验')
+    expect(wrapper.text()).not.toContain('持续证据已确认')
+  })
+
+  it('两个不同正式任务持续通过后才显示持续证据已确认', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'applied',
+        effect_evaluation: {
+          status: 'effective',
+          verification_level: 'confirmed',
+          verification_summary: {
+            baseline: { attempt_count: 1, passed: false },
+            course_change: { applied_block_count: 3, interaction_completed: true },
+            follow_up: { attempt_count: 2, passed: true, distinct_task_count: 2 },
+            interpretation: '多个不同正式任务持续通过，当前课程变化获得稳定证据支持。',
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+
+    expect(wrapper.text()).toContain('持续证据已确认')
+    expect(wrapper.text()).toContain('多个不同正式任务持续通过')
   })
 })

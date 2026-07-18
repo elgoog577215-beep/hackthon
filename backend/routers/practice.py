@@ -651,9 +651,15 @@ def _course_evolution_practice_task_ids(course: dict[str, Any]) -> set[str]:
         payload = block.get("payload") or {}
         if not isinstance(payload, dict) or not isinstance(payload.get("course_evolution"), dict):
             continue
-        revision_id = str(payload.get("practice_task_id") or "")
-        if revision_id:
-            task_ids.add(revision_id)
+        revision_ids = [
+            payload.get("practice_task_id"),
+            *(payload.get("validation_task_ids") or []),
+        ]
+        task_ids.update(
+            str(revision_id).strip()
+            for revision_id in revision_ids
+            if str(revision_id or "").strip()
+        )
     return task_ids
 
 

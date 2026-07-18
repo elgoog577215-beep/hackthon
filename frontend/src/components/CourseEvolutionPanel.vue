@@ -16,6 +16,23 @@
             <ArrowRight v-if="index < evidenceFor(plan).length - 1" :size="10" />
           </template>
         </div>
+        <div class="evidence-maturity" :data-maturity="evidenceAssessment(plan).maturity || 'observing'">
+          <span>
+            <Network :size="11" />
+            {{ t('courseEvolution.independentSources', '{count} 类独立来源').replace('{count}', String(evidenceAssessment(plan).independent_source_count || 0)) }}
+          </span>
+          <span v-if="evidenceAssessment(plan).has_formal_evidence">
+            <BadgeCheck :size="11" />{{ t('courseEvolution.formalEvidenceIncluded', '含正式证据') }}
+          </span>
+          <span>
+            <ShieldCheck :size="11" />
+            {{
+              evidenceAssessment(plan).counterevidence_count
+                ? t('courseEvolution.counterevidenceIncluded', '已纳入 {count} 条反证').replace('{count}', String(evidenceAssessment(plan).counterevidence_count))
+                : t('courseEvolution.noCounterevidence', '暂无反证冲突')
+            }}
+          </span>
+        </div>
         <div class="evolution-diagnosis">
           <span><BrainCircuit :size="14" />{{ t('courseEvolution.diagnosis', 'AI 学习判断') }}</span>
           <strong>{{ diagnosisFor(plan) }}</strong>
@@ -32,10 +49,14 @@
           {{ expandedId === plan.change_set_id ? t('courseEvolution.hideDetails', '收起依据与范围') : t('courseEvolution.showDetails', '查看依据与范围') }}
         </button>
         <div v-if="expandedId === plan.change_set_id" class="evolution-details">
-          <p v-for="evidence in evidenceFor(plan)" :key="evidence.evidence_id"><b>{{ evidenceLabel(evidence.source_type) }}</b>{{ evidence.summary }}</p>
+          <p v-for="evidence in evidenceFor(plan)" :key="evidence.evidence_id">
+            <b>{{ evidenceLabel(evidence.source_type) }}</b>
+            <span>{{ evidence.summary }}</span>
+            <button type="button" :title="t('courseEvolution.locateEvidence', '回到证据位置')" :aria-label="t('courseEvolution.locateEvidence', '回到证据位置')" @click="locateEvidence(evidence)"><LocateFixed :size="12" /></button>
+          </p>
           <ul><li v-for="operation in plan.operations" :key="operation.operation_id"><span>{{ operationLabel(operation.operation_type) }}</span>{{ operation.reason }}</li></ul>
           <p class="validation-plan"><ScanSearch :size="13" /><b>{{ t('courseEvolution.validation', '效果复验') }}</b>{{ validationFor(plan) }}</p>
-          <p class="protected"><ShieldCheck :size="13" />{{ t('courseEvolution.protected', '只修改当前课程所选范围；不修改其他课程、其他学习者、历史作答和笔记原文') }}</p>
+          <p class="protected"><ShieldCheck :size="13" />{{ t('courseEvolution.protected', '只修改当前课程所选范围；不修改其他课程、历史作答和笔记原文') }}</p>
         </div>
         <div class="scope-control" v-if="plan.allowed_scopes.length > 1">
           <button type="button" :class="{ active: selectedScope[plan.change_set_id] !== 'current_and_next' }" @click="selectedScope[plan.change_set_id] = 'current'">{{ t('courseEvolution.currentOnly', '只应用本小节') }}</button>
@@ -51,12 +72,31 @@
           <component :is="effectIcon(plan)" :size="15" />
           <span>
             <strong>{{ effectTitle(plan) }}</strong>
-            <small>{{ effectLabel(plan.effect_evaluation?.status) }}</small>
+            <small>{{ effectLabel(plan) }}</small>
           </span>
           <button v-if="plan.effect_evaluation?.status === 'ineffective'" type="button" :disabled="store.actingId === plan.change_set_id" @click="adjust(plan)"><RefreshCw :size="13" />{{ t('courseEvolution.adjust', '生成调整方案') }}</button>
           <button v-else type="button" @click="undo(plan)"><Undo2 :size="13" />{{ plan.effect_evaluation?.status === 'harmful' ? t('courseEvolution.rollback', '确认回退') : t('courseEvolution.undo', '撤销') }}</button>
         </div>
         <p class="applied-diagnosis">{{ diagnosisFor(plan) }}</p>
+        <div v-if="verificationFor(plan)" class="verification-flow">
+          <div>
+            <small>{{ t('courseEvolution.verification.baseline', '调整前') }}</small>
+            <strong>{{ attemptResultLabel(verificationFor(plan).baseline) }}</strong>
+          </div>
+          <ArrowRight :size="12" />
+          <div>
+            <small>{{ t('courseEvolution.verification.courseChange', '课程生长') }}</small>
+            <strong>{{ t('courseEvolution.verification.blockCount', '{count} 个教学块').replace('{count}', String(verificationFor(plan).course_change?.applied_block_count || 0)) }}</strong>
+          </div>
+          <ArrowRight :size="12" />
+          <div>
+            <small>{{ t('courseEvolution.verification.followUp', '独立复验') }}</small>
+            <strong>{{ attemptResultLabel(verificationFor(plan).follow_up) }}</strong>
+          </div>
+        </div>
+        <p v-if="verificationFor(plan)?.interpretation" class="verification-interpretation">
+          <ScanSearch :size="12" />{{ verificationFor(plan).interpretation }}
+        </p>
       </template>
     </article>
   </section>
@@ -64,7 +104,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowRight, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, LoaderCircle, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
+import { ArrowRight, BadgeCheck, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, LoaderCircle, LocateFixed, Network, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
 import { useCourseEvolutionStore, type CourseEvolutionPlan, type EvolutionEvidence } from '../stores/courseEvolution'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
@@ -86,10 +126,35 @@ function evidenceLabel(source: EvolutionEvidence['source_type']) { return ({ lea
 function evidenceIcon(source: EvolutionEvidence['source_type']) { return ({ learning_event: FileQuestion, learning_record: NotebookTabs, practice_attempt: BookOpenText })[source] }
 function operationLabel(type: string) { return ({ INSERT_COURSE_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), INSERT_PERSONAL_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), ADD_TRANSITION_SUPPORT: t('courseEvolution.operations.transition', '后续承接'), ADD_CHECKPOINT: t('courseEvolution.operations.checkpoint', '理解检查'), ADD_TARGETED_PRACTICE: t('courseEvolution.operations.targetedPractice', '针对性练习'), ADD_ANIMATION: t('courseEvolution.operations.animation', '分步演示') } as Record<string, string>)[type] || type }
 function impactLabels(plan: CourseEvolutionPlan) { return [...(plan.impact_summary?.knowledge_labels || []), ...(plan.impact_summary?.ability_labels || []), ...(plan.impact_summary?.misconception_labels || [])].slice(0, 4) }
+function evidenceAssessment(plan: CourseEvolutionPlan) { return plan.impact_summary?.evidence_assessment || hypothesisFor(plan)?.evidence_assessment || {} }
 function planEffectState(plan: CourseEvolutionPlan) { return plan.status === 'pending' ? 'pending' : String(plan.effect_evaluation?.status || 'insufficient_evidence') }
 function effectIcon(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.status === 'effective' ? CheckCircle2 : plan.effect_evaluation?.status === 'ineffective' || plan.effect_evaluation?.status === 'harmful' ? TriangleAlert : CircleDot }
-function effectTitle(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.status === 'effective' ? t('courseEvolution.validated', '课程变化已验证') : plan.effect_evaluation?.status === 'ineffective' || plan.effect_evaluation?.status === 'harmful' ? t('courseEvolution.needsReview', '当前课程变化需要复核') : t('courseEvolution.applied', '课程新版本已应用') }
-function effectLabel(status?: string) { return ({ effective: t('courseEvolution.effects.effective', '后续独立复验通过，原判断获得新证据支持'), ineffective: t('courseEvolution.effects.ineffective', '后续证据显示需要调整'), harmful: t('courseEvolution.effects.harmful', '后续证据显示有副作用，建议回退'), insufficient_evidence: t('courseEvolution.effects.insufficient', '等待后续同能力正式题复验') } as Record<string, string>)[status || ''] || t('courseEvolution.effects.insufficient', '等待后续同能力正式题复验') }
+function effectTitle(plan: CourseEvolutionPlan) {
+  if (plan.effect_evaluation?.status === 'effective') {
+    return plan.effect_evaluation?.verification_level === 'confirmed'
+      ? t('courseEvolution.confirmed', '持续证据已确认')
+      : t('courseEvolution.initiallyValidated', '本轮独立复验通过')
+  }
+  return plan.effect_evaluation?.status === 'ineffective' || plan.effect_evaluation?.status === 'harmful'
+    ? t('courseEvolution.needsReview', '当前课程变化需要复核')
+    : t('courseEvolution.applied', '课程新版本已应用')
+}
+function effectLabel(plan: CourseEvolutionPlan) { return ({ effective: t('courseEvolution.effects.effective', '原判断获得新证据支持，继续观察后续迁移'), ineffective: t('courseEvolution.effects.ineffective', '后续证据显示需要调整'), harmful: t('courseEvolution.effects.harmful', '后续证据显示有副作用，建议回退'), insufficient_evidence: t('courseEvolution.effects.insufficient', '等待后续同能力正式题复验') } as Record<string, string>)[plan.effect_evaluation?.status || ''] || t('courseEvolution.effects.insufficient', '等待后续同能力正式题复验') }
+function verificationFor(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.verification_summary || null }
+function attemptResultLabel(value: Record<string, any> | undefined) {
+  if (!value || value.attempt_count === 0) return t('courseEvolution.verification.noEvidence', '暂无')
+  if (typeof value.score === 'number') return `${Math.round(value.score)} ${t('courseEvolution.verification.points', '分')}`
+  return value.passed
+    ? t('courseEvolution.verification.passed', '已通过')
+    : t('courseEvolution.verification.failed', '未通过')
+}
+function locateEvidence(evidence: EvolutionEvidence) {
+  const sectionId = String(evidence.anchor?.section_id || '')
+  const node = courseStore.courseTree.find(item => item.node_id === sectionId)
+  if (node) courseStore.selectNode(node)
+  if (sectionId) courseStore.scrollToNode(sectionId)
+  if (evidence.source_type === 'learning_record') courseStore.scrollToNote(evidence.source_id)
+}
 async function refreshCourseAndRuntime() {
   await courseStore.refreshCourseData(props.courseId)
   await progressStore.loadRuntime(props.courseId)
@@ -126,6 +191,9 @@ onMounted(load)
 .evolution-evidence span { display:inline-flex; align-items:center; gap:4px; padding:3px 6px; border-radius:4px; color:#475569; background:#f1f5f9; font-size:8px; }
 .evolution-evidence span[data-source="practice_attempt"] { color:#075985; background:#f0f9ff; }
 .evolution-evidence span[data-source="learning_record"] { color:#6d28d9; background:#f5f3ff; }
+.evidence-maturity { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.evidence-maturity span { display:inline-flex; align-items:center; gap:3px; color:#475569; font-size:8px; }
+.evidence-maturity[data-maturity="confirmed_gap"] span { color:#047857; }
 .evolution-diagnosis { display:grid; gap:4px; margin-top:8px; padding:8px 9px; border:1px solid #ddd6fe; border-radius:7px; background:#faf5ff; }
 .evolution-diagnosis span { display:inline-flex; align-items:center; gap:5px; color:#7c3aed; font-size:8px; font-weight:800; }
 .evolution-diagnosis strong { color:#2e1065; font-size:11px; line-height:1.55; }
@@ -136,8 +204,9 @@ onMounted(load)
 .evolution-effect svg { flex:0 0 auto; margin-top:1px; color:#8b5cf6; }
 .evolution-details-toggle { min-height:28px; display:flex; align-items:center; gap:4px; margin-top:3px; padding:0; border:0; color:#64748b; background:transparent; font-size:9px; cursor:pointer; }
 .evolution-details { margin:4px 0 9px; padding:8px 0; border-top:1px solid #ede9fe; border-bottom:1px solid #ede9fe; }
-.evolution-details > p { display:grid; grid-template-columns:60px minmax(0,1fr); gap:6px; margin:4px 0; color:#64748b; font-size:9px; line-height:1.45; }
+.evolution-details > p { display:grid; grid-template-columns:60px minmax(0,1fr) 24px; align-items:start; gap:6px; margin:4px 0; color:#64748b; font-size:9px; line-height:1.45; }
 .evolution-details p b { color:#334155; }
+.evolution-details > p > button { width:24px; height:24px; display:grid; place-items:center; border:0; border-radius:5px; color:#64748b; background:#f8fafc; cursor:pointer; }
 .evolution-details ul { display:grid; gap:5px; margin:8px 0 0; padding:0; list-style:none; }
 .evolution-details li { color:#64748b; font-size:9px; line-height:1.45; }
 .evolution-details li span { display:inline-block; min-width:58px; color:#7c3aed; font-weight:700; }
@@ -158,6 +227,13 @@ article[data-effect="ineffective"] .applied-growth,article[data-effect="harmful"
 .applied-growth strong { font-size:10px; }
 .applied-growth small { margin-top:2px; color:#64748b; font-size:8px; }
 .applied-diagnosis { margin:7px 0 0 27px; color:#475569; font-size:9px; line-height:1.45; }
+.verification-flow { display:grid; grid-template-columns:minmax(0,1fr) 12px minmax(0,1fr) 12px minmax(0,1fr); align-items:center; gap:4px; margin:9px 0 0 27px; padding:7px; border-radius:7px; background:rgba(255,255,255,.72); }
+.verification-flow > div { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.verification-flow small { color:#64748b; font-size:7px; }
+.verification-flow strong { overflow:hidden; color:#1f2937; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.verification-flow > svg { color:#94a3b8; }
+.verification-interpretation { display:flex; align-items:flex-start; gap:5px; margin:7px 0 0 27px; color:#475569; font-size:8px; line-height:1.5; }
+.verification-interpretation svg { flex:0 0 auto; margin-top:1px; color:#2563eb; }
 .spinning { animation:evolution-spin .8s linear infinite; }
 @keyframes evolution-spin { to { transform:rotate(360deg); } }
 </style>

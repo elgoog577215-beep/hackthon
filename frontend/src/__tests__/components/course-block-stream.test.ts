@@ -200,6 +200,32 @@ describe('CourseBlockStream', () => {
       'course-1',
       expect.objectContaining({ adaptive_block_id: 'operation-1' }),
       'animation_played',
+      {},
+    )
+    expect(wrapper.text()).toContain('先判断，再验证')
+    await wrapper.findAll('.composition-check button')[1]!.trigger('click')
+    expect(wrapper.text()).toContain('顺序反了')
+    expect(interactionSpy).toHaveBeenCalledWith(
+      'course-1',
+      expect.objectContaining({ adaptive_block_id: 'operation-1' }),
+      'animation_answered',
+      expect.objectContaining({
+        answer: 'left_then_right',
+        correct: false,
+        frame_index: 1,
+      }),
+    )
+    await wrapper.findAll('.composition-check button')[0]!.trigger('click')
+    expect(wrapper.text()).toContain('右侧 B 先作用于 v')
+    expect(interactionSpy).toHaveBeenCalledWith(
+      'course-1',
+      expect.objectContaining({ adaptive_block_id: 'operation-1' }),
+      'animation_answered',
+      expect.objectContaining({
+        answer: 'right_then_left',
+        correct: true,
+        frame_index: 1,
+      }),
     )
     expect(wrapper.text()).toContain('学习证据形成的课程版本')
     expect(wrapper.get('.course-content-block').attributes('data-content-block-id')).toBe('growth-1')
@@ -240,6 +266,7 @@ describe('CourseBlockStream', () => {
       'course-1',
       expect.objectContaining({ adaptive_block_id: 'operation-practice' }),
       'validation_started',
+      {},
     )
   })
 

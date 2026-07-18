@@ -105,21 +105,12 @@ class _RebuildService:
         }
 
 
-class _MigrationService:
-    def create_job(self):
-        return {"job_id": "migration-1", "status": "pending"}
-
-    def load_job(self, job_id):
-        return {"job_id": job_id, "status": "completed", "completed_count": 2, "failed_count": 1}
-
-
 def _client():
     course_repository = _CourseRepository()
     app = FastAPI()
     app.include_router(knowledge_libraries.router, prefix="/api")
     app.dependency_overrides[knowledge_libraries.get_course_knowledge_rebuild_service] = lambda: _RebuildService()
     app.dependency_overrides[knowledge_libraries.get_course_document_repository] = lambda: course_repository
-    app.dependency_overrides[knowledge_libraries.get_course_library_migration_service] = lambda: _MigrationService()
     return TestClient(app)
 
 
@@ -145,22 +136,6 @@ def test_rebuild_review_and_accept_contracts():
     assert accepted.json()["decision"] == "accept"
     assert accepted.json()["governance"]["knowledge_scope"] == "current_course_only"
     assert stale.status_code == 409
-
-
-def test_migration_job_contracts():
-    client = _client()
-
-    created = client.post("/api/knowledge-libraries/migrations")
-    status = client.get("/api/knowledge-libraries/migrations/migration-1")
-
-    assert created.status_code == 202
-    assert created.json()["job_id"] == "migration-1"
-    assert status.json() == {
-        "job_id": "migration-1",
-        "status": "completed",
-        "completed_count": 2,
-        "failed_count": 1,
-    }
 
 
 def test_rebuild_exposes_course_provider_failure_without_replacing_the_library():

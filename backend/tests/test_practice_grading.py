@@ -1,3 +1,5 @@
+import pytest
+
 from practice_grading import PracticeGrader, _normalized
 
 
@@ -73,3 +75,57 @@ def test_normal_string_answer_incorrect():
 def test_unanswered_normal_string_question_is_not_graded_correct():
     result = _deterministic(expected="北京", actual=None)
     assert result["passed"] is False
+
+
+@pytest.mark.asyncio
+async def test_rubric_grading_recovers_single_numeric_literal_noise(monkeypatch):
+    grader = PracticeGrader()
+    grader.client = object()
+
+    async def fake_call(*_args, **_kwargs):
+        return """{
+          "score": 狂欢76s,
+          "passed": true,
+          "confidence": 0.8,
+          "feedback": "计算和复合顺序解释正确。",
+          "rubric_results": [
+            {
+              "criterion": "比较 AB 与 BA 并解释原因",
+              "met": true,
+              "score": 76分,
+              "feedback": "给出了可检查的计算与解释。"
+            }
+          ]
+        }"""
+
+    monkeypatch.setattr(grader, "_call_llm", fake_call)
+    question = {
+        "prompt": "计算 AB 和 BA，并解释为什么通常不相等。",
+        "question_type": "derivation",
+        "practice_level": "mastery_check",
+        "answer_spec": {
+            "type": "rubric",
+            "criteria": ["比较 AB 与 BA 并解释原因"],
+            "expected_keywords": ["线性映射复合", "不可交换"],
+            "pass_score": 70,
+        },
+        "grading_policy": {
+            "method": "rubric_ai",
+            "confidence_threshold": 0.72,
+        },
+        "validation_policy": {
+            "mastery_eligible": True,
+            "max_support_level_for_mastery": 1,
+        },
+    }
+    result = await grader.grade(question, {
+        "status": "submitted",
+        "submitted_answer_payload": {"text": "给出完整计算与结果检查"},
+        "revealed_hint_levels": [],
+    })
+
+    assert result["status"] == "graded"
+    assert result["score"] == 76
+    assert result["passed"] is True
+    assert result["grading_confidence"] == 0.8
+    assert result["rubric_results"][0]["score"] == 76

@@ -21,7 +21,7 @@ const payload = (status: 'pending' | 'applied' = 'pending') => ({
   }],
   permissions: {
     write_target: 'course_document', can_modify_current_course: true, can_modify_other_courses: false,
-    can_modify_other_learners: false, can_modify_course_knowledge_base: false,
+    can_modify_course_knowledge_base: false,
   },
   summary: {},
 })

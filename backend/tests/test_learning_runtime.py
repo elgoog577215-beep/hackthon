@@ -254,14 +254,22 @@ def test_adaptive_block_interaction_is_recorded_as_effect_evidence(monkeypatch):
         json={
             "adaptive_block_id": "block-1",
             "node_id": "n1",
-            "interaction": "animation_played",
+            "interaction": "animation_answered",
+            "answer": "right_then_left",
+            "correct": True,
+            "frame_index": 1,
         },
     )
 
     assert response.status_code == 200
-    assert response.json()["interaction"] == "animation_played"
+    assert response.json()["interaction"] == "animation_answered"
     assert recorded[0]["event_type"] == "adaptive_block_interaction"
-    assert recorded[0]["result"] == {"interaction": "animation_played"}
+    assert recorded[0]["result"] == {
+        "interaction": "animation_answered",
+        "answer": "right_then_left",
+        "correct": True,
+        "frame_index": 1,
+    }
     assert recorded[0]["metadata"]["adaptive_block_id"] == "block-1"
 
 

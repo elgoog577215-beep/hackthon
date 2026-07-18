@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 from typing import Any
 
 from ai_base import AIBase
 from practice_attempts import evidence_strength
+
+
+logger = logging.getLogger(__name__)
 
 
 class PracticeGrader(AIBase):
@@ -110,12 +115,20 @@ class PracticeGrader(AIBase):
                 "你是严格的课程作答评阅器。只依据题目、量规和学生答案评分。"
                 "不要因为出现关键词就判定正确，不得补写学生没有表达的推理。"
                 "如果量规不足以可靠判断，将 confidence 设为低值。只输出 JSON。"
+                "score 和 rubric_results[].score 必须是 0 到 100 的纯数字，"
+                "confidence 必须是 0 到 1 的纯数字，不得添加单位、解释或其他字符。"
             ),
             use_fast_model=False,
             retry_count=2,
-            enable_thinking=True,
+            enable_thinking=False,
         )
         parsed = self._extract_json(response or "") if response else None
+        if not isinstance(parsed, dict) and response:
+            repaired_response = _repair_numeric_literals(response)
+            if repaired_response != response:
+                parsed = self._extract_json(repaired_response)
+                if isinstance(parsed, dict):
+                    logger.warning("Recovered rubric grading JSON with malformed numeric literals")
         if not isinstance(parsed, dict):
             return _pending_review("自动评阅结果不可解析，答案已进入待评阅")
         try:
@@ -213,6 +226,35 @@ def _sanitize_rubric_results(value: Any) -> list[dict[str, Any]]:
             "feedback": str(item.get("feedback") or "")[:1000],
         })
     return result
+
+
+_NUMERIC_FIELD_PATTERN = re.compile(
+    r'(?P<prefix>"(?P<field>score|confidence)"\s*:\s*)(?P<value>[^,\n}\]]+)'
+)
+
+
+def _repair_numeric_literals(text: str) -> str:
+    """Repair one-number scalar noise without inventing a grading judgment."""
+
+    def replace(match: re.Match[str]) -> str:
+        raw_value = match.group("value").strip()
+        numeric_tokens = re.findall(r"-?\d+(?:\.\d+)?", raw_value)
+        if len(numeric_tokens) != 1:
+            return match.group(0)
+        number = float(numeric_tokens[0])
+        field = match.group("field")
+        if field == "score":
+            if not 0 <= number <= 100:
+                return match.group(0)
+        elif not 0 <= number <= 1:
+            if "%" in raw_value and 0 <= number <= 100:
+                number /= 100
+            else:
+                return match.group(0)
+        normalized = str(int(number)) if number.is_integer() else str(number)
+        return f"{match.group('prefix')}{normalized}"
+
+    return _NUMERIC_FIELD_PATTERN.sub(replace, text)
 
 
 practice_grader = PracticeGrader()

@@ -76,6 +76,37 @@
           {{ frame.index }}
         </button>
       </div>
+      <div v-if="isLinearCompositionAnimation" class="composition-check">
+        <small>{{ t('courseEvolution.animationChallenge.eyebrow', '先判断，再验证') }}</small>
+        <p>{{ t('courseEvolution.animationChallenge.prompt', '计算 ABv 时，应该按什么顺序执行变换？') }}</p>
+        <div role="group" :aria-label="t('courseEvolution.animationChallenge.prompt', '计算 ABv 时，应该按什么顺序执行变换？')">
+          <button
+            type="button"
+            :class="{ selected: compositionAnswer === 'right_then_left', correct: compositionAnswer === 'right_then_left' }"
+            :aria-pressed="compositionAnswer === 'right_then_left'"
+            @click="answerComposition('right_then_left')"
+          >
+            {{ t('courseEvolution.animationChallenge.rightThenLeft', '先 B，再 A') }}
+          </button>
+          <button
+            type="button"
+            :class="{ selected: compositionAnswer === 'left_then_right', wrong: compositionAnswer === 'left_then_right' }"
+            :aria-pressed="compositionAnswer === 'left_then_right'"
+            @click="answerComposition('left_then_right')"
+          >
+            {{ t('courseEvolution.animationChallenge.leftThenRight', '先 A，再 B') }}
+          </button>
+        </div>
+        <p v-if="compositionAnswer" class="composition-check__result" :class="{ 'is-correct': compositionAnswerCorrect }" aria-live="polite">
+          <CheckCircle2 v-if="compositionAnswerCorrect" :size="13" />
+          <CircleX v-else :size="13" />
+          {{
+            compositionAnswerCorrect
+              ? t('courseEvolution.animationChallenge.correct', '正确。右侧 B 先作用于 v，再由 A 作用于 Bv。')
+              : t('courseEvolution.animationChallenge.wrong', '顺序反了。先看离输入 v 最近的变换，再重新选择。')
+          }}
+        </p>
+      </div>
     </section>
 
     <footer v-if="evolutionSource">
@@ -108,7 +139,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { ArrowRight, ClipboardCheck, GitBranchPlus, Pause, Play, SquarePlay, ThumbsDown, ThumbsUp } from 'lucide-vue-next'
+import { ArrowRight, CheckCircle2, CircleX, ClipboardCheck, GitBranchPlus, Pause, Play, SquarePlay, ThumbsDown, ThumbsUp } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { useCourseStore } from '../stores/course'
 import {
@@ -133,7 +164,8 @@ const progressStore = useLearningProgressStore()
 const activeFrame = ref(0)
 const isPlaying = ref(false)
 const feedback = ref<AdaptiveBlockFeedback>('unrated')
-const recordedInteractions = new Set<'animation_played' | 'validation_started'>()
+const compositionAnswer = ref<'right_then_left' | 'left_then_right' | ''>('')
+const recordedInteractions = new Set<string>()
 let animationTimer: number | undefined
 
 const evolutionSource = computed<Record<string, any> | null>(() => (
@@ -161,6 +193,7 @@ const activeKeyframeDescription = computed(() => String(
 const isLinearCompositionAnimation = computed(() => (
   animationSpec.value?.scene?.renderer === 'linear_transform_composition_v1'
 ))
+const compositionAnswerCorrect = computed(() => compositionAnswer.value === 'right_then_left')
 const gridLines = [-40, -20, 20, 40]
 const compositionShapePoints = computed(() => String(
   activeKeyframe.value?.state?.shape_points || '0,0 35,0 0,-25',
@@ -213,15 +246,35 @@ function stopAnimation() {
   isPlaying.value = false
 }
 
-function recordInteraction(interaction: 'animation_played' | 'validation_started') {
+function recordInteraction(
+  interaction: 'animation_played' | 'animation_answered' | 'validation_started',
+  details: {
+    answer?: 'right_then_left' | 'left_then_right'
+    correct?: boolean
+    frame_index?: number
+  } = {},
+) {
   const block = supportBlock.value
   const courseId = courseStore.currentCourseId
-  if (!block || !courseId || recordedInteractions.has(interaction)) return
-  recordedInteractions.add(interaction)
-  void progressStore.recordAdaptiveBlockInteraction(courseId, block, interaction)
+  const interactionKey = `${interaction}:${details.answer || ''}:${String(details.correct ?? '')}`
+  if (!block || !courseId || recordedInteractions.has(interactionKey)) return
+  recordedInteractions.add(interactionKey)
+  void progressStore.recordAdaptiveBlockInteraction(courseId, block, interaction, details)
     .then(recorded => {
-      if (!recorded) recordedInteractions.delete(interaction)
+      if (!recorded) recordedInteractions.delete(interactionKey)
     })
+}
+
+function answerComposition(answer: 'right_then_left' | 'left_then_right') {
+  stopAnimation()
+  compositionAnswer.value = answer
+  const correct = answer === 'right_then_left'
+  recordInteraction('animation_answered', {
+    answer,
+    correct,
+    frame_index: activeFrame.value,
+  })
+  if (correct && activeFrame.value === 0) activeFrame.value = 1
 }
 
 function selectFrame(index: number) {
@@ -289,6 +342,18 @@ onBeforeUnmount(stopAnimation)
 .course-evolution-animation__timeline { display:flex; gap:5px; }
 .course-evolution-animation__timeline button { width:25px; height:25px; border:1px solid #ddd6fe; border-radius:50%; background:#fff; font-size:9px; }
 .course-evolution-animation__timeline button.active { color:#fff; border-color:#7c3aed; background:#7c3aed; }
+.composition-check { display:grid; gap:7px; padding:10px; border:1px solid #e2e8f0; border-radius:7px; background:#f8fafc; }
+.composition-check > small { color:#7c3aed; font-size:9px; font-weight:800; }
+.composition-check > p { margin:0; color:var(--lz-text); font-size:10px; line-height:1.5; }
+.composition-check > div { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.composition-check > div button { width:auto; min-width:0; height:32px; padding:0 8px; border:1px solid #ddd6fe; border-radius:6px; color:#5b21b6; background:#fff; font-size:10px; font-weight:700; }
+.composition-check > div button:hover { border-color:#8b5cf6; background:#faf5ff; }
+.composition-check > div button.correct { color:#047857; border-color:#6ee7b7; background:#ecfdf5; }
+.composition-check > div button.wrong { color:#b91c1c; border-color:#fecaca; background:#fef2f2; }
+.composition-check__result { display:flex; align-items:flex-start; gap:5px; color:#475569 !important; }
+.composition-check__result svg { flex:0 0 auto; margin-top:1px; }
+.composition-check__result svg { color:#dc2626; }
+.composition-check__result.is-correct svg { color:#059669; }
 .course-evolution-content footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:13px 12px 0 0; padding-top:10px; border-top:1px solid rgba(221,214,254,.7); }
 .course-evolution-content footer > span { display:flex; flex-wrap:wrap; align-items:center; gap:5px; color:var(--lz-text-muted); font-size:9px; line-height:1.5; }
 .course-evolution-content footer b { color:#6d28d9; }

@@ -4,12 +4,12 @@
 
 正式单块重新生成、教师课程编辑和经确认的学习证据驱动调整 MUST 统一通过课程领域命令修改当前 `CourseDocument`。`CourseEvolutionPlan` MUST 固定当前课程修订、证据、范围和受影响对象，并在接受后形成新的正式课程修订。系统 MUST NOT 建立第二份长期课程正文或 `PersonalCourseOverlay` 真源。
 
-#### Scenario: 旧单块候选分流
+#### Scenario: 当前课程生长方案被确认
 
-- **WHEN** 系统读取一个尚未处理的旧块候选
-- **THEN** 正式正文候选与旧个人适配块 MUST 迁入统一课程变化协议
-- **AND** 原学习证据、用户、范围和旧修订引用 MUST 保留
-- **AND** 不应长期保留平行课程写入目标
+- **WHEN** 用户确认当前课程的一组课程生长操作
+- **THEN** 系统 MUST 通过统一课程命令写入当前 `CourseDocument`
+- **AND** 学习证据、作用范围和原课程修订引用 MUST 保留
+- **AND** 不应产生平行课程写入目标
 
 ### Requirement: 接受课程生长方案必须产生新课程修订
 

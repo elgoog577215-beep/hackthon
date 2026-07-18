@@ -149,6 +149,7 @@ export interface LearningProgressProjection {
 
 export type AdaptiveBlockKind = 'explanation' | 'counterexample' | 'transition' | 'understanding_check' | 'animation'
 export type AdaptiveBlockFeedback = 'unrated' | 'helpful' | 'not_helpful' | 'dismissed'
+export type AdaptiveBlockInteraction = 'animation_played' | 'animation_answered' | 'validation_started'
 
 export interface AdaptiveLearningBlock {
   adaptive_block_id: string
@@ -368,13 +369,19 @@ export const useLearningProgressStore = defineStore('learningProgress', {
     async recordAdaptiveBlockInteraction(
       courseId: string,
       block: AdaptiveLearningBlock,
-      interaction: 'animation_played' | 'validation_started',
+      interaction: AdaptiveBlockInteraction,
+      details: {
+        answer?: 'right_then_left' | 'left_then_right'
+        correct?: boolean
+        frame_index?: number
+      } = {},
     ) {
       try {
         await http.post(`/api/courses/${courseId}/learning-runtime/adaptive-blocks/interactions`, {
           adaptive_block_id: block.adaptive_block_id,
           node_id: block.anchor.node_id,
           interaction,
+          ...details,
         })
         return true
       } catch (error) {

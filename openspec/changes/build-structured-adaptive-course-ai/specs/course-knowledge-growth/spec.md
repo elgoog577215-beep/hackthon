@@ -43,12 +43,6 @@
 - **THEN** 质量门 MUST 将其标记为 `coarse`
 - **AND** 候选 MUST 在发布前拆分或被拒绝
 
-#### Scenario: 历史课程只有章节标题投影
-
-- **WHEN** 历史课程无法从现有数据确定真实原子知识点
-- **THEN** 系统 MUST 将知识库标记为 `degraded / needs_enrichment`
-- **AND** MUST NOT 将章节标题投影伪装成通过质量门的活动知识点
-
 ### Requirement: 知识关系网只能使用六类正式语义关系
 
 系统 MUST 仅允许 `prerequisite`、`derives`、`equivalent_to`、`contrasts_with`、`applies_to` 和 `generalizes` 连接当前课程活动知识点。章节包含、课程顺序、对象绑定和无具体教学含义的 `related` MUST NOT 进入正式知识关系网。
@@ -123,12 +117,11 @@ AI MUST 能针对当前课程知识结构生成新增、补写、拆分、合并
 
 系统 MUST NOT 在新生成或新修订的课程知识库中创建 `ImprovementPoint` 核心实体。稳定学习目标 MUST 表达为 `SkillUnit`，具体练习 MUST 表达为学习资产或 `PracticeTask`，个性化提升建议 MUST 由 AI 根据正式学习证据动态生成。
 
-#### Scenario: 旧课程包含提升点
+#### Scenario: 新课程生成结果包含提升点
 
-- **WHEN** 迁移读取遇到旧 `ImprovementPoint`
-- **THEN** 系统 MAY 保留兼容引用
-- **AND** MUST 将稳定能力、具体任务和个人建议分类迁移或标记待审查
-- **AND** 新修订 MUST NOT 继续写入旧实体
+- **WHEN** 新课程知识库候选把提升建议写成 `ImprovementPoint`
+- **THEN** 质量门 MUST 拒绝该候选进入活动课程知识库
+- **AND** 稳定能力、具体任务和动态建议 MUST 分别写入对应正式对象
 
 ### Requirement: 当前课程与知识库维护必须进行双向影响分析
 

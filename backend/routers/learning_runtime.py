@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from dependencies import get_course_document_repository, get_course_or_404
 from course_repository import CourseDocumentNotFound
@@ -30,7 +30,23 @@ class AdaptiveBlockInteractionPayload(BaseModel):
 
     adaptive_block_id: str = Field(..., min_length=1, max_length=160)
     node_id: str = Field(..., min_length=1, max_length=240)
-    interaction: str = Field(..., pattern="^(animation_played|validation_started)$")
+    interaction: Literal[
+        "animation_played",
+        "animation_answered",
+        "validation_started",
+    ]
+    answer: Literal["right_then_left", "left_then_right"] | None = None
+    correct: bool | None = None
+    frame_index: int | None = Field(default=None, ge=0, le=100)
+
+    @model_validator(mode="after")
+    def validate_answer_details(self):
+        if self.interaction == "animation_answered":
+            if self.answer is None or self.correct is None:
+                raise ValueError("Animation answers require answer and correctness")
+        elif self.answer is not None or self.correct is not None:
+            raise ValueError("Answer details are only valid for animation answers")
+        return self
 
 
 @router.get("")
@@ -128,9 +144,18 @@ async def record_adaptive_block_interaction(
         course_version_id=course.get("current_course_version_id"),
         node_id=payload.node_id,
         evidence={"evidence_refs": block.get("evidence_refs") or []},
-        result={"interaction": payload.interaction},
+        result={
+            "interaction": payload.interaction,
+            **({"answer": payload.answer, "correct": payload.correct}
+               if payload.interaction == "animation_answered" else {}),
+            **({"frame_index": payload.frame_index}
+               if payload.frame_index is not None else {}),
+        },
         operation_id=f"adaptive-interaction:{payload.adaptive_block_id}:{payload.interaction}",
-        idempotency_key=f"{payload.adaptive_block_id}:{payload.interaction}",
+        idempotency_key=(
+            f"{payload.adaptive_block_id}:{payload.interaction}:"
+            f"{payload.answer or ''}:{payload.correct}"
+        ),
         entity_type=str(block.get("entity_type") or "adaptive_learning_block"),
         entity_id=payload.adaptive_block_id,
         entity_revision=runtime.get("runtime_revision_id"),

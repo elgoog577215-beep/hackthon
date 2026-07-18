@@ -277,6 +277,13 @@ def test_video_two_evidence_chain_replaces_old_candidate_and_requires_independen
                     "status": "active",
                     "prompt": "用一个新情境解释矩阵复合顺序。",
                 },
+                {
+                    "asset_id": "question-transfer",
+                    "revision_id": "question-transfer-order",
+                    "node_id": "section-1",
+                    "status": "active",
+                    "prompt": "在另一个线性变换情境中独立判断复合顺序。",
+                },
             ],
         },
     })
@@ -303,8 +310,11 @@ def test_video_two_evidence_chain_replaces_old_candidate_and_requires_independen
         user_id="student-a",
         repository=repository,
     )
-    assert len([item for item in two_sources.change_sets if item.status == "pending"]) == 1
-    assert two_sources.change_sets[0].allowed_scopes == ["current"]
+    assert two_sources.change_sets == []
+    assert two_sources.hypotheses[0].status == "observing"
+    assert two_sources.hypotheses[0].evidence_assessment["gate_reason"] == (
+        "尚缺正式证据或重复独立信号，继续观察"
+    )
 
     attempts.append({
         "attempt_id": "attempt-original-failed",
@@ -326,14 +336,16 @@ def test_video_two_evidence_chain_replaces_old_candidate_and_requires_independen
     pending = [item for item in three_sources.change_sets if item.status == "pending"]
     superseded = [item for item in three_sources.change_sets if item.status == "stale"]
     assert len(pending) == 1
-    assert len(superseded) == 1
-    assert superseded[0].effect_evaluation["status"] == "superseded"
+    assert superseded == []
     plan = pending[0]
     assert len(plan.evidence_ids) == 3
     assert plan.impact_summary["diagnosis"] == "学习者会执行计算，但尚未理解复合变换的先后顺序。"
     assert plan.allowed_scopes == ["current", "current_and_next"]
     assert plan.impact_summary["source_practice_task_ids"] == ["question-original-order"]
-    assert plan.impact_summary["validation_task_ids"] == ["question-independent-order"]
+    assert set(plan.impact_summary["validation_task_ids"]) == {
+        "question-independent-order",
+        "question-transfer-order",
+    }
     assert [item.operation_type for item in plan.operations].count("ADD_TRANSITION_SUPPORT") == 1
     assert [item.operation_type for item in plan.operations].count("ADD_CHECKPOINT") >= 1
     assert next(
@@ -350,7 +362,25 @@ def test_video_two_evidence_chain_replaces_old_candidate_and_requires_independen
         document_repository=document_repository,
     )
     applied_plan = next(item for item in applied.change_sets if item.change_set_id == plan.change_set_id)
+    baseline = applied_plan.impact_summary["effect_baseline"]
+    assert baseline["problem_type"] == "conceptual_gap"
+    assert baseline["selected_scope"] == "current_and_next"
+    assert baseline["practice_attempt_ids"] == ["attempt-original-failed"]
+    assert baseline["practice_task_ids"] == ["question-original-order"]
     applied_document, _ = document_repository.load_document(course["course_id"])
+    independent_practice = next(
+        block for block in applied_document.blocks
+        if block.block_id in applied_plan.applied_block_ids
+        and block.kind == "practice_ref"
+    )
+    assert independent_practice.payload["validation_task_ids"] == [
+        "question-independent-order",
+        "question-transfer-order",
+    ]
+    assert independent_practice.asset_refs == [
+        "question-independent-order",
+        "question-transfer-order",
+    ]
     untouched_section = next(item for item in document.sections if item.section_id == "section-5")
     assert untouched_section.section_id not in applied_plan.impact_summary["affected_section_ids"]
     assert all(
@@ -364,7 +394,11 @@ def test_video_two_evidence_chain_replaces_old_candidate_and_requires_independen
         "event_type": "adaptive_block_interaction",
         "course_id": document.course_id,
         "node_id": "section-1",
-        "result": {"interaction": "animation_played"},
+        "result": {
+            "interaction": "animation_answered",
+            "answer": "right_then_left",
+            "correct": True,
+        },
         "metadata": {
             "adaptive_block_id": next(
                 item.operation_id
@@ -410,6 +444,29 @@ def test_video_two_evidence_chain_replaces_old_candidate_and_requires_independen
     )
     assert result.effect_evaluation["status"] == "effective"
     assert result.effect_evaluation["attempt_ids"] == ["attempt-independent-passed"]
+    assert result.effect_evaluation["verification_level"] == "initial_support"
+    assert result.effect_evaluation["verification_summary"]["baseline"]["passed"] is False
+    assert result.effect_evaluation["verification_summary"]["follow_up"]["passed"] is True
+
+    attempts.append({
+        "attempt_id": "attempt-transfer-passed",
+        "status": "graded",
+        "node_id": "section-1",
+        "task_revision_id": "question-transfer-order",
+        "result": {"passed": True, "grading_confidence": 0.97},
+        "graded_at": "2099-01-04T00:00:00+00:00",
+    })
+    repeatedly_validated = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    result = next(
+        item for item in repeatedly_validated.change_sets
+        if item.change_set_id == plan.change_set_id
+    )
+    assert result.effect_evaluation["verification_level"] == "confirmed"
+    assert result.effect_evaluation["verification_summary"]["follow_up"]["distinct_task_count"] == 2
 
 
 def test_acceptance_commits_current_course_revision_and_can_be_undone(
@@ -451,7 +508,6 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
     applied_document, _ = document_repository.load_document(course["course_id"])
     overlay = personal_course_overlay(applied)
     view = course_evolution_view(applied)
-    student_b = repository.load("student-b", course["course_id"])
     plan = applied.change_sets[0]
 
     assert applied_document.document_revision != before_document.document_revision
@@ -471,6 +527,9 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
     )
     assert independent_practice.kind == "practice_ref"
     assert independent_practice.asset_refs == ["question-revision-targeted"]
+    assert independent_practice.payload["validation_task_ids"] == [
+        "question-revision-targeted",
+    ]
     assert project_applied_adaptive_blocks(applied) == []
     assert overlay.active_plan_ids == []
     assert overlay.operations == []
@@ -479,10 +538,8 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
         "write_target": "course_document",
         "can_modify_current_course": True,
         "can_modify_other_courses": False,
-        "can_modify_other_learners": False,
         "can_modify_course_knowledge_base": False,
     }
-    assert project_applied_adaptive_blocks(student_b) == []
 
     undone = undo_change_set(
         user_id="student-a",
@@ -739,10 +796,11 @@ def test_ineffective_adaptation_creates_reviewable_replacement_and_replaces_atom
 
 
 @pytest.mark.parametrize(("feedback", "later_results", "interaction", "expected", "action"), [
-    ("helpful", [True], False, "effective", "keep"),
-    ("", [True], True, "effective", "keep"),
-    ("not_helpful", [False, False], False, "harmful", "rollback"),
-    ("", [], False, "insufficient_evidence", "collect_more_evidence"),
+    ("helpful", [True], "", "effective", "keep"),
+    ("", [True], "animation_answered", "effective", "keep"),
+    ("", [True], "animation_played", "insufficient_evidence", "collect_more_evidence"),
+    ("not_helpful", [False, False], "", "harmful", "rollback"),
+    ("", [], "", "insufficient_evidence", "collect_more_evidence"),
 ])
 def test_effect_evaluation_uses_later_learning_evidence_not_acceptance(
     tmp_path,
@@ -792,12 +850,18 @@ def test_effect_evaluation_uses_later_learning_evidence_not_acceptance(
             "created_at": "2099-01-01T00:00:00+00:00",
         })
     if interaction:
+        interaction_result = {"interaction": interaction}
+        if interaction == "animation_answered":
+            interaction_result.update({
+                "answer": "right_then_left",
+                "correct": True,
+            })
         events.append({
             "event_id": "interaction-animation",
             "event_type": "adaptive_block_interaction",
             "course_id": document.course_id,
             "node_id": "section-1",
-            "result": {"interaction": "animation_played"},
+            "result": interaction_result,
             "metadata": {"adaptive_block_id": plan.operations[1].operation_id},
             "created_at": "2099-01-01T00:00:00+00:00",
         })

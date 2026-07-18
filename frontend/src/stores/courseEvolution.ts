@@ -3,6 +3,7 @@ import http from '../utils/http'
 
 export interface EvolutionEvidence {
   evidence_id: string
+  source_id: string
   source_type: 'learning_event' | 'learning_record' | 'practice_attempt'
   evidence_kind: string
   summary: string
@@ -25,6 +26,7 @@ export interface AdaptationHypothesis {
   claim: string
   confidence: number
   confidence_reasons: string[]
+  evidence_assessment: Record<string, any>
   validation_plan: string
   status: string
 }

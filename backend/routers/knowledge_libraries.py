@@ -18,7 +18,6 @@ from course_repository import (
     CourseDocumentRepository,
 )
 from dependencies import get_course_document_repository
-from knowledge_library_migrations import KnowledgeLibraryMigrationService
 
 router = APIRouter(tags=["knowledge_libraries"])
 logger = logging.getLogger(__name__)
@@ -38,13 +37,6 @@ def get_course_knowledge_rebuild_service(
     course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
 ) -> CourseKnowledgeRebuildService:
     return CourseKnowledgeRebuildService(course_repository)
-
-
-def get_course_library_migration_service(
-    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
-    rebuild_service: CourseKnowledgeRebuildService = Depends(get_course_knowledge_rebuild_service),
-) -> KnowledgeLibraryMigrationService:
-    return KnowledgeLibraryMigrationService(course_repository, rebuild_service)
 
 
 @router.post("/courses/{course_id}/knowledge-library/rebuild")
@@ -121,43 +113,3 @@ async def review_course_library(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.post("/knowledge-libraries/migrations", status_code=202)
-async def create_migration(
-    service: KnowledgeLibraryMigrationService = Depends(get_course_library_migration_service),
-):
-    return service.create_job()
-
-
-@router.get("/knowledge-libraries/migrations/{job_id}")
-async def get_migration(
-    job_id: str,
-    service: KnowledgeLibraryMigrationService = Depends(get_course_library_migration_service),
-):
-    try:
-        return service.load_job(job_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Migration job not found") from exc
-
-
-@router.post("/knowledge-libraries/migrations/{job_id}/pause")
-async def pause_migration(
-    job_id: str,
-    service: KnowledgeLibraryMigrationService = Depends(get_course_library_migration_service),
-):
-    try:
-        return service.pause_job(job_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Migration job not found") from exc
-
-
-@router.post("/knowledge-libraries/migrations/{job_id}/resume")
-async def resume_migration(
-    job_id: str,
-    service: KnowledgeLibraryMigrationService = Depends(get_course_library_migration_service),
-):
-    try:
-        return service.resume_job(job_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Migration job not found") from exc
