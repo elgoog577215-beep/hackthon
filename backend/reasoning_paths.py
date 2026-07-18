@@ -452,6 +452,8 @@ def _math_reasoning_support(
     archetype = str(payload.get("archetype_id") or "")
     if case_kind == "basis_coordinates":
         return _basis_coordinate_support(payload)
+    if case_kind == "linear_dependence":
+        return _linear_dependence_support(payload)
     if case_kind == "linear_system":
         return _linear_system_support(payload)
     if case_kind == "vector_operations":
@@ -545,6 +547,103 @@ def _basis_coordinate_support(
             (
                 f"验证：{coefficient_a}{_tuple(first)}+"
                 f"{coefficient_b}{_tuple(second)}={_tuple(target)}。"
+            ),
+        ],
+        final_answer=canonical,
+    )
+    return path, hints, solution
+
+
+def _linear_dependence_support(
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    data = payload["stimulus"]["data"]
+    vectors = data["vectors"]
+    symbols = ["α", "β", "γ"][:len(vectors)]
+    zero = [0] * len(vectors[0])
+    combination = "+".join(
+        f"{symbol}{_tuple(vector)}"
+        for symbol, vector in zip(symbols, vectors, strict=True)
+    )
+    equations = [
+        _coordinate_equation(vectors, symbols, coordinate)
+        for coordinate in range(len(vectors[0]))
+    ]
+    equation_text = "，".join(equations)
+    steps = [
+        {
+            "step_id": "model",
+            "kind": "orient",
+            "instruction": (
+                f"设组合系数为{_join(symbols)}，写出"
+                f"{combination}={_tuple(zero)}。"
+            ),
+            "uses_inputs": ["vectors"],
+            "produces": ["homogeneous_system"],
+            "check": "每个系数始终对应同一个向量",
+        },
+        {
+            "step_id": "solve",
+            "kind": "transform",
+            "instruction": (
+                f"逐坐标比较得到{equation_text}，求齐次方程组是否存在非零解。"
+            ),
+            "uses_inputs": ["homogeneous_system"],
+            "produces": ["coefficient_solution", "dependence_decision"],
+            "check": "非零系数解与线性相关结论一致",
+        },
+        {
+            "step_id": "verify",
+            "kind": "verify",
+            "instruction": (
+                "把得到的关系代回原向量组；删除可由其余向量表示的向量，"
+                "再检查保留向量仍生成同一子空间。"
+            ),
+            "uses_inputs": ["coefficient_solution", "vectors"],
+            "produces": ["relation", "basis"],
+            "check": "关系式逐坐标成立且所选向量组线性无关",
+        },
+    ]
+    path = _path_record(payload, "solve_and_verify", steps)
+    path["contrast_example"] = {
+        "input": (
+            "取p=(1,0,0)、q=(0,1,0)、r=(1,1,1)，"
+            "判断三向量是否线性无关。"
+        ),
+        "worked_step": (
+            "设λp+μq+νr=0；第三个坐标先给出ν=0，"
+            "再由前两个坐标得到λ=μ=0，因此只剩零解。"
+        ),
+        "differs_from_current": True,
+    }
+    hints = _path_hint_contract(path, [
+        (
+            f"先设未知系数{_join(symbols)}，写成"
+            f"{combination}={_tuple(zero)}。"
+            "是否存在非零系数解决定线性相关性。"
+        ),
+        (
+            f"逐坐标比较得到{equation_text}。先用前两个方程表示"
+            "α、β与γ的关系，再检查第三个方程；暂不直接写最终关系式。"
+        ),
+        (
+            f"对照例：{path['contrast_example']['input']}"
+            f"{path['contrast_example']['worked_step']}"
+            "原题也按“设系数—比较坐标—判断非零解”推进。"
+        ),
+    ])
+    canonical = deepcopy(
+        (payload.get("answer_spec") or {}).get("canonical_answer")
+    )
+    solution = _math_solution(
+        path,
+        summary="把线性相关性转化为齐次方程组的非零解问题。",
+        steps=[
+            f"设{combination}={_tuple(zero)}，逐坐标得到{equation_text}。",
+            "由前两个方程得α=-γ、β=-γ，第三个方程自动成立。",
+            (
+                "取γ=1得到一个非零系数解，因此向量组线性相关；"
+                "对应关系为c=a+b，可保留a、b作为同一生成空间的一组基。"
             ),
         ],
         final_answer=canonical,
@@ -859,6 +958,28 @@ def _equation_text(equation: dict[str, Any]) -> str:
     b_term = "y" if b_abs == 1 else f"{b_abs}y"
     a_term = "x" if a == 1 else f"{a}x"
     return f"{a_term}{sign}{b_term}={equation['c']}"
+
+
+def _coordinate_equation(
+    vectors: list[list[int | float]],
+    symbols: list[str],
+    coordinate: int,
+) -> str:
+    terms: list[str] = []
+    for vector, symbol in zip(vectors, symbols, strict=True):
+        coefficient = vector[coordinate]
+        if coefficient == 0:
+            continue
+        if coefficient == 1:
+            term = symbol
+        elif coefficient == -1:
+            term = f"-{symbol}"
+        else:
+            term = f"{coefficient}{symbol}"
+        if terms and not term.startswith("-"):
+            term = f"+{term}"
+        terms.append(term)
+    return f"{''.join(terms) or '0'}=0"
 
 
 def _tuple(values: list[Any]) -> str:

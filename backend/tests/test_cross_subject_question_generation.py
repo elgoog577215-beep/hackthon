@@ -595,6 +595,12 @@ def test_primary_node_intent_outranks_incidental_concepts_in_node_content():
         and item["quality_report"]["checks"]["hint_actionability"]
         for item in generated
     )
+    levels = generated[0]["hint_contract"]["levels"]
+    assert "α(1,0,1)+β(0,1,1)+γ(1,1,2)=(0,0,0)" in levels[0]["content"]
+    assert "α+γ=0" in levels[1]["content"]
+    assert "β+γ=0" in levels[1]["content"]
+    assert "p=(1,0,0)" in levels[2]["content"]
+    assert "只剩零解" in levels[2]["content"]
 
 
 def test_semantic_practice_variants_change_the_actual_problem_data():
