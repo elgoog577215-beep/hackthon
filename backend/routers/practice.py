@@ -822,7 +822,7 @@ def _question_bank_practice_overlay(
     """Prefer bank-backed compiled tasks and replace stale template peers."""
     bank_tasks = _question_bank_practice_tasks(course)
     if not bank_tasks:
-        return list(asset_questions)
+        return [] if _has_active_question_bank(course) else list(asset_questions)
 
     assets_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for question in asset_questions:
@@ -833,13 +833,11 @@ def _question_bank_practice_overlay(
         assets_by_key.setdefault(key, []).append(question)
 
     result: list[dict[str, Any]] = []
-    bank_keys: set[tuple[str, str]] = set()
     for bank_task in bank_tasks:
         key = (
             str(bank_task.get("node_id") or ""),
             str(bank_task.get("practice_level") or ""),
         )
-        bank_keys.add(key)
         bank_item_revision = str(
             bank_task.get("question_bank_item_revision_id") or ""
         )
@@ -857,15 +855,6 @@ def _question_bank_practice_overlay(
         )
         result.append(compiled or bank_task)
 
-    result.extend(
-        question
-        for question in asset_questions
-        if (
-            str(question.get("node_id") or ""),
-            str(question.get("practice_level") or ""),
-        )
-        not in bank_keys
-    )
     return _unique_revision_items(result)
 
 

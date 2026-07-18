@@ -467,6 +467,48 @@ def test_active_question_bank_replaces_same_level_legacy_template(monkeypatch):
     assert all("用自己的话说明" not in item["prompt"] for item in questions)
 
 
+def test_active_question_bank_never_falls_back_to_unreviewed_asset_questions(monkeypatch):
+    course = _course()
+    course["course_name"] = "未知跨领域课程"
+    course["subject_pedagogy_profile"] = {
+        "primary_mode": "general",
+        "secondary_mode": None,
+        "secondary_intensity": None,
+        "confidence": "low",
+        "evidence": [],
+        "rationale": "需要教师确认学科适配器",
+        "enabled_module_ids": [],
+        "user_locked": True,
+    }
+    course["nodes"][0].update({
+        "node_name": "未知主题X",
+        "learning_objective": "完成尚未定义的跨领域任务",
+        "key_points": ["未知能力A", "未知能力B"],
+        "assessment": ["提交成果"],
+        "difficulty_contract": {"target_level": "intermediate"},
+        "grounding_contract": {"question_evidence_ids": []},
+    })
+    bundle = build_question_bank(course)
+    assert all(
+        item["lifecycle_status"] == "needs_review"
+        for item in bundle["items"]
+        if item["assessment_role"] == "practice"
+    )
+
+    monkeypatch.setattr(
+        practice_router.question_bank_repository,
+        "load_bundle",
+        lambda _course_id: deepcopy(bundle),
+    )
+    monkeypatch.setattr(
+        practice_router.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {"assets": deepcopy(course["learning_assets"])},
+    )
+
+    assert practice_router._questions(course, node_id="n1", scope="node") == []
+
+
 def test_legacy_server_records_are_not_implicitly_imported_for_current_user(monkeypatch, tmp_path):
     storage = MemoryStorage()
     storage.data["learning_records.json"] = {
