@@ -120,6 +120,52 @@ def test_question_bank_generates_specific_candidates_for_coverage_gaps():
     assert all(item["quality_report"]["passed"] for item in generated)
 
 
+def test_hashing_questions_freeze_executable_domain_inputs_and_outputs():
+    course = _course()
+    course["material_bindings"] = []
+    course["evidence_catalog"] = []
+    course["nodes"] = [{
+        "node_id": "L2-hash",
+        "node_level": 2,
+        "node_name": "4.1 哈希函数与冲突解决",
+        "learning_objective": "解释哈希冲突原因并选择解决策略",
+        "key_points": ["哈希函数", "冲突解决"],
+        "assessment": ["分析哈希函数输出并建议改进"],
+        "grounding_contract": {"question_evidence_ids": []},
+        "difficulty_contract": {"target_level": "beginner"},
+    }]
+    course["subject_pedagogy_profile"] = {
+        "primary_mode": "programming_engineering",
+    }
+
+    bundle = build_question_bank(course)
+    generated = [
+        item
+        for item in bundle["items"]
+        if item["assessment_role"] == "practice"
+    ]
+
+    assert len(generated) == 3
+    assert all("散列表容量 m=" in item["prompt"] for item in generated)
+    assert all("h(k)=" in item["prompt"] for item in generated)
+    assert all("依次" in item["prompt"] for item in generated)
+    assert all(
+        any(
+            marker in item["prompt"]
+            for marker in ("线性探测", "链地址法", "标记冲突")
+        )
+        for item in generated
+    )
+    assert "计算每个键的初始哈希地址" in generated[0]["prompt"]
+    assert "写出最终槽位" in generated[1]["prompt"]
+    assert "给出各桶内容" in generated[2]["prompt"]
+    assert all(
+        "输入 JSON=" not in item["prompt"]
+        and "接口样例包含状态码" not in item["prompt"]
+        for item in generated
+    )
+
+
 def test_generated_generic_template_is_rejected_by_question_quality_gate():
     bundle = build_question_bank(_course())
     item = deepcopy(next(
