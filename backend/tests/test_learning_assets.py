@@ -275,6 +275,42 @@ def test_questions_compile_formal_practice_contracts():
     )
 
 
+def test_compilation_uses_the_reviewed_question_bank_revision_as_source_of_truth():
+    course = _course()
+    initial = compile_learning_assets(course)
+    bank = initial["question_bank_bundle"]
+    practice_item = next(
+        item
+        for item in bank["items"]
+        if item["assessment_role"] == "practice"
+        and item["practice_levels"] == ["concept_check"]
+    )
+    reviewed_prompt = (
+        "输入材料：散列表容量为 11，键序列为 18、29、40。"
+        "任务：写出除留余数法得到的三个地址，并说明为何发生冲突。"
+        "限制条件：逐项列出取模过程，并检查所有地址是否位于 0 至 10。"
+    )
+    practice_item["prompt"] = reviewed_prompt
+    practice_item["formal_task"]["prompt"] = reviewed_prompt
+
+    rebuilt = compile_learning_assets(
+        course,
+        question_bank_bundle=bank,
+    )
+
+    question = next(
+        item
+        for item in rebuilt["assets"]["questions"]
+        if item["node_id"] == practice_item["node_id"]
+        and item["practice_level"] == "concept_check"
+    )
+    assert question["prompt"] == reviewed_prompt
+    assert (
+        question["question_bank_item_revision_id"]
+        == practice_item["revision_id"]
+    )
+
+
 def test_mastery_prompt_exposes_every_scored_assessment_item():
     course = _course()
     course["nodes"][0]["assessment"] = [

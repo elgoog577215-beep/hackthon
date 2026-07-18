@@ -10,6 +10,7 @@ from learning_progress import build_learning_progress, project_learning_objectiv
 from practice_attempts import AttemptConflict, InvalidAttemptTransition, PracticeAttemptRepository
 from practice_grading import PracticeGrader
 from practice_contracts import enrich_question_contract
+from question_bank import build_question_bank
 from routers import practice as practice_router
 
 
@@ -420,6 +421,50 @@ def test_legacy_practice_migration_is_idempotent_and_historical_only(monkeypatch
     assert second.json()["created"] == 0
     events = learning_events.load_learning_events(course_id="c1")
     assert all((item.get("result") or {}).get("mastery_eligible") is False for item in events)
+
+
+def test_active_question_bank_replaces_same_level_legacy_template(monkeypatch):
+    course = _course()
+    course["nodes"][0].update({
+        "key_points": ["向量大小", "向量方向"],
+        "assessment": ["根据给定坐标计算向量大小并检查结果"],
+        "difficulty_contract": {"target_level": "intermediate"},
+        "grounding_contract": {"question_evidence_ids": []},
+    })
+    stale = course["learning_assets"]["questions"][0]
+    stale["practice_level"] = "concept_check"
+    stale["prompt"] = (
+        "用自己的话说明“向量”的含义，并指出它在本节中成立或适用的关键条件。"
+    )
+    bundle = build_question_bank(course)
+    bank_revisions = {
+        task["revision_id"]
+        for item in bundle["items"]
+        if item["assessment_role"] == "practice"
+        and item["lifecycle_status"] == "approved"
+        for task in [item["formal_task"]]
+    }
+
+    monkeypatch.setattr(
+        practice_router.question_bank_repository,
+        "load_bundle",
+        lambda _course_id: deepcopy(bundle),
+    )
+    monkeypatch.setattr(
+        practice_router.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {"assets": deepcopy(course["learning_assets"])},
+    )
+
+    questions = practice_router._questions(course, node_id="n1", scope="node")
+    returned_revisions = {
+        item.get("revision_id") or item.get("task_revision_id")
+        for item in questions
+    }
+
+    assert bank_revisions <= returned_revisions
+    assert stale["revision_id"] not in returned_revisions
+    assert all("用自己的话说明" not in item["prompt"] for item in questions)
 
 
 def test_legacy_server_records_are_not_implicitly_imported_for_current_user(monkeypatch, tmp_path):

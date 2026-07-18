@@ -5,6 +5,7 @@ import pytest
 from question_bank import (
     QuestionBankRepository,
     build_question_bank,
+    evaluate_question_item_quality,
     review_question_bank_item,
     revise_question_bank_item,
 )
@@ -117,6 +118,28 @@ def test_question_bank_generates_specific_candidates_for_coverage_gaps():
     assert all(item["answer_spec"]["criteria"] for item in generated)
     assert all(item["course_knowledge_refs"] for item in generated)
     assert all(item["quality_report"]["passed"] for item in generated)
+
+
+def test_generated_generic_template_is_rejected_by_question_quality_gate():
+    bundle = build_question_bank(_course())
+    item = deepcopy(next(
+        value
+        for value in bundle["items"]
+        if value["source_type"] in {"generated", "variant"}
+        and value["assessment_role"] == "practice"
+    ))
+    item["prompt"] = (
+        "用自己的话说明“行列式”的含义，并指出它在本节中成立或适用的关键条件。"
+    )
+
+    report = evaluate_question_item_quality(item)
+
+    assert report["passed"] is False
+    assert any(
+        issue["code"] == "question:generic_prompt"
+        and issue["severity"] == "critical"
+        for issue in report["issues"]
+    )
 
 
 def test_imported_multiple_choice_question_preserves_options_and_correct_choice():

@@ -3,8 +3,21 @@ from copy import deepcopy
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from course_versions import CourseVersionRepository
+from learning_asset_storage import LearningAssetRepository
 from question_bank import QuestionBankRepository, build_question_bank
 from routers import question_bank
+
+
+class MemoryCourseStorage:
+    def __init__(self, course):
+        self.course = deepcopy(course)
+        self.save_count = 0
+
+    async def save_course(self, course_id, course):
+        assert course_id == course["course_id"]
+        self.course = deepcopy(course)
+        self.save_count += 1
 
 
 def _course():
@@ -30,14 +43,33 @@ def _course():
 
 def _client(monkeypatch, tmp_path):
     repository = QuestionBankRepository(tmp_path / "question-banks")
+    asset_repository = LearningAssetRepository(tmp_path / "learning-assets")
+    version_repository = CourseVersionRepository(tmp_path / "course-versions")
+    course_storage = MemoryCourseStorage(_course())
 
     async def get_course(course_id: str):
-        course = deepcopy(_course())
+        course = deepcopy(course_storage.course)
         course["course_id"] = course_id
         return course
 
     monkeypatch.setattr(question_bank, "question_bank_repository", repository)
+    monkeypatch.setattr(
+        question_bank,
+        "learning_asset_repository",
+        asset_repository,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        question_bank,
+        "course_version_repository",
+        version_repository,
+        raising=False,
+    )
+    monkeypatch.setattr(question_bank, "storage", course_storage, raising=False)
     monkeypatch.setattr(question_bank, "get_course_or_404", get_course)
+    repository.asset_repository = asset_repository
+    repository.version_repository = version_repository
+    repository.course_storage = course_storage
     app = FastAPI()
     app.include_router(question_bank.router, prefix="/api")
     return TestClient(app), repository
@@ -97,7 +129,7 @@ def test_question_bank_list_review_revision_and_conflict(monkeypatch, tmp_path):
 
 
 def test_question_bank_rebuild_is_idempotent_and_returns_coverage(monkeypatch, tmp_path):
-    client, _repository = _client(monkeypatch, tmp_path)
+    client, repository = _client(monkeypatch, tmp_path)
 
     first = client.post(
         "/api/courses/course-api/question-bank/rebuild",
@@ -113,6 +145,35 @@ def test_question_bank_rebuild_is_idempotent_and_returns_coverage(monkeypatch, t
     assert second.status_code == 202
     assert second.json()["bundle_revision_id"] == first.json()["bundle_revision_id"]
     assert second.json()["deduplicated"] is True
+    assert first.json()["learning_asset_bundle_revision_id"]
+    assert (
+        second.json()["learning_asset_bundle_revision_id"]
+        == first.json()["learning_asset_bundle_revision_id"]
+    )
+
+    active_assets = repository.asset_repository.load_bundle("course-api")
+    assert active_assets is not None
+    assert active_assets["bundle_revision_id"] == first.json()[
+        "learning_asset_bundle_revision_id"
+    ]
+    assert all(
+        "用自己的话说明" not in item["prompt"]
+        for item in active_assets["assets"]["questions"]
+    )
+
+    saved_course = repository.course_storage.course
+    assert saved_course["question_bank_bundle_revision_id"] == first.json()[
+        "bundle_revision_id"
+    ]
+    assert saved_course["learning_asset_bundle_revision_id"] == first.json()[
+        "learning_asset_bundle_revision_id"
+    ]
+    assert saved_course["current_course_version_id"]
+    assert (
+        repository.version_repository.current_version_id("course-api")
+        == saved_course["current_course_version_id"]
+    )
+    assert repository.course_storage.save_count == 1
 
 
 def test_question_bank_rebuild_preserves_teacher_review_decisions(monkeypatch, tmp_path):
