@@ -60,7 +60,8 @@ describe('CourseTaskCenter', () => {
     const workspace = useCourseWorkspaceStore()
     generation.globalTasks = [{
       id: 'task-2', course_id: 'course-1', course_name: '线性代数', status: 'waiting_for_review',
-      progress: 28, current_phase: 'blueprint_ready',
+      progress: 35, current_phase: 'outline_ready',
+      phase_detail: { artifact_type: 'course_outline', completed_items: 1, total_items: 1 },
     }]
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
       draft: {
@@ -73,7 +74,9 @@ describe('CourseTaskCenter', () => {
     const wrapper = mountCenter()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('确认课程蓝图')
+    expect(wrapper.text()).toContain('确认课程目录')
+    expect(wrapper.text()).toContain('确认后才会逐节生成知识包和正文')
+    expect(wrapper.text()).toContain('目录小节')
     await wrapper.find('.blueprint-nodes input').setValue('向量空间与线性映射')
     await wrapper.find('.task-actions .primary-button').trigger('click')
     await flushPromises()
@@ -127,6 +130,39 @@ describe('CourseTaskCenter', () => {
     await wrapper.get('.task-actions .primary-button').trigger('click')
     await flushPromises()
     expect(resume).toHaveBeenCalledWith('course-1')
+  })
+
+  it('显示当前知识包进度、真实失败原因和知识阶段检查点', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-knowledge', course_id: 'course-1', course_name: '线性代数', status: 'failed',
+      progress: 39, current_phase: 'section_knowledge_validation',
+      message: '第二小节知识包未通过检查',
+      error: '小节「线性映射」知识包缺少可验证掌握标准',
+      phase_detail: {
+        artifact_type: 'section_knowledge_package',
+        item_name: '线性映射',
+        completed_items: 1,
+        total_items: 3,
+      },
+      recovery: {
+        state: 'manual_resume', can_resume: true, reason_code: 'checkpoint_available', reason: 'checkpoint available',
+        checkpoint: {
+          phase: 'section_knowledge_validation', completed_nodes: 0, total_nodes: 3,
+          draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [],
+          outline_ready: true, completed_knowledge_packages: 1, total_knowledge_packages: 3,
+        },
+      },
+    }]
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('检查当前小节知识包')
+    expect(wrapper.text()).toContain('知识包进度')
+    expect(wrapper.text()).toContain('1 / 3')
+    expect(wrapper.text()).toContain('具体原因：小节「线性映射」知识包缺少可验证掌握标准')
+    expect(wrapper.text()).toContain('目录已保留，知识包已完成 1/3')
+    expect(wrapper.text()).not.toContain('已保留 0/3 个内容块')
   })
 
   it('把已发布警告显示为可学习建议，而不是失败任务', async () => {

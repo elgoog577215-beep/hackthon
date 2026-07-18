@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import os
 import uuid
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
@@ -52,6 +53,8 @@ from course_generation_strategy import (
     classify_generation_use_case,
 )
 from course_generation_workflow import (
+    PIPELINE_VERSION,
+    apply_section_knowledge_package,
     attach_difficulty_artifacts,
     attach_generation_artifacts_to_plan,
     attach_pedagogy_profile,
@@ -59,8 +62,12 @@ from course_generation_workflow import (
     build_course_generation_artifacts,
     build_node_generation_context,
     build_outline_generation_context,
+    normalize_course_outline_contract,
     normalize_course_plan_contract,
+    normalize_section_knowledge_package,
+    validate_course_outline_constraints,
     validate_course_plan_constraints,
+    validate_section_knowledge_package,
 )
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
@@ -247,6 +254,7 @@ class CourseService(AIBase):
         secondary_mode: str | None = None,
         secondary_intensity: str | None = None,
         existing_course_data: dict[str, Any] | None = None,
+        stop_after_outline: bool = False,
         on_phase: Callable[..., Awaitable[None] | None] | None = None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
     ) -> dict[str, Any]:
@@ -274,10 +282,11 @@ class CourseService(AIBase):
         ) and str(existing.get("generation_pipeline_version") or "") in {
             "course_generation_v3",
             "course_generation_v4",
+            "course_generation_v5",
         }
         if checkpoint_ready:
             artifacts = {
-                "pipeline_version": existing.get("generation_pipeline_version") or "course_generation_v4",
+                "pipeline_version": PIPELINE_VERSION,
                 "material_cards": existing.get("material_cards") or [],
                 "course_generation_brief": existing.get("course_generation_brief") or {},
                 "material_assets": existing.get("material_assets") or [],
@@ -398,71 +407,99 @@ class CourseService(AIBase):
             "教学画像与难度契约已确定",
             phase_progress=100,
         )
-        prompt = self._prompt_composer.build_outline_prompt(
-            subject=topic,
-            audience=audience,
-            brief=artifacts["course_generation_brief"],
-            profile=profile,
-            difficulty_profile=difficulty_profile.to_dict(),
-            gap_assessment=gap_assessment.to_dict(),
-            adaptation_decision=adaptation_decision.to_dict(),
-            material_context=build_outline_generation_context(artifacts),
+        saved_plan = existing.get("course_plan") or existing.get("course_outline")
+        plan: dict[str, Any] | None = (
+            normalize_course_outline_contract(deepcopy(saved_plan))
+            if isinstance(saved_plan, dict) and saved_plan.get("chapters")
+            else None
         )
-        response = await self._call_llm_with_heartbeat(
-            f"为「{topic}」生成课程蓝图，只输出 JSON。",
-            prompt,
-            enable_thinking=True,
-            on_phase=on_phase,
-            phase="pedagogy_resolution",
-            base_progress=32,
-        )
-        plan, plan_constraint_report = self._validated_course_plan(
-            response,
-            artifacts["course_generation_brief"],
-        )
-        if not plan_constraint_report.get("passed"):
-            await self._notify_phase(
-                on_phase,
-                "blueprint_generation",
-                38,
-                "蓝图未通过格式或硬约束检查，正在重新规划",
-                phase_progress=40,
-                phase_detail={
-                    "issue_codes": [
-                        item.get("code")
-                        for item in plan_constraint_report.get("issues") or []
-                    ],
-                },
-            )
-            correction_prompt = self._prompt_composer.build_outline_correction_prompt(
-                original_prompt=prompt,
-                brief=artifacts["course_generation_brief"],
-                issues=plan_constraint_report.get("issues") or [],
-            )
-            corrected_response = await self._call_llm(
-                f"重新生成「{topic}」课程蓝图，修复上一次的验收问题。",
-                correction_prompt,
-                enable_thinking=False,
-            )
-            plan, plan_constraint_report = self._validated_course_plan(
-                corrected_response,
+        plan_constraint_report = (
+            validate_course_outline_constraints(
+                plan or {},
                 artifacts["course_generation_brief"],
             )
+        )
+        outline_was_generated = not plan_constraint_report.get("passed")
+        if not plan_constraint_report.get("passed"):
+            prompt = self._prompt_composer.build_outline_prompt(
+                subject=topic,
+                audience=audience,
+                brief=artifacts["course_generation_brief"],
+                profile=profile,
+                difficulty_profile=difficulty_profile.to_dict(),
+                gap_assessment=gap_assessment.to_dict(),
+                adaptation_decision=adaptation_decision.to_dict(),
+                material_context=build_outline_generation_context(artifacts),
+            )
+            response = await self._call_llm_with_heartbeat(
+                f"为「{topic}」生成轻量课程目录，只输出 JSON。",
+                prompt,
+                enable_thinking=True,
+                on_phase=on_phase,
+                phase="outline_generation",
+                base_progress=32,
+                heartbeat_message="仍在等待 AI 生成轻量课程目录",
+            )
+            plan, plan_constraint_report = self._validated_course_outline(
+                response,
+                artifacts["course_generation_brief"],
+            )
+            if not plan_constraint_report.get("passed"):
+                await self._notify_phase(
+                    on_phase,
+                    "outline_validation",
+                    34,
+                    "课程目录未通过形状或责任检查，正在局部重新规划目录",
+                    phase_progress=50,
+                    phase_detail={
+                        "artifact_type": "course_outline",
+                        "issue_codes": [
+                            item.get("code")
+                            for item in plan_constraint_report.get("issues") or []
+                        ],
+                    },
+                )
+                correction_prompt = self._prompt_composer.build_outline_correction_prompt(
+                    original_prompt=prompt,
+                    brief=artifacts["course_generation_brief"],
+                    issues=plan_constraint_report.get("issues") or [],
+                )
+                corrected_response = await self._call_llm_with_heartbeat(
+                    f"重新生成「{topic}」轻量课程目录，修复上一次的验收问题。",
+                    correction_prompt,
+                    enable_thinking=False,
+                    on_phase=on_phase,
+                    phase="outline_validation",
+                    base_progress=34,
+                    heartbeat_message="仍在等待 AI 修复轻量课程目录",
+                )
+                plan, plan_constraint_report = self._validated_course_outline(
+                    corrected_response,
+                    artifacts["course_generation_brief"],
+                )
         if not plan_constraint_report.get("passed") or plan is None:
             messages = "；".join(
-                str(item.get("message") or "未知蓝图错误")
+                str(item.get("message") or "未知目录错误")
                 for item in plan_constraint_report.get("issues") or []
             )
             raise AIProviderRequestError(
-                f"课程蓝图两次未通过结构验收：{messages or '无法解析完整 JSON'}"
+                f"轻量课程目录未通过结构验收：{messages or '无法解析完整 JSON'}"
             )
+        if outline_was_generated:
+            # The outline stage never gets to smuggle knowledge or relation payloads
+            # past the review/freeze boundary, even if a model ignores the prompt.
+            plan = self._outline_only_plan(plan)
 
         await self._notify_phase(
             on_phase,
-            "blueprint_generation",
-            42,
-            "课程蓝图初稿已生成",
-            phase_progress=75,
+            "outline_ready",
+            35,
+            "轻量课程目录已通过检查",
+            phase_progress=100,
+            phase_detail={
+                "artifact_type": "course_outline",
+                **(plan_constraint_report.get("actual") or {}),
+            },
         )
         plan, evidence_coverage_plan = attach_evidence_to_plan(
             plan,
@@ -478,19 +515,17 @@ class CourseService(AIBase):
             profile=difficulty_profile,
             adaptation=adaptation_decision,
         )
-        blueprint = build_course_blueprint_from_plan(plan, artifacts)
-        blueprint["course_plan_constraint_report"] = plan_constraint_report
-        blueprint_report = validate_blueprint(blueprint)
-        nodes = self._convert_plan_to_nodes(plan, course_id)
-
-        await self._notify_phase(
-            on_phase,
-            "blueprint_validation",
-            50,
-            "课程蓝图和证据覆盖检查完成",
-            phase_progress=100,
+        if existing.get("nodes"):
+            plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
+        outline_plan = self._outline_only_plan(plan)
+        outline_blueprint = build_course_blueprint_from_plan(outline_plan, artifacts)
+        outline_blueprint["course_outline_constraint_report"] = plan_constraint_report
+        nodes = self._merge_generation_nodes(
+            self._convert_plan_to_nodes(plan, course_id),
+            existing.get("nodes") or [],
         )
         course_data = {
+            **deepcopy(existing),
             "course_id": course_id,
             "course_name": plan.get("course_title", topic),
             "generation_schema_version": artifacts["pipeline_version"],
@@ -522,7 +557,8 @@ class CourseService(AIBase):
             "course_difficulty_curve": course_difficulty_curve,
             "nodes": nodes,
             "course_plan": plan,
-            "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
+            "course_outline": outline_plan,
+            "knowledge_relations": deepcopy(existing.get("knowledge_relations") or []),
             "material_cards": artifacts["material_cards"],
             "course_generation_brief": artifacts["course_generation_brief"],
             "material_assets": artifacts.get("material_assets", []),
@@ -530,11 +566,62 @@ class CourseService(AIBase):
             "parsed_documents": artifacts.get("parsed_documents", []),
             "evidence_index": _compact_evidence_index(artifacts.get("evidence_catalog", [])),
             "evidence_coverage_plan": evidence_coverage_plan,
-            "course_blueprint": blueprint,
-            "course_plan_constraint_report": plan_constraint_report,
-            "blueprint_validation_report": blueprint_report,
+            "course_blueprint": outline_blueprint,
+            "course_outline_constraint_report": plan_constraint_report,
+            "blueprint_validation_report": validate_blueprint(outline_blueprint),
             "generation_quality_report": None,
+            "generation_status": "outline_ready",
+            "generation_stage_artifacts": {
+                **deepcopy(existing.get("generation_stage_artifacts") or {}),
+                "outline": {
+                    "status": "completed",
+                    "schema_version": "course_outline_v1",
+                    "actual": deepcopy(plan_constraint_report.get("actual") or {}),
+                },
+            },
         }
+        await self._notify_checkpoint(on_checkpoint, course_data)
+        if stop_after_outline:
+            self.register_course_generation_metadata(course_id, course_data)
+            return course_data
+
+        plan = await self._enrich_section_knowledge_packages(
+            course_data=course_data,
+            plan=plan,
+            artifacts=artifacts,
+            on_phase=on_phase,
+            on_checkpoint=on_checkpoint,
+        )
+        plan = normalize_course_plan_contract(plan)
+        full_plan_report = validate_course_plan_constraints(
+            plan,
+            artifacts["course_generation_brief"],
+        )
+        if not full_plan_report.get("passed"):
+            messages = "；".join(
+                str(item.get("message") or "未知知识蓝图错误")
+                for item in full_plan_report.get("issues") or []
+            )
+            raise AIProviderRequestError(
+                f"逐节知识包合并后未通过课程知识验收：{messages or '知识结构不完整'}"
+            )
+        blueprint = build_course_blueprint_from_plan(plan, artifacts)
+        blueprint["course_plan_constraint_report"] = full_plan_report
+        blueprint["course_outline_constraint_report"] = plan_constraint_report
+        blueprint_report = validate_blueprint(blueprint)
+        course_data.update({
+            "course_name": plan.get("course_title", topic),
+            "course_plan": plan,
+            "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
+            "nodes": self._merge_generation_nodes(
+                self._convert_plan_to_nodes(plan, course_id),
+                course_data.get("nodes") or [],
+            ),
+            "course_blueprint": blueprint,
+            "course_plan_constraint_report": full_plan_report,
+            "blueprint_validation_report": blueprint_report,
+            "generation_status": "knowledge_compiled",
+        })
         course_knowledge_map = compile_course_knowledge_map(course_data)
         course_knowledge_base = compile_course_knowledge_base(
             course_data,
@@ -556,8 +643,387 @@ class CourseService(AIBase):
         course_data["course_blueprint"]["course_coherence_revision_id"] = (
             coherence_contract["revision_id"]
         )
+        course_data["generation_status"] = "blueprint_ready"
+        await self._notify_checkpoint(on_checkpoint, course_data)
+        await self._notify_phase(
+            on_phase,
+            "blueprint_validation",
+            50,
+            "逐节知识包、关系与全课一致性契约已通过检查",
+            phase_progress=100,
+            phase_detail={
+                "artifact_type": "course_knowledge_base",
+                "completed_items": len([
+                    node for node in course_data.get("nodes") or []
+                    if int(node.get("node_level") or 1) == 2
+                ]),
+                "total_items": len([
+                    node for node in course_data.get("nodes") or []
+                    if int(node.get("node_level") or 1) == 2
+                ]),
+                "course_knowledge_base_revision_id": course_knowledge_base.get("revision_id"),
+            },
+        )
         self.register_course_generation_metadata(course_id, course_data)
         return course_data
+
+    async def _enrich_section_knowledge_packages(
+        self,
+        *,
+        course_data: dict[str, Any],
+        plan: dict[str, Any],
+        artifacts: dict[str, Any],
+        on_phase: Callable[..., Awaitable[None] | None] | None,
+        on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+    ) -> dict[str, Any]:
+        """Generate and checkpoint the smallest retryable knowledge unit."""
+        sections = [
+            section
+            for chapter in plan.get("chapters") or []
+            for section in chapter.get("sections") or []
+            if isinstance(section, dict)
+        ]
+        total = len(sections)
+        available_names: list[str] = []
+        stage_artifacts = course_data.setdefault("generation_stage_artifacts", {})
+        package_states = stage_artifacts.setdefault("section_knowledge", {})
+        material_context = build_outline_generation_context(artifacts)[-7000:]
+
+        for index, section in enumerate(sections, start=1):
+            node_id = str(section.get("node_id") or f"section-{index}")
+            section_title = str(section.get("title") or node_id)
+            existing_package = normalize_section_knowledge_package({
+                "knowledge_structure": section.get("knowledge_structure") or [],
+                "reused_knowledge_names": section.get("reused_knowledge_names") or [],
+                "knowledge_relations": section.get("knowledge_relations") or [],
+            })
+            package_report = validate_section_knowledge_package(
+                existing_package,
+                section_title=section_title,
+                available_knowledge_names=available_names,
+            )
+            package = existing_package if package_report.get("passed") else None
+
+            if package is None:
+                await self._notify_phase(
+                    on_phase,
+                    "section_knowledge_generation",
+                    35 + int((index - 1) / max(1, total) * 13),
+                    f"正在生成第 {index}/{total} 个小节知识包：{section_title}",
+                    phase_progress=int((index - 1) / max(1, total) * 100),
+                    phase_detail={
+                        "artifact_type": "section_knowledge_package",
+                        "item_id": node_id,
+                        "item_name": section_title,
+                        "item_index": index,
+                        "item_total": total,
+                        "completed_items": index - 1,
+                        "total_items": total,
+                    },
+                )
+                prompt = self._prompt_composer.build_section_knowledge_prompt(
+                    course_title=str(plan.get("course_title") or course_data.get("course_name") or ""),
+                    positioning=str(plan.get("positioning") or ""),
+                    section={
+                        key: deepcopy(section.get(key))
+                        for key in (
+                            "node_id",
+                            "section_number",
+                            "title",
+                            "learning_objective",
+                            "prerequisite_node_ids",
+                            "assessment",
+                            "scope_boundary",
+                        )
+                    },
+                    available_knowledge_names=available_names,
+                    material_context=material_context,
+                )
+                response = await self._call_llm_with_heartbeat(
+                    f"为小节「{section_title}」生成独立知识包，只输出 JSON。",
+                    prompt,
+                    enable_thinking=True,
+                    on_phase=on_phase,
+                    phase="section_knowledge_generation",
+                    base_progress=35 + int((index - 1) / max(1, total) * 13),
+                    heartbeat_message=f"仍在等待 AI 生成小节「{section_title}」的知识包",
+                    phase_detail={
+                        "artifact_type": "section_knowledge_package",
+                        "item_id": node_id,
+                        "item_name": section_title,
+                        "item_index": index,
+                        "item_total": total,
+                        "completed_items": index - 1,
+                        "total_items": total,
+                    },
+                )
+                package, package_report = self._validated_section_knowledge(
+                    response,
+                    section_title=section_title,
+                    available_knowledge_names=available_names,
+                )
+                if not package_report.get("passed"):
+                    await self._notify_phase(
+                        on_phase,
+                        "section_knowledge_validation",
+                        35 + int((index - 1) / max(1, total) * 13),
+                        f"小节「{section_title}」知识包未通过检查，正在只修复当前小节",
+                        phase_progress=int((index - 1) / max(1, total) * 100),
+                        phase_detail={
+                            "artifact_type": "section_knowledge_package",
+                            "item_id": node_id,
+                            "item_name": section_title,
+                            "item_index": index,
+                            "item_total": total,
+                            "completed_items": index - 1,
+                            "total_items": total,
+                            "issue_codes": [
+                                item.get("code")
+                                for item in package_report.get("issues") or []
+                            ],
+                        },
+                    )
+                    relation_only = (
+                        package is not None
+                        and self._relation_only_package_issues(package_report)
+                    )
+                    if relation_only:
+                        correction_prompt = self._prompt_composer.build_section_relation_correction_prompt(
+                            section_title=section_title,
+                            local_knowledge_names=[
+                                str(point.get("name") or "")
+                                for group in package.get("knowledge_structure") or []
+                                if isinstance(group, dict)
+                                for point in group.get("knowledge_points") or []
+                                if isinstance(point, dict)
+                            ],
+                            available_knowledge_names=available_names,
+                            original_relations=package.get("knowledge_relations") or [],
+                            issues=package_report.get("issues") or [],
+                        )
+                        correction_user_prompt = (
+                            f"只修复小节「{section_title}」的知识关系批次，"
+                            "不得改动已通过的知识结构。"
+                        )
+                        correction_heartbeat = (
+                            f"仍在等待 AI 修复小节「{section_title}」的关系批次"
+                        )
+                    else:
+                        correction_prompt = self._prompt_composer.build_section_knowledge_correction_prompt(
+                            original_prompt=prompt,
+                            issues=package_report.get("issues") or [],
+                        )
+                        correction_user_prompt = (
+                            f"修复小节「{section_title}」知识包，只输出当前小节 JSON。"
+                        )
+                        correction_heartbeat = (
+                            f"仍在等待 AI 修复小节「{section_title}」的知识包"
+                        )
+                    corrected = await self._call_llm_with_heartbeat(
+                        correction_user_prompt,
+                        correction_prompt,
+                        enable_thinking=False,
+                        on_phase=on_phase,
+                        phase="section_knowledge_validation",
+                        base_progress=35 + int((index - 1) / max(1, total) * 13),
+                        heartbeat_message=correction_heartbeat,
+                        phase_detail={
+                            "artifact_type": "section_knowledge_package",
+                            "item_id": node_id,
+                            "item_name": section_title,
+                            "item_index": index,
+                            "item_total": total,
+                            "completed_items": index - 1,
+                            "total_items": total,
+                        },
+                    )
+                    if relation_only:
+                        relation_payload = self._extract_json(corrected) if corrected else None
+                        if isinstance(relation_payload, dict):
+                            package = normalize_section_knowledge_package({
+                                **deepcopy(package),
+                                "reused_knowledge_names": relation_payload.get(
+                                    "reused_knowledge_names"
+                                ) or [],
+                                "knowledge_relations": relation_payload.get(
+                                    "knowledge_relations"
+                                ) or [],
+                            })
+                            package_report = validate_section_knowledge_package(
+                                package,
+                                section_title=section_title,
+                                available_knowledge_names=available_names,
+                            )
+                    else:
+                        package, package_report = self._validated_section_knowledge(
+                            corrected,
+                            section_title=section_title,
+                            available_knowledge_names=available_names,
+                        )
+            if package is None or not package_report.get("passed"):
+                messages = "；".join(
+                    str(item.get("message") or "未知知识包错误")
+                    for item in package_report.get("issues") or []
+                )
+                package_states[node_id] = {
+                    "status": "failed",
+                    "item_index": index,
+                    "item_total": total,
+                    "issues": deepcopy(package_report.get("issues") or []),
+                }
+                course_data["generation_status"] = "section_knowledge_failed"
+                await self._notify_checkpoint(on_checkpoint, course_data)
+                raise AIProviderRequestError(
+                    f"小节「{section_title}」知识包未通过验收：{messages or '无法解析当前小节 JSON'}"
+                )
+
+            apply_section_knowledge_package(plan, node_id, package)
+            available_names = list(dict.fromkeys([
+                *available_names,
+                *[
+                    str(point.get("name") or "").strip()
+                    for group in package.get("knowledge_structure") or []
+                    if isinstance(group, dict)
+                    for point in group.get("knowledge_points") or []
+                    if isinstance(point, dict) and str(point.get("name") or "").strip()
+                ],
+            ]))
+            plan["knowledge_relations"] = [
+                deepcopy(relation)
+                for chapter in plan.get("chapters") or []
+                for item in chapter.get("sections") or []
+                for relation in item.get("knowledge_relations") or []
+                if isinstance(relation, dict)
+            ]
+            package_states[node_id] = {
+                "status": "completed",
+                "schema_version": package.get("schema_version"),
+                "item_index": index,
+                "item_total": total,
+                "quality_report": deepcopy(package_report),
+            }
+            course_data.update({
+                "course_plan": deepcopy(plan),
+                "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
+                "nodes": self._merge_generation_nodes(
+                    self._convert_plan_to_nodes(plan, str(course_data.get("course_id") or "")),
+                    course_data.get("nodes") or [],
+                ),
+                "course_blueprint": build_course_blueprint_from_plan(plan, artifacts),
+                "generation_status": "section_knowledge_generation",
+            })
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            await self._notify_phase(
+                on_phase,
+                "section_knowledge_generation",
+                35 + int(index / max(1, total) * 13),
+                f"已完成第 {index}/{total} 个小节知识包：{section_title}",
+                phase_progress=int(index / max(1, total) * 100),
+                phase_detail={
+                    "artifact_type": "section_knowledge_package",
+                    "item_id": node_id,
+                    "item_name": section_title,
+                    "item_index": index,
+                    "item_total": total,
+                    "completed_items": index,
+                    "total_items": total,
+                },
+            )
+        return plan
+
+    @staticmethod
+    def _relation_only_package_issues(report: dict[str, Any]) -> bool:
+        relation_issue_codes = {
+            "section_knowledge:invalid_relation_type",
+            "section_knowledge:invalid_relation_endpoint",
+            "section_knowledge:relation_missing_reason",
+            "section_knowledge:derivation_missing_steps",
+            "section_knowledge:contrast_missing_distinction",
+        }
+        issue_codes = {
+            str(item.get("code") or "")
+            for item in report.get("issues") or []
+            if isinstance(item, dict)
+        }
+        return bool(issue_codes) and issue_codes <= relation_issue_codes
+
+    @staticmethod
+    def _outline_only_plan(plan: dict[str, Any]) -> dict[str, Any]:
+        outline = deepcopy(plan)
+        outline["knowledge_relations"] = []
+        for chapter in outline.get("chapters") or []:
+            for section in chapter.get("sections") or []:
+                section["key_points"] = []
+                section["knowledge_structure"] = []
+                section["reused_knowledge_names"] = []
+                section.pop("knowledge_relations", None)
+                section.pop("knowledge_package_status", None)
+        return outline
+
+    @staticmethod
+    def _merge_outline_node_edits(
+        plan: dict[str, Any],
+        nodes: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        by_id = {
+            str(node.get("node_id") or ""): node
+            for node in nodes
+            if int(node.get("node_level") or 1) == 2
+        }
+        for chapter in plan.get("chapters") or []:
+            for section in chapter.get("sections") or []:
+                node = by_id.get(str(section.get("node_id") or ""))
+                if not node:
+                    continue
+                section_number = str(section.get("section_number") or "")
+                node_name = str(node.get("node_name") or "").strip()
+                prefix = f"{section_number} "
+                section["title"] = (
+                    node_name[len(prefix):].strip()
+                    if section_number and node_name.startswith(prefix)
+                    else node_name or section.get("title")
+                )
+                for field in (
+                    "learning_objective",
+                    "scope_boundary",
+                    "assessment",
+                    "prerequisite_node_ids",
+                ):
+                    if field in node:
+                        section[field] = deepcopy(node[field])
+        return plan
+
+    @staticmethod
+    def _merge_generation_nodes(
+        generated_nodes: list[dict[str, Any]],
+        existing_nodes: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        existing_by_id = {
+            str(node.get("node_id") or ""): node
+            for node in existing_nodes
+        }
+        content_fields = {
+            "node_content",
+            "node_content_draft",
+            "content_blocks",
+            "course_blocks",
+            "generation_status",
+            "generated_chars",
+            "generation_quality",
+            "grounding_annotations",
+            "grounding_invalid_refs",
+            "needs_manual_review",
+            "error_summary",
+        }
+        merged_nodes: list[dict[str, Any]] = []
+        for generated in generated_nodes:
+            previous = existing_by_id.get(str(generated.get("node_id") or ""), {})
+            merged = {**deepcopy(previous), **deepcopy(generated)}
+            for field in content_fields:
+                if field in previous and previous.get(field) not in (None, "", []):
+                    merged[field] = deepcopy(previous[field])
+            merged_nodes.append(merged)
+        return merged_nodes
 
     async def _resolve_course_pedagogy(
         self,
@@ -633,6 +1099,9 @@ class CourseService(AIBase):
         phase: str,
         base_progress: int,
         heartbeat_seconds: float = 15.0,
+        stage_timeout_seconds: float | None = None,
+        heartbeat_message: str = "仍在等待 AI 返回当前生成产物",
+        phase_detail: dict[str, Any] | None = None,
     ) -> str | None:
         """Run `_call_llm` while periodically re-announcing the same phase with
         an elapsed-time message, so a slow/degraded AI provider response
@@ -641,8 +1110,27 @@ class CourseService(AIBase):
         "still working, Ns elapsed" instead of a progress bar frozen at a flat
         percentage that looks identical to a hang.
         """
+        timeout_seconds = max(
+            1.0,
+            float(
+                stage_timeout_seconds
+                if stage_timeout_seconds is not None
+                else os.getenv("AI_STAGE_TIMEOUT_SECONDS", "300")
+            ),
+        )
+        call = self._call_llm(
+            user_prompt,
+            system_prompt,
+            enable_thinking=enable_thinking,
+        )
         if not on_phase:
-            return await self._call_llm(user_prompt, system_prompt, enable_thinking=enable_thinking)
+            try:
+                return await asyncio.wait_for(call, timeout=timeout_seconds)
+            except asyncio.TimeoutError as exc:
+                raise AIProviderRequestError(
+                    f"{phase} 阶段超过 {int(timeout_seconds)} 秒仍未返回，"
+                    "已停止当前最小生成单元，可从最近检查点继续"
+                ) from exc
 
         done = asyncio.Event()
 
@@ -658,13 +1146,35 @@ class CourseService(AIBase):
                         on_phase,
                         phase,
                         base_progress,
-                        f"仍在等待 AI 生成课程大纲（已等待约 {elapsed} 秒），AI 服务响应较慢时可能需要几分钟...",
+                        f"{heartbeat_message}（已等待约 {elapsed} 秒）",
                         phase_progress=100,
+                        phase_detail={
+                            **(phase_detail or {}),
+                            "heartbeat": True,
+                            "elapsed_seconds": elapsed,
+                        },
                     )
 
         heartbeat_task = asyncio.create_task(_heartbeat())
         try:
-            return await self._call_llm(user_prompt, system_prompt, enable_thinking=enable_thinking)
+            return await asyncio.wait_for(call, timeout=timeout_seconds)
+        except asyncio.TimeoutError as exc:
+            await self._notify_phase(
+                on_phase,
+                phase,
+                base_progress,
+                f"{heartbeat_message}超时，已保留最近检查点",
+                phase_progress=100,
+                phase_detail={
+                    **(phase_detail or {}),
+                    "timed_out": True,
+                    "timeout_seconds": timeout_seconds,
+                },
+            )
+            raise AIProviderRequestError(
+                f"{phase} 阶段超过 {int(timeout_seconds)} 秒仍未返回，"
+                "已停止当前最小生成单元，可从最近检查点继续"
+            ) from exc
         finally:
             done.set()
             await heartbeat_task
@@ -734,6 +1244,52 @@ class CourseService(AIBase):
     # ------------------------------------------------------------------
     # 课程规划
     # ------------------------------------------------------------------
+
+    def _validated_course_outline(
+        self,
+        response: str | None,
+        brief: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        parsed = self._extract_json(response) if response else None
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("chapters"), list):
+            report = validate_course_outline_constraints({}, brief)
+            return None, report
+        raw_report = validate_course_outline_constraints(parsed, brief)
+        malformed_codes = {
+            "outline:malformed_chapters",
+            "outline:malformed_section_lists",
+            "outline:malformed_section",
+        }
+        if any(
+            item.get("code") in malformed_codes
+            for item in raw_report.get("issues") or []
+        ):
+            return None, raw_report
+        plan = normalize_course_outline_contract(parsed)
+        return plan, validate_course_outline_constraints(plan, brief)
+
+    def _validated_section_knowledge(
+        self,
+        response: str | None,
+        *,
+        section_title: str,
+        available_knowledge_names: list[str],
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        parsed = self._extract_json(response) if response else None
+        if not isinstance(parsed, dict):
+            empty = normalize_section_knowledge_package({})
+            return None, validate_section_knowledge_package(
+                empty,
+                section_title=section_title,
+                available_knowledge_names=available_knowledge_names,
+            )
+        package = normalize_section_knowledge_package(parsed)
+        report = validate_section_knowledge_package(
+            package,
+            section_title=section_title,
+            available_knowledge_names=available_knowledge_names,
+        )
+        return package, report
 
     def _validated_course_plan(
         self,

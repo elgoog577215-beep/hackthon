@@ -90,6 +90,10 @@ class BlueprintService:
                 "generation_status": "pending",
             }],
         })
+        if kwargs.get("stop_after_outline"):
+            for node in course["nodes"]:
+                node["knowledge_structure"] = []
+                node["key_points"] = []
         return course
 
 
@@ -123,14 +127,8 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert workspace_course is not None
     assert workspace_course["nodes"][0]["node_name"] == "概念"
     assert "knowledge_library_binding" not in workspace_course
-    knowledge_base = workspace_course["course_knowledge_base"]
-    assert knowledge_base["schema_version"] == "course_knowledge_base_v2"
-    assert knowledge_base["lifecycle_status"] == "active"
-    assert knowledge_base["reference_catalog"]["required"] is False
-    assert (
-        workspace_course["course_knowledge_map"]["binding_revision_id"]
-        == knowledge_base["revision_id"]
-    )
+    assert workspace_course["nodes"][0]["knowledge_structure"] == []
+    assert "course_knowledge_base" not in workspace_course
     preview = manager.get_generation_preview(job["course_id"])
     assert preview is not None
     assert preview["projection"] == "generation_workspace"
@@ -171,14 +169,7 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert resumed["job_id"] == job["job_id"]
     assert manager.tasks[job["job_id"]]["status"] == "pending"
     confirmed_course = manager.get_generation_workspace_course(job["course_id"])
-    confirmed_knowledge = confirmed_course["course_knowledge_base"]
-    assert confirmed_knowledge["knowledge_base_id"] == knowledge_base["knowledge_base_id"]
-    assert {
-        item["knowledge_id"] for item in confirmed_knowledge["knowledge_points"]
-    } == {
-        item["knowledge_id"] for item in knowledge_base["knowledge_points"]
-    }
-    assert confirmed_knowledge["lifecycle_status"] == "active"
+    assert "course_knowledge_base" not in confirmed_course
     assert await manager._task_queue.get() == job["job_id"]
     workspaces.set_status(job["job_id"], "published")
     assert manager.get_generation_preview(job["course_id"]) is None

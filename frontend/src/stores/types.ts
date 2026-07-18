@@ -309,6 +309,9 @@ export interface TaskRecoveryCheckpoint {
     draft_node_ids: string[]
     failed_node_ids: string[]
     interrupted_node_ids: string[]
+    outline_ready?: boolean
+    completed_knowledge_packages?: number
+    total_knowledge_packages?: number
     workspace_status?: string | null
     updated_at?: string | null
 }
@@ -345,6 +348,7 @@ export interface Task {
     difficulty?: string
     style?: string
     requirements?: string
+    error?: string
     recovery?: TaskRecovery
     publicationAllowed?: boolean
     qualityStatus?: string

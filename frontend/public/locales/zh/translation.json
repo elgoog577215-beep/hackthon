@@ -85,7 +85,7 @@
       "pending": "等待生成",
       "running": "正在生成",
       "paused": "已暂停",
-      "waitingReview": "等待处理",
+      "waitingReview": "等待确认目录",
       "conflict": "需要确认",
       "error": "生成失败",
       "warnings": "生成完成但有警告",
@@ -105,6 +105,8 @@
     "untitled": "未命名课程",
     "phase": "当前阶段",
     "nodes": "内容进度",
+    "outlineItems": "目录小节",
+    "knowledgePackages": "知识包进度",
     "remaining": "预计剩余",
     "retry": "重新尝试",
     "resumeCheckpoint": "从保存点继续",
@@ -117,6 +119,12 @@
       "requirementAnalysis": "整理课程需求",
       "materialProcessing": "解析资料与证据",
       "pedagogyResolution": "确定教学结构与难度",
+      "outlineGeneration": "生成轻量课程目录",
+      "outlineValidation": "检查课程目录",
+      "outlineReady": "等待确认课程目录",
+      "sectionKnowledgeGeneration": "逐节生成知识包",
+      "sectionKnowledgeValidation": "检查当前小节知识包",
+      "knowledgeMapping": "编译全课知识关系",
       "blueprintGeneration": "生成课程蓝图",
       "blueprintValidation": "检查课程蓝图",
       "blueprintReady": "等待确认课程蓝图",
@@ -128,14 +136,14 @@
       "completed": "课程生成完成"
     },
     "blueprint": {
-      "title": "确认课程蓝图",
-      "help": "确认课程结构和学习目标后，后台才会继续生成正文。",
+      "title": "确认课程目录",
+      "help": "先确认章节、顺序和学习目标；确认后才会逐节生成知识包和正文。",
       "nodeName": "章节名称",
       "objective": "学习目标",
       "noNodes": "蓝图暂未返回可编辑节点，请刷新后重试。",
       "loadFailed": "课程蓝图读取失败，请刷新后重试。",
       "confirm": "确认并继续生成",
-      "confirmed": "蓝图已确认，课程继续在后台生成"
+      "confirmed": "课程目录已确认，系统开始逐节生成知识包和正文"
     },
     "problem": {
       "failed": "生成中断，可以从保存点继续",
@@ -147,11 +155,14 @@
       "conflict": "当前任务需要人工确认",
       "conflictHelp": "保留当前内容，刷新任务状态后再决定继续或取消。",
       "warning": "课程已生成，但仍有质量警告",
-      "warningHelp": "可以继续补齐失败节点，也可以先进入课程查看已生成内容。"
+      "warningHelp": "可以继续补齐失败节点，也可以先进入课程查看已生成内容。",
+      "detail": "具体原因：{error}"
     },
     "recovery": {
       "autoResuming": "正在恢复",
       "checkpoint": "已保留 {completed}/{total} 个内容块和 {drafts} 份草稿",
+      "outlineCheckpoint": "课程目录已保留，可从逐节知识包阶段继续",
+      "knowledgeCheckpoint": "目录已保留，知识包已完成 {completed}/{total}",
       "resumedLog": "已从保存点继续"
     }
   },
@@ -841,6 +852,13 @@
       "requirement_analysis": "分析生成要求",
       "material_processing": "处理参考资料",
       "pedagogy_resolution": "确定教学结构",
+      "outline_generation": "生成轻量课程目录",
+      "outline_validation": "检查课程目录",
+      "outline_ready": "等待确认课程目录",
+      "section_knowledge_generation": "逐节生成知识包",
+      "section_knowledge_validation": "检查当前小节知识包",
+      "knowledge_mapping": "编译全课知识关系",
+      "course_knowledge_blueprint": "编译全课知识关系",
       "blueprint_generation": "生成课程蓝图",
       "blueprint_validation": "检查课程蓝图",
       "blueprint_ready": "等待蓝图确认",

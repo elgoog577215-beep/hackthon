@@ -74,10 +74,6 @@ const normalizeTaskStatus = (status: string): Task['status'] => {
     return 'pending'
 }
 
-const generationPhaseLabel = (phase: string): string => (
-    phase ? t(`courseGeneration.phases.${phase}`, phase) : ''
-)
-
 // --- 类型重新导出（向后兼容） ---
 export type { ContentBlock, Node, Annotation, Note, Course, SelectionRewritePayload, SelectionRewriteResult } from './types'
 
@@ -238,7 +234,7 @@ export const useCourseStore = defineStore('course', {
                     localTask.status = taskData.status
                     localTask.progress = taskData.progress
                     const phase = taskData.current_phase || taskData.phase
-                    if (phase) localTask.currentPhase = generationPhaseLabel(String(phase))
+                    if (phase) localTask.currentPhase = String(phase)
                     localTask.phaseProgress = taskData.phase_progress ?? taskData.progress
                     localTask.phaseDetail = taskData.phase_detail || {}
                     if (taskData.status === 'running' || taskData.status === 'pending') {
@@ -418,7 +414,9 @@ export const useCourseStore = defineStore('course', {
             localTask.status = normalizeTaskStatus(String(task.status || 'pending'))
             localTask.progress = Number(task.progress || 0)
             localTask.currentStep = String(task.current_node_name || task.message || '')
-            localTask.currentPhase = generationPhaseLabel(String(task.phase || ''))
+            localTask.currentPhase = String(task.current_phase || task.phase || '')
+            localTask.phaseDetail = task.phase_detail || {}
+            localTask.error = task.error ? String(task.error) : undefined
             localTask.phaseProgress = Number(task.phase_progress || 0)
             localTask.currentNodes = (task.current_nodes || []) as Task['currentNodes']
             localTask.completedNodes = Number(task.completed_nodes || 0)

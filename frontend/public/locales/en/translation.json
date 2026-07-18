@@ -85,7 +85,7 @@
       "pending": "Waiting to generate",
       "running": "Generating",
       "paused": "Paused",
-      "waitingReview": "Needs attention",
+      "waitingReview": "Awaiting outline confirmation",
       "conflict": "Confirmation needed",
       "error": "Generation failed",
       "warnings": "Completed with warnings",
@@ -105,6 +105,8 @@
     "untitled": "Untitled course",
     "phase": "Current phase",
     "nodes": "Content progress",
+    "outlineItems": "Outline sections",
+    "knowledgePackages": "Knowledge package progress",
     "remaining": "Estimated remaining",
     "retry": "Try again",
     "resumeCheckpoint": "Resume from checkpoint",
@@ -117,6 +119,12 @@
       "requirementAnalysis": "Reviewing course requirements",
       "materialProcessing": "Parsing materials and evidence",
       "pedagogyResolution": "Setting teaching structure and difficulty",
+      "outlineGeneration": "Generating a lightweight course outline",
+      "outlineValidation": "Validating the course outline",
+      "outlineReady": "Waiting for outline confirmation",
+      "sectionKnowledgeGeneration": "Generating section knowledge packages",
+      "sectionKnowledgeValidation": "Validating the current section package",
+      "knowledgeMapping": "Compiling course-wide knowledge relations",
       "blueprintGeneration": "Generating the course blueprint",
       "blueprintValidation": "Validating the course blueprint",
       "blueprintReady": "Waiting for blueprint review",
@@ -128,14 +136,14 @@
       "completed": "Course generation complete"
     },
     "blueprint": {
-      "title": "Confirm course blueprint",
-      "help": "Confirm the course structure and objectives before content generation continues.",
+      "title": "Confirm course outline",
+      "help": "Confirm the sections, sequence, and objectives first. Knowledge packages and content start only after confirmation.",
       "nodeName": "Section name",
       "objective": "Learning objective",
       "noNodes": "No editable nodes were returned. Refresh and try again.",
       "loadFailed": "Could not load the course blueprint. Refresh and try again.",
       "confirm": "Confirm and continue",
-      "confirmed": "Blueprint confirmed. Course generation is continuing in the background."
+      "confirmed": "Outline confirmed. Section knowledge packages and content are now generating in the background."
     },
     "problem": {
       "failed": "Generation stopped and can resume from its checkpoint",
@@ -147,11 +155,14 @@
       "conflict": "This task needs confirmation",
       "conflictHelp": "Keep the current content, refresh the task, then decide whether to continue or cancel.",
       "warning": "The course completed with quality warnings",
-      "warningHelp": "Continue repairing failed nodes or open the available course content now."
+      "warningHelp": "Continue repairing failed nodes or open the available course content now.",
+      "detail": "Specific reason: {error}"
     },
     "recovery": {
       "autoResuming": "Resuming",
       "checkpoint": "Preserved {completed}/{total} content blocks and {drafts} drafts",
+      "outlineCheckpoint": "The course outline is preserved and can resume at section knowledge generation",
+      "knowledgeCheckpoint": "Outline preserved; completed {completed}/{total} knowledge packages",
       "resumedLog": "Resumed from checkpoint"
     }
   },
@@ -841,6 +852,13 @@
       "requirement_analysis": "Analyzing requirements",
       "material_processing": "Processing materials",
       "pedagogy_resolution": "Resolving teaching structure",
+      "outline_generation": "Generating a lightweight course outline",
+      "outline_validation": "Validating the course outline",
+      "outline_ready": "Awaiting course outline confirmation",
+      "section_knowledge_generation": "Generating section knowledge packages",
+      "section_knowledge_validation": "Validating the current section package",
+      "knowledge_mapping": "Compiling course-wide knowledge relations",
+      "course_knowledge_blueprint": "Compiling course-wide knowledge relations",
       "blueprint_generation": "Generating course blueprint",
       "blueprint_validation": "Validating course blueprint",
       "blueprint_ready": "Awaiting blueprint confirmation",

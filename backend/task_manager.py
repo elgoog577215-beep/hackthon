@@ -405,7 +405,7 @@ class TaskManager:
         course_data = {
             "course_id": course_id,
             "course_name": subject,
-            "generation_schema_version": "course_generation_v4",
+            "generation_schema_version": "course_generation_v5",
             "generation_status": "queued",
             "nodes": [],
             "generation_request": request_snapshot,
@@ -476,10 +476,12 @@ class TaskManager:
         if not impact.get("can_confirm", False):
             raise CourseVersionConflict("Blueprint contains locked conflicts")
         confirmed = merge_blueprint_draft(course_data, draft)
-        confirmed["generation_status"] = "content_generation"
+        plan = deepcopy(confirmed.get("course_plan") or confirmed.get("course_outline") or {})
+        if isinstance(plan, dict):
+            plan["course_title"] = str(confirmed.get("course_name") or plan.get("course_title") or "")
+            confirmed["course_plan"] = plan
+        confirmed["generation_status"] = "outline_confirmed"
         confirmed["blueprint_revision_id"] = impact.get("draft_blueprint_revision_id")
-        confirmed = await self._prepare_subject_knowledge(task_id, confirmed)
-        self._require_course_knowledge_ready(confirmed)
         frozen = self._version_repository.freeze_blueprint(course_id, confirmed)
         await self._save_task_course(task_id, confirmed)
         self._version_repository.delete_draft(course_id)
@@ -487,9 +489,9 @@ class TaskManager:
             task["blueprint_confirmed"] = True
             task["blueprint_revision_id"] = frozen["blueprint_revision_id"]
             task["status"] = "pending"
-            task["phase"] = "blueprint_ready"
+            task["phase"] = "outline_ready"
             task["phase_progress"] = 100
-            task["message"] = "蓝图已确认，等待生成正文"
+            task["message"] = "课程目录已确认，等待生成逐节知识包"
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
         await self._task_queue.put(task_id)
@@ -743,9 +745,12 @@ class TaskManager:
                     "course_name",
                     "status",
                     "phase",
+                    "current_phase",
                     "progress",
                     "phase_progress",
+                    "phase_detail",
                     "message",
+                    "error",
                     "completed_nodes",
                     "total_nodes",
                     "current_node_name",
@@ -776,6 +781,9 @@ class TaskManager:
                 "draft_node_ids": [],
                 "failed_node_ids": [],
                 "interrupted_node_ids": [],
+                "outline_ready": False,
+                "completed_knowledge_packages": 0,
+                "total_knowledge_packages": 0,
                 "workspace_status": None,
                 "updated_at": task.get("updated_at"),
             },
@@ -861,6 +869,12 @@ class TaskManager:
             and not self._is_content_complete(node)
         ]
         completed_nodes = sum(1 for node in nodes if self._is_content_complete(node))
+        stage_artifacts = course_data.get("generation_stage_artifacts") or {}
+        package_states = stage_artifacts.get("section_knowledge") or {}
+        completed_knowledge_packages = sum(
+            1 for item in package_states.values()
+            if isinstance(item, dict) and item.get("status") == "completed"
+        )
         checkpoint = {
             "phase": str(task.get("phase") or task.get("current_phase") or ""),
             "completed_nodes": completed_nodes,
@@ -868,6 +882,9 @@ class TaskManager:
             "draft_node_ids": draft_node_ids,
             "failed_node_ids": failed_node_ids,
             "interrupted_node_ids": interrupted_node_ids,
+            "outline_ready": bool(course_data.get("course_outline")),
+            "completed_knowledge_packages": completed_knowledge_packages,
+            "total_knowledge_packages": len(nodes),
             "workspace_status": workspace.get("status"),
             "updated_at": workspace.get("updated_at") or task.get("updated_at"),
         }
@@ -904,12 +921,23 @@ class TaskManager:
                 "checkpoint": checkpoint,
             }
         if status in {"paused", "failed", "completed_with_warnings"}:
+            if completed_nodes or draft_node_ids:
+                reason = "已保留完成内容和中断草稿，可以从保存点继续"
+            elif completed_knowledge_packages:
+                reason = (
+                    f"已保留课程目录和 {completed_knowledge_packages}/{len(nodes)} "
+                    "个小节知识包，可以从下一个未完成小节继续"
+                )
+            elif course_data.get("course_outline"):
+                reason = "已保留课程目录，可以从逐节知识生成阶段继续"
+            else:
+                reason = "已保留课程需求与资料处理结果，可以从当前阶段继续"
             return {
                 **base,
                 "state": "manual_resume",
                 "can_resume": True,
                 "reason_code": "checkpoint_available",
-                "reason": "已保留完成内容和中断草稿，可以从保存点继续",
+                "reason": reason,
                 "checkpoint": checkpoint,
             }
         return {**base, "checkpoint": checkpoint}
@@ -1141,13 +1169,28 @@ class TaskManager:
             raise
 
         course_data = self._load_task_course(task_id) or {}
-        has_blueprint = bool(course_data.get("course_blueprint"))
-        phase = "content_generation" if has_blueprint else "requirement_analysis"
+        knowledge_ready = (
+            course_data.get("course_knowledge_base") or {}
+        ).get("lifecycle_status") == "active"
+        has_outline = bool(course_data.get("course_outline"))
+        recovery_checkpoint = recovery.get("checkpoint") or {}
+        has_content_checkpoint = bool(
+            recovery_checkpoint.get("completed_nodes")
+            or recovery_checkpoint.get("draft_node_ids")
+        )
+        phase = (
+            "content_generation"
+            if knowledge_ready or has_content_checkpoint
+            else "section_knowledge_generation"
+            if has_outline
+            else "requirement_analysis"
+        )
+        progress_cap = 50 if knowledge_ready or has_content_checkpoint else 35 if has_outline else 0
         async with self._lock:
             task["status"] = "pending"
             task["phase"] = phase
             task["current_phase"] = phase
-            task["progress"] = min(int(task.get("progress") or 0), 50 if has_blueprint else 0)
+            task["progress"] = min(int(task.get("progress") or 0), progress_cap)
             task["phase_progress"] = 0
             task["message"] = "已从保存点恢复，等待继续"
             task["error"] = None
@@ -1769,8 +1812,15 @@ class TaskManager:
             )
             return
 
-        if task.get("type") == "course_generation" and not course_data.get("course_blueprint"):
-            request = task.get("request_snapshot") or course_data.get("generation_request") or {}
+        request = task.get("request_snapshot") or course_data.get("generation_request") or {}
+        request_mode = str(request.get("generation_mode") or "fast")
+        review_pending = request_mode == "review_blueprint" and not task.get("blueprint_confirmed")
+        knowledge_base = course_data.get("course_knowledge_base") or {}
+        pipeline_ready = bool(
+            course_data.get("course_blueprint")
+            and knowledge_base.get("lifecycle_status") == "active"
+        )
+        if task.get("type") == "course_generation" and not pipeline_ready:
 
             async def on_phase(
                 phase: str,
@@ -1793,6 +1843,9 @@ class TaskManager:
                 fresh.update(checkpoint)
                 await self._save_task_course(task_id, fresh)
 
+            stop_after_outline = bool(
+                review_pending and not course_data.get("course_outline")
+            )
             course_data = await self.course_service.build_course_draft(
                 course_id=course_id,
                 topic=str(request.get("subject") or course_data.get("course_name") or ""),
@@ -1812,13 +1865,47 @@ class TaskManager:
                 secondary_mode=request.get("secondary_mode"),
                 secondary_intensity=request.get("secondary_intensity"),
                 existing_course_data=course_data,
+                stop_after_outline=stop_after_outline,
                 on_phase=on_phase,
                 on_checkpoint=on_checkpoint,
             )
-            course_data = await self._prepare_subject_knowledge(task_id, course_data)
-            request_mode = str(request.get("generation_mode") or "fast")
-            if request_mode != "review_blueprint":
-                self._require_course_knowledge_ready(course_data)
+            if stop_after_outline:
+                draft = build_blueprint_draft(course_data)
+                impact = analyze_blueprint_impact(course_data, draft)
+                draft["impact_report"] = impact
+                self._version_repository.save_draft(course_id, draft)
+                outline_actual = (
+                    course_data.get("course_outline_constraint_report") or {}
+                ).get("actual") or {}
+                course_data["generation_status"] = "outline_ready"
+                await self._save_task_course(task_id, course_data)
+                await self._update_phase(
+                    task_id,
+                    "outline_ready",
+                    35,
+                    "轻量课程目录等待确认",
+                    phase_progress=100,
+                    phase_detail={
+                        "artifact_type": "course_outline",
+                        "blueprint_revision_id": impact.get("draft_blueprint_revision_id"),
+                        "completed_items": int(outline_actual.get("section_count") or 0),
+                        "total_items": int(outline_actual.get("section_count") or 0),
+                    },
+                )
+                await self._update_task_status(
+                    task_id,
+                    "waiting_for_review",
+                    message="课程目录等待确认；确认后才会生成逐节知识包和正文",
+                    completed_nodes=0,
+                    total_nodes=int(outline_actual.get("section_count") or 0),
+                )
+                await self._push_progress(task_id)
+                return
+            if (
+                course_data.get("course_knowledge_base") or {}
+            ).get("lifecycle_status") != "active":
+                course_data = await self._prepare_subject_knowledge(task_id, course_data)
+            self._require_course_knowledge_ready(course_data)
             course_data["learning_asset_plan"] = compile_learning_asset_plan(course_data)
             if isinstance(course_data.get("course_blueprint"), dict):
                 course_data["course_blueprint"]["learning_asset_plan"] = course_data["learning_asset_plan"]
@@ -1828,34 +1915,6 @@ class TaskManager:
             task["blueprint_revision_id"] = frozen["blueprint_revision_id"]
             await self._save_task_course(task_id, course_data)
 
-            if request_mode == "review_blueprint" and not task.get("blueprint_confirmed"):
-                draft = build_blueprint_draft(course_data)
-                impact = analyze_blueprint_impact(course_data, draft)
-                draft["impact_report"] = impact
-                self._version_repository.save_draft(course_id, draft)
-                course_data["generation_status"] = "blueprint_ready"
-                await self._save_task_course(task_id, course_data)
-                await self._update_phase(
-                    task_id,
-                    "blueprint_ready",
-                    50,
-                    "课程蓝图等待确认",
-                    phase_progress=100,
-                    phase_detail={"blueprint_revision_id": impact.get("draft_blueprint_revision_id")},
-                )
-                await self._update_task_status(
-                    task_id,
-                    "waiting_for_review",
-                    message="课程蓝图等待确认",
-                )
-                await self._push_progress(task_id)
-                return
-
-        request = task.get("request_snapshot") or course_data.get("generation_request") or {}
-        review_pending = (
-            str(request.get("generation_mode") or "fast") == "review_blueprint"
-            and not task.get("blueprint_confirmed")
-        )
         if task.get("type") == "course_generation" and not review_pending:
             if not course_data.get("course_knowledge_base"):
                 course_data = await self._prepare_subject_knowledge(task_id, course_data)
@@ -2598,6 +2657,7 @@ class TaskManager:
                 "phase_progress": task.get("phase_progress", 0),
                 "phase_detail": task.get("phase_detail", {}),
                 "message": task.get("message", ""),
+                "error": task.get("error"),
                 "progress": progress,
                 "current_node_name": task.get("current_node_name", ""),
                 "current_nodes": current_nodes,

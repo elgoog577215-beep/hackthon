@@ -58,7 +58,8 @@
               </div>
               <dl>
                 <div><dt>{{ t('courseTasks.phase', '当前阶段') }}</dt><dd>{{ phaseLabel(selectedTask.currentPhase, selectedTask.status) }}</dd></div>
-                <div v-if="selectedProgress?.totalNodes"><dt>{{ t('courseTasks.nodes', '内容进度') }}</dt><dd>{{ selectedProgress.completedNodes }} / {{ selectedProgress.totalNodes }}</dd></div>
+                <div v-if="phaseItemProgress"><dt>{{ phaseItemProgress.label }}</dt><dd>{{ phaseItemProgress.completed }} / {{ phaseItemProgress.total }}</dd></div>
+                <div v-else-if="selectedProgress?.totalNodes"><dt>{{ t('courseTasks.nodes', '内容进度') }}</dt><dd>{{ selectedProgress.completedNodes }} / {{ selectedProgress.totalNodes }}</dd></div>
                 <div v-else-if="selectedTask.recovery?.checkpoint.total_nodes"><dt>{{ t('courseTasks.nodes', '内容进度') }}</dt><dd>{{ selectedTask.recovery.checkpoint.completed_nodes }} / {{ selectedTask.recovery.checkpoint.total_nodes }}</dd></div>
                 <div v-if="selectedProgress?.estimatedTimeRemaining"><dt>{{ t('courseTasks.remaining', '预计剩余') }}</dt><dd>{{ formatDuration(selectedProgress.estimatedTimeRemaining) }}</dd></div>
               </dl>
@@ -67,8 +68,8 @@
             <section v-if="selectedTask.status === 'waiting_for_review'" class="blueprint-review">
               <header>
                 <div>
-                  <h4>{{ t('courseTasks.blueprint.title', '确认课程蓝图') }}</h4>
-                  <p>{{ t('courseTasks.blueprint.help', '确认课程结构和学习目标后，后台才会继续生成正文。') }}</p>
+                  <h4>{{ t('courseTasks.blueprint.title', '确认课程目录') }}</h4>
+                  <p>{{ t('courseTasks.blueprint.help', '先确认章节、顺序和学习目标；确认后才会逐节生成知识包和正文。') }}</p>
                 </div>
                 <LoaderCircle v-if="workspace.loading" class="spin" :size="18" />
               </header>
@@ -96,6 +97,7 @@
               <div>
                 <strong>{{ problemTitle(selectedTask) }}</strong>
                 <p>{{ problemHelp(selectedTask) }}</p>
+                <small v-if="selectedTask.error" class="task-error-detail">{{ t('courseTasks.problem.detail', '具体原因：{error}').replace('{error}', selectedTask.error) }}</small>
                 <small v-if="selectedTask.recovery?.can_resume" class="recovery-checkpoint">{{ recoveryCheckpointLabel(selectedTask) }}</small>
               </div>
             </section>
@@ -171,9 +173,10 @@ const tasks = computed<TaskView[]>(() => {
       status: normalizeStatus(raw.status),
       progress: Math.max(0, Math.min(100, Number(raw.progress || 0))),
       currentStep: raw.current_node_name ? String(raw.current_node_name) : String(raw.message || local?.currentStep || ''),
-      currentPhase: local?.currentPhase || String(raw.current_phase || raw.phase || ''),
+      currentPhase: String(raw.current_phase || raw.phase || local?.currentPhase || ''),
       phaseProgress: Number(raw.phase_progress || local?.phaseProgress || 0),
       phaseDetail: raw.phase_detail || local?.phaseDetail || {},
+      error: raw.error ? String(raw.error) : local?.error,
       recovery: raw.recovery || local?.recovery,
       publicationAllowed: typeof raw.publication_allowed === 'boolean' ? raw.publication_allowed : local?.publicationAllowed,
       qualityStatus: raw.quality_status || local?.qualityStatus,
@@ -192,6 +195,19 @@ const tasks = computed<TaskView[]>(() => {
 })
 const selectedTask = computed(() => tasks.value.find(task => task.courseId === selectedCourseId.value) || null)
 const selectedProgress = computed(() => selectedTask.value ? generationStore.taskProgress[selectedTask.value.courseId] : null)
+const phaseItemProgress = computed(() => {
+  const detail = selectedTask.value?.phaseDetail || {}
+  const total = Number(detail.total_items || 0)
+  if (!total) return null
+  const label = String(detail.artifact_type || '') === 'course_outline'
+    ? t('courseTasks.outlineItems', '目录小节')
+    : t('courseTasks.knowledgePackages', '知识包进度')
+  return {
+    completed: Math.max(0, Number(detail.completed_items || 0)),
+    total,
+    label,
+  }
+})
 const blueprintNodes = computed<any[]>(() => Array.isArray(blueprintDraft.value?.nodes)
   ? blueprintDraft.value.nodes
   : Array.isArray(blueprintDraft.value?.course_blueprint?.nodes) ? blueprintDraft.value.course_blueprint.nodes : [])
@@ -293,6 +309,13 @@ function phaseLabel(phase: string | undefined, status: Task['status']) {
     requirement_analysis: t('courseTasks.phases.requirementAnalysis', '整理课程需求'),
     material_processing: t('courseTasks.phases.materialProcessing', '解析资料与证据'),
     pedagogy_resolution: t('courseTasks.phases.pedagogyResolution', '确定教学结构与难度'),
+    outline_generation: t('courseTasks.phases.outlineGeneration', '生成轻量课程目录'),
+    outline_validation: t('courseTasks.phases.outlineValidation', '检查课程目录'),
+    outline_ready: t('courseTasks.phases.outlineReady', '等待确认课程目录'),
+    section_knowledge_generation: t('courseTasks.phases.sectionKnowledgeGeneration', '逐节生成知识包'),
+    section_knowledge_validation: t('courseTasks.phases.sectionKnowledgeValidation', '检查当前小节知识包'),
+    knowledge_mapping: t('courseTasks.phases.knowledgeMapping', '编译全课知识关系'),
+    course_knowledge_blueprint: t('courseTasks.phases.knowledgeMapping', '编译全课知识关系'),
     blueprint_generation: t('courseTasks.phases.blueprintGeneration', '生成课程蓝图'),
     blueprint_validation: t('courseTasks.phases.blueprintValidation', '检查课程蓝图'),
     blueprint_ready: t('courseTasks.phases.blueprintReady', '等待确认课程蓝图'),
@@ -321,7 +344,7 @@ function statusLabel(status: Task['status'], recovery?: Task['recovery']) {
   const labels: Record<Task['status'], string> = {
     idle: t('courseLibrary.status.preparing', '正在准备课程'), pending: t('courseLibrary.status.pending', '等待生成'),
     running: t('courseLibrary.status.running', '正在生成'), paused: t('courseLibrary.status.paused', '已暂停'),
-    waiting_for_review: t('courseLibrary.status.waitingReview', '等待审阅蓝图'), conflict: t('courseLibrary.status.conflict', '需要确认'),
+    waiting_for_review: t('courseLibrary.status.waitingReview', '等待确认目录'), conflict: t('courseLibrary.status.conflict', '需要确认'),
     error: t('courseLibrary.status.error', '生成失败'), completed_with_warnings: t('courseLibrary.status.warnings', '生成完成但有警告'),
     completed: t('courseLibrary.status.ready', '可以学习'),
   }
@@ -358,6 +381,16 @@ function taskNeedsAttention(task: TaskView) {
 function recoveryCheckpointLabel(task: TaskView) {
   const checkpoint = task.recovery?.checkpoint
   if (!checkpoint) return ''
+  const knowledgeCompleted = Number(checkpoint.completed_knowledge_packages || 0)
+  const knowledgeTotal = Number(checkpoint.total_knowledge_packages || 0)
+  if (knowledgeTotal && (knowledgeCompleted || checkpoint.outline_ready) && !checkpoint.completed_nodes) {
+    return t('courseTasks.recovery.knowledgeCheckpoint', '目录已保留，知识包已完成 {completed}/{total}')
+      .replace('{completed}', String(knowledgeCompleted))
+      .replace('{total}', String(knowledgeTotal))
+  }
+  if (checkpoint.outline_ready && !checkpoint.total_nodes) {
+    return t('courseTasks.recovery.outlineCheckpoint', '课程目录已保留，可从逐节知识包阶段继续')
+  }
   return t('courseTasks.recovery.checkpoint', '已保留 {completed}/{total} 个内容块和 {drafts} 份草稿')
     .replace('{completed}', String(checkpoint.completed_nodes || 0))
     .replace('{total}', String(checkpoint.total_nodes || 0))
@@ -400,7 +433,7 @@ function formatDuration(seconds: number) {
 .task-summary dl { margin:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }.task-summary dl div { min-width:0; }.task-summary dt { color:var(--lz-text-muted); font-size:10px; }.task-summary dd { margin:4px 0 0; overflow:hidden; color:var(--lz-text); font-size:12px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
 .blueprint-review { padding:24px 0 4px; }.blueprint-review > header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:16px; }.blueprint-review h4 { margin:0; color:var(--lz-text-strong); font-size:14px; }.blueprint-review header p { margin:5px 0 0; color:var(--lz-text-muted); font-size:11px; }
 .blueprint-course-name span { display:block; margin-bottom:6px; color:var(--lz-text-muted); font-size:10px; }.blueprint-course-name input,.blueprint-nodes input,.blueprint-nodes textarea { width:100%; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; outline:none; }.blueprint-course-name input { height:38px; padding:0 10px; font-weight:650; }.blueprint-nodes { margin-top:12px; }.blueprint-nodes article { display:grid; grid-template-columns:28px minmax(0,1fr); gap:9px; padding:11px 0; border-top:1px solid rgba(226,232,240,.76); }.blueprint-nodes article > span { padding-top:9px; color:var(--lz-text-muted); font-size:10px; font-family:ui-monospace,monospace; }.blueprint-nodes input { height:36px; padding:0 9px; font-size:12px; font-weight:650; }.blueprint-nodes textarea { min-height:54px; margin-top:6px; padding:8px 9px; resize:vertical; font-size:11px; line-height:1.45; }.blueprint-course-name input:focus,.blueprint-nodes input:focus,.blueprint-nodes textarea:focus { border-color:var(--lz-brand); box-shadow:0 0 0 3px rgba(99,102,241,.08); }.blueprint-error,.blueprint-empty { color:var(--lz-warning); font-size:11px; }
-.task-notice { margin-top:20px; display:flex; gap:10px; padding:13px 14px; border-left:3px solid var(--lz-warning); color:var(--lz-warning); background:var(--lz-warning-soft); }.task-notice strong { display:block; font-size:12px; }.task-notice p { margin:4px 0 0; font-size:11px; line-height:1.5; }.recovery-checkpoint { display:block; margin-top:7px; color:inherit; font-size:9px; opacity:.82; }
+.task-notice { margin-top:20px; display:flex; gap:10px; padding:13px 14px; border-left:3px solid var(--lz-warning); color:var(--lz-warning); background:var(--lz-warning-soft); }.task-notice strong { display:block; font-size:12px; }.task-notice p { margin:4px 0 0; font-size:11px; line-height:1.5; }.task-error-detail,.recovery-checkpoint { display:block; margin-top:7px; color:inherit; font-size:9px; line-height:1.5; opacity:.88; }
 .task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding-top:22px; }.task-actions__open { margin-left:auto; }
 .primary-button,.secondary-button,.danger-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }.primary-button { border:1px solid var(--lz-brand-strong); color:#fff; background:var(--lz-brand-strong); }.secondary-button { border:1px solid var(--lz-border); color:var(--lz-text-secondary); background:#fff; }.danger-button { border:1px solid rgba(185,28,28,.22); color:var(--lz-danger); background:var(--lz-danger-soft); }.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled,.icon-button:disabled { cursor:not-allowed; opacity:.5; }
 .spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }

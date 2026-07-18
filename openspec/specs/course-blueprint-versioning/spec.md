@@ -16,14 +16,19 @@ TBD - created by archiving change unify-course-blueprint-and-learning-assets. Up
 
 ### Requirement: 蓝图审阅必须在同一 GenerationJob 内等待
 
-课程生成 MUST 支持快速模式和蓝图审阅模式。审阅模式 MUST 在同一任务的 `blueprint_ready` 阶段进入 `waiting_for_review`，确认后继续原任务；服务重启不得自动越过等待状态。
+课程生成 MUST 支持快速模式和蓝图审阅模式。审阅模式 MUST 在轻量课程目录已经
+通过形状、顺序、唯一责任和学习目标检查，但尚未生成逐节知识包之前，于同一任务
+的 `outline_ready` 阶段进入 `waiting_for_review`。确认后继续原任务；服务重启不得
+自动越过等待状态。快速模式 MUST 在相同检查通过后自动冻结目录修订，再进入逐节
+知识包生成。
 
 #### Scenario: 审阅模式生成课程
 
 - **WHEN** 请求使用 `review_blueprint`
-- **THEN** 系统 MUST 完成资料、教学画像、难度、蓝图和蓝图质量检查
+- **THEN** 系统 MUST 完成资料、教学画像、难度、轻量目录和目录质量检查
 - **AND** MUST 暂停在 waiting_for_review
 - **AND** MUST 通过确认接口继续同一个 job_id
+- **AND** 确认前 MUST NOT 生成原子知识、知识关系、正文或正式学习资产
 
 ### Requirement: 修改必须产生确定性影响报告
 

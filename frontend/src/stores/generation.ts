@@ -30,23 +30,6 @@ const isPublishedTask = (task: Task, backendTask?: Record<string, any>) => (
   task.status === 'completed'
   || (task.status === 'completed_with_warnings' && backendTask?.publication_allowed !== false)
 )
-const PHASE_LABELS: Record<string, string> = {
-  queued: 'courseGeneration.phases.queued',
-  requirement_analysis: 'courseGeneration.phases.requirement_analysis',
-  material_processing: 'courseGeneration.phases.material_processing',
-  pedagogy_resolution: 'courseGeneration.phases.pedagogy_resolution',
-  blueprint_generation: 'courseGeneration.phases.blueprint_generation',
-  blueprint_validation: 'courseGeneration.phases.blueprint_validation',
-  blueprint_ready: 'courseGeneration.phases.blueprint_ready',
-  content_generation: 'courseGeneration.phases.content_generation',
-  learning_assets: 'courseGeneration.phases.learning_assets',
-  content_validation: 'courseGeneration.phases.content_validation',
-  finalizing: 'courseGeneration.phases.finalizing',
-  completed: 'courseGeneration.phases.completed',
-}
-
-const phaseLabel = (phase: string): string => t(PHASE_LABELS[phase] || '', phase)
-
 const mergeStreamDelta = (existing: string, delta: string): string => {
   if (!delta || existing.endsWith(delta)) return existing
   const maxOverlap = Math.min(existing.length, delta.length)
@@ -249,7 +232,7 @@ export const useGenerationStore = defineStore('generation', {
         if (task_id) localTask.id = task_id
         const phase = String(payload.current_phase || payload.phase || '')
         if (phase) {
-          localTask.currentPhase = phaseLabel(phase)
+          localTask.currentPhase = phase
           localTask.phaseProgress = (payload.phase_progress as number) ?? localTask.progress
           localTask.phaseDetail = (payload.phase_detail as Record<string, unknown>) || {}
         }
@@ -387,6 +370,7 @@ export const useGenerationStore = defineStore('generation', {
           this.addLogToTask(course_id, `❌ 节点生成失败: ${payload.node_name || payload.node_id} - ${payload.error || 'Unknown error'}`)
         } else {
           localTask.status = 'error'
+          localTask.error = String(payload.error || 'Unknown error')
           this.addLogToTask(course_id, `❌ 任务错误: ${payload.error || 'Unknown error'}`)
         }
       }
@@ -547,7 +531,7 @@ export const useGenerationStore = defineStore('generation', {
     createTask(taskId: string, courseId: string, courseName: string, options: CourseGenerationOptions = {}): Task {
       const task: Task = {
         id: taskId, courseId, courseName, status: 'pending', progress: 0, currentStep: '等待调度',
-        currentPhase: phaseLabel('queued'), phaseProgress: 0,
+        currentPhase: 'queued', phaseProgress: 0,
         phaseDetail: {},
         logs: [], shouldStop: false,
         difficulty: options.difficulty,
@@ -779,13 +763,14 @@ export const useGenerationStore = defineStore('generation', {
             localTask.progress = backendTask.progress
             localTask.id = backendTask.id
             localTask.recovery = backendTask.recovery || undefined
+            localTask.error = backendTask.error ? String(backendTask.error) : undefined
             if (typeof backendTask.publication_allowed === 'boolean') {
               localTask.publicationAllowed = backendTask.publication_allowed
             }
             if (backendTask.quality_status) localTask.qualityStatus = String(backendTask.quality_status)
             const phase = backendTask.current_phase || backendTask.phase
             if (phase) {
-              localTask.currentPhase = phaseLabel(phase)
+              localTask.currentPhase = String(phase)
               localTask.phaseProgress = backendTask.phase_progress ?? backendTask.progress
               localTask.phaseDetail = backendTask.phase_detail || {}
             }
@@ -845,7 +830,7 @@ export const useGenerationStore = defineStore('generation', {
     startGlobalMonitor() {
       if (this.globalPollingTimer) return
       this.fetchGlobalTasks()
-      this.globalPollingTimer = window.setInterval(() => { this.fetchGlobalTasks() }, 2000)
+      this.globalPollingTimer = window.setInterval(() => { this.fetchGlobalTasks() }, 5000)
     },
 
     stopGlobalMonitor() {
@@ -915,7 +900,7 @@ export const useGenerationStore = defineStore('generation', {
           const courseName = res.data.course_name || subject
           const task = this.createTask(jobId, courseId, courseName, options)
           task.status = res.data.status || 'pending'
-          task.currentPhase = phaseLabel(res.data.phase || 'queued')
+          task.currentPhase = String(res.data.phase || 'queued')
           cs.currentCourseId = courseId
           cs.currentPedagogyProfile = null
           cs.currentGenerationQualityReport = null
