@@ -1,0 +1,40 @@
+{
+  "course_version_id": "",
+  "node_id": "cb0470f6-589f-42f6-83e4-0f8feca9766f",
+  "node_name": "6.2 vector 与 list 的基本使用",
+  "content_anchor": null,
+  "session": {
+    "session_id": "session_696f0e66-ccf5-40ea-877b-fa7105c2ddfe",
+    "device_id": "device_8b9e9382-2d56-4692-b5e0-5dac26cbb63f",
+    "started_at": "2026-07-18T09:05:36.786Z"
+  },
+  "task_state": {
+    "kind": "reading",
+    "object_id": "bb38ff1f-f9c8-416d-b035-cdc7447a8032",
+    "task_revision_id": "",
+    "status": "active",
+    "context": {
+      "course_id": "26f48457-6e7d-4edd-873c-50e1fafba5b9",
+      "course_version_id": "",
+      "node_id": "bb38ff1f-f9c8-416d-b035-cdc7447a8032"
+    },
+    "return_node_id": "bb38ff1f-f9c8-416d-b035-cdc7447a8032",
+    "draft_revision": 0,
+    "metadata": {}
+  },
+  "interaction_state": {
+    "conversation_id": "",
+    "issue_id": "",
+    "remediation_session_id": ""
+  },
+  "fallback_scroll_top": 33679,
+  "activity_at": "2026-07-18T09:05:50.234Z",
+  "source": "live",
+  "snapshot_id": "ls_8473d6e0ebc046691c91b87c",
+  "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+  "course_id": "26f48457-6e7d-4edd-873c-50e1fafba5b9",
+  "revision": 2,
+  "schema_version": 2,
+  "created_at": "2026-07-18T09:05:38.310040+00:00",
+  "updated_at": "2026-07-18T09:05:51.746584+00:00"
+}
