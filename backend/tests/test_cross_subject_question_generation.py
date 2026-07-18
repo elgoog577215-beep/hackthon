@@ -617,3 +617,19 @@ def test_semantic_practice_variants_change_the_actual_problem_data():
 
     assert len(generated) >= 2
     assert len({item["prompt"] for item in generated}) == len(generated)
+
+
+def test_gram_schmidt_practice_variants_change_the_actual_vectors():
+    course = _course_for(
+        mode="math_formal",
+        topic="5.4 Gram-Schmidt 正交化算法",
+        objective="执行正交化并验证所得方向正交",
+        key_points=["Gram-Schmidt", "正交投影"],
+        assessment="计算正交方向和投影系数",
+    )
+
+    generated = _practice_items(course)
+
+    assert len(generated) >= 2
+    assert len({item["prompt"] for item in generated}) == len(generated)
+    assert all(item["domain_validation"]["passed"] for item in generated)
