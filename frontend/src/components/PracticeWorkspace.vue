@@ -152,10 +152,26 @@
             :placeholder="answerPlaceholder"
           />
 
-          <section v-if="workspace.revealedHints.length" class="hint-results">
-            <div v-for="hint in workspace.revealedHints" :key="hint.level" class="hint-result">
+          <section
+            v-if="hintDisplayRows.length"
+            class="hint-results"
+            aria-live="polite"
+            :aria-busy="hintLoadingLevel !== null"
+          >
+            <div
+              v-for="hint in hintDisplayRows"
+              :key="hint.loading ? `loading-${hint.level}` : `hint-${hint.level}`"
+              class="hint-result"
+              :class="{ loading: hint.loading }"
+              :data-testid="hint.loading ? 'hint-loading-placeholder' : undefined"
+              :aria-live="hint.loading ? 'polite' : undefined"
+              :aria-busy="hint.loading ? 'true' : undefined"
+            >
               <span>{{ t('courseWorkspace.practice.hintLevel', '{level} 级提示').replace('{level}', String(hint.level)) }}</span>
-              <p>{{ hint.content }}</p>
+              <p>
+                <LoaderCircle v-if="hint.loading" :size="15" class="animate-spin hint-loading-icon" aria-hidden="true" />
+                {{ hint.content }}
+              </p>
             </div>
           </section>
 
@@ -226,11 +242,14 @@
               v-for="level in [1, 2, 3]"
               :key="level"
               class="icon-command"
-              :disabled="!canRevealHint(level) || answerLocked"
-              :title="t('courseWorkspace.practice.hintLevel', '{level} 级提示').replace('{level}', String(level))"
+              :disabled="!canRevealHint(level) || answerLocked || hintLoadingLevel !== null"
+              :title="hintButtonLabel(level)"
+              :aria-label="hintButtonLabel(level)"
+              :aria-busy="hintLoadingLevel === level"
               @click="revealHint(level)"
             >
-              <Lightbulb :size="16" />
+              <LoaderCircle v-if="hintLoadingLevel === level" :size="16" class="animate-spin" aria-hidden="true" />
+              <Lightbulb v-else :size="16" aria-hidden="true" />
               <span>{{ level }}</span>
             </button>
             <button class="text-command" :disabled="!workspace.currentAttempt || answerLocked" @click="askTeacher">
@@ -327,12 +346,28 @@ const practiceView = ref<'current' | 'history' | 'needs_review'>(workspace.pract
 const submitting = ref(false)
 const targetedRetryingId = ref('')
 const questionRefreshing = ref(false)
+const hintLoadingLevel = ref<number | null>(null)
 const questionBankRebuilding = ref(false)
 const questionBankRebuildError = ref('')
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 const questions = computed(() => workspace.practice?.questions || [])
 const currentQuestion = computed(() => workspace.currentPracticeQuestion)
+const hintDisplayRows = computed(() => {
+  const loadingLevel = hintLoadingLevel.value
+  const rows = workspace.revealedHints
+    .filter(hint => Number(hint.level) !== loadingLevel)
+    .map(hint => ({ ...hint, loading: false }))
+  if (loadingLevel !== null) {
+    rows.push({
+      level: loadingLevel,
+      kind: 'loading',
+      content: t('courseWorkspace.practice.hintGenerating', '正在生成提示，请稍候…'),
+      loading: true,
+    })
+  }
+  return rows.sort((left, right) => Number(left.level) - Number(right.level))
+})
 const canRebuildQuestionBank = computed(() => isQuestionBankRepairReason(
   workspace.practice?.practice_availability?.reason_code,
 ))
@@ -479,7 +514,21 @@ function canRevealHint(level: number) {
   return level === 1 || used.includes(level - 1)
 }
 
+function hintButtonLabel(level: number) {
+  if (hintLoadingLevel.value === level) {
+    return t(
+      'courseWorkspace.practice.hintGeneratingLevel',
+      '正在生成 {level} 级提示',
+    ).replace('{level}', String(level))
+  }
+  return t(
+    'courseWorkspace.practice.hintLevel',
+    '{level} 级提示',
+  ).replace('{level}', String(level))
+}
+
 async function revealHint(level: number) {
+  if (hintLoadingLevel.value !== null) return
   if (level >= 2) {
     await ElMessageBox.confirm(
       level === 3
@@ -489,7 +538,14 @@ async function revealHint(level: number) {
       { confirmButtonText: t('common.confirm', '确认'), cancelButtonText: t('common.cancel', '取消') },
     )
   }
-  await workspace.revealPracticeHint(props.courseId, level)
+  hintLoadingLevel.value = level
+  try {
+    await workspace.revealPracticeHint(props.courseId, level)
+  } catch {
+    // The shared HTTP layer already reports the request error.
+  } finally {
+    if (hintLoadingLevel.value === level) hintLoadingLevel.value = null
+  }
 }
 
 async function askTeacher() {
@@ -695,7 +751,7 @@ function formatSolutionValue(value: unknown) {
 .answer-editor { width:100%; min-height:clamp(360px,54vh,680px); padding:16px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; resize:vertical; font:inherit; line-height:1.7; outline:none; }.answer-editor:focus { border-color:#0f766e; box-shadow:0 0 0 3px rgba(15,118,110,.1); }.answer-editor:disabled { background:#f1f5f9; }
 .choice-list { display:grid; gap:10px; }.choice-list label { display:flex; gap:10px; padding:13px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; }
 .practice-actions { position:sticky; bottom:0; display:flex; justify-content:space-between; gap:14px; align-items:center; margin-top:22px; padding:12px 0; background:linear-gradient(to bottom,rgba(248,250,252,.86),#f8fafc 28%); }.support-actions { display:flex; gap:8px; align-items:center; }.icon-command,.text-command,.primary-command { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; padding:0 12px; color:#334155; }.icon-command { width:42px; padding:0; }.icon-command:disabled,.text-command:disabled,.primary-command:disabled { opacity:.45; cursor:not-allowed; }.primary-command { border-color:#0f766e; background:#0f766e; color:#fff; font-weight:700; }
-.hint-results,.practice-feedback,.solution-result { margin-top:18px; border-top:1px solid #dbe3ed; padding-top:16px; }.hint-result { display:grid; grid-template-columns:78px 1fr; gap:12px; margin:8px 0; }.hint-result span { color:#a16207; font-size:12px; font-weight:700; }.hint-result p { margin:0; line-height:1.6; }
+.hint-results,.practice-feedback,.solution-result { margin-top:18px; border-top:1px solid #dbe3ed; padding-top:16px; }.hint-result { display:grid; grid-template-columns:78px 1fr; gap:12px; margin:8px 0; }.hint-result span { color:#a16207; font-size:12px; font-weight:700; }.hint-result p { margin:0; line-height:1.6; }.hint-result.loading p { display:flex; align-items:center; gap:8px; color:#64748b; }.hint-loading-icon { flex:0 0 auto; color:#0f766e; }
 .solution-result { color:#334155; }.solution-result p,.solution-result li { line-height:1.65; }.solution-result ul,.solution-result ol { padding-left:20px; }.solution-result h4 { margin:14px 0 7px; font-size:13px; color:#172033; }.solution-result pre { margin:0; padding:12px 14px; max-height:420px; overflow:auto; border:1px solid #dbe3ed; border-radius:6px; background:#f1f5f9; color:#0f172a; font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }.solution-steps ol,.solution-checks ul { margin:6px 0; }
 .remediation-context { margin-bottom:22px; padding:14px 0; border-top:1px solid #99f6e4; border-bottom:1px solid #99f6e4; }.remediation-context strong { color:#115e59; }.remediation-context p { margin:8px 0; line-height:1.65; }.remediation-context small { color:#64748b; }.workflow-result strong { color:#172033; }.workflow-result.warning svg { color:#b45309; }
 .practice-feedback { color:#9a3412; }.practice-feedback[data-passed="true"] { color:#047857; }.feedback-heading { display:flex; gap:9px; align-items:center; }.feedback-heading span { margin-left:auto; font-size:22px; font-weight:800; }.practice-feedback>p { color:#475569; }.rubric-list { display:grid; gap:7px; margin:12px 0; }.rubric-list>div { display:grid; grid-template-columns:18px minmax(120px,auto) 1fr; gap:7px; align-items:start; color:#334155; }.rubric-list small { color:#64748b; }
