@@ -70,11 +70,11 @@
     "revealed_hint_levels": [],
     "solution_revealed": false,
     "ai_support_level": 0,
-    "active_seconds": 0,
-    "revision": 1,
+    "active_seconds": 583,
+    "revision": 2,
     "schema_version": 2,
     "started_at": "2026-07-18T08:02:49.179934+00:00",
     "created_at": "2026-07-18T08:02:49.179934+00:00",
-    "updated_at": "2026-07-18T08:02:49.179934+00:00"
+    "updated_at": "2026-07-18T08:12:33.111679+00:00"
   }
 ]
