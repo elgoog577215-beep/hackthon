@@ -193,7 +193,7 @@ def test_legacy_linear_algebra_outline_is_degraded_without_borrowing_subject_ide
     question = bundle["assets"]["questions"][0]
 
     assert bundle["quality_report"]["passed"] is False
-    assert course_map["coverage"]["status"] == "mapped"
+    assert course_map["coverage"]["status"] == "partial"
     assert knowledge_view["identity_scope"] == "course_local"
     assert knowledge_view["lifecycle_status"] == "degraded"
     assert not any(

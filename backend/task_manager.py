@@ -1240,6 +1240,14 @@ class TaskManager:
             }
         elif step == "knowledge":
             knowledge_base = course_data.get("course_knowledge_base") or {}
+            knowledge_quality = (
+                knowledge_base.get("quality_report")
+                or course_data.get("course_knowledge_quality_report")
+                or {}
+            )
+            knowledge_blocking_issues = deepcopy(
+                knowledge_quality.get("blocking_issues") or []
+            )
             groups = knowledge_base.get("concept_groups") or []
             points = knowledge_base.get("knowledge_points") or []
             point_names = {
@@ -1316,10 +1324,14 @@ class TaskManager:
                     if isinstance(relation, dict)
                 ],
                 "quality": deepcopy(
-                    knowledge_base.get("quality_report")
-                    or course_data.get("course_knowledge_quality_report")
-                    or {}
+                    knowledge_quality
                 ),
+                "quality_status": (
+                    "blocked"
+                    if knowledge_blocking_issues
+                    else "passed"
+                ),
+                "blocking_issues": knowledge_blocking_issues,
             }
         elif step == "teaching":
             plan = course_data.get("learning_asset_plan") or {}
@@ -1449,6 +1461,13 @@ class TaskManager:
                 and workflow.get("review_step") == step
                 and (
                     (
+                        step != "knowledge"
+                        or (
+                            artifact.get("lifecycle_status") == "active"
+                            and not artifact.get("blocking_issues")
+                        )
+                    )
+                    and (
                         step != "content"
                         or (
                             artifact.get("asset_quality_passed")

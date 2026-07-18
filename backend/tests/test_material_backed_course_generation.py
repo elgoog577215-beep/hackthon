@@ -448,7 +448,7 @@ def test_lightweight_outline_validation_does_not_require_knowledge_packages():
     assert outline["chapters"][0]["sections"][0]["knowledge_structure"] == []
 
 
-def test_section_knowledge_validation_rejects_only_the_local_invalid_package():
+def test_section_knowledge_validation_keeps_relation_defects_as_advisories():
     valid = normalize_section_knowledge_package(_section_knowledge_package("局部校验"))
     valid["knowledge_structure"][0]["knowledge_points"][1]["entry_reason"] = "用于隔离关系端点校验"
     invalid = {
@@ -473,14 +473,17 @@ def test_section_knowledge_validation_rejects_only_the_local_invalid_package():
     )
 
     assert valid_report["passed"] is True
-    assert invalid_report["passed"] is False
+    assert invalid_report["passed"] is True
+    assert invalid_report["strict_passed"] is False
+    assert invalid_report["status"] == "passed_with_advisories"
+    assert invalid_report["blocking_issues"] == []
     assert {
-        item["code"] for item in invalid_report["issues"]
+        item["code"] for item in invalid_report["advisory_issues"]
     } == {"section_knowledge:invalid_relation_endpoint"}
 
 
 @pytest.mark.asyncio
-async def test_relation_failure_repairs_only_the_relation_batch(monkeypatch):
+async def test_relation_advisory_does_not_add_another_model_call(monkeypatch):
     service = CourseService()
     plan = normalize_course_outline_contract({
         "course_title": "关系局部修复",
@@ -508,23 +511,11 @@ async def test_relation_failure_repairs_only_the_relation_batch(monkeypatch):
     }
     invalid_package = _section_knowledge_package("关系判断")
     invalid_package["knowledge_relations"][0]["reason"] = ""
-    frozen_structure = normalize_section_knowledge_package(
-        invalid_package
-    )["knowledge_structure"]
-    repaired_relation = {
-        **invalid_package["knowledge_relations"][0],
-        "reason": "先核对成立条件，才能执行应用判断",
-    }
     calls = []
 
     async def fake_call_llm(user_prompt, system_prompt, **_kwargs):
         calls.append((user_prompt, system_prompt))
-        if len(calls) == 1:
-            return json.dumps(invalid_package, ensure_ascii=False)
-        return json.dumps({
-            "reused_knowledge_names": [],
-            "knowledge_relations": [repaired_relation],
-        }, ensure_ascii=False)
+        return json.dumps(invalid_package, ensure_ascii=False)
 
     monkeypatch.setattr(service, "_call_llm", fake_call_llm)
     result = await service._enrich_section_knowledge_packages(
@@ -536,11 +527,83 @@ async def test_relation_failure_repairs_only_the_relation_batch(monkeypatch):
     )
 
     section = result["chapters"][0]["sections"][0]
-    assert len(calls) == 2
-    assert calls[1][0].startswith("只修复小节「关系小节」的知识关系批次")
-    assert "不得新增、删除、改名或重写知识点" in calls[1][1]
-    assert section["knowledge_structure"] == frozen_structure
-    assert section["knowledge_relations"][0]["reason"] == repaired_relation["reason"]
+    assert len(calls) == 1
+    assert section["knowledge_package_status"] == "completed"
+    assert section["knowledge_quality_report"]["passed"] is True
+    assert {
+        item["code"]
+        for item in section["knowledge_quality_report"]["advisory_issues"]
+    } == {"section_knowledge:relation_missing_reason"}
+    assert (
+        course_data["generation_stage_artifacts"]["section_knowledge"][
+            section["node_id"]
+        ]["status"]
+        == "completed"
+    )
+
+
+def test_section_knowledge_validation_still_blocks_unusable_core_content():
+    package = normalize_section_knowledge_package(
+        _section_knowledge_package("核心缺失")
+    )
+    for point in package["knowledge_structure"][0]["knowledge_points"]:
+        point["statement"] = ""
+        point["description"] = ""
+
+    report = validate_section_knowledge_package(
+        package,
+        section_title="核心缺失",
+        available_knowledge_names=[],
+    )
+
+    assert report["passed"] is False
+    assert report["status"] == "blocked"
+    assert "section_knowledge:no_usable_points" in {
+        item["code"] for item in report["blocking_issues"]
+    }
+
+
+def test_probability_style_quality_defects_no_longer_fail_the_course_plan():
+    point = _knowledge_structure("古典概型")[0]["knowledge_points"][0]
+    point["name"] = "等可能样本空间上的概率计算"
+    point["entry_reason"] = ""
+    plan = normalize_course_plan_contract({
+        "course_title": "概率论",
+        "chapters": [{
+            "title": "古典概型",
+            "sections": [{
+                "title": "等可能样本空间上的概率计算",
+                "knowledge_structure": [{
+                    "concept_group": "等可能样本空间上的概率计算",
+                    "knowledge_points": [point],
+                }],
+                "reused_knowledge_names": ["伯努利分布"],
+                "knowledge_relations": [{
+                    "source_name": "不存在的知识",
+                    "target_name": point["name"],
+                    "relation_type": "prerequisite",
+                    "reason": "模型给出的悬空关系",
+                }],
+            }],
+        }],
+    })
+
+    report = validate_course_plan_constraints(
+        plan,
+        {"course_shape_constraints": {}},
+    )
+
+    assert report["passed"] is True
+    assert report["strict_passed"] is False
+    assert report["blocking_issues"] == []
+    assert {
+        "plan:concept_group_mirrors_section",
+        "plan:concept_group_too_small",
+        "plan:knowledge_point_mirrors_section",
+        "plan:invalid_reused_knowledge",
+        "plan:invalid_relation_endpoint",
+        "plan:knowledge_entry_reason_missing",
+    } <= {item["code"] for item in report["advisory_issues"]}
 
 
 @pytest.mark.asyncio

@@ -1051,6 +1051,8 @@ class CourseService(AIBase):
                 )
 
             apply_section_knowledge_package(plan, node_id, package)
+            section["knowledge_package_status"] = "completed"
+            section["knowledge_quality_report"] = deepcopy(package_report)
             available_names = list(dict.fromkeys([
                 *available_names,
                 *[

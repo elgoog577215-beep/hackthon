@@ -344,7 +344,12 @@ def validate_section_knowledge_package(
     section_title: str,
     available_knowledge_names: list[str],
 ) -> dict[str, Any]:
-    """Validate the smallest retryable knowledge unit."""
+    """Validate the smallest retryable knowledge unit.
+
+    A section is blocked only when it cannot provide a usable teaching
+    skeleton. Optional enrichment defects remain internal diagnostics and do
+    not trigger another model call or turn the whole course into a failed task.
+    """
     issues: list[dict[str, Any]] = []
     structures = package.get("knowledge_structure") or []
     available = {
@@ -353,31 +358,66 @@ def validate_section_knowledge_package(
         if _normalize_knowledge_name(name)
     }
     local_names: dict[str, str] = {}
+    usable_point_count = 0
     inbound_names: set[str] = set()
     title_identity = _normalize_knowledge_name(section_title)
     if not structures:
         issues.append(_plan_issue("section_knowledge:missing_structure", f"小节「{section_title}」没有返回知识包"))
     for raw_group in structures:
         if not isinstance(raw_group, dict):
-            issues.append(_plan_issue("section_knowledge:malformed_group", f"小节「{section_title}」存在非法概念组"))
+            issues.append(_plan_issue(
+                "section_knowledge:malformed_group",
+                f"小节「{section_title}」存在无法使用的概念组，系统将忽略该组",
+                blocking=False,
+            ))
             continue
         group_name = str(raw_group.get("concept_group") or raw_group.get("topic") or "").strip()
         points = [item for item in raw_group.get("knowledge_points") or [] if isinstance(item, dict)]
-        if not group_name or _normalize_knowledge_name(group_name) == title_identity:
-            issues.append(_plan_issue("section_knowledge:group_mirrors_section", f"小节「{section_title}」的概念组缺失或复制了小节标题"))
+        if not group_name:
+            issues.append(_plan_issue(
+                "section_knowledge:group_missing_name",
+                f"小节「{section_title}」存在未命名概念组，无法建立稳定知识归属",
+            ))
+        elif _normalize_knowledge_name(group_name) == title_identity:
+            issues.append(_plan_issue(
+                "section_knowledge:group_mirrors_section",
+                f"小节「{section_title}」的概念组名称复制了小节标题，可在确认时继续优化",
+                blocking=False,
+            ))
         if len(points) < 2:
-            issues.append(_plan_issue("section_knowledge:group_too_small", f"概念组「{group_name or '未命名'}」少于两个原子知识点"))
+            issues.append(_plan_issue(
+                "section_knowledge:group_too_small",
+                f"概念组「{group_name or '未命名'}」当前只有一个原子知识点，不影响继续生成",
+                blocking=False,
+            ))
         for point in points:
             name = str(point.get("name") or "").strip()
             normalized = _normalize_knowledge_name(name)
-            if not name or normalized == title_identity:
-                issues.append(_plan_issue("section_knowledge:point_mirrors_section", f"小节「{section_title}」存在缺失名称或复制标题的知识点"))
+            if not name:
+                issues.append(_plan_issue(
+                    "section_knowledge:point_missing_name",
+                    f"小节「{section_title}」存在未命名知识点，系统将忽略该条",
+                    blocking=False,
+                ))
                 continue
+            if normalized == title_identity:
+                issues.append(_plan_issue(
+                    "section_knowledge:point_mirrors_section",
+                    f"知识点「{name}」复制了小节标题，但已有具体内容，可在确认时优化名称",
+                    blocking=False,
+                ))
             if normalized in local_names or normalized in available:
-                issues.append(_plan_issue("section_knowledge:duplicate_identity", f"知识点「{name}」已经存在，应使用 reused_knowledge_names 复用"))
+                issues.append(_plan_issue(
+                    "section_knowledge:duplicate_identity",
+                    f"知识点「{name}」已经存在，系统将复用同一课程知识身份",
+                    blocking=False,
+                ))
             local_names[normalized] = name
-            if not str(point.get("statement") or point.get("description") or "").strip():
+            statement = str(point.get("statement") or point.get("description") or "").strip()
+            if not statement:
                 issues.append(_plan_issue("section_knowledge:missing_statement", f"知识点「{name}」缺少独立知识陈述"))
+            else:
+                usable_point_count += 1
             if not point.get("conditions") and not point.get("boundaries"):
                 issues.append(_plan_issue("section_knowledge:missing_boundary", f"知识点「{name}」缺少成立条件或适用边界"))
             skills = point.get("capability_points") or point.get("capabilities") or []
@@ -400,7 +440,17 @@ def validate_section_knowledge_package(
                     not str(mistake.get(field) or "").strip()
                     for field in ("observable_error_pattern", "discrimination", "repair_strategy")
                 ):
-                    issues.append(_plan_issue("section_knowledge:template_misconception", f"知识点「{name}」存在无法观察、辨别或修复的模板易错点"))
+                    issues.append(_plan_issue(
+                        "section_knowledge:template_misconception",
+                        f"知识点「{name}」存在不完整易错点，系统不会把它作为正式诊断依据",
+                        blocking=False,
+                    ))
+
+    if structures and usable_point_count == 0:
+        issues.append(_plan_issue(
+            "section_knowledge:no_usable_points",
+            f"小节「{section_title}」没有可用于教学的具名知识陈述",
+        ))
 
     all_names = {**available, **local_names}
     relations = [
@@ -420,17 +470,37 @@ def validate_section_knowledge_package(
         source = _normalize_knowledge_name(relation.get("source_name"))
         target = _normalize_knowledge_name(relation.get("target_name"))
         if relation_type not in allowed_relations:
-            issues.append(_plan_issue("section_knowledge:invalid_relation_type", f"知识关系类型「{relation_type or '空'}」不在白名单"))
+            issues.append(_plan_issue(
+                "section_knowledge:invalid_relation_type",
+                f"知识关系类型「{relation_type or '空'}」不在白名单，系统将忽略该关系",
+                blocking=False,
+            ))
             continue
         if source not in all_names or target not in all_names or source == target:
-            issues.append(_plan_issue("section_knowledge:invalid_relation_endpoint", "知识关系端点必须引用当前课程已经存在的两个不同知识点"))
+            issues.append(_plan_issue(
+                "section_knowledge:invalid_relation_endpoint",
+                "知识关系未能连接当前课程中的两个不同知识点，系统将忽略该关系",
+                blocking=False,
+            ))
             continue
         if not str(relation.get("reason") or "").strip():
-            issues.append(_plan_issue("section_knowledge:relation_missing_reason", "知识关系缺少具体理由"))
+            issues.append(_plan_issue(
+                "section_knowledge:relation_missing_reason",
+                "知识关系缺少具体理由，系统将忽略该关系",
+                blocking=False,
+            ))
         if relation_type == "derives" and not relation.get("derivation_steps"):
-            issues.append(_plan_issue("section_knowledge:derivation_missing_steps", "推导关系缺少关键步骤"))
+            issues.append(_plan_issue(
+                "section_knowledge:derivation_missing_steps",
+                "推导关系缺少关键步骤，系统将忽略该关系",
+                blocking=False,
+            ))
         if relation_type == "contrasts_with" and not str(relation.get("distinction") or "").strip():
-            issues.append(_plan_issue("section_knowledge:contrast_missing_distinction", "对比关系缺少判别维度"))
+            issues.append(_plan_issue(
+                "section_knowledge:contrast_missing_distinction",
+                "对比关系缺少判别维度，系统将忽略该关系",
+                blocking=False,
+            ))
         inbound_names.add(target)
         if relation_type in {"equivalent_to", "contrasts_with"}:
             inbound_names.add(source)
@@ -445,7 +515,8 @@ def validate_section_knowledge_package(
             if normalized and normalized not in inbound_names and not str(point.get("entry_reason") or "").strip():
                 issues.append(_plan_issue(
                     "section_knowledge:entry_reason_missing",
-                    f"知识点「{point.get('name')}」既无关系入边，也没有入口理由",
+                    f"知识点「{point.get('name')}」尚未说明为何从这里开始学习",
+                    blocking=False,
                 ))
 
     reused = {
@@ -459,20 +530,25 @@ def validate_section_knowledge_package(
     if invalid_reused:
         issues.append(_plan_issue(
             "section_knowledge:invalid_reuse",
-            f"复用了尚未出现的知识点：{'、'.join(str(item) for item in invalid_reused)}",
+            f"尚未找到准备复用的知识点：{'、'.join(str(item) for item in invalid_reused)}",
+            blocking=False,
         ))
     if reused & set(local_names):
-        issues.append(_plan_issue("section_knowledge:reuse_redefined", "同一知识点不能同时复用和重新创建"))
-    return {
-        "schema_version": "section_knowledge_constraints_v1",
-        "passed": not issues,
-        "actual": {
+        issues.append(_plan_issue(
+            "section_knowledge:reuse_redefined",
+            "同一知识点同时被复用和重新创建，系统将按同一课程知识身份合并",
+            blocking=False,
+        ))
+    return _constraint_report(
+        schema_version="section_knowledge_constraints_v1",
+        actual={
             "concept_group_count": len(structures),
             "knowledge_point_count": len(local_names),
+            "usable_knowledge_point_count": usable_point_count,
             "relation_count": len(relations),
         },
-        "issues": issues,
-    }
+        issues=issues,
+    )
 
 
 def apply_section_knowledge_package(
@@ -600,16 +676,15 @@ def validate_course_plan_constraints(
             "blocking": True,
         })
     issues.extend(_knowledge_contract_issues(plan, chapters))
-    return {
-        "schema_version": "course_plan_constraints_v2",
-        "passed": not issues,
-        "expected": constraints,
-        "actual": {
+    return _constraint_report(
+        schema_version="course_plan_constraints_v2",
+        expected=constraints,
+        actual={
             "chapter_count": len(chapters),
             "section_count": section_count,
         },
-        "issues": issues,
-    }
+        issues=issues,
+    )
 
 
 def _knowledge_contract_issues(
@@ -643,6 +718,7 @@ def _knowledge_contract_issues(
             section_label = str(section.get("section_number") or section.get("node_id") or "未知小节")
             section_title = _normalize_knowledge_name(section.get("title"))
             prior_point_names = set(point_names)
+            section_usable_point_count = 0
             structures = section.get("knowledge_structure") or []
             if not structures:
                 issues.append(_plan_issue(
@@ -652,6 +728,10 @@ def _knowledge_contract_issues(
                 continue
             for raw_group in structures:
                 if not isinstance(raw_group, dict):
+                    issues.append(_plan_issue(
+                        "plan:malformed_concept_group",
+                        f"小节 {section_label} 存在无法使用的概念组，系统将忽略该组",
+                    ))
                     continue
                 group_name = str(
                     raw_group.get("concept_group")
@@ -660,10 +740,15 @@ def _knowledge_contract_issues(
                     or ""
                 ).strip()
                 points = [item for item in raw_group.get("knowledge_points") or [] if isinstance(item, dict)]
-                if not group_name or _normalize_knowledge_name(group_name) == section_title:
+                if not group_name:
+                    issues.append(_plan_issue(
+                        "plan:concept_group_missing_name",
+                        f"小节 {section_label} 存在未命名概念组，无法建立稳定知识归属",
+                    ))
+                elif _normalize_knowledge_name(group_name) == section_title:
                     issues.append(_plan_issue(
                         "plan:concept_group_mirrors_section",
-                        f"小节 {section_label} 的概念组缺失或复制了小节标题",
+                        f"小节 {section_label} 的概念组复制了小节标题，可在确认时继续优化",
                     ))
                 if len(points) < 2:
                     issues.append(_plan_issue(
@@ -673,23 +758,31 @@ def _knowledge_contract_issues(
                 for point in points:
                     name = str(point.get("name") or "").strip()
                     normalized = _normalize_knowledge_name(name)
-                    if not name or normalized == section_title:
+                    if not name:
                         issues.append(_plan_issue(
-                            "plan:knowledge_point_mirrors_section",
-                            f"小节 {section_label} 存在缺失名称或复制标题的知识点",
+                            "plan:knowledge_point_missing_name",
+                            f"小节 {section_label} 存在未命名知识点，系统将忽略该条",
                         ))
                         continue
+                    if normalized == section_title:
+                        issues.append(_plan_issue(
+                            "plan:knowledge_point_mirrors_section",
+                            f"知识点「{name}」复制了小节标题，但已有具体内容，可在确认时优化名称",
+                        ))
                     if normalized in point_names:
                         issues.append(_plan_issue(
                             "plan:duplicate_knowledge_identity",
                             f"知识点「{name}」在全课重复创建，应复用同一课程知识身份",
                         ))
                     point_names[normalized] = name
-                    if not str(point.get("statement") or point.get("description") or "").strip():
+                    statement = str(point.get("statement") or point.get("description") or "").strip()
+                    if not statement:
                         issues.append(_plan_issue(
                             "plan:knowledge_point_missing_statement",
                             f"知识点「{name}」只有名称，没有独立知识陈述",
                         ))
+                    else:
+                        section_usable_point_count += 1
                     if not point.get("conditions") and not point.get("boundaries"):
                         issues.append(_plan_issue(
                             "plan:knowledge_point_missing_boundary",
@@ -737,6 +830,11 @@ def _knowledge_contract_issues(
                     for relation in point.get("relations") or []:
                         if isinstance(relation, dict):
                             relation_candidates.append({**deepcopy(relation), "source_name": name})
+            if section_usable_point_count == 0:
+                issues.append(_plan_issue(
+                    "plan:no_usable_knowledge_points",
+                    f"小节 {section_label} 没有可用于教学的具名知识陈述",
+                ))
             for reused_name in section.get("reused_knowledge_names") or []:
                 if _normalize_knowledge_name(reused_name) not in prior_point_names:
                     issues.append(_plan_issue(
@@ -784,8 +882,90 @@ def _normalize_knowledge_name(value: Any) -> str:
     return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", text.lower())
 
 
-def _plan_issue(code: str, message: str) -> dict[str, Any]:
-    return {"code": code, "message": message, "blocking": True}
+_ADVISORY_CONSTRAINT_CODES = {
+    "section_knowledge:malformed_group",
+    "section_knowledge:group_mirrors_section",
+    "section_knowledge:group_too_small",
+    "section_knowledge:point_missing_name",
+    "section_knowledge:point_mirrors_section",
+    "section_knowledge:duplicate_identity",
+    "section_knowledge:missing_statement",
+    "section_knowledge:missing_boundary",
+    "section_knowledge:missing_skill",
+    "section_knowledge:missing_mastery",
+    "section_knowledge:template_misconception",
+    "section_knowledge:invalid_relation_type",
+    "section_knowledge:invalid_relation_endpoint",
+    "section_knowledge:relation_missing_reason",
+    "section_knowledge:derivation_missing_steps",
+    "section_knowledge:contrast_missing_distinction",
+    "section_knowledge:entry_reason_missing",
+    "section_knowledge:invalid_reuse",
+    "section_knowledge:reuse_redefined",
+    "plan:malformed_concept_group",
+    "plan:concept_group_mirrors_section",
+    "plan:concept_group_too_small",
+    "plan:knowledge_point_missing_name",
+    "plan:knowledge_point_mirrors_section",
+    "plan:duplicate_knowledge_identity",
+    "plan:knowledge_point_missing_statement",
+    "plan:knowledge_point_missing_boundary",
+    "plan:knowledge_point_missing_skill",
+    "plan:knowledge_point_missing_mastery",
+    "plan:misconception_is_template",
+    "plan:invalid_reused_knowledge",
+    "plan:invalid_knowledge_relation",
+    "plan:invalid_relation_endpoint",
+    "plan:relation_missing_reason",
+    "plan:derivation_missing_steps",
+    "plan:contrast_missing_distinction",
+    "plan:knowledge_entry_reason_missing",
+}
+
+
+def _plan_issue(
+    code: str,
+    message: str,
+    *,
+    blocking: bool | None = None,
+) -> dict[str, Any]:
+    is_blocking = code not in _ADVISORY_CONSTRAINT_CODES if blocking is None else blocking
+    return {
+        "code": code,
+        "message": message,
+        "blocking": is_blocking,
+        "severity": "critical" if is_blocking else "advisory",
+    }
+
+
+def _constraint_report(
+    *,
+    schema_version: str,
+    actual: dict[str, Any],
+    issues: list[dict[str, Any]],
+    expected: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    blocking_issues = [item for item in issues if item.get("blocking", True)]
+    advisory_issues = [item for item in issues if not item.get("blocking", True)]
+    report = {
+        "schema_version": schema_version,
+        "passed": not blocking_issues,
+        "strict_passed": not issues,
+        "status": (
+            "blocked"
+            if blocking_issues
+            else "passed_with_advisories"
+            if advisory_issues
+            else "passed"
+        ),
+        "actual": actual,
+        "issues": issues,
+        "blocking_issues": blocking_issues,
+        "advisory_issues": advisory_issues,
+    }
+    if expected is not None:
+        report["expected"] = expected
+    return report
 
 
 def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:

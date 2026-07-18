@@ -207,15 +207,20 @@ def test_legacy_asset_bundle_gets_current_course_knowledge_projection():
     assert not any("课程局部知识待归一" in item["message"] for item in quality["issues"])
 
 
-def test_course_knowledge_validator_rejects_missing_capability_parent():
+def test_course_knowledge_validator_reports_missing_capability_without_blocking():
     course = _course()
     knowledge_base = compile_course_knowledge_base(course)
     knowledge_base["skill_units"] = []
 
     report = validate_course_knowledge_base(knowledge_base, course_data=course)
 
-    assert report["passed"] is False
-    assert any(item["gate"] == "standards" for item in report["issues"])
+    assert report["passed"] is True
+    assert report["strict_passed"] is False
+    assert any(
+        item["code"] == "point_missing_skill"
+        and item["severity"] == "major"
+        for item in report["issues"]
+    )
 
 
 def test_empty_knowledge_blueprint_reports_compact_actionable_issues():
@@ -266,8 +271,8 @@ def test_title_only_legacy_course_is_degraded_instead_of_fabricating_knowledge()
     assert knowledge_base["quality_report"]["strict_passed"] is False
     assert knowledge_base["generation_audit"]["title_fallback_used"] is False
     assert any(
-        item["code"] in {"point_missing_statement", "point_mirrors_section"}
-        for item in knowledge_base["quality_report"]["issues"]
+        item["code"] in {"knowledge_blueprint_missing", "missing_section_bindings"}
+        for item in knowledge_base["quality_report"]["blocking_issues"]
     )
 
 
@@ -281,10 +286,13 @@ def test_relation_whitelist_rejects_ambiguous_related_edge():
 
     knowledge_base = compile_course_knowledge_base(course)
 
-    assert knowledge_base["lifecycle_status"] == "degraded"
+    assert knowledge_base["lifecycle_status"] == "active"
+    assert knowledge_base["quality_report"]["passed"] is True
+    assert knowledge_base["quality_report"]["strict_passed"] is False
     assert knowledge_base["generation_audit"]["invalid_relation_candidates"]
     assert any(
         item["code"] == "invalid_relation_candidates"
+        and item["severity"] == "major"
         for item in knowledge_base["quality_report"]["issues"]
     )
 
