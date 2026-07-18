@@ -158,6 +158,14 @@ export interface CourseMaterialBindingInput {
   priority: 'core' | 'supporting' | 'weak';
   authority: 'primary' | 'secondary' | 'context_only';
   usage_policy: 'must_use' | 'prefer' | 'optional' | 'style_only';
+  reuse_policy: 'verbatim_allowed' | 'reference_only' | 'original_generation';
+  rights_basis: 'teacher_asserted' | 'open_license' | 'license_unknown' | 'platform_owned';
+  source_metadata: {
+    year?: number;
+    term?: string;
+    exam_type?: string;
+    source_url?: string;
+  };
   user_description?: string;
   source_label?: string;
 }
@@ -193,6 +201,9 @@ export interface GenerateCourseParams {
   generation_mode?: 'fast' | 'review_blueprint';
   course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
   asset_preferences?: Record<string, boolean>;
+  web_question_enrichment?: {
+    enabled: boolean;
+  };
 }
 
 export type CourseGenerationOptions = Partial<Omit<GenerateCourseParams, 'subject'>>;

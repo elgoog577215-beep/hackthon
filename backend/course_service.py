@@ -180,6 +180,10 @@ class CourseService(AIBase):
             "difficulty",
             "target_audience",
             "generation_request",
+            "generation_mode",
+            "course_purpose",
+            "asset_preferences",
+            "web_question_enrichment",
             "requirements",
             "subject_pedagogy_profile",
             "difficulty_profile",
@@ -224,6 +228,21 @@ class CourseService(AIBase):
                 continue
         return catalog
 
+    def load_course_evidence_catalog(
+        self,
+        course_data: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Load full source text only for server-side compilation.
+
+        Persisted course metadata intentionally keeps a compact evidence index;
+        question-bank compilation resolves the full evidence from the bound
+        material repository and does not publish it to learner-facing views.
+        """
+        catalog = course_data.get("evidence_catalog")
+        if isinstance(catalog, list) and catalog:
+            return deepcopy(catalog)
+        return self._load_evidence_catalog(course_data.get("material_bindings") or [])
+
     # ------------------------------------------------------------------
     # 资料增强课程生成主链路
     # ------------------------------------------------------------------
@@ -246,6 +265,10 @@ class CourseService(AIBase):
         pedagogy_mode: str = "auto",
         secondary_mode: str | None = None,
         secondary_intensity: str | None = None,
+        generation_mode: str = "fast",
+        course_purpose: str = "systematic",
+        asset_preferences: dict[str, bool] | None = None,
+        web_question_enrichment: dict[str, Any] | None = None,
         existing_course_data: dict[str, Any] | None = None,
         on_phase: Callable[..., Awaitable[None] | None] | None = None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
@@ -508,6 +531,12 @@ class CourseService(AIBase):
                 "pedagogy_mode": pedagogy_mode,
                 "secondary_mode": secondary_mode,
                 "secondary_intensity": secondary_intensity,
+                "generation_mode": generation_mode,
+                "course_purpose": course_purpose,
+                "asset_preferences": deepcopy(asset_preferences or {}),
+                "web_question_enrichment": deepcopy(
+                    web_question_enrichment or {"enabled": False}
+                ),
                 "material_bindings": artifacts.get("material_bindings", []),
                 "grounding_strategy": grounding_strategy,
             },
@@ -515,6 +544,12 @@ class CourseService(AIBase):
             "style": style,
             "requirements": requirements,
             "target_audience": audience,
+            "generation_mode": generation_mode,
+            "course_purpose": course_purpose,
+            "asset_preferences": deepcopy(asset_preferences or {}),
+            "web_question_enrichment": deepcopy(
+                web_question_enrichment or {"enabled": False}
+            ),
             "subject_pedagogy_profile": profile.to_dict(),
             "difficulty_profile": difficulty_profile.to_dict(),
             "difficulty_gap_assessment": gap_assessment.to_dict(),

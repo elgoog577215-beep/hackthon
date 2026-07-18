@@ -3,7 +3,8 @@ import type { AxiosError } from 'axios'
 export const MATERIAL_MAX_FILE_BYTES = 50 * 1024 * 1024
 
 export const MATERIAL_ALLOWED_EXTENSIONS = new Set([
-  'pdf', 'docx', 'pptx', 'xlsx', 'md', 'markdown', 'txt', 'csv', 'json', 'py', 'js', 'ts', 'html', 'css',
+  'pdf', 'docx', 'pptx', 'xlsx', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff',
+  'md', 'markdown', 'txt', 'csv', 'json', 'py', 'js', 'ts', 'html', 'css',
 ])
 
 type FastApiIssue = { msg?: string; loc?: Array<string | number> }

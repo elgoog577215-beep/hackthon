@@ -167,6 +167,9 @@ def _normalize_binding(raw: Any) -> MaterialBinding:
         "priority": priority,
         "authority": authority,
         "usage_policy": usage_policy,
+        "reuse_policy": str(data.get("reuse_policy") or "verbatim_allowed"),
+        "rights_basis": str(data.get("rights_basis") or "teacher_asserted"),
+        "source_metadata": data.get("source_metadata") or {},
         "user_description": str(data.get("user_description") or ""),
         "source_label": str(data.get("source_label") or ""),
     })
@@ -184,6 +187,9 @@ def _card_from_asset(asset: dict[str, Any], binding: MaterialBinding) -> dict[st
         "importance": binding.priority,
         "authority": binding.authority,
         "usage_policy": binding.usage_policy,
+        "reuse_policy": binding.reuse_policy,
+        "rights_basis": binding.rights_basis,
+        "source_metadata": dict(binding.source_metadata),
         "parse_status": asset.get("status", "uploaded"),
         "evidence_state": "verified" if asset.get("status") == "parsed" else asset.get("status"),
     }

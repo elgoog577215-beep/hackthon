@@ -91,6 +91,11 @@
               <p v-else-if="blueprintError" class="blueprint-error">{{ blueprintError }}</p>
             </section>
 
+            <QuestionBankReviewPanel
+              v-if="courseExists(selectedTask.courseId) && ['completed', 'completed_with_warnings'].includes(selectedTask.status)"
+              :course-id="selectedTask.courseId"
+            />
+
             <section v-if="selectedTask.status === 'error' || selectedTask.status === 'completed_with_warnings' || selectedTask.status === 'conflict'" class="task-notice" :data-status="selectedTask.status">
               <TriangleAlert :size="18" />
               <div>
@@ -141,6 +146,7 @@ import {
 import { useCourseStore } from '@/stores/course'
 import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import { useGenerationStore } from '@/stores/generation'
+import QuestionBankReviewPanel from '@/components/QuestionBankReviewPanel.vue'
 import type { Task } from '@/stores/types'
 import { t } from '@/shared/i18n'
 
@@ -297,6 +303,9 @@ function phaseLabel(phase: string | undefined, status: Task['status']) {
     blueprint_validation: t('courseTasks.phases.blueprintValidation', '检查课程蓝图'),
     blueprint_ready: t('courseTasks.phases.blueprintReady', '等待确认课程蓝图'),
     content_generation: t('courseTasks.phases.contentGeneration', '生成课程内容'),
+    learning_assets: t('courseTasks.phases.learningAssets', '生成练习与综合测评'),
+    question_bank: t('courseTasks.phases.questionBank', '整理题库、联网补充与风险审核'),
+    content_validation: t('courseTasks.phases.contentValidation', '验证题目答案、量规与覆盖'),
     resuming: t('courseTasks.phases.resuming', '从保存点恢复'),
     recovery_unavailable: t('courseTasks.phases.recoveryUnavailable', '无法恢复原任务'),
     quality_failed: t('courseTasks.phases.qualityFailed', '质量检查未通过'),

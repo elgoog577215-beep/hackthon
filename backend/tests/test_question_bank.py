@@ -117,6 +117,35 @@ def test_question_bank_generates_specific_candidates_for_coverage_gaps():
     assert all(item["quality_report"]["passed"] for item in generated)
 
 
+def test_imported_multiple_choice_question_preserves_options_and_correct_choice():
+    course = _course()
+    course["evidence_catalog"] = [{
+        "evidence_id": "ev-choice",
+        "asset_id": "asset-exam",
+        "document_id": "doc-exam",
+        "kind": "question",
+        "purpose": "question_source",
+        "source_text": (
+            "题目：下列哪个矩阵可逆？ "
+            "A. [[1,0],[0,1]] B. [[1,1],[1,1]] "
+            "C. [[0,0],[0,1]] D. [[1,2],[2,4]] "
+            "答案：A。解析：单位矩阵的行列式为 1。"
+        ),
+        "locator": {"page": 4},
+        "content_hash": "hash-choice",
+        "confidence": "high",
+    }]
+    course["nodes"][0]["grounding_contract"]["question_evidence_ids"] = ["ev-choice"]
+
+    bundle = build_question_bank(course)
+    item = next(value for value in bundle["items"] if value["source_type"] == "imported")
+
+    assert item["question_type"] == "single_choice"
+    assert [option["option_id"] for option in item["options"]] == ["A", "B", "C", "D"]
+    assert item["answer_spec"]["correct_option_id"] == "A"
+    assert item["formal_task"]["options"] == item["options"]
+
+
 def test_comprehensive_tasks_are_multi_item_specific_and_require_teacher_review():
     bundle = build_question_bank(_course())
     finals = [
@@ -133,6 +162,43 @@ def test_comprehensive_tasks_are_multi_item_specific_and_require_teacher_review(
     assert all(item["constraints"] for item in finals)
     assert all(item["answer_spec"]["criteria"] for item in finals)
     assert all("综合运用全部章节完成最终任务" not in item["prompt"] for item in finals)
+
+
+def test_exam_sprint_assessment_uses_teacher_question_distribution():
+    course = _course()
+    course["course_purpose"] = "exam_sprint"
+    course["generation_request"]["course_purpose"] = "exam_sprint"
+
+    bundle = build_question_bank(course)
+    finals = [
+        item for item in bundle["items"]
+        if item["assessment_role"] in {"coverage_task", "cross_chapter_transfer"}
+    ]
+
+    assert bundle["assessment_blueprint"]["distribution_inferred"] is False
+    assert bundle["assessment_blueprint"]["basis"] == "teacher_question_bank"
+    assert all(item["assessment_distribution"]["inferred"] is False for item in finals)
+
+
+def test_personalized_assessment_only_covers_confirmed_weak_nodes():
+    course = _course()
+    course["course_purpose"] = "personalized_remedial"
+    course["generation_request"]["course_purpose"] = "personalized_remedial"
+    course["confirmed_weak_node_ids"] = ["L2-2-1"]
+
+    bundle = build_question_bank(course)
+    finals = [
+        item for item in bundle["items"]
+        if item["assessment_role"] in {"coverage_task", "cross_chapter_transfer"}
+    ]
+
+    assert finals
+    assert {
+        node_id
+        for item in finals
+        for node_id in item["node_ids"]
+    } == {"L2-2-1"}
+    assert bundle["assessment_blueprint"]["focus"] == "confirmed_weak_objectives"
 
 
 def test_reviews_and_teacher_edits_create_new_immutable_bundle_and_item_revisions():
@@ -164,6 +230,12 @@ def test_reviews_and_teacher_edits_create_new_immutable_bundle_and_item_revision
     assert edited["revision_id"] != final["revision_id"]
     assert edited["parent_revision_id"] == final["revision_id"]
     assert edited["lifecycle_status"] == "needs_review"
+    assert edited["formal_task"]["prompt"] == edited["prompt"]
+    assert (
+        edited["formal_task"]["question_bank_item_revision_id"]
+        == edited["revision_id"]
+    )
+    assert edited["formal_task_revision_id"] == edited["formal_task"]["revision_id"]
 
 
 def test_repository_never_leaks_items_across_courses(tmp_path):
@@ -178,6 +250,8 @@ def test_repository_never_leaks_items_across_courses(tmp_path):
     assert first["bundle_revision_id"] != second["bundle_revision_id"]
     with pytest.raises(ValueError, match="course scope"):
         repository.save_bundle("course-other", first)
+    with pytest.raises(ValueError, match="storage identifier"):
+        repository.load_bundle("../course-bank")
 
 
 @pytest.mark.asyncio

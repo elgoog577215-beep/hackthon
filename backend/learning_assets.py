@@ -21,6 +21,7 @@ from course_pedagogy import coerce_persisted_profile
 from course_versioning import stable_hash
 from learning_progress import learning_objective_identity
 from practice_contracts import enrich_question_contract
+from question_bank import build_question_bank
 
 ASSET_SCHEMA = "learning_assets_v2"
 QUALITY_SCHEMA = "asset_quality_v1"
@@ -135,6 +136,30 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
         for item in course_knowledge_base.get("skill_units") or []
     }
 
+    for node in nodes:
+        local_binding = knowledge_binding_for_section(
+            course_knowledge_base,
+            str(node.get("node_id") or ""),
+        )
+        node["course_knowledge_refs"] = list(local_binding["course_knowledge_refs"])
+        node["course_skill_refs"] = list(local_binding["course_skill_refs"])
+        node["course_misconception_refs"] = list(local_binding["course_misconception_refs"])
+        node["course_mastery_refs"] = list(local_binding["course_mastery_refs"])
+    question_bank_course = {
+        **deepcopy(course_data),
+        "nodes": deepcopy(nodes),
+    }
+    question_bank_bundle = build_question_bank(question_bank_course)
+    bank_practice_items = {
+        (
+            str(item.get("node_id") or ""),
+            str(next(iter(item.get("practice_levels") or []), "")),
+        ): item
+        for item in question_bank_bundle.get("items") or []
+        if item.get("assessment_role") == "practice"
+        and item.get("lifecycle_status") == "approved"
+    }
+
     questions: list[dict[str, Any]] = []
     criteria: list[dict[str, Any]] = []
     misconceptions: list[dict[str, Any]] = []
@@ -160,6 +185,7 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
         improvement_point_ids: list[str] = []
         node_questions: list[dict[str, Any]] = []
         for practice_level in ("concept_check", "objective_practice", "mastery_check"):
+            bank_item = bank_practice_items.get((node_id, practice_level))
             question_point_ids = _question_knowledge_scope(local_point_ids, practice_level)
             question_point_names = [
                 str(point_by_id[point_id].get("name") or "")
@@ -201,24 +227,39 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
                     else "focused_knowledge_check"
                 ),
                 "question_type": level_question_type,
-                "prompt": _practice_prompt(
-                    practice_level,
-                    level_question_type,
-                    node_name,
-                    node,
-                    question_point_names,
+                "prompt": (
+                    str(bank_item.get("prompt") or "")
+                    if bank_item
+                    else _practice_prompt(
+                        practice_level,
+                        level_question_type,
+                        node_name,
+                        node,
+                        question_point_names,
+                    )
                 ),
-                "answer_spec": _practice_answer_spec(
-                    practice_level,
-                    node_name,
-                    node,
-                    question_point_names,
+                "answer_spec": (
+                    _practice_answer_spec(
+                        practice_level,
+                        node_name,
+                        node,
+                        question_point_names,
+                    )
+                    if practice_level == "mastery_check" or not bank_item
+                    else deepcopy(bank_item.get("answer_spec") or {})
                 ),
                 "difficulty_contract": deepcopy(node.get("difficulty_contract") or {}),
                 "evidence_ids": evidence_ids,
                 "source_status": "grounded" if evidence_ids else "course_structure",
                 "status": "active",
+                "question_bank_item_revision_id": (
+                    bank_item.get("revision_id") if bank_item else None
+                ),
+                "source_type": bank_item.get("source_type") if bank_item else "generated",
+                "source_records": deepcopy(bank_item.get("source_records") or []) if bank_item else [],
             }
+            if bank_item:
+                question["hint_contract"] = deepcopy(bank_item.get("hint_contract") or {})
             question = enrich_question_contract(question, practice_level=practice_level)
             question["revision_id"] = _revision_id(question, "qr_")
             node_questions.append(question)
@@ -341,16 +382,10 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
         "misconceptions": misconceptions if "misconceptions" in enabled else [],
         "checklist": checklist if "checklist" in enabled else [],
         "final_assessment": [
-            _build_final_assessment(
-                course_id,
-                profile.primary_mode.value,
-                nodes,
-                questions,
-                [str(item) for item in point_by_id],
-                [str(item) for item in skill_by_id],
-                [str(item.get("misconception_id")) for item in course_knowledge_base.get("misconceptions") or []],
-                [],
-            )
+            deepcopy(item["formal_task"])
+            for item in question_bank_bundle.get("items") or []
+            if item.get("assessment_role") in {"coverage_task", "cross_chapter_transfer"}
+            and isinstance(item.get("formal_task"), dict)
         ] if "final_assessment" in enabled else [],
         "diagnostic_templates": diagnostic_templates if "questions" in enabled else [],
         "remediation_units": remediation_units if "questions" in enabled else [],
@@ -382,6 +417,7 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
         "plan": plan,
         "assets": assets,
         "quality_report": quality,
+        "question_bank_bundle": question_bank_bundle,
         "compiled_at": datetime.now().isoformat(),
     }
 
@@ -540,6 +576,74 @@ def evaluate_learning_asset_quality(
                 ))
         if len(prompt) < 12 or any(marker in prompt for marker in ("以下哪项", "随便谈谈", "待补充")):
             issues.append(_asset_issue("semantic", "major", "questions", "题目语义过弱或含占位表达", question))
+
+    required_objectives = {
+        str(node.get("objective_id") or "")
+        for node in course_data.get("nodes") or []
+        if int(node.get("node_level") or 1) == 2 and node.get("objective_id")
+    }
+    final_objectives: set[str] = set()
+    for task in assets.get("final_assessment") or []:
+        final_objectives.update(
+            str(value)
+            for value in [
+                task.get("objective_id"),
+                *(task.get("course_objective_refs") or []),
+            ]
+            if value
+        )
+        if (
+            not task.get("revision_id")
+            or not task.get("answer_spec")
+            or not task.get("practice_contract_revision_id")
+            or not task.get("input_contract")
+        ):
+            issues.append(_asset_issue(
+                "structure",
+                "critical",
+                "final_assessment",
+                "综合测评任务缺少稳定修订、答案量规或正式练习契约",
+                task,
+            ))
+        if not task.get("deliverable") or not task.get("input_materials") or not task.get("constraints"):
+            issues.append(_asset_issue(
+                "semantic",
+                "critical",
+                "final_assessment",
+                "综合测评任务必须包含最终产物、输入材料和限制条件",
+                task,
+            ))
+        if task.get("assessment_role") not in {"coverage_task", "cross_chapter_transfer"}:
+            issues.append(_asset_issue(
+                "structure",
+                "major",
+                "final_assessment",
+                "综合测评任务缺少覆盖或跨章节角色",
+                task,
+            ))
+        if not (task.get("quality_report") or {}).get("passed"):
+            issues.append(_asset_issue(
+                "semantic",
+                "critical",
+                "final_assessment",
+                "综合测评任务未通过与普通题一致的质量检查",
+                task,
+            ))
+        if task.get("review_status") != "approved":
+            issues.append(_asset_issue(
+                "discipline",
+                "review_required",
+                "final_assessment",
+                "综合测评任务等待教师确认，确认前不会对学生开放",
+                task,
+            ))
+    if assets.get("final_assessment") and required_objectives - final_objectives:
+        issues.append(_asset_issue(
+            "coverage",
+            "critical",
+            "final_assessment",
+            f"综合测评未覆盖必需目标：{sorted(required_objectives - final_objectives)}",
+        ))
 
     learning_nodes = [
         node for node in course_data.get("nodes") or []
@@ -814,10 +918,11 @@ def _build_diagnostic_template(
             "pass_score": 70,
         },
         "practice_level": "diagnostic_probe",
-        "quality_status": "passed",
         "source_status": "course_structure",
     }
     item = enrich_question_contract(item, practice_level="diagnostic_probe")
+    item["quality_report"] = _evaluate_generated_task_quality(item)
+    item["quality_status"] = item["quality_report"]["status"]
     item["revision_id"] = _revision_id(item, "dtr_")
     return item
 
@@ -912,7 +1017,6 @@ def _build_validation_question(
         },
         "practice_level": "remediation_validation",
         "validation_variant": variant,
-        "quality_status": "passed",
         "source_status": "course_structure",
         "validation_policy": {
             "mastery_eligible": True,
@@ -921,6 +1025,8 @@ def _build_validation_question(
         },
     }
     item = enrich_question_contract(item, practice_level="remediation_validation")
+    item["quality_report"] = _evaluate_generated_task_quality(item)
+    item["quality_status"] = item["quality_report"]["status"]
     item["revision_id"] = _revision_id(item, "rvtr_")
     return item
 
@@ -992,12 +1098,47 @@ def _chapter_groups(
     return groups
 
 
+def _evaluate_generated_task_quality(
+    task: dict[str, Any],
+    *,
+    previously_shown_prompts: set[str] | None = None,
+) -> dict[str, Any]:
+    issues: list[dict[str, str]] = []
+    prompt = " ".join(str(task.get("prompt") or "").split())
+    answer_spec = task.get("answer_spec") or {}
+    if len(prompt) < 12:
+        issues.append({"code": "task:prompt_too_short", "severity": "critical"})
+    if not answer_spec.get("criteria") and answer_spec.get("correct_answer") is None:
+        issues.append({"code": "task:answer_not_executable", "severity": "critical"})
+    if not task.get("practice_contract_revision_id") or not task.get("input_contract"):
+        issues.append({"code": "task:practice_contract_missing", "severity": "critical"})
+    levels = (task.get("hint_contract") or {}).get("levels") or []
+    if [level.get("level") for level in levels] != [1, 2, 3]:
+        issues.append({"code": "task:hint_levels_invalid", "severity": "major"})
+    if not (task.get("hint_contract") or {}).get("leakage_check", {}).get("passed", True):
+        issues.append({"code": "task:hint_leaks_answer", "severity": "critical"})
+    if previously_shown_prompts and prompt in previously_shown_prompts:
+        issues.append({"code": "task:not_unseen", "severity": "critical"})
+    critical = [item for item in issues if item["severity"] == "critical"]
+    return {
+        "schema_version": "generated_task_quality_v1",
+        "passed": not critical,
+        "status": "failed" if critical else ("needs_review" if issues else "passed"),
+        "issues": issues,
+    }
+
+
 def _refresh_quality_status(report: dict[str, Any]) -> None:
     issues = list(report.get("issues") or [])
     warnings = [
         item for item in issues
-        if item.get("asset_type") in KNOWLEDGE_INFRASTRUCTURE_ASSETS
-        and item.get("severity") != "critical"
+        if (
+            item.get("severity") in {"warning", "review_required"}
+            or (
+                item.get("asset_type") in KNOWLEDGE_INFRASTRUCTURE_ASSETS
+                and item.get("severity") != "critical"
+            )
+        )
     ]
     warning_ids = {str(item.get("issue_id") or "") for item in warnings}
     blocking = [

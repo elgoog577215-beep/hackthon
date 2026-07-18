@@ -22,6 +22,7 @@ from routers import (
     materials,
     nodes,
     practice,
+    question_bank,
     review,
     tasks,
 )

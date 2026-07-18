@@ -155,6 +155,21 @@
             </div>
           </section>
 
+          <section class="form-section web-enrichment-setting">
+            <label class="web-enrichment-setting__control">
+              <input
+                v-model="form.webQuestionEnrichment"
+                data-testid="web-question-enrichment"
+                type="checkbox"
+                :disabled="busy"
+              />
+              <span>
+                <strong>{{ t('courseGeneration.webQuestions.label', '资料不足时联网补充') }}</strong>
+                <small>{{ t('courseGeneration.webQuestions.help', '仅对题库覆盖缺口检索可信来源；不会发送学生画像、作答或个人记录。') }}</small>
+              </span>
+            </label>
+          </section>
+
           <section class="form-section">
             <label class="field-label" for="course-requirements">{{ t('courseGeneration.form.requirements', '额外要求') }}</label>
             <textarea
@@ -246,6 +261,7 @@ const form = reactive({
   generationMode: 'review_blueprint' as 'review_blueprint' | 'fast',
   coursePurpose: 'systematic' as 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial',
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
+  webQuestionEnrichment: false,
   requirements: '',
 })
 
@@ -299,6 +315,7 @@ async function submit() {
       grounding_strategy: form.groundingStrategy,
       requirements: form.requirements.trim(),
       material_bindings: materialBindings || [],
+      web_question_enrichment: { enabled: form.webQuestionEnrichment },
     }
     const identity = JSON.stringify({ subject, options })
     if (!submissionRequestId.value || submissionIdentity.value !== identity) {
@@ -332,6 +349,11 @@ async function submit() {
 .form-section { padding: 20px 0; border-bottom: 1px solid rgba(226,232,240,.78); }
 .form-section:last-child { border-bottom: 0; }
 .form-section--lead { padding-top: 22px; }
+.web-enrichment-setting__control { display: flex; align-items: flex-start; gap: 11px; cursor: pointer; }
+.web-enrichment-setting__control input { margin-top: 3px; accent-color: var(--lz-brand-strong); }
+.web-enrichment-setting__control span { display: grid; gap: 4px; }
+.web-enrichment-setting__control strong { color: var(--lz-text-strong); font-size: 13px; }
+.web-enrichment-setting__control small { color: var(--lz-text-muted); font-size: 11px; line-height: 1.55; }
 .teaching-settings { display: grid; gap: 22px; }
 .teaching-settings__core { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
 .choice-group { min-width: 0; margin: 0; padding: 0; border: 0; }

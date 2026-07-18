@@ -256,7 +256,7 @@ def test_questions_compile_formal_practice_contracts():
     assert all(marker in " ".join(questions[1]["answer_spec"]["criteria"]) for marker in ("依据", "过程", "检查"))
     assert final["practice_level"] == "final_assessment"
     assert 3 <= len(finals) <= 8
-    assert all(item["review_status"] == "approved" for item in finals)
+    assert all(item["review_status"] == "needs_review" for item in finals)
     assert all(item["quality_report"]["passed"] is True for item in finals)
     assert all(item["deliverable"] and item["input_materials"] and item["constraints"] for item in finals)
     assert any(item["assessment_role"] == "cross_chapter_transfer" for item in finals)

@@ -23,6 +23,7 @@ DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024
 DEFAULT_MAX_BATCH_FILES = 30
 # 单批次总字节数上限：默认单文件上限的 6 倍（300MB），避免解析耗时不可控，同时给多文件小课程留出空间。
 DEFAULT_MAX_BATCH_BYTES = 300 * 1024 * 1024
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 ALLOWED_EXTENSIONS = {
     ".pdf",
     ".docx",
@@ -38,6 +39,7 @@ ALLOWED_EXTENSIONS = {
     ".ts",
     ".html",
     ".css",
+    *IMAGE_EXTENSIONS,
 }
 TEXT_EXTENSIONS = {
     ".md",
@@ -352,6 +354,27 @@ class MaterialRepository:
             except UnicodeDecodeError as exc:
                 raise MaterialStorageError("文本资料必须使用 UTF-8 编码") from exc
             return mimetypes.guess_type(f"file{extension}")[0] or "text/plain"
+        if extension in IMAGE_EXTENSIONS:
+            try:
+                from PIL import Image, UnidentifiedImageError
+
+                with Image.open(path) as image:
+                    image.verify()
+                    image_format = str(image.format or "").upper()
+            except (OSError, UnidentifiedImageError) as exc:
+                raise MaterialStorageError("图片文件结构无效") from exc
+            expected_formats = {
+                ".png": {"PNG"},
+                ".jpg": {"JPEG"},
+                ".jpeg": {"JPEG"},
+                ".webp": {"WEBP"},
+                ".bmp": {"BMP"},
+                ".tif": {"TIFF"},
+                ".tiff": {"TIFF"},
+            }
+            if image_format not in expected_formats[extension]:
+                raise MaterialStorageError("图片扩展名与文件内容不一致")
+            return mimetypes.guess_type(f"file{extension}")[0] or "application/octet-stream"
         raise MaterialStorageError("不支持的文件类型")
 
 
@@ -364,6 +387,7 @@ __all__ = [
     "DEFAULT_MAX_BATCH_FILES",
     "DEFAULT_MAX_FILE_BYTES",
     "MATERIALS_DIR",
+    "IMAGE_EXTENSIONS",
     "MaterialRepository",
     "MaterialStorageError",
     "TEXT_EXTENSIONS",

@@ -85,6 +85,11 @@ def project_practice_availability(
         status, reason_code = "unavailable", "declared_reading_only"
     elif mode == "compatibility":
         status, reason_code = "degraded", "legacy_reading_compatible"
+    elif (
+        scope == "final"
+        and int((course.get("question_bank_review_queue") or {}).get("blocking_count") or 0) > 0
+    ):
+        status, reason_code = "blocked", "final_assessment_review_pending"
     elif _scope_requires_missing_assets(course, scope):
         status, reason_code = "blocked", "required_practice_missing"
     else:

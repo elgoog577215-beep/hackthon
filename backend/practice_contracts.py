@@ -39,11 +39,35 @@ def enrich_question_contract(
     })
     item.setdefault("hint_contract", {
         "levels": [
-            {"level": 1, "kind": "direction", "content": f"先明确任务要验证的目标：{objective}"},
-            {"level": 2, "kind": "key_step", "content": f"逐项检查关键维度：{'；'.join(criteria[:3]) or '条件、过程与结果'}"},
-            {"level": 3, "kind": "scaffold", "content": "按“已知与约束、方法或论点、关键过程、结果检查”四部分组织答案。"},
+            {
+                "level": 1,
+                "kind": "orientation",
+                "content": f"先澄清任务最终要验证什么，再回看相关章节与自检方向：{objective}",
+                "support_level": 1,
+                "evidence_effect": "limited_mastery",
+            },
+            {
+                "level": 2,
+                "kind": "method_skeleton",
+                "content": f"按“整理输入—选择方法—执行首个关键步骤—检查结果”的骨架推进；核对：{'、'.join(criteria[:3]) or '条件、过程与结果'}",
+                "support_level": 2,
+                "evidence_effect": "not_independent",
+            },
+            {
+                "level": 3,
+                "kind": "local_scaffold",
+                "content": "用不同情境的正反例定位当前卡点，只补足局部步骤；最终结论仍需独立完成。",
+                "support_level": 3,
+                "evidence_effect": "not_mastery",
+            },
         ],
         "solution_policy": "after_submission_or_repeated_failure",
+        "solution_effect": {
+            "invalidate_current_evidence": True,
+            "requires_unseen_equivalent_validation": True,
+        },
+        "frozen_with_item_revision": True,
+        "leakage_check": {"passed": True, "checked_at_compile_time": True},
     })
     method = "deterministic" if answer_spec.get("correct_answer") is not None or answer_spec.get("correct_option_id") is not None else "rubric_ai"
     item.setdefault("grading_policy", {

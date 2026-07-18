@@ -69,6 +69,13 @@ class CourseMaterialInput(BaseModel):
     content: Optional[str] = Field(default="", max_length=80000)
 
 
+class CourseMaterialQuestionSourceMetadata(BaseModel):
+    year: Optional[int] = Field(default=None, ge=1900, le=2200)
+    term: Optional[str] = Field(default="", max_length=100)
+    exam_type: Optional[str] = Field(default="", max_length=100)
+    source_url: Optional[str] = Field(default="", max_length=2000)
+
+
 class CourseMaterialBindingInput(BaseModel):
     """V3 课程资料绑定；文件内容由独立资料资产保存。"""
 
@@ -77,8 +84,17 @@ class CourseMaterialBindingInput(BaseModel):
     priority: Literal["core", "supporting", "weak"] = "core"
     authority: Literal["primary", "secondary", "context_only"] = "primary"
     usage_policy: Literal["must_use", "prefer", "optional", "style_only"] = "prefer"
+    reuse_policy: Literal["verbatim_allowed", "reference_only", "original_generation"] = "verbatim_allowed"
+    rights_basis: Literal["teacher_asserted", "open_license", "license_unknown", "platform_owned"] = "teacher_asserted"
+    source_metadata: CourseMaterialQuestionSourceMetadata = Field(
+        default_factory=CourseMaterialQuestionSourceMetadata
+    )
     user_description: Optional[str] = Field(default="", max_length=2000)
     source_label: Optional[str] = Field(default="", max_length=200)
+
+
+class WebQuestionEnrichmentInput(BaseModel):
+    enabled: bool = False
 
 
 class CourseGenerationRequest(BaseModel):
@@ -133,6 +149,9 @@ class CourseGenerationRequest(BaseModel):
         "personalized_remedial",
     ] = "systematic"
     asset_preferences: Dict[str, bool] = Field(default_factory=dict)
+    web_question_enrichment: WebQuestionEnrichmentInput = Field(
+        default_factory=WebQuestionEnrichmentInput
+    )
 
     @field_validator("subject", mode="before")
     @classmethod

@@ -9,6 +9,7 @@ import learning_events
 from learning_progress import build_learning_progress, project_learning_objective_bindings
 from practice_attempts import AttemptConflict, InvalidAttemptTransition, PracticeAttemptRepository
 from practice_grading import PracticeGrader
+from practice_contracts import enrich_question_contract
 from routers import practice as practice_router
 
 
@@ -553,3 +554,78 @@ def test_submit_does_not_500_and_does_not_retry_forever_on_persistent_conflict(m
     stored = next(item for item in repository.list("u1", "c1") if item["attempt_id"] == attempt["attempt_id"])
     assert stored["status"] == "graded"
     assert (stored.get("result") or {}).get("passed") is True
+
+
+def test_solution_reveal_requires_an_unseen_equivalent_validation(monkeypatch, tmp_path):
+    repository = PracticeAttemptRepository(tmp_path)
+    event_storage = MemoryStorage()
+    course = _course()
+    validation = enrich_question_contract({
+        "asset_id": "validation-1",
+        "revision_id": "vqr1",
+        "node_id": "n1",
+        "question_type": "short_answer",
+        "prompt": "在一个未展示的新情境中说明向量的大小和方向，并检查结论。",
+        "answer_spec": {
+            "type": "exact",
+            "correct_answer": "大小和方向",
+            "criteria": ["说明大小", "说明方向", "检查结论"],
+            "pass_score": 70,
+        },
+        "practice_level": "remediation_validation",
+        "quality_status": "passed",
+    }, practice_level="remediation_validation")
+    course["learning_assets"]["validation_questions"] = [validation]
+
+    class NoQuestionBank:
+        @staticmethod
+        def load_bundle(_course_id):
+            return None
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "practice_attempt_repository", repository)
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    monkeypatch.setattr(practice_router, "question_bank_repository", NoQuestionBank())
+    monkeypatch.setattr(learning_events, "storage", event_storage)
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    created = client.post(
+        "/api/courses/c1/practice/attempts",
+        json={"task_revision_id": "qr1"},
+    ).json()["attempt"]
+    submitted = client.post(
+        f"/api/courses/c1/practice/attempts/{created['attempt_id']}/submit",
+        json={
+            "expected_revision": created["revision"],
+            "answer_payload": {"text": "大小和方向"},
+            "active_seconds": 10,
+            "request_id": "submit-solution-1",
+        },
+    ).json()["attempt"]
+    revealed = client.post(
+        f"/api/courses/c1/practice/attempts/{created['attempt_id']}/solution",
+        json={"expected_revision": submitted["revision"]},
+    )
+
+    assert revealed.status_code == 200
+    requirement = revealed.json()["validation_requirement"]
+    assert requirement["required"] is True
+    assert requirement["task_revision_id"] == "vqr1"
+    assert revealed.json()["attempt"]["solution_revealed"] is True
+
+    validation_attempt = client.post(
+        "/api/courses/c1/practice/attempts",
+        json={
+            "task_revision_id": "vqr1",
+            "practice_intent": "unseen_validation",
+            "origin_attempt_id": created["attempt_id"],
+            "resume": False,
+        },
+    )
+    assert validation_attempt.status_code == 200
+    assert validation_attempt.json()["attempt"]["practice_intent"] == "unseen_validation"
+    assert validation_attempt.json()["attempt"]["origin_attempt_id"] == created["attempt_id"]

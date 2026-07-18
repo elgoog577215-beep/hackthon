@@ -64,6 +64,12 @@ from generation_workspace import (
 )
 from learning_asset_storage import LearningAssetRepository, learning_asset_repository
 from learning_assets import compile_learning_asset_plan, compile_learning_assets
+from question_bank import (
+    QuestionBankRepository,
+    question_bank_repository,
+    reconcile_question_bank,
+)
+from question_search import enrich_question_bank_with_web
 from material_pipeline import ingest_legacy_material_inputs
 from material_storage import material_repository
 from models import (
@@ -169,6 +175,7 @@ class TaskManager:
         asset_repository: LearningAssetRepository | None = None,
         workspace_repository: GenerationWorkspaceRepository | None = None,
         document_repository: CourseDocumentRepository | None = None,
+        question_bank_repository_override: QuestionBankRepository | None = None,
     ) -> None:
         self.storage = storage
         self.course_service = course_service
@@ -176,6 +183,9 @@ class TaskManager:
         self._material_repository = getattr(course_service, "_material_repository", material_repository)
         self._version_repository = version_repository or course_version_repository
         self._learning_asset_repository = asset_repository or learning_asset_repository
+        self._question_bank_repository = (
+            question_bank_repository_override or question_bank_repository
+        )
         self._generation_workspace_repository = workspace_repository or generation_workspace_repository
         self._course_document_repository = document_repository or CourseDocumentRepository(storage)
         self.max_concurrency = max_concurrency
@@ -412,6 +422,10 @@ class TaskManager:
             "generation_quality_report": None,
             "course_purpose": request_snapshot.get("course_purpose") or "systematic",
             "generation_mode": request_snapshot.get("generation_mode") or "fast",
+            "asset_preferences": deepcopy(request_snapshot.get("asset_preferences") or {}),
+            "web_question_enrichment": deepcopy(
+                request_snapshot.get("web_question_enrichment") or {"enabled": False}
+            ),
         }
         workspace_created = False
         try:
@@ -444,6 +458,7 @@ class TaskManager:
                 self._generation_workspace_repository.delete(task_id)
             self._version_repository.delete_course(course_id)
             self._learning_asset_repository.delete_course(course_id)
+            self._question_bank_repository.delete_course(course_id)
             self._reset_course_service_runtime(course_id, preserve_course=False)
             raise
         return {
@@ -1226,6 +1241,7 @@ class TaskManager:
         await self._delete_stored_course(course_id)
         self._version_repository.delete_course(course_id)
         self._learning_asset_repository.delete_course(course_id)
+        self._question_bank_repository.delete_course(course_id)
         self._reset_course_service_runtime(course_id, preserve_course=False)
         return removed
 
@@ -1281,6 +1297,7 @@ class TaskManager:
             await self._delete_stored_course(course_id)
             self._version_repository.delete_course(course_id)
             self._learning_asset_repository.delete_course(course_id)
+            self._question_bank_repository.delete_course(course_id)
             self._reset_course_service_runtime(course_id, preserve_course=False)
         else:
             self._reset_course_service_runtime(course_id, preserve_course=True)
@@ -1811,6 +1828,10 @@ class TaskManager:
                 pedagogy_mode=str(request.get("pedagogy_mode") or "auto"),
                 secondary_mode=request.get("secondary_mode"),
                 secondary_intensity=request.get("secondary_intensity"),
+                generation_mode=str(request.get("generation_mode") or "fast"),
+                course_purpose=str(request.get("course_purpose") or "systematic"),
+                asset_preferences=request.get("asset_preferences") or {},
+                web_question_enrichment=request.get("web_question_enrichment") or {"enabled": False},
                 existing_course_data=course_data,
                 on_phase=on_phase,
                 on_checkpoint=on_checkpoint,
@@ -2677,7 +2698,36 @@ class TaskManager:
             "正在编译课程练习、掌握标准和课程知识映射",
             phase_progress=20,
         )
-        asset_bundle = compile_learning_assets(fresh_course)
+        asset_course = deepcopy(fresh_course)
+        if hasattr(self.course_service, "load_course_evidence_catalog"):
+            asset_course["evidence_catalog"] = self.course_service.load_course_evidence_catalog(
+                fresh_course
+            )
+        asset_bundle = compile_learning_assets(asset_course)
+        question_bank_bundle = asset_bundle.pop("question_bank_bundle")
+        await self._update_phase(
+            task_id,
+            "question_bank",
+            92,
+            "正在整理课程题库、覆盖矩阵与风险审核队列",
+            phase_progress=55,
+        )
+        question_bank_bundle = await enrich_question_bank_with_web(
+            fresh_course,
+            question_bank_bundle,
+        )
+        previous_question_bank = self._question_bank_repository.load_bundle(
+            str(task["course_id"])
+        )
+        question_bank_bundle = reconcile_question_bank(
+            previous_question_bank,
+            question_bank_bundle,
+        )
+        question_bank_bundle = self._question_bank_repository.save_bundle(
+            str(task["course_id"]),
+            question_bank_bundle,
+            activate=False,
+        )
         asset_bundle = self._learning_asset_repository.save_bundle(
             str(task["course_id"]),
             asset_bundle,
@@ -2687,6 +2737,12 @@ class TaskManager:
         fresh_course["learning_assets"] = asset_bundle["assets"]
         fresh_course["learning_asset_bundle_revision_id"] = asset_bundle["bundle_revision_id"]
         fresh_course["asset_quality_report"] = asset_bundle["quality_report"]
+        fresh_course["question_bank_bundle_revision_id"] = question_bank_bundle[
+            "bundle_revision_id"
+        ]
+        fresh_course["question_bank_coverage"] = question_bank_bundle["coverage"]
+        fresh_course["question_bank_review_queue"] = question_bank_bundle["review_queue"]
+        fresh_course["web_question_enrichment"] = question_bank_bundle["web_enrichment"]
         compiled_knowledge_base = next(iter(
             fresh_course["learning_assets"].get("course_knowledge_base") or []
         ), None)
@@ -2779,6 +2835,11 @@ class TaskManager:
                         str(task["course_id"]),
                         str(promoted.get("learning_asset_bundle_revision_id") or ""),
                     )
+                    if promoted.get("question_bank_bundle_revision_id"):
+                        self._question_bank_repository.activate_bundle(
+                            str(task["course_id"]),
+                            str(promoted["question_bank_bundle_revision_id"]),
+                        )
                     await self._save_course(str(task["course_id"]), promoted)
                     fresh_course = promoted
                 except CourseVersionConflict as exc:
@@ -2796,6 +2857,11 @@ class TaskManager:
                     str(task["course_id"]),
                     str(fresh_course.get("learning_asset_bundle_revision_id") or ""),
                 )
+                if fresh_course.get("question_bank_bundle_revision_id"):
+                    self._question_bank_repository.activate_bundle(
+                        str(task["course_id"]),
+                        str(fresh_course["question_bank_bundle_revision_id"]),
+                    )
                 receipt = await self._course_document_repository.publish_generated_course(
                     str(task["course_id"]),
                     document,
@@ -2845,6 +2911,11 @@ class TaskManager:
                 str(task["course_id"]),
                 str(fresh_course.get("learning_asset_bundle_revision_id") or ""),
             )
+            if fresh_course.get("question_bank_bundle_revision_id"):
+                self._question_bank_repository.activate_bundle(
+                    str(task["course_id"]),
+                    str(fresh_course["question_bank_bundle_revision_id"]),
+                )
             await self._save_course(str(task["course_id"]), fresh_course)
 
         if publication_allowed:
