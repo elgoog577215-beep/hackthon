@@ -576,7 +576,7 @@ def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> li
     assets = _learning_assets(course)
     if scope == "final":
         bank_finals = _question_bank_final_tasks(course)
-        if bank_finals:
+        if bank_finals or _has_active_question_bank(course):
             return bank_finals
         return [
             item
@@ -605,6 +605,15 @@ def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> li
 
 def _find_question(course: dict[str, Any], revision_id: str) -> dict[str, Any] | None:
     assets = _learning_assets(course)
+    legacy_finals = (
+        []
+        if _has_active_question_bank(course)
+        else [
+            item
+            for item in assets.get("final_assessment") or []
+            if item.get("review_status") in {None, "approved"}
+        ]
+    )
     return next((
         item for item in [
             *_question_bank_practice_overlay(
@@ -614,11 +623,7 @@ def _find_question(course: dict[str, Any], revision_id: str) -> dict[str, Any] |
             *_question_bank_imported_tasks(course),
             *_question_bank_web_tasks(course),
             *_question_bank_final_tasks(course),
-            *(
-                item
-                for item in assets.get("final_assessment") or []
-                if item.get("review_status") in {None, "approved"}
-            ),
+            *legacy_finals,
         ]
         if item.get("revision_id") == revision_id
     ), None)

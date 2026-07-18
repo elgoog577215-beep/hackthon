@@ -509,6 +509,40 @@ def test_active_question_bank_never_falls_back_to_unreviewed_asset_questions(mon
     assert practice_router._questions(course, node_id="n1", scope="node") == []
 
 
+def test_active_question_bank_never_falls_back_to_legacy_final_assessment(monkeypatch):
+    course = _course()
+    course["nodes"][0].update({
+        "key_points": ["向量大小", "向量方向"],
+        "assessment": ["根据给定坐标计算向量大小并检查结果"],
+        "difficulty_contract": {"target_level": "intermediate"},
+        "grounding_contract": {"question_evidence_ids": []},
+    })
+    course["learning_assets"]["final_assessment"] = [{
+        "revision_id": "legacy-final",
+        "prompt": "旧版综合题",
+        "review_status": None,
+    }]
+    bundle = build_question_bank(course)
+    assert not any(
+        item["lifecycle_status"] == "approved"
+        for item in bundle["items"]
+        if item["assessment_role"] in {"coverage_task", "cross_chapter_transfer"}
+    )
+
+    monkeypatch.setattr(
+        practice_router.question_bank_repository,
+        "load_bundle",
+        lambda _course_id: deepcopy(bundle),
+    )
+    monkeypatch.setattr(
+        practice_router.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {"assets": deepcopy(course["learning_assets"])},
+    )
+
+    assert practice_router._questions(course, node_id=None, scope="final") == []
+
+
 def test_legacy_server_records_are_not_implicitly_imported_for_current_user(monkeypatch, tmp_path):
     storage = MemoryStorage()
     storage.data["learning_records.json"] = {
