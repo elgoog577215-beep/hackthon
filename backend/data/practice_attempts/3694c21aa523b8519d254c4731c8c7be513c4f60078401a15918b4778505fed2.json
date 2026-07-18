@@ -76,5 +76,49 @@
     "started_at": "2026-07-18T08:02:49.179934+00:00",
     "created_at": "2026-07-18T08:02:49.179934+00:00",
     "updated_at": "2026-07-18T08:12:33.111679+00:00"
+  },
+  {
+    "practice_run_id": "1253b346-aaa5-43a4-acbe-04341c9dd681",
+    "practice_level": "concept_check",
+    "task_revision_id": "qr_6dc3c7c182415793",
+    "task_purpose": "course_practice",
+    "task_source": "course_asset",
+    "course_version_id": "cdr_3a85a71a89107ae1bb0baa42",
+    "node_id": "L2-4-2",
+    "node_name": "4.2 哈希表实现与性能分析",
+    "objective_id": "lo_e53ec242e0627f76",
+    "question_revision_id": "qr_6dc3c7c182415793",
+    "question_type": "short_answer",
+    "input_contract": {
+      "mode": "structured_text",
+      "required": true,
+      "supports_attachments": false
+    },
+    "concept_ids": [
+      "ckp_8fd684c7f13b11ed",
+      "ckp_b54aa392671a030d"
+    ],
+    "skill_unit_ids": [
+      "cks_5a31fd921e3311a7",
+      "cks_ca90693b5c66d15b"
+    ],
+    "mistake_point_ids": [],
+    "improvement_point_ids": [],
+    "practice_intent": "standard",
+    "attempt_id": "pa_16ee69caaa0f4fae8f660ea878a27b68",
+    "user_id": "learner_77949059-72b5-4e0b-a0be-ce1cad183ca2",
+    "course_id": "4215dc17-7c34-48ad-91c8-a1b780c0366d",
+    "status": "in_progress",
+    "attempt_number": 1,
+    "answer_payload": {},
+    "revealed_hint_levels": [],
+    "solution_revealed": false,
+    "ai_support_level": 0,
+    "active_seconds": 0,
+    "revision": 1,
+    "schema_version": 2,
+    "started_at": "2026-07-18T08:44:46.579048+00:00",
+    "created_at": "2026-07-18T08:44:46.579048+00:00",
+    "updated_at": "2026-07-18T08:44:46.579048+00:00"
   }
 ]
