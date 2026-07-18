@@ -168,4 +168,44 @@ describe('renderMarkdown – 真实 KaTeX 兼容', () => {
     expect(box.querySelectorAll('.math-fallback')).toHaveLength(0)
     expect(renderedText(html)).not.toContain('**')
   })
+
+  it('含裸公式的 Markdown 表格仍保持表格结构', () => {
+    const html = renderMarkdown([
+      '| 参数 | 当前值 | 说明 |',
+      '| --- | --- | --- |',
+      '| 步长 | x_t = 1 | 初始状态 |',
+    ].join('\n'))
+    const box = document.createElement('div')
+    box.innerHTML = html
+
+    expect(box.querySelector('table')).not.toBeNull()
+    expect(box.querySelectorAll('tbody tr')).toHaveLength(1)
+    expect(box.querySelectorAll('td')).toHaveLength(3)
+    expect(box.querySelectorAll('.math-fallback')).toHaveLength(0)
+    expect(renderedText(html)).toContain('初始状态')
+  })
+
+  it('查询参数含等号和下划线的 Markdown 链接不会被公式识别吞掉', () => {
+    const html = renderMarkdown('[查看 t=0 的说明](https://example.com/guide?step=t_0)')
+    const box = document.createElement('div')
+    box.innerHTML = html
+    const link = box.querySelector('a')
+
+    expect(link).not.toBeNull()
+    expect(link?.getAttribute('href')).toBe('https://example.com/guide?step=t_0')
+    expect(link?.textContent).toBe('查看 t=0 的说明')
+    expect(box.querySelectorAll('.math-fallback')).toHaveLength(0)
+  })
+
+  it('列表中的裸公式只渲染公式前缀，不吞掉后续中文解释', () => {
+    const html = renderMarkdown('- x_t = 1 表示初始状态。')
+    const box = document.createElement('div')
+    box.innerHTML = html
+
+    expect(box.querySelector('ul > li')).not.toBeNull()
+    expect(box.querySelector('.katex')).not.toBeNull()
+    expect(box.querySelectorAll('.math-fallback')).toHaveLength(0)
+    expect(renderedText(html)).toContain('表示初始状态。')
+    expect(katexText(html)).not.toContain('表示初始状态')
+  })
 })
