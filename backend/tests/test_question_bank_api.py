@@ -1,6 +1,8 @@
 from copy import deepcopy
 
+import pytest
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from course_versions import CourseVersionRepository
@@ -291,3 +293,39 @@ def test_rebuild_overlays_bank_on_passing_legacy_assets_when_full_recompile_fail
     assert active["bundle_revision_id"] != stored_legacy[
         "bundle_revision_id"
     ]
+
+
+@pytest.mark.parametrize("compiled_passed", [False, True])
+def test_first_rebuild_refuses_partial_question_bank_publication(
+    compiled_passed,
+):
+    compiled_assets = {
+        "quality_report": {
+            "schema_version": "asset_quality_v1",
+            "passed": compiled_passed,
+        },
+        "assets": {"questions": []},
+    }
+    partial_bank = {
+        "course_id": "course-api",
+        "bundle_revision_id": "qbb-partial",
+        "coverage": {"coverage_ratio": 0.5},
+        "items": [{
+            "assessment_role": "practice",
+            "lifecycle_status": "needs_review",
+            "quality_report": {"passed": False},
+        }],
+    }
+
+    with pytest.raises(HTTPException) as raised:
+        question_bank._select_publishable_asset_bundle(
+            None,
+            compiled_assets,
+            partial_bank,
+        )
+
+    assert raised.value.status_code == 409
+    assert (
+        raised.value.detail["code"]
+        == "question_bank_publication_quality_failed"
+    )
