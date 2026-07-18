@@ -129,3 +129,29 @@ def test_rebuild_job_completion_and_failure_are_durable(tmp_path):
         "message": "模型暂不可用",
         "retryable": True,
     }
+
+
+def test_repository_returns_latest_course_job(tmp_path):
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    repository.create_job(
+        "course-jobs",
+        request_id="request-first",
+        scope="course",
+        node_ids=[],
+        mode="incremental",
+        actor_id="teacher-1",
+    )
+    second, _ = repository.create_job(
+        "course-jobs",
+        request_id="request-second",
+        scope="nodes",
+        node_ids=["node-1"],
+        mode="incremental",
+        actor_id="teacher-1",
+    )
+
+    latest = repository.latest_for_course("course-jobs")
+
+    assert latest is not None
+    assert latest["job_id"] == second["job_id"]
+    assert repository.latest_for_course("missing-course") is None
