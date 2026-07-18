@@ -201,3 +201,69 @@ def test_question_bank_rebuild_preserves_teacher_review_decisions(monkeypatch, t
     )
     assert preserved["lifecycle_status"] == "approved"
     assert preserved["review_history"]
+
+
+def test_rebuild_overlays_bank_on_passing_legacy_assets_when_full_recompile_fails(
+    monkeypatch,
+    tmp_path,
+):
+    client, repository = _client(monkeypatch, tmp_path)
+    legacy_assets = {
+        "schema_version": "learning_assets_v2",
+        "plan": {"enabled_asset_types": ["questions"]},
+        "assets": {
+            "questions": [{
+                "revision_id": "legacy-question-1",
+                "node_id": "node-1",
+                "practice_level": "concept_check",
+                "prompt": (
+                    "用自己的话说明“条件概率”的含义，并指出它成立或适用的关键条件。"
+                ),
+                "answer_spec": {
+                    "criteria": ["说明定义", "说明关键条件"],
+                },
+            }],
+            "final_assessment": [],
+        },
+        "quality_report": {
+            "schema_version": "asset_quality_v1",
+            "passed": True,
+            "blocking_issues": [],
+            "warnings": [],
+            "gates": [],
+        },
+    }
+    stored_legacy = repository.asset_repository.save_bundle(
+        "course-api",
+        legacy_assets,
+    )
+    repository.course_storage.course.update({
+        "learning_assets": deepcopy(legacy_assets["assets"]),
+        "learning_asset_plan": deepcopy(legacy_assets["plan"]),
+        "learning_asset_bundle_revision_id": stored_legacy[
+            "bundle_revision_id"
+        ],
+        "asset_quality_report": deepcopy(
+            legacy_assets["quality_report"]
+        ),
+    })
+
+    response = client.post(
+        "/api/courses/course-api/question-bank/rebuild",
+        json={"request_id": "request-legacy-overlay"},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["publication_mode"] == "question_bank_overlay"
+    active = repository.asset_repository.load_bundle("course-api")
+    assert active["quality_report"]["passed"] is True
+    assert active["publication_mode"] == "question_bank_overlay"
+    binding = active["assets"]["question_bank_publications"][0]
+    assert (
+        binding["question_bank_bundle_revision_id"]
+        == response.json()["bundle_revision_id"]
+    )
+    assert binding["quality_report"]["passed"] is True
+    assert active["bundle_revision_id"] != stored_legacy[
+        "bundle_revision_id"
+    ]
