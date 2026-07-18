@@ -21,7 +21,7 @@ from course_pedagogy import coerce_persisted_profile
 from course_versioning import stable_hash
 from learning_progress import learning_objective_identity
 from practice_contracts import enrich_question_contract
-from question_bank import build_question_bank
+from question_bank import build_question_bank, is_generic_generated_prompt
 
 ASSET_SCHEMA = "learning_assets_v2"
 QUALITY_SCHEMA = "asset_quality_v1"
@@ -108,7 +108,12 @@ def compile_learning_asset_plan(course_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
+def compile_learning_assets(
+    course_data: dict[str, Any],
+    *,
+    question_bank_bundle: dict[str, Any] | None = None,
+    legacy_tasks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     plan = compile_learning_asset_plan(course_data)
     enabled = set(plan["enabled_asset_types"])
     course_id = str(course_data.get("course_id") or "")
@@ -149,7 +154,17 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
         **deepcopy(course_data),
         "nodes": deepcopy(nodes),
     }
-    question_bank_bundle = build_question_bank(question_bank_course)
+    if question_bank_bundle is None:
+        question_bank_bundle = build_question_bank(
+            question_bank_course,
+            legacy_tasks=legacy_tasks or (),
+        )
+    else:
+        question_bank_bundle = deepcopy(question_bank_bundle)
+        if str(question_bank_bundle.get("course_id") or "") != course_id:
+            raise ValueError(
+                "question bank course scope does not match learning assets"
+            )
     bank_practice_items = {
         (
             str(item.get("node_id") or ""),
@@ -239,14 +254,14 @@ def compile_learning_assets(course_data: dict[str, Any]) -> dict[str, Any]:
                     )
                 ),
                 "answer_spec": (
-                    _practice_answer_spec(
+                    deepcopy(bank_item.get("answer_spec") or {})
+                    if bank_item
+                    else _practice_answer_spec(
                         practice_level,
                         node_name,
                         node,
                         question_point_names,
                     )
-                    if practice_level == "mastery_check" or not bank_item
-                    else deepcopy(bank_item.get("answer_spec") or {})
                 ),
                 "difficulty_contract": deepcopy(node.get("difficulty_contract") or {}),
                 "evidence_ids": evidence_ids,
@@ -560,11 +575,25 @@ def evaluate_learning_asset_quality(
         ):
             issues.append(_asset_issue("semantic", "critical", "questions", "目标练习量规缺少依据、过程或结果检查", question))
         prompt = str(question.get("prompt") or "")
+        if (
+            question.get("source_type") in {"generated", "variant"}
+            and is_generic_generated_prompt(prompt)
+        ):
+            issues.append(_asset_issue(
+                "semantic",
+                "critical",
+                "questions",
+                "生成题仍是缺少具体输入、约束或结果检查的宽泛模板",
+                question,
+            ))
         if question.get("practice_level") == "mastery_check":
             normalized_prompt = " ".join(prompt.split())
             hidden_criteria = [
                 str(item) for item in answer_spec.get("criteria") or []
-                if " ".join(str(item).split()) not in normalized_prompt
+                if not _criterion_is_visible_in_prompt(
+                    str(item),
+                    normalized_prompt,
+                )
             ]
             if hidden_criteria:
                 issues.append(_asset_issue(
@@ -1119,6 +1148,11 @@ def _evaluate_generated_task_quality(
         issues.append({"code": "task:hint_leaks_answer", "severity": "critical"})
     if previously_shown_prompts and prompt in previously_shown_prompts:
         issues.append({"code": "task:not_unseen", "severity": "critical"})
+    if (
+        task.get("source_type") in {"generated", "variant"}
+        and is_generic_generated_prompt(prompt)
+    ):
+        issues.append({"code": "task:generic_prompt", "severity": "critical"})
     critical = [item for item in issues if item["severity"] == "critical"]
     return {
         "schema_version": "generated_task_quality_v1",
@@ -1126,6 +1160,29 @@ def _evaluate_generated_task_quality(
         "status": "failed" if critical else ("needs_review" if issues else "passed"),
         "issues": issues,
     }
+
+
+def _criterion_is_visible_in_prompt(
+    criterion: str,
+    normalized_prompt: str,
+) -> bool:
+    normalized_criterion = " ".join(str(criterion or "").split())
+    if not normalized_criterion:
+        return True
+    if normalized_criterion in normalized_prompt:
+        return True
+    semantic_markers = (
+        "依据",
+        "过程",
+        "结果检查",
+        "最终产物",
+        "关键假设",
+        "限制条件",
+    )
+    return any(
+        marker in normalized_criterion and marker in normalized_prompt
+        for marker in semantic_markers
+    )
 
 
 def _refresh_quality_status(report: dict[str, Any]) -> None:

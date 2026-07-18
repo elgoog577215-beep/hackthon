@@ -2723,6 +2723,13 @@ class TaskManager:
             previous_question_bank,
             question_bank_bundle,
         )
+        # Recompile from the reconciled source of truth so teacher-reviewed
+        # prompts and answer rubrics are the tasks frozen into this asset bundle.
+        asset_bundle = compile_learning_assets(
+            asset_course,
+            question_bank_bundle=question_bank_bundle,
+        )
+        asset_bundle.pop("question_bank_bundle", None)
         question_bank_bundle = self._question_bank_repository.save_bundle(
             str(task["course_id"]),
             question_bank_bundle,

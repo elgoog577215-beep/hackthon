@@ -585,7 +585,10 @@ def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> li
         ]
     questions = [
         *_question_bank_imported_tasks(course),
-        *(assets.get("questions") or []),
+        *_question_bank_practice_overlay(
+            course,
+            assets.get("questions") or [],
+        ),
     ]
     questions.extend(_question_bank_web_tasks(course))
     growth_task_ids = _course_evolution_practice_task_ids(course)
@@ -604,7 +607,10 @@ def _find_question(course: dict[str, Any], revision_id: str) -> dict[str, Any] |
     assets = _learning_assets(course)
     return next((
         item for item in [
-            *(assets.get("questions") or []),
+            *_question_bank_practice_overlay(
+                course,
+                assets.get("questions") or [],
+            ),
             *_question_bank_imported_tasks(course),
             *_question_bank_web_tasks(course),
             *_question_bank_final_tasks(course),
@@ -642,7 +648,10 @@ def _resolve_task(course: dict[str, Any], user_id: str, revision_id: str) -> dic
             **course_with_assets["learning_assets"],
             "questions": [
                 *_question_bank_imported_tasks(course),
-                *(course_with_assets["learning_assets"].get("questions") or []),
+                *_question_bank_practice_overlay(
+                    course,
+                    course_with_assets["learning_assets"].get("questions") or [],
+                ),
                 *_question_bank_web_tasks(course),
             ],
             "final_assessment": bank_finals,
@@ -796,6 +805,68 @@ def _question_bank_imported_tasks(course: dict[str, Any]) -> list[dict[str, Any]
     if not bundle:
         return []
     return approved_formal_tasks(bundle, assessment_role="imported_practice")
+
+
+def _question_bank_practice_tasks(course: dict[str, Any]) -> list[dict[str, Any]]:
+    course_id = str(course.get("course_id") or "")
+    bundle = question_bank_repository.load_bundle(course_id) if course_id else None
+    if not bundle:
+        return []
+    return approved_formal_tasks(bundle, assessment_role="practice")
+
+
+def _question_bank_practice_overlay(
+    course: dict[str, Any],
+    asset_questions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Prefer bank-backed compiled tasks and replace stale template peers."""
+    bank_tasks = _question_bank_practice_tasks(course)
+    if not bank_tasks:
+        return list(asset_questions)
+
+    assets_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for question in asset_questions:
+        key = (
+            str(question.get("node_id") or ""),
+            str(question.get("practice_level") or ""),
+        )
+        assets_by_key.setdefault(key, []).append(question)
+
+    result: list[dict[str, Any]] = []
+    bank_keys: set[tuple[str, str]] = set()
+    for bank_task in bank_tasks:
+        key = (
+            str(bank_task.get("node_id") or ""),
+            str(bank_task.get("practice_level") or ""),
+        )
+        bank_keys.add(key)
+        bank_item_revision = str(
+            bank_task.get("question_bank_item_revision_id") or ""
+        )
+        compiled = next(
+            (
+                question
+                for question in assets_by_key.get(key) or []
+                if bank_item_revision
+                and str(
+                    question.get("question_bank_item_revision_id") or ""
+                )
+                == bank_item_revision
+            ),
+            None,
+        )
+        result.append(compiled or bank_task)
+
+    result.extend(
+        question
+        for question in asset_questions
+        if (
+            str(question.get("node_id") or ""),
+            str(question.get("practice_level") or ""),
+        )
+        not in bank_keys
+    )
+    return _unique_revision_items(result)
 
 
 def _course_evolution_practice_task_ids(course: dict[str, Any]) -> set[str]:

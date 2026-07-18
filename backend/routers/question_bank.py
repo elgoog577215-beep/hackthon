@@ -8,10 +8,14 @@ from typing import Any, Literal
 from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from course_document import COURSE_DOCUMENT_SCHEMA
+from course_repository import CourseDocumentRepository
+from course_versions import course_version_repository
 from dependencies import get_course_or_404
+from learning_asset_storage import learning_asset_repository
+from learning_assets import compile_learning_assets
 from material_storage import material_repository
 from question_bank import (
-    build_question_bank,
     filter_question_bank_items,
     question_bank_repository,
     reconcile_question_bank,
@@ -19,6 +23,8 @@ from question_bank import (
     revise_question_bank_item,
 )
 from question_search import enrich_question_bank_with_web
+from storage import storage
+from storage_utils import save_course_compat
 
 router = APIRouter(
     prefix="/courses/{course_id}/question-bank",
@@ -82,36 +88,330 @@ async def rebuild_question_bank(
 ):
     course = await get_course_or_404(course_id)
     previous = question_bank_repository.load_bundle(course_id)
+    previous_assets = learning_asset_repository.load_bundle(course_id)
+    if (
+        payload.request_id
+        and previous
+        and previous_assets
+        and course.get("question_bank_last_rebuild_request_id")
+        == payload.request_id
+    ):
+        return _rebuild_response(
+            course_id,
+            payload.request_id,
+            previous,
+            previous_assets,
+            course,
+            deduplicated=True,
+        )
     course_for_bank = deepcopy(course)
     course_for_bank["evidence_catalog"] = _load_course_evidence(
         course.get("material_bindings") or []
     )
     legacy_tasks = []
     if not previous:
-        assets = course.get("learning_assets") or {}
+        assets = (
+            (previous_assets or {}).get("assets")
+            or course.get("learning_assets")
+            or {}
+        )
         legacy_tasks = [
             *(assets.get("questions") or []),
             *(assets.get("final_assessment") or []),
         ]
-    bundle = build_question_bank(course_for_bank, legacy_tasks=legacy_tasks)
-    bundle = await enrich_question_bank_with_web(course, bundle)
+    initial_assets = compile_learning_assets(
+        course_for_bank,
+        legacy_tasks=legacy_tasks,
+    )
+    bundle = initial_assets.pop("question_bank_bundle")
+    compiled_knowledge_base = next(
+        iter(
+            initial_assets["assets"].get("course_knowledge_base")
+            or []
+        ),
+        None,
+    )
+    if compiled_knowledge_base:
+        course_for_bank["course_knowledge_base"] = deepcopy(
+            compiled_knowledge_base
+        )
+    compiled_knowledge_map = next(
+        iter(
+            initial_assets["assets"].get("course_knowledge_map")
+            or []
+        ),
+        None,
+    )
+    if compiled_knowledge_map:
+        course_for_bank["course_knowledge_map"] = deepcopy(
+            compiled_knowledge_map
+        )
+    bundle = await enrich_question_bank_with_web(course_for_bank, bundle)
     bundle = reconcile_question_bank(previous, bundle)
-    stored = question_bank_repository.save_bundle(course_id, bundle)
+    compiled_assets = compile_learning_assets(
+        course_for_bank,
+        question_bank_bundle=bundle,
+    )
+    compiled_assets.pop("question_bank_bundle", None)
+    stored = question_bank_repository.save_bundle(
+        course_id,
+        bundle,
+        activate=False,
+    )
+    stored_assets = learning_asset_repository.save_bundle(
+        course_id,
+        compiled_assets,
+        activate=False,
+    )
     deduplicated = bool(
         previous
         and previous.get("bundle_revision_id") == stored.get("bundle_revision_id")
+        and previous_assets
+        and previous_assets.get("bundle_revision_id")
+        == stored_assets.get("bundle_revision_id")
+        and course.get("question_bank_bundle_revision_id")
+        == stored.get("bundle_revision_id")
+        and course.get("learning_asset_bundle_revision_id")
+        == stored_assets.get("bundle_revision_id")
     )
+    published_course = course
+    if not deduplicated:
+        published_course = await _publish_rebuilt_course(
+            course_id,
+            course,
+            stored,
+            stored_assets,
+            request_id=payload.request_id,
+            previous_question_bank_revision_id=(
+                str(previous.get("bundle_revision_id") or "")
+                if previous
+                else None
+            ),
+            previous_asset_revision_id=(
+                str(previous_assets.get("bundle_revision_id") or "")
+                if previous_assets
+                else None
+            ),
+        )
+    return _rebuild_response(
+        course_id,
+        payload.request_id,
+        stored,
+        stored_assets,
+        published_course,
+        deduplicated=deduplicated,
+    )
+
+
+def _rebuild_response(
+    course_id: str,
+    request_id: str | None,
+    question_bank_bundle: dict[str, Any],
+    asset_bundle: dict[str, Any],
+    course: dict[str, Any],
+    *,
+    deduplicated: bool,
+) -> dict[str, Any]:
     return {
         "schema_version": "question_bank_rebuild_v1",
         "course_id": course_id,
-        "request_id": payload.request_id,
+        "request_id": request_id,
         "status": "completed",
         "deduplicated": deduplicated,
-        "bundle_revision_id": stored["bundle_revision_id"],
-        "coverage": stored["coverage"],
-        "review_queue": stored["review_queue"],
-        "web_enrichment": stored["web_enrichment"],
+        "bundle_revision_id": question_bank_bundle["bundle_revision_id"],
+        "learning_asset_bundle_revision_id": asset_bundle[
+            "bundle_revision_id"
+        ],
+        "course_version_id": course.get(
+            "current_course_version_id"
+        ),
+        "coverage": question_bank_bundle["coverage"],
+        "review_queue": question_bank_bundle["review_queue"],
+        "web_enrichment": question_bank_bundle["web_enrichment"],
     }
+
+
+async def _publish_rebuilt_course(
+    course_id: str,
+    course: dict[str, Any],
+    question_bank_bundle: dict[str, Any],
+    asset_bundle: dict[str, Any],
+    *,
+    request_id: str | None,
+    previous_question_bank_revision_id: str | None,
+    previous_asset_revision_id: str | None,
+) -> dict[str, Any]:
+    updated = _course_with_rebuilt_assets(
+        course,
+        question_bank_bundle,
+        asset_bundle,
+    )
+    if request_id:
+        updated["question_bank_last_rebuild_request_id"] = request_id
+    is_canonical = (
+        course.get("course_schema_version") == COURSE_DOCUMENT_SCHEMA
+        or course.get("course_document_authoritative") is True
+    )
+    version_id: str | None = None
+    if not is_canonical:
+        base_version_id = course_version_repository.current_version_id(
+            course_id
+        )
+        if not base_version_id:
+            initial = course_version_repository.ensure_initial_version(
+                course_id,
+                course,
+            )
+            base_version_id = str(initial["version_id"])
+        version = course_version_repository.create_version(
+            course_id,
+            updated,
+            reason="重建课程题库并发布具体练习题",
+            operation="question_bank_rebuild",
+            base_version_id=base_version_id,
+            changed_node_ids=[
+                str(node.get("node_id") or "")
+                for node in course.get("nodes") or []
+                if node.get("node_id")
+            ],
+            activate=False,
+        )
+        version_id = str(version["version_id"])
+        updated["current_course_version_id"] = version_id
+        updated["blueprint_revision_id"] = version.get(
+            "blueprint_revision_id"
+        )
+
+    persisted = False
+    bank_activated = False
+    assets_activated = False
+    try:
+        await _persist_rebuilt_course(course_id, course, updated)
+        persisted = True
+        question_bank_repository.activate_bundle(
+            course_id,
+            str(question_bank_bundle["bundle_revision_id"]),
+        )
+        bank_activated = True
+        learning_asset_repository.activate_bundle(
+            course_id,
+            str(asset_bundle["bundle_revision_id"]),
+        )
+        assets_activated = True
+        if version_id:
+            course_version_repository.activate_version(
+                course_id,
+                version_id,
+            )
+        return updated
+    except Exception:
+        if assets_activated:
+            _restore_bundle_pointer(
+                learning_asset_repository,
+                course_id,
+                previous_asset_revision_id,
+            )
+        if bank_activated:
+            _restore_bundle_pointer(
+                question_bank_repository,
+                course_id,
+                previous_question_bank_revision_id,
+            )
+        if persisted:
+            await _persist_rebuilt_course(course_id, updated, course)
+        raise
+
+
+def _course_with_rebuilt_assets(
+    course: dict[str, Any],
+    question_bank_bundle: dict[str, Any],
+    asset_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    updated = deepcopy(course)
+    updated["learning_asset_plan"] = deepcopy(asset_bundle["plan"])
+    updated["learning_assets"] = deepcopy(asset_bundle["assets"])
+    updated["learning_asset_bundle_revision_id"] = asset_bundle[
+        "bundle_revision_id"
+    ]
+    updated["asset_quality_report"] = deepcopy(
+        asset_bundle["quality_report"]
+    )
+    updated["question_bank_bundle_revision_id"] = question_bank_bundle[
+        "bundle_revision_id"
+    ]
+    updated["question_bank_coverage"] = deepcopy(
+        question_bank_bundle["coverage"]
+    )
+    updated["question_bank_review_queue"] = deepcopy(
+        question_bank_bundle["review_queue"]
+    )
+    updated["web_question_enrichment"] = deepcopy(
+        question_bank_bundle["web_enrichment"]
+    )
+    knowledge_base = next(
+        iter(updated["learning_assets"].get("course_knowledge_base") or []),
+        None,
+    )
+    if knowledge_base:
+        updated["course_knowledge_base"] = deepcopy(knowledge_base)
+        updated["course_knowledge_quality_report"] = deepcopy(
+            knowledge_base.get("quality_report")
+        )
+    knowledge_map = next(
+        iter(updated["learning_assets"].get("course_knowledge_map") or []),
+        None,
+    )
+    if knowledge_map:
+        updated["course_knowledge_map"] = deepcopy(knowledge_map)
+    return updated
+
+
+async def _persist_rebuilt_course(
+    course_id: str,
+    previous: dict[str, Any],
+    updated: dict[str, Any],
+) -> None:
+    is_canonical = (
+        previous.get("course_schema_version") == COURSE_DOCUMENT_SCHEMA
+        or previous.get("course_document_authoritative") is True
+    )
+    if not is_canonical:
+        await save_course_compat(storage, course_id, updated)
+        return
+    keys = {
+        "learning_asset_plan",
+        "learning_assets",
+        "learning_asset_bundle_revision_id",
+        "asset_quality_report",
+        "question_bank_bundle_revision_id",
+        "question_bank_coverage",
+        "question_bank_review_queue",
+        "web_question_enrichment",
+        "question_bank_last_rebuild_request_id",
+        "course_knowledge_base",
+        "course_knowledge_quality_report",
+        "course_knowledge_map",
+    }
+    updates = {
+        key: deepcopy(updated[key])
+        for key in keys
+        if key in updated
+    }
+    repository = CourseDocumentRepository(storage)
+    await repository.update_metadata(course_id, updates)
+
+
+def _restore_bundle_pointer(
+    repository: Any,
+    course_id: str,
+    previous_revision_id: str | None,
+) -> None:
+    if previous_revision_id:
+        repository.activate_bundle(course_id, previous_revision_id)
+        return
+    pointer = repository.root_dir / course_id / "current.json"
+    if pointer.exists():
+        pointer.unlink()
 
 
 @router.post("/items/{revision_id}/reviews")

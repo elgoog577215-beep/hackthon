@@ -326,6 +326,11 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
     criteria = [str(value).strip() for value in answer_spec.get("criteria") or [] if str(value).strip()]
     if len(prompt) < 12:
         issues.append({"code": "question:prompt_too_short", "severity": "critical"})
+    if (
+        item.get("source_type") in {"generated", "variant"}
+        and is_generic_generated_prompt(prompt)
+    ):
+        issues.append({"code": "question:generic_prompt", "severity": "critical"})
     if not criteria and answer_spec.get("correct_answer") is None and answer_spec.get("correct_option_id") is None:
         issues.append({"code": "question:answer_not_executable", "severity": "critical"})
     if not item.get("course_knowledge_refs"):
@@ -349,14 +354,44 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
         "status": status,
         "issues": issues,
         "checks": {
-            "structure": not any(issue["code"].startswith("question:prompt") for issue in issues),
+            "structure": not any(
+                issue["code"] in {
+                    "question:prompt_too_short",
+                    "question:generic_prompt",
+                }
+                for issue in issues
+            ),
             "knowledge_and_difficulty": bool(item.get("course_knowledge_refs")) and bool(item.get("difficulty")),
             "source_and_rights": bool(item.get("source_records")),
             "answer_and_rubric": not any("answer" in issue["code"] for issue in critical),
-            "semantic_alignment": len(prompt) >= 12 and bool(criteria or answer_spec.get("correct_answer") is not None),
+            "semantic_alignment": (
+                len(prompt) >= 12
+                and not (
+                    item.get("source_type") in {"generated", "variant"}
+                    and is_generic_generated_prompt(prompt)
+                )
+                and bool(
+                    criteria
+                    or answer_spec.get("correct_answer") is not None
+                )
+            ),
             "hint_safety": bool((item.get("hint_contract") or {}).get("leakage_check", {}).get("passed", True)),
         },
     }
+
+
+def is_generic_generated_prompt(prompt: str) -> bool:
+    """Identify legacy placeholders that name a topic but provide no task input."""
+    normalized = " ".join(str(prompt or "").split())
+    if not normalized:
+        return True
+    generic_markers = (
+        "用自己的话说明",
+        "成立或适用的关键条件",
+        "在一个不同于正文示例的新情境中",
+        "综合运用全部章节完成最终任务",
+    )
+    return any(marker in normalized for marker in generic_markers)
 
 
 class QuestionBankRepository:
@@ -1620,6 +1655,7 @@ __all__ = [
     "evaluate_question_item_quality",
     "filter_question_bank_items",
     "formal_task_from_question_bank_item",
+    "is_generic_generated_prompt",
     "question_bank_repository",
     "reconcile_question_bank",
     "refresh_question_bank_bundle",
