@@ -121,7 +121,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it('正文页只保留三个底部域，进入学习覆盖层后才显示二级入口', async () => {
+  it('正文页通过两个父入口展开五个子项目，并保留覆盖层内的同组切换', async () => {
     const wrapper = mount(LearningView, {
       attachTo: document.body,
       global: {
@@ -140,10 +140,13 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['学习', '资源', '智能助教'])
+    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['学习任务 · 3', '课程资料 · 2', '智能助教'])
     expect(wrapper.find('.learning-main > .learning-context-tabs').exists()).toBe(false)
 
     await wrapper.get('[data-domain="learning"]').trigger('click')
+    expect(wrapper.find('.task-overlay-stub').exists()).toBe(false)
+    expect(wrapper.findAll('[data-tool-menu="learning"] [role="menuitem"]')).toHaveLength(3)
+    await wrapper.get('[data-tool-item="practice"]').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
 
     await wrapper.get('.task-records').trigger('click')
@@ -152,6 +155,8 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.findAll('.records-overlay .learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['当前练习', '学习记录', '学习概况'])
 
     await wrapper.get('[data-domain="resources"]').trigger('click')
+    expect(wrapper.findAll('[data-tool-menu="resources"] [role="menuitem"]')).toHaveLength(2)
+    await wrapper.get('[data-tool-item="knowledge-library"]').trigger('click')
     const courseStore = useCourseStore()
     expect(courseStore.showKnowledgeLibrary).toBe(true)
 
@@ -230,6 +235,7 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     await wrapper.get('[data-domain="learning"]').trigger('click')
+    await wrapper.get('[data-tool-item="practice"]').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
 
     await wrapper.get('.task-records').trigger('click')
