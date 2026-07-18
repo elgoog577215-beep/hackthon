@@ -91,7 +91,7 @@ describe('PracticeWorkspace legacy question-bank repair', () => {
       }
       return Promise.resolve({ data: {} })
     })
-    httpMock.post.mockImplementation((url: string) => {
+    httpMock.post.mockImplementation(() => {
       return Promise.resolve({
         data: {
           attempt: {
