@@ -53,6 +53,16 @@ backend/data/subject_libraries/
 backend/data/knowledge_library_migrations/
 backend/data/change_proposals/
 backend/data/block_regeneration_candidates/
+backend/data/ai_teacher/
+backend/data/course_evolution/
+backend/data/diagnostic_workflows/
+backend/data/learning_records/
+backend/data/learning_snapshots/
+backend/data/practice_attempts/
+backend/data/question_banks/
+backend/data/question_bank_rebuilds/
+backend/data/teaching_representations/
+backend/data/teaching_exports/
 !backend/data/courses/.gitkeep
 !backend/data/knowledge_graphs/.gitkeep
 

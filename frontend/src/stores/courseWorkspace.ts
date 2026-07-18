@@ -40,6 +40,7 @@ export interface PracticeAttempt {
   attempt_number: number
   answer_payload: Record<string, any>
   revealed_hint_levels: number[]
+  revealed_hints?: Array<Record<string, any>>
   solution_revealed: boolean
   ai_support_level: number
   active_seconds: number
@@ -47,6 +48,26 @@ export interface PracticeAttempt {
   practice_intent?: 'standard' | 'targeted_retry'
   result?: Record<string, any>
   [key: string]: any
+}
+
+export function unresolvedMistakeAttempts(attempts: PracticeAttempt[]): PracticeAttempt[] {
+  const supersededOriginIds = new Set(
+    attempts
+      .filter(attempt => (
+        attempt.practice_intent === 'targeted_retry'
+        && attempt.origin_attempt_id
+        && ['grading', 'graded'].includes(attempt.status)
+      ))
+      .map(attempt => String(attempt.origin_attempt_id)),
+  )
+  return attempts.filter(attempt => {
+    const needsReview = (
+      attempt.status === 'grading'
+      || attempt.result?.passed === false
+      || attempt.result?.mastery_eligible === false
+    )
+    return needsReview && !supersededOriginIds.has(attempt.attempt_id)
+  })
 }
 
 export interface DiagnosticWorkflow {
@@ -103,6 +124,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     practiceScope: 'node' as 'node' | 'final' | 'all',
     assets: null as LearningAssetsResponse | null,
     blueprint: null as any,
+    generationReview: null as any,
     versions: [] as any[],
     currentVersionId: '' as string,
     versionDiff: null as any,
@@ -115,6 +137,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     revealedSolution: null as Record<string, any> | null,
     practiceResult: null as Record<string, any> | null,
     practiceHistory: null as Record<string, any> | null,
+    mistakeBookAttempts: [] as PracticeAttempt[],
     practiceLandingView: 'current' as 'current' | 'history' | 'needs_review',
     practiceNeedsReviewCount: 0,
     practiceSaveState: 'idle' as PracticeSaveState,
@@ -161,6 +184,23 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         this.applyRequestedTask(courseId)
         this.currentQuestionIndex = Math.min(this.currentQuestionIndex, Math.max(0, (res.data.questions || []).length - 1))
         const question = this.currentPracticeQuestion
+        const questionTaskRevisionId = question?.task_revision_id || question?.revision_id || ''
+        const currentAttemptTaskRevisionId = (
+          this.currentAttempt?.task_revision_id || this.currentAttempt?.question_revision_id || ''
+        )
+        if (
+          this.currentAttempt
+          && (!questionTaskRevisionId || currentAttemptTaskRevisionId !== questionTaskRevisionId)
+        ) {
+          this.currentAttempt = null
+          this.currentDraft = {}
+          this.revealedHints = []
+          this.revealedSolution = null
+          this.practiceResult = null
+          this.practiceSaveState = 'idle'
+          this.practiceSubmitRequestId = ''
+          this.targetedRetryContext = null
+        }
         const active = question
           ? (res.data.active_attempts || []).find((item: PracticeAttempt) => (
               item.task_revision_id || item.question_revision_id
@@ -262,20 +302,26 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
           practice_intent: context.practiceIntent,
         } : {}),
       })
-      this.applyPracticeAttempt(courseId, res.data.attempt)
+      this.applyPracticeAttempt(courseId, res.data.attempt, res.data.solution)
       this.practiceResult = res.data.attempt?.result || null
       this.practiceStartedAt = Date.now()
       await this.syncLearningTask(courseId)
       return res.data.attempt as PracticeAttempt
     },
-    applyPracticeAttempt(courseId: string, attempt: PracticeAttempt) {
+    applyPracticeAttempt(
+      courseId: string,
+      attempt: PracticeAttempt,
+      solution: Record<string, any> | null = null,
+    ) {
       this.currentAttempt = attempt
       const local = this.readPracticeDraft(courseId, attempt.attempt_id)
       this.currentDraft = local?.revision >= attempt.revision
         ? { ...(attempt.answer_payload || {}), ...(local.answer_payload || {}) }
         : { ...(attempt.answer_payload || {}) }
-      this.revealedHints = []
-      this.revealedSolution = attempt.solution_revealed ? {} : null
+      this.revealedHints = Array.isArray(attempt.revealed_hints)
+        ? attempt.revealed_hints.map(item => ({ ...item }))
+        : []
+      this.revealedSolution = attempt.solution_revealed ? solution : null
       this.practiceSaveState = local?.revision > attempt.revision ? 'local_only' : 'saved'
       this.practiceSubmitRequestId = ''
       this.targetedRetryContext = attempt.practice_intent === 'targeted_retry' && attempt.origin_attempt_id
@@ -387,13 +433,78 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.revealedSolution = null
       return this.startPracticeAttempt(courseId, question.task_revision_id || question.revision_id, true)
     },
-    async startTargetedRetry(courseId: string, failedAttempt: PracticeAttempt) {
+    async refreshPracticeQuestion(
+      courseId: string,
+      nodeId?: string,
+      scope: 'node' | 'final' | 'all' = 'node',
+    ) {
+      const question = this.currentPracticeQuestion
+      const currentTaskRevisionId = question?.task_revision_id || question?.revision_id
+      if (!question || !currentTaskRevisionId) return null
+
+      const attempt = this.currentAttempt
+      if (attempt?.status === 'in_progress') {
+        await http.post(
+          `/api/courses/${courseId}/practice/attempts/${attempt.attempt_id}/abandon`,
+          { expected_revision: attempt.revision },
+        )
+        localStorage.removeItem(practiceDraftKey(courseId, attempt.attempt_id))
+      }
+      const res = await http.post(`/api/courses/${courseId}/practice/refresh`, {
+        current_task_revision_id: currentTaskRevisionId,
+        node_id: nodeId || null,
+        scope,
+      })
+      const selected = res.data.question
+      if (!selected) return null
       const questions = this.practice?.questions || []
+      const selectedRevisionId = selected.task_revision_id || selected.revision_id
+      let selectedIndex = questions.findIndex(item => (
+        (item.task_revision_id || item.revision_id) === selectedRevisionId
+      ))
+      if (selectedIndex < 0 && this.practice) {
+        this.practice.questions = [...questions, selected]
+        selectedIndex = this.practice.questions.length - 1
+      }
+      this.currentQuestionIndex = Math.max(0, selectedIndex)
+      this.currentAttempt = null
+      this.currentDraft = {}
+      this.practiceResult = null
+      this.revealedHints = []
+      this.revealedSolution = null
+      this.practiceSaveState = 'idle'
+      this.practiceSubmitRequestId = ''
+      this.practiceStartedAt = Date.now()
+      this.targetedRetryContext = null
+      return selected
+    },
+    async startTargetedRetry(courseId: string, failedAttempt: PracticeAttempt) {
       const sourceTaskRevisionId = failedAttempt.task_revision_id || failedAttempt.question_revision_id || ''
-      const sourceQuestion = questions.find(question => (
+      let questions = this.practice?.questions || []
+      let sourceQuestion = questions.find(question => (
         (question.task_revision_id || question.revision_id) === sourceTaskRevisionId
       ))
-      const sourceSignals = { ...(sourceQuestion || {}), ...failedAttempt }
+      if (!sourceQuestion && failedAttempt.node_id) {
+        await this.loadPractice(courseId, String(failedAttempt.node_id), 'node')
+        questions = this.practice?.questions || []
+        sourceQuestion = questions.find(question => (
+          (question.task_revision_id || question.revision_id) === sourceTaskRevisionId
+        ))
+      }
+      const diagnosed = failedAttempt.result?.answer_diagnosis?.diagnosis || {}
+      const sourceSignals = {
+        ...(sourceQuestion || {}),
+        ...failedAttempt,
+        concept_ids: diagnosed.knowledge_ids?.length
+          ? diagnosed.knowledge_ids
+          : (sourceQuestion?.concept_ids || failedAttempt.concept_ids || []),
+        skill_unit_ids: diagnosed.skill_ids?.length
+          ? diagnosed.skill_ids
+          : (sourceQuestion?.skill_unit_ids || failedAttempt.skill_unit_ids || []),
+        mistake_point_ids: diagnosed.misconception_ids?.length
+          ? diagnosed.misconception_ids
+          : (sourceQuestion?.mistake_point_ids || failedAttempt.mistake_point_ids || []),
+      }
       const ranked = questions
         .map((question, index) => ({
           question,
@@ -440,6 +551,17 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.practiceHistory = res.data
       if (view === 'needs_review') this.practiceNeedsReviewCount = (res.data.attempts || []).length
       return res.data
+    },
+    async loadMistakeBook(courseId: string) {
+      const res = await http.get(`/api/courses/${courseId}/practice/history`, {
+        params: { view: 'all' },
+      })
+      this.mistakeBookAttempts = unresolvedMistakeAttempts(res.data.attempts || [])
+      this.practiceNeedsReviewCount = this.mistakeBookAttempts.length
+      return {
+        ...res.data,
+        attempts: this.mistakeBookAttempts,
+      }
     },
     async migrateLegacyPracticeData(courseId: string, courseNodeIds: string[]) {
       const wrong = this.readLegacyArray('quiz_wrong_answers')
@@ -521,7 +643,30 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       }
     },
     async confirmBlueprint(courseId: string) {
-      const res = await http.post(`/api/courses/${courseId}/blueprint/confirm`)
+      return this.confirmGenerationStep(courseId, 'outline')
+    },
+    async loadGenerationReview(courseId: string) {
+      this.loading = true
+      try {
+        const res = await http.get(`/api/courses/${courseId}/generation/review`)
+        this.generationReview = res.data
+        return res.data
+      } finally {
+        this.loading = false
+      }
+    },
+    async confirmGenerationStep(
+      courseId: string,
+      step: 'outline' | 'knowledge' | 'teaching' | 'content' | 'release',
+    ) {
+      const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/confirm`)
+      return res.data
+    },
+    async reopenGenerationStep(
+      courseId: string,
+      step: 'outline',
+    ) {
+      const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/reopen`)
       return res.data
     },
     async discardBlueprint(courseId: string) {

@@ -70,6 +70,27 @@ describe('course generation lifecycle reconciliation', () => {
     expect(generation.generationStatus).toBe('idle')
   })
 
+  it('忽略同一课程旧任务迟到的 WebSocket 状态', () => {
+    const generation = useGenerationStore()
+    const localTask = generation.createTask('job-new', 'course-1', '线性代数')
+    localTask.status = 'running'
+    localTask.progress = 42
+    const reconcile = vi.spyOn(generation, 'reconcilePublishedCourses')
+
+    generation.handleWSMessage({
+      type: 'task_completed',
+      course_id: 'course-1',
+      task_id: 'job-old',
+      payload: { status: 'completed', progress: 100 },
+    })
+
+    expect(generation.getTask('course-1')?.id).toBe('job-new')
+    expect(generation.getTask('course-1')?.status).toBe('running')
+    expect(generation.getTask('course-1')?.progress).toBe(42)
+    expect(generation.taskProgress['course-1']).toBeUndefined()
+    expect(reconcile).not.toHaveBeenCalled()
+  })
+
   it('活动任务进入学习页时读取生成工作区而不是空正式文档', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()
@@ -200,6 +221,33 @@ describe('course generation lifecycle reconciliation', () => {
     expect(generation.globalTasks).toHaveLength(1)
   })
 
+  it('同一课程存在多条历史时只把当前活动任务投影到学习页', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    vi.spyOn(http, 'get').mockResolvedValue({
+      data: [
+        {
+          id: 'job-new', course_id: 'course-1', course_name: '线性代数',
+          status: 'running', progress: 42, phase: 'content_generation',
+          updated_at: '2026-07-19T10:00:00Z',
+        },
+        {
+          id: 'job-old', course_id: 'course-1', course_name: '线性代数',
+          status: 'completed', progress: 100, phase: 'completed',
+          updated_at: '2026-07-18T10:00:00Z',
+        },
+      ],
+    })
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    await generation.fetchGlobalTasks()
+
+    expect(generation.globalTasks.map(task => task.id)).toEqual(['job-new', 'job-old'])
+    expect(generation.getTask('course-1')?.id).toBe('job-new')
+    expect(generation.getTask('course-1')?.status).toBe('running')
+    expect(generation.getTask('course-1')?.progress).toBe(42)
+  })
+
   it('单任务核对遇到临时网络错误时保留本地活动状态', async () => {
     const generation = useGenerationStore()
     const localTask = generation.createTask('job-offline', 'course-offline', '世界模型')
@@ -214,6 +262,40 @@ describe('course generation lifecycle reconciliation', () => {
 
     expect(generation.getTask('course-offline')?.status).toBe('running')
     expect(generation.getTask('course-offline')?.progress).toBe(32)
+  })
+
+  it('暂停动作只控制显式选中的后端任务', async () => {
+    const generation = useGenerationStore()
+    const localTask = generation.createTask('job-new', 'course-1', '线性代数')
+    localTask.status = 'running'
+    generation.globalTasks = [
+      { id: 'job-new', course_id: 'course-1', status: 'running', progress: 42 },
+      { id: 'job-old', course_id: 'course-1', status: 'completed', progress: 100 },
+    ]
+    const post = vi.spyOn(http, 'post').mockResolvedValue({ data: { status: 'paused' } })
+
+    await generation.pauseTask('course-1', 'job-new')
+
+    expect(post).toHaveBeenCalledWith('/api/tasks/job-new/pause')
+    expect(generation.globalTasks.find(task => task.id === 'job-new')?.status).toBe('paused')
+    expect(generation.globalTasks.find(task => task.id === 'job-old')?.status).toBe('completed')
+    expect(generation.getTask('course-1')?.status).toBe('paused')
+  })
+
+  it('找不到后端任务 ID 时暂停失败且不伪造本地成功', async () => {
+    const generation = useGenerationStore()
+    const localTask = generation.createTask('', 'course-local', '本地残留任务')
+    localTask.status = 'running'
+    vi.spyOn(http, 'get').mockResolvedValue({ data: { status: 'none' } })
+    const post = vi.spyOn(http, 'post')
+    vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(generation.pauseTask('course-local')).rejects.toThrow('backend_task_not_found')
+
+    expect(post).not.toHaveBeenCalled()
+    expect(generation.getTask('course-local')?.status).toBe('running')
+    expect(generation.getTask('course-local')?.shouldStop).toBe(false)
   })
 
   it('取消任务后清理本地投影并重新读取课程列表', async () => {
@@ -233,6 +315,44 @@ describe('course generation lifecycle reconciliation', () => {
     expect(http.delete).toHaveBeenCalledWith('/api/tasks/job-cancel')
     expect(generation.getTask('course-cancel')).toBeUndefined()
     expect(generation.taskProgress['course-cancel']).toBeUndefined()
+    expect(refreshList).toHaveBeenCalledTimes(1)
+  })
+
+  it('删除同课程旧任务时保留当前任务投影与其他历史', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    const localTask = generation.createTask('job-new', 'course-1', '线性代数')
+    localTask.status = 'running'
+    generation.globalTasks = [
+      { id: 'job-new', course_id: 'course-1', status: 'running', progress: 42 },
+      { id: 'job-old', course_id: 'course-1', status: 'completed', progress: 100 },
+    ]
+    vi.spyOn(http, 'delete').mockResolvedValue({ data: { status: 'deleted' } })
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    await generation.deleteTask('course-1', 'job-old')
+
+    expect(http.delete).toHaveBeenCalledWith('/api/tasks/job-old')
+    expect(generation.globalTasks.map(task => task.id)).toEqual(['job-new'])
+    expect(generation.getTask('course-1')?.id).toBe('job-new')
+    expect(generation.getTask('course-1')?.status).toBe('running')
+  })
+
+  it('没有本地投影时也能清除后端终态任务', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    generation.globalTasks = [{
+      id: 'job-completed', course_id: 'course-completed', course_name: '已发布课程',
+      status: 'completed', progress: 100,
+    }]
+    vi.spyOn(generation, 'ensureJobId').mockResolvedValue('job-completed')
+    vi.spyOn(http, 'delete').mockResolvedValue({ data: { status: 'deleted' } })
+    const refreshList = vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    await generation.deleteTask('course-completed')
+
+    expect(http.delete).toHaveBeenCalledWith('/api/tasks/job-completed')
+    expect(generation.globalTasks).toHaveLength(0)
     expect(refreshList).toHaveBeenCalledTimes(1)
   })
 

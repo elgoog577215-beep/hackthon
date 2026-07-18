@@ -545,24 +545,82 @@ const detectAndWrapComplexMath = (content: string, maskIdRef: {val: number}, mas
 
 // Universal Line-Based Math Detector
 // Scans for lines that look like math equations but lack delimiters.
+const hasExplicitMarkdownStructure = (line: string): boolean => {
+    const trimmed = line.trim();
+    if (!trimmed) return false;
+
+    // Markdown syntax is an authoring contract, not formula source. Naked-math
+    // recovery must never reinterpret the delimiters or destinations of these
+    // structures. Explicit $...$ formulas have already been masked, so opting
+    // out here does not prevent formulas inside tables or link labels.
+    const isTableRow = /^\|.*\|\s*$/.test(trimmed)
+        || (trimmed.match(/(?<!\\)\|/g)?.length || 0) >= 2;
+    const hasLinkOrImage = /!?\[[^\]\n]+\]\([^)]+\)|\[[^\]\n]+\]\[[^\]\n]*\]|^\[[^\]\n]+\]:\s*\S+/.test(trimmed);
+    const hasRawHtml = /<\/?[A-Za-z][^>]*>/.test(trimmed);
+    const hasExplicitInlineStyle = /\*\*[^*\n]+\*\*|(?<!\*)\*[^*\n]+\*(?!\*)|~~[^~\n]+~~/.test(trimmed);
+
+    return isTableRow || hasLinkOrImage || hasRawHtml || hasExplicitInlineStyle;
+};
+
+const splitNakedFormulaFromProse = (text: string): { formula: string; prose: string } | null => {
+    const proseBoundary = findTopLevelCjkBoundary(text);
+    if (proseBoundary === 0) return null;
+
+    const formula = (proseBoundary > 0 ? text.slice(0, proseBoundary) : text).trimEnd();
+    if (!isLikelyMath(formula)) return null;
+
+    return {
+        formula: formula.trim(),
+        prose: proseBoundary > 0 ? text.slice(proseBoundary) : '',
+    };
+};
+
+const splitNakedFormulaInsideProse = (text: string): { prefix: string; formula: string; suffix: string } | null => {
+    if (!/[\u3400-\u9fff]/.test(text)) return null;
+
+    const commandStart = text.search(/\\[A-Za-z]+/);
+    const assignmentStart = text.search(/\b[A-Za-z][A-Za-z0-9]*(?:[_^]\{?[A-Za-z0-9]+\}?)?\s*=/);
+    const starts = [commandStart, assignmentStart].filter(index => index > 0);
+    if (starts.length === 0) return null;
+
+    const start = Math.min(...starts);
+    const tail = text.slice(start);
+    const proseBoundary = findTopLevelCjkBoundary(tail);
+    const rawFormula = proseBoundary > 0 ? tail.slice(0, proseBoundary) : tail;
+    const punctuation = rawFormula.match(/[，。；：！？、\s]+$/)?.[0] || '';
+    const formula = rawFormula.slice(0, rawFormula.length - punctuation.length).trim();
+    if (!isLikelyMath(formula)) return null;
+
+    return {
+        prefix: text.slice(0, start),
+        formula,
+        suffix: `${punctuation}${proseBoundary > 0 ? tail.slice(proseBoundary) : ''}`,
+    };
+};
+
 const detectAndWrapNakedMathLines = (content: string, maskIdRef: {val: number}, maskMap: Map<string, string>): string => {
     return content.split('\n').map(line => {
         // Skip masked lines or empty lines
         if (line.includes('__MATH') || line.includes('__CODE') || !line.trim()) return line;
+        if (hasExplicitMarkdownStructure(line)) return line;
         
         // Skip lines that look like headers, lists, or blockquotes
         if (line.match(/^(\s*)(#{1,6}|-|\*|\d+\.|>)\s/)) {
-            // But sometimes a list item IS a formula: "1. x = y"
-            // We should strip the marker and check the rest.
-            // Let's implement a "content only" check.
             const contentMatch = line.match(/^(\s*(?:#{1,6}|-|\*|\d+\.|>)\s+)(.*)$/);
             if (contentMatch) {
                 const marker = contentMatch[1];
                 const rest = contentMatch[2];
-                if (marker && rest && isLikelyMath(rest)) {
-                     const id = `__MATH_INLINE_AUTO_${maskIdRef.val++}__`;
-                     maskMap.set(id, `$${rest}$`);
-                     return marker + id;
+                const parts = rest ? splitNakedFormulaFromProse(rest) : null;
+                if (marker && parts) {
+                    const id = `__MATH_INLINE_AUTO_${maskIdRef.val++}__`;
+                    maskMap.set(id, `$${parts.formula}$`);
+                    return `${marker}${id}${parts.prose}`;
+                }
+                const inlineParts = rest ? splitNakedFormulaInsideProse(rest) : null;
+                if (marker && inlineParts) {
+                    const id = `__MATH_INLINE_AUTO_${maskIdRef.val++}__`;
+                    maskMap.set(id, `$${inlineParts.formula}$`);
+                    return `${marker}${inlineParts.prefix}${id}${inlineParts.suffix}`;
                 }
             }
             return line;
@@ -573,23 +631,19 @@ const detectAndWrapNakedMathLines = (content: string, maskIdRef: {val: number}, 
         // either turns prose into math italics or makes the complete line fall
         // back to raw source. Split only at a top-level CJK boundary so Chinese
         // inside `\text{...}` remains part of the formula.
-        const proseBoundary = findTopLevelCjkBoundary(line);
-        if (proseBoundary > 0) {
-            const formula = line.slice(0, proseBoundary).trimEnd();
-            const prose = line.slice(proseBoundary);
-            if (isLikelyMath(formula)) {
-                const leadingWhitespace = formula.match(/^\s*/)?.[0] || '';
-                const id = `__MATH_BLOCK_AUTO_${maskIdRef.val++}__`;
-                maskMap.set(id, `\n$$\n${formula.trim()}\n$$\n`);
-                return `${leadingWhitespace}${id}${prose}`;
-            }
+        const leadingWhitespace = line.match(/^\s*/)?.[0] || '';
+        const parts = splitNakedFormulaFromProse(line.slice(leadingWhitespace.length));
+        if (parts) {
+            const id = `__MATH_BLOCK_AUTO_${maskIdRef.val++}__`;
+            maskMap.set(id, `\n$$\n${parts.formula}\n$$\n`);
+            return `${leadingWhitespace}${id}${parts.prose}`;
         }
 
-        if (isLikelyMath(line)) {
-            const id = `__MATH_BLOCK_AUTO_${maskIdRef.val++}__`;
-            // If it's a full line, treat as block math
-            maskMap.set(id, `\n$$\n${line.trim()}\n$$\n`);
-            return id;
+        const inlineParts = splitNakedFormulaInsideProse(line);
+        if (inlineParts) {
+            const id = `__MATH_INLINE_AUTO_${maskIdRef.val++}__`;
+            maskMap.set(id, `$${inlineParts.formula}$`);
+            return `${inlineParts.prefix}${id}${inlineParts.suffix}`;
         }
         
         return line;
@@ -722,7 +776,12 @@ export const renderMarkdown = (content: string) => {
     // Mask inline code (`...`)
     // Note: This regex is simple and might not handle escaped backticks perfectly, but good enough for protection
     normalized = normalized.replace(/`[^`\n]+`/g, (match) => {
-        const id = `__INLINE_CODE_${codeBlockId++}__`;
+        // Keep the same `__CODE` prefix as fenced-code placeholders. The
+        // naked-math detector skips protected code lines; using the old
+        // `__INLINE_CODE` prefix exposed placeholder underscores to its math
+        // heuristics and turned Markdown such as `**t=0** ... \`θ(0)\`` into
+        // one malformed formula.
+        const id = `__CODE_INLINE_${codeBlockId++}__`;
         codeBlockMap.set(id, match);
         return id;
     });

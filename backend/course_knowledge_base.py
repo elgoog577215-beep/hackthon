@@ -121,7 +121,12 @@ def compile_course_knowledge_base(
 
             for point_order, raw_point in enumerate(raw_group.get("knowledge_points") or []):
                 name = str(raw_point.get("name") or "").strip()
-                if not name:
+                statement = str(
+                    raw_point.get("statement")
+                    or raw_point.get("description")
+                    or ""
+                ).strip()
+                if not name or not statement:
                     continue
                 normalized_name = _normalize_name(name)
                 existing = point_by_name.get(normalized_name)
@@ -148,17 +153,16 @@ def compile_course_knowledge_base(
                     continue
 
                 point_id = _local_id(course_id, group_id, "knowledge_point", name, "ckp_")
+                knowledge_type = str(raw_point.get("knowledge_type") or "definition")
+                if knowledge_type not in KNOWLEDGE_TYPES:
+                    knowledge_type = "definition"
                 point = {
                     "knowledge_id": point_id,
                     "course_id": course_id,
                     "primary_concept_group_id": group_id,
-                    "knowledge_type": str(raw_point.get("knowledge_type") or "definition"),
+                    "knowledge_type": knowledge_type,
                     "name": name,
-                    "statement": str(
-                        raw_point.get("statement")
-                        or raw_point.get("description")
-                        or ""
-                    ).strip(),
+                    "statement": statement,
                     "conditions": _unique(raw_point.get("conditions") or []),
                     "boundaries": _unique(raw_point.get("boundaries") or []),
                     "counterexamples": _unique(raw_point.get("counterexamples") or []),
@@ -261,6 +265,25 @@ def compile_course_knowledge_base(
 
         section_point_ids[section_id] = _unique(section_ids)
 
+    point_by_id = {
+        str(item.get("knowledge_id") or ""): item
+        for item in knowledge_points
+        if str(item.get("knowledge_id") or "")
+    }
+    relation_decisions = _compile_relation_decisions(
+        course_data,
+        point_by_id,
+    )
+    for decision in relation_decisions:
+        point = point_by_id.get(str(decision.get("knowledge_id") or ""))
+        if not point:
+            continue
+        point["relation_state"] = decision.get("decision")
+        point["relation_decision_reason"] = decision.get("reason")
+        if decision.get("decision") == "course_entry":
+            point["entry_reason"] = str(decision.get("reason") or "").strip()
+        point["revision_id"] = _revision_id(point, "ckpr_")
+
     relation_candidates.extend(
         item for item in course_data.get("knowledge_relations") or []
         if isinstance(item, dict)
@@ -269,6 +292,7 @@ def compile_course_knowledge_base(
         course_id,
         relation_candidates,
         point_by_name,
+        point_by_id,
         invalid_relation_candidates,
         unresolved_relation_candidates,
     )
@@ -309,6 +333,13 @@ def compile_course_knowledge_base(
         "skill_units": skill_units,
         "misconceptions": misconceptions,
         "mastery_criteria": mastery_criteria,
+        "relation_plan_schema_version": (
+            course_data.get("knowledge_relation_schema_version")
+            or (course_data.get("course_plan") or {}).get(
+                "knowledge_relation_schema_version"
+            )
+        ),
+        "relation_decisions": relation_decisions,
         "relations": _dedupe_relations(relations),
         "bindings": _dedupe_bindings(bindings),
         "source_refs": _unique([
@@ -341,9 +372,12 @@ def compile_course_knowledge_base(
     payload["revision_id"] = _revision_id(payload, "ckbr_")
     quality = validate_course_knowledge_base(payload, course_data=course_data, library={})
     payload["quality_report"] = quality
-    payload["lifecycle_status"] = "active" if quality["strict_passed"] else "degraded"
+    # ``active`` means the knowledge base is structurally usable by the course.
+    # Non-blocking quality suggestions stay visible in the report but no longer
+    # downgrade the whole course or stop content generation.
+    payload["lifecycle_status"] = "active" if quality["passed"] else "degraded"
     payload["status"] = payload["lifecycle_status"]
-    if quality["strict_passed"]:
+    if quality["passed"]:
         for relation in payload["relations"]:
             relation["status"] = "accepted"
             relation["revision_id"] = _revision_id(relation, "ckrelr_")
@@ -545,6 +579,9 @@ def validate_course_knowledge_base(
     skills = list(knowledge_base.get("skill_units") or [])
     mistakes = list(knowledge_base.get("misconceptions") or [])
     criteria = list(knowledge_base.get("mastery_criteria") or [])
+    relation_decisions = list(
+        knowledge_base.get("relation_decisions") or []
+    )
     relations = list(knowledge_base.get("relations") or [])
     bindings = list(knowledge_base.get("bindings") or [])
 
@@ -577,7 +614,7 @@ def validate_course_knowledge_base(
         if not section_id:
             issues.append(_issue("group_missing_section", "structure", "critical", f"概念组 {group_id} 没有主要小节"))
         if _normalize_outline_name(group.get("name")) == section_titles.get(section_id):
-            issues.append(_issue("group_mirrors_section", "semantic", "critical", f"概念组「{group.get('name')}」复制了小节标题"))
+            issues.append(_issue("group_mirrors_section", "semantic", "major", f"概念组「{group.get('name')}」复制了小节标题，建议在确认时优化名称"))
         owned = [item for item in points if item.get("primary_concept_group_id") == group_id]
         if len(owned) < 2:
             issues.append(_issue("group_too_small", "granularity", "major", f"概念组「{group.get('name')}」少于两个原子知识点"))
@@ -597,13 +634,13 @@ def validate_course_knowledge_base(
         if point.get("knowledge_type") not in KNOWLEDGE_TYPES:
             issues.append(_issue("invalid_knowledge_type", "semantic", "critical", f"知识点「{name}」的类型不合法"))
         if not point.get("conditions") and not point.get("boundaries"):
-            issues.append(_issue("point_missing_boundary", "granularity", "critical", f"知识点「{name}」没有条件或边界"))
+            issues.append(_issue("point_missing_boundary", "granularity", "major", f"知识点「{name}」没有条件或边界"))
         if not point.get("section_refs"):
             issues.append(_issue("point_missing_path", "coverage", "critical", f"知识点「{name}」没有课程路径"))
         if any(_normalize_outline_name(name) == section_titles.get(section_id) for section_id in point.get("section_refs") or []):
-            issues.append(_issue("point_mirrors_section", "semantic", "critical", f"知识点「{name}」复制了小节标题"))
+            issues.append(_issue("point_mirrors_section", "semantic", "major", f"知识点「{name}」复制了小节标题，建议在确认时优化名称"))
         if point.get("granularity_status") != "atomic":
-            issues.append(_issue("point_not_atomic", "granularity", "critical", f"知识点「{name}」未通过原子性门"))
+            issues.append(_issue("point_not_atomic", "granularity", "major", f"知识点「{name}」的细化信息不完整"))
 
     skills_by_point: dict[str, list[dict[str, Any]]] = {}
     for skill in skills:
@@ -616,7 +653,7 @@ def validate_course_knowledge_base(
             issues.append(_issue("skill_not_observable", "standards", "critical", f"能力点「{skill.get('name')}」不是可观察行为"))
     for point in points:
         if not skills_by_point.get(str(point.get("knowledge_id") or "")):
-            issues.append(_issue("point_missing_skill", "standards", "critical", f"知识点「{point.get('name')}」没有能力点"))
+            issues.append(_issue("point_missing_skill", "standards", "major", f"知识点「{point.get('name')}」没有能力点"))
 
     criteria_by_point: dict[str, list[dict[str, Any]]] = {}
     for criterion in criteria:
@@ -631,7 +668,7 @@ def validate_course_knowledge_base(
             issues.append(_issue("criterion_missing_verification", "standards", "critical", f"掌握标准「{criterion.get('name')}」没有验证方式"))
     for point in points:
         if not criteria_by_point.get(str(point.get("knowledge_id") or "")):
-            issues.append(_issue("point_missing_mastery", "standards", "critical", f"知识点「{point.get('name')}」没有掌握标准"))
+            issues.append(_issue("point_missing_mastery", "standards", "major", f"知识点「{point.get('name')}」没有掌握标准"))
 
     for mistake in mistakes:
         if str(mistake.get("primary_knowledge_id") or "") not in point_ids:
@@ -664,23 +701,59 @@ def validate_course_knowledge_base(
         inbound.add(target)
         if relation_type in SYMMETRIC_RELATION_TYPES:
             inbound.add(source)
+    if knowledge_base.get("relation_plan_schema_version"):
+        decision_ids: set[str] = set()
+        for decision in relation_decisions:
+            knowledge_id = str(decision.get("knowledge_id") or "")
+            if (
+                knowledge_id not in point_ids
+                or knowledge_id in decision_ids
+                or decision.get("decision")
+                not in {"connected", "course_entry"}
+                or not str(decision.get("reason") or "").strip()
+            ):
+                issues.append(_issue(
+                    "invalid_relation_decision",
+                    "relations",
+                    "critical",
+                    "知识关系规划决定存在无效 ID、重复项或缺失理由",
+                ))
+                continue
+            decision_ids.add(knowledge_id)
+            if (
+                decision.get("decision") == "connected"
+                and knowledge_id not in inbound
+            ):
+                issues.append(_issue(
+                    "connected_point_missing_relation",
+                    "relations",
+                    "critical",
+                    f"知识点 {knowledge_id} 被标记为已连接，但没有正式关系入边",
+                ))
+        if decision_ids != point_ids:
+            issues.append(_issue(
+                "incomplete_relation_decisions",
+                "relations",
+                "critical",
+                "全课关系规划没有逐一处理所有知识点",
+            ))
     for relation_type in ("prerequisite", "generalizes"):
         cycle = _find_relation_cycle(relations, relation_type)
         if cycle:
-            issues.append(_issue(f"{relation_type}_cycle", "relations", "critical", f"{relation_type} 关系存在循环：{' -> '.join(cycle)}"))
+            issues.append(_issue(f"{relation_type}_cycle", "relations", "major", f"{relation_type} 关系存在循环，建议后续优化：{' -> '.join(cycle)}"))
     for point in points:
         point_id = str(point.get("knowledge_id") or "")
         if point_id not in inbound and not str(point.get("entry_reason") or "").strip():
-            issues.append(_issue("point_missing_inbound_or_entry", "relations", "critical", f"知识点「{point.get('name')}」既无入边也无入口理由"))
+            issues.append(_issue("point_missing_inbound_or_entry", "relations", "major", f"知识点「{point.get('name')}」尚未说明为何从这里开始学习"))
 
     if (knowledge_base.get("generation_audit") or {}).get("invalid_relation_candidates"):
-        issues.append(_issue("invalid_relation_candidates", "relations", "critical", "模型生成了六类白名单之外的关系"))
+        issues.append(_issue("invalid_relation_candidates", "relations", "major", "已忽略六类白名单之外的知识关系候选"))
     if (knowledge_base.get("generation_audit") or {}).get("unresolved_relation_candidates"):
-        issues.append(_issue("unresolved_relation_endpoints", "relations", "critical", "知识关系存在无法解析的知识点名称"))
+        issues.append(_issue("unresolved_relation_endpoints", "relations", "major", "已忽略端点无法解析的知识关系候选"))
     if (knowledge_base.get("generation_audit") or {}).get("unresolved_reuse_candidates"):
-        issues.append(_issue("unresolved_knowledge_reuse", "bindings", "critical", "小节复用了当前课程中尚未定义的知识点"))
+        issues.append(_issue("unresolved_knowledge_reuse", "bindings", "major", "部分复用知识尚未在当前课程中定义，已保留为优化建议"))
     if (knowledge_base.get("generation_audit") or {}).get("invalid_block_ref_candidates"):
-        issues.append(_issue("invalid_declared_block_refs", "bindings", "critical", "知识点声明了当前课程中不存在的正文块"))
+        issues.append(_issue("invalid_declared_block_refs", "bindings", "major", "已忽略当前课程中不存在的正文块引用"))
 
     section_ids = {str(item.get("node_id") or "") for item in _sections(course_data or {})}
     bound_sections = {
@@ -727,6 +800,7 @@ def validate_course_knowledge_base(
             "misconception_count": len(mistakes),
             "mastery_criterion_count": len(criteria),
             "relation_count": len(relations),
+            "relation_decision_count": len(relation_decisions),
             "relation_coverage": round(relation_covered, 4),
             "binding_count": len(bindings),
         },
@@ -1205,7 +1279,7 @@ def _compile_skills(
     for order, value in enumerate(values if isinstance(values, list) else [values]):
         standard = _standard(value)
         name = standard["name"]
-        if not name:
+        if not name or not standard["observable_behavior"]:
             continue
         item = {
             "skill_id": _local_id(course_id, str(point["knowledge_id"]), "skill", name, "cks_"),
@@ -1236,7 +1310,12 @@ def _compile_misconceptions(
     result = []
     for order, value in enumerate(raw_point.get("misconceptions") or []):
         standard = _standard(value)
-        if not standard["name"]:
+        if (
+            not standard["name"]
+            or not (standard["observable_error_pattern"] or standard["description"])
+            or not standard["discrimination"]
+            or not standard["repair_strategy"]
+        ):
             continue
         item = {
             "misconception_id": _local_id(course_id, str(point["knowledge_id"]), "misconception", standard["name"], "ckm_"),
@@ -1271,7 +1350,11 @@ def _compile_mastery_criteria(
     for order, value in enumerate(raw_point.get("mastery_criteria") or []):
         standard = _standard(value)
         name = standard["name"] or standard["observable_performance"]
-        if not name:
+        if (
+            not name
+            or not standard["observable_performance"]
+            or not standard["verification_method"]
+        ):
             continue
         item = {
             "criterion_id": _local_id(course_id, str(point["knowledge_id"]), "mastery", name, "ckmc_"),
@@ -1294,10 +1377,48 @@ def _compile_mastery_criteria(
     return result
 
 
+def _compile_relation_decisions(
+    course_data: dict[str, Any],
+    point_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    raw_decisions = (
+        course_data.get("knowledge_relation_decisions")
+        or (course_data.get("course_plan") or {}).get(
+            "knowledge_relation_decisions"
+        )
+        or []
+    )
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in raw_decisions:
+        if not isinstance(raw, dict):
+            continue
+        knowledge_id = str(raw.get("knowledge_id") or "").strip()
+        decision = str(raw.get("decision") or "").strip()
+        reason = str(raw.get("reason") or "").strip()
+        if (
+            knowledge_id not in point_by_id
+            or knowledge_id in seen
+            or decision not in {"connected", "course_entry"}
+            or not reason
+        ):
+            continue
+        seen.add(knowledge_id)
+        item = {
+            "knowledge_id": knowledge_id,
+            "decision": decision,
+            "reason": reason,
+        }
+        item["revision_id"] = _revision_id(item, "ckrdr_")
+        result.append(item)
+    return result
+
+
 def _compile_relations(
     course_id: str,
     candidates: list[dict[str, Any]],
     point_by_name: dict[str, dict[str, Any]],
+    point_by_id: dict[str, dict[str, Any]],
     invalid: list[dict[str, Any]],
     unresolved: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -1309,6 +1430,12 @@ def _compile_relations(
     }
     result = []
     for candidate in candidates:
+        source_id_candidate = str(
+            candidate.get("source_knowledge_id") or ""
+        ).strip()
+        target_id_candidate = str(
+            candidate.get("target_knowledge_id") or ""
+        ).strip()
         source_name = str(candidate.get("source_name") or "").strip()
         target_name = str(candidate.get("target_name") or "").strip()
         relation_type = aliases.get(
@@ -1316,10 +1443,23 @@ def _compile_relations(
             str(candidate.get("relation_type") or "").strip(),
         )
         if relation_type not in RELATION_TYPES:
-            invalid.append(deepcopy(candidate))
+            invalid.append({**deepcopy(candidate), "rejection_reason": "invalid_relation_type"})
             continue
-        source = point_by_name.get(_normalize_name(source_name))
-        target = point_by_name.get(_normalize_name(target_name))
+        if not str(candidate.get("reason") or "").strip():
+            invalid.append({**deepcopy(candidate), "rejection_reason": "missing_reason"})
+            continue
+        if relation_type == "derives" and not candidate.get("derivation_steps"):
+            invalid.append({**deepcopy(candidate), "rejection_reason": "missing_derivation_steps"})
+            continue
+        if relation_type == "contrasts_with" and not str(candidate.get("distinction") or "").strip():
+            invalid.append({**deepcopy(candidate), "rejection_reason": "missing_distinction"})
+            continue
+        if source_id_candidate or target_id_candidate:
+            source = point_by_id.get(source_id_candidate)
+            target = point_by_id.get(target_id_candidate)
+        else:
+            source = point_by_name.get(_normalize_name(source_name))
+            target = point_by_name.get(_normalize_name(target_name))
         if not source or not target or source is target:
             unresolved.append(deepcopy(candidate))
             continue

@@ -67,4 +67,21 @@ describe('LearningContextTabs', () => {
 
     expect(wrapper.find('[data-context-item="practice"]').attributes('disabled')).toBeDefined()
   })
+
+  it('旧课程题库可重建时保持当前练习入口可用', async () => {
+    const wrapper = mount(LearningContextTabs, {
+      props: {
+        domain: 'learning',
+        activeItem: 'records',
+        practiceAvailable: false,
+        practiceRepairAvailable: true,
+      },
+    })
+
+    const practiceTab = wrapper.get('[data-context-item="practice"]')
+    expect(practiceTab.attributes('disabled')).toBeUndefined()
+
+    await practiceTab.trigger('click')
+    expect(wrapper.emitted('practice')).toHaveLength(1)
+  })
 })

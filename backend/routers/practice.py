@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -11,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from assessment_contracts import project_public_question
 from assessment_tasks import project_assessment_task, resolve_assessment_task
 from course_knowledge_map import project_learning_assets_to_knowledge
 from course_learning_availability import (
@@ -29,7 +31,17 @@ from practice_attempts import (
     InvalidAttemptTransition,
     practice_attempt_repository,
 )
+from practice_analysis import (
+    practice_analysis_service,
+    unavailable_answer_diagnosis,
+)
 from practice_grading import practice_grader
+from question_bank import approved_formal_tasks, question_bank_repository
+from question_bank_jobs import question_bank_rebuild_job_repository
+from solution_presentation import (
+    present_solution_representation,
+    present_solution_value,
+)
 from storage import storage
 
 router = APIRouter(prefix="/courses/{course_id}/practice", tags=["practice"])
@@ -44,7 +56,7 @@ class AttemptCreate(BaseModel):
     attempt_id: str | None = None
     resume: bool = True
     origin_attempt_id: str | None = Field(default=None, max_length=200)
-    practice_intent: Literal["standard", "targeted_retry"] = "standard"
+    practice_intent: Literal["standard", "targeted_retry", "unseen_validation"] = "standard"
 
 
 class DraftUpdate(BaseModel):
@@ -55,6 +67,12 @@ class DraftUpdate(BaseModel):
 
 class RevisionAction(BaseModel):
     expected_revision: int = Field(ge=1)
+
+
+class PracticeRefreshRequest(BaseModel):
+    current_task_revision_id: str = Field(min_length=1, max_length=200)
+    node_id: str | None = Field(default=None, max_length=200)
+    scope: Literal["node", "final", "all"] = "node"
 
 
 class AISupportAction(RevisionAction):
@@ -82,6 +100,16 @@ async def get_practice(
     user_id = require_user_id(request.headers.get("X-User-Id"))
     questions = _questions(course, node_id=node_id, scope=scope)
     attempts = await run_in_threadpool(practice_attempt_repository.list, user_id, course_id)
+    question_bank_state = {
+        "bundle": await run_in_threadpool(
+            question_bank_repository.load_bundle,
+            course_id,
+        ),
+        "job": await run_in_threadpool(
+            question_bank_rebuild_job_repository.latest_for_course,
+            course_id,
+        ),
+    }
     return {
         "schema_version": "formal_practice_api_v1",
         "course_id": course_id,
@@ -94,9 +122,14 @@ async def get_practice(
             scope=scope,
             node_id=node_id,
             scoped_question_count=len(questions),
+            question_bank_state=question_bank_state,
         ),
-        "questions": questions,
-        "active_attempts": [item for item in attempts if item.get("status") == "in_progress"],
+        "questions": [_student_question_payload(item) for item in questions],
+        "active_attempts": [
+            _student_attempt_payload(course, user_id, item)
+            for item in attempts
+            if item.get("status") == "in_progress"
+        ],
         "summary": _attempt_summary(attempts),
     }
 
@@ -142,7 +175,16 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
     task = _resolve_task(course, user_id, revision_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task revision not found in current course version")
-    _require_current_workflow_task(course, task)
+    if payload.practice_intent == "unseen_validation":
+        await _require_solution_validation_attempt(
+            course,
+            task,
+            user_id=user_id,
+            course_id=course_id,
+            origin_attempt_id=payload.origin_attempt_id,
+        )
+    else:
+        _require_current_workflow_task(course, task)
     if payload.practice_intent == "targeted_retry":
         if not payload.origin_attempt_id:
             raise HTTPException(status_code=422, detail="origin_attempt_id is required for targeted retry")
@@ -193,7 +235,88 @@ async def create_attempt(course_id: str, payload: AttemptCreate, request: Reques
     )
     if created:
         _record_attempt_event("practice_attempt_started", attempt, user_id=user_id)
-    return {"status": "created" if created else "resumed", "attempt": attempt}
+    return {
+        "status": "created" if created else "resumed",
+        "attempt": attempt,
+        "solution": (
+            _solution_payload(task)
+            if attempt.get("solution_revealed")
+            else None
+        ),
+    }
+
+
+@router.post("/refresh")
+async def refresh_practice_question(
+    course_id: str,
+    payload: PracticeRefreshRequest,
+    request: Request,
+):
+    """Select another immutable approved task without regenerating in-session."""
+    course = project_learning_objective_bindings(
+        await get_course_or_404(course_id)
+    )
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    questions = _questions(
+        course,
+        node_id=payload.node_id,
+        scope=payload.scope,
+    )
+    current = next((
+        item
+        for item in questions
+        if _task_revision_id(item) == payload.current_task_revision_id
+    ), None)
+    if not current:
+        raise HTTPException(
+            status_code=404,
+            detail="Current task revision is not active in this course scope",
+        )
+    alternatives = [
+        item
+        for item in questions
+        if _task_revision_id(item) != payload.current_task_revision_id
+        and _normalized_question_prompt(item)
+        != _normalized_question_prompt(current)
+    ]
+    if not alternatives:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "no_alternative_question",
+                "message": "当前范围没有其他已冻结题目",
+            },
+        )
+    attempts = await run_in_threadpool(
+        practice_attempt_repository.list,
+        user_id,
+        course_id,
+    )
+    attempted_revision_ids = {
+        str(
+            item.get("task_revision_id")
+            or item.get("question_revision_id")
+            or ""
+        )
+        for item in attempts
+    }
+    current_level = str(current.get("practice_level") or "")
+    ranked = sorted(
+        enumerate(alternatives),
+        key=lambda pair: (
+            _task_revision_id(pair[1]) in attempted_revision_ids,
+            str(pair[1].get("practice_level") or "") != current_level,
+            pair[0],
+        ),
+    )
+    selected = ranked[0][1]
+    return {
+        "status": "selected",
+        "selection_policy": "frozen_course_question",
+        "question": _student_question_payload(selected),
+        "has_alternative": True,
+        "attempt_history_preserved": True,
+    }
 
 
 @router.get("/attempts/active")
@@ -271,6 +394,7 @@ async def reveal_attempt_hint(
             attempt_id,
             expected_revision=payload.expected_revision,
             level=level,
+            hint=hint,
         )
     except AttemptConflict as exc:
         raise HTTPException(status_code=409, detail={"code": "attempt_conflict", "current": exc.current}) from exc
@@ -345,10 +469,23 @@ async def reveal_attempt_solution(
         raise HTTPException(status_code=409, detail={"code": "attempt_conflict", "current": exc.current}) from exc
     if created:
         _record_attempt_event("practice_solution_revealed", attempt, user_id=user_id)
+    validation_task = _unseen_validation_task(course, attempt)
     return {
         "status": "revealed",
         "solution": _solution_payload(question or {}),
         "attempt": attempt,
+        "validation_requirement": {
+            "required": validation_task is not None,
+            "status": "pending" if validation_task else "unavailable",
+            "task_revision_id": (
+                validation_task.get("task_revision_id")
+                or validation_task.get("revision_id")
+                if validation_task
+                else None
+            ),
+            "practice_intent": "unseen_validation",
+            "origin_attempt_id": attempt_id,
+        },
     }
 
 
@@ -435,9 +572,12 @@ async def submit_attempt(
                 "support_level": _support_level(attempt),
             },
         )
-    try:
-        result = await practice_grader.grade(question, attempt)
-    except Exception:
+    grading_output, diagnosis_output = await asyncio.gather(
+        practice_grader.grade(question, attempt),
+        practice_analysis_service.diagnose_answer(question, attempt),
+        return_exceptions=True,
+    )
+    if isinstance(grading_output, BaseException):
         result = {
             "status": "pending_review",
             "score": None,
@@ -448,6 +588,14 @@ async def submit_attempt(
             "grading_method": "rubric_ai",
             "mastery_eligible": False,
         }
+    else:
+        result = grading_output
+    if isinstance(diagnosis_output, BaseException):
+        result["answer_diagnosis"] = unavailable_answer_diagnosis(
+            "analysis_model_failed"
+        )
+    else:
+        result["answer_diagnosis"] = diagnosis_output
     graded = await run_in_threadpool(
         practice_attempt_repository.apply_grade,
         user_id,
@@ -552,8 +700,22 @@ async def migrate_legacy_practice(
 def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> list[dict[str, Any]]:
     assets = _learning_assets(course)
     if scope == "final":
-        return list(assets.get("final_assessment") or [])
-    questions = list(assets.get("questions") or [])
+        bank_finals = _question_bank_final_tasks(course)
+        if bank_finals or _has_active_question_bank(course):
+            return bank_finals
+        return [
+            item
+            for item in assets.get("final_assessment") or []
+            if item.get("review_status") in {None, "approved"}
+        ]
+    questions = [
+        *_question_bank_imported_tasks(course),
+        *_question_bank_practice_overlay(
+            course,
+            assets.get("questions") or [],
+        ),
+    ]
+    questions.extend(_question_bank_web_tasks(course))
     growth_task_ids = _course_evolution_practice_task_ids(course)
     questions.extend(
         item
@@ -566,10 +728,80 @@ def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> li
     return questions
 
 
+def _student_question_payload(question: dict[str, Any]) -> dict[str, Any]:
+    return project_public_question(question)
+
+
+def _student_attempt_payload(
+    course: dict[str, Any],
+    user_id: str,
+    attempt: dict[str, Any],
+) -> dict[str, Any]:
+    payload = dict(attempt)
+    revealed_levels = {
+        int(level)
+        for level in attempt.get("revealed_hint_levels") or []
+        if int(level) in {1, 2, 3}
+    }
+    snapshots = {
+        int(item.get("level") or 0): dict(item)
+        for item in attempt.get("revealed_hints") or []
+        if isinstance(item, dict)
+        and int(item.get("level") or 0) in revealed_levels
+    }
+    missing_levels = revealed_levels.difference(snapshots)
+    if missing_levels:
+        task = _resolve_task(
+            course,
+            user_id,
+            str(attempt.get("task_revision_id") or attempt.get("question_revision_id") or ""),
+        )
+        for hint in ((task or {}).get("hint_contract") or {}).get("levels") or []:
+            level = int(hint.get("level") or 0)
+            if level in missing_levels:
+                snapshots[level] = dict(hint)
+    payload["revealed_hints"] = [
+        snapshots[level]
+        for level in sorted(revealed_levels)
+        if level in snapshots
+    ]
+    return payload
+
+
+def _task_revision_id(question: dict[str, Any]) -> str:
+    return str(
+        question.get("task_revision_id")
+        or question.get("revision_id")
+        or ""
+    )
+
+
+def _normalized_question_prompt(question: dict[str, Any]) -> str:
+    return " ".join(str(question.get("prompt") or "").split()).casefold()
+
+
 def _find_question(course: dict[str, Any], revision_id: str) -> dict[str, Any] | None:
     assets = _learning_assets(course)
+    legacy_finals = (
+        []
+        if _has_active_question_bank(course)
+        else [
+            item
+            for item in assets.get("final_assessment") or []
+            if item.get("review_status") in {None, "approved"}
+        ]
+    )
     return next((
-        item for item in [*(assets.get("questions") or []), *(assets.get("final_assessment") or [])]
+        item for item in [
+            *_question_bank_practice_overlay(
+                course,
+                assets.get("questions") or [],
+            ),
+            *_question_bank_imported_tasks(course),
+            *_question_bank_web_tasks(course),
+            *_question_bank_final_tasks(course),
+            *legacy_finals,
+        ]
         if item.get("revision_id") == revision_id
     ), None)
 
@@ -592,6 +824,20 @@ def _resolve_task(course: dict[str, Any], user_id: str, revision_id: str) -> dic
         **course,
         "learning_assets": _raw_learning_assets(course),
     }
+    bank_finals = _question_bank_final_tasks(course)
+    if _has_active_question_bank(course):
+        course_with_assets["learning_assets"] = {
+            **course_with_assets["learning_assets"],
+            "questions": [
+                *_question_bank_imported_tasks(course),
+                *_question_bank_practice_overlay(
+                    course,
+                    course_with_assets["learning_assets"].get("questions") or [],
+                ),
+                *_question_bank_web_tasks(course),
+            ],
+            "final_assessment": bank_finals,
+        }
     return resolve_assessment_task(
         course_with_assets,
         revision_id,
@@ -640,6 +886,158 @@ def _raw_learning_assets(course: dict[str, Any]) -> dict[str, Any]:
     bundle = learning_asset_repository.load_bundle(course_id) if course_id else None
     assets = bundle.get("assets") if isinstance(bundle, dict) else None
     return assets if isinstance(assets, dict) else (course.get("learning_assets") or {})
+
+
+def _question_bank_final_tasks(course: dict[str, Any]) -> list[dict[str, Any]]:
+    course_id = str(course.get("course_id") or "")
+    bundle = question_bank_repository.load_bundle(course_id) if course_id else None
+    if not bundle:
+        return []
+    return [
+        *approved_formal_tasks(bundle, assessment_role="coverage_task"),
+        *approved_formal_tasks(bundle, assessment_role="cross_chapter_transfer"),
+    ]
+
+
+def _unseen_validation_task(
+    course: dict[str, Any],
+    attempt: dict[str, Any],
+) -> dict[str, Any] | None:
+    node_id = str(attempt.get("node_id") or "")
+    original_revision = str(
+        attempt.get("task_revision_id")
+        or attempt.get("question_revision_id")
+        or ""
+    )
+    return next(
+        (
+            project_assessment_task(
+                item,
+                purpose="remediation_validation",
+                source="course_asset_reserve",
+            )
+            for item in _learning_assets(course).get("validation_questions") or []
+            if str(item.get("node_id") or "") == node_id
+            and str(item.get("revision_id") or "") != original_revision
+            and item.get("quality_status") == "passed"
+        ),
+        None,
+    )
+
+
+async def _require_solution_validation_attempt(
+    course: dict[str, Any],
+    task: dict[str, Any],
+    *,
+    user_id: str,
+    course_id: str,
+    origin_attempt_id: str | None,
+) -> None:
+    if not origin_attempt_id:
+        raise HTTPException(
+            status_code=422,
+            detail="origin_attempt_id is required for unseen validation",
+        )
+    try:
+        origin = await run_in_threadpool(
+            practice_attempt_repository.get,
+            user_id,
+            course_id,
+            origin_attempt_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Origin attempt not found") from exc
+    if not origin.get("solution_revealed"):
+        raise HTTPException(
+            status_code=409,
+            detail="Origin attempt has not revealed a solution",
+        )
+    expected = _unseen_validation_task(course, origin)
+    expected_revision = str(
+        (expected or {}).get("task_revision_id")
+        or (expected or {}).get("revision_id")
+        or ""
+    )
+    if (
+        not expected_revision
+        or expected_revision != str(task.get("task_revision_id") or "")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Task is not the required unseen validation",
+        )
+
+
+def _has_active_question_bank(course: dict[str, Any]) -> bool:
+    course_id = str(course.get("course_id") or "")
+    return bool(course_id and question_bank_repository.load_bundle(course_id))
+
+
+def _question_bank_web_tasks(course: dict[str, Any]) -> list[dict[str, Any]]:
+    course_id = str(course.get("course_id") or "")
+    bundle = question_bank_repository.load_bundle(course_id) if course_id else None
+    if not bundle:
+        return []
+    return approved_formal_tasks(bundle, assessment_role="web_enriched_practice")
+
+
+def _question_bank_imported_tasks(course: dict[str, Any]) -> list[dict[str, Any]]:
+    course_id = str(course.get("course_id") or "")
+    bundle = question_bank_repository.load_bundle(course_id) if course_id else None
+    if not bundle:
+        return []
+    return approved_formal_tasks(bundle, assessment_role="imported_practice")
+
+
+def _question_bank_practice_tasks(course: dict[str, Any]) -> list[dict[str, Any]]:
+    course_id = str(course.get("course_id") or "")
+    bundle = question_bank_repository.load_bundle(course_id) if course_id else None
+    if not bundle:
+        return []
+    return approved_formal_tasks(bundle, assessment_role="practice")
+
+
+def _question_bank_practice_overlay(
+    course: dict[str, Any],
+    asset_questions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Prefer bank-backed compiled tasks and replace stale template peers."""
+    bank_tasks = _question_bank_practice_tasks(course)
+    if not bank_tasks:
+        return [] if _has_active_question_bank(course) else list(asset_questions)
+
+    assets_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for question in asset_questions:
+        key = (
+            str(question.get("node_id") or ""),
+            str(question.get("practice_level") or ""),
+        )
+        assets_by_key.setdefault(key, []).append(question)
+
+    result: list[dict[str, Any]] = []
+    for bank_task in bank_tasks:
+        key = (
+            str(bank_task.get("node_id") or ""),
+            str(bank_task.get("practice_level") or ""),
+        )
+        bank_item_revision = str(
+            bank_task.get("question_bank_item_revision_id") or ""
+        )
+        compiled = next(
+            (
+                question
+                for question in assets_by_key.get(key) or []
+                if bank_item_revision
+                and str(
+                    question.get("question_bank_item_revision_id") or ""
+                )
+                == bank_item_revision
+            ),
+            None,
+        )
+        result.append(compiled or bank_task)
+
+    return _unique_revision_items(result)
 
 
 def _course_evolution_practice_task_ids(course: dict[str, Any]) -> set[str]:
@@ -734,11 +1132,48 @@ def _record_attempt_event(
 
 def _solution_payload(question: dict[str, Any]) -> dict[str, Any]:
     spec = question.get("answer_spec") or {}
+    structured = spec.get("solution_spec") or {}
+    final_answer = (
+        structured["final_answer"]
+        if "final_answer" in structured
+        else spec.get("canonical_answer")
+    )
+    if final_answer is None:
+        final_answer = spec.get("correct_answer")
+    steps = structured.get("steps") or spec.get("solution_trace") or []
+    checks = (
+        structured.get("checks")
+        or question.get("result_checks")
+        or spec.get("criteria")
+        or []
+    )
+    summary = str(
+        structured.get("summary")
+        or question.get("explanation")
+        or "对照标准步骤、最终答案和结果检查，定位本次作答缺失的证据。"
+    )
+    reference = (question.get("question_analysis") or {}).get(
+        "reference_solution"
+    ) or {}
     return {
+        "schema_version": "solution_spec_v1",
+        "summary": summary,
+        "steps": steps,
+        "final_answer": present_solution_value(final_answer),
+        "checks": checks,
+        "representation": present_solution_representation(
+            structured.get("representation")
+        ),
         "criteria": spec.get("criteria") or [],
         "reference_concepts": spec.get("expected_keywords") or [],
-        "correct_answer": spec.get("correct_answer"),
-        "guidance": "对照评分维度检查条件、过程、结论和验证是否完整。",
+        "correct_answer": (
+            present_solution_value(spec.get("correct_answer"))
+            if spec.get("correct_answer") is not None
+            else None
+        ),
+        "guidance": reference.get("approach") or summary,
+        "key_steps": reference.get("key_steps") or [],
+        "self_check": reference.get("self_check") or "",
     }
 
 

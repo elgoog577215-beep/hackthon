@@ -9,6 +9,8 @@ import learning_events
 from learning_progress import build_learning_progress, project_learning_objective_bindings
 from practice_attempts import AttemptConflict, InvalidAttemptTransition, PracticeAttemptRepository
 from practice_grading import PracticeGrader
+from practice_contracts import enrich_question_contract
+from question_bank import build_question_bank
 from routers import practice as practice_router
 
 
@@ -79,6 +81,172 @@ def _payload(**extra):
         "practice_level": "mastery_check",
         **extra,
     }
+
+
+def test_solution_payload_exposes_steps_readable_answer_and_checks():
+    payload = practice_router._solution_payload({
+        "answer_spec": {
+            "criteria": ["旋转判断正确"],
+            "canonical_answer": {
+                "preorder": [30, 20, 10, 25, 40, 50],
+                "rotations": ["在30执行LL右旋", "在20执行RR左旋"],
+            },
+            "solution_spec": {
+                "schema_version": "solution_spec_v1",
+                "summary": "逐次插入并在首次失衡祖先处旋转。",
+                "steps": ["插入10后在30执行LL右旋", "插入50后在20执行RR左旋"],
+                "final_answer": {
+                    "preorder": [30, 20, 10, 25, 40, 50],
+                },
+                "checks": ["中序严格递增", "所有平衡因子绝对值不超过1"],
+                "representation": {
+                    "kind": "tree",
+                    "content": "    30\n   /  \\\n 20    40",
+                },
+            },
+        },
+        "result_checks": ["最终高度正确"],
+    })
+
+    assert payload["schema_version"] == "solution_spec_v1"
+    assert payload["steps"][0].startswith("插入10")
+    assert payload["final_answer"] == "前序遍历：30 → 20 → 10 → 25 → 40 → 50"
+    assert payload["checks"] == ["中序严格递增", "所有平衡因子绝对值不超过1"]
+    assert payload["representation"]["kind"] == "tree"
+
+
+def test_solution_payload_hides_reasoning_path_and_humanizes_math_answer():
+    payload = practice_router._solution_payload({
+        "answer_spec": {
+            "solution_spec": {
+                "schema_version": "solution_spec_v1",
+                "summary": "按子空间判定条件逐项检查。",
+                "steps": ["先验证零向量，再验证加法与数乘封闭性。"],
+                "final_answer": {
+                    "zero_vector_in_set": True,
+                    "sum": [1, 0, -1],
+                    "scalar_multiple": [2, -2, 0],
+                    "basis": [[1, -1, 0], [0, 1, -1]],
+                    "dimension": 2,
+                },
+                "representation": {
+                    "kind": "reasoning_path",
+                    "content": [{
+                        "step_id": "verify",
+                        "uses_inputs": ["method"],
+                        "produces": ["verified_result"],
+                    }],
+                },
+            },
+        },
+    })
+
+    assert payload["representation"] is None
+    assert payload["final_answer"] == (
+        "零向量属于集合：是\n"
+        "向量和：(1, 0, -1)\n"
+        "数乘结果：(2, -2, 0)\n"
+        "一组基：(1, -1, 0)；(0, 1, -1)\n"
+        "维数：2"
+    )
+    assert "step_id" not in payload["final_answer"]
+    assert "{" not in payload["final_answer"]
+
+
+def test_practice_list_does_not_expose_answers_or_frozen_hint_contents(
+    monkeypatch,
+):
+    course = _course()
+    question = course["learning_assets"]["questions"][0]
+    question["answer_spec"]["canonical_answer"] = {
+        "preorder": [30, 20, 10],
+    }
+    question["answer_spec"]["solution_spec"] = {
+        "schema_version": "solution_spec_v1",
+        "steps": ["标准解题步骤"],
+        "final_answer": {"preorder": [30, 20, 10]},
+        "checks": ["中序递增"],
+    }
+    question["hint_contract"] = {
+        "levels": [
+            {"level": 1, "content": "只应通过提示接口返回"},
+        ],
+    }
+    question["question_spec"] = {
+        "answer_spec": deepcopy(question["answer_spec"]),
+        "hint_contract": deepcopy(question["hint_contract"]),
+    }
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    response = client.get(
+        "/api/courses/c1/practice",
+        params={"node_id": "n1", "scope": "node"},
+    )
+
+    assert response.status_code == 200
+    projected = response.json()["questions"][0]
+    assert projected["prompt"] == question["prompt"]
+    assert "answer_spec" not in projected
+    assert "hint_contract" not in projected
+    assert "question_spec" not in projected
+
+
+def test_practice_list_restores_only_hints_already_revealed_by_active_attempt(
+    monkeypatch,
+    tmp_path,
+):
+    repository = PracticeAttemptRepository(tmp_path)
+    course = _course()
+    question = course["learning_assets"]["questions"][0]
+    question["hint_contract"] = {
+        "levels": [
+            {"level": 1, "kind": "orientation", "content": "先区分大小与方向。"},
+            {"level": 2, "kind": "method", "content": "分别说明两个属性如何表示。"},
+        ],
+    }
+    question["question_spec"] = {
+        "answer_spec": deepcopy(question["answer_spec"]),
+        "hint_contract": deepcopy(question["hint_contract"]),
+    }
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "practice_attempt_repository", repository)
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    created = client.post(
+        "/api/courses/c1/practice/attempts",
+        json={"question_revision_id": "qr1"},
+    ).json()["attempt"]
+    revealed = client.post(
+        f"/api/courses/c1/practice/attempts/{created['attempt_id']}/hints/1",
+        json={"expected_revision": created["revision"]},
+    )
+    resumed = client.get(
+        "/api/courses/c1/practice",
+        params={"node_id": "n1", "scope": "node"},
+    )
+
+    assert revealed.status_code == 200
+    assert resumed.status_code == 200
+    active = resumed.json()["active_attempts"][0]
+    assert active["revealed_hint_levels"] == [1]
+    assert len(active["revealed_hints"]) == 1
+    assert active["revealed_hints"][0]["level"] == 1
+    assert active["revealed_hints"][0]["kind"] == "orientation"
+    assert active["revealed_hints"][0]["content"] == "先区分大小与方向。"
+    assert "分别说明两个属性如何表示" not in resumed.text
 
 
 def test_attempt_repository_preserves_retries_and_rejects_stale_drafts(tmp_path):
@@ -226,6 +394,35 @@ def test_practice_api_resumes_submits_idempotently_and_projects_mastery(monkeypa
     monkeypatch.setattr(practice_router, "practice_attempt_repository", repository)
     monkeypatch.setattr(learning_events, "storage", storage)
 
+    class FakePracticeAnalysis:
+        async def diagnose_answer(self, question, attempt):
+            return {
+                "status": "completed",
+                "question_understanding": {
+                    "task_goal": "说明向量的大小和方向",
+                },
+                "student_response": {
+                    "approach": "分别列出了两个属性",
+                    "behavior_gap": "",
+                },
+                "diagnosis": {
+                    "knowledge_ids": ["vector"],
+                    "skill_ids": ["describe-vector"],
+                    "misconception_ids": [],
+                    "issues": [],
+                },
+                "student_feedback": {
+                    "summary": "两个属性都已说明。",
+                    "next_action": "用一个具体向量再自查一次。",
+                },
+            }
+
+    monkeypatch.setattr(
+        practice_router,
+        "practice_analysis_service",
+        FakePracticeAnalysis(),
+    )
+
     async def fake_course(_course_id):
         return _course()
 
@@ -259,6 +456,12 @@ def test_practice_api_resumes_submits_idempotently_and_projects_mastery(monkeypa
     )
     assert submitted.status_code == 200
     assert submitted.json()["result"]["passed"] is True
+    assert (
+        submitted.json()["result"]["answer_diagnosis"]["student_response"][
+            "approach"
+        ]
+        == "分别列出了两个属性"
+    )
     assert repeated.json()["status"] == "already_submitted"
 
     stored = repository.list("u1", "c1")
@@ -421,6 +624,126 @@ def test_legacy_practice_migration_is_idempotent_and_historical_only(monkeypatch
     assert all((item.get("result") or {}).get("mastery_eligible") is False for item in events)
 
 
+def test_active_question_bank_replaces_same_level_legacy_template(monkeypatch):
+    course = _course()
+    course["nodes"][0].update({
+        "key_points": ["向量大小", "向量方向"],
+        "assessment": ["根据给定坐标计算向量大小并检查结果"],
+        "difficulty_contract": {"target_level": "intermediate"},
+        "grounding_contract": {"question_evidence_ids": []},
+    })
+    stale = course["learning_assets"]["questions"][0]
+    stale["practice_level"] = "concept_check"
+    stale["prompt"] = (
+        "用自己的话说明“向量”的含义，并指出它在本节中成立或适用的关键条件。"
+    )
+    bundle = build_question_bank(course)
+    bank_revisions = {
+        task["revision_id"]
+        for item in bundle["items"]
+        if item["assessment_role"] == "practice"
+        and item["lifecycle_status"] == "approved"
+        for task in [item["formal_task"]]
+    }
+
+    monkeypatch.setattr(
+        practice_router.question_bank_repository,
+        "load_bundle",
+        lambda _course_id: deepcopy(bundle),
+    )
+    monkeypatch.setattr(
+        practice_router.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {"assets": deepcopy(course["learning_assets"])},
+    )
+
+    questions = practice_router._questions(course, node_id="n1", scope="node")
+    returned_revisions = {
+        item.get("revision_id") or item.get("task_revision_id")
+        for item in questions
+    }
+
+    assert bank_revisions <= returned_revisions
+    assert stale["revision_id"] not in returned_revisions
+    assert all("用自己的话说明" not in item["prompt"] for item in questions)
+
+
+def test_active_question_bank_never_falls_back_to_unreviewed_asset_questions(monkeypatch):
+    course = _course()
+    course["course_name"] = "未知跨领域课程"
+    course["subject_pedagogy_profile"] = {
+        "primary_mode": "general",
+        "secondary_mode": None,
+        "secondary_intensity": None,
+        "confidence": "low",
+        "evidence": [],
+        "rationale": "需要教师确认学科适配器",
+        "enabled_module_ids": [],
+        "user_locked": True,
+    }
+    course["nodes"][0].update({
+        "node_name": "未知主题X",
+        "learning_objective": "完成尚未定义的跨领域任务",
+        "key_points": ["未知能力A", "未知能力B"],
+        "assessment": ["提交成果"],
+        "difficulty_contract": {"target_level": "intermediate"},
+        "grounding_contract": {"question_evidence_ids": []},
+    })
+    bundle = build_question_bank(course)
+    assert all(
+        item["lifecycle_status"] == "needs_review"
+        for item in bundle["items"]
+        if item["assessment_role"] == "practice"
+    )
+
+    monkeypatch.setattr(
+        practice_router.question_bank_repository,
+        "load_bundle",
+        lambda _course_id: deepcopy(bundle),
+    )
+    monkeypatch.setattr(
+        practice_router.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {"assets": deepcopy(course["learning_assets"])},
+    )
+
+    assert practice_router._questions(course, node_id="n1", scope="node") == []
+
+
+def test_active_question_bank_never_falls_back_to_legacy_final_assessment(monkeypatch):
+    course = _course()
+    course["nodes"][0].update({
+        "key_points": ["向量大小", "向量方向"],
+        "assessment": ["根据给定坐标计算向量大小并检查结果"],
+        "difficulty_contract": {"target_level": "intermediate"},
+        "grounding_contract": {"question_evidence_ids": []},
+    })
+    course["learning_assets"]["final_assessment"] = [{
+        "revision_id": "legacy-final",
+        "prompt": "旧版综合题",
+        "review_status": None,
+    }]
+    bundle = build_question_bank(course)
+    assert not any(
+        item["lifecycle_status"] == "approved"
+        for item in bundle["items"]
+        if item["assessment_role"] in {"coverage_task", "cross_chapter_transfer"}
+    )
+
+    monkeypatch.setattr(
+        practice_router.question_bank_repository,
+        "load_bundle",
+        lambda _course_id: deepcopy(bundle),
+    )
+    monkeypatch.setattr(
+        practice_router.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {"assets": deepcopy(course["learning_assets"])},
+    )
+
+    assert practice_router._questions(course, node_id=None, scope="final") == []
+
+
 def test_legacy_server_records_are_not_implicitly_imported_for_current_user(monkeypatch, tmp_path):
     storage = MemoryStorage()
     storage.data["learning_records.json"] = {
@@ -553,3 +876,196 @@ def test_submit_does_not_500_and_does_not_retry_forever_on_persistent_conflict(m
     stored = next(item for item in repository.list("u1", "c1") if item["attempt_id"] == attempt["attempt_id"])
     assert stored["status"] == "graded"
     assert (stored.get("result") or {}).get("passed") is True
+
+
+def test_solution_reveal_requires_an_unseen_equivalent_validation(monkeypatch, tmp_path):
+    repository = PracticeAttemptRepository(tmp_path)
+    event_storage = MemoryStorage()
+    course = _course()
+    validation = enrich_question_contract({
+        "asset_id": "validation-1",
+        "revision_id": "vqr1",
+        "node_id": "n1",
+        "question_type": "short_answer",
+        "prompt": "在一个未展示的新情境中说明向量的大小和方向，并检查结论。",
+        "answer_spec": {
+            "type": "exact",
+            "correct_answer": "大小和方向",
+            "criteria": ["说明大小", "说明方向", "检查结论"],
+            "pass_score": 70,
+        },
+        "practice_level": "remediation_validation",
+        "quality_status": "passed",
+    }, practice_level="remediation_validation")
+    course["learning_assets"]["validation_questions"] = [validation]
+
+    class NoQuestionBank:
+        @staticmethod
+        def load_bundle(_course_id):
+            return None
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "practice_attempt_repository", repository)
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    monkeypatch.setattr(practice_router, "question_bank_repository", NoQuestionBank())
+    monkeypatch.setattr(learning_events, "storage", event_storage)
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    created = client.post(
+        "/api/courses/c1/practice/attempts",
+        json={"task_revision_id": "qr1"},
+    ).json()["attempt"]
+    submitted = client.post(
+        f"/api/courses/c1/practice/attempts/{created['attempt_id']}/submit",
+        json={
+            "expected_revision": created["revision"],
+            "answer_payload": {"text": "大小和方向"},
+            "active_seconds": 10,
+            "request_id": "submit-solution-1",
+        },
+    ).json()["attempt"]
+    revealed = client.post(
+        f"/api/courses/c1/practice/attempts/{created['attempt_id']}/solution",
+        json={"expected_revision": submitted["revision"]},
+    )
+
+    assert revealed.status_code == 200
+    requirement = revealed.json()["validation_requirement"]
+    assert requirement["required"] is True
+    assert requirement["task_revision_id"] == "vqr1"
+    assert revealed.json()["attempt"]["solution_revealed"] is True
+
+    validation_attempt = client.post(
+        "/api/courses/c1/practice/attempts",
+        json={
+            "task_revision_id": "vqr1",
+            "practice_intent": "unseen_validation",
+            "origin_attempt_id": created["attempt_id"],
+            "resume": False,
+        },
+    )
+    assert validation_attempt.status_code == 200
+    assert validation_attempt.json()["attempt"]["practice_intent"] == "unseen_validation"
+    assert validation_attempt.json()["attempt"]["origin_attempt_id"] == created["attempt_id"]
+
+
+def test_manual_refresh_selects_an_unattempted_frozen_question(monkeypatch):
+    course = _course()
+    current = enrich_question_contract({
+        **deepcopy(course["learning_assets"]["questions"][0]),
+        "revision_id": "qr1",
+        "task_revision_id": "qr1",
+        "practice_level": "mastery_check",
+        "prompt": "当前题目",
+    }, practice_level="mastery_check")
+    alternate = enrich_question_contract({
+        **deepcopy(course["learning_assets"]["questions"][0]),
+        "asset_id": "q2",
+        "revision_id": "qr2",
+        "task_revision_id": "qr2",
+        "practice_level": "mastery_check",
+        "prompt": "同目标的另一道冻结题目",
+    }, practice_level="mastery_check")
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    monkeypatch.setattr(
+        practice_router,
+        "_questions",
+        lambda _course, *, node_id, scope: [deepcopy(current), deepcopy(alternate)],
+    )
+    monkeypatch.setattr(
+        practice_router.practice_attempt_repository,
+        "list",
+        lambda _user_id, _course_id: [{
+            "task_revision_id": "qr1",
+            "question_revision_id": "qr1",
+            "status": "abandoned",
+        }],
+    )
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    response = client.post(
+        "/api/courses/c1/practice/refresh",
+        json={
+            "current_task_revision_id": "qr1",
+            "node_id": "n1",
+            "scope": "node",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["question"]["task_revision_id"] == "qr2"
+    assert payload["question"]["prompt"] == "同目标的另一道冻结题目"
+    assert payload["selection_policy"] == "frozen_course_question"
+
+
+def test_manual_refresh_skips_a_duplicate_prompt(monkeypatch):
+    course = _course()
+    base = deepcopy(course["learning_assets"]["questions"][0])
+    current = enrich_question_contract({
+        **base,
+        "revision_id": "qr1",
+        "task_revision_id": "qr1",
+        "practice_level": "mastery_check",
+        "prompt": "同一道题",
+    }, practice_level="mastery_check")
+    duplicate = enrich_question_contract({
+        **base,
+        "asset_id": "q2",
+        "revision_id": "qr2",
+        "task_revision_id": "qr2",
+        "practice_level": "mastery_check",
+        "prompt": "  同一道题  ",
+    }, practice_level="mastery_check")
+    distinct = enrich_question_contract({
+        **base,
+        "asset_id": "q3",
+        "revision_id": "qr3",
+        "task_revision_id": "qr3",
+        "practice_level": "mastery_check",
+        "prompt": "真正不同的题目",
+    }, practice_level="mastery_check")
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    monkeypatch.setattr(
+        practice_router,
+        "_questions",
+        lambda _course, *, node_id, scope: [
+            deepcopy(current),
+            deepcopy(duplicate),
+            deepcopy(distinct),
+        ],
+    )
+    monkeypatch.setattr(
+        practice_router.practice_attempt_repository,
+        "list",
+        lambda _user_id, _course_id: [],
+    )
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    response = client.post(
+        "/api/courses/c1/practice/refresh",
+        json={
+            "current_task_revision_id": "qr1",
+            "node_id": "n1",
+            "scope": "node",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["question"]["task_revision_id"] == "qr3"

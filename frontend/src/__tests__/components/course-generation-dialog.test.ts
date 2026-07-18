@@ -1,9 +1,20 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CourseGenerationDialog from '@/components/CourseGenerationDialog.vue'
+import { setLocale } from '@/shared/i18n'
+import enMessages from '../../../public/locales/en/translation.json'
+import zhMessages from '../../../public/locales/zh/translation.json'
 
 describe('CourseGenerationDialog', () => {
-  it('将课程主题、难度、教学结构和生成方式作为同一份生成参数提交', async () => {
+  beforeEach(async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
+    })))
+    await setLocale('zh')
+  })
+
+  it('默认走六步确认流程，不提供直接生成入口', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: {
@@ -16,9 +27,11 @@ describe('CourseGenerationDialog', () => {
 
     await wrapper.get('#course-subject').setValue('线性代数基础')
     await wrapper.findAll('.difficulty-option')[2]!.trigger('click')
-    await wrapper.findAll('.style-option')[2]!.trigger('click')
+    await wrapper.findAll('.composition-option')[2]!.trigger('click')
     await wrapper.findAll('.compact-grid select')[0]!.setValue('math_formal')
-    await wrapper.findAll('.segmented-options--two button')[1]!.trigger('click')
+    await wrapper.find('[data-testid="web-question-enrichment"]').setValue(true)
+    expect(wrapper.text()).toContain('分六步完成课程')
+    expect(wrapper.text()).not.toContain('直接生成')
     await wrapper.get('#course-requirements').setValue('保留完整推导，并提供独立练习')
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
     await flushPromises()
@@ -29,11 +42,12 @@ describe('CourseGenerationDialog', () => {
       options: expect.objectContaining({
         request_id: expect.any(String),
         difficulty: 'advanced',
-        style: 'socratic',
+        composition_style: 'example_driven',
         pedagogy_mode: 'math_formal',
-        generation_mode: 'fast',
+        generation_mode: 'review_blueprint',
         requirements: '保留完整推导，并提供独立练习',
         material_bindings: [],
+        web_question_enrichment: { enabled: true },
       }),
     })
   })
@@ -73,7 +87,7 @@ describe('CourseGenerationDialog', () => {
     expect(reopenedId).not.toBe(changedId)
   })
 
-  it('保持纵向难度、四种教学风格和第二层课程策略', () => {
+  it('保持纵向难度、五种课程编排偏好和第二层课程策略', () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: {
@@ -85,10 +99,34 @@ describe('CourseGenerationDialog', () => {
     })
 
     expect(wrapper.findAll('.difficulty-options .difficulty-option')).toHaveLength(3)
-    expect(wrapper.findAll('.style-options .style-option')).toHaveLength(4)
+    expect(wrapper.findAll('.composition-options .composition-option')).toHaveLength(5)
     expect(wrapper.findAll('.strategy-settings .select-input')).toHaveLength(3)
+    expect(wrapper.find('[data-testid="web-question-enrichment"]').exists()).toBe(true)
     expect(wrapper.find('.difficulty-option.active').text()).toContain('进阶')
-    expect(wrapper.find('.style-option.active').text()).toContain('学术严谨')
+    expect(wrapper.find('.composition-option.active').text()).toContain('智能均衡')
+    expect(wrapper.text()).toContain('更多典型案例与真实场景块')
+  })
+
+  it('英文模式完整解释五种课程编排偏好，不泄漏中文或翻译键', async () => {
+    await setLocale('en')
+    const wrapper = mount(CourseGenerationDialog, {
+      props: { modelValue: true },
+      global: {
+        stubs: {
+          Teleport: true,
+          MaterialInputPanel: { template: '<div class="material-stub" />' },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Course composition preference')
+    expect(wrapper.text()).toContain('Balanced')
+    expect(wrapper.text()).toContain('Theory-driven')
+    expect(wrapper.text()).toContain('Case practice')
+    expect(wrapper.text()).toContain('Project-driven')
+    expect(wrapper.text()).toContain('Inquiry-driven')
+    expect(wrapper.text()).not.toContain('courseGeneration.')
+    expect(wrapper.text()).not.toContain('课程编排偏好')
   })
 
   it('生成过程中禁止关闭和重复提交', async () => {

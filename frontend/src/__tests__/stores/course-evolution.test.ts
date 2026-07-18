@@ -61,6 +61,23 @@ describe('course evolution store', () => {
     expect(store.plans[0]?.write_target).toBe('course_document')
   })
 
+  it('submits only the operation ids included in a multi-node review', async () => {
+    httpMock.get.mockResolvedValue({ data: payload() })
+    httpMock.post.mockResolvedValue({ data: payload('applied') })
+    const store = useCourseEvolutionStore()
+    await store.load('course-1')
+
+    await store.accept('plan-1', 'current', ['operation-1', 'operation-3'])
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/evolution/change-sets/plan-1/accept',
+      {
+        selected_scope: 'current',
+        selected_operation_ids: ['operation-1', 'operation-3'],
+      },
+    )
+  })
+
   it('requests a reviewable replacement after an ineffective adaptation', async () => {
     httpMock.get.mockResolvedValue({ data: payload('applied') })
     httpMock.post.mockResolvedValue({ data: payload() })
@@ -73,5 +90,52 @@ describe('course evolution store', () => {
       '/api/courses/course-1/evolution/change-sets/plan-1/adjust',
     )
     expect(store.pendingPlans).toHaveLength(1)
+  })
+
+  it('generates a section plan through the same canonical evolution store', async () => {
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.createSectionPlan('section-1', '强化理论推导与实战讲解')
+
+    expect(httpMock.post).toHaveBeenCalledTimes(1)
+    expect(httpMock.post.mock.calls[0]?.[0]).toBe(
+      '/api/courses/course-1/evolution/sections/section-1/plans',
+    )
+    expect(httpMock.post.mock.calls[0]?.[1]).toMatchObject({
+      instruction: '强化理论推导与实战讲解',
+      scope_selection: 'current_section',
+    })
+    expect(store.pendingPlans).toHaveLength(1)
+  })
+
+  it('sends the user-selected whole-course boundary beside the natural-language request', async () => {
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.createSectionPlan(
+      'section-1',
+      '以后所有例子都讲得详细一点',
+      'whole_course',
+    )
+
+    expect(httpMock.post.mock.calls[0]?.[1]).toMatchObject({
+      instruction: '以后所有例子都讲得详细一点',
+      scope_selection: 'whole_course',
+    })
+  })
+
+  it('turns an evidence suggestion into candidates through the same plan endpoint', async () => {
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.generateSuggested('plan-1')
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/evolution/change-sets/plan-1/generate',
+    )
   })
 })

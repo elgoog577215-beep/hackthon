@@ -112,6 +112,11 @@ def test_assets_have_stable_revisions_and_five_passing_gates():
 
     assert question["question_type"] == "implementation_task"
     assert question["revision_id"].startswith("qr_")
+    assert question["assessment_intent_revision_id"].startswith("air_")
+    assert question["assessment_intent"]["target_knowledge"]
+    assert question["assessment_intent"]["target_skills"]
+    assert question["assessment_intent"]["observable_actions"]
+    assert question["assessment_intent"]["answer_invariants"]
     assert criterion["assessment_bindings"] == [question["revision_id"]]
     assert misconception["assessment_bindings"] == [question["revision_id"]]
     assert len(bundle["quality_report"]["gates"]) == 5
@@ -188,7 +193,7 @@ def test_legacy_linear_algebra_outline_is_degraded_without_borrowing_subject_ide
     question = bundle["assets"]["questions"][0]
 
     assert bundle["quality_report"]["passed"] is False
-    assert course_map["coverage"]["status"] == "mapped"
+    assert course_map["coverage"]["status"] == "partial"
     assert knowledge_view["identity_scope"] == "course_local"
     assert knowledge_view["lifecycle_status"] == "degraded"
     assert not any(
@@ -214,6 +219,24 @@ def test_quality_gate_rejects_missing_required_questions():
     report = evaluate_learning_asset_quality(course, bundle["plan"], bundle["assets"])
     assert report["passed"] is False
     assert any(item["asset_type"] == "questions" for item in report["blocking_issues"])
+
+
+def test_quality_gate_blocks_unanalyzed_question_when_analysis_is_required():
+    course = _course()
+    bundle = compile_learning_assets(course)
+    course["question_analysis_required"] = True
+
+    report = evaluate_learning_asset_quality(
+        course,
+        bundle["plan"],
+        bundle["assets"],
+    )
+
+    assert report["passed"] is False
+    assert any(
+        "独立解析" in item["message"]
+        for item in report["blocking_issues"]
+    )
 
 
 def test_quality_gate_rejects_missing_persisted_content_and_progression_contract():
@@ -243,7 +266,8 @@ def test_material_organization_explicitly_declares_reading_only():
 def test_questions_compile_formal_practice_contracts():
     assets = compile_learning_assets(_course())["assets"]
     questions = assets["questions"]
-    final = assets["final_assessment"][0]
+    finals = assets["final_assessment"]
+    final = finals[0]
     assert [item["practice_level"] for item in questions] == ["concept_check", "objective_practice", "mastery_check"]
     assert questions[0]["question_type"] == "short_answer"
     assert questions[0]["input_contract"]["mode"] == "rich_text"
@@ -254,14 +278,104 @@ def test_questions_compile_formal_practice_contracts():
     assert questions[0]["answer_spec"]["criteria"] != questions[2]["answer_spec"]["criteria"]
     assert all(marker in " ".join(questions[1]["answer_spec"]["criteria"]) for marker in ("依据", "过程", "检查"))
     assert final["practice_level"] == "final_assessment"
+    assert 3 <= len(finals) <= 8
+    assert all(item["review_status"] == "needs_review" for item in finals)
+    assert all(item["quality_report"]["passed"] is True for item in finals)
+    assert all(item["deliverable"] and item["input_materials"] and item["constraints"] for item in finals)
+    assert any(item["assessment_role"] == "cross_chapter_transfer" for item in finals)
     assert len(assets["diagnostic_templates"]) == 1
     assert len(assets["remediation_units"]) == 1
     assert len(assets["validation_questions"]) == 2
-    assert all(item["quality_status"] == "passed" for item in assets["validation_questions"])
+    assert all(
+        item["quality_status"] == item["quality_report"]["status"]
+        for item in [*assets["diagnostic_templates"], *assets["validation_questions"]]
+    )
     assert all(item["validation_policy"]["mastery_eligible"] is True for item in assets["validation_questions"])
+    assert all(
+        [hint["evidence_effect"] for hint in item["hint_contract"]["levels"]]
+        == ["limited_mastery", "not_independent", "not_mastery"]
+        for item in [*questions, *finals]
+    )
 
 
-def test_mastery_prompt_exposes_every_scored_assessment_item():
+def test_all_generated_learning_tasks_preserve_valid_subject_contracts():
+    assets = compile_learning_assets(_course())["assets"]
+    generated_tasks = [
+        *assets["questions"],
+        *assets["diagnostic_templates"],
+        *(unit["guided_task"] for unit in assets["remediation_units"]),
+        *assets["validation_questions"],
+    ]
+
+    assert {
+        task["question_spec"]["schema_version"]
+        for task in generated_tasks
+    } == {"question_spec_v1", "question_spec_v2"}
+    assert all(
+        task["domain_validation"]["passed"]
+        for task in generated_tasks
+    )
+    assert all(
+        (
+            task["question_spec"].get("adapter_id")
+            or (
+                task["question_spec"].get("validation_plugin")
+                or {}
+            ).get("adapter_id")
+            or ""
+        ).startswith("programming.")
+        for task in generated_tasks
+    )
+    assert all(task["input_materials"] and task["result_checks"] for task in generated_tasks)
+    validation_stimuli = {
+        task["question_spec"]["stimulus"]["rendered_text"]
+        for task in assets["validation_questions"]
+    }
+    shown_stimuli = {
+        task["question_spec"]["stimulus"]["rendered_text"]
+        for task in assets["questions"]
+    }
+    assert len(validation_stimuli) == 2
+    assert validation_stimuli.isdisjoint(shown_stimuli)
+
+
+def test_compilation_uses_the_reviewed_question_bank_revision_as_source_of_truth():
+    course = _course()
+    initial = compile_learning_assets(course)
+    bank = initial["question_bank_bundle"]
+    practice_item = next(
+        item
+        for item in bank["items"]
+        if item["assessment_role"] == "practice"
+        and item["practice_levels"] == ["concept_check"]
+    )
+    reviewed_prompt = (
+        "输入材料：散列表容量为 11，键序列为 18、29、40。"
+        "任务：写出除留余数法得到的三个地址，并说明为何发生冲突。"
+        "限制条件：逐项列出取模过程，并检查所有地址是否位于 0 至 10。"
+    )
+    practice_item["prompt"] = reviewed_prompt
+    practice_item["formal_task"]["prompt"] = reviewed_prompt
+
+    rebuilt = compile_learning_assets(
+        course,
+        question_bank_bundle=bank,
+    )
+
+    question = next(
+        item
+        for item in rebuilt["assets"]["questions"]
+        if item["node_id"] == practice_item["node_id"]
+        and item["practice_level"] == "concept_check"
+    )
+    assert question["prompt"] == reviewed_prompt
+    assert (
+        question["question_bank_item_revision_id"]
+        == practice_item["revision_id"]
+    )
+
+
+def test_mastery_keeps_scoring_contract_internal_and_prompt_concise():
     course = _course()
     course["nodes"][0]["assessment"] = [
         "提交可运行程序并说明输出",
@@ -275,10 +389,15 @@ def test_mastery_prompt_exposes_every_scored_assessment_item():
         if item["practice_level"] == "mastery_check"
     )
 
-    assert all(item in mastery["prompt"] for item in course["nodes"][0]["assessment"])
+    assert mastery["question_spec"]["target"]["assessment_actions"] == (
+        course["nodes"][0]["assessment"]
+    )
+    assert mastery["answer_spec"]["criteria"]
+    assert "评分检查点" not in mastery["prompt"]
+    assert "限制条件：" not in mastery["prompt"]
 
 
-def test_quality_gate_rejects_hidden_mastery_rubric_requirements():
+def test_quality_gate_accepts_internal_mastery_rubric_for_a_concrete_prompt():
     course = _course()
     course["nodes"][0]["assessment"] = [
         "提交可运行程序并说明输出",
@@ -289,15 +408,14 @@ def test_quality_gate_rejects_hidden_mastery_rubric_requirements():
         item for item in bundle["assets"]["questions"]
         if item["practice_level"] == "mastery_check"
     )
-    mastery["prompt"] = "请提交可运行程序并说明输出。"
+    mastery["prompt"] = (
+        "运行给定代码，写出两行标准输出和 print 的返回值，"
+        "并说明输出副作用与返回值的区别。"
+    )
 
     report = evaluate_learning_asset_quality(course, bundle["plan"], bundle["assets"])
 
-    assert report["passed"] is False
-    assert any(
-        item["asset_type"] == "questions" and "隐藏评分要求" in item["message"]
-        for item in report["blocking_issues"]
-    )
+    assert report["passed"] is True
 
 
 def test_asset_repository_keeps_immutable_bundle_revisions(tmp_path):

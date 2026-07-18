@@ -32,7 +32,7 @@ describe('LearningTaskOverlay navigation', () => {
     expect(overlay.find('.task-overlay__close').exists()).toBe(true)
   })
 
-  it('进入练习后在覆盖层顶栏切换学习记录和学习概况', async () => {
+  it('进入练习后仍在同一顶栏切换大纲、教案、课程和练习', async () => {
     const wrapper = mount(LearningTaskOverlay, {
       props: {
         courseId: 'course-1',
@@ -48,14 +48,16 @@ describe('LearningTaskOverlay navigation', () => {
       },
     })
 
-    const tabs = wrapper.findAll('.task-overlay > .learning-context-tabs [role="tab"]')
-    expect(tabs.map(tab => tab.text())).toEqual(['当前练习', '学习记录2', '学习概况'])
-    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
+    const tabs = wrapper.findAll('.task-overlay > .course-workspace-tabs [role="tab"]')
+    expect(tabs.map(tab => tab.text())).toEqual(['大纲', '教案', '课程', '练习'])
+    expect(tabs[3]!.attributes('aria-selected')).toBe('true')
 
+    await tabs[0]!.trigger('click')
     await tabs[1]!.trigger('click')
     await tabs[2]!.trigger('click')
 
-    expect(wrapper.emitted('records')).toHaveLength(1)
-    expect(wrapper.emitted('stats')).toHaveLength(1)
+    expect(wrapper.emitted('outline')).toHaveLength(1)
+    expect(wrapper.emitted('lesson-plan')).toHaveLength(1)
+    expect(wrapper.emitted('course')).toHaveLength(1)
   })
 })

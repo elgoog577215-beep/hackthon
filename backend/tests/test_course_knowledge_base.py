@@ -136,6 +136,64 @@ def test_course_knowledge_base_keeps_local_hierarchy_without_formal_subject_pack
     assert validate_course_knowledge_base(knowledge_base, course_data=course)["passed"] is True
 
 
+def test_course_knowledge_base_compiles_relation_endpoints_from_stable_ids():
+    course = _course()
+    points = course["nodes"][0]["knowledge_structure"][0][
+        "knowledge_points"
+    ]
+    points[0].pop("relations", None)
+    points[0].pop("entry_reason", None)
+    registry = compile_course_knowledge_base(course)
+    point_by_name = {
+        item["name"]: item for item in registry["knowledge_points"]
+    }
+    source_id = point_by_name["容量耗尽判定"]["knowledge_id"]
+    target_id = point_by_name["动态数组扩容"]["knowledge_id"]
+    course["knowledge_relation_schema_version"] = (
+        "course_relation_plan_v1"
+    )
+    course["knowledge_relation_decisions"] = [{
+        "knowledge_id": source_id,
+        "decision": "course_entry",
+        "reason": "这是动态容量管理的课程入口",
+    }, {
+        "knowledge_id": target_id,
+        "decision": "connected",
+        "reason": "需要先判断容量是否耗尽",
+    }]
+    course["knowledge_relations"] = [{
+        "source_knowledge_id": source_id,
+        "target_knowledge_id": target_id,
+        "relation_type": "prerequisite",
+        "reason": "必须先识别容量耗尽，才能确定何时执行扩容",
+    }]
+
+    knowledge_base = compile_course_knowledge_base(course)
+
+    assert knowledge_base["relations"][0][
+        "source_knowledge_id"
+    ] == source_id
+    assert knowledge_base["relations"][0][
+        "target_knowledge_id"
+    ] == target_id
+    assert knowledge_base["generation_audit"][
+        "unresolved_relation_candidates"
+    ] == []
+    assert {
+        item["knowledge_id"]: item["decision"]
+        for item in knowledge_base["relation_decisions"]
+    } == {
+        source_id: "course_entry",
+        target_id: "connected",
+    }
+    entry = next(
+        item
+        for item in knowledge_base["knowledge_points"]
+        if item["knowledge_id"] == source_id
+    )
+    assert entry["entry_reason"] == "这是动态容量管理的课程入口"
+
+
 def test_course_knowledge_contract_drives_prompt_and_asset_references():
     course = _course()
     bundle = compile_learning_assets(course)
@@ -207,15 +265,20 @@ def test_legacy_asset_bundle_gets_current_course_knowledge_projection():
     assert not any("课程局部知识待归一" in item["message"] for item in quality["issues"])
 
 
-def test_course_knowledge_validator_rejects_missing_capability_parent():
+def test_course_knowledge_validator_reports_missing_capability_without_blocking():
     course = _course()
     knowledge_base = compile_course_knowledge_base(course)
     knowledge_base["skill_units"] = []
 
     report = validate_course_knowledge_base(knowledge_base, course_data=course)
 
-    assert report["passed"] is False
-    assert any(item["gate"] == "standards" for item in report["issues"])
+    assert report["passed"] is True
+    assert report["strict_passed"] is False
+    assert any(
+        item["code"] == "point_missing_skill"
+        and item["severity"] == "major"
+        for item in report["issues"]
+    )
 
 
 def test_empty_knowledge_blueprint_reports_compact_actionable_issues():
@@ -266,8 +329,8 @@ def test_title_only_legacy_course_is_degraded_instead_of_fabricating_knowledge()
     assert knowledge_base["quality_report"]["strict_passed"] is False
     assert knowledge_base["generation_audit"]["title_fallback_used"] is False
     assert any(
-        item["code"] in {"point_missing_statement", "point_mirrors_section"}
-        for item in knowledge_base["quality_report"]["issues"]
+        item["code"] in {"knowledge_blueprint_missing", "missing_section_bindings"}
+        for item in knowledge_base["quality_report"]["blocking_issues"]
     )
 
 
@@ -281,10 +344,13 @@ def test_relation_whitelist_rejects_ambiguous_related_edge():
 
     knowledge_base = compile_course_knowledge_base(course)
 
-    assert knowledge_base["lifecycle_status"] == "degraded"
+    assert knowledge_base["lifecycle_status"] == "active"
+    assert knowledge_base["quality_report"]["passed"] is True
+    assert knowledge_base["quality_report"]["strict_passed"] is False
     assert knowledge_base["generation_audit"]["invalid_relation_candidates"]
     assert any(
         item["code"] == "invalid_relation_candidates"
+        and item["severity"] == "major"
         for item in knowledge_base["quality_report"]["issues"]
     )
 

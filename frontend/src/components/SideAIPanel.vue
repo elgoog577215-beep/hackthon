@@ -113,6 +113,7 @@
       <CourseEvolutionPanel
         v-if="!props.blockTarget && courseStore.currentCourseId"
         :course-id="courseStore.currentCourseId"
+        :section-id="currentNode?.node_id"
       />
 
       <section

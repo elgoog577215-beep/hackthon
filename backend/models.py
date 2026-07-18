@@ -1,6 +1,6 @@
 
 from typing import Any, List, Optional, Literal, Dict
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 import uuid
 import sys
@@ -9,7 +9,7 @@ from pathlib import Path
 # 添加项目根目录到系统路径以导入共享配置
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-from shared.prompt_config import DifficultyLevel, TeachingStyle
+from shared.prompt_config import CourseCompositionStyle, DifficultyLevel, TeachingStyle
 
 # === 课程相关 ===
 class ContentBlock(BaseModel):
@@ -69,6 +69,13 @@ class CourseMaterialInput(BaseModel):
     content: Optional[str] = Field(default="", max_length=80000)
 
 
+class CourseMaterialQuestionSourceMetadata(BaseModel):
+    year: Optional[int] = Field(default=None, ge=1900, le=2200)
+    term: Optional[str] = Field(default="", max_length=100)
+    exam_type: Optional[str] = Field(default="", max_length=100)
+    source_url: Optional[str] = Field(default="", max_length=2000)
+
+
 class CourseMaterialBindingInput(BaseModel):
     """V3 课程资料绑定；文件内容由独立资料资产保存。"""
 
@@ -77,8 +84,17 @@ class CourseMaterialBindingInput(BaseModel):
     priority: Literal["core", "supporting", "weak"] = "core"
     authority: Literal["primary", "secondary", "context_only"] = "primary"
     usage_policy: Literal["must_use", "prefer", "optional", "style_only"] = "prefer"
+    reuse_policy: Literal["verbatim_allowed", "reference_only", "original_generation"] = "verbatim_allowed"
+    rights_basis: Literal["teacher_asserted", "open_license", "license_unknown", "platform_owned"] = "teacher_asserted"
+    source_metadata: CourseMaterialQuestionSourceMetadata = Field(
+        default_factory=CourseMaterialQuestionSourceMetadata
+    )
     user_description: Optional[str] = Field(default="", max_length=2000)
     source_label: Optional[str] = Field(default="", max_length=200)
+
+
+class WebQuestionEnrichmentInput(BaseModel):
+    enabled: bool = False
 
 
 class CourseGenerationRequest(BaseModel):
@@ -86,7 +102,8 @@ class CourseGenerationRequest(BaseModel):
     subject: str = Field(..., min_length=1, max_length=200)
     target_audience: Optional[str] = Field(default="大学生", max_length=500)
     difficulty: Optional[DifficultyLevel] = "intermediate"
-    style: Optional[TeachingStyle] = "academic"
+    composition_style: Optional[CourseCompositionStyle] = None
+    style: Optional[TeachingStyle] = None
     requirements: Optional[str] = Field(default="", max_length=5000)
     materials: List[CourseMaterialInput] = Field(default_factory=list, max_length=30)
     material_bindings: List[CourseMaterialBindingInput] = Field(default_factory=list, max_length=30)
@@ -125,7 +142,7 @@ class CourseGenerationRequest(BaseModel):
     secondary_intensity: Optional[
         Literal["light", "collaborative", "dual_core"]
     ] = None
-    generation_mode: Literal["fast", "review_blueprint"] = "fast"
+    generation_mode: Literal["fast", "review_blueprint"] = "review_blueprint"
     course_purpose: Literal[
         "systematic",
         "exam_sprint",
@@ -133,6 +150,19 @@ class CourseGenerationRequest(BaseModel):
         "personalized_remedial",
     ] = "systematic"
     asset_preferences: Dict[str, bool] = Field(default_factory=dict)
+    web_question_enrichment: WebQuestionEnrichmentInput = Field(
+        default_factory=WebQuestionEnrichmentInput
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_new_composition_style(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if "composition_style" not in normalized and not normalized.get("style"):
+            normalized["composition_style"] = CourseCompositionStyle.BALANCED.value
+        return normalized
 
     @field_validator("subject", mode="before")
     @classmethod

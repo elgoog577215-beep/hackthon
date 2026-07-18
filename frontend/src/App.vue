@@ -2,11 +2,7 @@
   <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute }">
     <header v-if="!isPptRoute" class="app-header glass-panel-elevated">
       <button class="brand-button" type="button" :aria-label="t('app.backToLibrary', '返回课程库')" @click="router.push('/courses')">
-        <span class="brand-mark"><GraduationCap :size="21" /></span>
-        <span class="brand-copy">
-          <strong>{{ t('app.brand', '灵知') }}</strong>
-          <small>{{ t('app.product', 'KnowledgeMap') }}</small>
-        </span>
+        <img class="brand-logo" :src="qizhiLogoUrl" alt="" />
       </button>
 
       <div v-if="isLearningRoute" class="header-actions">
@@ -87,7 +83,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Download, GraduationCap, Presentation, Scan, Search, Settings2, X } from 'lucide-vue-next'
+import { Download, Presentation, Scan, Search, Settings2, X } from 'lucide-vue-next'
+import qizhiLogoUrl from './assets/qizhi-logo.svg'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import { useCourseStore } from './stores/course'
 import { t } from './shared/i18n'
@@ -179,31 +176,21 @@ function updateFontSize(event: Event) {
   transition: transform .2s ease, background .2s ease;
 }
 .brand-button:hover { transform: translateY(-1px); }
-.brand-button:hover .brand-mark { transform: scale(1.05) rotate(-4deg); box-shadow:0 9px 20px rgba(99,102,241,.3),inset 0 1px 0 rgba(255,255,255,.32); }
-.brand-button:hover .brand-copy strong { color:#4f46e5; }
+.brand-button:hover .brand-logo { transform: scale(1.025); filter: drop-shadow(0 6px 10px rgba(0,16,129,.16)); }
 
-.brand-mark {
-  width: 40px;
+.brand-logo {
+  width: 87px;
   height: 40px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255,255,255,.35);
-  border-radius: 13px;
-  color: #fff;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #a855f7 100%);
-  box-shadow: 0 7px 16px rgba(99, 102, 241, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  transition: transform .25s ease, box-shadow .25s ease;
+  display: block;
+  object-fit: contain;
+  transition: transform .2s ease, filter .2s ease;
 }
 
-.brand-copy,
 .course-context-copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
-
-.brand-copy strong { font-size:17px; line-height:1.05; color:#312e81; transition:color .2s ease; }
-.brand-copy small { margin-top:3px; font-size:9px; color:#94a3b8; font-weight:600; }
 
 .header-actions { position:relative; display:flex; align-items:center; justify-content:flex-end; gap:5px; padding-left:13px; }
 .header-actions::before { content:""; position:absolute; left:0; width:1px; height:26px; background:linear-gradient(180deg,transparent,#dbe3ef,transparent); }
@@ -254,7 +241,7 @@ function updateFontSize(event: Event) {
 
 @media (max-width: 900px) {
   .app-header { grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 0 10px; }
-  .brand-copy small, .header-search { display: none; }
+  .header-search { display: none; }
 }
 
 @media (max-width: 600px) {
@@ -262,7 +249,7 @@ function updateFontSize(event: Event) {
   .app-header { border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
   .app-main { border-radius: 0; }
   .app-header { grid-template-columns: auto minmax(0, 1fr); }
-  .brand-copy { display: none; }
+  .brand-logo { width: 78px; height: 36px; }
   .header-actions .header-icon-button:nth-of-type(1),
   .header-actions :deep(.el-popover__reference-wrapper),
   .header-actions :deep(.el-dropdown) { display: none; }

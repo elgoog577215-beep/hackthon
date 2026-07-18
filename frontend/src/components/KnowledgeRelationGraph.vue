@@ -19,7 +19,7 @@
       </span>
     </header>
 
-    <div v-if="validRelations.length" class="knowledge-relation-graph__body">
+    <div v-if="graphNodes.length" class="knowledge-relation-graph__body">
       <div class="knowledge-relation-graph__canvas">
         <div class="knowledge-relation-graph__viewport">
           <svg
@@ -165,15 +165,11 @@ const validRelations = computed(() => props.relations.filter(relation => (
   && nodeById.value.has(relation.target_knowledge_id)
 )))
 
-const relationNodeIds = computed(() => new Set(
-  validRelations.value.flatMap(relation => [
-    relation.source_knowledge_id,
-    relation.target_knowledge_id,
-  ]),
-))
-
 const graphNodes = computed(() => props.nodes
-  .filter(node => relationNodeIds.value.has(node.knowledge_id))
+  .filter(node => (
+    node.node_type === 'knowledge_point'
+    && node.status !== 'retired'
+  ))
   .sort((left, right) => (
     left.depth - right.depth
     || left.sort_order - right.sort_order

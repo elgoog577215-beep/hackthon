@@ -30,23 +30,36 @@ const isPublishedTask = (task: Task, backendTask?: Record<string, any>) => (
   task.status === 'completed'
   || (task.status === 'completed_with_warnings' && backendTask?.publication_allowed !== false)
 )
-const PHASE_LABELS: Record<string, string> = {
-  queued: 'courseGeneration.phases.queued',
-  requirement_analysis: 'courseGeneration.phases.requirement_analysis',
-  material_processing: 'courseGeneration.phases.material_processing',
-  pedagogy_resolution: 'courseGeneration.phases.pedagogy_resolution',
-  blueprint_generation: 'courseGeneration.phases.blueprint_generation',
-  blueprint_validation: 'courseGeneration.phases.blueprint_validation',
-  blueprint_ready: 'courseGeneration.phases.blueprint_ready',
-  content_generation: 'courseGeneration.phases.content_generation',
-  learning_assets: 'courseGeneration.phases.learning_assets',
-  content_validation: 'courseGeneration.phases.content_validation',
-  finalizing: 'courseGeneration.phases.finalizing',
-  completed: 'courseGeneration.phases.completed',
+const ACTIVE_BACKEND_TASK_STATUSES = new Set([
+  'pending',
+  'running',
+  'paused',
+  'waiting_for_review',
+])
+const backendTaskTimestamp = (task: Record<string, any>) => (
+  Date.parse(String(task.updated_at || task.created_at || '')) || 0
+)
+const currentBackendTasksByCourse = (tasks: Record<string, any>[]) => {
+  const selected = new Map<string, Record<string, any>>()
+  for (const task of tasks) {
+    const courseId = String(task?.course_id || '')
+    if (!courseId) continue
+    const current = selected.get(courseId)
+    if (!current) {
+      selected.set(courseId, task)
+      continue
+    }
+    const taskIsActive = ACTIVE_BACKEND_TASK_STATUSES.has(String(task.status || ''))
+    const currentIsActive = ACTIVE_BACKEND_TASK_STATUSES.has(String(current.status || ''))
+    if (
+      (taskIsActive && !currentIsActive)
+      || (taskIsActive === currentIsActive && backendTaskTimestamp(task) > backendTaskTimestamp(current))
+    ) {
+      selected.set(courseId, task)
+    }
+  }
+  return [...selected.values()]
 }
-
-const phaseLabel = (phase: string): string => t(PHASE_LABELS[phase] || '', phase)
-
 const mergeStreamDelta = (existing: string, delta: string): string => {
   if (!delta || existing.endsWith(delta)) return existing
   const maxOverlap = Math.min(existing.length, delta.length)
@@ -203,6 +216,8 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSMessage(message: WSMessage) {
+      const currentTask = this.tasks.get(message.course_id)
+      if (currentTask?.id && message.task_id && currentTask.id !== message.task_id) return
       switch (message.type) {
         case 'progress_update':
           this.handleWSProgressUpdate(message)
@@ -234,6 +249,7 @@ export const useGenerationStore = defineStore('generation', {
     handleWSProgressUpdate(message: WSMessage) {
       const { course_id, task_id, payload } = message
       const localTask = this.tasks.get(course_id)
+      if (localTask?.id && task_id && localTask.id !== task_id) return
       if (localTask) {
         const status = (payload.status as string) || localTask.status
         if (status === 'running') localTask.status = 'running'
@@ -249,7 +265,7 @@ export const useGenerationStore = defineStore('generation', {
         if (task_id) localTask.id = task_id
         const phase = String(payload.current_phase || payload.phase || '')
         if (phase) {
-          localTask.currentPhase = phaseLabel(phase)
+          localTask.currentPhase = phase
           localTask.phaseProgress = (payload.phase_progress as number) ?? localTask.progress
           localTask.phaseDetail = (payload.phase_detail as Record<string, unknown>) || {}
         }
@@ -269,6 +285,9 @@ export const useGenerationStore = defineStore('generation', {
           localTask.publicationAllowed = payload.publication_allowed
         }
         if (payload.quality_status) localTask.qualityStatus = String(payload.quality_status)
+        if (payload.guided_workflow) {
+          localTask.guidedWorkflow = payload.guided_workflow as Task['guidedWorkflow']
+        }
       }
       this.taskProgress[course_id] = projectTaskProgress(this.taskProgress[course_id], {
         percentage: (payload.progress as number) ?? 0,
@@ -288,7 +307,9 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSNodeCompleted(message: WSMessage) {
-      const { course_id, payload } = message
+      const { course_id, task_id, payload } = message
+      const localTask = this.tasks.get(course_id)
+      if (localTask?.id && task_id && localTask.id !== task_id) return
       const cs = this._courseStore()
       if (course_id === cs.currentCourseId && payload.node_id) {
         const nodeId = payload.node_id as string
@@ -317,7 +338,9 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSNodeFinalized(message: WSMessage) {
-      const { course_id, payload } = message
+      const { course_id, task_id, payload } = message
+      const localTask = this.tasks.get(course_id)
+      if (localTask?.id && task_id && localTask.id !== task_id) return
       const cs = this._courseStore()
       if (course_id !== cs.currentCourseId || !payload.node_id) return
 
@@ -332,7 +355,9 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSStreamChunk(message: WSMessage) {
-      const { course_id, payload } = message
+      const { course_id, task_id, payload } = message
+      const localTask = this.tasks.get(course_id)
+      if (localTask?.id && task_id && localTask.id !== task_id) return
       const nodeId = payload.node_id as string
       const chunk = payload.chunk as string
       if (!nodeId || !chunk) return
@@ -368,8 +393,9 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     handleWSTaskError(message: WSMessage) {
-      const { course_id, payload } = message
+      const { course_id, task_id, payload } = message
       const localTask = this.tasks.get(course_id)
+      if (localTask?.id && task_id && localTask.id !== task_id) return
       if (localTask) {
         if (payload.node_id) {
           const cs = this._courseStore()
@@ -387,12 +413,15 @@ export const useGenerationStore = defineStore('generation', {
           this.addLogToTask(course_id, `❌ 节点生成失败: ${payload.node_name || payload.node_id} - ${payload.error || 'Unknown error'}`)
         } else {
           localTask.status = 'error'
+          localTask.error = String(payload.error || 'Unknown error')
           this.addLogToTask(course_id, `❌ 任务错误: ${payload.error || 'Unknown error'}`)
         }
       }
     },
 
     handleWSFailureReport(message: WSMessage) {
+      const currentTask = this.tasks.get(message.course_id)
+      if (currentTask?.id && message.task_id && currentTask.id !== message.task_id) return
       const { payload } = message
       this.failureReport = {
         task_id: message.task_id,
@@ -547,10 +576,11 @@ export const useGenerationStore = defineStore('generation', {
     createTask(taskId: string, courseId: string, courseName: string, options: CourseGenerationOptions = {}): Task {
       const task: Task = {
         id: taskId, courseId, courseName, status: 'pending', progress: 0, currentStep: '等待调度',
-        currentPhase: phaseLabel('queued'), phaseProgress: 0,
+        currentPhase: 'queued', phaseProgress: 0,
         phaseDetail: {},
         logs: [], shouldStop: false,
         difficulty: options.difficulty,
+        compositionStyle: options.composition_style,
         style: options.style,
         requirements: options.requirements,
       }
@@ -560,7 +590,8 @@ export const useGenerationStore = defineStore('generation', {
 
     getTask(courseId: string) { return this.tasks.get(courseId) },
 
-    async ensureJobId(courseId: string) {
+    async ensureJobId(courseId: string, requestedTaskId?: string) {
+      if (requestedTaskId) return requestedTaskId
       let task = this.tasks.get(courseId)
       if (task?.id) return task.id
       const res = await http.get(`/api/courses/${courseId}/task`)
@@ -577,44 +608,55 @@ export const useGenerationStore = defineStore('generation', {
       return task.id
     },
 
-    async pauseTask(courseId: string) {
+    async pauseTask(courseId: string, requestedTaskId?: string) {
       const task = this.tasks.get(courseId)
       try {
-        const taskId = await this.ensureJobId(courseId)
-        if (taskId) await http.post(`/api/tasks/${taskId}/pause`)
+        const taskId = await this.ensureJobId(courseId, requestedTaskId)
+        if (!taskId) throw new Error('backend_task_not_found')
+        await http.post(`/api/tasks/${taskId}/pause`)
+        const backendTask = this.globalTasks.find(item => String(item?.id || '') === taskId)
+        if (backendTask) backendTask.status = 'paused'
+        const current = this.tasks.get(courseId) || task
+        if (current?.id === taskId) {
+          current.status = 'paused'
+          current.shouldStop = true
+          this.addLogToTask(courseId, '⏸️ 任务已暂停')
+        }
+        this.persistGenerationState()
       } catch (e) {
         console.error('Failed to pause task', e)
         ElMessage.error('暂停任务失败')
         throw e
       }
-      const current = this.tasks.get(courseId) || task
-      if (!current) return
-      current.status = 'paused'
-      current.shouldStop = true
-      this.addLogToTask(courseId, '⏸️ 任务已暂停')
-      this.persistGenerationState()
     },
 
-    async resumeTask(courseId: string) {
+    async resumeTask(courseId: string, requestedTaskId?: string) {
       try {
-        const taskId = await this.ensureJobId(courseId)
-        if (taskId) {
-          const response = await http.post(`/api/tasks/${taskId}/resume`)
-          const current = this.tasks.get(courseId)
-          if (current) {
-            const backendTask = response.data?.task || {}
-            current.status = backendTask.status === 'running' ? 'running' : 'pending'
-            current.progress = backendTask.progress ?? current.progress
-            current.currentStep = backendTask.message || current.currentStep
-            current.recovery = backendTask.recovery || current.recovery
-            current.shouldStop = false
-            this.addLogToTask(courseId, t('courseTasks.recovery.resumedLog', '已从保存点继续'))
-            this.persistGenerationState()
-          }
-          if (this.wsConnected) useTaskWebSocket().subscribe(courseId)
-          else this.startGlobalMonitor()
-          return
+        const taskId = await this.ensureJobId(courseId, requestedTaskId)
+        if (!taskId) throw new Error('backend_task_not_found')
+        const response = await http.post(`/api/tasks/${taskId}/resume`)
+        const backendTask = response.data?.task || {}
+        let current = this.tasks.get(courseId)
+        if (!current || current.id !== taskId) {
+          current = this.createTask(
+            taskId,
+            courseId,
+            backendTask.course_name
+              || this.globalTasks.find(item => String(item?.id || '') === taskId)?.course_name
+              || '后台生成任务',
+          )
         }
+        current.status = backendTask.status === 'running' ? 'running' : 'pending'
+        current.progress = backendTask.progress ?? current.progress
+        current.currentStep = backendTask.message || current.currentStep
+        current.recovery = backendTask.recovery || current.recovery
+        current.shouldStop = false
+        const listed = this.globalTasks.find(item => String(item?.id || '') === taskId)
+        if (listed) Object.assign(listed, backendTask)
+        this.addLogToTask(courseId, t('courseTasks.recovery.resumedLog', '已从保存点继续'))
+        this.persistGenerationState()
+        if (this.wsConnected) useTaskWebSocket().subscribe(courseId)
+        else this.startGlobalMonitor()
       } catch (e) {
         console.error('Failed to resume task', e)
         ElMessage.error('继续任务失败')
@@ -628,27 +670,33 @@ export const useGenerationStore = defineStore('generation', {
       else if (task?.status === 'pending' || task?.status === 'running') return
     },
 
-    async cancelTask(courseId: string) {
-      const task = this.tasks.get(courseId)
-      if (task) {
-        try {
-          const taskId = await this.ensureJobId(courseId)
-          if (taskId) await http.delete(`/api/tasks/${taskId}`)
-        } catch (e: any) {
-          if (e?.response?.status !== 404) {
-            console.error('Failed to cancel task', e)
-            ElMessage.error('取消任务失败')
-            throw e
-          }
+    async deleteTask(courseId: string, requestedTaskId?: string) {
+      let taskId: string | null = null
+      try {
+        taskId = await this.ensureJobId(courseId, requestedTaskId)
+        if (!taskId) throw new Error('backend_task_not_found')
+        await http.delete(`/api/tasks/${taskId}`)
+      } catch (e: any) {
+        if (e?.response?.status !== 404) {
+          console.error('Failed to delete task', e)
+          ElMessage.error(t('courseTasks.deleteFailed', '删除任务失败'))
+          throw e
         }
-        this.dropLocalTaskState(courseId)
-        this.persistGenerationState()
-        await this._courseStore().fetchCourseList()
       }
+      this.globalTasks = this.globalTasks.filter(task => String(task?.id || '') !== taskId)
+      this.dropLocalTaskState(courseId, taskId || undefined)
+      this.persistGenerationState()
+      await this._courseStore().fetchCourseList()
     },
 
-    dropLocalTaskState(courseId: string) {
+    async cancelTask(courseId: string) {
+      await this.deleteTask(courseId)
+    },
+
+    dropLocalTaskState(courseId: string, expectedTaskId?: string) {
       const cs = this._courseStore()
+      const current = this.tasks.get(courseId)
+      if (expectedTaskId && current?.id !== expectedTaskId) return
       this.tasks.delete(courseId)
       delete this.taskProgress[courseId]
       if (cs.currentCourseId !== courseId) return
@@ -711,10 +759,12 @@ export const useGenerationStore = defineStore('generation', {
           id: task.id, courseId: task.courseId, courseName: task.courseName, status: task.status,
           progress: task.progress, currentStep: task.currentStep,
           currentPhase: task.currentPhase, phaseProgress: task.phaseProgress, phaseDetail: task.phaseDetail,
-          difficulty: task.difficulty, style: task.style, requirements: task.requirements,
+          difficulty: task.difficulty, compositionStyle: task.compositionStyle,
+          style: task.style, requirements: task.requirements,
           recovery: task.recovery,
           publicationAllowed: task.publicationAllowed,
           qualityStatus: task.qualityStatus,
+          guidedWorkflow: task.guidedWorkflow,
           shouldStop: false,
         }))
         const cs = this._courseStore()
@@ -759,7 +809,7 @@ export const useGenerationStore = defineStore('generation', {
         this.globalTasks = [...listedTasks, ...recoveredTasks]
         const publishedCourseIds = new Set<string>()
         const discoveredCourseIds = new Set<string>()
-        this.globalTasks.forEach((backendTask: any) => {
+        currentBackendTasksByCourse(this.globalTasks).forEach((backendTask: any) => {
           const courseId = backendTask.course_id
           let localTask = this.tasks.get(courseId)
           if (!localTask && ['pending', 'running', 'paused', 'error', 'failed', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(backendTask.status)) {
@@ -779,13 +829,17 @@ export const useGenerationStore = defineStore('generation', {
             localTask.progress = backendTask.progress
             localTask.id = backendTask.id
             localTask.recovery = backendTask.recovery || undefined
+            localTask.error = backendTask.error ? String(backendTask.error) : undefined
             if (typeof backendTask.publication_allowed === 'boolean') {
               localTask.publicationAllowed = backendTask.publication_allowed
             }
             if (backendTask.quality_status) localTask.qualityStatus = String(backendTask.quality_status)
+            if (backendTask.guided_workflow) {
+              localTask.guidedWorkflow = backendTask.guided_workflow
+            }
             const phase = backendTask.current_phase || backendTask.phase
             if (phase) {
-              localTask.currentPhase = phaseLabel(phase)
+              localTask.currentPhase = String(phase)
               localTask.phaseProgress = backendTask.phase_progress ?? backendTask.progress
               localTask.phaseDetail = backendTask.phase_detail || {}
             }
@@ -845,7 +899,7 @@ export const useGenerationStore = defineStore('generation', {
     startGlobalMonitor() {
       if (this.globalPollingTimer) return
       this.fetchGlobalTasks()
-      this.globalPollingTimer = window.setInterval(() => { this.fetchGlobalTasks() }, 2000)
+      this.globalPollingTimer = window.setInterval(() => { this.fetchGlobalTasks() }, 5000)
     },
 
     stopGlobalMonitor() {
@@ -915,7 +969,7 @@ export const useGenerationStore = defineStore('generation', {
           const courseName = res.data.course_name || subject
           const task = this.createTask(jobId, courseId, courseName, options)
           task.status = res.data.status || 'pending'
-          task.currentPhase = phaseLabel(res.data.phase || 'queued')
+          task.currentPhase = String(res.data.phase || 'queued')
           cs.currentCourseId = courseId
           cs.currentPedagogyProfile = null
           cs.currentGenerationQualityReport = null

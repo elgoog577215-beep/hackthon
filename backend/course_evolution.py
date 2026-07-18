@@ -7,15 +7,15 @@ write versioned ``CourseDocument`` revisions through canonical domain commands.
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
-from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
 import os
-from pathlib import Path
 import re
 import threading
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -25,8 +25,8 @@ from course_document import CourseBlock, CourseDocument, stable_hash
 from course_knowledge_base import compile_course_knowledge_base, knowledge_binding_for_section
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 from course_revisions import revision_vector_for_document
-from learning_events import load_learning_events
 from learning_asset_storage import learning_asset_repository
+from learning_events import load_learning_events
 from learning_records import learning_record_repository
 from practice_attempts import practice_attempt_repository
 
@@ -94,6 +94,9 @@ class CourseEvolutionOperation(BaseModel):
         "ADD_CHECKPOINT",
         "ADD_TARGETED_PRACTICE",
         "ADD_ANIMATION",
+        "REPLACE_COURSE_BLOCK",
+        "INSERT_COURSE_BLOCK",
+        "ADJUST_COURSE_DIFFICULTY",
     ]
     target_block_id: str
     target_section_id: str = ""
@@ -130,12 +133,21 @@ class CourseEvolutionPlan(BaseModel):
     user_id: str
     course_id: str
     hypothesis_id: str
+    source_kind: Literal["learning_evidence", "manual_section_request"] = "learning_evidence"
+    target_section_id: str = ""
+    request_text: str = ""
+    growth_direction: Literal["remediation", "challenge", "author_directed"] = "remediation"
+    generation_status: Literal["suggested", "generating", "ready", "failed", "stale"] = "ready"
+    requested_roles: list[str] = Field(default_factory=list)
     replaces_change_set_id: str = ""
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
     evidence_ids: list[str] = Field(default_factory=list)
     operations: list[CourseEvolutionOperation] = Field(default_factory=list)
+    scope_selection: Literal["current_section", "whole_course"] = "current_section"
     allowed_scopes: list[Literal["current", "current_and_next"]] = Field(default_factory=list)
     selected_scope: Literal["current", "current_and_next"] | None = None
+    selected_operation_ids: list[str] = Field(default_factory=list)
+    excluded_operation_ids: list[str] = Field(default_factory=list)
     impact_summary: dict[str, Any] = Field(default_factory=dict)
     expected_effect: str
     status: ChangeSetStatus = "pending"
@@ -269,6 +281,9 @@ def synchronize_and_evaluate_course_evolution(
         knowledge_base=knowledge_base,
         learning_assets=learning_assets if isinstance(learning_assets, dict) else {},
     )
+    from section_evolution import ensure_challenge_suggestions
+
+    ensure_challenge_suggestions(state, document)
     _evaluate_applied_effects(state, user_id=user_id)
     return repository.save(state)
 
@@ -279,6 +294,7 @@ def accept_change_set(
     user_id: str,
     change_set_id: str,
     selected_scope: Literal["current", "current_and_next"],
+    selected_operation_ids: list[str] | None = None,
     repository: CourseEvolutionRepository | None = None,
     document_repository: CourseDocumentRepository | None = None,
 ) -> CourseEvolutionState:
@@ -292,12 +308,54 @@ def accept_change_set(
         raise ValueError("Course must be migrated before course growth can be applied")
     state = repository.load(user_id, course_id)
     change_set = _change_set(state, change_set_id)
-    if change_set.status == "applied" and change_set.selected_scope == selected_scope:
-        return state
+    if change_set.status == "applied":
+        same_selection = (
+            selected_operation_ids is None
+            or set(selected_operation_ids) == set(change_set.selected_operation_ids)
+        )
+        if change_set.selected_scope == selected_scope and same_selection:
+            return state
+        raise ValueError("Course change set has already been applied with another review selection")
     if change_set.status != "pending":
         raise ValueError(f"Course change set cannot be accepted from {change_set.status}")
+    if change_set.generation_status != "ready":
+        raise ValueError("Course change set has not finished generating")
     if selected_scope not in change_set.allowed_scopes:
         raise ValueError("Selected scope is not allowed for this change set")
+
+    eligible_operations = [
+        operation
+        for operation in change_set.operations
+        if operation.operation_type != "ADJUST_COURSE_DIFFICULTY"
+        and (selected_scope == "current_and_next" or operation.scope == "current")
+    ]
+    eligible_operation_ids = [operation.operation_id for operation in eligible_operations]
+    if selected_operation_ids is None:
+        accepted_operation_ids = eligible_operation_ids
+    else:
+        requested_operation_ids = list(dict.fromkeys(selected_operation_ids))
+        unknown_operation_ids = sorted(
+            set(requested_operation_ids) - set(eligible_operation_ids)
+        )
+        if unknown_operation_ids:
+            raise ValueError(
+                "Selected course evolution operations are unavailable: "
+                + ", ".join(unknown_operation_ids)
+            )
+        accepted_operation_ids = [
+            operation_id
+            for operation_id in eligible_operation_ids
+            if operation_id in requested_operation_ids
+        ]
+    if not accepted_operation_ids:
+        raise ValueError("Select at least one course evolution operation")
+    accepted_operation_id_set = set(accepted_operation_ids)
+    excluded_operation_ids = [
+        operation_id
+        for operation_id in eligible_operation_ids
+        if operation_id not in accepted_operation_id_set
+    ]
+
     current_vector = revision_vector_for_document(document).revisions
     for key, revision in change_set.base_revision_vector.items():
         if key in current_vector and current_vector[key] != revision:
@@ -314,10 +372,11 @@ def accept_change_set(
             raise ValueError("Replaced course evolution plan is no longer active")
         retire_block_ids = list(replaced.applied_block_ids)
 
-    insertions = _course_block_insertions(
+    replacements, insertions = _course_block_mutations(
         change_set,
         document,
         selected_scope=selected_scope,
+        selected_operation_ids=accepted_operation_id_set,
     )
     command_id = f"course-evolution-apply:{user_id}:{change_set.change_set_id}"
     try:
@@ -326,6 +385,7 @@ def accept_change_set(
             command_id=command_id,
             expected_document_revision=document.document_revision,
             insertions=insertions,
+            replacements=replacements,
             retire_block_ids=retire_block_ids,
             reason=f"学习证据驱动课程生长：{change_set.hypothesis_id}",
             actor=f"learner:{user_id}",
@@ -337,17 +397,33 @@ def accept_change_set(
         raise ValueError(str(exc)) from exc
 
     change_set.selected_scope = selected_scope
+    change_set.selected_operation_ids = accepted_operation_ids
+    change_set.excluded_operation_ids = excluded_operation_ids
     change_set.status = "applied"
     change_set.plan_kind = "course_evolution_plan"
     change_set.write_target = "course_document"
     change_set.accepted_at = _now()
     change_set.resolved_at = change_set.accepted_at
     change_set.updated_at = change_set.accepted_at
-    change_set.applied_block_ids = [
-        item["block"].block_id
-        for item in insertions
-    ]
-    change_set.application_receipt = deepcopy(receipt)
+    inserted_block_ids = [item["block"].block_id for item in insertions]
+    replaced_block_ids = [str(item["block_id"]) for item in replacements]
+    change_set.applied_block_ids = [*replaced_block_ids, *inserted_block_ids]
+    change_set.application_receipt = {
+        **deepcopy(receipt),
+        "inserted_block_ids": inserted_block_ids,
+        "replaced_block_ids": replaced_block_ids,
+        "accepted_operation_ids": accepted_operation_ids,
+        "excluded_operation_ids": excluded_operation_ids,
+        "replacement_journal": [
+            {
+                "block_id": operation.target_block_id,
+                "before_block": deepcopy(operation.payload.get("before_block") or {}),
+            }
+            for operation in change_set.operations
+            if operation.operation_type == "REPLACE_COURSE_BLOCK"
+            and operation.operation_id in accepted_operation_id_set
+        ],
+    }
     hypothesis = _hypothesis(state, change_set.hypothesis_id)
     baseline_evidence = [
         item for item in state.evidence_items
@@ -361,7 +437,7 @@ def accept_change_set(
         "target_block_ids": [
             operation.target_block_id
             for operation in change_set.operations
-            if selected_scope == "current_and_next" or operation.scope == "current"
+            if operation.operation_id in accepted_operation_id_set
         ],
         "evidence_ids": list(change_set.evidence_ids),
         "practice_attempt_ids": [
@@ -478,6 +554,7 @@ def create_adjustment_plan(
         ),
         evidence_ids=list(source.evidence_ids),
         operations=operations,
+        scope_selection=source.scope_selection,
         allowed_scopes=list(source.allowed_scopes),
         impact_summary={
             **deepcopy(source.impact_summary),
@@ -540,13 +617,47 @@ def undo_change_set(
         if not canonical:
             raise ValueError("Course must be migrated before course growth can be undone")
         command_id = f"course-evolution-undo:{user_id}:{change_set.change_set_id}"
+        blocks_by_id = {block.block_id: block for block in document.blocks}
+        replacement_journal = list(
+            change_set.application_receipt.get("replacement_journal") or []
+        )
+        replacements: list[dict[str, Any]] = []
+        for item in replacement_journal:
+            block_id = str(item.get("block_id") or "")
+            current = blocks_by_id.get(block_id)
+            before_block = item.get("before_block") or {}
+            before_payload = before_block.get("payload") if isinstance(before_block, dict) else None
+            if current is None or not isinstance(before_payload, dict):
+                raise ValueError("Course block needed for undo is unavailable")
+            replacements.append({
+                "block_id": block_id,
+                "expected_block_revision": current.internal_revision,
+                "payload": deepcopy(before_payload),
+                "asset_refs": list(before_block.get("asset_refs") or []),
+                "objective_refs": list(before_block.get("objective_refs") or []),
+                "concept_refs": list(before_block.get("concept_refs") or []),
+                "evidence_refs": list(before_block.get("evidence_refs") or []),
+                "visibility_rule": deepcopy(before_block.get("visibility_rule") or {}),
+            })
+        inserted_block_ids = list(
+            change_set.application_receipt.get("inserted_block_ids")
+            or [
+                block_id
+                for block_id in change_set.applied_block_ids
+                if block_id not in {
+                    str(item.get("block_id") or "")
+                    for item in replacement_journal
+                }
+            ]
+        )
         try:
             receipt = asyncio.run(CourseCommandService(document_repository).apply_block_operation_group(
                 course_id,
                 command_id=command_id,
                 expected_document_revision=document.document_revision,
                 insertions=[],
-                retire_block_ids=change_set.applied_block_ids,
+                replacements=replacements,
+                retire_block_ids=inserted_block_ids,
                 reason=f"撤销学习证据驱动课程生长：{change_set.hypothesis_id}",
                 actor=f"learner:{user_id}",
             ))
@@ -1464,17 +1575,13 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
         engaged = correct_composition_answer or generic_animation_engagement
         passed = any((item.get("result") or {}).get("passed") is True for item in later_attempts)
         failed = sum((item.get("result") or {}).get("passed") is False for item in later_attempts)
-        if (helpful or engaged) and passed:
-            status = "effective"
-        elif unhelpful and failed >= 2:
-            status = "harmful"
-        elif unhelpful or failed >= 2:
-            status = "ineffective"
-        else:
-            status = "insufficient_evidence"
         passed_attempts = [
             item for item in later_attempts
             if (item.get("result") or {}).get("passed") is True
+        ]
+        failed_attempts = [
+            item for item in later_attempts
+            if (item.get("result") or {}).get("passed") is False
         ]
         passed_task_ids = {
             str(
@@ -1489,6 +1596,44 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
                 or ""
             )
         }
+        failed_task_ids = {
+            str(
+                item.get("task_revision_id")
+                or item.get("question_revision_id")
+                or ""
+            )
+            for item in failed_attempts
+            if str(
+                item.get("task_revision_id")
+                or item.get("question_revision_id")
+                or ""
+            )
+        }
+        challenge_growth = change_set.growth_direction == "challenge"
+        repeated_challenge_failure = (
+            len(failed_task_ids) >= 2
+            or (not failed_task_ids and failed >= 2)
+        )
+        if challenge_growth:
+            # A challenge plan starts from an already-mastered base level.
+            # Passing an independent harder task is direct evidence for the
+            # growth plan and does not require an earlier UI interaction.
+            # Harder-task failures only calibrate the new challenge; they must
+            # never erase the learner's established base-level mastery.
+            if passed:
+                status = "effective"
+            elif repeated_challenge_failure:
+                status = "ineffective"
+            else:
+                status = "insufficient_evidence"
+        elif (helpful or engaged) and passed:
+            status = "effective"
+        elif unhelpful and failed >= 2:
+            status = "harmful"
+        elif unhelpful or failed >= 2:
+            status = "ineffective"
+        else:
+            status = "insufficient_evidence"
         verification_level = (
             "confirmed"
             if status == "effective" and len(passed_task_ids) >= 2
@@ -1510,15 +1655,55 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
         follow_up_score = _attempt_score(follow_up_best)
         score_delta = (
             round(follow_up_score - baseline_score, 1)
-            if baseline_score is not None and follow_up_score is not None
+            if (
+                not challenge_growth
+                and baseline_score is not None
+                and follow_up_score is not None
+            )
             else None
         )
+        if challenge_growth:
+            interpretation = (
+                "一项更高挑战已独立通过，旧难度掌握继续保留；还需要不同任务持续确认。"
+                if verification_level == "initial_support"
+                else "多个不同的更高挑战持续通过，挑战升级获得稳定证据支持。"
+                if verification_level == "confirmed"
+                else (
+                    "旧难度掌握继续保留；更高挑战连续未通过，说明本次挑战跨度或支架需要调整，"
+                    "不能据此倒推出原知识点未掌握。"
+                )
+                if status == "ineffective"
+                else "旧难度掌握继续保留；目前还没有足够的新难度独立复验证据。"
+            )
+        else:
+            interpretation = (
+                "本轮独立复验通过，原判断获得新证据支持；仍需后续不同任务持续确认。"
+                if verification_level == "initial_support"
+                else "多个不同正式任务持续通过，当前课程变化获得稳定证据支持。"
+                if verification_level == "confirmed"
+                else "证据尚不足以判断课程变化的效果。"
+            )
         change_set.effect_evaluation = {
             "status": status,
             "verification_level": verification_level,
+            "growth_direction": change_set.growth_direction,
             "feedback_event_ids": [item.get("event_id") for item in feedback],
             "interaction_event_ids": [item.get("event_id") for item in interactions],
             "attempt_ids": [item.get("attempt_id") for item in later_attempts],
+            "mastery_transition": (
+                {
+                    "base_difficulty": "mastered_preserved",
+                    "higher_challenge": (
+                        "validated"
+                        if status == "effective"
+                        else "needs_adjustment"
+                        if status == "ineffective"
+                        else "awaiting_validation"
+                    ),
+                }
+                if challenge_growth
+                else {}
+            ),
             "verification_summary": {
                 "baseline": {
                     "attempt_count": len(baseline_attempts),
@@ -1545,15 +1730,11 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
                     ),
                     "distinct_task_count": len(passed_task_ids),
                     "task_ids": sorted(passed_task_ids),
+                    "failed_distinct_task_count": len(failed_task_ids),
+                    "failed_task_ids": sorted(failed_task_ids),
                 },
                 "score_delta": score_delta,
-                "interpretation": (
-                    "本轮独立复验通过，原判断获得新证据支持；仍需后续不同任务持续确认。"
-                    if verification_level == "initial_support"
-                    else "多个不同正式任务持续通过，当前课程变化获得稳定证据支持。"
-                    if verification_level == "confirmed"
-                    else "证据尚不足以判断课程变化的效果。"
-                ),
+                "interpretation": interpretation,
             },
             "recommended_action": (
                 "keep" if status == "effective"
@@ -1562,6 +1743,17 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
                 else "collect_more_evidence"
             ),
             "follow_up_candidate": (
+                {
+                    "candidate_type": "adjust_challenge_growth",
+                    "status": "available",
+                    "source_change_set_id": change_set.change_set_id,
+                    "reason": (
+                        "旧难度掌握保持不变；当前更高挑战连续未通过，"
+                        "建议缩小挑战跨度或增加必要支架后重新复验。"
+                    ),
+                }
+                if challenge_growth and status == "ineffective"
+                else
                 {
                     "candidate_type": "rollback_course_evolution",
                     "status": "pending_confirmation",
@@ -1995,6 +2187,7 @@ def _course_block_insertions(
     document: CourseDocument,
     *,
     selected_scope: Literal["current", "current_and_next"],
+    selected_operation_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     if change_set.course_id != document.course_id:
         raise ValueError("Course evolution plan belongs to another course")
@@ -2026,6 +2219,11 @@ def _course_block_insertions(
     insertions: list[dict[str, Any]] = []
     for operation in change_set.operations:
         if selected_scope == "current" and operation.scope == "next":
+            continue
+        if (
+            selected_operation_ids is not None
+            and operation.operation_id not in selected_operation_ids
+        ):
             continue
         target = blocks.get(operation.target_block_id)
         if target is None or target.status == "retired":
@@ -2085,6 +2283,95 @@ def _course_block_insertions(
     if not insertions:
         raise ValueError("Course evolution plan contains no operations in the selected scope")
     return insertions
+
+
+def _course_block_mutations(
+    change_set: CourseEvolutionPlan,
+    document: CourseDocument,
+    *,
+    selected_scope: Literal["current", "current_and_next"],
+    selected_operation_ids: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Compile reviewed section edits and legacy growth blocks into one commit."""
+    replacements: list[dict[str, Any]] = []
+    insertions: list[dict[str, Any]] = []
+    canonical_operations = {
+        "REPLACE_COURSE_BLOCK",
+        "INSERT_COURSE_BLOCK",
+        "ADJUST_COURSE_DIFFICULTY",
+    }
+    has_canonical_operations = any(
+        operation.operation_type in canonical_operations
+        for operation in change_set.operations
+    )
+    if not has_canonical_operations:
+        return replacements, _course_block_insertions(
+            change_set,
+            document,
+            selected_scope=selected_scope,
+            selected_operation_ids=selected_operation_ids,
+        )
+
+    if change_set.course_id != document.course_id:
+        raise ValueError("Course evolution plan belongs to another course")
+    blocks = {block.block_id: block for block in document.blocks}
+    section_ids = {section.section_id for section in document.sections}
+    for operation in change_set.operations:
+        if selected_scope == "current" and operation.scope == "next":
+            continue
+        if operation.operation_type == "ADJUST_COURSE_DIFFICULTY":
+            continue
+        if (
+            selected_operation_ids is not None
+            and operation.operation_id not in selected_operation_ids
+        ):
+            continue
+        proposed_raw = operation.payload.get("proposed_block")
+        if not isinstance(proposed_raw, dict):
+            raise ValueError("Course evolution candidate is incomplete")
+        proposed = CourseBlock.model_validate(proposed_raw)
+        if proposed.section_id not in section_ids:
+            raise ValueError("Course evolution candidate targets an unknown section")
+        if operation.target_section_id and proposed.section_id != operation.target_section_id:
+            raise ValueError("Course evolution candidate crossed its section boundary")
+        if operation.operation_type == "REPLACE_COURSE_BLOCK":
+            current = blocks.get(operation.target_block_id)
+            if current is None or current.status == "retired":
+                raise ValueError("Course evolution target block is unavailable")
+            if proposed.block_id != current.block_id or proposed.section_id != current.section_id:
+                raise ValueError("Course evolution replacement changed stable block identity")
+            replacements.append({
+                "block_id": current.block_id,
+                "expected_block_revision": str(
+                    operation.payload.get("expected_block_revision")
+                    or current.internal_revision
+                ),
+                "payload": deepcopy(proposed.payload),
+                "asset_refs": list(proposed.asset_refs),
+                "objective_refs": list(proposed.objective_refs),
+                "concept_refs": list(proposed.concept_refs),
+                "evidence_refs": list(proposed.evidence_refs),
+                "visibility_rule": deepcopy(proposed.visibility_rule),
+            })
+            continue
+        if operation.operation_type == "INSERT_COURSE_BLOCK":
+            anchor_id = str(
+                operation.payload.get("after_block_id")
+                or operation.target_block_id
+            )
+            anchor = blocks.get(anchor_id)
+            if anchor is None or anchor.status == "retired":
+                raise ValueError("Course evolution insertion anchor is unavailable")
+            if proposed.section_id != anchor.section_id:
+                raise ValueError("Course evolution insertion crossed its section boundary")
+            insertions.append({
+                "after_block_id": anchor_id,
+                "block": proposed,
+            })
+
+    if not replacements and not insertions:
+        raise ValueError("Course evolution plan contains no content mutations")
+    return replacements, insertions
 
 
 def _course_evolution_markdown(operation: CourseEvolutionOperation) -> str:

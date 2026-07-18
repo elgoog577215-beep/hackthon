@@ -87,6 +87,7 @@ class CourseCommandService:
         command_id: str,
         expected_document_revision: str,
         insertions: list[dict[str, Any]],
+        replacements: list[dict[str, Any]] | None = None,
         retire_block_ids: list[str] | None = None,
         reason: str = "",
         actor: str = "system",
@@ -102,6 +103,30 @@ class CourseCommandService:
 
         def mutation(document) -> None:
             blocks_by_id = {block.block_id: block for block in document.blocks}
+            replaced_ids: set[str] = set()
+            for item in replacements or []:
+                block_id = str(item.get("block_id") or "")
+                target = blocks_by_id.get(block_id)
+                if target is None or target.status == "retired":
+                    raise CourseDocumentConflict("Course block to replace not found")
+                expected_block_revision = str(item.get("expected_block_revision") or "")
+                if expected_block_revision and target.internal_revision != expected_block_revision:
+                    raise CourseDocumentConflict("Course block revision changed")
+                payload = item.get("payload")
+                if not isinstance(payload, dict):
+                    raise CourseDocumentConflict("Course block replacement payload is invalid")
+                target.payload = deepcopy(payload)
+                for field in (
+                    "asset_refs",
+                    "objective_refs",
+                    "concept_refs",
+                    "evidence_refs",
+                    "visibility_rule",
+                ):
+                    if field in item:
+                        setattr(target, field, deepcopy(item[field]))
+                replaced_ids.add(block_id)
+
             normalized_insertions: list[tuple[CourseBlock, str]] = []
             new_ids: set[str] = set()
             for item in insertions:
@@ -159,7 +184,7 @@ class CourseCommandService:
             if len(reordered) != len(document.blocks) + len(normalized_insertions):
                 raise CourseDocumentConflict("Grouped course change contains an unresolved insertion")
             document.blocks = reordered
-            operation["affected_block_ids"] = sorted(new_ids | retired_ids)
+            operation["affected_block_ids"] = sorted(new_ids | retired_ids | replaced_ids)
 
         return await self.repository.apply_command(
             course_id,

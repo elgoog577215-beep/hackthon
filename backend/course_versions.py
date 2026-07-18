@@ -81,6 +81,41 @@ class CourseVersionRepository:
     def current_version_id(self, course_id: str) -> str | None:
         return self._load_manifest(course_id).get("current_version_id")
 
+    def activate_version(self, course_id: str, version_id: str) -> dict[str, Any]:
+        """Atomically make an already persisted course version current."""
+        with self._lock(course_id):
+            self._validate_id(course_id)
+            self._validate_id(version_id)
+            manifest = self._load_manifest(course_id)
+            entry = next(
+                (
+                    item
+                    for item in manifest.get("versions") or []
+                    if item.get("version_id") == version_id
+                ),
+                None,
+            )
+            if not entry:
+                raise KeyError(f"Unknown course version: {version_id}")
+            for item in manifest.get("versions") or []:
+                item["status"] = (
+                    "current"
+                    if item.get("version_id") == version_id
+                    else "historical"
+                )
+            manifest["current_version_id"] = version_id
+            snapshot_path = (
+                self._course_dir(course_id)
+                / "versions"
+                / f"{version_id}.json"
+            )
+            snapshot = self._read_json(snapshot_path)
+            snapshot["current_course_version_id"] = version_id
+            snapshot["blueprint_revision_id"] = entry["blueprint_revision_id"]
+            self._atomic_write(snapshot_path, snapshot)
+            self._atomic_write(self._manifest_path(course_id), manifest)
+            return deepcopy(entry)
+
     def get_version_entry(self, course_id: str, version_id: str) -> dict[str, Any]:
         manifest = self._load_manifest(course_id)
         entry = next((item for item in manifest.get("versions") or [] if item.get("version_id") == version_id), None)

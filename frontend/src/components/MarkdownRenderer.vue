@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
+import { highlightRenderedMarkdownText } from '../utils/markdown-highlight'
 import logger from '../utils/logger'
 import { renderMermaidSvg } from '../utils/mermaid'
 import http from '../utils/http'
@@ -22,7 +23,6 @@ const throttleDelay = 150 // 150ms 节流，平衡流畅度和性能
 let isThrottled = false
 let hasPendingUpdate = false
 
-const escapeRegExp = (val: string) => val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const escapeHtml = (val: string) => val
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -163,11 +163,7 @@ const updateContent = () => {
 
     // Apply search highlighting
     if (props.searchWords && props.searchWords.length > 0) {
-        const tokens = Array.from(new Set(props.searchWords.map(t => escapeRegExp(t)).filter(Boolean)))
-        if (tokens.length > 0) {
-            const regex = new RegExp(`(${tokens.join('|')})`, 'gi')
-            html = html.replace(regex, '<span class="bg-yellow-200 text-slate-900 rounded px-0.5 box-decoration-clone">$1</span>')
-        }
+        html = highlightRenderedMarkdownText(html, props.searchWords)
     }
 
     renderedContent.value = html

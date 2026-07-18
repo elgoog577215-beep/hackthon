@@ -203,3 +203,59 @@ final result: passed
 - 本轮只接正式练习；错题本和知识图谱没有接入新的弹窗壳，也没有改为全屏或右侧抽屉。
 - 正文预览不新增答案框、完成度推断或本地练习状态；所有作答仍进入同一个正式 `PracticeAttempt`。
 - 弹窗内部不增加第二个 AI 对话，问老师继续调用已有全局 AI 协作入口。
+
+---
+
+# 2026-07-18 学习工具父子层级 Design QA
+
+final result: passed
+
+## Reference and implementation
+
+- Reference concept: `C:\Users\Lenovo\.codex\generated_images\019f75a5-d3f1-7ac1-8ffb-186183c11e21\call_hGVGrTlQ2epqUk3BfYD5mWbV.png`
+- Desktop implementation capture: `design-qa-learning-tools-implementation.png`
+- Same-input side-by-side comparison: `design-qa-learning-tools-comparison.png`
+- Mobile implementation capture: `design-qa-learning-tools-mobile.png`
+- Desktop viewport: 1487 × 1058
+- Mobile viewport: 390 × 844
+- Tested route: `/course/4215dc17-7c34-48ad-91c8-a1b780c0366d/learn/L2-1-1`
+- Compared state: “学习任务 · 3” expanded with its three child actions visible.
+
+## Visual comparison
+
+- The bottom dock keeps two explicit parent controls: “学习任务 · 3” and “课程资料 · 2”.
+- “智能助教” remains an independent peer action.
+- Expanding a parent opens a visually attached floating tray directly above its trigger.
+- The learning tray contains “当前练习 / 学习记录 / 学习概况”.
+- The resource tray contains “知识库 / 教学资源”.
+- Active state, upward chevron, tray pointer, icon treatment, spacing, borders, and shadow match the selected concept and the existing product visual language.
+- The implementation adapts the concept to the real application shell; its information architecture and parent-child grouping remain equivalent to the reference.
+
+## Responsive and accessibility checks
+
+- Desktop: tray is fully visible, aligned to its parent, and does not cover the trigger.
+- Mobile: the same hierarchy becomes a bottom sheet above the fixed three-part dock without horizontal overflow.
+- Parent buttons expose `aria-haspopup`, `aria-expanded`, and `aria-controls`.
+- Child actions use menu/menuitem semantics.
+- Escape closes the tray and restores focus to the originating parent control.
+- Clicking the other parent swaps trays without navigating.
+- Clicking outside closes the tray.
+- Unavailable practice remains visible and disabled with a reason/status.
+
+## Runtime verification
+
+- Browser console errors/warnings: none.
+- Full frontend tests: 59 files, 347 tests passed.
+- Production build: passed.
+- Vue TypeScript check: passed.
+- Focused security scan of changed frontend files: no secrets, debug logging, or unsafe HTML rendering found.
+- `npm audit` could not run because the configured `npmmirror.com` registry does not implement the npm audit endpoint; the registry configuration was left unchanged.
+
+## QA history
+
+1. Captured the selected concept and desktop implementation at the same 1487 × 1058 viewport/state.
+2. Compared both images side by side in one visual input.
+3. Verified learning and resource tray switching.
+4. Verified Escape dismissal and focus restoration.
+5. Verified the mobile bottom-sheet adaptation at 390 × 844.
+6. Re-ran the complete frontend test suite, production build, and TypeScript check.

@@ -15,13 +15,12 @@
     >
       <X :size="18" />
     </button>
-    <LearningContextTabs
-      domain="learning"
+    <CourseWorkspaceTabs
       active-item="practice"
-      :record-count="recordCount"
       :practice-available="true"
-      @records="emit('records')"
-      @stats="emit('stats')"
+      @outline="emit('outline')"
+      @lesson-plan="emit('lesson-plan')"
+      @course="emit('course')"
     />
     <PracticeWorkspace
       class="task-workspace"
@@ -37,7 +36,7 @@
 
 <script setup lang="ts">
 import { X } from 'lucide-vue-next'
-import LearningContextTabs from './LearningContextTabs.vue'
+import CourseWorkspaceTabs from './CourseWorkspaceTabs.vue'
 import PracticeWorkspace from './PracticeWorkspace.vue'
 import { t } from '../shared/i18n'
 
@@ -51,7 +50,7 @@ withDefaults(defineProps<{
   recordCount: 0,
 })
 const emit = defineEmits<{
-  (event: 'close' | 'graded' | 'records' | 'stats'): void
+  (event: 'close' | 'graded' | 'records' | 'stats' | 'outline' | 'lesson-plan' | 'course'): void
   (event: 'askTeacher', payload: { text: string; nodeId: string }): void
 }>()
 </script>
@@ -61,7 +60,7 @@ const emit = defineEmits<{
 .task-overlay__close { position:absolute; top:11px; right:12px; z-index:3; width:32px; height:32px; display:grid; place-items:center; padding:0; border:0; border-radius:6px; color:var(--lz-text-secondary); background:#fff; cursor:pointer; }
 .task-overlay__close:hover { color:var(--lz-text-strong); background:var(--lz-surface-muted); }
 .task-overlay__close:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
-.task-overlay :deep(.learning-context-tabs) { flex:0 0 auto; padding-right:52px; }
+.task-overlay :deep(.course-workspace-tabs) { min-height:50px; flex:0 0 auto; border:0; border-bottom:1px solid var(--lz-border); border-radius:0; padding:6px 52px 6px 12px; background:#fff; }
 .task-workspace { flex:1; min-width:0; min-height:0; }
 @media (max-width:767px) {
   .task-overlay { position:fixed; inset:56px 0 calc(52px + env(safe-area-inset-bottom,0px)); z-index:105; width:auto; height:auto; }

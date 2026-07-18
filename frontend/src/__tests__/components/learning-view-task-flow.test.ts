@@ -31,8 +31,16 @@ const ContentAreaStub = defineComponent({
 
 const TaskOverlayStub = defineComponent({
   props: ['courseId', 'nodeId', 'nodeLabel', 'originRect'],
-  emits: ['close', 'graded', 'askTeacher', 'records', 'stats'],
-  template: '<div class="task-overlay-stub" :data-origin-top="originRect?.top"><span>{{ nodeLabel }}</span><button class="task-records" @click="$emit(\'records\')">records</button><button class="task-stats" @click="$emit(\'stats\')">stats</button><button class="close-task" @click="$emit(\'close\')">close</button></div>',
+  emits: ['close', 'graded', 'askTeacher', 'records', 'stats', 'outline', 'lesson-plan', 'course'],
+  template: '<div class="task-overlay-stub" :data-node-id="nodeId" :data-origin-top="originRect?.top"><span>{{ nodeLabel }}</span><button class="task-records" @click="$emit(\'records\')">records</button><button class="task-stats" @click="$emit(\'stats\')">stats</button><button class="close-task" @click="$emit(\'close\')">close</button></div>',
+})
+
+const LearningStatsStub = defineComponent({
+  props: {
+    closable: Boolean,
+  },
+  emits: ['close'],
+  template: '<div class="learning-stats-stub" :data-closable="closable"><button class="close-stats" @click="$emit(\'close\')">close stats</button></div>',
 })
 
 describe('LearningView 正文任务覆盖层', () => {
@@ -67,6 +75,7 @@ describe('LearningView 正文任务覆盖层', () => {
     }
     vi.spyOn(workspace, 'loadAssets').mockResolvedValue(workspace.assets)
     vi.spyOn(workspace, 'migrateLegacyPracticeData').mockResolvedValue(undefined)
+    vi.spyOn(workspace, 'loadMistakeBook').mockResolvedValue({ attempts: [] } as any)
 
     const notes = useNoteStore()
     vi.spyOn(notes, 'loadCourseRecords').mockResolvedValue([])
@@ -92,7 +101,8 @@ describe('LearningView 正文任务覆盖层', () => {
           LearningTaskOverlay: TaskOverlayStub,
           CourseNavigator: true,
           LearningDock: true,
-          LearningStats: true,
+          LearningStats: LearningStatsStub,
+          MistakeNotebookPanel: { template: '<div class="mistake-notebook-stub">错题本</div>' },
           NotesPanel: true,
           SideAIPanel: true,
           Transition: false,
@@ -121,7 +131,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it('正文页只保留三个底部域，进入学习覆盖层后才显示二级入口', async () => {
+  it('正文页用顶栏切换大纲、教案、课程和练习，并从底栏直达知识库', async () => {
     const wrapper = mount(LearningView, {
       attachTo: document.body,
       global: {
@@ -130,7 +140,8 @@ describe('LearningView 正文任务覆盖层', () => {
           ContentArea: ContentAreaStub,
           LearningTaskOverlay: TaskOverlayStub,
           CourseNavigator: true,
-          LearningStats: true,
+          LearningStats: LearningStatsStub,
+          MistakeNotebookPanel: { template: '<div class="mistake-notebook-stub">错题本</div>' },
           NotesPanel: true,
           SideAIPanel: { template: '<aside class="ai-panel-stub">AI 老师</aside>' },
           TeachingRepresentationsOverlay: true,
@@ -140,25 +151,36 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['学习', '资源', '智能助教'])
-    expect(wrapper.find('.learning-main > .learning-context-tabs').exists()).toBe(false)
+    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['大纲', '教案', '课程', '练习'])
+    expect(wrapper.get('.learning-context-bar [data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '错题本', '学习概况', '知识库', '智能助教'])
 
-    await wrapper.get('[data-domain="learning"]').trigger('click')
+    await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
 
     await wrapper.get('.task-records').trigger('click')
-    expect(wrapper.find('.records-overlay').exists()).toBe(true)
-    expect(wrapper.get('.records-overlay').classes()).toContain('learning-tool-overlay')
-    expect(wrapper.findAll('.records-overlay .learning-context-tabs [role="tab"]').map(tab => tab.text())).toEqual(['当前练习', '学习记录', '学习概况'])
+    expect(wrapper.find('.notebook-overlay').exists()).toBe(true)
+    expect(wrapper.get('.notebook-overlay').classes()).toContain('learning-tool-overlay')
 
-    await wrapper.get('[data-domain="resources"]').trigger('click')
+    await wrapper.get('[data-domain="mistake-book"]').trigger('click')
+    expect(wrapper.find('.mistake-book-overlay').exists()).toBe(true)
+    expect(wrapper.find('.mistake-notebook-stub').exists()).toBe(true)
+
+    await wrapper.get('[data-domain="overview"]').trigger('click')
+    expect(wrapper.find('.stats-overlay').exists()).toBe(true)
+    expect(wrapper.get('.learning-stats-stub').attributes('data-closable')).toBe('true')
+    await wrapper.get('.close-stats').trigger('click')
+    expect(wrapper.find('.stats-overlay').exists()).toBe(false)
+
+    await wrapper.get('[data-domain="knowledge-library"]').trigger('click')
     const courseStore = useCourseStore()
     expect(courseStore.showKnowledgeLibrary).toBe(true)
 
     courseStore.showKnowledgeLibrary = false
-    courseStore.showTeachingResources = true
+    await wrapper.get('.learning-context-bar [data-workspace-item="outline"]').trigger('click')
     await flushPromises()
     expect(wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' }).props('visible')).toBe(true)
+    expect(wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' }).props('activeType')).toBe('outline')
 
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.find('.ai-panel-stub').exists()).toBe(true)
@@ -188,6 +210,112 @@ describe('LearningView 正文任务覆盖层', () => {
 
     expect(useCourseWorkspaceStore().requestedTaskRef?.task_revision_id).toBe('qr-targeted')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('旧课程没有可用题目时仍可从顶层当前练习进入重建界面', async () => {
+    const workspace = useCourseWorkspaceStore()
+    workspace.assets = {
+      course_id: 'c1',
+      plan: {},
+      quality_report: {},
+      course_availability: {
+        schema_version: 'course_learning_availability_v1',
+        mode: 'compatibility',
+        reason_code: 'legacy_reading_compatible',
+        capabilities: {
+          practice: {
+            status: 'degraded',
+            reason_code: 'legacy_reading_compatible',
+          },
+        },
+      },
+      assets: { questions: [] },
+    }
+
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          TeachingRepresentationsOverlay: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
+    expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
+    expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
+    expect(wrapper.get('.task-overlay-stub').text()).toContain(node.node_name)
+    wrapper.unmount()
+  })
+
+  it('当前三级节点没有直连题目时使用最近父级的练习范围', async () => {
+    const parentNode: Node = {
+      ...node,
+      node_id: 'section-1',
+      parent_node_id: 'chapter-1',
+      node_name: '1.6 线性无关性',
+      node_level: 2,
+    }
+    const childNode: Node = {
+      ...node,
+      node_id: 'section-1-6',
+      parent_node_id: parentNode.node_id,
+      node_name: '1.6.6 线性无关性与矩阵可逆性的关联',
+      node_level: 3,
+    }
+    const course = useCourseStore()
+    course.nodes = [parentNode, childNode]
+    course.courseTree = [parentNode, childNode]
+    course.currentNode = childNode
+    await (globalThis as any).__learningTestRouter.replace('/course/c1/learn/section-1-6')
+
+    const workspace = useCourseWorkspaceStore()
+    workspace.assets = {
+      course_id: 'c1',
+      plan: {},
+      quality_report: {},
+      course_availability: {
+        schema_version: 'course_learning_availability_v1',
+        mode: 'standard',
+        reason_code: 'ready',
+        capabilities: {},
+      },
+      assets: {
+        questions: [{ asset_id: 'q-parent', revision_id: 'qr-parent', node_id: parentNode.node_id }],
+      },
+    }
+
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          TeachingRepresentationsOverlay: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
+    expect(wrapper.get('.task-overlay-stub').attributes('data-node-id')).toBe(parentNode.node_id)
+    expect(wrapper.get('.task-overlay-stub').text()).toContain(parentNode.node_name)
     wrapper.unmount()
   })
 

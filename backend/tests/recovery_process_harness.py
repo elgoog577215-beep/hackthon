@@ -11,8 +11,10 @@ import time
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-if str(BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(BACKEND_DIR))
+PROJECT_ROOT = BACKEND_DIR.parent
+for import_root in (PROJECT_ROOT, BACKEND_DIR):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
 
 import task_manager as task_manager_module
 from course_repository import CourseDocumentRepository

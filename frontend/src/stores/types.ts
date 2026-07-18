@@ -309,6 +309,10 @@ export interface TaskRecoveryCheckpoint {
     draft_node_ids: string[]
     failed_node_ids: string[]
     interrupted_node_ids: string[]
+    requirements_ready?: boolean
+    outline_ready?: boolean
+    completed_knowledge_packages?: number
+    total_knowledge_packages?: number
     workspace_status?: string | null
     updated_at?: string | null
 }
@@ -319,6 +323,25 @@ export interface TaskRecovery {
     reason_code: string
     reason: string
     checkpoint: TaskRecoveryCheckpoint
+}
+
+export type GuidedGenerationStepKey = 'requirements' | 'outline' | 'knowledge' | 'teaching' | 'content' | 'release'
+
+export interface GuidedGenerationStep {
+    number: number
+    key: GuidedGenerationStepKey
+    status: 'locked' | 'pending' | 'in_progress' | 'waiting_for_confirmation' | 'confirmed' | 'needs_regeneration' | 'failed'
+    artifact_revision?: string | null
+    input_revisions?: Record<string, string>
+    confirmed_at?: string | null
+}
+
+export interface GuidedGenerationWorkflow {
+    schema_version: 'guided_course_generation_v1'
+    current_step: GuidedGenerationStepKey
+    review_step?: GuidedGenerationStepKey | null
+    steps: GuidedGenerationStep[]
+    updated_at?: string
 }
 
 export interface Task {
@@ -343,9 +366,12 @@ export interface Task {
     logs: string[]
     shouldStop: boolean
     difficulty?: string
+    compositionStyle?: string
     style?: string
     requirements?: string
+    error?: string
     recovery?: TaskRecovery
     publicationAllowed?: boolean
     qualityStatus?: string
+    guidedWorkflow?: GuidedGenerationWorkflow
 }

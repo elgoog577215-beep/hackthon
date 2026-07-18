@@ -6,16 +6,19 @@ import { describe, it, expect } from 'vitest'
 import {
   validateDifficulty,
   validateStyle,
+  validateCompositionStyle,
   validateNodeType,
   validateGenerateCourseParams,
   detectContentTypes,
   generateContextSuggestions,
   VALID_DIFFICULTY_LEVELS,
   VALID_TEACHING_STYLES,
+  VALID_COURSE_COMPOSITION_STYLES,
   VALID_NODE_TYPES,
   PARAMETER_RULES,
   DIFFICULTY_LEVELS,
   TEACHING_STYLES,
+  COURSE_COMPOSITION_STYLES,
   NODE_LEVELS,
   NODE_TYPES,
 } from '@/shared/prompt-config'
@@ -33,6 +36,11 @@ describe('常量定义', () => {
   it('教学风格常量与有效列表一致', () => {
     const values = Object.values(TEACHING_STYLES)
     expect(values).toEqual(VALID_TEACHING_STYLES)
+  })
+
+  it('课程编排偏好常量与有效列表一致', () => {
+    const values = Object.values(COURSE_COMPOSITION_STYLES)
+    expect(values).toEqual(VALID_COURSE_COMPOSITION_STYLES)
   })
 
   it('节点类型常量与有效列表一致', () => {
@@ -80,6 +88,16 @@ describe('validateStyle', () => {
   })
 })
 
+describe('validateCompositionStyle', () => {
+  it('接受五种课程编排偏好并拒绝旧文案风格', () => {
+    for (const style of VALID_COURSE_COMPOSITION_STYLES) {
+      expect(validateCompositionStyle(style)).toBe(true)
+    }
+    expect(validateCompositionStyle('academic')).toBe(false)
+    expect(validateCompositionStyle('casual')).toBe(false)
+  })
+})
+
 describe('validateNodeType', () => {
   it('接受有效节点类型', () => {
     expect(validateNodeType('original')).toBe(true)
@@ -112,7 +130,7 @@ describe('validateGenerateCourseParams', () => {
   const validParams = {
     subject: '机器学习',
     difficulty: 'intermediate' as const,
-    style: 'academic' as const,
+    composition_style: 'example_driven' as const,
   }
 
   it('有效参数返回 valid: true', () => {
@@ -132,9 +150,18 @@ describe('validateGenerateCourseParams', () => {
     expect(result.valid).toBe(false)
   })
 
-  it('无效 style 返回错误', () => {
-    const result = validateGenerateCourseParams({ ...validParams, style: 'casual' as any })
+  it('无效 composition_style 返回错误', () => {
+    const result = validateGenerateCourseParams({ ...validParams, composition_style: 'casual' as any })
     expect(result.valid).toBe(false)
+  })
+
+  it('旧 style 仍可作为历史参数通过兼容校验', () => {
+    const result = validateGenerateCourseParams({
+      subject: '机器学习',
+      difficulty: 'intermediate',
+      style: 'academic',
+    })
+    expect(result.valid).toBe(true)
   })
 
   it('空对象返回多个错误', () => {
