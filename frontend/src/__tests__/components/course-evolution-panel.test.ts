@@ -89,7 +89,7 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.find('.evolution-details-toggle').exists()).toBe(true)
   })
 
-  it('把范围明确的强自述突出显示，并默认选中本小节及后续', () => {
+  it('把范围明确且包含多处候选的强自述送入居中审阅', async () => {
     const strongEvidence = [{
       evidence_id: 'e-strong-scoped',
       source_type: 'learning_event',
@@ -133,15 +133,14 @@ describe('CourseEvolutionPanel', () => {
 
     const wrapper = mount(CourseEvolutionPanel, {
       props: { courseId: 'course-1', focusPlanId: 'plan-1' },
+      global: { stubs: { Teleport: true } },
     })
 
-    expect(wrapper.get('article').classes()).toContain('is-focus-plan')
-    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('已识别强学习证据')
-    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('2 个相关后续节点')
-    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('已会什么')
-    expect(wrapper.get('.evidence-maturity').text()).toContain('范围由学生明确指定')
-    expect(wrapper.find('.evolution-details').exists()).toBe(true)
-    expect(wrapper.findAll('.scope-control button')[1]!.classes()).toContain('active')
+    expect(wrapper.find('article').exists()).toBe(false)
+    expect(wrapper.get('.whole-course-scan-summary').text()).toContain('逐项查看、纳入或排除 2 个节点')
+    await wrapper.get('.whole-course-scan-summary').trigger('click')
+    expect(wrapper.findAll('.review-list > li')).toHaveLength(2)
+    expect(wrapper.get('.apply-selected').text()).toContain('应用所选 2 项')
   })
 
   it('一次独立复验通过只显示初步支持，不冒充持续确认', () => {
@@ -260,17 +259,16 @@ describe('CourseEvolutionPanel', () => {
 
     const wrapper = mount(CourseEvolutionPanel, {
       props: { courseId: 'course-1', sectionId: 's1' },
+      global: { stubs: { Teleport: true } },
     })
 
     expect(wrapper.findAll('.growth-steps li')).toHaveLength(6)
-    expect(wrapper.get('.evolution-diagnosis').text()).toContain('AI 场景理解')
-    expect(wrapper.get('.evolution-diagnosis').text()).toContain('升级理论推导并加入真实行业决策')
-    expect(wrapper.get('.source-requirement').text()).toContain('不会把模型记忆当成行业证据')
-    await wrapper.get('.evolution-details-toggle').trigger('click')
-    expect(wrapper.text()).toContain('升级')
-    expect(wrapper.text()).toContain('新增')
-    expect(wrapper.text()).toContain('结构化同源检查已通过')
-    expect(wrapper.text()).toContain('整体确认并更新课程')
+    expect(wrapper.get('.whole-course-scan-summary').text()).toContain('逐项查看、纳入或排除 2 个节点')
+    await wrapper.get('.whole-course-scan-summary').trigger('click')
+    expect(wrapper.get('.review-workbench').text()).toContain('课程调整审阅')
+    expect(wrapper.get('.review-workbench').text()).toContain('更完整的理论推导')
+    expect(wrapper.get('.review-workbench').text()).toContain('新增实战任务')
+    expect(wrapper.get('.apply-selected').text()).toContain('应用所选 2 项')
   })
 
   it('在输入旁让用户先选择当前小节或全课程硬范围', async () => {
@@ -499,7 +497,7 @@ describe('CourseEvolutionPanel', () => {
       expect(wrapper.text()).toContain('Apply across course')
       expect(wrapper.get('.whole-course-scan-summary').text()).toContain('Review, include, or exclude 2 nodes')
       await wrapper.get('.whole-course-scan-summary').trigger('click')
-      expect(wrapper.get('.review-workbench').text()).toContain('Whole-course impact review')
+      expect(wrapper.get('.review-workbench').text()).toContain('Course adjustment review')
       expect(wrapper.get('.apply-selected').text()).toContain('Apply 2 selected')
     } finally {
       await setLocale('zh')
@@ -588,7 +586,7 @@ describe('CourseEvolutionPanel', () => {
     await flushPromises()
 
     expect(wrapper.get('.review-workbench').attributes('data-state')).toBe('generating')
-    expect(wrapper.get('.review-workbench').text()).toContain('正在逐项生成课程节点候选')
+    expect(wrapper.get('.review-workbench').text()).toContain('正在逐项生成课程调整候选')
     expect(wrapper.get('.scan-empty-state').text()).toContain('首个结果会自动出现')
 
     resolveGeneration?.({})

@@ -2,7 +2,7 @@
   <section v-if="sectionId || visiblePlans.length" class="evolution-panel" aria-live="polite">
     <header>
       <span><GitBranchPlus :size="14" /></span>
-      <div><small>{{ t('courseEvolution.eyebrow', '结构化生长') }}</small><strong>{{ t('courseEvolution.title', '本节课程生长') }}</strong></div>
+      <div><small>{{ t('courseEvolution.eyebrow', '统一课程调整') }}</small><strong>{{ t('courseEvolution.title', '调整课程') }}</strong></div>
       <button type="button" :title="t('courseEvolution.refresh', '重新分析学习证据')" :aria-label="t('courseEvolution.refresh', '重新分析学习证据')" :disabled="store.loading" @click="store.evaluate(courseId)"><RefreshCw :size="14" :class="{ spinning: store.loading }" /></button>
     </header>
 
@@ -59,7 +59,7 @@
     </div>
 
     <button
-      v-for="plan in wholeCoursePlans"
+      v-for="plan in workbenchPlans"
       :key="`scan-${plan.change_set_id}`"
       type="button"
       class="whole-course-scan-summary"
@@ -72,9 +72,9 @@
         <CheckCircle2 v-else :size="16" />
       </span>
       <div>
-        <small>{{ wholeCoursePlanStatus(plan) }}</small>
+        <small>{{ reviewPlanStatus(plan) }}</small>
         <strong>{{ plan.request_text || diagnosisFor(plan) }}</strong>
-        <em>{{ wholeCoursePlanSummary(plan) }}</em>
+        <em>{{ reviewPlanSummary(plan) }}</em>
       </div>
       <ArrowRight :size="15" />
     </button>
@@ -100,7 +100,7 @@
         </div>
         <template v-else>
         <div class="plan-source">
-          <span>{{ plan.source_kind === 'manual_section_request' ? t('courseEvolution.sectionGrowth.manualSource', '按你的要求') : t('courseEvolution.sectionGrowth.evidenceSource', '由学习证据触发') }}</span>
+          <span>{{ isManualPlan(plan) ? t('courseEvolution.sectionGrowth.manualSource', '按你的要求') : t('courseEvolution.sectionGrowth.evidenceSource', '由学习证据触发') }}</span>
           <b v-if="plan.growth_direction === 'challenge'">{{ t('courseEvolution.sectionGrowth.challenge', '提高挑战') }}</b>
         </div>
         <div v-if="isStrongScopedPlan(plan)" class="strong-evidence-trigger" role="status">
@@ -119,21 +119,12 @@
             <b>{{ t('courseEvolution.strongTrigger.scope', '调整到哪里') }}</b>
           </div>
         </div>
-        <div v-if="plan.source_kind === 'manual_section_request'" class="semantic-scope-summary" :data-scope="plan.scope_selection || 'current_section'">
+        <div v-if="isManualPlan(plan)" class="semantic-scope-summary" :data-scope="plan.scope_selection || 'current_section'">
           <span>
             <component :is="plan.scope_selection === 'whole_course' ? BookOpenText : LocateFixed" :size="13" />
-            {{ plan.scope_selection === 'whole_course' ? t('courseEvolution.scope.wholeCourse', '应用到全课程') : t('courseEvolution.scope.currentSection', '只影响当前小节') }}
+            {{ planScopeLabel(plan) }}
           </span>
-          <strong>
-            {{
-              plan.scope_selection === 'whole_course'
-                ? t('courseEvolution.scope.matchedSummary', 'AI 识别 {roles}，匹配 {count} 个节点')
-                  .replace('{roles}', targetRoleLabels(plan).join('、'))
-                  .replace('{count}', String(contentOperations(plan).length))
-                : t('courseEvolution.scope.currentSummary', 'AI 只在本节内处理：{roles}')
-                  .replace('{roles}', targetRoleLabels(plan).join('、'))
-            }}
-          </strong>
+          <strong>{{ planScopeSummary(plan) }}</strong>
           <small>{{ String(plan.impact_summary?.matching_policy || '') }}</small>
         </div>
         <div v-if="evidenceFor(plan).length" class="evolution-evidence" :aria-label="t('courseEvolution.evidenceConvergence', '多类证据汇聚')">
@@ -239,7 +230,7 @@
         </div>
         <div class="evolution-actions">
           <button
-            v-if="plan.scope_selection === 'whole_course'"
+            v-if="requiresWorkbench(plan)"
             type="button"
             class="primary"
             :disabled="store.actingId === plan.change_set_id || plan.generation_status !== 'ready'"
@@ -336,8 +327,8 @@ const visiblePlans = computed(() => {
     ...store.appliedPlans.filter(matchesSection).slice(-1),
   ]
 })
-const inlinePlans = computed(() => visiblePlans.value.filter(plan => plan.scope_selection !== 'whole_course'))
-const wholeCoursePlans = computed(() => visiblePlans.value.filter(plan => plan.scope_selection === 'whole_course'))
+const inlinePlans = computed(() => visiblePlans.value.filter(plan => !requiresWorkbench(plan)))
+const workbenchPlans = computed(() => visiblePlans.value.filter(requiresWorkbench))
 const reviewPlan = computed(() => (
   store.plans.find(plan => plan.change_set_id === reviewPlanId.value) || null
 ))
@@ -394,15 +385,47 @@ function operationLabel(type: string, role = '') { return ({ INSERT_COURSE_SUPPO
 function roleLabel(role: string) { return ({ reasoning: t('courseEvolution.sectionGrowth.roles.reasoning', '理论推导'), application: t('courseEvolution.sectionGrowth.roles.application', '实战应用'), example: t('courseEvolution.sectionGrowth.roles.example', '例子讲解'), checkpoint: t('courseEvolution.sectionGrowth.roles.checkpoint', '理解检查'), concept: t('courseEvolution.sectionGrowth.roles.concept', '核心概念') } as Record<string, string>)[role] || role }
 function operationActionLabel(operation: any) { return operation.payload?.action === 'INSERT' ? t('courseEvolution.sectionGrowth.insert', '新增') : operation.payload?.action === 'REPLACE' ? t('courseEvolution.sectionGrowth.replace', '升级') : t('courseEvolution.sectionGrowth.adjust', '调整') }
 function contentOperations(plan: CourseEvolutionPlan) { return plan.operations.filter(item => item.operation_type !== 'ADJUST_COURSE_DIFFICULTY') }
+function requiresWorkbench(plan: CourseEvolutionPlan) {
+  const affectedSections = new Set(
+    (plan.impact_summary?.affected_section_ids || []).map(String),
+  )
+  return plan.scope_selection === 'whole_course'
+    || affectedSections.size > 1
+    || contentOperations(plan).length > 1
+}
+function isManualPlan(plan: CourseEvolutionPlan) {
+  return ['manual_request', 'manual_section_request'].includes(String(plan.source_kind || ''))
+}
+function planScopeLabel(plan: CourseEvolutionPlan) {
+  if (plan.scope_selection === 'current_block') {
+    return t('courseEvolution.scope.currentBlock', '只影响当前内容')
+  }
+  if (plan.scope_selection === 'whole_course') {
+    return t('courseEvolution.scope.wholeCourse', '应用到全课程')
+  }
+  return t('courseEvolution.scope.currentSection', '只影响当前小节')
+}
+function planScopeSummary(plan: CourseEvolutionPlan) {
+  if (plan.scope_selection === 'current_block') {
+    return t('courseEvolution.scope.blockSummary', 'AI 只处理当前内容，不扩展到其他位置')
+  }
+  if (plan.scope_selection === 'whole_course') {
+    return t('courseEvolution.scope.matchedSummary', 'AI 识别 {roles}，匹配 {count} 个节点')
+      .replace('{roles}', targetRoleLabels(plan).join('、'))
+      .replace('{count}', String(contentOperations(plan).length))
+  }
+  return t('courseEvolution.scope.currentSummary', 'AI 只在本节内处理：{roles}')
+    .replace('{roles}', targetRoleLabels(plan).join('、'))
+}
 function readyOperationCount(plan: CourseEvolutionPlan) {
   return contentOperations(plan).filter(item => item.payload?.candidate_status === 'ready').length
 }
-function wholeCoursePlanStatus(plan: CourseEvolutionPlan) {
-  if (plan.generation_status === 'generating') return t('courseEvolution.review.liveEyebrow', '全课程实时扫描')
-  if (plan.generation_status === 'failed') return t('courseEvolution.review.scanFailed', '扫描未完成')
-  return t('courseEvolution.review.scanComplete', '扫描完成，可以逐项审阅')
+function reviewPlanStatus(plan: CourseEvolutionPlan) {
+  if (plan.generation_status === 'generating') return t('courseEvolution.review.liveEyebrow', '正在生成调整候选')
+  if (plan.generation_status === 'failed') return t('courseEvolution.review.scanFailed', '生成未完成')
+  return t('courseEvolution.review.scanComplete', '候选已就绪，可以逐项审阅')
 }
-function wholeCoursePlanSummary(plan: CourseEvolutionPlan) {
+function reviewPlanSummary(plan: CourseEvolutionPlan) {
   const matched = Number(plan.impact_summary?.matched_block_count || contentOperations(plan).length)
   if (plan.generation_status === 'generating') {
     return t('courseEvolution.review.compactProgress', '已生成 {ready}/{total} 个候选，点击查看实时结果')
@@ -433,7 +456,7 @@ function setPlanElement(planId: string, element: unknown) {
 async function focusPlan(planId: string) {
   expandedId.value = planId
   const plan = visiblePlans.value.find(item => item.change_set_id === planId)
-  if (plan?.scope_selection === 'whole_course') {
+  if (plan && requiresWorkbench(plan)) {
     openReview(plan)
     return
   }
@@ -505,7 +528,7 @@ function findGeneratedWholeCoursePlan(context: ReviewScanContext) {
     if (target) return target
   }
   const candidates = [...store.plans].reverse().filter(plan => (
-    plan.source_kind === 'manual_section_request'
+    isManualPlan(plan)
     && plan.scope_selection === 'whole_course'
     && plan.target_section_id === props.sectionId
   ))
@@ -600,12 +623,13 @@ async function createSectionPlan() {
   if (!props.sectionId || !sectionInstruction.value.trim()) return
   const instruction = sectionInstruction.value.trim()
   const scopeSelection = requestScope.value
+  const baselinePlanIds = new Set(store.plans.map(plan => plan.change_set_id))
   let context: ReviewScanContext | null = null
   if (scopeSelection === 'whole_course') {
     const token = ++scanSession
     context = {
       token,
-      baselinePlanIds: new Set(store.plans.map(plan => plan.change_set_id)),
+      baselinePlanIds,
       instruction,
     }
     activeScanContext = context
@@ -619,6 +643,17 @@ async function createSectionPlan() {
   try {
     await store.createSectionPlan(props.sectionId, instruction, scopeSelection)
     if (context) syncActiveReview(context)
+    if (!context) {
+      const createdPlan = [...store.plans].reverse().find(plan => (
+        !baselinePlanIds.has(plan.change_set_id)
+        && plan.target_section_id === props.sectionId
+        && plan.request_text === instruction
+      )) || [...store.plans].reverse().find(plan => (
+        !baselinePlanIds.has(plan.change_set_id)
+        && plan.target_section_id === props.sectionId
+      ))
+      if (createdPlan) await focusPlan(createdPlan.change_set_id)
+    }
     sectionInstruction.value = ''
   } catch {
     if (context) {
@@ -642,6 +677,8 @@ async function createSectionPlan() {
 async function generateSuggested(plan: CourseEvolutionPlan) {
   try {
     await store.generateSuggested(plan.change_set_id)
+    const generated = store.plans.find(item => item.change_set_id === plan.change_set_id)
+    if (generated) await focusPlan(generated.change_set_id)
   } catch {
     // The store exposes the exact generation error beside the request.
   }
@@ -676,7 +713,7 @@ watch(
           (
             props.focusPlanId === plan.change_set_id
             && (
-              plan.scope_selection !== 'whole_course'
+              !requiresWorkbench(plan)
               || reviewPlanId.value !== plan.change_set_id
             )
           )

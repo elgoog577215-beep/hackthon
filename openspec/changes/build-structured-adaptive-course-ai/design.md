@@ -207,17 +207,20 @@ analysis_revision
 
 ### 6.1 本节课程生长统一用户请求与证据建议
 
-本节课程调整不再建立“用户手动重生成”和“证据适配”两套链。两种触发都创建或更新
-同一 `CourseEvolutionPlan`：
+学生侧不再建立“正文重生成”“用户手动调课”和“证据适配”三套链。正文“调整这段”
+只是“调整课程”的就近快捷入口，AI 老师侧栏是主入口；用户主动请求与系统问题建议都
+创建或更新同一 `CourseEvolutionPlan`：
 
 ```text
-manual_section_request / learning_evidence
+manual_request / learning_evidence
+→ current_block / current_section / whole_course 用户硬范围
 → requested_roles + difficulty_delta
-→ 读取本节真实 CourseBlock.role
+→ 读取范围内真实 CourseBlock.role
 → 已有 role: REPLACE_COURSE_BLOCK
 → 缺失 role: INSERT_COURSE_BLOCK
 → 每个候选生成后保存到方案工作区
-→ 本节 CourseKnowledgeBase 引用、范围、重复和候选质量检查
+→ 当前 CourseKnowledgeBase 引用、范围、重复和候选质量检查
+→ 单项留在侧栏；两项及以上、跨小节或全课程进入居中工作台
 → 用户整体确认
 → replacements + insertions 单次 CourseDocument 提交
 → 受影响 TeachingRepresentation 对账与重建
@@ -234,7 +237,9 @@ manual_section_request / learning_evidence
 候选工作区与正式课程提交分离：每个块候选生成后立即保存，防止长链中断丢失；只有
 全部候选和整组同源检查通过后才允许确认。确认使用一个稳定命令 ID 和一次课程文档
 提交，使块内升级与缺失块新增同时生效；撤销使用同一操作组恢复被替换块的旧载荷并
-退役本次新增块。
+退役本次新增块。当前内容可以复用既有块级生成器，但必须在服务端转换为同一方案操作；
+前端不得再维护第二套候选、恢复或确认状态。同一请求 ID 只能原子认领一次，关闭、刷新
+或换入口后继续恢复同一未完成方案。
 
 ### 6.2 Workflow 中加入轻量 AI 场景判断
 

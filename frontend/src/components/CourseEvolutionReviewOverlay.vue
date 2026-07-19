@@ -37,7 +37,7 @@
           <dl>
             <div>
               <dt>{{ t('courseEvolution.review.hardBoundary', '用户硬边界') }}</dt>
-              <dd>{{ t('courseEvolution.scope.wholeCourse', '当前全课程') }}</dd>
+              <dd>{{ scopeBoundaryLabel }}</dd>
             </div>
             <div>
               <dt>{{ t('courseEvolution.review.semanticTarget', '语义目标') }}</dt>
@@ -256,7 +256,12 @@ const generationError = computed(() => String(
 const isGenerating = computed(() => Boolean(
   props.generating || props.plan?.generation_status === 'generating',
 ))
-const isReady = computed(() => props.plan?.generation_status === 'ready' && !isGenerating.value)
+const isReady = computed(() => Boolean(
+  props.plan
+  && !isGenerating.value
+  && props.plan.generation_status !== 'failed'
+  && props.plan.generation_status !== 'stale',
+))
 const dialogState = computed(() => generationError.value ? 'failed' : isGenerating.value ? 'generating' : 'ready')
 const matchedCount = computed(() => Math.max(
   Number(props.plan?.impact_summary?.matched_block_count || 0),
@@ -288,22 +293,31 @@ const matchingPolicy = computed(() => String(
   props.plan?.impact_summary?.matching_policy
   || t('courseEvolution.review.scanningPolicy', '只扫描当前课程内与语义目标匹配的合法节点，确认前不会修改课程。'),
 ))
+const scopeBoundaryLabel = computed(() => {
+  if (props.plan?.scope_selection === 'current_block') {
+    return t('courseEvolution.scope.currentBlock', '当前内容')
+  }
+  if (props.plan?.scope_selection === 'whole_course') {
+    return t('courseEvolution.scope.wholeCourse', '当前全课程')
+  }
+  return t('courseEvolution.scope.currentSection', '当前小节')
+})
 const headerEyebrow = computed(() => isGenerating.value
-  ? t('courseEvolution.review.liveEyebrow', '全课程实时扫描')
-  : t('courseEvolution.review.eyebrow', '全课程影响审阅'))
+  ? t('courseEvolution.review.liveEyebrow', '正在生成调整候选')
+  : t('courseEvolution.review.eyebrow', '课程调整审阅'))
 const headerTitle = computed(() => isGenerating.value
-  ? t('courseEvolution.review.liveTitle', '正在逐项生成课程节点候选')
+  ? t('courseEvolution.review.liveTitle', '正在逐项生成课程调整候选')
   : generationError.value
-    ? t('courseEvolution.review.failedTitle', '扫描结果需要处理')
-    : t('courseEvolution.review.title', '确认 AI 找到的每一个修改节点'))
+    ? t('courseEvolution.review.failedTitle', '生成结果需要处理')
+    : t('courseEvolution.review.title', '确认 AI 找到的每一个修改位置'))
 const scanStatusTitle = computed(() => {
-  if (generationError.value) return t('courseEvolution.review.scanFailed', '扫描未完成')
+  if (generationError.value) return t('courseEvolution.review.scanFailed', '生成未完成')
   if (!props.plan) return t('courseEvolution.review.analyzingRequest', '正在理解要求并定位课程节点')
   if (isGenerating.value) {
     return t('courseEvolution.review.scanningNodes', '已匹配 {count} 个节点，正在生成最新候选')
       .replace('{count}', String(matchedCount.value))
   }
-  return t('courseEvolution.review.scanComplete', '扫描完成，可以逐项审阅')
+  return t('courseEvolution.review.scanComplete', '候选已就绪，可以逐项审阅')
 })
 const scanStatusDetail = computed(() => {
   if (generationError.value) return generationError.value
@@ -316,7 +330,16 @@ const scanStatusDetail = computed(() => {
 })
 
 function candidateStatus(operation: EvolutionOperation) {
-  return String(operation.payload?.candidate_status || (operation.payload?.after_preview ? 'ready' : 'generating'))
+  return String(
+    operation.payload?.candidate_status
+    || (
+      isReady.value
+      || operation.payload?.after_preview
+      || operation.payload?.proposed_block
+        ? 'ready'
+        : 'generating'
+    ),
+  )
 }
 function candidateStatusLabel(operation: EvolutionOperation) {
   const status = candidateStatus(operation)

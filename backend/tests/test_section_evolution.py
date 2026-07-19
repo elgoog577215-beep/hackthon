@@ -6,6 +6,7 @@ from copy import deepcopy
 import pytest
 
 import course_evolution
+from block_regeneration import BlockRegenerationCandidateRepository
 from course_document import document_from_legacy_course, refresh_document_revision
 from course_evolution import (
     CourseEvolutionRepository,
@@ -14,7 +15,10 @@ from course_evolution import (
     undo_change_set,
 )
 from course_repository import CourseDocumentRepository
-from section_evolution import generate_section_evolution_plan
+from section_evolution import (
+    generate_course_adjustment_plan,
+    generate_section_evolution_plan,
+)
 
 
 class _MemoryCourseStorage:
@@ -84,6 +88,19 @@ class _SectionGenerator:
         return (
             "在图形处理流水线中，先缩放再旋转与先旋转再缩放会得到不同结果。"
             "请先判断操作顺序，再用矩阵复合验证，并说明结果为何不同。"
+        )
+
+
+class _CountingBlockGenerator(_SectionGenerator):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate_course_block_candidate(self, **_kwargs) -> str:
+        self.calls += 1
+        return (
+            "矩阵乘法可以看成连续执行两个线性变换：输入先经过右侧变换，"
+            "再经过左侧变换。沿着数据实际流动的顺序阅读，就能解释乘法顺序，"
+            "而不只是记住行乘列的计算步骤。"
         )
 
 
@@ -292,6 +309,91 @@ async def test_section_request_upgrades_existing_role_and_inserts_missing_role_a
     assert reasoning_restored.payload == reasoning_before.payload
     assert inserted_restored.status == "retired"
     assert undone.change_sets[0].status == "undone"
+
+
+@pytest.mark.asyncio
+async def test_current_block_request_uses_course_evolution_plan_and_one_atomic_apply(
+    tmp_path,
+):
+    course = _section_growth_course()
+    storage = _MemoryCourseStorage(course)
+    document_repository = CourseDocumentRepository(storage)
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+    candidate_repository = BlockRegenerationCandidateRepository(tmp_path / "candidates")
+    generator = _CountingBlockGenerator()
+    before, _canonical = document_repository.load_document(course["course_id"])
+    target = next(
+        block for block in before.blocks
+        if block.section_id == "section-1" and block.status != "retired"
+    )
+
+    state = await generate_course_adjustment_plan(
+        course,
+        user_id="student-block-adjustment",
+        section_id=target.section_id,
+        block_id=target.block_id,
+        instruction="我不理解乘法顺序，请把这里讲得更直观",
+        request_id="request-block-adjustment-1",
+        expected_document_revision=before.document_revision,
+        expected_block_revision=target.internal_revision,
+        direction="simplify",
+        scope_selection="current_block",
+        repository=evolution_repository,
+        document_repository=document_repository,
+        candidate_repository=candidate_repository,
+        generator=generator,
+    )
+
+    plan = state.change_sets[0]
+    assert plan.source_kind == "manual_request"
+    assert plan.scope_selection == "current_block"
+    assert plan.generation_status == "ready"
+    assert len(plan.operations) == 1
+    operation = plan.operations[0]
+    assert operation.operation_type == "REPLACE_COURSE_BLOCK"
+    assert operation.target_block_id == target.block_id
+    assert operation.payload["candidate_status"] == "ready"
+    assert plan.impact_summary["direct_block_ids"] == [target.block_id]
+    unchanged, _canonical = document_repository.load_document(course["course_id"])
+    assert unchanged.document_revision == before.document_revision
+
+    duplicate = await generate_course_adjustment_plan(
+        course,
+        user_id="student-block-adjustment",
+        section_id=target.section_id,
+        block_id=target.block_id,
+        instruction="我不理解乘法顺序，请把这里讲得更直观",
+        request_id="request-block-adjustment-1",
+        expected_document_revision=before.document_revision,
+        expected_block_revision=target.internal_revision,
+        direction="simplify",
+        scope_selection="current_block",
+        repository=evolution_repository,
+        document_repository=document_repository,
+        candidate_repository=candidate_repository,
+        generator=generator,
+    )
+    assert len(duplicate.change_sets) == 1
+    assert generator.calls == 1
+
+    applied = await asyncio.to_thread(
+        accept_change_set,
+        course,
+        user_id="student-block-adjustment",
+        change_set_id=plan.change_set_id,
+        selected_scope="current",
+        selected_operation_ids=[operation.operation_id],
+        repository=evolution_repository,
+        document_repository=document_repository,
+    )
+    after, _canonical = document_repository.load_document(course["course_id"])
+    adjusted = next(block for block in after.blocks if block.block_id == target.block_id)
+    assert adjusted.block_id == target.block_id
+    assert adjusted.payload["markdown"] != target.payload["markdown"]
+    assert applied.change_sets[0].status == "applied"
+    assert applied.change_sets[0].application_receipt["replaced_block_ids"] == [
+        target.block_id
+    ]
 
 
 @pytest.mark.asyncio
