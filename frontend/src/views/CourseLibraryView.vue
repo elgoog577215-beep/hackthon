@@ -77,9 +77,21 @@
 
         <footer>
           <span>{{ t('courseLibrary.openHint', '打开课程') }}</span>
-          <button type="button" :title="t('courseLibrary.delete', '删除课程')" @click="deleteCourse(course.course_id, course.course_name)">
-            <Trash2 :size="15" />
-          </button>
+          <div class="course-footer-actions">
+            <button
+              type="button"
+              class="course-review-button"
+              :data-testid="`open-question-bank-review-${course.course_id}`"
+              :title="t('questionBank.openReview', '打开题库质量管理')"
+              @click="openQuestionBankReview(course.course_id)"
+            >
+              <ShieldCheck :size="14" />
+              <span>{{ t('questionBank.reviewEntry', '题库管理') }}</span>
+            </button>
+            <button type="button" :title="t('courseLibrary.delete', '删除课程')" @click="deleteCourse(course.course_id, course.course_name)">
+              <Trash2 :size="15" />
+            </button>
+          </div>
         </footer>
       </article>
     </div>
@@ -91,6 +103,10 @@
       @error="message => ElMessage.error(message)"
     />
     <CourseTaskCenter v-model="taskCenterOpen" :course-id="selectedTaskCourseId" />
+    <QuestionBankReviewCenter
+      v-model="questionBankReviewOpen"
+      :course-id="selectedReviewCourseId"
+    />
   </section>
 </template>
 
@@ -98,9 +114,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookMarked, BookOpenText, History, ListChecks, LoaderCircle, Plus, Search, Trash2, Upload } from 'lucide-vue-next'
+import { ArrowRight, BookMarked, BookOpenText, History, ListChecks, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseTaskCenter from '../components/CourseTaskCenter.vue'
+import QuestionBankReviewCenter from '../components/QuestionBankReviewCenter.vue'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
@@ -115,6 +132,8 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const createDialogOpen = ref(false)
 const taskCenterOpen = ref(false)
 const selectedTaskCourseId = ref('')
+const questionBankReviewOpen = ref(false)
+const selectedReviewCourseId = ref('')
 const creating = ref(false)
 
 const filteredCourses = computed(() => {
@@ -178,6 +197,11 @@ function openCourse(courseId: string, nodeId?: string) {
 function openTaskCenter(courseId = '') {
   selectedTaskCourseId.value = courseId
   taskCenterOpen.value = true
+}
+
+function openQuestionBankReview(courseId: string) {
+  selectedReviewCourseId.value = courseId
+  questionBankReviewOpen.value = true
 }
 
 async function generateCourse(payload: { subject: string; options: CourseGenerationOptions }) {
@@ -270,6 +294,9 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-item footer { min-height:40px; display:flex; align-items:center; justify-content:space-between; padding:0 12px 0 18px; border-top:1px solid rgba(226,232,240,.72); color:var(--lz-text-muted); font-size:10px; }
 .course-item footer button { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--lz-text-muted); background: transparent; cursor: pointer; }
 .course-item footer button:hover { color: var(--lz-danger); background: var(--lz-danger-soft); }
+.course-footer-actions { display:flex; align-items:center; gap:3px; }
+.course-item footer .course-review-button { width:auto; display:inline-flex; align-items:center; gap:5px; padding:0 8px; color:var(--lz-brand-strong); }
+.course-item footer .course-review-button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .library-state { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--lz-text-muted); }
 .library-state strong { color: var(--lz-text); font-size: 15px; }
 .library-state span { font-size: 12px; }

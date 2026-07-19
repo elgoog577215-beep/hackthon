@@ -4,14 +4,38 @@ import pytest
 
 from question_bank import (
     QuestionBankRepository,
+    _solution_graph_hint_contract,
     approved_formal_tasks,
     build_question_bank,
     evaluate_question_item_quality,
     formal_task_from_question_bank_item,
+    migrate_question_bank_review_policy,
     review_question_bank_item,
     revise_question_bank_item,
 )
 from question_search import enrich_question_bank_with_web
+
+
+def test_hint_contract_accepts_llm_list_solution_graph():
+    contract = _solution_graph_hint_contract(
+        {
+            "question_spec": {
+                "stimulus": {"rendered_text": "给定一个对象模型示例。"},
+            },
+        },
+        {
+            "solution_graph": [
+                {
+                    "step_id": "step-1",
+                    "description": "识别对象与类型关系",
+                },
+            ],
+        },
+    )
+
+    assert contract["generator"] == "solution_graph_v1"
+    assert len(contract["levels"]) == 3
+    assert "识别对象与类型关系" in contract["levels"][1]["content"]
 
 
 def _course() -> dict:
@@ -371,6 +395,89 @@ def test_reviews_and_teacher_edits_create_new_immutable_bundle_and_item_revision
         == edited["revision_id"]
     )
     assert edited["formal_task_revision_id"] == edited["formal_task"]["revision_id"]
+
+
+def test_teacher_rework_immediately_removes_published_question_from_practice():
+    original = build_question_bank(_course())
+    published = next(
+        item
+        for item in original["items"]
+        if item["assessment_role"] == "practice"
+        and item["lifecycle_status"] == "approved"
+    )
+
+    rejected = review_question_bank_item(
+        original,
+        published["revision_id"],
+        decision="rejected",
+        reviewer_id="teacher-1",
+        note="题干条件不足",
+    )
+    item = next(
+        item
+        for item in rejected["items"]
+        if item["item_id"] == published["item_id"]
+    )
+
+    assert item["lifecycle_status"] == "rejected"
+    assert item["generation_status"] == "rework_requested"
+    assert item["rework_reason"] == "题干条件不足"
+    assert all(
+        task["question_bank_item_revision_id"]
+        != published["revision_id"]
+        for task in approved_formal_tasks(
+            rejected,
+            assessment_role="practice",
+        )
+    )
+
+
+def test_legacy_review_queue_migrates_without_republishing_teacher_rejections():
+    legacy = build_question_bank(_course())
+    practice = next(
+        item
+        for item in legacy["items"]
+        if item["assessment_role"] == "practice"
+    )
+    rejected = review_question_bank_item(
+        legacy,
+        practice["revision_id"],
+        decision="rejected",
+        reviewer_id="teacher-1",
+        note="低质量",
+    )
+    rejected["review_policy"] = {
+        "schema_version": "tiered_question_review_v1",
+    }
+    for item in rejected["items"]:
+        if item["item_id"] == practice["item_id"]:
+            continue
+        if item["assessment_role"] == "practice":
+            item["lifecycle_status"] = "needs_review"
+            item["review_status"] = "needs_review"
+            item["review_required"] = True
+
+    migrated = migrate_question_bank_review_policy(
+        _course(),
+        rejected,
+    )
+    by_id = {
+        item["item_id"]: item
+        for item in migrated["items"]
+    }
+
+    assert migrated["review_policy"]["schema_version"] == (
+        "exception_driven_question_quality_v1"
+    )
+    assert by_id[practice["item_id"]]["lifecycle_status"] == (
+        "rejected"
+    )
+    assert all(
+        item["lifecycle_status"] == "approved"
+        for item in migrated["items"]
+        if item["assessment_role"] == "practice"
+        and item["item_id"] != practice["item_id"]
+    )
 
 
 def test_repository_never_leaks_items_across_courses(tmp_path):

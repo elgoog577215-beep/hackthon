@@ -250,7 +250,7 @@ const form = reactive({
   pedagogyMode: 'auto' as PedagogyModeSelection,
   coursePurpose: 'systematic' as 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial',
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
-  webQuestionEnrichment: false,
+  webQuestionEnrichment: true,
   requirements: '',
 })
 

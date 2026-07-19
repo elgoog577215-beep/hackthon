@@ -31,6 +31,12 @@ QUESTION_SOURCE_TYPES = {"imported", "web_reference", "generated", "variant", "l
 QUESTION_LIFECYCLE_STATES = {"candidate", "needs_review", "approved", "rejected", "retired"}
 QUESTION_REVIEW_DECISIONS = {"approved", "rejected"}
 FINAL_ASSESSMENT_ROLES = {"coverage_task", "cross_chapter_transfer"}
+QUESTION_REVIEW_TIERS = {
+    "auto_publish",
+    "sample_review",
+    "mandatory_review",
+}
+QUESTION_REVIEW_POLICY_SCHEMA = "exception_driven_question_quality_v1"
 _STORAGE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
 
 _QUESTION_RE = re.compile(
@@ -113,9 +119,17 @@ def build_question_bank(
     legacy = [_legacy_item(course_data, item) for item in legacy_tasks]
     items = [*imported, *generated, *finals, *legacy]
     _mark_near_duplicate_risks(items)
+    _apply_tiered_review_policy(items, assessment_profile)
 
     coverage = _coverage_report(course_data, nodes, items, imported)
-    assessment_blueprint = _assessment_blueprint(course_data, finals, imported)
+    assessment_blueprint = _assessment_blueprint(
+        course_data,
+        finals,
+        imported,
+    )
+    reference_package = deepcopy(
+        course_data.get("_question_reference_package") or {}
+    )
     bundle = {
         "schema_version": QUESTION_BANK_SCHEMA,
         "course_id": course_id,
@@ -132,15 +146,61 @@ def build_question_bank(
         "items": items,
         "coverage": coverage,
         "assessment_blueprint": assessment_blueprint,
+        "reference_package": _public_reference_package_summary(
+            reference_package
+        ),
+        "generation_audit": deepcopy(
+            course_data.get("_assessment_generation_audit") or {}
+        ),
+        "review_policy": deepcopy(
+            assessment_profile.get("review_policy") or {}
+        ),
         "review_queue": _review_queue(items),
         "web_enrichment": {
-            "enabled": bool(
-                ((course_data.get("generation_request") or {}).get("web_question_enrichment") or {}).get("enabled")
-                or (course_data.get("web_question_enrichment") or {}).get("enabled")
+            "enabled": (
+                (
+                    reference_package.get("retrieval_mode")
+                    != "off"
+                )
+                if reference_package
+                else bool(
+                    (
+                        assessment_profile.get("source_policy")
+                        or {}
+                    ).get("web_enabled")
+                )
             ),
-            "status": "not_started",
-            "query_count": 0,
-            "source_count": 0,
+            "mode": (
+                reference_package.get("retrieval_mode")
+                or (
+                    "auto_on_gap"
+                    if (
+                        (
+                            assessment_profile.get(
+                                "source_policy"
+                            )
+                            or {}
+                        ).get("web_enabled")
+                    )
+                    else "off"
+                )
+            ),
+            "status": (
+                (reference_package.get("web") or {}).get("status")
+                or "not_started"
+            ),
+            "query_count": int(
+                (reference_package.get("web") or {}).get(
+                    "query_count"
+                )
+                or 0
+            ),
+            "source_count": int(
+                (reference_package.get("web") or {}).get(
+                    "source_count"
+                )
+                or 0
+            ),
             "query_limit": 12,
             "source_limit": 24,
         },
@@ -172,7 +232,14 @@ def review_question_bank_item(
         )
     item["lifecycle_status"] = decision
     item["review_status"] = decision
-    item["review_required"] = False if decision == "approved" else bool(item.get("review_required"))
+    item["review_required"] = False
+    if decision == "approved":
+        item["generation_status"] = "published"
+    else:
+        item["generation_status"] = "rework_requested"
+        item["rework_requested_at"] = _now()
+        item["rework_requested_by"] = str(reviewer_id)[:200]
+        item["rework_reason"] = str(note or "")[:2000]
     item["review_history"] = [
         *(item.get("review_history") or []),
         {
@@ -388,18 +455,109 @@ def refresh_question_bank_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
         "items": result.get("items") or [],
         "coverage": result.get("coverage") or {},
         "assessment_blueprint": result.get("assessment_blueprint") or {},
+        "reference_package": result.get("reference_package") or {},
+        "generation_audit": result.get("generation_audit") or {},
         "web_enrichment": result.get("web_enrichment") or {},
         "assessment_profile": result.get("assessment_profile") or {},
         "assessment_objectives": (
             result.get("assessment_objectives") or []
         ),
         "solution_envelopes": result.get("solution_envelopes") or {},
+        "review_policy": result.get("review_policy") or {},
     }
     result["bundle_revision_id"] = stable_hash(
         _without_volatile_timestamps(payload),
         prefix="qbb_",
     )
     return result
+
+
+def migrate_question_bank_review_policy(
+    course_data: dict[str, Any],
+    bundle: dict[str, Any],
+) -> dict[str, Any]:
+    """Idempotently upgrade an active bank to exception-driven moderation."""
+    profile = compile_course_assessment_profile(course_data)
+    current_policy = bundle.get("review_policy") or {}
+    desired_policy = profile.get("review_policy") or {}
+    if (
+        current_policy.get("schema_version")
+        == QUESTION_REVIEW_POLICY_SCHEMA
+        and current_policy == desired_policy
+    ):
+        return deepcopy(bundle)
+    result = deepcopy(bundle)
+    result["assessment_profile"] = profile
+    result["review_policy"] = deepcopy(desired_policy)
+    for item in result.get("items") or []:
+        validation = (
+            item.get("solution_validation")
+            or item.get("domain_validation")
+            or {}
+        )
+        legacy_blanket_review = bool(
+            not item.get("review_history")
+            and item.get("assessment_role")
+            not in FINAL_ASSESSMENT_ROLES
+            and not (item.get("risk_flags") or [])
+            and (item.get("quality_report") or {}).get("passed")
+            and (
+                not validation
+                or validation.get("passed")
+            )
+        )
+        if legacy_blanket_review:
+            item["review_required"] = False
+    _apply_tiered_review_policy(
+        result.get("items") or [],
+        profile,
+    )
+    result["policy_migration"] = {
+        "schema_version": QUESTION_REVIEW_POLICY_SCHEMA,
+        "migrated_at": _now(),
+    }
+    return recalculate_question_bank_coverage(
+        course_data,
+        result,
+    )
+
+
+def load_active_question_bank(
+    course_data: dict[str, Any],
+    *,
+    repository: QuestionBankRepository | None = None,
+) -> dict[str, Any] | None:
+    """Load the active bank through the current review policy.
+
+    Every student and teacher consumer must use this boundary instead of
+    reading the repository directly.  Legacy policy migration is idempotent
+    and activates one immutable migrated revision before returning it.
+    """
+    course_id = str(course_data.get("course_id") or "").strip()
+    if not course_id:
+        raise ValueError(
+            "course_id is required to load an active question bank"
+        )
+    active_repository = repository or question_bank_repository
+    bundle = active_repository.load_bundle(course_id)
+    if not bundle:
+        return None
+    migrated = migrate_question_bank_review_policy(
+        course_data,
+        bundle,
+    )
+    if (
+        migrated.get("bundle_revision_id")
+        == bundle.get("bundle_revision_id")
+    ):
+        return bundle
+    save_bundle = getattr(active_repository, "save_bundle", None)
+    if callable(save_bundle):
+        return save_bundle(
+            course_id,
+            migrated,
+        )
+    return migrated
 
 
 def reconcile_question_bank(
@@ -428,16 +586,35 @@ def reconcile_question_bank(
         if preserve_reviewed and old_item and (
             old_item.get("review_history")
             or old_item.get("edited_by")
-            or (
-                old_item.get("lifecycle_status") in {"approved", "rejected"}
-                and old_item.get("review_required")
-            )
+            or old_item.get("lifecycle_status")
+            in {"approved", "rejected"}
         ):
             merged.append(deepcopy(old_item))
         else:
             merged.append(deepcopy(fresh_item))
+    active_node_ids = {
+        str(objective.get("node_id") or "")
+        for objective in rebuilt.get("assessment_objectives") or []
+        if objective.get("node_id")
+    }
     for item_id, old_item in old_by_item.items():
         if item_id in present_ids:
+            continue
+        old_node_ids = {
+            str(value)
+            for value in (
+                old_item.get("node_ids")
+                or [old_item.get("node_id")]
+            )
+            if value
+        }
+        if (
+            preserve_reviewed
+            and old_item.get("lifecycle_status")
+            in {"approved", "rejected"}
+            and bool(old_node_ids & active_node_ids)
+        ):
+            merged.append(deepcopy(old_item))
             continue
         retired = deepcopy(old_item)
         retired["lifecycle_status"] = "retired"
@@ -475,6 +652,7 @@ def reconcile_scoped_question_bank(
     *,
     node_ids: Iterable[str],
     preserve_reviewed: bool = True,
+    preserve_global_assessments: bool = False,
 ) -> dict[str, Any]:
     """Replace only selected nodes while preserving other active revisions."""
     if not previous:
@@ -494,6 +672,12 @@ def reconcile_scoped_question_bank(
         raise ValueError("node_ids are required for scoped reconciliation")
 
     def in_scope(item: dict[str, Any]) -> bool:
+        if (
+            preserve_global_assessments
+            and str(item.get("assessment_role") or "")
+            in FINAL_ASSESSMENT_ROLES
+        ):
+            return False
         item_nodes = {
             str(value)
             for value in (
@@ -564,6 +748,109 @@ def reconcile_scoped_question_bank(
         **deepcopy(rebuilt),
         "items": merged_items,
         "assessment_objectives": merged_objectives,
+        "solution_envelopes": {
+            solution_id: deepcopy(
+                rebuilt_solutions.get(solution_id)
+                or previous_solutions.get(solution_id)
+            )
+            for solution_id in referenced_solution_ids
+            if (
+                rebuilt_solutions.get(solution_id)
+                or previous_solutions.get(solution_id)
+            )
+        },
+    }
+    return refresh_question_bank_bundle(result)
+
+
+def reconcile_item_question_bank(
+    previous: dict[str, Any] | None,
+    rebuilt: dict[str, Any],
+    *,
+    revision_ids: Iterable[str],
+) -> dict[str, Any]:
+    """Replace only explicitly rejected item revisions with fresh revisions."""
+    if not previous:
+        return refresh_question_bank_bundle(rebuilt)
+    if str(previous.get("course_id") or "") != str(
+        rebuilt.get("course_id") or ""
+    ):
+        raise ValueError(
+            "cannot reconcile question banks from different course scopes"
+        )
+    selected_revisions = {
+        str(revision_id).strip()
+        for revision_id in revision_ids
+        if str(revision_id).strip()
+    }
+    if not selected_revisions:
+        raise ValueError(
+            "revision_ids are required for item reconciliation"
+        )
+    previous_items = list(previous.get("items") or [])
+    selected_items = [
+        item
+        for item in previous_items
+        if str(item.get("revision_id") or "") in selected_revisions
+    ]
+    if len(selected_items) != len(selected_revisions):
+        known = {
+            str(item.get("revision_id") or "")
+            for item in selected_items
+        }
+        raise ValueError(
+            "unknown question revisions: "
+            f"{sorted(selected_revisions - known)}"
+        )
+
+    selected_item_ids = {
+        str(item.get("item_id") or "")
+        for item in selected_items
+        if item.get("item_id")
+    }
+    fresh_by_item_id = {
+        str(item.get("item_id") or ""): deepcopy(item)
+        for item in rebuilt.get("items") or []
+        if str(item.get("item_id") or "") in selected_item_ids
+    }
+    missing_replacements = sorted(
+        selected_item_ids - set(fresh_by_item_id)
+    )
+    if missing_replacements:
+        raise ValueError(
+            "rebuilt bank did not produce replacements for items: "
+            f"{missing_replacements}"
+        )
+
+    merged_items = [
+        deepcopy(item)
+        for item in previous_items
+        if str(item.get("item_id") or "") not in selected_item_ids
+    ]
+    merged_items.extend(
+        fresh_by_item_id[item_id]
+        for item_id in sorted(selected_item_ids)
+    )
+    previous_solutions = previous.get("solution_envelopes") or {}
+    rebuilt_solutions = rebuilt.get("solution_envelopes") or {}
+    referenced_solution_ids = {
+        str(item.get("solution_revision_id") or "")
+        for item in merged_items
+        if item.get("solution_revision_id")
+    }
+    result = {
+        **deepcopy(previous),
+        "assessment_profile": deepcopy(
+            rebuilt.get("assessment_profile")
+            or previous.get("assessment_profile")
+            or {}
+        ),
+        "review_policy": deepcopy(
+            rebuilt.get("review_policy")
+            or previous.get("review_policy")
+            or {}
+        ),
+        "items": merged_items,
         "solution_envelopes": {
             solution_id: deepcopy(
                 rebuilt_solutions.get(solution_id)
@@ -1092,6 +1379,10 @@ def _generated_course_items(
             ).get(level)
             if prepared_contract:
                 generated_contract = deepcopy(prepared_contract)
+                if generated_contract.get(
+                    "generation_status"
+                ) == "discarded":
+                    continue
             else:
                 universal_contract = generate_universal_question_contract(
                     course_data,
@@ -1152,7 +1443,13 @@ def _generated_course_items(
                     if level == "mastery_check"
                     else []
                 ),
-                "options": [],
+                "options": deepcopy(
+                    (
+                        generated_contract.get("question_spec")
+                        or {}
+                    ).get("options")
+                    or []
+                ),
                 "explanation": "",
                 "score": 100,
                 "estimated_minutes": generated_contract["estimated_minutes"],
@@ -1189,6 +1486,14 @@ def _generated_course_items(
                 "question_spec": deepcopy(
                     generated_contract["question_spec"]
                 ),
+                "input_contract": deepcopy(
+                    generated_contract.get("input_contract")
+                    or (
+                        generated_contract.get("question_spec")
+                        or {}
+                    ).get("input_contract")
+                    or {}
+                ),
                 "solution_revision_id": (
                     generated_contract["solution_envelope"][
                         "solution_revision_id"
@@ -1212,7 +1517,10 @@ def _generated_course_items(
                         "risk_contract"
                     ]["risk_level"]
                 ),
-                "generation_status": "generated",
+                "generation_status": (
+                    generated_contract.get("generation_status")
+                    or "generated"
+                ),
                 "domain_validation": deepcopy(
                     generated_contract["solution_validation"]
                 ),
@@ -1223,7 +1531,25 @@ def _generated_course_items(
             )
             item["_solution_envelope"] = solution_envelope
             item["hint_contract"] = _hint_contract(item)
-            item["quality_report"] = evaluate_question_item_quality(item)
+            item_quality = evaluate_question_item_quality(item)
+            generated_quality = generated_contract.get(
+                "quality_report"
+            )
+            if (
+                isinstance(generated_quality, dict)
+                and generated_quality.get("schema_version")
+                == "question_quality_report_v2"
+            ):
+                item["quality_report"] = {
+                    **deepcopy(generated_quality),
+                    "item_checks": item_quality,
+                    "passed": bool(generated_quality.get("passed"))
+                    and bool(item_quality.get("passed")),
+                }
+                if not item["quality_report"]["passed"]:
+                    item["quality_report"]["status"] = "failed"
+            else:
+                item["quality_report"] = item_quality
             item["lifecycle_status"] = _initial_status(item)
             item["review_status"] = item["lifecycle_status"]
             item["generation_status"] = (
@@ -2015,6 +2341,11 @@ def _assessment_blueprint(
     finals: list[dict[str, Any]],
     imported: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    compiled = course_data.get("_course_assessment_blueprint")
+    if isinstance(compiled, dict) and compiled.get(
+        "schema_version"
+    ) == "course_assessment_blueprint_v2":
+        return deepcopy(compiled)
     purpose = str(
         course_data.get("course_purpose")
         or (course_data.get("generation_request") or {}).get("course_purpose")
@@ -2451,8 +2782,25 @@ def _solution_graph_hint_contract(
     item: dict[str, Any],
     solution_envelope: dict[str, Any],
 ) -> dict[str, Any]:
-    graph = solution_envelope.get("solution_graph") or {}
-    steps = list(graph.get("steps") or [])
+    raw_graph = solution_envelope.get("solution_graph") or {}
+    if isinstance(raw_graph, list):
+        graph = {
+            "schema_version": "solution_graph_v1",
+            "steps": raw_graph,
+        }
+    elif isinstance(raw_graph, dict):
+        graph = raw_graph
+    else:
+        graph = {}
+    steps = [
+        step
+        if isinstance(step, dict)
+        else {
+            "step_id": f"step-{index + 1}",
+            "action": str(step),
+        }
+        for index, step in enumerate(graph.get("steps") or [])
+    ]
     while len(steps) < 3:
         steps.append({
             "step_id": f"support-{len(steps) + 1}",
@@ -2465,6 +2813,7 @@ def _solution_graph_hint_contract(
         return str(
             step.get("action")
             or step.get("instruction")
+            or step.get("description")
             or "完成当前步骤"
         ).strip()
 
@@ -2606,20 +2955,45 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         ),
         "practice_level": next(iter(item.get("practice_levels") or []), "objective_practice"),
         "hint_contract": deepcopy(item.get("hint_contract") or {}),
-        "input_contract": {
-            "mode": "structured_text",
-            "required": True,
-            "supports_attachments": item.get("question_type") in {"implementation_task", "scenario_deliverable"},
-        },
+        "input_contract": deepcopy(
+            item.get("input_contract")
+            or (item.get("question_spec") or {}).get(
+                "input_contract"
+            )
+            or {
+                "schema_version": "input_contract_v1",
+                "mode": "structured_text",
+                "required": True,
+                "supports_attachments": item.get(
+                    "question_type"
+                ) in {
+                    "implementation_task",
+                    "scenario_deliverable",
+                },
+            }
+        ),
         "grading_policy": {
             "method": (
-                "deterministic"
-                if answer_spec.get("correct_answer") is not None
+                "runner"
+                if item.get("validation_mode") == "code_validator"
                 else (
-                    "rubric_ai_with_reference"
-                    if answer_spec.get("canonical_answer")
-                    is not None
-                    else "rubric_ai"
+                    "typed_validator"
+                    if item.get("validation_mode") in {
+                        "exact_validator",
+                        "numeric_unit_validator",
+                        "symbolic_validator",
+                        "state_trace_validator",
+                    }
+                    else (
+                        "deterministic"
+                        if answer_spec.get("correct_answer") is not None
+                        else (
+                            "rubric_ai_with_reference"
+                            if answer_spec.get("canonical_answer")
+                            is not None
+                            else "rubric_ai"
+                        )
+                    )
                 )
             ),
             "pass_score": int(answer_spec.get("pass_score") or 70),
@@ -2647,6 +3021,7 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "result_checks": deepcopy(item.get("result_checks") or []),
         "question_spec": deepcopy(item.get("question_spec") or {}),
         "domain_validation": deepcopy(item.get("domain_validation") or {}),
+        "validation_mode": item.get("validation_mode"),
         "question_bank_item_revision_id": item.get("revision_id"),
     }
     task["practice_contract_revision_id"] = stable_hash(
@@ -2687,6 +3062,9 @@ def _answer_spec_from_solution(
         solution_envelope.get("canonical_answer")
     )
     return {
+        "validation_mode": solution_envelope.get(
+            "validation_mode"
+        ),
         "canonical_answer": canonical,
         "criteria": deepcopy(
             solution_envelope.get("rubric") or []
@@ -2696,6 +3074,9 @@ def _answer_spec_from_solution(
                 solution_envelope.get("validator_config") or {}
             ).get("pass_score")
             or 70
+        ),
+        "validator_config": deepcopy(
+            solution_envelope.get("validator_config") or {}
         ),
         "solution_spec": {
             "schema_version": "solution_spec_v1",
@@ -2719,6 +3100,153 @@ def _initial_status(item: dict[str, Any]) -> str:
     if report.get("status") == "needs_review":
         return "needs_review"
     return "approved"
+
+
+def _apply_tiered_review_policy(
+    items: list[dict[str, Any]],
+    profile: dict[str, Any],
+) -> None:
+    """Publish validated questions by default and quarantine hard blockers."""
+    high_stakes = bool(
+        (profile.get("discipline") or {}).get("high_stakes")
+    )
+    for item in items:
+        mandatory_reason = _mandatory_review_reason(
+            item,
+            high_stakes,
+        )
+        latest_decision = next(
+            (
+                str(entry.get("decision") or "")
+                for entry in reversed(
+                    item.get("review_history") or []
+                )
+                if entry.get("decision")
+            ),
+            "",
+        )
+        if latest_decision == "rejected":
+            item["review_tier"] = (
+                "mandatory_review"
+                if mandatory_reason
+                else "auto_publish"
+            )
+            item["review_policy_reason"] = "teacher_requested_rework"
+            item["review_required"] = False
+            item["lifecycle_status"] = "rejected"
+            item["review_status"] = "rejected"
+            item["generation_status"] = "rework_requested"
+        elif latest_decision == "approved":
+            _set_review_tier(
+                item,
+                (
+                    "mandatory_review"
+                    if mandatory_reason
+                    else "auto_publish"
+                ),
+                "teacher_approved",
+            )
+            item["review_required"] = False
+            item["lifecycle_status"] = "approved"
+            item["review_status"] = "approved"
+            item["generation_status"] = "published"
+        elif mandatory_reason:
+            _set_review_tier(
+                item,
+                "mandatory_review",
+                mandatory_reason,
+            )
+        else:
+            _set_review_tier(
+                item,
+                "auto_publish",
+                "quality_and_validation_passed",
+            )
+        item["revision_id"] = _item_revision_id(item)
+        item["formal_task"] = _stored_formal_task_from_item(item)
+        item["formal_task_revision_id"] = item["formal_task"][
+            "revision_id"
+        ]
+
+
+def _mandatory_review_reason(
+    item: dict[str, Any],
+    high_stakes: bool,
+) -> str:
+    if high_stakes:
+        return "high_stakes_course"
+    if item.get("assessment_role") in FINAL_ASSESSMENT_ROLES:
+        return "comprehensive_assessment"
+    quality = item.get("quality_report") or {}
+    if not quality.get("passed"):
+        return "quality_validation_failed"
+    validation = (
+        item.get("solution_validation")
+        or item.get("domain_validation")
+        or {}
+    )
+    if validation and not validation.get("passed"):
+        return "solution_validation_failed"
+    if item.get("review_required"):
+        risk_flags = [
+            str(value)
+            for value in item.get("risk_flags") or []
+            if str(value).strip()
+        ]
+        return (
+            f"risk:{risk_flags[0]}"
+            if risk_flags
+            else "existing_review_gate"
+        )
+    return ""
+
+
+def _set_review_tier(
+    item: dict[str, Any],
+    tier: str,
+    reason: str,
+) -> None:
+    if tier not in QUESTION_REVIEW_TIERS:
+        raise ValueError(f"unsupported review tier: {tier}")
+    requires_review = tier == "mandatory_review"
+    sample_pending = tier == "sample_review"
+    item["review_tier"] = tier
+    item["review_policy_reason"] = reason
+    item["review_required"] = requires_review
+    item["lifecycle_status"] = (
+        "needs_review" if requires_review else "approved"
+    )
+    item["review_status"] = (
+        "needs_review"
+        if requires_review or sample_pending
+        else "approved"
+    )
+    quality = item.get("quality_report") or {}
+    item["generation_status"] = (
+        "validation_failed"
+        if requires_review and not quality.get("passed")
+        else (
+            "waiting_review"
+            if requires_review
+            else "published"
+        )
+    )
+
+    risk_contract = (
+        item.get("question_spec") or {}
+    ).get("risk_contract")
+    if isinstance(risk_contract, dict):
+        risk_contract["review_tier"] = tier
+        risk_contract["requires_teacher_review"] = requires_review
+    validation = item.get("solution_validation")
+    if isinstance(validation, dict):
+        validation["auto_publish_eligible"] = not requires_review
+        if validation.get("passed"):
+            validation["status"] = (
+                "needs_review"
+                if requires_review
+                else "passed"
+            )
 
 
 def _evidence_node_bindings(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -3005,15 +3533,82 @@ def _review_queue(items: list[dict[str, Any]]) -> dict[str, Any]:
             "revision_id": item.get("revision_id"),
             "node_id": item.get("node_id"),
             "assessment_role": item.get("assessment_role"),
+            "review_tier": item.get("review_tier"),
+            "review_policy_reason": item.get(
+                "review_policy_reason"
+            ),
             "risk_flags": deepcopy(item.get("risk_flags") or []),
             "quality_status": (item.get("quality_report") or {}).get("status"),
         }
         for item in items
         if item.get("lifecycle_status") == "needs_review"
     ]
+    sampling = [
+        {
+            "item_id": item.get("item_id"),
+            "revision_id": item.get("revision_id"),
+            "node_id": item.get("node_id"),
+            "assessment_role": item.get("assessment_role"),
+            "review_tier": item.get("review_tier"),
+            "review_policy_reason": item.get(
+                "review_policy_reason"
+            ),
+            "risk_flags": deepcopy(item.get("risk_flags") or []),
+            "quality_status": (
+                item.get("quality_report") or {}
+            ).get("status"),
+        }
+        for item in items
+        if (
+            item.get("review_tier") == "sample_review"
+            and item.get("review_status") == "needs_review"
+        )
+    ]
+    tier_counts = {
+        tier: sum(
+            1
+            for item in items
+            if item.get("review_tier") == tier
+        )
+        for tier in sorted(QUESTION_REVIEW_TIERS)
+    }
     return {
+        "schema_version": QUESTION_REVIEW_POLICY_SCHEMA,
         "blocking_count": len(blocking),
+        "sample_count": len(sampling),
+        "tier_counts": tier_counts,
         "items": blocking,
+        "sample_items": sampling,
+    }
+
+
+def _public_reference_package_summary(
+    package: dict[str, Any],
+) -> dict[str, Any]:
+    if not package:
+        return {}
+    references = package.get("references") or []
+    source_distribution: dict[str, int] = {}
+    for reference in references:
+        source_type = str(
+            reference.get("source_type") or "unknown"
+        )
+        source_distribution[source_type] = (
+            source_distribution.get(source_type, 0) + 1
+        )
+    return {
+        "schema_version": package.get("schema_version"),
+        "package_revision_id": package.get("package_revision_id"),
+        "retrieval_mode": package.get("retrieval_mode"),
+        "source_priority": deepcopy(
+            package.get("source_priority") or []
+        ),
+        "source_count": len(references),
+        "source_distribution": source_distribution,
+        "objective_coverage": deepcopy(
+            package.get("objective_coverage") or []
+        ),
+        "web": deepcopy(package.get("web") or {}),
     }
 
 
@@ -3185,7 +3780,10 @@ __all__ = [
     "finalize_v2_question_bank_item",
     "formal_task_from_question_bank_item",
     "is_generic_generated_prompt",
+    "load_active_question_bank",
+    "migrate_question_bank_review_policy",
     "question_bank_repository",
+    "reconcile_item_question_bank",
     "reconcile_question_bank",
     "refresh_question_bank_bundle",
     "review_question_bank_item",

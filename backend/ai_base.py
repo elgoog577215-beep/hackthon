@@ -17,6 +17,7 @@ import json
 import logging
 import sys
 import asyncio
+import time
 import httpx
 from pathlib import Path
 from urllib.parse import urlparse
@@ -126,6 +127,21 @@ class AIBase:
             self.fast_models = fast_models or DEFAULT_FAST_MODELS
         self.model_smart = self.smart_models[0]
         self.model_fast = self.fast_models[0]
+        self.role_models = {
+            role: models
+            for role, models in {
+                "assessment_generator": _parse_model_list(
+                    os.getenv("AI_ASSESSMENT_GENERATOR_MODELS")
+                ),
+                "assessment_solver": _parse_model_list(
+                    os.getenv("AI_ASSESSMENT_SOLVER_MODELS")
+                ),
+                "assessment_reviewer": _parse_model_list(
+                    os.getenv("AI_ASSESSMENT_REVIEWER_MODELS")
+                ),
+            }.items()
+            if models
+        }
         self.thinking_enabled = os.getenv(
             "AI_THINKING_ENABLED",
             os.getenv("AI_ENABLE_THINKING", "true"),
@@ -136,6 +152,18 @@ class AIBase:
             "on",
         }
         self._provider_failure: str | None = None
+        self._model_cooldowns: dict[tuple[str, str], float] = {}
+        self._request_spacing_lock = asyncio.Lock()
+        self._last_request_started = 0.0
+        self._minimum_request_interval = max(
+            0.0,
+            float(
+                os.getenv(
+                    "AI_MIN_REQUEST_INTERVAL_SECONDS",
+                    "0",
+                )
+            ),
+        )
         
         if self.api_key:
             request_timeout = max(1.0, float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "180")))
@@ -160,19 +188,137 @@ class AIBase:
             return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
         return {"enable_thinking": thinking_enabled}
 
-    def _model_cache_key(self, use_fast_model: bool):
-        models = self.fast_models if use_fast_model else self.smart_models
-        return (self.api_base, "fast" if use_fast_model else "smart", tuple(models))
+    def _supports_json_response_format(self) -> bool:
+        hostname = (urlparse(self.api_base).hostname or "").casefold()
+        return hostname not in {
+            "api-inference.modelscope.cn",
+            "api.modelscope.cn",
+        }
 
-    def _models_for(self, use_fast_model: bool) -> List[str]:
-        models = self.fast_models if use_fast_model else self.smart_models
-        cached = self._working_model_cache.get(self._model_cache_key(use_fast_model))
-        if cached in models:
-            return [cached] + [model for model in models if model != cached]
+    async def _wait_for_request_slot(self) -> None:
+        if self._minimum_request_interval <= 0:
+            return
+        async with self._request_spacing_lock:
+            now = time.monotonic()
+            remaining = (
+                self._minimum_request_interval
+                - (now - self._last_request_started)
+            )
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+            self._last_request_started = time.monotonic()
+
+    def _configured_models_for(
+        self,
+        use_fast_model: bool,
+        model_role: str | None = None,
+    ) -> List[str]:
+        role_models = self.role_models.get(str(model_role or ""))
+        if role_models:
+            return list(role_models)
+        models = list(
+            self.fast_models
+            if use_fast_model
+            else self.smart_models
+        )
+        if (
+            model_role == "assessment_solver"
+            and len(models) > 1
+        ):
+            return [*models[1:], models[0]]
         return models
 
-    def _remember_model(self, use_fast_model: bool, model_id: str) -> None:
-        self._working_model_cache[self._model_cache_key(use_fast_model)] = model_id
+    def _model_cache_key(
+        self,
+        use_fast_model: bool,
+        model_role: str | None = None,
+    ):
+        models = self._configured_models_for(
+            use_fast_model,
+            model_role,
+        )
+        return (
+            self.api_base,
+            str(model_role or (
+                "fast" if use_fast_model else "smart"
+            )),
+            tuple(models),
+        )
+
+    def _models_for(
+        self,
+        use_fast_model: bool,
+        model_role: str | None = None,
+    ) -> List[str]:
+        models = self._configured_models_for(
+            use_fast_model,
+            model_role,
+        )
+        cached = self._working_model_cache.get(
+            self._model_cache_key(
+                use_fast_model,
+                model_role,
+            )
+        )
+        ordered = (
+            [cached] + [model for model in models if model != cached]
+            if cached in models
+            else list(models)
+        )
+        now = time.monotonic()
+        available = [
+            model
+            for model in ordered
+            if self._model_cooldowns.get((self.api_base, model), 0) <= now
+        ]
+        return available or ordered
+
+    def _remember_model(
+        self,
+        use_fast_model: bool,
+        model_id: str,
+        model_role: str | None = None,
+    ) -> None:
+        self._working_model_cache[
+            self._model_cache_key(
+                use_fast_model,
+                model_role,
+            )
+        ] = model_id
+        self._model_cooldowns.pop((self.api_base, model_id), None)
+
+    def _cooldown_model(self, model_id: str, error: Exception) -> None:
+        status_code = self._error_status_code(error)
+        message = str(error).casefold()
+        if status_code == 429 and any(
+            marker in message
+            for marker in (
+                "today's quota",
+                "daily quota",
+                "exceeded today",
+                "insufficient_quota",
+            )
+        ):
+            seconds = 12 * 60 * 60
+        elif status_code == 429 or "rate limit" in message:
+            seconds = 60
+        elif status_code is not None and 500 <= status_code < 600:
+            seconds = 30
+        elif isinstance(
+            error,
+            (
+                APIConnectionError,
+                APITimeoutError,
+                httpx.TimeoutException,
+                httpx.NetworkError,
+            ),
+        ):
+            seconds = 15
+        else:
+            return
+        self._model_cooldowns[(self.api_base, model_id)] = (
+            time.monotonic() + seconds
+        )
 
     @staticmethod
     def _error_status_code(error: Exception) -> Optional[int]:
@@ -193,13 +339,14 @@ class AIBase:
             return True
 
         status_code = AIBase._error_status_code(error)
-        if status_code in (401, 403):
-            return True
+        if status_code is not None:
+            return status_code in (401, 403)
 
         message = str(error).lower()
-        return any(marker in message for marker in (
-            "401",
-            "403",
+        has_auth_status = bool(
+            re.search(r"(?<!\d)(?:401|403)(?!\d)", message)
+        )
+        return has_auth_status or any(marker in message for marker in (
             "authentication failed",
             "authentication_failed",
             "invalid api key",
@@ -349,7 +496,13 @@ class AIBase:
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            pass
+            try:
+                # Some OpenAI-compatible providers ignore JSON mode and
+                # emit literal newlines inside fenced-code strings. They
+                # are invalid under strict JSON but still unambiguous.
+                return json.loads(text, strict=False)
+            except json.JSONDecodeError:
+                pass
 
         # 辅助函数：修复 LLM 输出中的非法反斜杠转义（如 LaTeX \alpha, \beta 等）
         def _fix_invalid_escapes(s: str) -> str:
@@ -365,7 +518,10 @@ class AIBase:
                 return json.loads(raw)
             except json.JSONDecodeError:
                 try:
-                    return json.loads(_fix_invalid_escapes(raw))
+                    return json.loads(
+                        _fix_invalid_escapes(raw),
+                        strict=False,
+                    )
                 except json.JSONDecodeError as e:
                     logger.warning(f"Markdown JSON decode error after fix: {e}")
 
@@ -377,7 +533,10 @@ class AIBase:
                 return json.loads(raw)
             except json.JSONDecodeError:
                 try:
-                    return json.loads(_fix_invalid_escapes(raw))
+                    return json.loads(
+                        _fix_invalid_escapes(raw),
+                        strict=False,
+                    )
                 except json.JSONDecodeError:
                     pass
 
@@ -391,7 +550,10 @@ class AIBase:
                     try:
                         return json.loads(json_str)
                     except json.JSONDecodeError:
-                        return json.loads(_fix_invalid_escapes(json_str))
+                        return json.loads(
+                            _fix_invalid_escapes(json_str),
+                            strict=False,
+                        )
             except json.JSONDecodeError:
                 continue
 
@@ -399,6 +561,49 @@ class AIBase:
         logger.warning(f"Failed to extract JSON from: {text[:500]}...")
         
         return None
+
+    @staticmethod
+    def _extract_json_array_entries(
+        text: str,
+        key: str,
+    ) -> list[Dict]:
+        """Recover complete array entries from a truncated JSON envelope."""
+        text = re.sub(
+            r'\\(?!["\\/bfnrtu])',
+            r'\\\\',
+            text,
+        )
+        marker = f'"{key}"'
+        marker_index = text.find(marker)
+        if marker_index < 0:
+            return []
+        array_index = text.find("[", marker_index + len(marker))
+        if array_index < 0:
+            return []
+        decoder = json.JSONDecoder(strict=False)
+        entries: list[Dict] = []
+        cursor = array_index + 1
+        while cursor < len(text):
+            while (
+                cursor < len(text)
+                and text[cursor] in " \t\r\n,"
+            ):
+                cursor += 1
+            if cursor >= len(text) or text[cursor] == "]":
+                break
+            object_index = text.find("{", cursor)
+            if object_index < 0:
+                break
+            try:
+                value, cursor = decoder.raw_decode(
+                    text,
+                    object_index,
+                )
+            except json.JSONDecodeError:
+                break
+            if isinstance(value, dict):
+                entries.append(value)
+        return entries
 
     def _clean_mermaid_syntax(self, text: str) -> str:
         """
@@ -575,6 +780,9 @@ class AIBase:
         retry_count: int = 3,
         enable_thinking: bool = False,
         raise_on_failure: bool = False,
+        max_tokens: int | None = None,
+        json_mode: bool = False,
+        model_role: str | None = None,
     ) -> Optional[str]:
         """
         通用 LLM 调用函数。
@@ -606,20 +814,45 @@ class AIBase:
             return None
 
         last_error: Exception | None = None
-        for model_id in self._models_for(use_fast_model):
+        for model_id in self._models_for(
+            use_fast_model,
+            model_role,
+        ):
             for attempt in range(retry_count):
                 try:
                     extra_body = self._thinking_extra_body(enable_thinking)
 
-                    response = await self.client.chat.completions.create(
-                        model=model_id,
-                        messages=[
+                    request_options = {
+                        "model": model_id,
+                        "messages": [
                             {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": prompt}
+                            {"role": "user", "content": prompt},
                         ],
-                        stream=True,
-                        extra_body=extra_body
-                    )
+                        "stream": True,
+                        "extra_body": extra_body,
+                    }
+                    if max_tokens is not None:
+                        request_options["max_tokens"] = max_tokens
+                    if json_mode and self._supports_json_response_format():
+                        request_options["response_format"] = {
+                            "type": "json_object"
+                        }
+                    try:
+                        await self._wait_for_request_slot()
+                        response = await self.client.chat.completions.create(
+                            **request_options
+                        )
+                    except Exception as format_error:
+                        if not (
+                            json_mode
+                            and self._error_status_code(format_error) == 400
+                        ):
+                            raise
+                        request_options.pop("response_format", None)
+                        await self._wait_for_request_slot()
+                        response = await self.client.chat.completions.create(
+                            **request_options
+                        )
 
                     # 聚合流式响应
                     full_content = ""
@@ -643,7 +876,11 @@ class AIBase:
                             continue
                         break
 
-                    self._remember_model(use_fast_model, model_id)
+                    self._remember_model(
+                        use_fast_model,
+                        model_id,
+                        model_role,
+                    )
                     logger.debug(
                         "AI reasoning received (Model: %s, chars=%d)",
                         model_id,
@@ -655,6 +892,7 @@ class AIBase:
                 except Exception as e:
                     last_error = e
                     logger.error(f"AI API Call Error (Model: {model_id}, Attempt {attempt+1}/{retry_count}): {e}")
+                    self._cooldown_model(model_id, e)
                     if self._is_authentication_error(e):
                         self._block_provider("authentication_failed")
                         if raise_on_failure:
@@ -706,6 +944,7 @@ class AIBase:
             try:
                 extra_body = self._thinking_extra_body(enable_thinking)
 
+                await self._wait_for_request_slot()
                 response = await self.client.chat.completions.create(
                     model=model_id,
                     messages=[
@@ -735,6 +974,7 @@ class AIBase:
                 last_error = AIProviderRequestError(f"Model {model_id} returned an empty stream")
             except Exception as e:
                 logger.error(f"Stream Error (Model: {model_id}): {e}")
+                self._cooldown_model(model_id, e)
                 if self._is_authentication_error(e):
                     self._block_provider("authentication_failed")
                     raise AIProviderUnavailable("authentication_failed") from e

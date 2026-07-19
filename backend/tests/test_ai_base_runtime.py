@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -41,6 +42,11 @@ def _clear_model_environment(monkeypatch):
         "AI_MODEL",
         "AI_MODEL_FAST_CANDIDATES",
         "AI_MODEL_FAST",
+        "AI_THINKING_ENABLED",
+        "AI_ENABLE_THINKING",
+        "AI_ASSESSMENT_GENERATOR_MODELS",
+        "AI_ASSESSMENT_SOLVER_MODELS",
+        "AI_ASSESSMENT_REVIEWER_MODELS",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -83,6 +89,44 @@ def test_provider_client_disables_hidden_retries_and_bounds_timeouts(monkeypatch
     assert captured["timeout"].connect == 7
 
 
+def test_extract_json_accepts_literal_newlines_in_code_strings(
+    monkeypatch,
+):
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    service = AIBase()
+
+    parsed = service._extract_json(
+        '{"candidate":{"code":"line one\nline two"}}'
+    )
+
+    assert parsed == {
+        "candidate": {"code": "line one\nline two"},
+    }
+
+
+def test_extract_json_array_entries_recovers_truncated_envelope():
+    text = (
+        '{"reports":['
+        '{"slot_id":"one","report":'
+        '{"passed":true,"evidence":["\\alpha"]}},'
+        '{"slot_id":"two","report":{"passed":true}}'
+    )
+
+    assert AIBase._extract_json_array_entries(
+        text,
+        "reports",
+    ) == [
+        {
+            "slot_id": "one",
+            "report": {
+                "passed": True,
+                "evidence": ["\\alpha"],
+            },
+        },
+        {"slot_id": "two", "report": {"passed": True}},
+    ]
+
+
 def test_official_deepseek_base_uses_official_model_defaults(monkeypatch):
     _clear_model_environment(monkeypatch)
     monkeypatch.setenv("AI_API_KEY", "test-key")
@@ -105,6 +149,33 @@ def test_explicit_model_configuration_is_not_overridden_for_official_deepseek(mo
 
     assert service.smart_models == ["my-smart-model"]
     assert service.fast_models == ["my-fast-model"]
+
+
+def test_assessment_roles_use_isolated_model_order(monkeypatch):
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv(
+        "AI_MODEL_CANDIDATES",
+        "generator-default,solver-default",
+    )
+    monkeypatch.setenv(
+        "AI_ASSESSMENT_REVIEWER_MODELS",
+        "reviewer-a,reviewer-b",
+    )
+    service = AIBase()
+
+    assert service._models_for(
+        False,
+        "assessment_generator",
+    ) == ["generator-default", "solver-default"]
+    assert service._models_for(
+        False,
+        "assessment_solver",
+    ) == ["solver-default", "generator-default"]
+    assert service._models_for(
+        True,
+        "assessment_reviewer",
+    ) == ["reviewer-a", "reviewer-b"]
 
 
 @pytest.mark.asyncio
@@ -136,6 +207,91 @@ async def test_global_thinking_switch_overrides_call_site_request(monkeypatch):
     assert result == "正式答案"
     assert captured["model"] == "deepseek-ai/DeepSeek-V4-Pro"
     assert captured["extra_body"]["enable_thinking"] is False
+
+
+@pytest.mark.asyncio
+async def test_json_mode_requests_structured_provider_output(monkeypatch):
+    captured = {}
+
+    class CapturingCompletions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return FakeStream([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+                    reasoning_content=None,
+                    content='{"status":"ok"}',
+                ))]),
+            ])
+
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_API_BASE", "https://api.openai.com/v1")
+    service = AIBase()
+    service.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=CapturingCompletions())
+    )
+    service.smart_models = ["test-model"]
+    service._working_model_cache.clear()
+
+    result = await service._call_llm(
+        "return json",
+        retry_count=1,
+        json_mode=True,
+    )
+
+    assert result == '{"status":"ok"}'
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+async def test_modelscope_json_mode_uses_prompt_schema_without_response_format(
+    monkeypatch,
+):
+    captured = {}
+
+    class CapturingCompletions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return FakeStream([
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+                    reasoning_content=None,
+                    content='{"status":"ok"}',
+                ))]),
+            ])
+
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv(
+        "AI_API_BASE",
+        "https://api-inference.modelscope.cn/v1",
+    )
+    service = AIBase()
+    service.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=CapturingCompletions())
+    )
+    service.smart_models = ["test-model"]
+    service._working_model_cache.clear()
+
+    assert await service._call_llm(
+        "return json",
+        retry_count=1,
+        json_mode=True,
+    ) == '{"status":"ok"}'
+    assert "response_format" not in captured
+
+
+@pytest.mark.asyncio
+async def test_request_spacing_smooths_concurrent_provider_bursts(
+    monkeypatch,
+):
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    service = AIBase()
+    service._minimum_request_interval = 0.02
+    service._last_request_started = 0.0
+
+    await service._wait_for_request_slot()
+    started = time.perf_counter()
+    await service._wait_for_request_slot()
+
+    assert time.perf_counter() - started >= 0.015
 
 
 @pytest.mark.asyncio

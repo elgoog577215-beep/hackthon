@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from question_bank import (
+    reconcile_item_question_bank,
     reconcile_scoped_question_bank,
     recalculate_question_bank_coverage,
 )
@@ -136,6 +137,39 @@ def test_incremental_scoped_rebuild_keeps_reviewed_selected_revision():
     assert by_id["stable-a"]["lifecycle_status"] == "approved"
     assert by_id["old-b"]["lifecycle_status"] == "approved"
     assert "new-b" not in by_id
+
+
+def test_item_rebuild_replaces_only_rejected_revision():
+    old_a = _item("stable-a", "node-a", status="rejected")
+    old_a["review_history"] = [{"decision": "rejected"}]
+    previous = _bundle([
+        old_a,
+        _item("other-a", "node-a"),
+        _item("old-b", "node-b"),
+    ])
+    replacement = _item("stable-a", "node-a")
+    replacement["revision_id"] = "revision:stable-a:new"
+    rebuilt = _bundle([
+        replacement,
+        _item("other-a", "node-a", status="needs_review"),
+        _item("new-b", "node-b", status="needs_review"),
+    ])
+
+    merged = reconcile_item_question_bank(
+        previous,
+        rebuilt,
+        revision_ids=["revision:stable-a"],
+    )
+
+    by_id = {item["item_id"]: item for item in merged["items"]}
+    assert set(by_id) == {"stable-a", "other-a", "old-b"}
+    assert by_id["stable-a"]["revision_id"] == (
+        "revision:stable-a:new"
+    )
+    assert by_id["stable-a"]["lifecycle_status"] == "approved"
+    assert by_id["other-a"]["lifecycle_status"] == "approved"
+    assert by_id["old-b"]["lifecycle_status"] == "approved"
+    assert "solution:new-b" not in merged["solution_envelopes"]
 
 
 def test_scoped_rebuild_recalculates_coverage_from_merged_publication_state():

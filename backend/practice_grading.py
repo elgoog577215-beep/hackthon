@@ -8,6 +8,11 @@ import re
 from typing import Any
 
 from ai_base import AIBase
+from assessment_validators import validate_candidate_answer
+from code_runner_client import (
+    CodeRunnerUnavailable,
+    code_runner_client,
+)
 from practice_attempts import evidence_strength
 
 
@@ -23,7 +28,19 @@ class PracticeGrader(AIBase):
         method = str(grading_policy.get("method") or answer_spec.get("type") or "rubric_ai")
         strength = evidence_strength(attempt)
 
-        if method in {"exact", "choice", "deterministic"}:
+        if method == "runner":
+            result = await self._grade_code_runner(
+                question,
+                answer_spec,
+                answer_payload,
+            )
+        elif method == "typed_validator":
+            result = self._grade_typed(
+                question,
+                answer_spec,
+                answer_payload,
+            )
+        elif method in {"exact", "choice", "deterministic"}:
             result = self._grade_deterministic(answer_spec, answer_payload)
         else:
             result = await self._grade_rubric(question, answer_payload)
@@ -41,15 +58,164 @@ class PracticeGrader(AIBase):
         return result
 
     @staticmethod
+    def _grade_typed(
+        question: dict[str, Any],
+        answer_spec: dict[str, Any],
+        answer_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        mode = str(
+            question.get("validation_mode")
+            or answer_spec.get("validation_mode")
+            or ""
+        )
+        actual: Any = answer_payload
+        if mode == "exact_validator":
+            input_contract = question.get("input_contract") or {}
+            selection = input_contract.get("selection") or {}
+            if selection.get("multiple"):
+                actual = sorted(
+                    str(item)
+                    for item in answer_payload.get(
+                        "selected_option_ids"
+                    ) or []
+                )
+                expected = answer_spec.get("canonical_answer")
+                if isinstance(expected, list):
+                    answer_spec = {
+                        **answer_spec,
+                        "canonical_answer": sorted(
+                            str(item) for item in expected
+                        ),
+                    }
+            else:
+                actual = (
+                    answer_payload.get("selected_option_id")
+                    if answer_payload.get("selected_option_id")
+                    is not None
+                    else answer_payload.get("text")
+                )
+        elif mode == "symbolic_validator":
+            actual = (
+                answer_payload.get("conclusion")
+                or answer_payload.get("text")
+                or answer_payload
+            )
+        elif mode == "state_trace_validator":
+            actual = (
+                answer_payload.get("trace")
+                or answer_payload.get("selected_option_id")
+                or answer_payload
+            )
+        result = validate_candidate_answer(
+            mode,
+            answer_spec.get("canonical_answer"),
+            actual,
+            answer_spec.get("validator_config") or {},
+        )
+        passed = bool(result.get("passed"))
+        return {
+            "status": "graded",
+            "score": 100 if passed else 0,
+            "passed": passed,
+            "rubric_results": [],
+            "feedback": (
+                "已通过确定性验证"
+                if passed
+                else "答案未通过确定性验证，请检查条件、过程和结果"
+            ),
+            "grading_confidence": float(
+                result.get("confidence") or 1.0
+            ),
+            "grading_method": mode,
+            "validator_result": result,
+        }
+
+    async def _grade_code_runner(
+        self,
+        question: dict[str, Any],
+        answer_spec: dict[str, Any],
+        answer_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        config = answer_spec.get("validator_config") or {}
+        bundle_id = str(config.get("test_bundle_id") or "")
+        code = str(answer_payload.get("code") or "")
+        language = str(
+            answer_payload.get("language")
+            or (question.get("input_contract") or {}).get(
+                "language"
+            )
+            or "python"
+        )
+        if not bundle_id or not code:
+            return _pending_review(
+                "代码或隐藏测试包不可用，答案已保存并等待处理"
+            )
+        try:
+            result = await code_runner_client.judge(
+                task_revision_id=str(
+                    question.get("task_revision_id")
+                    or question.get("revision_id")
+                    or ""
+                ),
+                language=language,
+                code=code,
+                test_bundle_id=bundle_id,
+            )
+        except CodeRunnerUnavailable:
+            return _pending_review(
+                "安全判题服务暂不可用，答案已保存且不会降级到本进程执行"
+            )
+        passed = bool(result.get("passed"))
+        total = int(result.get("total_count") or 0)
+        passed_count = int(result.get("passed_count") or 0)
+        score = (
+            int(round(passed_count * 100 / total))
+            if total
+            else 0
+        )
+        return {
+            "status": "graded",
+            "score": score,
+            "passed": passed,
+            "rubric_results": [],
+            "feedback": (
+                f"隐藏测试通过 {passed_count}/{total}"
+                if total
+                else "隐藏测试未返回有效结果"
+            ),
+            "grading_confidence": 1.0,
+            "grading_method": "isolated_runner",
+            "runner_result": {
+                key: result.get(key)
+                for key in (
+                    "status",
+                    "passed_count",
+                    "total_count",
+                    "failure_categories",
+                    "resource_usage",
+                )
+            },
+        }
+
+    @staticmethod
     def _grade_deterministic(answer_spec: dict[str, Any], answer_payload: dict[str, Any]) -> dict[str, Any]:
         expected = answer_spec.get("correct_answer")
         if expected is None:
-            expected = answer_spec.get("correct_option_id")
+            expected = (
+                answer_spec.get("correct_option_ids")
+                or answer_spec.get("correct_option_id")
+            )
         actual = answer_payload.get("value")
         if actual is None:
-            actual = answer_payload.get("selected_option_id")
+            actual = (
+                answer_payload.get("selected_option_ids")
+                or answer_payload.get("selected_option_id")
+            )
         if actual is None:
             actual = answer_payload.get("text")
+        if isinstance(expected, list) and isinstance(actual, list):
+            expected = sorted(str(item) for item in expected)
+            actual = sorted(str(item) for item in actual)
         passed = _normalized(actual) == _normalized(expected)
         return {
             "status": "graded",
@@ -71,7 +237,17 @@ class PracticeGrader(AIBase):
         question: dict[str, Any],
         answer_payload: dict[str, Any],
     ) -> dict[str, Any]:
-        text = str(answer_payload.get("text") or answer_payload.get("value") or "").strip()
+        raw_answer = (
+            answer_payload.get("text")
+            or answer_payload.get("value")
+        )
+        if raw_answer is None and answer_payload:
+            raw_answer = json.dumps(
+                answer_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        text = str(raw_answer or "").strip()
         if not text:
             return {
                 "status": "graded",

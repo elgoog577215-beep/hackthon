@@ -39,6 +39,18 @@ describe('PracticeWorkspace expanded desktop layout', () => {
     expect(componentSource).toContain('当前未提交草稿会结束并保留为一次已放弃记录')
   })
 
+  it('renders the question body through the Markdown presentation pipeline', () => {
+    expect(componentSource).toContain('data-testid="practice-question-markdown"')
+    expect(componentSource).toContain('data-testid="practice-question-task"')
+    expect(componentSource).toContain('data-testid="practice-question-material"')
+    expect(componentSource).toContain(':content="currentQuestionMarkdown.task"')
+    expect(componentSource).toContain(':content="currentQuestionMarkdown.material"')
+    expect(componentSource).toContain('splitPracticeQuestionMarkdown')
+    expect(componentSource).toContain('<details')
+    expect(componentSource).toContain(':key="currentQuestion?.revision_id || currentQuestion?.asset_id || currentQuestion?.question_id"')
+    expect(componentSource).not.toContain('<h3>{{ currentQuestion.prompt }}</h3>')
+  })
+
   it('shows independent answer diagnosis and the single next action', () => {
     expect(componentSource).toContain('题目解析与本次判断')
     expect(componentSource).toContain('你采用了什么思路')

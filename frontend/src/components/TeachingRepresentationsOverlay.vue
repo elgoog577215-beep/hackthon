@@ -2,8 +2,7 @@
   <section
     v-if="visible"
     class="representations-layer resource-workspace-overlay"
-    role="dialog"
-    aria-modal="true"
+    role="region"
     :aria-label="workspaceTitle"
   >
     <div class="representations-shell resource-workspace-shell">
@@ -186,8 +185,29 @@ onMounted(ensureLoaded)
 </script>
 
 <style scoped>
-.representations-shell { display:grid; grid-template-rows:72px minmax(0,1fr); }
-.representations-shell > header { display:grid; grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr); align-items:center; gap:12px; }
+.representations-layer {
+  position:absolute;
+  inset:0;
+  z-index:36;
+  width:100%;
+  height:100%;
+  min-width:0;
+  min-height:0;
+}
+.representations-shell {
+  width:100%;
+  height:100%;
+  display:grid;
+  grid-template-rows:58px minmax(0,1fr);
+}
+.representations-shell > header {
+  min-height:58px;
+  display:grid;
+  grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr);
+  align-items:center;
+  gap:12px;
+  padding:7px 12px;
+}
 .representations-shell > header :deep(.course-workspace-tabs) { border-color:transparent; background:transparent; }
 .representations-heading { min-width:0; display:flex; align-items:center; gap:12px; }
 .representations-heading > span { width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; border:1px solid #ddd6fe; border-radius:11px; color:#6d4aff; background:#f4f1ff; box-shadow:0 4px 12px rgba(109,74,255,.12); }
@@ -227,10 +247,16 @@ onMounted(ensureLoaded)
 .representations-empty strong { color:var(--lz-text-secondary); font-size:13px; }
 @keyframes representation-spin { to { transform:rotate(360deg); } }
 @media (max-width:700px) {
-  .representations-shell { grid-template-rows:106px minmax(0,1fr); }
-  .representations-shell > header { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:52px 44px; padding:4px 10px 6px 14px; }
-  .representations-shell > header :deep(.course-workspace-tabs) { grid-column:1 / -1; grid-row:2; }
-  .representations-actions { grid-column:2; grid-row:1; }
+  .representations-shell { grid-template-rows:52px minmax(0,1fr); }
+  .representations-shell > header {
+    min-height:52px;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:6px;
+    padding:5px 7px;
+  }
+  .representations-heading { display:none; }
+  .representations-shell > header :deep(.course-workspace-tabs) { grid-column:1; }
+  .representations-actions { grid-column:2; }
   .representation-preview { padding:22px 18px 34px; }
   .preview-heading h3 { font-size:22px; }
 }

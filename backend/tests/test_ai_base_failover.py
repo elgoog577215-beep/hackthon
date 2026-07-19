@@ -90,6 +90,26 @@ async def test_call_llm_fails_over_to_next_model_on_transient_errors(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_429_request_id_containing_403_does_not_disable_provider(monkeypatch):
+    completions = SequencedCompletions(
+        lambda: _make_status_error(
+            429,
+            (
+                "Error code: 429 - daily quota exceeded; "
+                "request_id=df395bfc-855a-403e-9ed9-88807996b5c2"
+            ),
+        )
+    )
+    service = _make_service(monkeypatch, completions)
+
+    result = await service._call_llm("hi", retry_count=1)
+
+    assert result == "ok-answer"
+    assert completions.calls == ["model-a", "model-b"]
+    assert service._provider_failure is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "error_factory",
     [
@@ -200,6 +220,12 @@ def test_is_authentication_error_recognizes_403_and_forbidden():
     assert AIBase._is_authentication_error(RuntimeError("403 Forbidden"))
     assert AIBase._is_authentication_error(RuntimeError("Forbidden: no access"))
     assert not AIBase._is_authentication_error(RuntimeError("connection reset"))
+    assert not AIBase._is_authentication_error(
+        _make_status_error(
+            429,
+            "quota exceeded; request_id=ac734b8f-4bae-4030-a8c7",
+        )
+    )
 
 
 def test_should_try_next_model_recognizes_real_sdk_errors():
@@ -212,3 +238,23 @@ def test_should_try_next_model_recognizes_real_sdk_errors():
     )
     # Non-retryable client errors should not trigger failover (they are bounded per-request errors).
     assert not AIBase._should_try_next_model(_make_status_error(400, "Bad Request"))
+
+
+def test_daily_quota_model_is_skipped_after_first_failure(monkeypatch):
+    completions = SequencedCompletions(
+        lambda: _make_status_error(
+            429,
+            "You have exceeded today's quota for model-a",
+        )
+    )
+    service = _make_service(monkeypatch, completions)
+
+    service._cooldown_model(
+        "model-a",
+        _make_status_error(
+            429,
+            "You have exceeded today's quota for model-a",
+        ),
+    )
+
+    assert service._models_for(False) == ["model-b"]

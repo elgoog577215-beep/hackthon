@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 
 from fastapi import FastAPI
@@ -69,6 +70,44 @@ def _client(monkeypatch, tmp_path):
     return TestClient(app), jobs, executor
 
 
+def test_rebuild_executor_reuses_one_event_loop_across_jobs(
+    monkeypatch,
+):
+    loop_ids: list[int] = []
+    shared_lock = asyncio.Lock()
+
+    async def fake_run_rebuild_job(**_kwargs):
+        async with shared_lock:
+            loop_ids.append(id(asyncio.get_running_loop()))
+            await asyncio.sleep(0.01)
+
+    monkeypatch.setattr(
+        question_bank,
+        "_run_rebuild_job",
+        fake_run_rebuild_job,
+    )
+    executor = question_bank.QuestionBankRebuildExecutor(
+        max_workers=2,
+    )
+    try:
+        futures = [
+            executor.submit(
+                job_id=f"job-{index}",
+                course_id="course-jobs",
+                payload=None,
+                course={"course_id": "course-jobs"},
+            )
+            for index in range(3)
+        ]
+        for future in futures:
+            future.result(timeout=2)
+    finally:
+        executor.shutdown()
+
+    assert len(loop_ids) == 3
+    assert len(set(loop_ids)) == 1
+
+
 def test_rebuild_api_creates_real_job_and_supports_status_lookup(
     monkeypatch,
     tmp_path,
@@ -106,6 +145,49 @@ def test_rebuild_api_creates_real_job_and_supports_status_lookup(
     assert status.status_code == 200
     assert status.json()["job_id"] == payload["job_id"]
     assert status.json()["stages"] == payload["stages"]
+
+
+def test_rebuild_api_recovers_active_job_for_course(
+    monkeypatch,
+    tmp_path,
+):
+    client, jobs, _ = _client(monkeypatch, tmp_path)
+    job, _ = jobs.create_job(
+        "course-jobs",
+        request_id="request-recover-active",
+        scope="course",
+        node_ids=[],
+        mode="full",
+        actor_id="teacher-1",
+    )
+    jobs.start(job["job_id"])
+
+    active = client.get(
+        "/api/courses/course-jobs/question-bank/rebuilds/active",
+        headers={"X-User-Id": "teacher-1"},
+    )
+
+    assert active.status_code == 200
+    assert active.json()["job_id"] == job["job_id"]
+    assert active.json()["status"] == "running"
+    assert active.json()["status_url"].endswith(
+        f"/question-bank/rebuilds/{job['job_id']}"
+    )
+
+    jobs.fail(
+        job["job_id"],
+        code="cancelled",
+        message="已终止",
+        retryable=True,
+    )
+    missing = client.get(
+        "/api/courses/course-jobs/question-bank/rebuilds/active",
+        headers={"X-User-Id": "teacher-1"},
+    )
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == (
+        "question_bank_active_rebuild_not_found"
+    )
 
 
 def test_rebuild_api_deduplicates_and_validates_node_scope(
@@ -163,3 +245,46 @@ def test_rebuild_management_requires_identity(monkeypatch, tmp_path):
     )
 
     assert created.status_code == 400
+
+
+def test_rebuild_api_accepts_item_scope_and_resolves_its_node(
+    monkeypatch,
+    tmp_path,
+):
+    client, _, executor = _client(monkeypatch, tmp_path)
+
+    class ItemBank:
+        @staticmethod
+        def load_bundle(_course_id: str):
+            return {
+                "course_id": "course-jobs",
+                "items": [{
+                    "item_id": "item-1",
+                    "revision_id": "revision-1",
+                    "node_id": "node-1",
+                    "node_ids": ["node-1"],
+                }],
+            }
+
+    monkeypatch.setattr(
+        question_bank,
+        "question_bank_repository",
+        ItemBank(),
+    )
+
+    created = client.post(
+        "/api/courses/course-jobs/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-item-rework",
+            "scope": "items",
+            "revision_ids": ["revision-1"],
+            "mode": "incremental",
+        },
+    )
+
+    assert created.status_code == 202
+    assert created.json()["scope"] == "items"
+    assert created.json()["revision_ids"] == ["revision-1"]
+    assert created.json()["node_ids"] == ["node-1"]
+    assert executor.submissions[0]["payload"]["scope"] == "items"

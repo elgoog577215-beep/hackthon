@@ -10,7 +10,7 @@ from learning_progress import build_learning_progress, project_learning_objectiv
 from practice_attempts import AttemptConflict, InvalidAttemptTransition, PracticeAttemptRepository
 from practice_grading import PracticeGrader
 from practice_contracts import enrich_question_contract
-from question_bank import build_question_bank
+from question_bank import QuestionBankRepository, build_question_bank
 from routers import practice as practice_router
 
 
@@ -23,6 +23,22 @@ class MemoryStorage:
 
     def save_data(self, filename, value):
         self.data[filename] = deepcopy(value)
+
+
+def test_multiple_choice_contract_requires_at_least_one_selected_option():
+    contract = {
+        "mode": "choice",
+        "selection": {"multiple": True},
+    }
+
+    assert practice_router._missing_answer_fields(
+        contract,
+        {"selected_option_ids": []},
+    ) == ["selected_option_ids"]
+    assert practice_router._missing_answer_fields(
+        contract,
+        {"selected_option_ids": ["A", "C"]},
+    ) == []
 
 
 def _course():
@@ -666,6 +682,64 @@ def test_active_question_bank_replaces_same_level_legacy_template(monkeypatch):
     assert bank_revisions <= returned_revisions
     assert stale["revision_id"] not in returned_revisions
     assert all("用自己的话说明" not in item["prompt"] for item in questions)
+
+
+def test_practice_read_migrates_all_legacy_blanket_review_questions(
+    monkeypatch,
+    tmp_path,
+):
+    course = _course()
+    course["nodes"][0].update({
+        "key_points": ["向量大小", "向量方向"],
+        "assessment": ["根据给定坐标计算向量大小并检查结果"],
+        "difficulty_contract": {"target_level": "intermediate"},
+        "grounding_contract": {"question_evidence_ids": []},
+    })
+    legacy = build_question_bank(course)
+    legacy["review_policy"] = {}
+    for item in legacy["items"]:
+        if item["assessment_role"] != "practice":
+            continue
+        item["lifecycle_status"] = "needs_review"
+        item["review_status"] = "needs_review"
+        item["review_required"] = True
+        item["generation_status"] = "waiting_review"
+    repository = QuestionBankRepository(tmp_path / "question-banks")
+    repository.save_bundle(course["course_id"], legacy)
+    monkeypatch.setattr(
+        practice_router,
+        "question_bank_repository",
+        repository,
+    )
+    monkeypatch.setattr(
+        practice_router.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {
+            "assets": deepcopy(course["learning_assets"]),
+        },
+    )
+
+    questions = practice_router._questions(
+        course,
+        node_id="n1",
+        scope="node",
+    )
+    active = repository.load_bundle(course["course_id"])
+    practice_items = [
+        item
+        for item in active["items"]
+        if item["assessment_role"] == "practice"
+    ]
+
+    assert len(questions) == 3
+    assert all(
+        item["lifecycle_status"] == "approved"
+        and item["generation_status"] == "published"
+        for item in practice_items
+    )
+    assert active["review_policy"]["schema_version"] == (
+        "exception_driven_question_quality_v1"
+    )
 
 
 def test_active_question_bank_never_falls_back_to_unreviewed_asset_questions(monkeypatch):

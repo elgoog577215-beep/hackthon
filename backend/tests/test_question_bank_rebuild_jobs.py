@@ -40,6 +40,25 @@ def test_rebuild_job_is_idempotent_and_freezes_requested_scope(tmp_path):
     ]
 
 
+def test_rebuild_job_freezes_item_revision_scope(tmp_path):
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+
+    job, created = repository.create_job(
+        "course-jobs",
+        request_id="request-item-rework",
+        scope="items",
+        node_ids=["node-1"],
+        revision_ids=["revision-2", "revision-1"],
+        mode="incremental",
+        actor_id="teacher-1",
+    )
+
+    assert created is True
+    assert job["scope"] == "items"
+    assert job["node_ids"] == ["node-1"]
+    assert job["revision_ids"] == ["revision-1", "revision-2"]
+
+
 def test_rebuild_job_reports_monotonic_fixed_stage_progress(tmp_path):
     repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
     job, _ = repository.create_job(
@@ -155,3 +174,120 @@ def test_repository_returns_latest_course_job(tmp_path):
     assert latest is not None
     assert latest["job_id"] == second["job_id"]
     assert repository.latest_for_course("missing-course") is None
+
+
+def test_repository_returns_latest_active_course_job(tmp_path):
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    older_active, _ = repository.create_job(
+        "course-jobs",
+        request_id="request-active",
+        scope="course",
+        node_ids=[],
+        mode="full",
+        actor_id="teacher-1",
+    )
+    completed, _ = repository.create_job(
+        "course-jobs",
+        request_id="request-completed",
+        scope="nodes",
+        node_ids=["node-1"],
+        mode="incremental",
+        actor_id="teacher-1",
+    )
+    repository.complete(
+        completed["job_id"],
+        result={
+            "review_queue": {"blocking_count": 0},
+            "publication_mode": "question_bank_overlay",
+        },
+    )
+
+    active = repository.active_for_course("course-jobs")
+
+    assert active is not None
+    assert active["job_id"] == older_active["job_id"]
+    repository.fail(
+        older_active["job_id"],
+        code="cancelled",
+        message="已终止",
+        retryable=True,
+    )
+    assert repository.active_for_course("course-jobs") is None
+    assert repository.active_for_course("missing-course") is None
+
+
+def test_rebuild_job_heartbeat_reports_progress_inside_a_stage(tmp_path):
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    job, _ = repository.create_job(
+        "course-jobs",
+        request_id="request-heartbeat",
+        scope="nodes",
+        node_ids=["node-1"],
+        mode="incremental",
+        actor_id="teacher-1",
+        worker_id="worker-1",
+    )
+    repository.start(job["job_id"])
+    repository.advance(
+        job["job_id"],
+        stage_id="question_generation",
+        message="正在生成题目",
+    )
+
+    heartbeat = repository.heartbeat(
+        job["job_id"],
+        stage_id="question_generation",
+        progress=56,
+        message="正在生成第 2/3 道候选题",
+        details={"completed_items": 2, "total_items": 3},
+    )
+
+    assert heartbeat["progress"] == 56
+    assert heartbeat["message"] == "正在生成第 2/3 道候选题"
+    assert heartbeat["stage_details"] == {
+        "completed_items": 2,
+        "total_items": 3,
+    }
+    assert heartbeat["current_stage"] == "question_generation"
+
+
+def test_rebuild_job_reuses_active_scope_and_replaces_old_worker(tmp_path):
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    first, created = repository.create_job(
+        "course-jobs",
+        request_id="request-worker-1",
+        scope="nodes",
+        node_ids=["node-1"],
+        mode="incremental",
+        actor_id="teacher-1",
+        worker_id="worker-1",
+    )
+    repository.start(first["job_id"])
+
+    reused, reused_created = repository.create_job(
+        "course-jobs",
+        request_id="request-worker-2",
+        scope="nodes",
+        node_ids=["node-1"],
+        mode="incremental",
+        actor_id="teacher-1",
+        worker_id="worker-1",
+    )
+    replacement, replacement_created = repository.create_job(
+        "course-jobs",
+        request_id="request-worker-3",
+        scope="nodes",
+        node_ids=["node-1"],
+        mode="incremental",
+        actor_id="teacher-1",
+        worker_id="worker-2",
+    )
+
+    assert created is True
+    assert reused_created is False
+    assert reused["job_id"] == first["job_id"]
+    assert replacement_created is True
+    assert replacement["job_id"] != first["job_id"]
+    interrupted = repository.load("course-jobs", first["job_id"])
+    assert interrupted["status"] == "failed"
+    assert interrupted["error"]["code"] == "rebuild_worker_restarted"

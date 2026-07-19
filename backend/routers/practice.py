@@ -36,7 +36,11 @@ from practice_analysis import (
     unavailable_answer_diagnosis,
 )
 from practice_grading import practice_grader
-from question_bank import approved_formal_tasks, question_bank_repository
+from question_bank import (
+    approved_formal_tasks,
+    load_active_question_bank,
+    question_bank_repository,
+)
 from question_bank_jobs import question_bank_rebuild_job_repository
 from solution_presentation import (
     present_solution_representation,
@@ -102,8 +106,8 @@ async def get_practice(
     attempts = await run_in_threadpool(practice_attempt_repository.list, user_id, course_id)
     question_bank_state = {
         "bundle": await run_in_threadpool(
-            question_bank_repository.load_bundle,
-            course_id,
+            _active_question_bank,
+            course,
         ),
         "job": await run_in_threadpool(
             question_bank_rebuild_job_repository.latest_for_course,
@@ -539,6 +543,18 @@ async def submit_attempt(
         raise HTTPException(status_code=409, detail={"code": "task_revision_invalidated", "attempt": invalidated})
     if not _has_answer(payload.answer_payload):
         raise HTTPException(status_code=422, detail="Answer payload is empty")
+    missing_fields = _missing_answer_fields(
+        question.get("input_contract") or {},
+        payload.answer_payload,
+    )
+    if missing_fields:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "answer_contract_incomplete",
+                "missing_fields": missing_fields,
+            },
+        )
     try:
         attempt, submitted = await run_in_threadpool(
             practice_attempt_repository.submit,
@@ -889,8 +905,7 @@ def _raw_learning_assets(course: dict[str, Any]) -> dict[str, Any]:
 
 
 def _question_bank_final_tasks(course: dict[str, Any]) -> list[dict[str, Any]]:
-    course_id = str(course.get("course_id") or "")
-    bundle = question_bank_repository.load_bundle(course_id) if course_id else None
+    bundle = _active_question_bank(course)
     if not bundle:
         return []
     return [
@@ -969,32 +984,39 @@ async def _require_solution_validation_attempt(
 
 
 def _has_active_question_bank(course: dict[str, Any]) -> bool:
-    course_id = str(course.get("course_id") or "")
-    return bool(course_id and question_bank_repository.load_bundle(course_id))
+    return bool(_active_question_bank(course))
 
 
 def _question_bank_web_tasks(course: dict[str, Any]) -> list[dict[str, Any]]:
-    course_id = str(course.get("course_id") or "")
-    bundle = question_bank_repository.load_bundle(course_id) if course_id else None
+    bundle = _active_question_bank(course)
     if not bundle:
         return []
     return approved_formal_tasks(bundle, assessment_role="web_enriched_practice")
 
 
 def _question_bank_imported_tasks(course: dict[str, Any]) -> list[dict[str, Any]]:
-    course_id = str(course.get("course_id") or "")
-    bundle = question_bank_repository.load_bundle(course_id) if course_id else None
+    bundle = _active_question_bank(course)
     if not bundle:
         return []
     return approved_formal_tasks(bundle, assessment_role="imported_practice")
 
 
 def _question_bank_practice_tasks(course: dict[str, Any]) -> list[dict[str, Any]]:
-    course_id = str(course.get("course_id") or "")
-    bundle = question_bank_repository.load_bundle(course_id) if course_id else None
+    bundle = _active_question_bank(course)
     if not bundle:
         return []
     return approved_formal_tasks(bundle, assessment_role="practice")
+
+
+def _active_question_bank(
+    course: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not str(course.get("course_id") or "").strip():
+        return None
+    return load_active_question_bank(
+        course,
+        repository=question_bank_repository,
+    )
 
 
 def _question_bank_practice_overlay(
@@ -1179,6 +1201,43 @@ def _solution_payload(question: dict[str, Any]) -> dict[str, Any]:
 
 def _has_answer(payload: dict[str, Any]) -> bool:
     return any(value not in (None, "", [], {}) for value in payload.values())
+
+
+def _missing_answer_fields(
+    contract: dict[str, Any],
+    payload: dict[str, Any],
+) -> list[str]:
+    mode = str(contract.get("mode") or "")
+    if mode == "choice":
+        selection = contract.get("selection") or {}
+        if selection.get("multiple"):
+            selected = payload.get("selected_option_ids")
+            return (
+                []
+                if isinstance(selected, list) and any(
+                    item not in (None, "") for item in selected
+                )
+                else ["selected_option_ids"]
+            )
+        return (
+            []
+            if payload.get("selected_option_id")
+            not in (None, "")
+            else ["selected_option_id"]
+        )
+    missing: list[str] = []
+    for field in contract.get("fields") or []:
+        if not isinstance(field, dict) or not field.get("required"):
+            continue
+        field_id = str(field.get("field_id") or "")
+        if field_id and payload.get(field_id) in (
+            None,
+            "",
+            [],
+            {},
+        ):
+            missing.append(field_id)
+    return missing
 
 
 def _support_level(attempt: dict[str, Any]) -> int:

@@ -41,7 +41,12 @@ describe('CourseLibraryView generation lifecycle', () => {
     const wrapper = mount(CourseLibraryView, {
       global: {
         plugins: [router],
-        stubs: { CourseGenerationDialog: true, CourseTaskCenter: true, Teleport: true },
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
       },
     })
     await flushPromises()
@@ -50,5 +55,39 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.text()).toContain('20 个学习节点')
     expect(wrapper.find('.action-count').exists()).toBe(false)
     expect(wrapper.find('.generation-progress').exists()).toBe(false)
+  })
+
+  it('为每门课程提供独立于生成任务的题库质量管理入口', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [{ course_id: 'course-review', course_name: '热力学', node_count: 12 }]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const reviewButton = wrapper.get('[data-testid="open-question-bank-review-course-review"]')
+    expect(reviewButton.text()).toContain('题库管理')
+    await reviewButton.trigger('click')
+    await flushPromises()
+
+    const reviewCenter = wrapper.getComponent({ name: 'QuestionBankReviewCenter' })
+    expect(reviewCenter.props('modelValue')).toBe(true)
+    expect(reviewCenter.props('courseId')).toBe('course-review')
+    const taskCenter = wrapper.getComponent({ name: 'CourseTaskCenter' })
+    expect(taskCenter.props('modelValue')).toBe(false)
   })
 })

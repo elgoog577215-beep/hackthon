@@ -102,6 +102,57 @@ def test_title_only_objective_is_low_confidence_and_requires_review():
     assert objectives[0]["generation_status"] == "candidate_only"
 
 
+def test_programming_diagnostics_do_not_make_course_high_stakes():
+    course = _course(
+        mode="programming_engineering",
+        course_name="Python 高级编程",
+        node_name="内存泄漏检测与诊断方法",
+        objective="诊断并修复 Python 内存泄漏",
+        content=(
+            "使用 tracemalloc 和 objgraph 定位对象引用链，"
+            "提交诊断记录、修复代码和回归测试。"
+        ),
+        assessment="提交代码、测试和诊断依据",
+    )
+
+    profile = compile_course_assessment_profile(course)
+    objectives = compile_assessment_objectives(course, profile)
+
+    assert profile["discipline"]["family"] == (
+        "programming_engineering"
+    )
+    assert profile["discipline"]["high_stakes"] is False
+    assert objectives[0]["risk_level"] == "low"
+
+
+@pytest.mark.parametrize(
+    ("mode", "course_name"),
+    [
+        ("life_medical", "临床诊断学"),
+        ("humanities_social", "刑法与诉讼实务"),
+    ],
+)
+def test_explicit_medical_and_legal_courses_remain_high_stakes(
+    mode: str,
+    course_name: str,
+):
+    course = _course(
+        mode=mode,
+        course_name=course_name,
+        node_name="案例分析",
+        objective="在给定边界内分析案例",
+        content="课程提供充分的案例、条件、边界和验证要求。",
+        assessment="提交分析、依据和风险说明",
+    )
+
+    profile = compile_course_assessment_profile(course)
+
+    assert profile["discipline"]["high_stakes"] is True
+    assert profile["review_policy"][
+        "high_stakes_requires_teacher"
+    ] is True
+
+
 @pytest.mark.parametrize(
     ("mode", "node_name", "objective", "assessment", "expected"),
     [
@@ -278,4 +329,3 @@ def test_student_question_projection_is_allowlist_based():
         "difficulty_contract": {"target_level": "intermediate"},
         "practice_level": "objective_practice",
     }
-

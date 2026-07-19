@@ -15,7 +15,7 @@ describe('resource workspace shell', () => {
     }
   })
 
-  it('treats both resource workspaces as full-screen surfaces on every viewport', () => {
+  it('keeps the knowledge library as a full-screen resource workspace', () => {
     const workspaceStyles = readSource('../../styles/resource-workspace.css')
     const knowledgeLibrary = readSource('../../components/KnowledgeLibrary.vue')
 
@@ -30,6 +30,18 @@ describe('resource workspace shell', () => {
     expect(workspaceStyles).not.toContain('width: min(1320px')
     expect(workspaceStyles).not.toContain('backdrop-filter')
     expect(knowledgeLibrary).not.toContain('scale(.995)')
+  })
+
+  it('keeps outline and lesson plan inside the course learning surface', () => {
+    const teachingResources = readSource('../../components/TeachingRepresentationsOverlay.vue')
+
+    expect(teachingResources).toContain('position:absolute')
+    expect(teachingResources).toContain('width:100%')
+    expect(teachingResources).toContain('height:100%')
+    expect(teachingResources).toContain('grid-template-rows:58px minmax(0,1fr)')
+    expect(teachingResources).toContain('min-height:58px')
+    expect(teachingResources).toContain('grid-template-rows:52px minmax(0,1fr)')
+    expect(teachingResources).not.toContain('aria-modal="true"')
   })
 
   it('keeps PPT out of teaching resources and exposes a first-class workspace entry', () => {
