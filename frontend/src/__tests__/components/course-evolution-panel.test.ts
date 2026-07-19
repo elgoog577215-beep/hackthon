@@ -406,8 +406,9 @@ describe('CourseEvolutionPanel', () => {
       global: { stubs: { Teleport: true } },
     })
 
-    expect(wrapper.get('.semantic-scope-summary').text()).toContain('匹配 2 个节点')
-    await wrapper.get('.evolution-actions .primary').trigger('click')
+    expect(wrapper.get('.whole-course-scan-summary').text()).toContain('2 个节点')
+    expect(wrapper.find('.semantic-scope-summary').exists()).toBe(false)
+    await wrapper.get('.whole-course-scan-summary').trigger('click')
     expect(wrapper.get('.review-workbench').attributes('role')).toBe('dialog')
     expect(wrapper.findAll('.review-list > li')).toHaveLength(2)
     expect(wrapper.text()).toContain('当前全课程')
@@ -496,8 +497,8 @@ describe('CourseEvolutionPanel', () => {
 
       expect(wrapper.text()).toContain('Current section only')
       expect(wrapper.text()).toContain('Apply across course')
-      expect(wrapper.get('.evolution-actions .primary').text()).toContain('Review 2 nodes')
-      await wrapper.get('.evolution-actions .primary').trigger('click')
+      expect(wrapper.get('.whole-course-scan-summary').text()).toContain('Review, include, or exclude 2 nodes')
+      await wrapper.get('.whole-course-scan-summary').trigger('click')
       expect(wrapper.get('.review-workbench').text()).toContain('Whole-course impact review')
       expect(wrapper.get('.apply-selected').text()).toContain('Apply 2 selected')
     } finally {
@@ -563,5 +564,119 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.get('.evolution-diagnosis').text()).toContain('规则保底判断')
     expect(wrapper.get('.evolution-diagnosis').text()).toContain('通过例子讲解降低断点')
     expect(wrapper.find('.source-requirement').exists()).toBe(false)
+  })
+
+  it('点击全课程生成后立即打开实时扫描弹窗，而不是等待完整结果返回', async () => {
+    const store = useCourseEvolutionStore()
+    store.applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [],
+    })
+    let resolveGeneration: ((value: any) => void) | undefined
+    vi.spyOn(store, 'createSectionPlan').mockImplementation(() => new Promise(resolve => {
+      resolveGeneration = resolve
+    }))
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1' },
+      global: { stubs: { Teleport: true } },
+    })
+
+    await wrapper.get('[data-scope="whole_course"]').trigger('click')
+    await wrapper.get('.section-growth-request input').setValue('以后所有例子都讲得详细一点')
+    void wrapper.get('.generate-plan').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.review-workbench').attributes('data-state')).toBe('generating')
+    expect(wrapper.get('.review-workbench').text()).toContain('正在逐项生成课程节点候选')
+    expect(wrapper.get('.scan-empty-state').text()).toContain('首个结果会自动出现')
+
+    resolveGeneration?.({})
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('把后端逐项保存的扫描检查点动态追加到同一个弹窗', async () => {
+    const store = useCourseEvolutionStore()
+    const generatingPlan = {
+      ...plan,
+      source_kind: 'manual_section_request',
+      target_section_id: 's1',
+      request_text: '全课程例子都讲详细一点',
+      scope_selection: 'whole_course',
+      generation_status: 'generating',
+      requested_roles: ['example'],
+      operations: [{
+        operation_id: 'replace-example-1',
+        operation_type: 'REPLACE_COURSE_BLOCK',
+        target_block_id: 'b1',
+        target_section_id: 's1',
+        scope: 'current',
+        reason: '先处理第一节例子。',
+        payload: {
+          action: 'REPLACE',
+          desired_role: 'example',
+          target_section_title: '第一节',
+          target_block_title: '例子讲解',
+          before_preview: '原例子一。',
+          candidate_status: 'generating',
+        },
+      }],
+      impact_summary: {
+        ...plan.impact_summary,
+        matched_block_count: 2,
+        target_role_labels: ['例子讲解'],
+        matching_policy: '只匹配当前课程中的例子块。',
+      },
+    } as any
+    store.applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [generatingPlan],
+    })
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1', focusPlanId: 'plan-1' },
+      global: { stubs: { Teleport: true } },
+    })
+
+    expect(wrapper.get('.review-workbench').text()).toContain('正在生成并检查这个节点')
+    expect(wrapper.findAll('.queued-node')).toHaveLength(1)
+
+    store.applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...generatingPlan,
+        operations: [
+          {
+            ...generatingPlan.operations[0],
+            payload: {
+              ...generatingPlan.operations[0].payload,
+              candidate_status: 'ready',
+              after_preview: '分步骤展开的例子一。',
+            },
+          },
+          {
+            ...generatingPlan.operations[0],
+            operation_id: 'replace-example-2',
+            target_block_id: 'b2',
+            target_section_id: 's2',
+            reason: '继续处理第二节例子。',
+            payload: {
+              ...generatingPlan.operations[0].payload,
+              target_section_title: '第二节',
+              before_preview: '原例子二。',
+              candidate_status: 'generating',
+            },
+          },
+        ],
+      }],
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.review-workbench').text()).toContain('分步骤展开的例子一')
+    expect(wrapper.get('.review-workbench').text()).toContain('继续处理第二节例子')
+    expect(wrapper.findAll('.queued-node')).toHaveLength(0)
+    wrapper.unmount()
   })
 })

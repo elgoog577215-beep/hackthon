@@ -68,6 +68,19 @@ async def get_course_evolution(course_id: str, request: Request) -> dict:
     return course_evolution_view(state)
 
 
+@router.get("/progress")
+async def get_course_evolution_progress(course_id: str, request: Request) -> dict:
+    """Return persisted generation checkpoints without re-evaluating evidence."""
+    await get_course_or_404(course_id)
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    state = await run_in_threadpool(
+        course_evolution_repository.load,
+        user_id,
+        course_id,
+    )
+    return course_evolution_view(state)
+
+
 @personal_router.get("")
 async def get_personal_adaptation(course_id: str, request: Request) -> dict:
     return await get_course_evolution(course_id, request)

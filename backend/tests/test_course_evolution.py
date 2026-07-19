@@ -4,9 +4,11 @@ from copy import deepcopy
 
 import course_evolution
 import pytest
+from rate_limiter import _match_rate_limit
 from course_document import document_from_legacy_course
 from course_repository import CourseDocumentRepository
 from course_evolution import (
+    CourseEvolutionPlan,
     CourseEvolutionRepository,
     accept_change_set,
     course_evolution_view,
@@ -912,6 +914,62 @@ def test_course_evolution_api_commits_the_reviewed_course_revision(
     assert payload["course_evolution_plans"][0]["write_target"] == "course_document"
     assert payload["permissions"]["can_modify_current_course"] is True
     assert payload["permissions"]["can_modify_other_courses"] is False
+
+
+def test_course_evolution_progress_returns_generation_checkpoint_without_re_evaluation(
+    tmp_path,
+    monkeypatch,
+):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers import course_evolution as evolution_router
+
+    repository = CourseEvolutionRepository(tmp_path)
+    state = repository.load("student-a", "course-growth")
+    state.change_sets.append(CourseEvolutionPlan(
+        change_set_id="plan-live",
+        user_id="student-a",
+        course_id="course-growth",
+        hypothesis_id="hypothesis-live",
+        source_kind="manual_section_request",
+        target_section_id="section-1",
+        request_text="全课程例子都讲详细一点",
+        generation_status="generating",
+        scope_selection="whole_course",
+        impact_summary={"matched_block_count": 3},
+        expected_effect="让全课程例子更完整",
+        created_at="2026-07-19T09:00:00+00:00",
+        updated_at="2026-07-19T09:00:00+00:00",
+    ))
+    repository.save(state)
+    monkeypatch.setattr(evolution_router, "course_evolution_repository", repository)
+
+    async def existing_course(_course_id: str):
+        return _course()
+
+    monkeypatch.setattr(evolution_router, "get_course_or_404", existing_course)
+    app = FastAPI()
+    app.include_router(evolution_router.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/courses/course-growth/evolution/progress",
+        headers={"X-User-Id": "student-a"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["course_evolution_plans"][0]["generation_status"] == "generating"
+    assert payload["course_evolution_plans"][0]["impact_summary"]["matched_block_count"] == 3
+
+
+def test_course_evolution_progress_has_read_only_polling_rate_limit():
+    assert _match_rate_limit(
+        "/api/courses/course-growth/evolution/progress"
+    ) == (120, 60)
+    assert _match_rate_limit(
+        "/api/courses/course-growth/evolution"
+    ) == (30, 60)
 
 
 def test_ineffective_adaptation_creates_reviewable_replacement_and_replaces_atomically(

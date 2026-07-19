@@ -104,6 +104,16 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         this.loading = false
       }
     },
+    async refreshProgress(courseId?: string) {
+      const targetCourseId = courseId || this.courseId
+      if (!targetCourseId) return null
+      const response = await http.get(
+        `/api/courses/${targetCourseId}/evolution/progress`,
+        { silentError: true },
+      )
+      this.applyPayload(targetCourseId, response.data)
+      return response.data
+    },
     async evaluate(courseId: string) {
       this.loading = true
       try {

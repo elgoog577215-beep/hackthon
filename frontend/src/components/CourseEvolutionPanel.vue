@@ -58,8 +58,29 @@
       <p v-if="store.generationError" class="generation-error"><TriangleAlert :size="12" />{{ store.generationError }}</p>
     </div>
 
+    <button
+      v-for="plan in wholeCoursePlans"
+      :key="`scan-${plan.change_set_id}`"
+      type="button"
+      class="whole-course-scan-summary"
+      :data-status="plan.generation_status || 'ready'"
+      @click="openReview(plan)"
+    >
+      <span>
+        <LoaderCircle v-if="plan.generation_status === 'generating'" :size="16" class="spinning" />
+        <TriangleAlert v-else-if="plan.generation_status === 'failed'" :size="16" />
+        <CheckCircle2 v-else :size="16" />
+      </span>
+      <div>
+        <small>{{ wholeCoursePlanStatus(plan) }}</small>
+        <strong>{{ plan.request_text || diagnosisFor(plan) }}</strong>
+        <em>{{ wholeCoursePlanSummary(plan) }}</em>
+      </div>
+      <ArrowRight :size="15" />
+    </button>
+
     <article
-      v-for="plan in visiblePlans"
+      v-for="plan in inlinePlans"
       :key="plan.change_set_id"
       :ref="element => setPlanElement(plan.change_set_id, element)"
       :class="{ 'is-focus-plan': props.focusPlanId === plan.change_set_id }"
@@ -266,18 +287,21 @@
     </article>
   </section>
   <CourseEvolutionReviewOverlay
-    v-if="reviewPlan"
+    v-if="reviewOverlayOpen"
     :plan="reviewPlan"
-    :selected-operation-ids="reviewSelections[reviewPlan.change_set_id] || []"
-    :acting="store.actingId === reviewPlan.change_set_id"
-    @update:selected-operation-ids="updateReviewSelection(reviewPlan.change_set_id, $event)"
-    @apply="acceptSelected(reviewPlan)"
-    @close="reviewPlanId = ''"
+    :instruction="reviewInstruction"
+    :generating="reviewGenerating"
+    :error="reviewError"
+    :selected-operation-ids="reviewSelectionIds"
+    :acting="Boolean(reviewPlan && store.actingId === reviewPlan.change_set_id)"
+    @update:selected-operation-ids="reviewPlan && updateReviewSelection(reviewPlan.change_set_id, $event)"
+    @apply="reviewPlan && acceptSelected(reviewPlan)"
+    @close="closeReview"
   />
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ArrowRight, BadgeCheck, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, Layers3, LoaderCircle, LocateFixed, Network, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
 import CourseEvolutionReviewOverlay from './CourseEvolutionReviewOverlay.vue'
 import { useCourseEvolutionStore, type CourseEvolutionPlan, type EvolutionEvidence } from '../stores/courseEvolution'
@@ -293,8 +317,13 @@ const expandedId = ref('')
 const sectionInstruction = ref('')
 const requestScope = ref<'current_section' | 'whole_course'>('current_section')
 const reviewPlanId = ref('')
+const reviewOverlayOpen = ref(false)
+const reviewScanInFlight = ref(false)
+const reviewInstruction = ref('')
+const reviewError = ref('')
 const selectedScope = reactive<Record<string, 'current' | 'current_and_next'>>({})
 const reviewSelections = reactive<Record<string, string[]>>({})
+const reviewSeenOperations = reactive<Record<string, string[]>>({})
 const planElements = new Map<string, HTMLElement>()
 const visiblePlans = computed(() => {
   const matchesSection = (plan: CourseEvolutionPlan) => (
@@ -307,8 +336,16 @@ const visiblePlans = computed(() => {
     ...store.appliedPlans.filter(matchesSection).slice(-1),
   ]
 })
+const inlinePlans = computed(() => visiblePlans.value.filter(plan => plan.scope_selection !== 'whole_course'))
+const wholeCoursePlans = computed(() => visiblePlans.value.filter(plan => plan.scope_selection === 'whole_course'))
 const reviewPlan = computed(() => (
-  store.pendingPlans.find(plan => plan.change_set_id === reviewPlanId.value) || null
+  store.plans.find(plan => plan.change_set_id === reviewPlanId.value) || null
+))
+const reviewGenerating = computed(() => Boolean(
+  reviewScanInFlight.value || reviewPlan.value?.generation_status === 'generating',
+))
+const reviewSelectionIds = computed(() => (
+  reviewPlan.value ? reviewSelections[reviewPlan.value.change_set_id] || [] : []
 ))
 const growthSteps = computed(() => [
   { index: 1, label: t('courseEvolution.sectionGrowth.steps.request', '需求') },
@@ -357,6 +394,27 @@ function operationLabel(type: string, role = '') { return ({ INSERT_COURSE_SUPPO
 function roleLabel(role: string) { return ({ reasoning: t('courseEvolution.sectionGrowth.roles.reasoning', '理论推导'), application: t('courseEvolution.sectionGrowth.roles.application', '实战应用'), example: t('courseEvolution.sectionGrowth.roles.example', '例子讲解'), checkpoint: t('courseEvolution.sectionGrowth.roles.checkpoint', '理解检查'), concept: t('courseEvolution.sectionGrowth.roles.concept', '核心概念') } as Record<string, string>)[role] || role }
 function operationActionLabel(operation: any) { return operation.payload?.action === 'INSERT' ? t('courseEvolution.sectionGrowth.insert', '新增') : operation.payload?.action === 'REPLACE' ? t('courseEvolution.sectionGrowth.replace', '升级') : t('courseEvolution.sectionGrowth.adjust', '调整') }
 function contentOperations(plan: CourseEvolutionPlan) { return plan.operations.filter(item => item.operation_type !== 'ADJUST_COURSE_DIFFICULTY') }
+function readyOperationCount(plan: CourseEvolutionPlan) {
+  return contentOperations(plan).filter(item => item.payload?.candidate_status === 'ready').length
+}
+function wholeCoursePlanStatus(plan: CourseEvolutionPlan) {
+  if (plan.generation_status === 'generating') return t('courseEvolution.review.liveEyebrow', '全课程实时扫描')
+  if (plan.generation_status === 'failed') return t('courseEvolution.review.scanFailed', '扫描未完成')
+  return t('courseEvolution.review.scanComplete', '扫描完成，可以逐项审阅')
+}
+function wholeCoursePlanSummary(plan: CourseEvolutionPlan) {
+  const matched = Number(plan.impact_summary?.matched_block_count || contentOperations(plan).length)
+  if (plan.generation_status === 'generating') {
+    return t('courseEvolution.review.compactProgress', '已生成 {ready}/{total} 个候选，点击查看实时结果')
+      .replace('{ready}', String(readyOperationCount(plan)))
+      .replace('{total}', String(matched || '—'))
+  }
+  if (plan.generation_status === 'failed') {
+    return String(plan.impact_summary?.generation_error || t('courseEvolution.review.openFailed', '打开查看已保留的结果'))
+  }
+  return t('courseEvolution.review.openHint', '逐项查看、纳入或排除 {count} 个节点')
+    .replace('{count}', String(contentOperations(plan).length))
+}
 function targetRoleLabels(plan: CourseEvolutionPlan) {
   const labels = plan.impact_summary?.target_role_labels || []
   return labels.length ? labels : (plan.requested_roles || []).map(roleLabel)
@@ -418,13 +476,109 @@ async function refreshCourseAndRuntime() {
   await progressStore.loadRuntime(props.courseId)
 }
 async function accept(plan: CourseEvolutionPlan) { await store.accept(plan.change_set_id, selectedScope[plan.change_set_id] || 'current'); await refreshCourseAndRuntime() }
-function openReview(plan: CourseEvolutionPlan) {
-  if (!reviewSelections[plan.change_set_id]) {
-    reviewSelections[plan.change_set_id] = contentOperations(plan).map(
-      operation => operation.operation_id,
-    )
+
+type ReviewScanContext = {
+  token: number
+  baselinePlanIds: Set<string>
+  instruction: string
+  targetPlanId?: string
+}
+
+let progressPollTimer: ReturnType<typeof setTimeout> | undefined
+let scanSession = 0
+let activeScanContext: ReviewScanContext | null = null
+
+function syncReviewSelection(plan: CourseEvolutionPlan) {
+  const operationIds = contentOperations(plan).map(operation => operation.operation_id)
+  const seen = new Set(reviewSeenOperations[plan.change_set_id] || [])
+  const selected = new Set(reviewSelections[plan.change_set_id] || [])
+  for (const operationId of operationIds) {
+    if (!seen.has(operationId)) selected.add(operationId)
   }
+  reviewSeenOperations[plan.change_set_id] = [...operationIds]
+  reviewSelections[plan.change_set_id] = operationIds.filter(operationId => selected.has(operationId))
+}
+
+function findGeneratedWholeCoursePlan(context: ReviewScanContext) {
+  if (context.targetPlanId) {
+    const target = store.plans.find(plan => plan.change_set_id === context.targetPlanId)
+    if (target) return target
+  }
+  const candidates = [...store.plans].reverse().filter(plan => (
+    plan.source_kind === 'manual_section_request'
+    && plan.scope_selection === 'whole_course'
+    && plan.target_section_id === props.sectionId
+  ))
+  return candidates.find(plan => (
+    !context.baselinePlanIds.has(plan.change_set_id)
+    && plan.request_text === context.instruction
+  )) || candidates.find(plan => !context.baselinePlanIds.has(plan.change_set_id)) || null
+}
+
+function syncActiveReview(context: ReviewScanContext) {
+  const plan = findGeneratedWholeCoursePlan(context)
+  if (!plan) return null
+  context.targetPlanId = plan.change_set_id
   reviewPlanId.value = plan.change_set_id
+  reviewInstruction.value = plan.request_text || context.instruction
+  syncReviewSelection(plan)
+  if (plan.generation_status === 'failed') {
+    reviewError.value = String(plan.impact_summary?.generation_error || store.generationError)
+  }
+  return plan
+}
+
+function clearProgressPoll() {
+  if (progressPollTimer) clearTimeout(progressPollTimer)
+  progressPollTimer = undefined
+}
+
+function scheduleProgressPoll(delay = 500) {
+  clearProgressPoll()
+  const context = activeScanContext
+  if (!context || context.token !== scanSession || !reviewOverlayOpen.value) return
+  progressPollTimer = setTimeout(async () => {
+    if (!activeScanContext || context.token !== scanSession || !reviewOverlayOpen.value) return
+    try {
+      await store.refreshProgress(props.courseId)
+      syncActiveReview(context)
+    } catch {
+      // The generation request remains authoritative when a progress read briefly fails.
+    }
+    const plan = syncActiveReview(context)
+    if (
+      activeScanContext
+      && context.token === scanSession
+      && reviewOverlayOpen.value
+      && (reviewScanInFlight.value || plan?.generation_status === 'generating')
+    ) {
+      scheduleProgressPoll(650)
+    }
+  }, delay)
+}
+
+function openReview(plan: CourseEvolutionPlan) {
+  reviewPlanId.value = plan.change_set_id
+  reviewInstruction.value = plan.request_text || diagnosisFor(plan)
+  reviewError.value = plan.generation_status === 'failed'
+    ? String(plan.impact_summary?.generation_error || store.generationError)
+    : ''
+  syncReviewSelection(plan)
+  reviewOverlayOpen.value = true
+  if (plan.generation_status === 'generating') {
+    const token = ++scanSession
+    activeScanContext = {
+      token,
+      baselinePlanIds: new Set(),
+      instruction: plan.request_text || '',
+      targetPlanId: plan.change_set_id,
+    }
+    scheduleProgressPoll(100)
+  }
+}
+function closeReview() {
+  reviewOverlayOpen.value = false
+  clearProgressPoll()
 }
 function updateReviewSelection(planId: string, operationIds: string[]) {
   reviewSelections[planId] = [...operationIds]
@@ -437,7 +591,7 @@ async function acceptSelected(plan: CourseEvolutionPlan) {
     selectedScope[plan.change_set_id] || 'current',
     operationIds,
   )
-  reviewPlanId.value = ''
+  closeReview()
   await refreshCourseAndRuntime()
 }
 async function undo(plan: CourseEvolutionPlan) { await store.undo(plan.change_set_id); await refreshCourseAndRuntime() }
@@ -446,19 +600,43 @@ async function createSectionPlan() {
   if (!props.sectionId || !sectionInstruction.value.trim()) return
   const instruction = sectionInstruction.value.trim()
   const scopeSelection = requestScope.value
+  let context: ReviewScanContext | null = null
+  if (scopeSelection === 'whole_course') {
+    const token = ++scanSession
+    context = {
+      token,
+      baselinePlanIds: new Set(store.plans.map(plan => plan.change_set_id)),
+      instruction,
+    }
+    activeScanContext = context
+    reviewPlanId.value = ''
+    reviewInstruction.value = instruction
+    reviewError.value = ''
+    reviewScanInFlight.value = true
+    reviewOverlayOpen.value = true
+    scheduleProgressPoll(350)
+  }
   try {
     await store.createSectionPlan(props.sectionId, instruction, scopeSelection)
-    if (scopeSelection === 'whole_course') {
-      const createdPlan = [...store.pendingPlans].reverse().find(plan => (
-        plan.source_kind === 'manual_section_request'
-        && plan.scope_selection === 'whole_course'
-        && plan.request_text === instruction
-      ))
-      if (createdPlan) openReview(createdPlan)
-    }
+    if (context) syncActiveReview(context)
     sectionInstruction.value = ''
   } catch {
-    // The store exposes the exact generation error beside the request.
+    if (context) {
+      try {
+        await store.refreshProgress(props.courseId)
+      } catch {
+        // Keep the original generation error when the final checkpoint cannot be read.
+      }
+      syncActiveReview(context)
+      reviewError.value = store.generationError
+    }
+    // The store also exposes the exact generation error beside the request.
+  } finally {
+    if (context && context.token === scanSession) {
+      reviewScanInFlight.value = false
+      syncActiveReview(context)
+      clearProgressPoll()
+    }
   }
 }
 async function generateSuggested(plan: CourseEvolutionPlan) {
@@ -495,7 +673,13 @@ watch(
       if (
         plan.status === 'pending'
         && (
-          props.focusPlanId === plan.change_set_id
+          (
+            props.focusPlanId === plan.change_set_id
+            && (
+              plan.scope_selection !== 'whole_course'
+              || reviewPlanId.value !== plan.change_set_id
+            )
+          )
           || (!expandedId.value && isStrongScopedPlan(plan))
         )
       ) {
@@ -508,14 +692,36 @@ watch(
 watch(
   () => props.focusPlanId,
   (planId) => {
-    if (planId && visiblePlans.value.some(plan => plan.change_set_id === planId)) {
-      void focusPlan(planId)
+    const plan = visiblePlans.value.find(item => item.change_set_id === planId)
+    if (plan) {
+      void focusPlan(plan.change_set_id)
     }
   },
   { immediate: true },
 )
+watch(
+  () => reviewPlan.value
+    ? [
+        reviewPlan.value.change_set_id,
+        reviewPlan.value.generation_status,
+        ...contentOperations(reviewPlan.value).map(operation => (
+          `${operation.operation_id}:${operation.payload?.candidate_status || ''}`
+        )),
+      ].join('|')
+    : '',
+  () => {
+    const plan = reviewPlan.value
+    if (!plan) return
+    syncReviewSelection(plan)
+    if (plan.generation_status === 'failed') {
+      reviewError.value = String(plan.impact_summary?.generation_error || store.generationError)
+    }
+    if (plan.generation_status !== 'generating' && !reviewScanInFlight.value) clearProgressPoll()
+  },
+)
 watch(() => props.courseId, load)
 onMounted(load)
+onUnmounted(clearProgressPoll)
 </script>
 
 <style scoped>
@@ -547,6 +753,15 @@ onMounted(load)
 .generate-plan,.challenge-suggestion button { min-height:30px; display:inline-flex; align-items:center; justify-content:center; gap:5px; border:1px solid #7c3aed; border-radius:6px; color:#fff; background:#7c3aed; font-size:9px; font-weight:700; cursor:pointer; }
 .generate-plan:disabled,.challenge-suggestion button:disabled { opacity:.55; cursor:not-allowed; }
 .generation-error { display:flex; align-items:flex-start; gap:5px; margin:0; color:#b91c1c; font-size:8px; line-height:1.4; }
+.whole-course-scan-summary { width:100%; display:grid; grid-template-columns:32px minmax(0,1fr) 18px; align-items:center; gap:9px; margin:0 0 8px; padding:10px; border:1px solid #c7d2fe; border-radius:9px; color:#4338ca; background:#fff; text-align:left; cursor:pointer; }
+.whole-course-scan-summary > span { width:32px; height:32px; display:grid; place-items:center; border-radius:9px; color:#fff; background:#6366f1; }
+.whole-course-scan-summary[data-status="generating"] > span { background:#7c3aed; }
+.whole-course-scan-summary[data-status="failed"] { color:#9a3412; border-color:#fed7aa; background:#fffaf5; }
+.whole-course-scan-summary[data-status="failed"] > span { background:#ea580c; }
+.whole-course-scan-summary > div { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.whole-course-scan-summary small { color:currentColor; font-size:8px; font-weight:800; }
+.whole-course-scan-summary strong { overflow:hidden; color:#1e293b; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.whole-course-scan-summary em { overflow:hidden; color:#64748b; font-size:8px; font-style:normal; text-overflow:ellipsis; white-space:nowrap; }
 .evolution-panel article { padding:9px 10px; border:1px solid #e5e7eb; border-left:3px solid #8b5cf6; border-radius:8px; background:#fff; }
 .evolution-panel article + article { margin-top:7px; }
 .evolution-panel article.is-focus-plan { border-color:#8b5cf6; box-shadow:0 0 0 2px rgba(139,92,246,.13),0 10px 24px rgba(91,33,182,.1); animation:evolution-focus-pulse .9s ease-out; }

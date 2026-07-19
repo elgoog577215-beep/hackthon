@@ -45,6 +45,20 @@ describe('course evolution store', () => {
     expect(store.permissions?.can_modify_other_courses).toBe(false)
   })
 
+  it('reads persisted generation checkpoints without toggling the full loading state', async () => {
+    httpMock.get.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+
+    await store.refreshProgress('course-1')
+
+    expect(httpMock.get).toHaveBeenCalledWith(
+      '/api/courses/course-1/evolution/progress',
+      { silentError: true },
+    )
+    expect(store.loading).toBe(false)
+    expect(store.pendingPlans).toHaveLength(1)
+  })
+
   it('accepts a reviewed plan through the canonical course-evolution endpoint', async () => {
     httpMock.get.mockResolvedValue({ data: payload() })
     httpMock.post.mockResolvedValue({ data: payload('applied') })
