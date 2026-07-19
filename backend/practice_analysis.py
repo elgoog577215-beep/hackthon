@@ -20,7 +20,9 @@ from course_versioning import stable_hash
 QUESTION_ANALYSIS_SCHEMA = "question_analysis_v1"
 ANSWER_DIAGNOSIS_SCHEMA = "answer_diagnosis_v1"
 ASSESSMENT_INTENT_SCHEMA = "assessment_intent_v1"
-QUESTION_ANALYSIS_BATCH_SIZE = 8
+# 4 (not 8): each analyzed question yields a large structured payload; batches
+# of 8 regularly overflowed even a 16k completion budget.
+QUESTION_ANALYSIS_BATCH_SIZE = 4
 
 
 class PracticeAnalysisUnavailable(RuntimeError):
@@ -571,17 +573,18 @@ class PracticeAnalysisService(AIBase):
         system_prompt: str,
     ) -> dict[str, Any]:
         parsed: Any = None
-        # First try with thinking; if the output cannot be parsed as JSON
-        # (usually truncation or stray prose), retry once with thinking off
-        # and a larger completion budget instead of failing the whole course.
-        for attempt, enable_thinking in enumerate((True, False)):
+        # Thinking is deliberately OFF here: with reasoning enabled the model
+        # regularly burned the entire completion budget on reasoning tokens
+        # (truncated responses with 0 content chars) for these large
+        # structured-JSON outputs. Two parse attempts with a big budget.
+        for _attempt in range(2):
             response = await self._call_llm(
                 json.dumps(payload, ensure_ascii=False),
                 system_prompt=system_prompt,
                 use_fast_model=False,
                 retry_count=2,
-                enable_thinking=enable_thinking,
-                max_tokens=16000 if attempt else None,
+                enable_thinking=False,
+                max_tokens=16000,
                 raise_on_failure=True,
             )
             parsed = self._extract_json(response or "")
