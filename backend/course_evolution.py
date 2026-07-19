@@ -731,73 +731,6 @@ def undo_change_set(
     return repository.save(state)
 
 
-def project_applied_adaptive_blocks(
-    state: CourseEvolutionState,
-    *,
-    node_id: str | None = None,
-    current_revision_vector: dict[str, str] | None = None,
-) -> list[dict[str, Any]]:
-    resolved_overlay = personal_course_overlay(
-        state,
-        current_revision_vector=current_revision_vector,
-    )
-    active_operation_ids = {
-        operation.operation_id
-        for operation in resolved_overlay.operations
-    }
-    blocks: list[dict[str, Any]] = []
-    for change_set in state.change_sets:
-        if change_set.status != "applied" or change_set.write_target != "personal_overlay":
-            continue
-        for operation in change_set.operations:
-            if operation.operation_id not in active_operation_ids:
-                continue
-            if change_set.selected_scope == "current" and operation.scope == "next":
-                continue
-            target_node_id = operation.target_section_id or operation.target_block_id
-            if node_id and target_node_id != node_id:
-                continue
-            kind = {
-                "INSERT_COURSE_SUPPORT": "explanation",
-                "INSERT_PERSONAL_SUPPORT": "explanation",
-                "ADD_TRANSITION_SUPPORT": "transition",
-                "ADD_CHECKPOINT": "understanding_check",
-                "ADD_TARGETED_PRACTICE": "understanding_check",
-                "ADD_ANIMATION": "animation",
-            }[operation.operation_type]
-            blocks.append({
-                "adaptive_block_id": operation.operation_id,
-                "change_set_id": change_set.change_set_id,
-                "anchor": {
-                    "node_id": target_node_id,
-                    "content_block_id": operation.target_block_id,
-                    "placement": "after_block",
-                },
-                "kind": kind,
-                "role": "accepted_personal_course_growth",
-                "payload": {
-                    "body": str(operation.payload.get("body") or ""),
-                    "contrast": str(operation.payload.get("contrast") or ""),
-                    "prompt": str(operation.payload.get("prompt") or ""),
-                    "objective": str(operation.payload.get("objective") or ""),
-                    "steps": operation.payload.get("steps") or [],
-                    "animation_spec": deepcopy(operation.payload.get("animation_spec") or {}),
-                    "knowledge_refs": list(operation.payload.get("knowledge_refs") or []),
-                    "ability_refs": list(operation.payload.get("ability_refs") or []),
-                    "misconception_refs": list(operation.payload.get("misconception_refs") or []),
-                    "practice_task_id": str(operation.payload.get("practice_task_id") or ""),
-                    "practice_intent": str(operation.payload.get("practice_intent") or ""),
-                    "expected_effect": str(operation.payload.get("expected_effect") or ""),
-                },
-                "reason_code": "accepted_evidence_driven_growth",
-                "evidence_refs": change_set.evidence_ids,
-                "status": "active",
-                "expires_at": "",
-                "feedback": {"value": "unrated", "options": ["helpful", "not_helpful", "dismissed"]},
-            })
-    return blocks
-
-
 def personal_course_overlay(
     state: CourseEvolutionState,
     *,
@@ -2959,7 +2892,6 @@ __all__ = [
     "accept_change_set",
     "course_evolution_repository",
     "course_evolution_view",
-    "project_applied_adaptive_blocks",
     "personal_course_overlay",
     "reject_change_set",
     "reject_adaptation_plan",

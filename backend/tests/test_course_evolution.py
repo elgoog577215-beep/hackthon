@@ -20,7 +20,6 @@ from course_evolution import (
     course_evolution_view,
     create_adjustment_plan,
     personal_course_overlay,
-    project_applied_adaptive_blocks,
     reject_change_set,
     synchronize_and_evaluate_course_evolution,
     undo_change_set,
@@ -139,17 +138,12 @@ def test_legacy_personal_overlay_rebases_when_block_anchor_is_unchanged():
         state,
         current_revision_vector=current_vector,
     )
-    projected = project_applied_adaptive_blocks(
-        state,
-        current_revision_vector=current_vector,
-    )
 
     assert overlay.resolution_status == "active"
     assert overlay.active_plan_ids == ["legacy-plan-1"]
     assert [item.operation_id for item in overlay.operations] == ["legacy-operation-1"]
     assert overlay.conflicts == []
     assert overlay.relocations[0]["reason"] == "section_rebased_target_block_unchanged"
-    assert projected[0]["adaptive_block_id"] == "legacy-operation-1"
 
 
 def test_legacy_personal_overlay_conflict_is_reported_and_not_projected():
@@ -168,10 +162,6 @@ def test_legacy_personal_overlay_conflict_is_reported_and_not_projected():
     assert overlay.operations == []
     assert overlay.conflicts[0]["reason"] == "target_block_revision_changed"
     assert overlay.conflicts[0]["requires_user_resolution"] is True
-    assert project_applied_adaptive_blocks(
-        state,
-        current_revision_vector=current_vector,
-    ) == []
 
 
 def _course_with_knowledge() -> dict:
@@ -634,7 +624,6 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
     assert independent_practice.payload["validation_task_ids"] == [
         "question-revision-targeted",
     ]
-    assert project_applied_adaptive_blocks(applied) == []
     assert overlay.active_plan_ids == []
     assert overlay.operations == []
     assert view["course_evolution_plans"][0]["plan_kind"] == "course_evolution_plan"
@@ -653,7 +642,6 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
         document_repository=document_repository,
     )
     undone_document, _ = document_repository.load_document(course["course_id"])
-    assert project_applied_adaptive_blocks(undone) == []
     assert undone_document.document_revision != applied_document.document_revision
     assert all(
         block.status == "retired"
@@ -1465,10 +1453,6 @@ def test_legacy_overlay_entry_is_never_silently_dropped_when_block_disappears():
     assert overlay.conflicts[0]["reason"] == "target_block_removed"
     assert overlay.conflicts[0]["requires_user_resolution"] is True
     assert overlay.conflicts[0]["operation_id"] == "legacy-operation-1"
-    assert project_applied_adaptive_blocks(
-        state,
-        current_revision_vector=current_vector,
-    ) == []
 
 
 def test_legacy_overlay_partially_active_keeps_both_relocated_and_conflicted_entries():
@@ -1516,11 +1500,3 @@ def test_legacy_overlay_partially_active_keeps_both_relocated_and_conflicted_ent
     assert [item["operation_id"] for item in overlay.relocations] == ["legacy-operation-1"]
     assert [item["operation_id"] for item in overlay.conflicts] == ["legacy-operation-2"]
     assert overlay.conflicts[0]["reason"] == "target_block_revision_changed"
-    projected_ids = {
-        item["adaptive_block_id"]
-        for item in project_applied_adaptive_blocks(
-            state,
-            current_revision_vector=current_vector,
-        )
-    }
-    assert projected_ids == {"legacy-operation-1"}
