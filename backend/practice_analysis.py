@@ -388,13 +388,34 @@ class PracticeAnalysisService(AIBase):
         mapped = await self._map_question_analysis(chunk, free)
         free_by_id = _by_revision(free, "question_revision_id")
         mapped_by_id = _by_revision(mapped, "question_revision_id")
+        missing = [
+            question
+            for question in chunk
+            if str(question.get("revision_id") or "") not in free_by_id
+            or str(question.get("revision_id") or "") not in mapped_by_id
+        ]
+        if missing:
+            # The model sometimes silently drops a question from its response.
+            # Re-ask once for just the dropped subset before degrading.
+            retry_free = await self._free_question_analysis(missing)
+            retry_mapped = await self._map_question_analysis(missing, retry_free)
+            free_by_id.update(_by_revision(retry_free, "question_revision_id"))
+            mapped_by_id.update(
+                _by_revision(retry_mapped, "question_revision_id")
+            )
         analyzed: list[dict[str, Any]] = []
         for question in chunk:
             revision_id = str(question.get("revision_id") or "")
             if revision_id not in free_by_id or revision_id not in mapped_by_id:
-                raise PracticeAnalysisUnavailable(
-                    f"question analysis missing revision {revision_id}"
+                # A single unanalyzed question must not fail the whole course:
+                # mark it blocked so the existing repair/review path owns it.
+                question["question_analysis"] = normalize_question_analysis(
+                    question,
+                    {},
+                    {},
                 )
+                analyzed.append(question)
+                continue
             question["question_analysis"] = normalize_question_analysis(
                 question,
                 free_by_id[revision_id],

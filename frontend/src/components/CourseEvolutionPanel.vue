@@ -107,16 +107,18 @@
           <span><Sparkles :size="13" />{{ t('courseEvolution.strongTrigger.eyebrow', '已识别强学习证据') }}</span>
           <strong>
             {{
-              t('courseEvolution.strongTrigger.scopeSummary', '已生成本小节与 {count} 个相关后续节点的生长方案')
-                .replace('{count}', String(plan.impact_summary?.dependent_block_ids?.length || 0))
+              (plan.impact_summary?.dependent_block_ids?.length || 0) > 0
+                ? t('courseEvolution.strongTrigger.scopeSummary', '已生成本小节与 {count} 个相关后续节点的生长方案')
+                  .replace('{count}', String(plan.impact_summary?.dependent_block_ids?.length || 0))
+                : t('courseEvolution.strongTrigger.localSummary', '已生成本小节的生长方案')
             }}
           </strong>
           <small>{{ evidenceAssessment(plan).gate_reason || t('courseEvolution.strongTrigger.reason', '系统同时识别了已会内容、持续困难、需要的讲法和明确范围；确认前课程保持不变。') }}</small>
-          <div>
-            <b>{{ t('courseEvolution.strongTrigger.ability', '已会什么') }}</b>
-            <b>{{ t('courseEvolution.strongTrigger.gap', '卡在哪里') }}</b>
-            <b>{{ t('courseEvolution.strongTrigger.method', '希望怎样讲') }}</b>
-            <b>{{ t('courseEvolution.strongTrigger.scope', '调整到哪里') }}</b>
+          <div class="strong-evidence-dimensions">
+            <template v-for="dimension in contractDimensions(plan)" :key="dimension.key">
+              <b>{{ dimension.label }}</b>
+              <em v-if="dimension.value">{{ dimension.value }}</em>
+            </template>
           </div>
         </div>
         <div v-if="plan.source_kind === 'manual_section_request'" class="semantic-scope-summary" :data-scope="plan.scope_selection || 'current_section'">
@@ -423,8 +425,49 @@ function impactLabels(plan: CourseEvolutionPlan) { return [...(plan.impact_summa
 function evidenceAssessment(plan: CourseEvolutionPlan) { return plan.impact_summary?.evidence_assessment || hypothesisFor(plan)?.evidence_assessment || {} }
 function isStrongScopedPlan(plan: CourseEvolutionPlan) {
   const assessment = evidenceAssessment(plan)
-  return assessment.maturity === 'explicit_scoped_request'
-    && assessment.explicit_scope === 'current_and_next'
+  return (assessment.maturity === 'explicit_scoped_request'
+    && assessment.explicit_scope === 'current_and_next')
+    || Boolean(assessment.has_strong_self_report)
+}
+function requestContract(plan: CourseEvolutionPlan): Record<string, any> {
+  return evidenceAssessment(plan).explicit_request_contract || {}
+}
+const SUPPORT_LABELS: Record<string, string> = {
+  explanation: '分步解释',
+  animation: '几何动画',
+  practice: '再做计算',
+}
+function contractDimensions(plan: CourseEvolutionPlan) {
+  const contract = requestContract(plan)
+  const supports = (contract.requested_supports || [])
+    .map((item: string) => SUPPORT_LABELS[item] || item)
+  const scope = String(contract.scope || evidenceAssessment(plan).explicit_scope || '')
+  return [
+    {
+      key: 'ability',
+      label: t('courseEvolution.strongTrigger.ability', '已会什么'),
+      value: String(contract.capability_text || ''),
+    },
+    {
+      key: 'gap',
+      label: t('courseEvolution.strongTrigger.gap', '卡在哪里'),
+      value: String(contract.gap_text || ''),
+    },
+    {
+      key: 'method',
+      label: t('courseEvolution.strongTrigger.method', '希望怎样讲'),
+      value: supports.join('、'),
+    },
+    {
+      key: 'scope',
+      label: t('courseEvolution.strongTrigger.scope', '调整到哪里'),
+      value: scope === 'current_and_next'
+        ? t('courseEvolution.strongTrigger.scopeNext', '本节及相关后续')
+        : scope === 'current'
+          ? t('courseEvolution.strongTrigger.scopeCurrent', '仅当前小节')
+          : '',
+    },
+  ]
 }
 function setPlanElement(planId: string, element: unknown) {
   if (element instanceof HTMLElement) planElements.set(planId, element)
@@ -771,6 +814,8 @@ onUnmounted(clearProgressPoll)
 .strong-evidence-trigger > small { color:#6b7280; font-size:8px; line-height:1.5; }
 .strong-evidence-trigger > div { display:flex; flex-wrap:wrap; gap:4px; }
 .strong-evidence-trigger > div b { padding:2px 5px; border:1px solid rgba(139,92,246,.18); border-radius:999px; color:#6d28d9; background:rgba(255,255,255,.72); font-size:7px; font-weight:700; }
+.strong-evidence-dimensions { display:grid !important; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:3px 6px; }
+.strong-evidence-dimensions em { overflow:hidden; color:#4c1d95; font-size:8px; font-style:normal; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
 @keyframes evolution-focus-pulse { 0% { transform:translateY(4px); opacity:.76; box-shadow:0 0 0 7px rgba(139,92,246,.2); } 100% { transform:translateY(0); opacity:1; box-shadow:0 0 0 2px rgba(139,92,246,.13),0 10px 24px rgba(91,33,182,.1); } }
 .challenge-suggestion { display:grid; gap:6px; }
 .challenge-suggestion > span { display:flex; align-items:center; gap:5px; color:#047857; font-size:8px; font-weight:800; }

@@ -561,6 +561,18 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
     )
 
 
+def test_demo_mode_relaxes_strong_contract(monkeypatch):
+    weak = "不理解为什么复合变换要先右后左，请用动画解释一下。"
+    contract = course_evolution._strong_self_report_contract(weak)
+    assert contract["is_strong"] is False
+
+    monkeypatch.setenv("EVOLUTION_DEMO_MODE", "1")
+    relaxed = course_evolution._strong_self_report_contract(weak)
+    assert relaxed["is_strong"] is True
+    assert relaxed["is_complete_contract"] is True
+    assert relaxed["scope"] == "current"
+
+
 def test_strong_scoped_ai_self_report_immediately_creates_related_course_plan(
     tmp_path,
     monkeypatch,
@@ -609,6 +621,8 @@ def test_strong_scoped_ai_self_report_immediately_creates_related_course_plan(
         "has_persistence": True,
         "has_teaching_request": True,
         "requested_supports": ["explanation", "animation", "practice"],
+        "capability_text": "计算我会",
+        "gap_text": "不理解为什么复合变换要先右",
         "scope": "current_and_next",
     }
     synonym_contract = course_evolution._strong_self_report_contract(

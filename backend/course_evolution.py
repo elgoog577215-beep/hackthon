@@ -1925,6 +1925,13 @@ def _attempt_score(attempt: dict[str, Any] | None) -> float | None:
     return None
 
 
+def _evolution_demo_mode() -> bool:
+    """Demo recordings may relax the strong-evidence contract via env flag."""
+    return os.getenv("EVOLUTION_DEMO_MODE", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def _strong_self_report_contract(statement: str) -> dict[str, Any]:
     """Recognize a complete, actionable learner request without matching one script.
 
@@ -1967,8 +1974,24 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
         ),
     }
 
-    has_capability = any(re.search(pattern, text) for pattern in capability_patterns)
-    has_gap = any(re.search(pattern, text) for pattern in gap_patterns)
+    capability_text = next(
+        (
+            match.group(0)
+            for pattern in capability_patterns
+            if (match := re.search(pattern, text))
+        ),
+        "",
+    )
+    gap_text = next(
+        (
+            match.group(0)
+            for pattern in gap_patterns
+            if (match := re.search(pattern, text))
+        ),
+        "",
+    )
+    has_capability = bool(capability_text)
+    has_gap = bool(gap_text)
     has_persistence = any(marker in text for marker in persistence_markers)
     requested_supports = [
         support
@@ -1989,6 +2012,13 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
         and requested_supports
         and scope
     )
+    if _evolution_demo_mode() and not complete_contract:
+        # Demo mode (EVOLUTION_DEMO_MODE=1): a clear gap plus a concrete
+        # teaching request is enough to trigger growth, so a recording can
+        # rely on one scripted sentence instead of a full evidence trail.
+        complete_contract = bool(has_gap and requested_supports)
+        if complete_contract and not scope:
+            scope = "current"
     precise_local_request = bool(
         has_gap
         and scope == "current"
@@ -2003,6 +2033,8 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
         "has_persistence": has_persistence,
         "has_teaching_request": bool(requested_supports),
         "requested_supports": requested_supports,
+        "capability_text": capability_text,
+        "gap_text": gap_text,
         "scope": scope,
     }
 
