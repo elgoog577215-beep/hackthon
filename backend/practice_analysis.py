@@ -1,21 +1,19 @@
-"""Independent question analysis and answer diagnosis for formal practice.
+"""同源题目合同编译与作答后 AI 诊断。
 
-The course knowledge base defines the same-source assessment intent.  AI first
-understands the question or answer without seeing library IDs, then maps the
-independent finding back to the allowed course-local knowledge, skill, and
-misconception IDs.  The mapping never replaces grading and never invents IDs.
+首次课程生成从题目、私有解答合同和课程本地 AssessmentIntent 确定性编译题目分析，
+不再调用 AI 预检或返工。学生提交答案后，AI 才按需理解真实作答并映射到允许的课程
+知识、能力与易错 ID；映射不替代评分，也不得创造 ID。
 """
 
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 import json
+from copy import deepcopy
 from typing import Any
 
 from ai_base import AIBase, AIProviderUnavailable
 from course_versioning import stable_hash
-
 
 QUESTION_ANALYSIS_SCHEMA = "question_analysis_v1"
 ANSWER_DIAGNOSIS_SCHEMA = "answer_diagnosis_v1"
@@ -258,6 +256,156 @@ def normalize_question_analysis(
     return analysis
 
 
+def compile_question_analysis_from_contract(
+    question: dict[str, Any],
+) -> dict[str, Any]:
+    """Compile answer-diagnosis context from the same-source question contract.
+
+    Generation no longer asks another model to rediscover targets that were
+    already frozen in ``AssessmentIntent`` and ``QuestionSpec``.
+    """
+    intent = question.get("assessment_intent") or {}
+    knowledge_ids = _intent_ids(intent, "target_knowledge")
+    skill_ids = _intent_ids(intent, "target_skills")
+    misconception_ids = _intent_ids(
+        intent,
+        "target_misconceptions",
+    )
+    required_actions = _strings(intent.get("observable_actions"))
+    answer_invariants = _strings(intent.get("answer_invariants"))
+    question_spec = question.get("question_spec") or {}
+    response_contract = question_spec.get("response_contract") or {}
+    prompt = str(question.get("prompt") or "").strip()
+    answer_spec = question.get("answer_spec") or {}
+
+    issues: list[dict[str, str]] = []
+    required_contracts = (
+        (prompt, "question_understanding", "题目缺少可执行题干"),
+        (
+            knowledge_ids,
+            "target_alignment",
+            "题目没有绑定课程知识 ID",
+        ),
+        (
+            skill_ids,
+            "observable_skill",
+            "题目没有绑定可观察能力 ID",
+        ),
+        (
+            required_actions,
+            "observable_skill",
+            "题目没有可观察作答动作",
+        ),
+        (
+            answer_invariants,
+            "answerability",
+            "题目没有可判定答案成立条件",
+        ),
+    )
+    for value, gate, message in required_contracts:
+        if value:
+            continue
+        issues.append({
+            "gate": gate,
+            "severity": "critical",
+            "message": message,
+        })
+    if not (
+        _strings(answer_spec.get("criteria"))
+        or _strings(answer_spec.get("expected_keywords"))
+        or _strings(response_contract.get("required_parts"))
+    ):
+        issues.append({
+            "gate": "answerability",
+            "severity": "critical",
+            "message": "题目缺少私有解答或响应判定合同",
+        })
+
+    allowed = {
+        "knowledge_ids": knowledge_ids,
+        "skill_ids": skill_ids,
+        "misconception_ids": misconception_ids,
+    }
+    mapping = {
+        **deepcopy(allowed),
+        "library_fit": _library_fit(allowed, allowed),
+        "reason": "由 AssessmentIntent 与 QuestionSpec 同源编译",
+    }
+    key_conditions = _strings(response_contract.get("required_parts"))
+    for item in intent.get("target_knowledge") or []:
+        if not isinstance(item, dict):
+            continue
+        key_conditions.extend(_strings(item.get("conditions")))
+        key_conditions.extend(_strings(item.get("boundaries")))
+    likely_wrong_paths = [
+        "；".join(
+            part
+            for part in (
+                str(item.get("name") or "").strip(),
+                str(item.get("observable_error_pattern") or "").strip(),
+                str(item.get("discrimination") or "").strip(),
+            )
+            if part
+        )
+        for item in intent.get("target_misconceptions") or []
+        if isinstance(item, dict)
+    ]
+    passed = not issues and mapping["library_fit"] == "HIT"
+    analysis = {
+        "schema_version": QUESTION_ANALYSIS_SCHEMA,
+        "status": "passed" if passed else "blocked",
+        "analysis_source": "compiled_contract",
+        "assessment_intent_revision_id": intent.get("revision_id"),
+        "question_understanding": {
+            "task_goal": str(
+                intent.get("why_this_question")
+                or prompt
+            ),
+            "required_actions": required_actions,
+            "key_conditions": list(dict.fromkeys(key_conditions)),
+            "answer_invariants": answer_invariants,
+            "acceptable_variations": _strings(
+                response_contract.get("acceptable_variations")
+            ),
+            "likely_wrong_paths": [
+                item for item in likely_wrong_paths if item
+            ],
+        },
+        "mapping": mapping,
+        "quality": {
+            "passed": passed,
+            "difficulty_fit": "contract_bound",
+            "rubric_fit": (
+                "contract_bound" if not any(
+                    item.get("gate") == "answerability"
+                    for item in issues
+                )
+                else "blocked"
+            ),
+            "ambiguity": "contract_checked",
+            "issues": issues,
+        },
+        "reference_solution": {
+            "approach": str(
+                answer_spec.get("approach")
+                or intent.get("why_this_question")
+                or ""
+            ),
+            "key_steps": (
+                _strings(answer_spec.get("criteria"))
+                or _strings(answer_spec.get("expected_keywords"))
+                or answer_invariants
+            ),
+            "self_check": "；".join(answer_invariants),
+        },
+    }
+    analysis["analysis_revision_id"] = stable_hash(
+        analysis,
+        prefix="qar_",
+    )
+    return analysis
+
+
 def unavailable_answer_diagnosis(reason: str) -> dict[str, Any]:
     return {
         "schema_version": ANSWER_DIAGNOSIS_SCHEMA,
@@ -267,7 +415,7 @@ def unavailable_answer_diagnosis(reason: str) -> dict[str, Any]:
 
 
 class PracticeAnalysisService(AIBase):
-    """AI stages for question preflight and post-answer diagnosis."""
+    """作答后 AI 诊断；旧题目预检方法仅保留历史数据兼容，不接入生成主链。"""
 
     async def analyze_questions(
         self,
@@ -847,6 +995,7 @@ __all__ = [
     "PracticeAnalysisUnavailable",
     "QUESTION_ANALYSIS_SCHEMA",
     "build_assessment_intent",
+    "compile_question_analysis_from_contract",
     "normalize_question_analysis",
     "practice_analysis_service",
     "unavailable_answer_diagnosis",

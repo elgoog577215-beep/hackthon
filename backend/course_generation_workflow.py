@@ -26,7 +26,7 @@ from course_pedagogy import SubjectPedagogyProfile
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
-PIPELINE_VERSION = "course_generation_v7"
+PIPELINE_VERSION = "course_generation_v9"
 
 COURSE_RELATION_TYPES = {
     "prerequisite",
@@ -462,6 +462,483 @@ def validate_course_knowledge_skeleton(
         expected={"section_ids": expected_ids},
         issues=issues,
     )
+
+
+def normalize_course_teaching_plan(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize the one-call whole-course section teaching plan.
+
+    Knowledge, capability, mastery and block intent share this one semantic
+    source. ``CourseKnowledgeBase`` is compiled from it later; it is not a
+    separately generated artifact.
+    """
+    normalized_sections: list[dict[str, Any]] = []
+    for raw_section in payload.get("sections") or []:
+        if not isinstance(raw_section, dict):
+            continue
+        package = normalize_section_knowledge_package(raw_section)
+        point_names = [
+            str(point.get("name") or "").strip()
+            for group in package.get("knowledge_structure") or []
+            if isinstance(group, dict)
+            for point in group.get("knowledge_points") or []
+            if isinstance(point, dict)
+            and str(point.get("name") or "").strip()
+        ]
+        teaching_modules = []
+        for raw_module in raw_section.get("teaching_modules") or []:
+            if not isinstance(raw_module, dict):
+                continue
+            teaching_modules.append({
+                "module_id": str(raw_module.get("module_id") or "").strip(),
+                "teaching_purpose": str(
+                    raw_module.get("teaching_purpose")
+                    or raw_module.get("purpose")
+                    or ""
+                ).strip(),
+                "knowledge_names": _unique_strings(
+                    list(raw_module.get("knowledge_names") or [])
+                ),
+                "teaching_guidance": str(
+                    raw_module.get("teaching_guidance")
+                    or raw_module.get("guidance")
+                    or ""
+                ).strip(),
+            })
+        normalized_sections.append({
+            "node_id": str(raw_section.get("node_id") or "").strip(),
+            "knowledge_structure": deepcopy(
+                package.get("knowledge_structure") or []
+            ),
+            "key_points": (
+                list(package.get("key_points") or [])
+                or _unique_strings(point_names)
+            ),
+            "reused_knowledge_names": list(
+                package.get("reused_knowledge_names") or []
+            ),
+            "knowledge_relations": deepcopy(
+                package.get("knowledge_relations") or []
+            ),
+            "teaching_modules": teaching_modules,
+        })
+    normalized = {
+        "schema_version": "course_teaching_plan_v2",
+        "source_outline_revision_id": str(
+            payload.get("source_outline_revision_id")
+            or payload.get("source_scope_revision_id")
+            or ""
+        ),
+        "sections": normalized_sections,
+    }
+    normalized["revision_id"] = stable_hash(
+        normalized,
+        prefix="teaching_",
+    )
+    return normalized
+
+
+def compile_course_teaching_plan_modules(
+    payload: dict[str, Any],
+    *,
+    sections: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Compile constrained teaching intent onto the template-owned skeleton.
+
+    The model owns section knowledge and may add local emphasis, but it does
+    not own the hard block structure. Unknown blocks are discarded, missing
+    required blocks are restored from the deterministic template, and every
+    new knowledge point is bound to at least one retained block.
+    """
+    teaching_plan = normalize_course_teaching_plan(payload)
+    actual_by_id = {
+        str(item.get("node_id") or ""): item
+        for item in teaching_plan.get("sections") or []
+        if isinstance(item, dict)
+        and str(item.get("node_id") or "")
+    }
+    compiled_sections: list[dict[str, Any]] = []
+    available_names: list[str] = []
+
+    for expected in sections:
+        section_id = str(expected.get("node_id") or "")
+        actual = actual_by_id.get(section_id)
+        if actual is None:
+            continue
+
+        package = normalize_section_knowledge_package(actual)
+        local_names = _unique_strings([
+            point.get("name")
+            for group in package.get("knowledge_structure") or []
+            if isinstance(group, dict)
+            for point in group.get("knowledge_points") or []
+            if isinstance(point, dict)
+        ])
+        reused_names = _unique_strings(
+            package.get("reused_knowledge_names") or []
+        )
+        canonical_names: dict[str, str] = {}
+        for name in [*available_names, *local_names, *reused_names]:
+            normalized_name = _normalize_knowledge_name(name)
+            if normalized_name:
+                canonical_names.setdefault(normalized_name, name)
+
+        baseline_modules = [
+            deepcopy(item)
+            for item in expected.get("module_plan") or []
+            if isinstance(item, dict)
+            and str(item.get("module_id") or "")
+        ]
+        baseline_by_id = {
+            str(item.get("module_id") or ""): item
+            for item in baseline_modules
+        }
+        selected_by_id: dict[str, dict[str, Any]] = {}
+        for intent in actual.get("teaching_modules") or []:
+            if not isinstance(intent, dict):
+                continue
+            module_id = str(intent.get("module_id") or "")
+            if module_id not in baseline_by_id:
+                continue
+            selected = selected_by_id.setdefault(module_id, {
+                "module_id": module_id,
+                "teaching_purpose": "",
+                "knowledge_names": [],
+                "teaching_guidance": "",
+            })
+            if not selected["teaching_purpose"]:
+                selected["teaching_purpose"] = str(
+                    intent.get("teaching_purpose") or ""
+                ).strip()
+            if not selected["teaching_guidance"]:
+                selected["teaching_guidance"] = str(
+                    intent.get("teaching_guidance") or ""
+                ).strip()
+            selected["knowledge_names"] = _unique_strings([
+                *selected["knowledge_names"],
+                *[
+                    canonical_names[normalized_name]
+                    for name in intent.get("knowledge_names") or []
+                    if (
+                        normalized_name := _normalize_knowledge_name(name)
+                    ) in canonical_names
+                ],
+            ])
+
+        compiled_modules: list[dict[str, Any]] = []
+        for baseline in baseline_modules:
+            module_id = str(baseline.get("module_id") or "")
+            intent = selected_by_id.get(module_id)
+            if not baseline.get("required", True) and intent is None:
+                continue
+            label = str(
+                baseline.get("label") or module_id or "课程块"
+            ).strip()
+            output_contract = str(
+                baseline.get("output_contract") or ""
+            ).strip()
+            prompt_instruction = str(
+                baseline.get("prompt_instruction") or ""
+            ).strip()
+            fallback_purpose = (
+                f"按模板完成「{label}」：{output_contract}"
+                if output_contract
+                else f"按模板完成「{label}」的教学职责"
+            )
+            knowledge_names = list(
+                (intent or {}).get("knowledge_names") or []
+            )
+            if not knowledge_names:
+                knowledge_names = list(local_names or reused_names)
+            compiled_modules.append({
+                "module_id": module_id,
+                "teaching_purpose": str(
+                    (intent or {}).get("teaching_purpose")
+                    or fallback_purpose
+                ).strip(),
+                "knowledge_names": knowledge_names,
+                "teaching_guidance": str(
+                    (intent or {}).get("teaching_guidance")
+                    or prompt_instruction
+                    or output_contract
+                    or fallback_purpose
+                ).strip(),
+            })
+
+        covered_names = {
+            _normalize_knowledge_name(name)
+            for module in compiled_modules
+            for name in module.get("knowledge_names") or []
+            if _normalize_knowledge_name(name)
+        }
+        uncovered_names = [
+            name
+            for name in local_names
+            if _normalize_knowledge_name(name) not in covered_names
+        ]
+        if uncovered_names and compiled_modules:
+            preferred = next(
+                (
+                    module
+                    for module in compiled_modules
+                    if module.get("module_id") == "core_explanation"
+                ),
+                None,
+            )
+            if preferred is None:
+                preferred = next(
+                    (
+                        module
+                        for module in compiled_modules
+                        if str(
+                            baseline_by_id.get(
+                                str(module.get("module_id") or ""),
+                                {},
+                            ).get("block_role") or ""
+                        ) in {"concept", "reasoning"}
+                    ),
+                    compiled_modules[0],
+                )
+            preferred["knowledge_names"] = _unique_strings([
+                *preferred.get("knowledge_names", []),
+                *uncovered_names,
+            ])
+
+        compiled_section = deepcopy(actual)
+        compiled_section["teaching_modules"] = compiled_modules
+        compiled_sections.append(compiled_section)
+        available_names.extend(local_names)
+
+    return normalize_course_teaching_plan({
+        "source_outline_revision_id": teaching_plan.get(
+            "source_outline_revision_id"
+        ),
+        "sections": compiled_sections,
+    })
+
+
+def validate_course_teaching_plan(
+    payload: dict[str, Any],
+    *,
+    sections: list[dict[str, Any]],
+    expected_outline_revision_id: str | None = None,
+) -> dict[str, Any]:
+    """Validate one whole-course plan without adding an AI scoring loop."""
+    teaching_plan = normalize_course_teaching_plan(payload)
+    expected_ids = [
+        str(section.get("node_id") or "")
+        for section in sections
+        if str(section.get("node_id") or "")
+    ]
+    actual_ids = [
+        str(section.get("node_id") or "")
+        for section in teaching_plan.get("sections") or []
+    ]
+    issues: list[dict[str, Any]] = []
+    if (
+        expected_outline_revision_id is not None
+        and teaching_plan.get("source_outline_revision_id")
+        != expected_outline_revision_id
+    ):
+        issues.append(_plan_issue(
+            "teaching_plan:stale_outline_revision",
+            "全课小节教案对应的目录版本已经过期",
+        ))
+    if actual_ids != expected_ids:
+        issues.append(_plan_issue(
+            "teaching_plan:section_order_mismatch",
+            "全课小节教案必须按目录顺序完整覆盖所有小节",
+        ))
+    if len(actual_ids) != len(set(actual_ids)):
+        issues.append(_plan_issue(
+            "teaching_plan:duplicate_section",
+            "全课小节教案包含重复小节",
+        ))
+
+    expected_by_id = {
+        str(section.get("node_id") or ""): section
+        for section in sections
+        if str(section.get("node_id") or "")
+    }
+    actual_by_id = {
+        str(section.get("node_id") or ""): section
+        for section in teaching_plan.get("sections") or []
+        if str(section.get("node_id") or "")
+    }
+    available_names: list[str] = []
+    point_count = 0
+    module_count = 0
+    for section_id in expected_ids:
+        expected = expected_by_id.get(section_id) or {}
+        actual = actual_by_id.get(section_id) or {}
+        package = normalize_section_knowledge_package(actual)
+        section_report = validate_section_knowledge_package(
+            package,
+            section_title=str(expected.get("title") or section_id),
+            available_knowledge_names=available_names,
+        )
+        issues.extend(deepcopy(section_report.get("issues") or []))
+
+        local_names = [
+            str(point.get("name") or "").strip()
+            for group in package.get("knowledge_structure") or []
+            if isinstance(group, dict)
+            for point in group.get("knowledge_points") or []
+            if isinstance(point, dict)
+            and str(point.get("name") or "").strip()
+        ]
+        known_names = {
+            _normalize_knowledge_name(name)
+            for name in [
+                *available_names,
+                *local_names,
+                *(package.get("reused_knowledge_names") or []),
+            ]
+            if _normalize_knowledge_name(name)
+        }
+        point_count += len(local_names)
+
+        baseline_modules = [
+            item
+            for item in expected.get("module_plan") or []
+            if isinstance(item, dict)
+            and str(item.get("module_id") or "")
+        ]
+        allowed_module_ids = {
+            str(item.get("module_id") or "")
+            for item in baseline_modules
+        }
+        required_module_ids = {
+            str(item.get("module_id") or "")
+            for item in baseline_modules
+            if item.get("required", True)
+        }
+        planned_modules = [
+            item
+            for item in actual.get("teaching_modules") or []
+            if isinstance(item, dict)
+        ]
+        planned_ids = [
+            str(item.get("module_id") or "")
+            for item in planned_modules
+            if str(item.get("module_id") or "")
+        ]
+        module_count += len(planned_ids)
+        if set(planned_ids) - allowed_module_ids:
+            issues.append(_plan_issue(
+                "teaching_plan:unknown_module",
+                f"小节 {section_id} 选择了模板未提供的课程块",
+            ))
+        if required_module_ids - set(planned_ids):
+            issues.append(_plan_issue(
+                "teaching_plan:missing_required_module",
+                f"小节 {section_id} 缺少模板规定的必需课程块",
+            ))
+        if len(planned_ids) != len(set(planned_ids)):
+            issues.append(_plan_issue(
+                "teaching_plan:duplicate_module",
+                f"小节 {section_id} 重复安排了同一个课程块",
+            ))
+        covered_names: set[str] = set()
+        for module in planned_modules:
+            module_id = str(module.get("module_id") or "")
+            if module_id and not str(
+                module.get("teaching_purpose") or ""
+            ).strip():
+                issues.append(_plan_issue(
+                    "teaching_plan:module_missing_purpose",
+                    f"小节 {section_id} 的课程块 {module_id} 没有明确教学职责",
+                ))
+            for knowledge_name in module.get("knowledge_names") or []:
+                normalized_name = _normalize_knowledge_name(knowledge_name)
+                if normalized_name not in known_names:
+                    issues.append(_plan_issue(
+                        "teaching_plan:unknown_module_knowledge",
+                        f"小节 {section_id} 的课程块引用了教案中不存在的知识「{knowledge_name}」",
+                    ))
+                else:
+                    covered_names.add(normalized_name)
+        missing_coverage = [
+            name
+            for name in local_names
+            if _normalize_knowledge_name(name) not in covered_names
+        ]
+        if missing_coverage:
+            issues.append(_plan_issue(
+                "teaching_plan:knowledge_without_module",
+                f"小节 {section_id} 还有知识点未分配课程块：{'、'.join(missing_coverage)}",
+            ))
+        available_names.extend(local_names)
+
+    return _constraint_report(
+        schema_version="course_teaching_plan_validation_v1",
+        expected={"section_ids": expected_ids},
+        actual={
+            "section_count": len(actual_ids),
+            "knowledge_point_count": point_count,
+            "teaching_module_count": module_count,
+        },
+        issues=issues,
+    )
+
+
+def apply_course_teaching_plan(
+    plan: dict[str, Any],
+    teaching_plan: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach knowledge and constrained block intent to the frozen outline."""
+    plan = deepcopy(plan)
+    by_section = {
+        str(item.get("node_id") or ""): item
+        for item in teaching_plan.get("sections") or []
+        if isinstance(item, dict)
+    }
+    for chapter in plan.get("chapters") or []:
+        for section in chapter.get("sections") or []:
+            node_id = str(section.get("node_id") or "")
+            planned = by_section.get(node_id)
+            if planned is None:
+                raise KeyError(node_id)
+            apply_section_knowledge_package(plan, node_id, planned)
+            selected_by_id = {
+                str(item.get("module_id") or ""): item
+                for item in planned.get("teaching_modules") or []
+                if isinstance(item, dict)
+                and str(item.get("module_id") or "")
+            }
+            selected_modules: list[dict[str, Any]] = []
+            for baseline in section.get("module_plan") or []:
+                if not isinstance(baseline, dict):
+                    continue
+                module_id = str(baseline.get("module_id") or "")
+                intent = selected_by_id.get(module_id)
+                if not baseline.get("required", True) and intent is None:
+                    continue
+                module = deepcopy(baseline)
+                if intent:
+                    module["teaching_purpose"] = str(
+                        intent.get("teaching_purpose") or ""
+                    )
+                    module["knowledge_names"] = list(
+                        intent.get("knowledge_names") or []
+                    )
+                    module["teaching_guidance"] = str(
+                        intent.get("teaching_guidance") or ""
+                    )
+                selected_modules.append(module)
+            section["module_plan"] = selected_modules
+            section["teaching_intent"] = {
+                "schema_version": "section_teaching_intent_v1",
+                "module_ids": [
+                    str(item.get("module_id") or "")
+                    for item in selected_modules
+                ],
+                "knowledge_names": list(section.get("key_points") or []),
+            }
+    plan["teaching_plan_schema_version"] = "course_teaching_plan_v2"
+    plan["teaching_plan_revision_id"] = teaching_plan.get("revision_id")
+    return normalize_course_plan_contract(plan)
 
 
 def build_section_knowledge_material_context(

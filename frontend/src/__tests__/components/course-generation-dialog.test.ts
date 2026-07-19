@@ -14,7 +14,7 @@ describe('CourseGenerationDialog', () => {
     await setLocale('zh')
   })
 
-  it('默认走六步确认流程，不提供直接生成入口', async () => {
+  it('默认走四步确认流程，不提供直接生成入口', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: {
@@ -30,7 +30,8 @@ describe('CourseGenerationDialog', () => {
     await wrapper.findAll('.composition-option')[2]!.trigger('click')
     await wrapper.findAll('.compact-grid select')[0]!.setValue('math_formal')
     await wrapper.find('[data-testid="web-question-enrichment"]').setValue(true)
-    expect(wrapper.text()).toContain('分六步完成课程')
+    expect(wrapper.text()).toContain('四步完成课程')
+    expect(wrapper.findAll('.guided-intro__steps li')).toHaveLength(4)
     expect(wrapper.text()).not.toContain('直接生成')
     await wrapper.get('#course-requirements').setValue('保留完整推导，并提供独立练习')
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')

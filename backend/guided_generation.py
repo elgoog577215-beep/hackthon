@@ -1,4 +1,4 @@
-"""Deterministic state and revision rules for the six-step course workflow."""
+"""Deterministic state and revision rules for the four-step course workflow."""
 
 from __future__ import annotations
 
@@ -8,106 +8,13 @@ from typing import Any
 
 from course_versioning import stable_hash
 
-
-GUIDED_WORKFLOW_SCHEMA = "guided_course_generation_v1"
+GUIDED_WORKFLOW_SCHEMA = "guided_course_generation_v2"
 GUIDED_STEP_KEYS = (
     "requirements",
     "outline",
-    "knowledge",
-    "teaching",
     "content",
     "release",
 )
-
-
-def _pick(item: dict[str, Any], *keys: str) -> dict[str, Any]:
-    return {key: deepcopy(item.get(key)) for key in keys if key in item}
-
-
-def _knowledge_semantic_payload(knowledge_base: dict[str, Any]) -> dict[str, Any]:
-    """Keep the reviewed knowledge meaning stable as downstream bindings are added."""
-    return {
-        "concept_groups": [
-            _pick(
-                item,
-                "concept_group_id",
-                "name",
-                "description",
-                "learning_purpose",
-                "knowledge_point_ids",
-            )
-            for item in knowledge_base.get("concept_groups") or []
-            if isinstance(item, dict)
-        ],
-        "knowledge_points": [
-            _pick(
-                item,
-                "knowledge_id",
-                "name",
-                "statement",
-                "knowledge_statement",
-                "knowledge_type",
-                "conditions",
-                "boundaries",
-                "aliases",
-            )
-            for item in knowledge_base.get("knowledge_points") or []
-            if isinstance(item, dict)
-        ],
-        "skill_units": [
-            _pick(
-                item,
-                "skill_id",
-                "name",
-                "observable_behavior",
-                "knowledge_ids",
-            )
-            for item in knowledge_base.get("skill_units") or []
-            if isinstance(item, dict)
-        ],
-        "misconceptions": [
-            _pick(
-                item,
-                "misconception_id",
-                "name",
-                "description",
-                "trigger",
-                "correction",
-                "primary_knowledge_id",
-            )
-            for item in knowledge_base.get("misconceptions") or []
-            if isinstance(item, dict)
-        ],
-        "mastery_criteria": [
-            _pick(
-                item,
-                "criterion_id",
-                "name",
-                "observable_performance",
-                "verification_method",
-                "knowledge_ids",
-            )
-            for item in knowledge_base.get("mastery_criteria") or []
-            if isinstance(item, dict)
-        ],
-        "relations": [
-            _pick(
-                item,
-                "source_knowledge_id",
-                "target_knowledge_id",
-                "source_id",
-                "target_id",
-                "relation_type",
-                "reason",
-                "conditions",
-                "relation_group_id",
-                "group_operator",
-            )
-            for item in knowledge_base.get("relations") or []
-            if isinstance(item, dict)
-        ],
-    }
-
 
 def create_guided_workflow(request: dict[str, Any]) -> dict[str, Any]:
     """Create the durable user-facing workflow for a new generation job."""
@@ -144,6 +51,76 @@ def create_guided_workflow(request: dict[str, Any]) -> dict[str, Any]:
         "steps": steps,
         "updated_at": now,
     }
+
+
+def migrate_guided_workflow(
+    workflow: dict[str, Any],
+    *,
+    request: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Collapse persisted v1 knowledge/teaching gates into the v2 content step."""
+    keys = [
+        str(item.get("key") or "")
+        for item in workflow.get("steps") or []
+        if isinstance(item, dict)
+    ]
+    if (
+        workflow.get("schema_version") == GUIDED_WORKFLOW_SCHEMA
+        and keys == list(GUIDED_STEP_KEYS)
+    ):
+        return deepcopy(workflow)
+
+    old_by_key = {
+        str(item.get("key") or ""): item
+        for item in workflow.get("steps") or []
+        if isinstance(item, dict)
+    }
+    migrated = create_guided_workflow(request or {})
+    for key in GUIDED_STEP_KEYS:
+        old = old_by_key.get(key)
+        if not old:
+            continue
+        target = step_state(migrated, key)
+        for field in (
+            "status",
+            "artifact_revision",
+            "confirmed_at",
+            "previous_confirmed_revision",
+        ):
+            if field in old:
+                target[field] = deepcopy(old[field])
+
+    old_review = str(workflow.get("review_step") or "")
+    old_current = str(workflow.get("current_step") or "")
+    if old_review in {"outline", "content", "release"}:
+        migrated["review_step"] = old_review
+        migrated["current_step"] = old_review
+    elif old_review in {"knowledge", "teaching"}:
+        migrated["review_step"] = None
+        migrated["current_step"] = "content"
+        content = step_state(migrated, "content")
+        if content.get("status") in {"locked", "needs_regeneration"}:
+            content["status"] = "pending"
+    elif old_current in {"outline", "content", "release"}:
+        migrated["current_step"] = old_current
+    elif old_current in {"knowledge", "teaching"}:
+        migrated["current_step"] = "content"
+
+    for key in GUIDED_STEP_KEYS:
+        item = step_state(migrated, key)
+        if item.get("status") in {
+            "confirmed",
+            "waiting_for_confirmation",
+            "in_progress",
+        }:
+            item["input_revisions"] = expected_input_revisions(
+                migrated,
+                key,
+            )
+        else:
+            item["input_revisions"] = {}
+    migrated["updated_at"] = datetime.now().isoformat()
+    return migrated
 
 
 def step_state(workflow: dict[str, Any], step: str) -> dict[str, Any]:
@@ -268,6 +245,101 @@ def expected_input_revisions(
     return expected
 
 
+def _outline_revision_payload(course_data: dict[str, Any]) -> dict[str, Any]:
+    """Return only the user-approved directory contract.
+
+    Downstream compilation is allowed to add knowledge, module, difficulty and
+    evidence fields to the full plan. Those derived fields must not make the
+    already-confirmed directory look edited.
+    """
+    outline = (
+        course_data.get("course_outline")
+        or course_data.get("course_plan")
+        or {}
+    )
+    chapters: list[dict[str, Any]] = []
+    for chapter in outline.get("chapters") or []:
+        if not isinstance(chapter, dict):
+            continue
+        sections: list[dict[str, Any]] = []
+        for section in chapter.get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            sections.append(
+                {
+                    "section_number": str(
+                        section.get("section_number") or ""
+                    ),
+                    "node_id": str(section.get("node_id") or ""),
+                    "title": str(section.get("title") or ""),
+                    "learning_objective": str(
+                        section.get("learning_objective") or ""
+                    ),
+                    "scope_boundary": str(
+                        section.get("scope_boundary") or ""
+                    ),
+                    "assessment": deepcopy(
+                        section.get("assessment") or []
+                    ),
+                    "prerequisite_node_ids": [
+                        str(item)
+                        for item in (
+                            section.get("prerequisite_node_ids") or []
+                        )
+                        if str(item)
+                    ],
+                }
+            )
+        chapters.append(
+            {
+                "chapter_number": str(
+                    chapter.get("chapter_number") or ""
+                ),
+                "title": str(chapter.get("title") or ""),
+                "learning_focus": str(
+                    chapter.get("learning_focus") or ""
+                ),
+                "sections": sections,
+            }
+        )
+    return {
+        "course_name": str(course_data.get("course_name") or ""),
+        "course_title": str(outline.get("course_title") or ""),
+        "positioning": str(outline.get("positioning") or ""),
+        "learning_objectives": deepcopy(
+            outline.get("learning_objectives") or []
+        ),
+        "prerequisites": deepcopy(outline.get("prerequisites") or []),
+        "chapters": chapters,
+        "nodes": [
+            {
+                "node_id": str(node.get("node_id") or ""),
+                "parent_node_id": str(
+                    node.get("parent_node_id") or ""
+                ),
+                "node_name": str(node.get("node_name") or ""),
+                "node_level": int(node.get("node_level") or 1),
+                "learning_objective": str(
+                    node.get("learning_objective") or ""
+                ),
+                "prerequisite_node_ids": [
+                    str(item)
+                    for item in (
+                        node.get("prerequisite_node_ids") or []
+                    )
+                    if str(item)
+                ],
+                "scope_boundary": str(
+                    node.get("scope_boundary") or ""
+                ),
+                "assessment": deepcopy(node.get("assessment") or []),
+            }
+            for node in course_data.get("nodes") or []
+            if isinstance(node, dict)
+        ],
+    }
+
+
 def artifact_revision(
     step: str,
     course_data: dict[str, Any],
@@ -299,61 +371,18 @@ def artifact_revision(
         return stable_hash(payload, prefix="req_")
     if step == "outline":
         return stable_hash(
-            {
-                "course_name": course_data.get("course_name"),
-                "course_outline": course_data.get("course_outline") or {},
-                "nodes": [
-                    {
-                        "node_id": node.get("node_id"),
-                        "parent_node_id": node.get("parent_node_id"),
-                        "node_name": node.get("node_name"),
-                        "node_level": node.get("node_level"),
-                        "learning_objective": node.get("learning_objective"),
-                        "prerequisite_node_ids": node.get("prerequisite_node_ids") or [],
-                        "scope_boundary": node.get("scope_boundary"),
-                    }
-                    for node in course_data.get("nodes") or []
-                ],
-            },
+            _outline_revision_payload(course_data),
             prefix="outline_",
-        )
-    if step == "knowledge":
-        knowledge_base = course_data.get("course_knowledge_base") or {}
-        return stable_hash(
-            _knowledge_semantic_payload(knowledge_base),
-            prefix="knowledge_",
-        )
-    if step == "teaching":
-        return stable_hash(
-            {
-                "knowledge_revision": artifact_revision("knowledge", course_data),
-                "course_module_plan": course_data.get("course_module_plan") or {},
-                "course_composition_profile": (
-                    course_data.get("course_composition_profile") or {}
-                ),
-                "course_block_distribution": (
-                    course_data.get("course_block_distribution") or {}
-                ),
-                "learning_asset_plan": course_data.get("learning_asset_plan") or {},
-                "nodes": [
-                    {
-                        "node_id": node.get("node_id"),
-                        "learning_objective": node.get("learning_objective"),
-                        "module_plan": node.get("module_plan") or {},
-                        "exercise_plan": node.get("exercise_plan") or {},
-                        "examples_plan": node.get("examples_plan") or {},
-                    }
-                    for node in course_data.get("nodes") or []
-                    if int(node.get("node_level") or 1) == 2
-                ],
-            },
-            prefix="teaching_",
         )
     if step == "content":
         return stable_hash(
             {
-                "knowledge_revision": artifact_revision("knowledge", course_data),
-                "teaching_revision": artifact_revision("teaching", course_data),
+                "teaching_plan_revision": (
+                    course_data.get("course_teaching_plan") or {}
+                ).get("revision_id"),
+                "knowledge_revision": (
+                    course_data.get("course_knowledge_base") or {}
+                ).get("revision_id"),
                 "nodes": [
                     {
                         "node_id": node.get("node_id"),
@@ -506,5 +535,6 @@ __all__ = [
     "is_confirmed",
     "mark_running",
     "mark_waiting",
+    "migrate_guided_workflow",
     "step_state",
 ]

@@ -231,6 +231,7 @@ async def test_stream_failure_raises_typed_error_without_fake_content(monkeypatc
     )
     service.smart_models = ["model-a", "model-b"]
     service._working_model_cache.clear()
+    service._model_failure_cache.clear()
 
     yielded = []
     with pytest.raises(AIProviderRequestError, match="connection reset"):
