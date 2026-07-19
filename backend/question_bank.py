@@ -652,6 +652,7 @@ def reconcile_scoped_question_bank(
     *,
     node_ids: Iterable[str],
     preserve_reviewed: bool = True,
+    preserve_global_assessments: bool = False,
 ) -> dict[str, Any]:
     """Replace only selected nodes while preserving other active revisions."""
     if not previous:
@@ -671,6 +672,12 @@ def reconcile_scoped_question_bank(
         raise ValueError("node_ids are required for scoped reconciliation")
 
     def in_scope(item: dict[str, Any]) -> bool:
+        if (
+            preserve_global_assessments
+            and str(item.get("assessment_role") or "")
+            in FINAL_ASSESSMENT_ROLES
+        ):
+            return False
         item_nodes = {
             str(value)
             for value in (

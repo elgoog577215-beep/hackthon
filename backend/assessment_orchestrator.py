@@ -47,6 +47,10 @@ AssessmentProgressCallback = Callable[
     [dict[str, Any]],
     Awaitable[None] | None,
 ]
+AssessmentChapterCallback = Callable[
+    [dict[str, Any]],
+    Awaitable[None] | None,
+]
 
 
 class AssessmentModel(Protocol):
@@ -630,6 +634,7 @@ class AssessmentGenerationOrchestrator:
         *,
         node_ids: Iterable[str] | None = None,
         on_progress: AssessmentProgressCallback | None = None,
+        on_chapter_complete: AssessmentChapterCallback | None = None,
         reference_package: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         prepared = deepcopy(course_data)
@@ -695,7 +700,7 @@ class AssessmentGenerationOrchestrator:
         total_items = len(target_nodes) * len(PRACTICE_LEVELS)
         audit["planned_item_count"] = total_items
         completed_items = 0
-        if self.slot_concurrency > 1:
+        if self.slot_concurrency > 1 or on_chapter_complete is not None:
             contracts = await self._generate_targets_concurrently(
                 prepared=prepared,
                 target_nodes=target_nodes,
@@ -705,6 +710,7 @@ class AssessmentGenerationOrchestrator:
                 reference_package=resolved_reference_package,
                 audit=audit,
                 on_progress=on_progress,
+                on_chapter_complete=on_chapter_complete,
                 total_items=total_items,
             )
             completed_items = total_items
@@ -929,6 +935,7 @@ class AssessmentGenerationOrchestrator:
                 ) as exc:
                     audit["failure_count"] += 1
                     item_audit["error_code"] = type(exc).__name__
+                    item_audit["error_message"] = str(exc)[:500]
                     item_audit["final_decision"] = "discard"
                     audit["items"].append(item_audit)
                     raise
@@ -963,6 +970,7 @@ class AssessmentGenerationOrchestrator:
                     audit["fallback_count"] += 1
                     audit["failure_count"] += 1
                     item_audit["error_code"] = type(exc).__name__
+                    item_audit["error_message"] = str(exc)[:500]
                     item_audit["final_decision"] = "discard"
                     audit["items"].append(item_audit)
                 completed_items += 1
@@ -1003,6 +1011,7 @@ class AssessmentGenerationOrchestrator:
         reference_package: dict[str, Any],
         audit: dict[str, Any],
         on_progress: AssessmentProgressCallback | None,
+        on_chapter_complete: AssessmentChapterCallback | None,
         total_items: int,
     ) -> dict[str, dict[str, dict[str, Any]]]:
         contracts: dict[str, dict[str, dict[str, Any]]] = {}
@@ -1073,10 +1082,12 @@ class AssessmentGenerationOrchestrator:
                 for index, level in enumerate(PRACTICE_LEVELS)
             ])
             fatal_errors: list[Exception] = []
+            node_audit_items: list[dict[str, Any]] = []
             for practice_level, contract, item_audit, fatal in results:
                 if contract is not None:
                     contracts[node_id][practice_level] = contract
                 audit["items"].append(item_audit)
+                node_audit_items.append(item_audit)
                 if fatal is not None:
                     fatal_errors.append(fatal)
                 completed_items += 1
@@ -1089,6 +1100,39 @@ class AssessmentGenerationOrchestrator:
                         "total_items": total_items,
                     },
                 )
+            chapter_passed = bool(
+                not fatal_errors
+                and set(contracts[node_id]) == set(PRACTICE_LEVELS)
+                and all(
+                    str(item.get("final_decision") or "")
+                    in {"publish", "teacher_review"}
+                    for item in node_audit_items
+                )
+            )
+            await _notify_progress(
+                on_chapter_complete,
+                {
+                    "node_id": node_id,
+                    "node_name": str(
+                        node.get("node_name") or node_id
+                    ),
+                    "passed": chapter_passed,
+                    "contracts": deepcopy(contracts[node_id]),
+                    "audit_items": deepcopy(node_audit_items),
+                    "completed_items": completed_items,
+                    "total_items": total_items,
+                    "error_code": (
+                        type(fatal_errors[0]).__name__
+                        if fatal_errors
+                        else ""
+                    ),
+                    "error_message": (
+                        str(fatal_errors[0])[:500]
+                        if fatal_errors
+                        else ""
+                    ),
+                },
+            )
             if fatal_errors:
                 raise fatal_errors[0]
         return contracts
@@ -1407,6 +1451,7 @@ class AssessmentGenerationOrchestrator:
         ) as exc:
             audit["failure_count"] += 1
             item_audit["error_code"] = type(exc).__name__
+            item_audit["error_message"] = str(exc)[:500]
             item_audit["final_decision"] = "discard"
             return practice_level, None, item_audit, exc
         except Exception as exc:
@@ -1439,6 +1484,7 @@ class AssessmentGenerationOrchestrator:
             audit["fallback_count"] += 1
             audit["failure_count"] += 1
             item_audit["error_code"] = type(exc).__name__
+            item_audit["error_message"] = str(exc)[:500]
             item_audit["final_decision"] = "discard"
             return practice_level, fallback, item_audit, None
 

@@ -5,24 +5,53 @@
         <p>{{ t('questionBank.eyebrow', '教师工作区') }}</p>
         <h3 id="question-bank-title">{{ t('questionBank.title', '课程题库质量管理') }}</h3>
       </div>
-      <button type="button" :disabled="loading || rebuilding" @click="rebuild()">
-        <RefreshCw :size="14" :class="{ spin: rebuilding }" />
-        {{ t('questionBank.rebuild', '重新整理') }}
-      </button>
+      <div class="question-bank-panel__header-action">
+        <small>
+          {{ t(
+            'questionBank.regenerateHelp',
+            '新题通过质量检查后才会替换当前题库',
+          ) }}
+        </small>
+        <button
+          type="button"
+          data-testid="rebuild-course-question-bank"
+          :disabled="loading || rebuilding"
+          @click="rebuild()"
+        >
+          <RefreshCw :size="14" :class="{ spin: rebuilding }" />
+          {{ rebuilding
+            ? t('questionBank.regeneratingCourse', '正在重新生成课程题目')
+            : t('questionBank.regenerateCourse', '重新生成整门课程题目') }}
+        </button>
+      </div>
     </header>
 
     <section
       v-if="rebuildJob"
       class="question-bank-progress"
-      role="status"
+      :data-status="rebuildJob.status"
+      role="progressbar"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      :aria-valuenow="rebuildJob.progress"
+      :aria-label="t('questionBank.regenerateProgress', '课程题目重新生成进度')"
       aria-live="polite"
     >
       <div>
-        <strong>{{ rebuildJob.message || rebuildStageLabel }}</strong>
-        <span>{{ rebuildStageLabel }}</span>
+        <strong>{{ rebuildHeadline }}</strong>
+        <span>{{ rebuildJob.message || rebuildStageLabel }}</span>
+        <small
+          v-if="chapterProgressLabel"
+          class="question-bank-progress__chapter"
+        >
+          {{ chapterProgressLabel }}
+        </small>
       </div>
       <b>{{ rebuildJob.progress }}%</b>
       <i><span :style="{ width: `${rebuildJob.progress}%` }"></span></i>
+      <small v-if="rebuildErrorMessage" class="question-bank-progress__error">
+        {{ rebuildErrorMessage }}
+      </small>
     </section>
 
     <div v-if="loading" class="question-bank-panel__state">
@@ -224,7 +253,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
 import {
   Check,
   CircleCheck,
@@ -238,6 +274,7 @@ import {
 import http from '@/utils/http'
 import { t } from '@/shared/i18n'
 import {
+  resumeQuestionBankRebuild,
   runQuestionBankRebuild,
   type QuestionBankRebuildJob,
 } from '@/utils/question-bank-rebuild'
@@ -276,6 +313,7 @@ const loading = ref(false)
 const rebuilding = ref(false)
 const actingRevision = ref('')
 const errorMessage = ref('')
+const rebuildErrorMessage = ref('')
 const bundleRevisionId = ref('')
 const coverage = ref<Record<string, number>>({})
 const reviewQueue = ref<Record<string, any>>({})
@@ -289,6 +327,7 @@ const solutionLoadingRevision = ref('')
 const solutions = reactive<Record<string, Record<string, any>>>({})
 const browserQuery = ref('')
 const browserStatus = ref<'all' | 'published' | 'mandatory' | 'rework'>('all')
+let rebuildAbortController: AbortController | null = null
 
 const activeItems = computed(() => items.value.filter(
   item => item.lifecycle_status !== 'retired',
@@ -365,6 +404,46 @@ const rebuildStageLabel = computed(() => {
   const stage = rebuildJob.value?.stages?.find(item => item.stage_id === current)
   return String(stage?.label || current || t('questionBank.rebuildQueued', '等待生成'))
 })
+const rebuildHeadline = computed(() => {
+  const status = rebuildJob.value?.status
+  if (status === 'completed') {
+    return t(
+      'questionBank.regenerateCompleted',
+      '课程题目已重新生成并发布',
+    )
+  }
+  if (status === 'waiting_review') {
+    return t(
+      'questionBank.regenerateWaitingReview',
+      '题目已生成，部分高风险题目待审核',
+    )
+  }
+  if (status === 'failed') {
+    return t(
+      'questionBank.regenerateFailed',
+      '重新生成失败，当前有效题库保持不变',
+    )
+  }
+  return t(
+    'questionBank.regenerateRunning',
+    '正在按章节重新生成课程题目',
+  )
+})
+const chapterProgressLabel = computed(() => {
+  const details = rebuildJob.value?.stage_details
+  const total = Number(details?.total_chapters || 0)
+  if (!total) return ''
+  const published = Number(details?.published_chapters || 0)
+  const current = String(details?.current_chapter || '').trim()
+  const currentItem = Number(details?.current_chapter_item || 0)
+  const itemTotal = Number(details?.chapter_item_total || 3)
+  return [
+    `章节发布 ${published}/${total}`,
+    current
+      ? `当前 ${current}${currentItem ? `（${currentItem}/${itemTotal}）` : ''}`
+      : '',
+  ].filter(Boolean).join(' · ')
+})
 const webStatusLabel = computed(() => {
   const status = String(webEnrichment.value.status || '')
   const labels: Record<string, string> = {
@@ -377,8 +456,76 @@ const webStatusLabel = computed(() => {
   return labels[status] || t('questionBank.web.notStarted', '未启用')
 })
 
-onMounted(load)
-watch(() => props.courseId, () => { void load() })
+onMounted(() => {
+  void load()
+  void recoverActiveRebuild()
+})
+onBeforeUnmount(() => {
+  rebuildAbortController?.abort()
+})
+watch(() => props.courseId, () => {
+  rebuildAbortController?.abort()
+  rebuildAbortController = null
+  rebuildJob.value = null
+  rebuildErrorMessage.value = ''
+  void load()
+  void recoverActiveRebuild()
+})
+
+async function recoverActiveRebuild() {
+  const courseId = props.courseId
+  if (!courseId) return
+  const controller = new AbortController()
+  rebuildAbortController?.abort()
+  rebuildAbortController = controller
+  try {
+    const job = await resumeQuestionBankRebuild(
+      courseId,
+      {
+        maxPolls: 3600,
+        signal: controller.signal,
+        onUpdate: update => {
+          if (
+            controller.signal.aborted
+            || props.courseId !== courseId
+          ) return
+          rebuildJob.value = update
+          rebuilding.value = (
+            update.status === 'queued'
+            || update.status === 'running'
+          )
+        },
+      },
+    )
+    if (
+      job
+      && !controller.signal.aborted
+      && props.courseId === courseId
+    ) {
+      await load()
+    }
+  } catch (error: any) {
+    if (!isAbortError(error)) {
+      if (error?.job) {
+        rebuildJob.value = error.job
+        rebuildErrorMessage.value = error?.message || t(
+          'questionBank.rebuildFailed',
+          '课程题目重新生成失败，当前有效题库未被覆盖，可以稍后重试。',
+        )
+      } else {
+        rebuildErrorMessage.value = t(
+          'questionBank.rebuildProgressRecoveryFailed',
+          '暂时无法恢复生成进度，请稍后重新打开题库面板。',
+        )
+      }
+    }
+  } finally {
+    if (rebuildAbortController === controller) {
+      rebuildAbortController = null
+      rebuilding.value = false
+    }
+  }
+}
 
 async function load() {
   if (!props.courseId) return
@@ -410,8 +557,13 @@ async function load() {
 
 async function rebuild(nodeId?: string) {
   if (!props.courseId || rebuilding.value) return
+  rebuildAbortController?.abort()
+  const controller = new AbortController()
+  rebuildAbortController = controller
   rebuilding.value = true
   errorMessage.value = ''
+  rebuildErrorMessage.value = ''
+  rebuildJob.value = null
   try {
     const scopedNodeId = String(nodeId || '')
     await runQuestionBankRebuild(
@@ -420,9 +572,11 @@ async function rebuild(nodeId?: string) {
         request_id: crypto.randomUUID(),
         scope: scopedNodeId ? 'nodes' : 'course',
         node_ids: scopedNodeId ? [scopedNodeId] : [],
-        mode: 'incremental',
+        mode: scopedNodeId ? 'incremental' : 'full',
       },
       {
+        maxPolls: scopedNodeId ? 450 : 3600,
+        signal: controller.signal,
         onUpdate: job => {
           rebuildJob.value = job
         },
@@ -430,13 +584,30 @@ async function rebuild(nodeId?: string) {
     )
     await load()
   } catch (error: any) {
-    errorMessage.value = error?.message || t(
+    if (isAbortError(error)) return
+    rebuildErrorMessage.value = error?.message || t(
       'questionBank.rebuildFailed',
-      '题库整理失败，原有课程与题目未被覆盖。',
+      '课程题目重新生成失败，当前有效题库未被覆盖，可以稍后重试。',
     )
+    const latestJob = rebuildJob.value as QuestionBankRebuildJob | null
+    rebuildJob.value = error?.job || {
+      job_id: 'local-rebuild-error',
+      status: 'failed',
+      progress: latestJob?.progress || 0,
+      current_stage: latestJob?.current_stage,
+      message: latestJob?.message,
+      status_url: '',
+    }
   } finally {
-    rebuilding.value = false
+    if (rebuildAbortController === controller) {
+      rebuildAbortController = null
+      rebuilding.value = false
+    }
   }
+}
+
+function isAbortError(error: any) {
+  return error?.name === 'AbortError'
 }
 
 async function loadSolution(item: QuestionBankItem) {
@@ -628,12 +799,16 @@ function formatValue(value: unknown) {
 .question-bank-panel__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .question-bank-panel__header p { margin: 0 0 3px; color: var(--lz-text-muted); font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; }
 .question-bank-panel__header h3 { margin: 0; color: var(--lz-text-strong); font-size: 15px; }
+.question-bank-panel__header-action { display:flex; align-items:flex-end; gap:10px; }
+.question-bank-panel__header-action>small { max-width:210px; color:var(--lz-text-muted); font-size:10px; line-height:1.4; text-align:right; }
 .question-bank-panel__header button, .question-bank-panel__state button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text-secondary); background: #fff; cursor: pointer; }
+.question-bank-panel__header button:disabled { opacity:.55; cursor:not-allowed; }
 .question-bank-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .question-bank-summary article { display: grid; gap: 4px; padding: 12px; border-radius: 10px; background: var(--lz-surface-muted); }
 .question-bank-summary span, .question-bank-summary small { color: var(--lz-text-muted); font-size: 10px; }
 .question-bank-summary strong { color: var(--lz-text-strong); font-size: 14px; }
-.question-bank-progress { display:grid; grid-template-columns:1fr auto; gap:8px 12px; padding:12px 14px; border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; }.question-bank-progress div { display:grid; gap:2px; }.question-bank-progress strong { color:#1e3a8a; font-size:12px; }.question-bank-progress span,.question-bank-progress b { color:#475569; font-size:10px; }.question-bank-progress i { grid-column:1/-1; height:5px; overflow:hidden; border-radius:999px; background:#dbeafe; }.question-bank-progress i span { display:block; height:100%; border-radius:inherit; background:#2563eb; transition:width .25s ease; }
+.question-bank-progress { display:grid; grid-template-columns:1fr auto; gap:8px 12px; padding:12px 14px; border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; }.question-bank-progress div { display:grid; gap:2px; }.question-bank-progress strong { color:#1e3a8a; font-size:12px; }.question-bank-progress span,.question-bank-progress b { color:#475569; font-size:10px; }.question-bank-progress i { grid-column:1/-1; height:6px; overflow:hidden; border-radius:999px; background:#dbeafe; }.question-bank-progress i span { display:block; height:100%; border-radius:inherit; background:#2563eb; transition:width .25s ease; }.question-bank-progress[data-status="completed"],.question-bank-progress[data-status="waiting_review"] { border-color:#a7f3d0; background:#ecfdf5; }.question-bank-progress[data-status="completed"] strong,.question-bank-progress[data-status="waiting_review"] strong { color:#065f46; }.question-bank-progress[data-status="completed"] i,.question-bank-progress[data-status="waiting_review"] i { background:#d1fae5; }.question-bank-progress[data-status="completed"] i span,.question-bank-progress[data-status="waiting_review"] i span { background:#059669; }.question-bank-progress[data-status="failed"] { border-color:#fecaca; background:#fff7ed; }.question-bank-progress[data-status="failed"] strong,.question-bank-progress__error { color:#b91c1c; }.question-bank-progress__error { grid-column:1/-1; font-size:10px; }
+.question-bank-progress__chapter { color:#1d4ed8; font-size:10px; }
 .assessment-profile,.assessment-matrix { display:grid; gap:10px; padding:13px; border:1px solid var(--lz-border); border-radius:11px; background:#fff; }.assessment-profile header,.assessment-matrix>header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }.assessment-profile header div,.assessment-matrix>header div { display:grid; gap:3px; }.assessment-profile span,.assessment-matrix span { color:var(--lz-text-muted); font-size:10px; }.assessment-profile strong,.assessment-matrix strong { color:var(--lz-text-strong); font-size:12px; }.assessment-profile small,.assessment-matrix small,.assessment-profile p { margin:0; color:var(--lz-text-muted); font-size:10px; line-height:1.55; }
 .assessment-matrix__rows { display:grid; gap:6px; }.assessment-matrix__rows article { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:10px; padding:9px 10px; border-radius:8px; background:var(--lz-surface-muted); }.assessment-matrix__rows article>div { min-width:0; display:grid; gap:3px; }.assessment-matrix__rows article>strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.assessment-matrix__rows article>span { padding:3px 6px; border-radius:999px; color:#475569; background:#e2e8f0; }.assessment-matrix__rows article>span[data-status="covered"] { color:#047857; background:#d1fae5; }.assessment-matrix__rows article>span[data-status="review"] { color:#b45309; background:#fef3c7; }.assessment-matrix__rows article>span[data-status="failed"] { color:#b91c1c; background:#fee2e2; }.assessment-matrix__rows button { display:inline-flex; align-items:center; gap:5px; padding:6px 8px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; }
 .question-browser { position:sticky; top:0; z-index:2; padding:10px 12px; border:1px solid var(--lz-border); border-radius:10px; background:rgba(255,255,255,.96); backdrop-filter:blur(8px); }
@@ -670,5 +845,5 @@ function formatValue(value: unknown) {
 .question-bank-panel__empty span { max-width: 420px; font-size: 11px; }
 .spin { animation: question-bank-spin .9s linear infinite; }
 @keyframes question-bank-spin { to { transform: rotate(360deg); } }
-@media (max-width: 720px) { .question-bank-summary { grid-template-columns: 1fr; }.assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__rows button { grid-column:1/-1; justify-self:start; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; } }
+@media (max-width: 720px) { .question-bank-panel__header { align-items:flex-start; flex-direction:column; }.question-bank-panel__header-action { width:100%; align-items:flex-start; flex-direction:column; }.question-bank-panel__header-action>small { max-width:none; text-align:left; }.question-bank-summary { grid-template-columns: 1fr; }.assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__rows button { grid-column:1/-1; justify-self:start; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; } }
 </style>

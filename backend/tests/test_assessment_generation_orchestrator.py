@@ -594,9 +594,13 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     course["nodes"].append(second)
     model = RepairingModel()
     progress_events: list[dict] = []
+    chapter_events: list[dict] = []
 
     async def record_progress(event: dict) -> None:
         progress_events.append(event)
+
+    async def record_chapter(event: dict) -> None:
+        chapter_events.append(event)
 
     prepared = await AssessmentGenerationOrchestrator(
         model=model
@@ -604,6 +608,7 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
         course,
         node_ids=["thermo-2"],
         on_progress=record_progress,
+        on_chapter_complete=record_chapter,
     )
 
     assert set(prepared["_assessment_generated_contracts"]) == {
@@ -622,3 +627,12 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
         event["node_id"] == "thermo-2"
         for event in progress_events
     )
+    assert len(chapter_events) == 1
+    assert chapter_events[0]["node_id"] == "thermo-2"
+    assert chapter_events[0]["passed"] is True
+    assert set(chapter_events[0]["contracts"]) == {
+        "concept_check",
+        "objective_practice",
+        "mastery_check",
+    }
+    assert len(chapter_events[0]["audit_items"]) == 3

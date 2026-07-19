@@ -29,6 +29,15 @@ export interface QuestionBankRebuildJob {
   } | null
   result?: Record<string, unknown> | null
   stages?: Array<Record<string, unknown>>
+  stage_details?: {
+    published_chapters?: number
+    total_chapters?: number
+    current_chapter?: string
+    current_chapter_item?: number
+    chapter_item_total?: number
+    chapter_status?: string
+    [key: string]: unknown
+  }
 }
 
 interface RebuildOptions {
@@ -68,7 +77,37 @@ export async function runQuestionBankRebuild(
     `/api/courses/${courseId}/question-bank/rebuild`,
     request,
   )
-  let job = normalizeJob(created.data)
+  return pollQuestionBankRebuild(
+    normalizeJob(created.data),
+    options,
+  )
+}
+
+export async function resumeQuestionBankRebuild(
+  courseId: string,
+  options: RebuildOptions = {},
+): Promise<QuestionBankRebuildJob | null> {
+  let response
+  try {
+    response = await http.get(
+      `/api/courses/${courseId}/question-bank/rebuilds/active`,
+      { silentError: true },
+    )
+  } catch (error: any) {
+    if (Number(error?.response?.status || 0) === 404) return null
+    throw error
+  }
+  return pollQuestionBankRebuild(
+    normalizeJob(response.data || {}),
+    options,
+  )
+}
+
+async function pollQuestionBankRebuild(
+  initialJob: QuestionBankRebuildJob,
+  options: RebuildOptions,
+): Promise<QuestionBankRebuildJob> {
+  let job = initialJob
   options.onUpdate?.(job)
   const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? 2500)
   const rateLimitBackoffMs = Math.max(

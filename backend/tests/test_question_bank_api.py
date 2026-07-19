@@ -60,12 +60,16 @@ class BlockingRebuildExecutor:
 class DeterministicAssessmentOrchestrator:
     """Keep API tests local and independent from provider availability."""
 
+    def __init__(self, *, fail_node_id: str = ""):
+        self.fail_node_id = fail_node_id
+
     async def prepare_course(
         self,
         course_data,
         *,
         node_ids=None,
         on_progress=None,
+        on_chapter_complete=None,
         reference_package=None,
     ):
         prepared = deepcopy(course_data)
@@ -98,6 +102,7 @@ class DeterministicAssessmentOrchestrator:
             node_id = str(node.get("node_id") or "")
             objective = objective_by_node[node_id]
             contracts[node_id] = {}
+            node_audit_items = []
             for variant_index, practice_level in enumerate((
                 "concept_check",
                 "objective_practice",
@@ -118,13 +123,31 @@ class DeterministicAssessmentOrchestrator:
                     slot=slot,
                     references=[],
                 )
+                if (
+                    node_id == self.fail_node_id
+                    and practice_level == "mastery_check"
+                ):
+                    contract["generation_status"] = "discarded"
                 contracts[node_id][practice_level] = contract
-                audit_items.append({
+                item_audit = {
                     "node_id": node_id,
                     "practice_level": practice_level,
-                    "final_decision": "publish",
-                    "attempts": [{"attempt": 1, "passed": True}],
-                })
+                    "final_decision": (
+                        "discard"
+                        if contract.get("generation_status")
+                        == "discarded"
+                        else "publish"
+                    ),
+                    "attempts": [{
+                        "attempt": 1,
+                        "passed": (
+                            contract.get("generation_status")
+                            != "discarded"
+                        ),
+                    }],
+                }
+                audit_items.append(item_audit)
+                node_audit_items.append(item_audit)
                 completed += 1
                 if on_progress is not None:
                     await on_progress({
@@ -133,11 +156,37 @@ class DeterministicAssessmentOrchestrator:
                         "completed_items": completed,
                         "total_items": total,
                     })
+            if on_chapter_complete is not None:
+                chapter_passed = node_id != self.fail_node_id
+                await on_chapter_complete({
+                    "node_id": node_id,
+                    "node_name": str(
+                        node.get("node_name") or node_id
+                    ),
+                    "passed": chapter_passed,
+                    "contracts": deepcopy(contracts[node_id]),
+                    "audit_items": deepcopy(node_audit_items),
+                    "completed_items": completed,
+                    "total_items": total,
+                    "error_code": (
+                        ""
+                        if chapter_passed
+                        else "chapter_quality_failed"
+                    ),
+                    "error_message": (
+                        ""
+                        if chapter_passed
+                        else "掌握检查未通过质量门"
+                    ),
+                })
         prepared["_assessment_generated_contracts"] = contracts
         prepared["_assessment_generation_audit"] = {
             "schema_version": "question_generation_audit_v2",
             "planned_item_count": total,
-            "failure_count": 0,
+            "failure_count": sum(
+                item["final_decision"] == "discard"
+                for item in audit_items
+            ),
             "items": audit_items,
         }
         prepared["_course_assessment_blueprint"] = blueprint
@@ -168,14 +217,35 @@ def _course():
     }
 
 
-def _client(monkeypatch, tmp_path):
+def _two_chapter_course():
+    course = _course()
+    course["nodes"].append({
+        "node_id": "node-2",
+        "node_level": 2,
+        "node_name": "贝叶斯公式",
+        "learning_objective": "能使用贝叶斯公式更新条件概率",
+        "key_points": ["贝叶斯公式", "全概率公式"],
+        "assessment": ["根据先验概率和证据计算后验概率"],
+        "grounding_contract": {"question_evidence_ids": []},
+        "difficulty_contract": {"target_level": "intermediate"},
+    })
+    return course
+
+
+def _client(
+    monkeypatch,
+    tmp_path,
+    *,
+    course=None,
+    orchestrator=None,
+):
     repository = QuestionBankRepository(tmp_path / "question-banks")
     asset_repository = LearningAssetRepository(tmp_path / "learning-assets")
     version_repository = CourseVersionRepository(tmp_path / "course-versions")
     job_repository = QuestionBankRebuildJobRepository(
         tmp_path / "question-bank-rebuilds"
     )
-    course_storage = MemoryCourseStorage(_course())
+    course_storage = MemoryCourseStorage(course or _course())
 
     async def get_course(course_id: str):
         course = deepcopy(course_storage.course)
@@ -208,7 +278,7 @@ def _client(monkeypatch, tmp_path):
     monkeypatch.setattr(
         question_bank,
         "assessment_generation_orchestrator",
-        DeterministicAssessmentOrchestrator(),
+        orchestrator or DeterministicAssessmentOrchestrator(),
     )
     monkeypatch.setattr(question_bank, "storage", course_storage, raising=False)
     monkeypatch.setattr(question_bank, "get_course_or_404", get_course)
@@ -220,11 +290,11 @@ def _client(monkeypatch, tmp_path):
     return TestClient(app), repository
 
 
-def _rebuild(client, request_id):
+def _rebuild(client, request_id, *, mode="incremental"):
     created = client.post(
         "/api/courses/course-api/question-bank/rebuild",
         headers={"X-User-Id": "teacher-1"},
-        json={"request_id": request_id},
+        json={"request_id": request_id, "mode": mode},
     )
     assert created.status_code == 202
     status = client.get(
@@ -368,6 +438,143 @@ def test_question_bank_rebuild_is_idempotent_and_returns_coverage(monkeypatch, t
         == saved_course["current_course_version_id"]
     )
     assert repository.course_storage.save_count == 1
+
+
+def test_full_rebuild_publishes_each_chapter_atomically(
+    monkeypatch,
+    tmp_path,
+):
+    client, repository = _client(
+        monkeypatch,
+        tmp_path,
+        course=_two_chapter_course(),
+    )
+
+    _, rebuilt = _rebuild(
+        client,
+        "request-chapter-publication",
+        mode="full",
+    )
+
+    active = repository.load_bundle("course-api")
+    assert active is not None
+    active_nodes = {
+        str(item.get("node_id") or "")
+        for item in active["items"]
+        if (
+            item.get("assessment_role") == "practice"
+            and item.get("lifecycle_status") != "retired"
+        )
+    }
+    assert active_nodes == {"node-1", "node-2"}
+    assert active["generation_audit"]["campaign_id"] == (
+        "request-chapter-publication"
+    )
+    assert active["generation_audit"]["published_item_count"] == 6
+    assert len(active["generation_audit"]["items"]) == 6
+    checkpoint = (
+        repository.course_storage.course[
+            "question_bank_chapter_rebuild"
+        ]
+    )
+    assert checkpoint["status"] == "completed"
+    assert checkpoint["published_node_ids"] == [
+        "node-1",
+        "node-2",
+    ]
+    assert repository.course_storage.save_count == 2
+    assert rebuilt["result"]["bundle_revision_id"] == (
+        active["bundle_revision_id"]
+    )
+
+
+def test_failed_chapter_keeps_old_questions_and_retry_resumes_remaining(
+    monkeypatch,
+    tmp_path,
+):
+    client, repository = _client(
+        monkeypatch,
+        tmp_path,
+        course=_two_chapter_course(),
+        orchestrator=DeterministicAssessmentOrchestrator(
+            fail_node_id="node-2",
+        ),
+    )
+    original = repository.save_bundle(
+        "course-api",
+        build_question_bank(_two_chapter_course()),
+    )
+    old_node_two_revisions = {
+        str(item.get("revision_id") or "")
+        for item in original["items"]
+        if (
+            item.get("node_id") == "node-2"
+            and item.get("assessment_role") == "practice"
+            and item.get("lifecycle_status") != "retired"
+        )
+    }
+
+    created = client.post(
+        "/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-chapter-partial-failure",
+            "mode": "full",
+        },
+    )
+    failed = client.get(
+        created.json()["status_url"],
+        headers={"X-User-Id": "teacher-1"},
+    ).json()
+
+    assert failed["status"] == "failed"
+    assert failed["error"]["code"] == (
+        "chapter_question_generation_failed"
+    )
+    partial = repository.load_bundle("course-api")
+    assert partial is not None
+    current_node_two_revisions = {
+        str(item.get("revision_id") or "")
+        for item in partial["items"]
+        if (
+            item.get("node_id") == "node-2"
+            and item.get("assessment_role") == "practice"
+            and item.get("lifecycle_status") != "retired"
+        )
+    }
+    assert current_node_two_revisions == old_node_two_revisions
+    assert repository.course_storage.course[
+        "question_bank_chapter_rebuild"
+    ]["published_node_ids"] == ["node-1"]
+    resumable = client.get(
+        "/api/courses/course-api/question-bank/rebuilds/active",
+        headers={"X-User-Id": "teacher-1"},
+    )
+    assert resumable.status_code == 200
+    assert resumable.json()["job_id"] == failed["job_id"]
+    assert resumable.json()["status"] == "failed"
+
+    monkeypatch.setattr(
+        question_bank,
+        "assessment_generation_orchestrator",
+        DeterministicAssessmentOrchestrator(),
+    )
+    _, resumed = _rebuild(
+        client,
+        "request-chapter-resume",
+        mode="full",
+    )
+
+    assert resumed["result"]["coverage"]
+    checkpoint = repository.course_storage.course[
+        "question_bank_chapter_rebuild"
+    ]
+    assert checkpoint["status"] == "completed"
+    assert checkpoint["published_node_ids"] == [
+        "node-1",
+        "node-2",
+    ]
+    assert repository.course_storage.save_count == 2
 
 
 def test_question_bank_rebuild_preserves_teacher_review_decisions(monkeypatch, tmp_path):

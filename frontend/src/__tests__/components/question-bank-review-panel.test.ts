@@ -6,17 +6,26 @@ const { get, post } = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
 }))
-const { runQuestionBankRebuild } = vi.hoisted(() => ({
+const {
+  resumeQuestionBankRebuild,
+  runQuestionBankRebuild,
+} = vi.hoisted(() => ({
+  resumeQuestionBankRebuild: vi.fn(),
   runQuestionBankRebuild: vi.fn(),
 }))
 vi.mock('@/utils/http', () => ({ default: { get, post } }))
-vi.mock('@/utils/question-bank-rebuild', () => ({ runQuestionBankRebuild }))
+vi.mock('@/utils/question-bank-rebuild', () => ({
+  resumeQuestionBankRebuild,
+  runQuestionBankRebuild,
+}))
 
 describe('QuestionBankReviewPanel', () => {
   beforeEach(() => {
     get.mockReset()
     post.mockReset()
+    resumeQuestionBankRebuild.mockReset()
     runQuestionBankRebuild.mockReset()
+    resumeQuestionBankRebuild.mockResolvedValue(null)
     get.mockImplementation((url: string) => {
       if (url.endsWith('/solution')) {
         return Promise.resolve({
@@ -279,6 +288,127 @@ describe('QuestionBankReviewPanel', () => {
     )
     expect(wrapper.text()).toContain('发布完成')
     expect(wrapper.text()).toContain('100%')
+  })
+
+  it('提供整门课程题目重新生成按钮和真实进度条', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-1' },
+    })
+    await flushPromises()
+
+    const button = wrapper.get(
+      '[data-testid="rebuild-course-question-bank"]',
+    )
+    expect(button.text()).toContain('重新生成整门课程题目')
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(runQuestionBankRebuild).toHaveBeenCalledWith(
+      'course-1',
+      {
+        request_id: expect.any(String),
+        scope: 'course',
+        node_ids: [],
+        mode: 'full',
+      },
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
+    )
+    const progress = wrapper.get('[role="progressbar"]')
+    expect(progress.attributes('aria-valuenow')).toBe('100')
+    expect(progress.text()).toContain('课程题目已重新生成并发布')
+    expect(progress.text()).toContain('100%')
+  })
+
+  it('重新打开面板时恢复后台任务并继续展示进度', async () => {
+    resumeQuestionBankRebuild.mockImplementation(async (
+      courseId: string,
+      options: {
+        onUpdate?: (job: Record<string, unknown>) => void
+      },
+    ) => {
+      expect(courseId).toBe('course-1')
+      options.onUpdate?.({
+        job_id: 'job-recovered',
+        status: 'running',
+        progress: 52,
+        current_stage: 'question_generation',
+        message: '正在生成第 48/189 道候选题',
+        status_url: '/jobs/job-recovered',
+        stage_details: {
+          published_chapters: 15,
+          total_chapters: 63,
+          current_chapter: '4.5 装饰器',
+          current_chapter_item: 2,
+          chapter_item_total: 3,
+        },
+      })
+      return new Promise(() => {})
+    })
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-1' },
+    })
+    await flushPromises()
+
+    expect(resumeQuestionBankRebuild).toHaveBeenCalledWith(
+      'course-1',
+      expect.objectContaining({
+        maxPolls: 3600,
+        signal: expect.any(AbortSignal),
+        onUpdate: expect.any(Function),
+      }),
+    )
+    const progress = wrapper.get('[role="progressbar"]')
+    expect(progress.attributes('aria-valuenow')).toBe('52')
+    expect(progress.text()).toContain(
+      '正在生成第 48/189 道候选题',
+    )
+    expect(progress.text()).toContain(
+      '章节发布 15/63 · 当前 4.5 装饰器（2/3）',
+    )
+    expect(
+      wrapper.get('[data-testid="rebuild-course-question-bank"]')
+        .attributes('disabled'),
+    ).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('重新生成失败时保留当前有效题库并显示失败进度', async () => {
+    const failure = Object.assign(
+      new Error('模型服务暂时不可用'),
+      {
+        job: {
+          job_id: 'job-failed',
+          status: 'failed',
+          progress: 48,
+          current_stage: 'question_generation',
+          message: '生成题目时中断',
+          status_url: '/jobs/job-failed',
+        },
+      },
+    )
+    runQuestionBankRebuild.mockRejectedValueOnce(failure)
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-1' },
+    })
+    await flushPromises()
+
+    await wrapper
+      .get('[data-testid="rebuild-course-question-bank"]')
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll(
+      '[data-testid="question-review-item"]',
+    )).toHaveLength(1)
+    expect(wrapper.text()).toContain(
+      '给定材料，完成跨章节分析并检查结论。',
+    )
+    const progress = wrapper.get('[role="progressbar"]')
+    expect(progress.attributes('aria-valuenow')).toBe('48')
+    expect(progress.text()).toContain(
+      '重新生成失败，当前有效题库保持不变',
+    )
+    expect(progress.text()).toContain('模型服务暂时不可用')
   })
 
   it('教师可按需读取私有答案与独立验证差异', async () => {

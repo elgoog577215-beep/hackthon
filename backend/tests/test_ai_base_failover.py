@@ -90,6 +90,26 @@ async def test_call_llm_fails_over_to_next_model_on_transient_errors(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_429_request_id_containing_403_does_not_disable_provider(monkeypatch):
+    completions = SequencedCompletions(
+        lambda: _make_status_error(
+            429,
+            (
+                "Error code: 429 - daily quota exceeded; "
+                "request_id=df395bfc-855a-403e-9ed9-88807996b5c2"
+            ),
+        )
+    )
+    service = _make_service(monkeypatch, completions)
+
+    result = await service._call_llm("hi", retry_count=1)
+
+    assert result == "ok-answer"
+    assert completions.calls == ["model-a", "model-b"]
+    assert service._provider_failure is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "error_factory",
     [

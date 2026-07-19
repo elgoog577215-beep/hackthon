@@ -192,6 +192,30 @@ class QuestionBankRebuildJobRepository:
             ),
         ))
 
+    def active_for_course(
+        self,
+        course_id: str,
+    ) -> dict[str, Any] | None:
+        directory = self.root_dir / _storage_id(course_id)
+        if not directory.exists():
+            return None
+        active_jobs = []
+        for path in directory.glob("*.json"):
+            if not path.is_file():
+                continue
+            job = self._read(path)
+            if str(job.get("status") or "") in {"queued", "running"}:
+                active_jobs.append(job)
+        if not active_jobs:
+            return None
+        return deepcopy(max(
+            active_jobs,
+            key=lambda job: (
+                str(job.get("created_at") or ""),
+                str(job.get("job_id") or ""),
+            ),
+        ))
+
     def start(self, job_id: str) -> dict[str, Any]:
         with self._lock:
             path, job = self._load_by_job_id(job_id)

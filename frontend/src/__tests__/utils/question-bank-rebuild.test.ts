@@ -6,7 +6,10 @@ const { get, post } = vi.hoisted(() => ({
 }))
 vi.mock('@/utils/http', () => ({ default: { get, post } }))
 
-import { runQuestionBankRebuild } from '@/utils/question-bank-rebuild'
+import {
+  resumeQuestionBankRebuild,
+  runQuestionBankRebuild,
+} from '@/utils/question-bank-rebuild'
 
 describe('runQuestionBankRebuild', () => {
   beforeEach(() => {
@@ -155,5 +158,61 @@ describe('runQuestionBankRebuild', () => {
     expect(get).toHaveBeenCalledTimes(2)
     expect(messages).toContain('请求较多，系统正在自动重试…')
     expect(result.status).toBe('completed')
+  })
+
+  it('recovers the active course job without creating another job', async () => {
+    get
+      .mockResolvedValueOnce({
+        data: {
+          job_id: 'job-active',
+          status: 'running',
+          progress: 52,
+          current_stage: 'question_generation',
+          status_url: '/api/jobs/job-active',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          job_id: 'job-active',
+          status: 'completed',
+          progress: 100,
+          current_stage: 'publication',
+          status_url: '/api/jobs/job-active',
+        },
+      })
+    const updates: number[] = []
+
+    const result = await resumeQuestionBankRebuild(
+      'course-1',
+      {
+        pollIntervalMs: 0,
+        onUpdate: job => updates.push(job.progress),
+      },
+    )
+
+    expect(post).not.toHaveBeenCalled()
+    expect(get).toHaveBeenNthCalledWith(
+      1,
+      '/api/courses/course-1/question-bank/rebuilds/active',
+      { silentError: true },
+    )
+    expect(get).toHaveBeenNthCalledWith(
+      2,
+      '/api/jobs/job-active',
+      { silentError: true },
+    )
+    expect(updates).toEqual([52, 100])
+    expect(result?.status).toBe('completed')
+  })
+
+  it('returns null when the course has no active rebuild', async () => {
+    get.mockRejectedValue({
+      response: { status: 404 },
+    })
+
+    await expect(
+      resumeQuestionBankRebuild('course-1'),
+    ).resolves.toBeNull()
+    expect(post).not.toHaveBeenCalled()
   })
 })

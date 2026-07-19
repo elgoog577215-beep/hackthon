@@ -176,6 +176,46 @@ def test_repository_returns_latest_course_job(tmp_path):
     assert repository.latest_for_course("missing-course") is None
 
 
+def test_repository_returns_latest_active_course_job(tmp_path):
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    older_active, _ = repository.create_job(
+        "course-jobs",
+        request_id="request-active",
+        scope="course",
+        node_ids=[],
+        mode="full",
+        actor_id="teacher-1",
+    )
+    completed, _ = repository.create_job(
+        "course-jobs",
+        request_id="request-completed",
+        scope="nodes",
+        node_ids=["node-1"],
+        mode="incremental",
+        actor_id="teacher-1",
+    )
+    repository.complete(
+        completed["job_id"],
+        result={
+            "review_queue": {"blocking_count": 0},
+            "publication_mode": "question_bank_overlay",
+        },
+    )
+
+    active = repository.active_for_course("course-jobs")
+
+    assert active is not None
+    assert active["job_id"] == older_active["job_id"]
+    repository.fail(
+        older_active["job_id"],
+        code="cancelled",
+        message="已终止",
+        retryable=True,
+    )
+    assert repository.active_for_course("course-jobs") is None
+    assert repository.active_for_course("missing-course") is None
+
+
 def test_rebuild_job_heartbeat_reports_progress_inside_a_stage(tmp_path):
     repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
     job, _ = repository.create_job(

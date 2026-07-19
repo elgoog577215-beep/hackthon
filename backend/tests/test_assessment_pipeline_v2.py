@@ -384,10 +384,17 @@ def test_incomplete_generation_is_blocked_before_persistence():
             "failure_count": 1,
             "items": [
                 {"final_decision": "publish"},
-                {"final_decision": "discard"},
+                {
+                    "final_decision": "discard",
+                    "error_code": "AIProviderUnavailable",
+                    "error_message": "daily quota exceeded",
+                },
             ],
         },
     }
 
-    with pytest.raises(RuntimeError, match="question_generation_incomplete"):
+    with pytest.raises(
+        RuntimeError,
+        match="daily quota exceeded",
+    ):
         _require_complete_generation(course)

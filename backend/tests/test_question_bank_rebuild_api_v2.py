@@ -147,6 +147,49 @@ def test_rebuild_api_creates_real_job_and_supports_status_lookup(
     assert status.json()["stages"] == payload["stages"]
 
 
+def test_rebuild_api_recovers_active_job_for_course(
+    monkeypatch,
+    tmp_path,
+):
+    client, jobs, _ = _client(monkeypatch, tmp_path)
+    job, _ = jobs.create_job(
+        "course-jobs",
+        request_id="request-recover-active",
+        scope="course",
+        node_ids=[],
+        mode="full",
+        actor_id="teacher-1",
+    )
+    jobs.start(job["job_id"])
+
+    active = client.get(
+        "/api/courses/course-jobs/question-bank/rebuilds/active",
+        headers={"X-User-Id": "teacher-1"},
+    )
+
+    assert active.status_code == 200
+    assert active.json()["job_id"] == job["job_id"]
+    assert active.json()["status"] == "running"
+    assert active.json()["status_url"].endswith(
+        f"/question-bank/rebuilds/{job['job_id']}"
+    )
+
+    jobs.fail(
+        job["job_id"],
+        code="cancelled",
+        message="已终止",
+        retryable=True,
+    )
+    missing = client.get(
+        "/api/courses/course-jobs/question-bank/rebuilds/active",
+        headers={"X-User-Id": "teacher-1"},
+    )
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == (
+        "question_bank_active_rebuild_not_found"
+    )
+
+
 def test_rebuild_api_deduplicates_and_validates_node_scope(
     monkeypatch,
     tmp_path,
