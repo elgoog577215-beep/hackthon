@@ -38,10 +38,12 @@ def test_video2_course_is_curated_and_keeps_the_growth_gap_open():
 
     assert envelope["course_name"] == COURSE_TITLE
     assert envelope["generation_source"] == "curated_local_preset"
-    assert len(learnable_sections) == 6
-    assert len(document.blocks) >= 28
+    assert len(learnable_sections) == 12
+    assert len(document.blocks) >= 58
     assert target.title == "1.2 矩阵：线性映射与矩阵运算"
     assert len(target_blocks) == 7
+    assert any(section.title.startswith("3.1 特征向量") for section in learnable_sections)
+    assert any(section.title.startswith("4.3 综合项目") for section in learnable_sections)
     assert "矩阵乘法" in initial_text
     assert "不交换" in initial_text
     assert "A(Bv)" not in initial_text
@@ -107,6 +109,7 @@ def test_prepare_video2_demo_resets_only_the_dedicated_course(tmp_path: Path):
     )
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
     question = bundle["assets"]["validation_questions"][0]
+    assert len(bundle["assets"]["questions"]) == 12
     assert question["node_id"] == TARGET_SECTION_ID
     assert "Bv" in question["prompt"]
     assert "A(Bv)" in question["prompt"]
