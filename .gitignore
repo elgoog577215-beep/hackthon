@@ -43,6 +43,7 @@ env/
 
 # Data
 backend/tasks.json
+backend/data/generation_jobs.json
 backend/data/courses/
 backend/data/knowledge_graphs/
 backend/data/materials/
