@@ -965,12 +965,15 @@ def _blocks_1_2() -> list[CourseBlock]:
 而是一台同时移动胶片上每个向量的机器：它可以缩放、旋转、剪切，
 也可以把这些动作组合起来。
 
-```mermaid
-flowchart LR
-    V["任意向量 v"] --> D["分解为 x·e₁ + y·e₂"]
-    D --> C["读取两列：Ae₁ 与 Ae₂"]
-    C --> O["重新组合：x·Ae₁ + y·Ae₂"]
-```
+<div style="display:grid;grid-template-columns:1fr auto 1.25fr auto 1.35fr auto 1.45fr;align-items:center;gap:8px;margin:16px 0;">
+  <div style="padding:12px 10px;border:1px solid #d8deea;border-radius:8px;text-align:center;background:#fbfcff;">任意向量 <strong>v</strong></div>
+  <div style="color:#8b5cf6;font-weight:700;">→</div>
+  <div style="padding:12px 10px;border:1px solid #d8deea;border-radius:8px;text-align:center;background:#fbfcff;">分解为 x·e₁ + y·e₂</div>
+  <div style="color:#8b5cf6;font-weight:700;">→</div>
+  <div style="padding:12px 10px;border:1px solid #d8deea;border-radius:8px;text-align:center;background:#fbfcff;">读取两列：Ae₁ 与 Ae₂</div>
+  <div style="color:#8b5cf6;font-weight:700;">→</div>
+  <div style="padding:12px 10px;border:1px solid #d8deea;border-radius:8px;text-align:center;background:#fbfcff;">重新组合：x·Ae₁ + y·Ae₂</div>
+</div>
 
 本节始终用同一条路线学习：**先看基方向去了哪里，再做坐标计算，最后用图形核对结果。**
             """,
@@ -1734,15 +1737,14 @@ def _blocks_4_3() -> list[CourseBlock]:
             2,
             "一条完整变换链的六个检查点",
             r"""
-```mermaid
-flowchart LR
-    Q["任务需求"] --> I["明确输入对象"]
-    I --> S["拆分单一步骤"]
-    S --> M["写出矩阵"]
-    M --> T["保留中间状态"]
-    T --> V["双重验证"]
-    V --> B["说明边界"]
-```
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:16px 0;">
+  <div style="padding:12px;border:1px solid #d8deea;border-radius:8px;background:#fbfcff;"><strong>01</strong> 明确任务与输入对象</div>
+  <div style="padding:12px;border:1px solid #d8deea;border-radius:8px;background:#fbfcff;"><strong>02</strong> 拆分单一步骤</div>
+  <div style="padding:12px;border:1px solid #d8deea;border-radius:8px;background:#fbfcff;"><strong>03</strong> 写出对应矩阵</div>
+  <div style="padding:12px;border:1px solid #d8deea;border-radius:8px;background:#fbfcff;"><strong>04</strong> 保留中间状态</div>
+  <div style="padding:12px;border:1px solid #d8deea;border-radius:8px;background:#fbfcff;"><strong>05</strong> 完成双重验证</div>
+  <div style="padding:12px;border:1px solid #d8deea;border-radius:8px;background:#fbfcff;"><strong>06</strong> 说明适用边界</div>
+</div>
 
 矩阵表达式只是中间产物。若缺少输入类型、中间状态或验证方法，
 即使数字暂时正确，也很难判断方案在新情境中是否仍然可靠。

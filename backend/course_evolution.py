@@ -2902,7 +2902,14 @@ def _course_document(course_data: dict[str, Any]) -> CourseDocument:
 
 
 def _block_text(payload: dict[str, Any]) -> str:
-    return _compact(payload.get("markdown") or payload.get("text") or payload.get("content"), limit=240)
+    value = str(payload.get("markdown") or payload.get("text") or payload.get("content") or "")
+    # Course evidence should quote the readable teaching text, not implementation
+    # syntax from embedded diagrams or HTML layouts. Besides looking noisy, a
+    # truncated fenced block can be reparsed as malformed Markdown after the
+    # excerpt is inserted into a new course block.
+    value = re.sub(r"```[\s\S]*?```", " ", value)
+    value = re.sub(r"<[^>]+>", " ", value)
+    return _compact(value, limit=240)
 
 
 def _compact(value: Any, *, limit: int = 180) -> str:

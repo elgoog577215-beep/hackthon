@@ -674,6 +674,27 @@ def test_demo_mode_relaxes_strong_contract(monkeypatch):
     assert relaxed["scope"] == "current"
 
 
+def test_block_text_excludes_embedded_diagram_and_html_syntax():
+    excerpt = course_evolution._block_text({
+        "markdown": """
+先解释输入对象，再追踪每一步的变化。
+
+```mermaid
+flowchart LR
+    A --> B
+```
+
+<div style="display:grid"><strong>静态流程卡</strong></div>
+最后回到原结论。
+        """,
+    })
+
+    assert excerpt == "先解释输入对象，再追踪每一步的变化。 静态流程卡 最后回到原结论。"
+    assert "mermaid" not in excerpt
+    assert "flowchart" not in excerpt
+    assert "style=" not in excerpt
+
+
 def test_current_and_next_fallback_reaches_later_sections_with_dense_current_section():
     document = document_from_legacy_course(_course())
     source = next(item for item in document.blocks if item.section_id == "section-1")
