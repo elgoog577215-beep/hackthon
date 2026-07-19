@@ -84,6 +84,7 @@ describe('change proposals store', () => {
         expected_block_revision: 'cbr-1',
         direction: 'expand',
         feedback: '请补充推导过程',
+        scope_selection: 'current_block',
       },
     )
     expect(result).toEqual(proposal)

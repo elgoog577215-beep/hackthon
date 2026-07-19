@@ -47,6 +47,13 @@ class GenerateSectionEvolutionRequest(BaseModel):
     request_id: str = Field(min_length=1, max_length=200)
     instruction: str = Field(min_length=1, max_length=5000)
     scope_selection: Literal["current_section", "whole_course"] = "current_section"
+    anchor_role: Literal[
+        "reasoning",
+        "application",
+        "example",
+        "checkpoint",
+        "concept",
+    ] | None = None
 
 
 @router.get("")
@@ -87,6 +94,7 @@ async def create_section_evolution_plan(
             section_id=section_id,
             instruction=body.instruction,
             scope_selection=body.scope_selection,
+            anchor_role=body.anchor_role,
             request_id=body.request_id,
             repository=course_evolution_repository,
             document_repository=get_course_document_repository(),

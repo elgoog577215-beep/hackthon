@@ -777,7 +777,10 @@ class PersonalizationProposalService:
         direction: str,
         feedback: str,
         user_id: str,
+        scope_selection: str = "current_section",
     ) -> dict[str, Any]:
+        if scope_selection not in {"current_block", "current_section"}:
+            raise BlockRegenerationConflict("Unsupported personalization scope")
         proposal_id = self.proposal_repository.proposal_id_for(course_id, request_id)
         feedback_hash = stable_hash({"feedback": feedback.strip()}, prefix="pfh_")
         request_fingerprint = stable_hash(
@@ -788,6 +791,7 @@ class PersonalizationProposalService:
                 "expected_block_revision": expected_block_revision,
                 "direction": direction,
                 "feedback_hash": feedback_hash,
+                "scope_selection": scope_selection,
             },
             prefix="ppf_",
         )
@@ -811,6 +815,7 @@ class PersonalizationProposalService:
                     direction=direction,
                     feedback=feedback,
                     user_id=user_id,
+                    scope_selection=scope_selection,
                     proposal_id=proposal_id,
                     feedback_hash=feedback_hash,
                     request_fingerprint=request_fingerprint,
@@ -849,6 +854,7 @@ class PersonalizationProposalService:
         direction: str,
         feedback: str,
         user_id: str,
+        scope_selection: str,
         proposal_id: str,
         feedback_hash: str,
         request_fingerprint: str,
@@ -917,11 +923,12 @@ class PersonalizationProposalService:
                 return related, candidate
             return None
 
-        related_results = await asyncio.gather(*(
-            generate_related(related)
-            for related in self._related_blocks(document.blocks, target, direction)[:2]
-        ))
-        generated.extend(result for result in related_results if result is not None)
+        if scope_selection == "current_section":
+            related_results = await asyncio.gather(*(
+                generate_related(related)
+                for related in self._related_blocks(document.blocks, target, direction)[:2]
+            ))
+            generated.extend(result for result in related_results if result is not None)
 
         items = [
             {
@@ -949,6 +956,7 @@ class PersonalizationProposalService:
                 "request_fingerprint": request_fingerprint,
                 "base_document_revision": expected_document_revision,
                 "target_block_id": block_id,
+                "scope_selection": scope_selection,
             },
         )
         persisted_fingerprint = str(

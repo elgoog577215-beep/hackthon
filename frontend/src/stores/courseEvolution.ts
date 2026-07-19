@@ -21,6 +21,13 @@ export interface EvolutionOperation {
   payload: Record<string, any>
 }
 
+export type CourseEvolutionAnchorRole =
+  | 'reasoning'
+  | 'application'
+  | 'example'
+  | 'checkpoint'
+  | 'concept'
+
 export interface AdaptationHypothesis {
   hypothesis_id: string
   claim: string
@@ -111,6 +118,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       sectionId: string,
       instruction: string,
       scopeSelection: 'current_section' | 'whole_course' = 'current_section',
+      anchorRole?: CourseEvolutionAnchorRole,
     ) {
       this.generating = true
       this.generationError = ''
@@ -121,6 +129,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
             request_id: globalThis.crypto?.randomUUID?.() || `section-${Date.now()}`,
             instruction,
             scope_selection: scopeSelection,
+            anchor_role: anchorRole,
           },
         )
         this.applyPayload(this.courseId, response.data)

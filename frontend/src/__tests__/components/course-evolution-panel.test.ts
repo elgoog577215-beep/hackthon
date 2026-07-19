@@ -297,6 +297,50 @@ describe('CourseEvolutionPanel', () => {
     )
   })
 
+  it('从块级优化转入全课程方案时自动打开逐项影响审阅', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        source_kind: 'manual_section_request',
+        target_section_id: 's1',
+        scope_selection: 'whole_course',
+        generation_status: 'ready',
+        requested_roles: ['reasoning'],
+        operations: [{
+          operation_id: 'replace-reasoning-1',
+          operation_type: 'REPLACE_COURSE_BLOCK',
+          target_block_id: 'b1',
+          target_section_id: 's1',
+          scope: 'current',
+          reason: '按全课程要求加深理论推导。',
+          payload: {
+            action: 'REPLACE',
+            desired_role: 'reasoning',
+            target_section_title: '第一节',
+            target_block_title: '理论推导',
+            before_preview: '原推导。',
+            after_preview: '更深入的推导。',
+          },
+        }],
+        impact_summary: {
+          ...plan.impact_summary,
+          target_role_labels: ['理论推导'],
+          matching_policy: '匹配全课程同定位内容。',
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1', focusPlanId: 'plan-1' },
+      global: { stubs: { Teleport: true } },
+    })
+
+    expect(wrapper.get('.review-workbench').attributes('role')).toBe('dialog')
+    expect(wrapper.text()).toContain('理论推导')
+  })
+
   it('把全课程匹配结果放进多节点审阅层，并只提交用户勾选的操作', async () => {
     const wholeCoursePlan = {
       ...plan,

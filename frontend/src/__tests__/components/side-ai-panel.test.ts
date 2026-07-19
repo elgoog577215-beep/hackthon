@@ -2,10 +2,14 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SideAIPanel from '@/components/SideAIPanel.vue'
+import enMessages from '@/../public/locales/en/translation.json'
+import zhMessages from '@/../public/locales/zh/translation.json'
+import { setLocale } from '@/shared/i18n'
 import { useAITeacherStore, type AIConversation } from '@/stores/aiTeacher'
 import { useCourseStore } from '@/stores/course'
 import { useLearningProgressStore } from '@/stores/learningProgress'
 import { useChangeProposalsStore } from '@/stores/changeProposals'
+import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import type { ChangeProposal } from '@/types/changeProposal'
 import type { CourseBlockEditTarget } from '@/stores/types'
 
@@ -233,7 +237,7 @@ describe('SideAIPanel', () => {
     expect(wrapper.findAll('.quick-actions button')).toHaveLength(2)
   })
 
-  it('在唯一个性化分区生成 1–3 项对比，默认勾选并一次应用所选项', async () => {
+  it('默认把块级优化硬限制在当前内容，并一次应用当前候选', async () => {
     const blockTarget: CourseBlockEditTarget = {
       nodeId: 'node-1',
       nodeName: '向量空间与线性相关',
@@ -243,7 +247,7 @@ describe('SideAIPanel', () => {
         concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'cbr-1', status: 'final',
       },
     }
-    const proposal = personalizationProposal(blockTarget)
+    const proposal = personalizationProposal(blockTarget, 1)
     const wrapper = mountPanel([], '', blockTarget, store => {
       store.currentDocumentRevision = 'cdr-1'
     })
@@ -256,7 +260,7 @@ describe('SideAIPanel', () => {
         status: 'resolved',
         items: proposal.items.map(item => ({ ...item, status: 'applied' })),
       },
-      receipt: { affected_block_ids: ['block-1', 'block-3'] },
+      receipt: { affected_block_ids: ['block-1'] },
       document: {
         course_id: 'course-1',
         document: { course_id: 'course-1', title: '课程', document_revision: 'cdr-2', sections: [], blocks: [] },
@@ -270,6 +274,7 @@ describe('SideAIPanel', () => {
     expect(wrapper.find('.block-edit-workspace').exists()).toBe(false)
     expect(wrapper.text()).toContain('旧正文')
     expect(wrapper.findAll('.personalization-direction-chip')).toHaveLength(3)
+    expect(wrapper.get('[data-scope="current_block"]').attributes('aria-checked')).toBe('true')
 
     await wrapper.findAll('.personalization-direction-chip')[1]!.trigger('click')
     await wrapper.get('.personalization-feedback').setValue('请补充推导过程')
@@ -283,23 +288,78 @@ describe('SideAIPanel', () => {
       expectedBlockRevision: 'cbr-1',
       direction: 'expand',
       feedback: '请补充推导过程',
+      scopeSelection: 'current_block',
     }))
-    expect(wrapper.findAll('.personalization-diff-card')).toHaveLength(3)
+    expect(wrapper.findAll('.personalization-diff-card')).toHaveLength(1)
     expect(wrapper.findAll('.personalization-item-check').every(check => (
       (check.element as HTMLInputElement).checked
     ))).toBe(true)
     expect(wrapper.text()).toContain('优化后正文 1')
 
-    await wrapper.findAll('.personalization-item-check')[1]!.setValue(false)
     await wrapper.get('.personalization-apply').trigger('click')
     await flushPromises()
 
     expect(applySelected).toHaveBeenCalledTimes(1)
-    expect(applySelected).toHaveBeenCalledWith('personalization-1', ['item-1', 'item-3'], 'cdr-1')
+    expect(applySelected).toHaveBeenCalledWith('personalization-1', ['item-1'], 'cdr-1')
     expect(refreshCourse).toHaveBeenCalledWith('course-1')
     expect(wrapper.emitted('blockApplied')).toEqual([[blockTarget]])
     expect(wrapper.get('.personalization-apply-receipt').text()).toContain('block-1')
     expect(wrapper.get('.personalization-apply-receipt').text()).toContain('表示同步')
+  })
+
+  it('把全课程同类内容交给课程生长计划，并以当前块教学定位作为默认锚点', async () => {
+    const blockTarget = personalizationTarget()
+    const wrapper = mountPanel([], '', blockTarget, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const changeProposalsStore = useChangeProposalsStore()
+    const evolutionStore = useCourseEvolutionStore()
+    evolutionStore.applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [],
+    })
+    const createPersonalization = vi.spyOn(
+      changeProposalsStore,
+      'createPersonalizationProposal',
+    )
+    const createSectionPlan = vi.spyOn(evolutionStore, 'createSectionPlan')
+      .mockImplementation(async () => {
+        evolutionStore.plans = [{
+          change_set_id: 'whole-course-plan',
+          hypothesis_id: 'hypothesis-1',
+          source_kind: 'manual_section_request',
+          target_section_id: 'node-1',
+          request_text: '讲得更深入',
+          growth_direction: 'challenge',
+          generation_status: 'ready',
+          requested_roles: ['concept'],
+          evidence_ids: [],
+          operations: [],
+          scope_selection: 'whole_course',
+          allowed_scopes: ['current'],
+          impact_summary: {},
+          expected_effect: '同类内容更深入',
+          status: 'pending',
+          effect_evaluation: {},
+        }]
+        return {} as any
+      })
+
+    await wrapper.get('[data-scope="whole_course"]').trigger('click')
+    await wrapper.findAll('.personalization-direction-chip')[1]!.trigger('click')
+    await wrapper.get('.personalization-feedback').setValue('之后都可以用更高级的数学讲解')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+
+    expect(createPersonalization).not.toHaveBeenCalled()
+    expect(createSectionPlan).toHaveBeenCalledWith(
+      'node-1',
+      expect.stringContaining('之后都可以用更高级的数学讲解'),
+      'whole_course',
+      'concept',
+    )
+    expect(wrapper.emitted('clearBlockTarget')).toHaveLength(1)
   })
 
   it('取消全部对比项后禁用应用所选优化', async () => {
@@ -802,5 +862,31 @@ describe('SideAIPanel', () => {
     expect(cardText).not.toContain('payload')
     expect(cardText).not.toContain('internal old title')
     expect(cardText).not.toContain('internal new summary')
+  })
+
+  it('英文移动模式完整呈现块级范围选择且没有中文回退文案', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/')
+        ? enMessages
+        : zhMessages,
+    })))
+    await setLocale('en')
+    Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true })
+
+    try {
+      const wrapper = mountPanel([], '', personalizationTarget())
+      expect(wrapper.get('.ai-teacher-panel').classes()).toContain('is-overlay')
+      expect(wrapper.get('[data-scope="current_block"]').text()).toContain(
+        'Improve current content only',
+      )
+      expect(wrapper.get('[data-scope="whole_course"]').text()).toContain(
+        'Apply to matching content across the course',
+      )
+      expect(wrapper.text()).not.toContain('应用范围')
+    } finally {
+      await setLocale('zh')
+      vi.unstubAllGlobals()
+    }
   })
 })

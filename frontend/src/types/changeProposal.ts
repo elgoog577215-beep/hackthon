@@ -71,6 +71,7 @@ export interface CreatePersonalizationProposalInput {
   expectedBlockRevision: string
   direction: PersonalizationDirection
   feedback: string
+  scopeSelection?: 'current_block' | 'current_section'
 }
 
 export interface ChangeProposalApplyReceipt {

@@ -382,6 +382,48 @@ async def test_whole_course_request_matches_semantic_roles_and_partially_applies
 
 
 @pytest.mark.asyncio
+async def test_whole_course_block_entry_keeps_current_role_when_feedback_contains_role_like_words(
+    tmp_path,
+):
+    course = _whole_course_growth_course()
+    document_repository = CourseDocumentRepository(_MemoryCourseStorage(course))
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+
+    state = await generate_section_evolution_plan(
+        course,
+        user_id="student-block-anchor",
+        section_id="section-1",
+        instruction=(
+            "请把这项优化要求应用到全课程同类内容，并先生成逐项影响预览。\n"
+            "你的反馈：请都补充一个直观例子，帮助理解当前内容。"
+        ),
+        request_id="request-block-anchor",
+        scope_selection="whole_course",
+        anchor_role="example",
+        repository=evolution_repository,
+        document_repository=document_repository,
+        generator=_WholeCourseSectionGenerator(),
+    )
+
+    plan = state.change_sets[0]
+    content_operations = [
+        operation
+        for operation in plan.operations
+        if operation.operation_type == "REPLACE_COURSE_BLOCK"
+    ]
+    assert plan.requested_roles == ["example"]
+    assert [item.target_section_id for item in content_operations] == [
+        "section-1",
+        "section-3",
+    ]
+    assert plan.impact_summary["anchor_role"] == "example"
+    assert (
+        plan.impact_summary["scene_analysis"]["role_resolution"]
+        == "current_block_anchor"
+    )
+
+
+@pytest.mark.asyncio
 async def test_current_section_scope_is_a_hard_boundary_even_when_language_says_later(
     tmp_path,
 ):

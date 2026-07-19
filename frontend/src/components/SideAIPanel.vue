@@ -284,6 +284,52 @@
           </button>
         </div>
 
+        <div class="personalization-scope">
+          <span>{{ t('courseWorkspace.personalization.scopeLabel', '应用范围') }}</span>
+          <div
+            role="radiogroup"
+            :aria-label="t('courseWorkspace.personalization.scopeLabel', '应用范围')"
+          >
+            <button
+              type="button"
+              data-scope="current_block"
+              role="radio"
+              :aria-checked="personalizationScope === 'current_block'"
+              :class="{ active: personalizationScope === 'current_block' }"
+              :disabled="personalizationBusy || Boolean(personalizationProposal)"
+              @click="personalizationScope = 'current_block'"
+            >
+              <LocateFixed :size="14" />
+              <span>
+                <b>{{ t('courseWorkspace.personalization.scopeCurrent', '仅优化当前内容') }}</b>
+                <small>{{ t('courseWorkspace.personalization.scopeCurrentHint', '只生成当前正文块的修改候选') }}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              data-scope="whole_course"
+              role="radio"
+              :aria-checked="personalizationScope === 'whole_course'"
+              :class="{ active: personalizationScope === 'whole_course' }"
+              :disabled="personalizationBusy || Boolean(personalizationProposal)"
+              @click="personalizationScope = 'whole_course'"
+            >
+              <BookOpenText :size="14" />
+              <span>
+                <b>{{ t('courseWorkspace.personalization.scopeWholeCourse', '应用到全课程同类内容') }}</b>
+                <small>{{ t('courseWorkspace.personalization.scopeWholeCourseHint', 'AI 按当前教学定位匹配各小节相关内容') }}</small>
+              </span>
+            </button>
+          </div>
+          <small>
+            {{
+              personalizationScope === 'whole_course'
+                ? t('courseWorkspace.personalization.scopeWholeCourseNotice', 'AI 会先生成全课程影响预览；确认前不会修改任何内容。')
+                : t('courseWorkspace.personalization.scopeCurrentNotice', '当前范围只会修改你正在查看的这个正文块。')
+            }}
+          </small>
+        </div>
+
         <label class="personalization-feedback-wrap">
           <span>{{ t('courseWorkspace.personalization.feedback', '你的反馈') }}</span>
           <textarea
@@ -309,7 +355,11 @@
         >
           <LoaderCircle v-if="personalizationGenerationLoading" class="spin" :size="14" />
           <WandSparkles v-else :size="14" />
-          {{ t('courseWorkspace.personalization.generate', '生成优化对比') }}
+          {{
+            personalizationScope === 'whole_course'
+              ? t('courseWorkspace.personalization.generateWholeCourse', '生成全课程影响预览')
+              : t('courseWorkspace.personalization.generate', '生成优化对比')
+          }}
         </button>
 
         <div v-if="personalizationError" class="personalization-error">
@@ -524,6 +574,7 @@ import {
   FileDiff,
   History,
   Lightbulb,
+  LocateFixed,
   LoaderCircle,
   MessageSquareText,
   Plus,
@@ -542,7 +593,10 @@ import CourseEvolutionPanel from './CourseEvolutionPanel.vue'
 import { useAITeacherStore, type AIMessage } from '../stores/aiTeacher'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
-import { useCourseEvolutionStore } from '../stores/courseEvolution'
+import {
+  useCourseEvolutionStore,
+  type CourseEvolutionAnchorRole,
+} from '../stores/courseEvolution'
 import { useNoteStore } from '../stores/notes'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { t } from '../shared/i18n'
@@ -590,6 +644,7 @@ const messageList = ref<HTMLElement | null>(null)
 const inputElement = ref<HTMLTextAreaElement | null>(null)
 const selectedConversationId = ref('')
 const personalizationDirection = ref<PersonalizationDirection>('simplify')
+const personalizationScope = ref<'current_block' | 'whole_course'>('current_block')
 const personalizationFeedback = ref('')
 const personalizationProposal = ref<ChangeProposal | null>(null)
 const selectedPersonalizationItemIds = reactive(new Set<string>())
@@ -805,6 +860,7 @@ function resetPersonalization() {
   personalizationGenerationLoading.value = false
   personalizationApplying.value = false
   personalizationDirection.value = 'simplify'
+  personalizationScope.value = 'current_block'
   personalizationFeedback.value = props.prefill || ''
   personalizationProposal.value = null
   personalizationResult.value = null
@@ -814,6 +870,9 @@ function resetPersonalization() {
 
 function personalizationErrorText(error: any, fallback: string) {
   const detail = error?.response?.data?.detail
+  if (detail?.code === 'section_evolution_generation_failed') {
+    return detail.message || fallback
+  }
   if (detail?.code === 'personalization_generation_in_progress') {
     return t(
       'courseWorkspace.personalization.generationInProgress',
@@ -836,6 +895,7 @@ interface PersonalizationTargetSnapshot {
   expectedDocumentRevision: string
   expectedBlockRevision: string
   direction: PersonalizationDirection
+  scope: 'current_block' | 'whole_course'
   feedback: string
 }
 
@@ -849,6 +909,7 @@ function personalizationTargetSnapshot(
     expectedDocumentRevision,
     expectedBlockRevision: target.block.internal_revision,
     direction: personalizationDirection.value,
+    scope: personalizationScope.value,
     feedback: personalizationFeedback.value.trim(),
   }
 }
@@ -862,8 +923,62 @@ function isCurrentPersonalizationTarget(snapshot: PersonalizationTargetSnapshot)
     && target.block.block_id === snapshot.blockId
     && target.block.internal_revision === snapshot.expectedBlockRevision
     && personalizationDirection.value === snapshot.direction
+    && personalizationScope.value === snapshot.scope
     && personalizationFeedback.value.trim() === snapshot.feedback,
   )
+}
+
+function personalizationAnchorRole(target: CourseBlockEditTarget): CourseEvolutionAnchorRole | undefined {
+  const role = String(target.block.role || '')
+  if (['reasoning', 'application', 'example', 'checkpoint', 'concept'].includes(role)) {
+    return role as CourseEvolutionAnchorRole
+  }
+  return undefined
+}
+
+function wholeCoursePersonalizationInstruction(snapshot: PersonalizationTargetSnapshot) {
+  const direction = personalizationDirections.value.find(item => item.value === snapshot.direction)
+  return [
+    t(
+      'courseWorkspace.personalization.wholeCourseInstruction',
+      '请把这项优化要求应用到全课程同类内容，并先生成逐项影响预览。',
+    ),
+    `${t('courseWorkspace.personalization.direction', '优化方向')}：${direction?.label || snapshot.direction}`,
+    `${t('courseWorkspace.personalization.feedback', '你的反馈')}：${snapshot.feedback}`,
+  ].join('\n')
+}
+
+async function generateWholeCoursePersonalization(
+  snapshot: PersonalizationTargetSnapshot,
+  target: CourseBlockEditTarget,
+) {
+  if (courseEvolutionStore.courseId !== snapshot.courseId) {
+    await courseEvolutionStore.load(snapshot.courseId)
+  }
+  const existingPlanIds = new Set(
+    courseEvolutionStore.pendingPlans.map(plan => plan.change_set_id),
+  )
+  const instruction = wholeCoursePersonalizationInstruction(snapshot)
+  await courseEvolutionStore.createSectionPlan(
+    target.block.section_id || target.nodeId,
+    instruction,
+    'whole_course',
+    personalizationAnchorRole(target),
+  )
+  const createdPlan = [...courseEvolutionStore.pendingPlans].reverse().find(plan => (
+    !existingPlanIds.has(plan.change_set_id)
+    && plan.source_kind === 'manual_section_request'
+    && plan.scope_selection === 'whole_course'
+  ))
+  if (!createdPlan) {
+    throw new Error(t(
+      'courseWorkspace.personalization.wholeCoursePlanMissing',
+      '全课程影响方案已经生成，但暂时无法定位，请返回 AI 老师后重新打开。',
+    ))
+  }
+  if (!isCurrentPersonalizationTarget(snapshot)) return
+  focusedEvolutionPlanId.value = createdPlan.change_set_id
+  emit('clearBlockTarget')
 }
 
 async function generatePersonalizationProposal() {
@@ -875,6 +990,10 @@ async function generatePersonalizationProposal() {
   personalizationError.value = ''
   personalizationGenerationLoading.value = true
   try {
+    if (snapshot.scope === 'whole_course') {
+      await generateWholeCoursePersonalization(snapshot, target)
+      return
+    }
     const proposal = await changeProposalsStore.createPersonalizationProposal({
       courseId: snapshot.courseId,
       blockId: snapshot.blockId,
@@ -883,6 +1002,7 @@ async function generatePersonalizationProposal() {
       expectedBlockRevision: snapshot.expectedBlockRevision,
       direction: snapshot.direction,
       feedback: snapshot.feedback,
+      scopeSelection: 'current_block',
     })
     if (requestToken !== personalizationGenerationToken || !isCurrentPersonalizationTarget(snapshot)) return
     personalizationProposal.value = proposal
@@ -1209,6 +1329,7 @@ watch(() => props.prefill, value => {
   }
 })
 watch(() => `${props.blockTarget?.block.block_id || ''}:${props.blockTarget?.block.internal_revision || ''}`, () => {
+  if (props.blockTarget) focusedEvolutionPlanId.value = ''
   resetPersonalization()
 }, { immediate: true })
 watch(() => aiStore.currentConversationId, value => { selectedConversationId.value = value })
@@ -1329,6 +1450,18 @@ onUnmounted(() => {
 .personalization-direction-chip:hover:not(:disabled) { transform:translateY(-1px); border-color:#a5b4fc; color:var(--lz-brand-strong); }
 .personalization-direction-chip.active { border-color:#818cf8; color:#3730a3; background:#eef2ff; box-shadow:0 0 0 2px rgba(99,102,241,.08); }
 .personalization-direction-chip:disabled { opacity:.65; cursor:not-allowed; }
+.personalization-scope { display:grid; gap:6px; margin-bottom:12px; }
+.personalization-scope > span { color:var(--lz-text-secondary); font-size:10px; font-weight:750; }
+.personalization-scope > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.personalization-scope button { min-width:0; min-height:50px; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:center; gap:7px; padding:7px 8px; border:1px solid #dbe3f2; border-radius:9px; color:var(--lz-text-secondary); background:#fff; text-align:left; cursor:pointer; transition:border-color .16s ease,color .16s ease,background .16s ease,transform .16s ease; }
+.personalization-scope button:hover:not(:disabled) { transform:translateY(-1px); border-color:#a5b4fc; color:var(--lz-brand-strong); }
+.personalization-scope button.active { border-color:#818cf8; color:#3730a3; background:#eef2ff; box-shadow:0 0 0 2px rgba(99,102,241,.08); }
+.personalization-scope button:disabled { opacity:.65; cursor:not-allowed; }
+.personalization-scope button > span { min-width:0; display:grid; gap:2px; }
+.personalization-scope b { overflow:hidden; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.personalization-scope button small { overflow:hidden; color:var(--lz-text-muted); font-size:8px; line-height:1.35; text-overflow:ellipsis; }
+.personalization-scope button.active small { color:#6366f1; }
+.personalization-scope > small { color:var(--lz-text-muted); font-size:8.5px; line-height:1.45; }
 .personalization-feedback-wrap { display:grid; gap:6px; margin-bottom:10px; }
 .personalization-feedback-wrap > span { color:var(--lz-text-secondary); font-size:10px; font-weight:750; }
 .personalization-feedback { width:100%; min-height:86px; resize:vertical; border:1px solid #dbe3f2; border-radius:10px; padding:9px 10px; color:var(--lz-text); background:#fff; font:inherit; font-size:11px; line-height:1.55; outline:none; }
@@ -1479,6 +1612,7 @@ onUnmounted(() => {
   .primary-command,.secondary-command { width: 100%; }
   .action-receipt { align-items: flex-start; flex-wrap: wrap; }
   .personalization-workspace { padding-inline:10px; }
+  .personalization-scope > div { grid-template-columns:1fr; }
   .personalization-diff-columns { grid-template-columns:1fr; }
 }
 </style>

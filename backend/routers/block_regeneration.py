@@ -50,6 +50,7 @@ class CreatePersonalizationProposalRequest(BaseModel):
     expected_block_revision: str = Field(..., min_length=1, max_length=160)
     direction: Literal["simplify", "expand", "custom"]
     feedback: str = Field(..., min_length=1, max_length=3000)
+    scope_selection: Literal["current_block", "current_section"] = "current_section"
 
 
 def get_block_regeneration_service() -> BlockRegenerationService:
@@ -233,6 +234,7 @@ async def create_personalization_proposal(
             expected_block_revision=body.expected_block_revision,
             direction=body.direction,
             feedback=body.feedback,
+            scope_selection=body.scope_selection,
             user_id=require_user_id(request.headers.get("X-User-Id")),
         )
     except CourseDocumentNotFound as exc:

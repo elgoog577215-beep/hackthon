@@ -119,11 +119,13 @@ describe('course evolution store', () => {
       'section-1',
       '以后所有例子都讲得详细一点',
       'whole_course',
+      'example',
     )
 
     expect(httpMock.post.mock.calls[0]?.[1]).toMatchObject({
       instruction: '以后所有例子都讲得详细一点',
       scope_selection: 'whole_course',
+      anchor_role: 'example',
     })
   })
 

@@ -374,6 +374,11 @@ function setPlanElement(planId: string, element: unknown) {
 }
 async function focusPlan(planId: string) {
   expandedId.value = planId
+  const plan = visiblePlans.value.find(item => item.change_set_id === planId)
+  if (plan?.scope_selection === 'whole_course') {
+    openReview(plan)
+    return
+  }
   await nextTick()
   const element = planElements.get(planId)
   if (element && typeof element.scrollIntoView === 'function') {

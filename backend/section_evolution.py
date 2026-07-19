@@ -57,18 +57,31 @@ DIFFICULTY_KEYS = {
 }
 
 
-def analyze_section_request(instruction: str) -> dict[str, Any]:
-    """Deterministic fallback when semantic scene analysis is unavailable."""
+def _explicit_roles(instruction: str) -> list[str]:
     text = str(instruction or "").strip()
     roles = [
         role
         for role, pattern in ROLE_PATTERNS.items()
         if pattern.search(text)
     ]
-    # “实战案例” is an application request, not a request to duplicate another
-    # generic example block.
     if "application" in roles and "案例" in text and "举例" not in text:
         roles = [role for role in roles if role != "example"]
+    return list(dict.fromkeys(roles))
+
+
+def _difficulty_delta(direction: str, roles: list[str]) -> dict[str, int]:
+    return {
+        "reasoning_depth": 2 if direction == "challenge" or "reasoning" in roles else 1,
+        "transfer_distance": 2 if "application" in roles else 0,
+        "task_complexity": 1 if "checkpoint" in roles or direction == "challenge" else 0,
+        "learner_support": -1 if direction == "challenge" else 1 if direction == "remediation" else 0,
+    }
+
+
+def analyze_section_request(instruction: str) -> dict[str, Any]:
+    """Deterministic fallback when semantic scene analysis is unavailable."""
+    text = str(instruction or "").strip()
+    roles = _explicit_roles(text)
     direction = (
         "challenge"
         if CHALLENGE_PATTERN.search(text)
@@ -78,13 +91,8 @@ def analyze_section_request(instruction: str) -> dict[str, Any]:
     )
     if not roles:
         roles = ["reasoning", "application"] if direction == "challenge" else ["concept", "example"]
-    difficulty_delta = {
-        "reasoning_depth": 2 if direction == "challenge" or "reasoning" in roles else 1,
-        "transfer_distance": 2 if "application" in roles else 0,
-        "task_complexity": 1 if "checkpoint" in roles or direction == "challenge" else 0,
-        "learner_support": -1 if direction == "challenge" else 1 if direction == "remediation" else 0,
-    }
     normalized_roles = list(dict.fromkeys(roles))
+    difficulty_delta = _difficulty_delta(direction, normalized_roles)
     source_requirement = (
         "verified_current_sources"
         if CURRENT_SOURCE_PATTERN.search(text)
@@ -219,6 +227,7 @@ async def generate_section_evolution_plan(
     instruction: str,
     request_id: str,
     scope_selection: Literal["current_section", "whole_course"] = "current_section",
+    anchor_role: str | None = None,
     repository: CourseEvolutionRepository,
     document_repository: CourseDocumentRepository,
     generator: Any | None = None,
@@ -227,6 +236,8 @@ async def generate_section_evolution_plan(
     """Generate and checkpoint a reviewable section change without mutating the course."""
     if scope_selection not in {"current_section", "whole_course"}:
         raise ValueError("Unsupported course evolution scope")
+    if anchor_role is not None and anchor_role not in ROLE_TITLES:
+        raise ValueError("Unsupported course evolution anchor role")
     course_id = str(course_data.get("course_id") or "")
     document, canonical = document_repository.load_document(course_id)
     if not canonical:
@@ -271,8 +282,24 @@ async def generate_section_evolution_plan(
             raise ValueError("Course section plan cannot be generated from its current status")
         effective_instruction = plan.request_text or instruction
         scope_selection = plan.scope_selection
+        stored_anchor_role = str(plan.impact_summary.get("anchor_role") or "")
+        if anchor_role is None and stored_anchor_role in ROLE_TITLES:
+            anchor_role = stored_anchor_role
 
     fallback = analyze_section_request(effective_instruction)
+    if (
+        scope_selection == "whole_course"
+        and anchor_role is not None
+    ):
+        fallback["roles"] = [anchor_role]
+        fallback["difficulty_delta"] = _difficulty_delta(
+            fallback["growth_direction"],
+            fallback["roles"],
+        )
+        fallback["rationale"] = (
+            f"本次请求从正文块发起，系统沿用当前内容的"
+            f"“{ROLE_TITLES[anchor_role]}”定位匹配全课程同类内容。"
+        )
     evidence_context = [
         {
             "evidence_kind": item.evidence_kind,
@@ -326,6 +353,21 @@ async def generate_section_evolution_plan(
         available_sources,
     )
     analysis["available_source_count"] = len(available_sources)
+    if (
+        scope_selection == "whole_course"
+        and anchor_role is not None
+    ):
+        analysis["roles"] = [anchor_role]
+        analysis["difficulty_delta"] = _difficulty_delta(
+            analysis["growth_direction"],
+            analysis["roles"],
+        )
+        analysis["rationale"] = (
+            f"本次请求从正文块发起，系统沿用当前内容的"
+            f"“{ROLE_TITLES[anchor_role]}”定位，匹配全课程同类内容。"
+        )
+        analysis["role_resolution"] = "current_block_anchor"
+    analysis["anchor_role"] = anchor_role
 
     sections_by_id = {
         item.section_id: item
@@ -445,6 +487,7 @@ async def generate_section_evolution_plan(
                 "section_id": section_id,
                 "request_id": request_id,
                 "scope_selection": scope_selection,
+                "anchor_role": anchor_role,
             },
             prefix="ces_",
         )
@@ -463,6 +506,7 @@ async def generate_section_evolution_plan(
                 "request_id": request_id,
                 "kind": "manual_section_growth",
                 "scope_selection": scope_selection,
+                "anchor_role": anchor_role,
             },
             prefix="ahp_",
         )
@@ -574,6 +618,7 @@ async def generate_section_evolution_plan(
             matched_count=len(generation_targets),
         ),
         "scope_selection": scope_selection,
+        "anchor_role": anchor_role,
         "search_domain": "current_course" if scope_selection == "whole_course" else "current_section",
         "target_roles": list(analysis["roles"]),
         "target_role_labels": [
