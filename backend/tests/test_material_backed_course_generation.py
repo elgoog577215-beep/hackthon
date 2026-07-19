@@ -24,6 +24,7 @@ from course_generation_workflow import (
     validate_course_knowledge_skeleton,
     validate_course_outline_constraints,
     validate_course_plan_constraints,
+    repair_course_relation_batch_decisions,
     validate_course_relation_batch,
     validate_section_knowledge_package,
 )
@@ -734,6 +735,84 @@ def test_course_relation_batch_requires_an_explicit_decision_for_every_node():
     assert {
         item["code"] for item in report["issues"]
     } == {"course_relations:missing_decision"}
+
+
+def test_connected_node_without_inbound_is_repaired_to_course_entry():
+    payload = {
+        "node_decisions": [
+            {
+                "knowledge_id": "kp-a",
+                "decision": "course_entry",
+                "reason": "课程真实入口",
+            },
+            {
+                "knowledge_id": "kp-b",
+                "decision": "connected",
+                "reason": "依赖 kp-a",
+            },
+            {
+                "knowledge_id": "kp-c",
+                "decision": "connected",
+                "reason": "模型声称已连接，但没给关系",
+            },
+        ],
+        "relations": [{
+            "source_knowledge_id": "kp-a",
+            "target_knowledge_id": "kp-b",
+            "relation_type": "prerequisite",
+            "reason": "kp-a 是 kp-b 的前置",
+        }],
+    }
+    ids = ["kp-a", "kp-b", "kp-c"]
+    report = validate_course_relation_batch(
+        payload, target_knowledge_ids=ids, allowed_knowledge_ids=ids,
+    )
+    assert report["passed"] is False
+    assert {item["code"] for item in report["issues"]} == {
+        "course_relations:connected_without_relation"
+    }
+
+    repaired = repair_course_relation_batch_decisions(
+        payload, issues=report["issues"],
+    )
+    assert repaired is not None
+    decisions = {
+        item["knowledge_id"]: item["decision"]
+        for item in repaired["node_decisions"]
+    }
+    # Only the orphaned node is downgraded; the genuinely connected one stays.
+    assert decisions == {
+        "kp-a": "course_entry",
+        "kp-b": "connected",
+        "kp-c": "course_entry",
+    }
+    repaired_report = validate_course_relation_batch(
+        repaired, target_knowledge_ids=ids, allowed_knowledge_ids=ids,
+    )
+    assert repaired_report["passed"] is True
+
+
+def test_repair_refuses_batches_with_other_structural_issues():
+    payload = {
+        "node_decisions": [{
+            "knowledge_id": "kp-a",
+            "decision": "connected",
+            "reason": "没入边",
+        }],
+        "relations": [{
+            "source_knowledge_id": "kp-a",
+            "target_knowledge_id": "kp-missing",
+            "relation_type": "prerequisite",
+            "reason": "非法端点",
+        }],
+    }
+    report = validate_course_relation_batch(
+        payload, target_knowledge_ids=["kp-a"], allowed_knowledge_ids=["kp-a"],
+    )
+    assert report["passed"] is False
+    assert repair_course_relation_batch_decisions(
+        payload, issues=report["issues"],
+    ) is None
 
 
 def test_course_relation_batches_merge_by_stable_ids():

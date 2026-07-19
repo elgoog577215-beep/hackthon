@@ -563,6 +563,38 @@ def normalize_course_relation_batch(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def repair_course_relation_batch_decisions(
+    payload: dict[str, Any],
+    *,
+    issues: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Deterministically repair `connected_without_relation` failures.
+
+    A node the model marked "connected" without giving it any surviving inbound
+    relation is structurally indistinguishable from a genuine course entry, so
+    downgrading the decision preserves every validated relation while keeping
+    the batch acceptable. Returns the repaired batch, or None when any issue is
+    not of this auto-fixable kind (callers must then fail as before).
+    """
+    fixable_code = "course_relations:connected_without_relation"
+    if not issues or any(item.get("code") != fixable_code for item in issues):
+        return None
+    orphaned = {
+        message.split(" ")[1]
+        for message in (str(item.get("message") or "") for item in issues)
+        if message.startswith("知识点 ")
+    }
+    repaired = normalize_course_relation_batch(payload)
+    for decision in repaired["node_decisions"]:
+        if decision["knowledge_id"] in orphaned and decision["decision"] == "connected":
+            decision["decision"] = "course_entry"
+            decision["reason"] = (
+                f"{decision['reason']}（自动降级：模型未给出可验收的关系入边，"
+                "按课程入口处理）"
+            ).strip()
+    return repaired
+
+
 def validate_course_relation_batch(
     payload: dict[str, Any],
     *,

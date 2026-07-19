@@ -82,6 +82,7 @@ from course_generation_workflow import (
     validate_course_knowledge_skeleton,
     validate_course_outline_constraints,
     validate_course_plan_constraints,
+    repair_course_relation_batch_decisions,
     validate_course_relation_batch,
     validate_section_knowledge_package,
 )
@@ -2151,6 +2152,18 @@ class CourseService(AIBase):
                         target_knowledge_ids=spec["target_ids"],
                         allowed_knowledge_ids=spec["allowed_ids"],
                     )
+                if not report.get("passed"):
+                    repaired = repair_course_relation_batch_decisions(
+                        payload,
+                        issues=report.get("issues") or [],
+                    )
+                    if repaired is not None:
+                        payload = repaired
+                        report = validate_course_relation_batch(
+                            payload,
+                            target_knowledge_ids=spec["target_ids"],
+                            allowed_knowledge_ids=spec["allowed_ids"],
+                        )
                 if not report.get("passed"):
                     messages = "；".join(
                         str(
