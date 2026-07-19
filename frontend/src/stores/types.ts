@@ -81,9 +81,56 @@ export interface CourseDocumentEnvelope {
     rationale?: string
   } | null
   generation_quality_report?: Record<string, unknown> | null
+  teaching_plan?: CourseTeachingPlanProjection | null
   source_format: 'canonical' | 'legacy_projection'
   migration: { required: boolean; source_checksum?: string | null; migrated_at?: string | null }
   document: CourseDocument
+}
+
+export interface CourseTeachingPlanModule {
+  module_id: string
+  teaching_purpose: string
+  knowledge_names: string[]
+  teaching_guidance?: string
+}
+
+export interface CourseTeachingPlanSection {
+  node_id: string
+  knowledge_structure: Array<{
+    concept_group?: string
+    description?: string
+    knowledge_points?: Array<{
+      knowledge_id?: string
+      name?: string
+      statement?: string
+      description?: string
+      knowledge_type?: string
+      conditions?: string[]
+      boundaries?: string[]
+      counterexamples?: string[]
+      capability?: string
+      capability_points?: Array<string | Record<string, unknown>>
+      misconceptions?: Array<string | Record<string, unknown>>
+      mastery_criteria?: Array<string | Record<string, unknown>>
+      aliases?: string[]
+      prerequisite_names?: string[]
+    }>
+  }>
+  key_points: string[]
+  reused_knowledge_names: string[]
+  knowledge_relations: Array<Record<string, unknown>>
+  teaching_modules: CourseTeachingPlanModule[]
+}
+
+export interface CourseTeachingPlanProjection {
+  schema_version: 'course_teaching_plan_projection_v1'
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | string
+  revision_id: string
+  strategy: string
+  section_count: number
+  knowledge_point_count: number
+  teaching_module_count: number
+  sections: CourseTeachingPlanSection[]
 }
 
 export interface CourseBlockEditTarget {

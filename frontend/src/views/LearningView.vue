@@ -26,20 +26,15 @@
           </div>
         </div>
         <CourseWorkspaceTabs
-          v-if="!isGenerationPreview"
-          active-item="course"
+          :active-item="activeWorkspaceItem"
           :practice-available="Boolean(currentPracticeNode)"
           :practice-repair-available="questionBankRepairAvailable"
-          @outline="openTeachingResource('outline')"
-          @lesson-plan="openTeachingResource('lesson_plan')"
-          @course="openCourseWorkspace"
-          @practice="openCurrentPractice"
+          :practice-pending="isGenerationPreview"
+          @lesson-plan="selectWorkspace('lesson-plan')"
+          @course="selectWorkspace('course')"
+          @practice="selectWorkspace('practice')"
         />
         <div class="context-actions">
-          <div v-if="isGenerationPreview" class="generation-meter" :aria-label="t('courseGeneration.workspace.progress', '生成进度')">
-            <span>{{ generationProgress }}%</span>
-            <i><b :style="{ width: `${generationProgress}%` }"></b></i>
-          </div>
           <button v-if="isGenerationPreview && !autoFollowGeneration" type="button" :title="t('courseGeneration.workspace.follow', '跟随当前生成章节')" :aria-label="t('courseGeneration.workspace.follow', '跟随当前生成章节')" @click="resumeGenerationFollow">
             <LocateFixed :size="17" />
           </button>
@@ -49,7 +44,22 @@
         </div>
       </div>
 
+      <CourseGenerationLifecycle
+        v-if="isGenerationPreview"
+        :task="generationTask"
+        :elapsed-seconds="phaseElapsedSeconds"
+      />
+
+      <GenerationLessonPlan
+        v-if="activeWorkspaceItem === 'lesson-plan'"
+        :plan="courseStore.currentTeachingPlan"
+        :nodes="courseStore.nodes"
+        :active-node-id="courseStore.currentNode?.node_id"
+        :live="isGenerationPreview"
+        @select="selectNode"
+      />
       <ContentArea
+        v-else
         ref="contentAreaRef"
         :side-ai-panel-visible="aiVisible"
         class="learning-content"
@@ -57,6 +67,13 @@
         @start-practice="openTask"
         @improve-block="openBlockImprovement"
         @active-block-change="handleActiveBlockChange"
+      />
+
+      <CourseGenerationGate
+        v-if="isGenerationPreview && courseStore.currentCourseId"
+        :course-id="courseStore.currentCourseId"
+        :task="generationTask"
+        @confirmed="handleGenerationGateConfirmed"
       />
 
       <LearningDock
@@ -191,8 +208,11 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
+import CourseGenerationGate from '../components/CourseGenerationGate.vue'
+import CourseGenerationLifecycle from '../components/CourseGenerationLifecycle.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import CourseWorkspaceTabs from '../components/CourseWorkspaceTabs.vue'
+import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import LearningDock from '../components/LearningDock.vue'
 import LearningStats from '../components/LearningStats.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
@@ -248,15 +268,18 @@ const aiPrefill = ref('')
 const aiEntrypoint = ref<'global' | 'selection' | 'practice' | 'continuity' | 'record'>('global')
 const aiBlockTarget = ref<CourseBlockEditTarget | undefined>(undefined)
 const autoFollowGeneration = ref(true)
+const activeWorkspaceItem = ref<'lesson-plan' | 'course' | 'practice'>('course')
+const phaseElapsedSeconds = ref(0)
+const phaseStartedAt = ref(Date.now())
+let phaseTimer: number | null = null
 const loadedLearningCourseId = ref('')
 const activeDomain = ref<'course' | 'notebook' | 'mistake-book' | 'overview' | 'knowledge-library' | 'assistant'>('course')
-const activeTeachingResource = ref<'outline' | 'lesson_plan'>('outline')
+const activeTeachingResource = ref<'outline' | 'lesson_plan'>('lesson_plan')
 const activeCourseBlockId = ref('')
 
 const isNarrow = computed(() => windowWidth.value < 1024)
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
 const generationTask = computed(() => courseStore.currentCourseId ? generationStore.tasks.get(courseStore.currentCourseId) : undefined)
-const generationProgress = computed(() => Math.max(0, Math.min(100, Math.round(generationTask.value?.progress || generationStore.generationProgress || 0))))
 const activeGenerationNodeId = computed(() => generationTask.value?.currentNodes?.[0]?.node_id || generationStore.currentGeneratingNodeId || '')
 const generationStatusText = computed(() => (
   generationTask.value?.currentStep
@@ -266,6 +289,11 @@ const generationStatusText = computed(() => (
   || t('courseGeneration.workspace.preparing', '正在准备课程结构')
 ))
 const navigatorVisible = computed(() => !courseStore.isFocusMode && (isNarrow.value ? navigatorOpen.value : navigatorOpen.value))
+const phaseWorkspaceItem = computed<'lesson-plan' | 'course'>(() => {
+  const phase = String(generationTask.value?.currentPhase || '')
+  if (/teaching|knowledge|graph/.test(phase)) return 'lesson-plan'
+  return 'course'
+})
 const overlayVisible = computed(() => isNarrow.value && navigatorOpen.value && !taskOpen.value)
 const noteCount = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format' && item.sourceType !== 'wrong').length)
 const mistakeCount = computed(() => workspaceStore.practiceNeedsReviewCount)
@@ -326,9 +354,10 @@ watch(() => route.params.courseId, async value => {
   loadedLearningCourseId.value = loadedLearningCourseId.value === courseId ? loadedLearningCourseId.value : ''
   autoFollowGeneration.value = true
   activeCourseBlockId.value = ''
+  activeWorkspaceItem.value = 'course'
   aiVisible.value = false
   activeDomain.value = 'course'
-  activeTeachingResource.value = 'outline'
+  activeTeachingResource.value = 'lesson_plan'
   notebookOpen.value = false
   mistakeBookOpen.value = false
   statsOpen.value = false
@@ -340,6 +369,7 @@ watch(() => route.params.courseId, async value => {
   await courseStore.loadCourse(courseId)
   generationStore.observeCourse(courseId)
   if (isGenerationPreview.value) {
+    activeWorkspaceItem.value = phaseWorkspaceItem.value
     selectInitialNode()
     return
   }
@@ -372,6 +402,7 @@ async function loadPublishedLearningContext(courseId: string) {
 watch(() => courseStore.currentCourseProjection, async (projection, previous) => {
   if (projection !== 'published' || previous !== 'generation_preview' || !courseStore.currentCourseId) return
   autoFollowGeneration.value = false
+  activeWorkspaceItem.value = 'course'
   await loadPublishedLearningContext(courseStore.currentCourseId)
   selectInitialNode()
 })
@@ -380,6 +411,14 @@ watch(activeGenerationNodeId, nodeId => {
   if (!nodeId || !isGenerationPreview.value || !autoFollowGeneration.value) return
   const node = courseStore.nodes.find(item => item.node_id === nodeId)
   if (node) selectNode(node, false, false)
+})
+
+watch(() => generationTask.value?.currentPhase, () => {
+  phaseStartedAt.value = Date.now()
+  phaseElapsedSeconds.value = 0
+  if (isGenerationPreview.value && autoFollowGeneration.value) {
+    activeWorkspaceItem.value = phaseWorkspaceItem.value
+  }
 })
 
 watch(() => route.params.nodeId, value => {
@@ -400,10 +439,14 @@ watch(() => courseStore.currentNode, async node => {
 
 onMounted(() => {
   generationStore.restoreGenerationState()
+  phaseTimer = window.setInterval(() => {
+    phaseElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - phaseStartedAt.value) / 1000))
+  }, 1000)
   window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
+  if (phaseTimer !== null) window.clearInterval(phaseTimer)
   window.removeEventListener('resize', handleResize)
   generationStore.unobserveCourse(courseStore.currentCourseId)
 })
@@ -463,8 +506,42 @@ function handleActiveBlockChange(payload: { nodeId: string; blockId: string }) {
 
 function resumeGenerationFollow() {
   autoFollowGeneration.value = true
+  activeWorkspaceItem.value = phaseWorkspaceItem.value
   const node = courseStore.nodes.find(item => item.node_id === activeGenerationNodeId.value)
   if (node) selectNode(node, false, false)
+}
+
+function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice') {
+  if (isGenerationPreview.value) {
+    if (item === 'practice') return
+    autoFollowGeneration.value = false
+    activeWorkspaceItem.value = item
+    return
+  }
+  if (item === 'lesson-plan') {
+    activeWorkspaceItem.value = 'lesson-plan'
+    resourcesOpen.value = false
+    notebookOpen.value = false
+    mistakeBookOpen.value = false
+    statsOpen.value = false
+    taskOpen.value = false
+    aiVisible.value = false
+    courseStore.showKnowledgeLibrary = false
+    activeDomain.value = 'course'
+    return
+  }
+  if (item === 'practice') {
+    activeWorkspaceItem.value = 'practice'
+    openCurrentPractice()
+    return
+  }
+  activeWorkspaceItem.value = 'course'
+  void openCourseWorkspace()
+}
+
+function handleGenerationGateConfirmed() {
+  autoFollowGeneration.value = true
+  activeWorkspaceItem.value = phaseWorkspaceItem.value
 }
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
@@ -578,6 +655,7 @@ function openKnowledgeLibrary() {
 function openTeachingResource(type: 'outline' | 'lesson_plan') {
   activeDomain.value = 'course'
   activeTeachingResource.value = type
+  activeWorkspaceItem.value = 'lesson-plan'
   resourcesOpen.value = true
   notebookOpen.value = false
   mistakeBookOpen.value = false
@@ -590,10 +668,15 @@ function openTeachingResource(type: 'outline' | 'lesson_plan') {
 
 async function openTeachingResourceFromTask(type: 'outline' | 'lesson_plan') {
   await closeTask()
+  if (type === 'lesson_plan') {
+    selectWorkspace('lesson-plan')
+    return
+  }
   openTeachingResource(type)
 }
 
 async function openCourseWorkspace() {
+  activeWorkspaceItem.value = 'course'
   resourcesOpen.value = false
   notebookOpen.value = false
   mistakeBookOpen.value = false
@@ -617,7 +700,12 @@ function openCurrentPractice() {
   statsOpen.value = false
   const targetNode = currentPracticeNode.value
     || (questionBankRepairAvailable.value ? courseStore.currentNode : null)
-  if (targetNode) openTask(targetNode)
+  if (targetNode) {
+    activeWorkspaceItem.value = 'practice'
+    openTask(targetNode)
+  } else {
+    activeWorkspaceItem.value = 'course'
+  }
 }
 
 function openStats() {
@@ -683,6 +771,7 @@ function openTask(node?: Node | null, taskRevisionId = '') {
 
 async function closeTask() {
   taskOpen.value = false
+  activeWorkspaceItem.value = 'course'
   if (!aiVisible.value) activeDomain.value = 'course'
   await refreshRuntime()
   await nextTick()
@@ -747,7 +836,7 @@ function closeMobileSurfaces() {
 .navigator-surface { flex: 0 0 280px; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .learning-context-bar { min-height:58px; flex:0 0 auto; display:grid; grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr); align-items:center; gap:12px; padding:7px 12px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.94); }
-.learning-context-bar.is-generation { grid-template-columns:minmax(0,1fr) auto; min-height:52px; background:rgba(255,255,255,.9); }
+.learning-context-bar.is-generation { min-height:52px; background:rgba(255,255,255,.96); }
 .context-leading { min-width:0; display:flex; align-items:center; gap:9px; }
 .context-leading > button,.context-actions > button { width:32px; height:32px; flex:0 0 32px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .context-leading > button:hover,.context-actions > button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
@@ -755,9 +844,6 @@ function closeMobileSurfaces() {
 .context-copy span { color:var(--lz-text-muted); font-size:9px; }
 .context-copy strong { margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--lz-text-strong); font-size:12px; }
 .context-actions { min-width:0; justify-self:end; display:flex; align-items:center; gap:7px; }
-.generation-meter { width:clamp(112px,16vw,220px); display:grid; grid-template-columns:auto minmax(60px,1fr); align-items:center; gap:8px; color:var(--lz-brand-strong); font-size:11px; font-weight:800; }
-.generation-meter i { height:5px; overflow:hidden; border-radius:999px; background:#e8eaff; }
-.generation-meter b { height:100%; display:block; border-radius:inherit; background:#6366f1; transition:width .35s ease; }
 .learning-content { min-height: 0; flex: 1; }
 .learning-tool-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
 .learning-tool-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:24px; }
@@ -792,7 +878,6 @@ function closeMobileSurfaces() {
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
   .learning-context-bar { min-height:52px; grid-template-columns:auto minmax(0,1fr) auto; gap:6px; padding:5px 7px; }
   .context-copy { display:none; }
-  .generation-meter { width:92px; grid-template-columns:auto minmax(44px,1fr); }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); }
   .learning-tool-overlay { position:fixed; inset:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); z-index:105; }
   .learning-tool-modal { padding:10px; }

@@ -20,10 +20,9 @@
         </div>
 
         <CourseWorkspaceTabs
-          :active-item="activeType === 'outline' ? 'outline' : 'lesson-plan'"
+          active-item="lesson-plan"
           :practice-available="practiceAvailable"
           :practice-repair-available="practiceRepairAvailable"
-          @outline="emit('outline')"
           @lesson-plan="emit('lesson-plan')"
           @course="emit('course')"
           @practice="emit('practice')"

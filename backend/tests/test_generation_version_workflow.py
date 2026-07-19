@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 
 import pytest
@@ -335,6 +336,8 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert preview["task"]["status"] == "waiting_for_review"
     assert preview["nodes"][0]["node_name"] == "概念"
     assert preview["nodes"][0]["content_state"] == "pending"
+    assert preview["teaching_plan"]["status"] == "pending"
+    assert preview["teaching_plan"]["sections"] == []
     assert "request_snapshot" not in preview["task"]
 
     workspaces.update_course(
@@ -356,6 +359,55 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     active_preview = manager.get_generation_preview(job["course_id"])
     assert active_preview is not None
     assert active_preview["nodes"][0]["generation_status"] == "generating"
+    workspaces.update_course(
+        job["job_id"],
+        lambda course: {
+            **course,
+            "course_teaching_plan": {
+                "schema_version": "course_teaching_plan_v2",
+                "revision_id": "teaching-preview-1",
+                "sections": [{
+                    "node_id": course["nodes"][0]["node_id"],
+                    "key_points": ["概念边界"],
+                    "knowledge_structure": [{
+                        "concept_group": "概念组",
+                        "knowledge_points": [{
+                            "name": "概念边界",
+                            "statement": "说明概念边界",
+                            "relation_decision_reason": "内部判断不得投影",
+                        }],
+                    }],
+                    "teaching_modules": [{
+                        "module_id": "core_explanation",
+                        "teaching_purpose": "解释概念边界",
+                        "knowledge_names": ["概念边界"],
+                        "internal_trace": "不得投影",
+                    }],
+                }],
+            },
+            "generation_stage_artifacts": {
+                **(course.get("generation_stage_artifacts") or {}),
+                "course_teaching_plan": {
+                    "status": "completed",
+                    "strategy": "single_whole_course_call",
+                    "model_call_count": 1,
+                    "section_count": 1,
+                    "knowledge_point_count": 1,
+                    "teaching_module_count": 1,
+                },
+            },
+        },
+    )
+    plan_preview = manager.get_generation_preview(job["course_id"])
+    assert plan_preview["teaching_plan"]["status"] == "completed"
+    assert plan_preview["teaching_plan"]["sections"][0]["key_points"] == ["概念边界"]
+    assert "model_call_count" not in plan_preview["teaching_plan"]
+    serialized_plan = json.dumps(
+        plan_preview["teaching_plan"],
+        ensure_ascii=False,
+    )
+    assert "relation_decision_reason" not in serialized_plan
+    assert "internal_trace" not in serialized_plan
     from routers import course_versions as course_versions_router
 
     async def load_formal_shell(_course_id):
@@ -427,9 +479,13 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
     await manager._process_task(job["job_id"])
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"
-    assert task["guided_workflow"]["review_step"] == "content"
+    assert task["guided_workflow"]["review_step"] == "release"
+    assert next(
+        step for step in task["guided_workflow"]["steps"]
+        if step["key"] == "content"
+    )["status"] == "confirmed"
     review = manager.get_generation_review(job["course_id"])
-    assert review["step"] == "content"
+    assert review["step"] == "release"
     generated_course = manager.get_generation_workspace_course(job["course_id"])
     assert generated_course["course_teaching_plan"]["schema_version"] == (
         "course_teaching_plan_v2"
@@ -454,21 +510,6 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
     assert invalidated_course["nodes"][0].get("module_plan") is None
     assert invalidated_course["nodes"][0]["generation_status"] == "pending"
 
-    await manager._process_task(job["job_id"])
-    task = manager.tasks[job["job_id"]]
-    assert task["status"] == "waiting_for_review"
-    assert task["guided_workflow"]["review_step"] == "content"
-
-    async def reject_confirmed_content_recompile(*_args, **_kwargs):
-        raise AssertionError("已确认的内容候选不得再次编译")
-
-    monkeypatch.setattr(
-        manager,
-        "_prepare_content_candidate",
-        reject_confirmed_content_recompile,
-    )
-    await manager.confirm_generation_step(job["course_id"], "content")
-    assert await manager._task_queue.get() == job["job_id"]
     monkeypatch.setattr(
         manager,
         "_quality_allows_publication",
@@ -478,6 +519,15 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"
     assert task["guided_workflow"]["review_step"] == "release"
+
+    async def reject_confirmed_content_recompile(*_args, **_kwargs):
+        raise AssertionError("已确认的内容候选不得再次编译")
+
+    monkeypatch.setattr(
+        manager,
+        "_prepare_content_candidate",
+        reject_confirmed_content_recompile,
+    )
     release_review = manager.get_generation_review(job["course_id"])
     assert release_review["step"] == "release"
     assert release_review["artifact"]["source_chain"]["can_publish"] is True

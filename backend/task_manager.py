@@ -50,6 +50,7 @@ from course_repository import (
     CourseDocumentNotFound,
     CourseDocumentRepository,
 )
+from course_teaching_plan_projection import project_course_teaching_plan
 from course_versioning import (
     analyze_blueprint_impact,
     build_blueprint_draft,
@@ -1156,7 +1157,7 @@ class TaskManager:
             nodes.append(node)
 
         return {
-            "schema_version": "generation_preview_v1",
+            "schema_version": "generation_preview_v2",
             "projection": "generation_workspace",
             "course_id": str(course_data.get("course_id") or course_id),
             "course_name": str(course_data.get("course_name") or task.get("course_name") or ""),
@@ -1187,6 +1188,7 @@ class TaskManager:
                     "recovery",
                 )
             },
+            "teaching_plan": project_course_teaching_plan(course_data),
             "nodes": nodes,
         }
 
@@ -2783,22 +2785,30 @@ class TaskManager:
                 _strict_quality_passed,
                 _publication_allowed,
             ) = await self._prepare_content_candidate(task_id, course_data)
-            await self._pause_for_guided_review(
-                task_id,
-                course_data,
+            content_revision = guided_artifact_revision(
                 "content",
-                phase="content_ready",
-                progress=88,
-                message="课程内容已经生成，等待你整体审阅",
-                phase_detail={
-                    "completed_items": sum(
-                        self._is_content_complete(node)
-                        for node in l2_nodes
-                    ),
-                    "total_items": len(l2_nodes),
-                },
+                course_data,
+                request=task.get("request_snapshot") or {},
             )
-            return
+            async with self._lock:
+                mark_guided_step_waiting(
+                    guided_workflow,
+                    "content",
+                    revision=content_revision,
+                )
+                confirm_waiting_step(
+                    guided_workflow,
+                    "content",
+                    revision=content_revision,
+                )
+                task["phase"] = "content_confirmed"
+                task["current_phase"] = "content_confirmed"
+                task["phase_progress"] = 100
+                task["message"] = "课程正文已完成，正在准备最终发布确认"
+                task["updated_at"] = datetime.now().isoformat()
+                self.save_tasks()
+            await self._save_task_course(task_id, course_data)
+            await self._push_progress(task_id)
         await self._complete_task(task_id, course_data)
 
     async def _save_generated_node_content(
