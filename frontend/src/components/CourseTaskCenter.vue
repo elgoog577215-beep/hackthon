@@ -397,7 +397,7 @@ const currentReviewTitle = computed(() => ({
   requirements: t('courseTasks.review.requirementsTitle', '确认课程需求'),
 }[currentReviewStep.value]))
 const currentReviewHelp = computed(() => ({
-  outline: t('courseTasks.blueprint.help', '确认章节、顺序和学习目标；确认后会一次规划全课小节教案，并行生成各节正文。'),
+  outline: t('courseTasks.blueprint.help', '确认章节、顺序和学习目标；确认后会冻结全课知识职责，按预算生成详细教案与各节正文。'),
   content: t('courseTasks.review.contentHelp', '小节教案、知识库与关系图已由同一计划编译；进入学习现场检查正文后确认。'),
   release: t('courseTasks.review.releaseHelp', '确认结构、引用和同源版本链完整后发布；这里不再调用 AI 评分或重写。'),
   requirements: t('courseTasks.review.requirementsHelp', '确认本次课程生成需求。'),
@@ -682,7 +682,12 @@ function phaseLabel(phase: string | undefined, status: Task['status']) {
     outline_validation: t('courseTasks.phases.outlineValidation', '检查课程目录'),
     outline_ready: t('courseTasks.phases.outlineReady', '等待确认课程目录'),
     outline_confirmed: t('courseTasks.phases.outlineConfirmed', '目录已确认'),
-    course_teaching_plan: t('courseTasks.phases.courseTeachingPlan', '一次规划全课小节教案'),
+    course_teaching_plan: t('courseTasks.phases.courseTeachingPlan', '规划并汇编全课小节教案'),
+    course_teaching_plan_skeleton: t('courseTasks.phases.courseTeachingPlanSkeleton', '冻结全课知识职责'),
+    course_teaching_plan_skeleton_validation: t('courseTasks.phases.courseTeachingPlanSkeletonValidation', '检查全课知识职责'),
+    course_teaching_plan_batch: t('courseTasks.phases.courseTeachingPlanBatch', '并行生成详细教案批次'),
+    course_teaching_plan_batch_validation: t('courseTasks.phases.courseTeachingPlanBatchValidation', '检查当前详细教案批次'),
+    course_teaching_plan_assembly: t('courseTasks.phases.courseTeachingPlanAssembly', '汇编唯一的全课教案'),
     course_teaching_plan_validation: t('courseTasks.phases.courseTeachingPlanValidation', '检查教案结构、知识与课程块绑定'),
     course_knowledge_index: t('courseTasks.phases.courseKnowledgeIndex', '迁移旧版整课知识索引'),
     course_knowledge_index_validation: t('courseTasks.phases.courseKnowledgeIndexValidation', '检查旧版知识索引'),
@@ -790,10 +795,21 @@ function resumeActionLabel(task: TaskView) {
 function recoveryCheckpointLabel(task: TaskView) {
   const checkpoint = task.recovery?.checkpoint
   if (!checkpoint) return ''
+  const teachingBatchCompleted = Number(checkpoint.completed_teaching_plan_batches || 0)
+  const teachingBatchTotal = Number(checkpoint.total_teaching_plan_batches || 0)
+  const teachingSectionCompleted = Number(checkpoint.completed_teaching_plan_sections || 0)
+  const teachingSectionTotal = Number(checkpoint.total_teaching_plan_sections || 0)
+  const nextTeachingBatch = Number(checkpoint.next_teaching_plan_batch_index || 0)
   const knowledgeCompleted = Number(checkpoint.completed_knowledge_packages || 0)
   const knowledgeTotal = Number(checkpoint.total_knowledge_packages || 0)
   if (checkpoint.teaching_plan_ready && !checkpoint.completed_nodes) {
     return t('courseTasks.recovery.teachingPlanCheckpoint', '全课小节教案、知识库与关系图已保留，可直接继续生成正文')
+  }
+  if (teachingBatchTotal && teachingBatchCompleted < teachingBatchTotal) {
+    return t('courseTasks.recovery.teachingPlanBatchCheckpoint', '已保留 {sections}/{totalSections} 个小节教案，可从第 {batch} 批继续；正文尚未开始')
+      .replace('{sections}', String(teachingSectionCompleted))
+      .replace('{totalSections}', String(teachingSectionTotal))
+      .replace('{batch}', String(nextTeachingBatch || teachingBatchCompleted + 1))
   }
   if (knowledgeTotal && knowledgeCompleted === knowledgeTotal && !checkpoint.completed_nodes) {
     return t('courseTasks.recovery.knowledgeCheckpoint', '旧版知识检查点已迁移，覆盖 {completed}/{total} 个小节')
@@ -806,7 +822,7 @@ function recoveryCheckpointLabel(task: TaskView) {
       .replace('{total}', String(knowledgeTotal))
   }
   if (checkpoint.outline_ready && !checkpoint.total_nodes) {
-    return t('courseTasks.recovery.outlineCheckpoint', '课程目录已保留，可从全课小节教案阶段继续')
+    return t('courseTasks.recovery.outlineCheckpoint', '课程目录已保留，可从全课知识职责阶段继续')
   }
   if (!checkpoint.outline_ready && !checkpoint.total_nodes) {
     return checkpoint.requirements_ready

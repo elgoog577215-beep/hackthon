@@ -200,6 +200,121 @@ def _teaching_plan_response(system_prompt, labels_by_title=None):
     return json.dumps({"sections": planned_sections}, ensure_ascii=False)
 
 
+def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
+    match = re.search(
+        r"## 已去重的规划上下文\n(\{.*?\})\n\n## 约束",
+        system_prompt,
+        re.S,
+    )
+    assert match, system_prompt
+    context = json.loads(match.group(1))
+    labels = labels_by_title or {}
+    registry = []
+    identities = []
+    key_index = 1
+    for section in context["sections"]:
+        label = labels.get(section["title"], section["title"])
+        points = [
+            point
+            for group in _knowledge_structure(label)
+            for point in group["knowledge_points"]
+        ]
+        owned_keys = []
+        previous_key = ""
+        for point in points:
+            key = f"K{key_index:03d}"
+            key_index += 1
+            owned_keys.append(key)
+            registry.append({
+                "knowledge_key": key,
+                "name": point["name"],
+                "statement": point["statement"],
+                "owner_node_id": section["node_id"],
+                "reused_in_node_ids": [],
+                "prerequisite_keys": [previous_key] if previous_key else [],
+                "module_ids": list(section.get("allowed_module_ids") or [])[:1],
+            })
+            previous_key = key
+        identities.append({
+            "node_id": section["node_id"],
+            "owned_knowledge_keys": owned_keys,
+            "reused_knowledge_keys": [],
+        })
+    return json.dumps({
+        "knowledge_registry": registry,
+        "sections": identities,
+    }, ensure_ascii=False)
+
+
+def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
+    section_match = re.search(
+        r"## 当前小节（已去重）\n(\[.*?\])\n\n## 全局知识注册表",
+        system_prompt,
+        re.S,
+    )
+    registry_match = re.search(
+        r"## 全局知识注册表（只读）\n(\[.*?\])\n\n## 当前批次知识职责",
+        system_prompt,
+        re.S,
+    )
+    identity_match = re.search(
+        r"## 当前批次知识职责（只读）\n(\[.*?\])\n\n## 共享课程块目录",
+        system_prompt,
+        re.S,
+    )
+    assert section_match and registry_match and identity_match, system_prompt
+    sections = json.loads(section_match.group(1))
+    registry = json.loads(registry_match.group(1))
+    identities = json.loads(identity_match.group(1))
+    registry_by_key = {item["knowledge_key"]: item for item in registry}
+    identity_by_id = {item["node_id"]: item for item in identities}
+    labels = labels_by_title or {}
+    payload = []
+    for section in sections:
+        label = labels.get(section["title"], section["title"])
+        source_points = [
+            point
+            for group in _knowledge_structure(label)
+            for point in group["knowledge_points"]
+        ]
+        keys = identity_by_id[section["node_id"]]["owned_knowledge_keys"]
+        details = []
+        for key, point in zip(keys, source_points, strict=True):
+            details.append({
+                "knowledge_key": key,
+                "concept_group": f"{label}的核心机制",
+                "group_description": f"从条件走向{label}的独立应用",
+                "knowledge_type": point["knowledge_type"],
+                "conditions": point.get("conditions") or [],
+                "boundaries": point.get("boundaries") or [],
+                "counterexamples": point.get("counterexamples") or [],
+                "capability_points": point["capability_points"],
+                "misconceptions": point.get("misconceptions") or [{
+                    "name": f"{label}的典型误判",
+                    "observable_error_pattern": f"忽略{label}成立所需的关键条件",
+                    "discrimination": "检查作答是否明确验证了全部成立条件",
+                    "repair_strategy": "先列条件清单，再逐项核对并修正推理",
+                }],
+                "mastery_criteria": point["mastery_criteria"],
+                "aliases": [],
+            })
+        relations = []
+        if len(keys) > 1:
+            relations.append({
+                "source_key": keys[0],
+                "target_key": keys[1],
+                "relation_type": "prerequisite",
+                "reason": f"先掌握{registry_by_key[keys[0]]['name']}才能继续应用",
+            })
+        payload.append({
+            "node_id": section["node_id"],
+            "knowledge_details": details,
+            "knowledge_relations": relations,
+            "teaching_modules": [],
+        })
+    return json.dumps({"sections": payload}, ensure_ascii=False)
+
+
 def _multi_section_outline(labels):
     return normalize_course_outline_contract({
         "course_title": "并行生成验证课程",
@@ -536,7 +651,7 @@ async def test_course_service_builds_v9_blueprint_from_one_course_teaching_plan(
 
     assert data["generation_pipeline_version"] == "course_generation_v9"
     assert data["generation_schema_version"] == "course_generation_v9"
-    assert data["prompt_contract_version"] == "course_prompt_v17"
+    assert data["prompt_contract_version"] == "course_prompt_v18"
     assert data["course_purpose"] == "exam_sprint"
     assert data["generation_mode"] == "fast"
     assert data["asset_preferences"] == {"questions": True, "final_assessment": True}
@@ -573,7 +688,7 @@ async def test_course_service_builds_v9_blueprint_from_one_course_teaching_plan(
         "course_teaching_plan"
     ]
     assert teaching_stage["status"] == "completed"
-    assert teaching_stage["strategy"] == "single_whole_course_call"
+    assert teaching_stage["strategy"] == "compact_single_call"
     assert teaching_stage["model_call_count"] == 1
     assert teaching_stage["knowledge_compilation_model_call_count"] == 0
     assert teaching_stage["graph_compilation_model_call_count"] == 0
@@ -1433,8 +1548,8 @@ def test_course_knowledge_skeleton_freezes_unique_owner_and_earlier_reuse():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("section_count", [2, 21])
-async def test_course_teaching_plan_compiles_knowledge_and_graph_with_one_model_call(
+@pytest.mark.parametrize("section_count", [2, 12, 21])
+async def test_course_teaching_plan_uses_compact_or_bounded_batches(
     monkeypatch,
     section_count,
 ):
@@ -1451,8 +1566,11 @@ async def test_course_teaching_plan_compiles_knowledge_and_graph_with_one_model_
     }
     service = CourseService()
     calls: list[str] = []
+    active_batches = 0
+    max_active_batches = 0
 
     async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        nonlocal active_batches, max_active_batches
         calls.append(prompt)
         if prompt.startswith("生成整门课所有小节教案"):
             response = json.loads(_teaching_plan_response(
@@ -1464,6 +1582,19 @@ async def test_course_teaching_plan_compiles_knowledge_and_graph_with_one_model_
                 response,
                 ensure_ascii=False,
             )
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(
+                system_prompt, title_to_label,
+            )
+        if prompt.startswith("生成详细小节教案批次"):
+            active_batches += 1
+            max_active_batches = max(max_active_batches, active_batches)
+            await asyncio.sleep(0.003)
+            response = _teaching_batch_v3_response(
+                system_prompt, title_to_label,
+            )
+            active_batches -= 1
+            return response
         return json.dumps(plan, ensure_ascii=False)
 
     monkeypatch.setattr(service, "_call_llm", fake_call_llm)
@@ -1476,15 +1607,21 @@ async def test_course_teaching_plan_compiles_knowledge_and_graph_with_one_model_
         pedagogy_mode="general",
     )
 
-    assert sum(
-        call.startswith("生成整门课所有小节教案")
-        for call in calls
-    ) == 1
-    assert len(calls) == 2
     stage = course_data["generation_stage_artifacts"][
         "course_teaching_plan"
     ]
-    assert stage["model_call_count"] == 1
+    if section_count == 2:
+        assert stage["strategy"] == "compact_single_call"
+        assert stage["model_call_count"] == 1
+        assert len(calls) == 2
+    else:
+        expected_batches = (section_count + 2) // 3
+        assert stage["strategy"] == "global_skeleton_bounded_batches"
+        assert stage["schema_version"] == "course_teaching_plan_v3"
+        assert stage["batch_count"] == expected_batches
+        assert stage["model_call_count"] == 1 + expected_batches
+        assert len(calls) == 2 + expected_batches
+        assert max_active_batches == 2
     assert stage["knowledge_compilation_model_call_count"] == 0
     assert stage["graph_compilation_model_call_count"] == 0
     assert stage["section_count"] == section_count
@@ -1510,6 +1647,81 @@ async def test_course_teaching_plan_compiles_knowledge_and_graph_with_one_model_
     )
     assert course_data["knowledge_relations"]
     assert "course_graph" not in course_data["generation_stage_artifacts"]
+
+
+@pytest.mark.asyncio
+async def test_teaching_plan_resume_preserves_successful_batches(monkeypatch):
+    labels = [f"恢复能力{index}" for index in range(1, 7)]
+    plan = _multi_section_outline(labels)
+    plan = attach_module_plans_to_plan(
+        plan,
+        resolve_pedagogy_profile(subject="恢复课程", requirements=""),
+    )
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(chapter["sections"], labels, strict=True)
+    }
+    course_data = {
+        "course_id": "course-batch-resume",
+        "course_name": "批次恢复课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+    fail_second_batch = True
+    calls = []
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        calls.append(prompt)
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        if "TP-B02" in prompt and fail_second_batch:
+            return "{}"
+        if (
+            prompt.startswith("生成详细小节教案批次")
+            or prompt.startswith("只修复详细教案批次")
+        ):
+            return _teaching_batch_v3_response(system_prompt, title_to_label)
+        raise AssertionError(prompt)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+    with pytest.raises(AIProviderRequestError):
+        await service._prepare_course_teaching_plan(
+            course_data=course_data,
+            plan=plan,
+            artifacts=None,
+            on_phase=None,
+            on_checkpoint=None,
+        )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    assert stage["status"] == "failed"
+    assert stage["completed_batch_count"] == 1
+    assert stage["completed_section_count"] == 3
+    assert stage["batches"]["TP-B01"]["status"] == "completed"
+    first_batch_revision = stage["batches"]["TP-B01"]["revision_id"]
+
+    fail_second_batch = False
+    calls_before_resume = len(calls)
+    result = await service._prepare_course_teaching_plan(
+        course_data=course_data,
+        plan=plan,
+        artifacts=None,
+        on_phase=None,
+        on_checkpoint=None,
+    )
+
+    resumed_calls = calls[calls_before_resume:]
+    assert len(resumed_calls) == 1
+    assert resumed_calls[0].startswith("生成详细小节教案批次 TP-B02")
+    assert stage["batches"]["TP-B01"]["revision_id"] == first_batch_revision
+    assert stage["status"] == "completed"
+    assert stage["completed_batch_count"] == 2
+    assert course_data["course_teaching_plan"]["schema_version"] == "course_teaching_plan_v3"
+    assert len([
+        section for chapter in result["chapters"] for section in chapter["sections"]
+    ]) == 6
 
 
 def test_section_package_must_keep_skeleton_names_verbatim():

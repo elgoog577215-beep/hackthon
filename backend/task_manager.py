@@ -878,7 +878,7 @@ class TaskManager:
             task["phase"] = f"{step}_confirmed"
             task["phase_progress"] = 100
             task["message"] = {
-                "outline": "课程目录已确认，开始一次规划全课小节教案并生成正文",
+                "outline": "课程目录已确认，开始冻结全课知识职责并按预算生成详细教案与正文",
                 "content": "课程内容已确认，开始执行结构与发布预检",
                 "release": "确认发布已完成，正在发布课程",
             }.get(step, "当前步骤已确认，继续生成")
@@ -1531,6 +1531,40 @@ class TaskManager:
         course_teaching_stage = (
             stage_artifacts.get("course_teaching_plan") or {}
         )
+        teaching_plan_batches = (
+            course_teaching_stage.get("batches") or {}
+            if isinstance(course_teaching_stage, dict)
+            else {}
+        )
+        completed_teaching_plan_batches = sum(
+            1
+            for item in teaching_plan_batches.values()
+            if isinstance(item, dict) and item.get("status") == "completed"
+        )
+        total_teaching_plan_batches = int(
+            course_teaching_stage.get("batch_count") or 0
+        )
+        completed_teaching_plan_sections = int(
+            course_teaching_stage.get("completed_section_count") or 0
+        )
+        total_teaching_plan_sections = int(
+            course_teaching_stage.get("section_count") or len(nodes)
+        )
+        failed_teaching_plan_batch_id = str(
+            course_teaching_stage.get("failed_batch_id") or ""
+        )
+        next_teaching_plan_batch_index = next(
+            (
+                index
+                for index in range(1, total_teaching_plan_batches + 1)
+                if not isinstance(
+                    teaching_plan_batches.get(f"TP-B{index:02d}"), dict
+                )
+                or teaching_plan_batches[f"TP-B{index:02d}"].get("status")
+                != "completed"
+            ),
+            0,
+        )
         knowledge_index_stage = (
             stage_artifacts.get("course_knowledge_index") or {}
         )
@@ -1575,6 +1609,15 @@ class TaskManager:
             "teaching_plan_ready": bool(
                 course_teaching_stage.get("status") == "completed"
             ),
+            "teaching_plan_mode": course_teaching_stage.get("planning_mode"),
+            "completed_teaching_plan_batches": completed_teaching_plan_batches,
+            "total_teaching_plan_batches": total_teaching_plan_batches,
+            "completed_teaching_plan_sections": completed_teaching_plan_sections,
+            "total_teaching_plan_sections": total_teaching_plan_sections,
+            "failed_teaching_plan_batch_id": (
+                failed_teaching_plan_batch_id or None
+            ),
+            "next_teaching_plan_batch_index": next_teaching_plan_batch_index,
             "completed_knowledge_packages": completed_knowledge_packages,
             "total_knowledge_packages": len(nodes),
             "completed_relation_batches": completed_relation_batches,
@@ -1635,6 +1678,13 @@ class TaskManager:
                 reason = (
                     "全课小节教案、知识库与图谱已经保留，"
                     "可以从未完成正文继续"
+                )
+            elif completed_teaching_plan_batches:
+                reason = (
+                    f"已保留 {completed_teaching_plan_sections}/"
+                    f"{total_teaching_plan_sections} 个小节教案，可以从第 "
+                    f"{next_teaching_plan_batch_index or completed_teaching_plan_batches + 1} "
+                    "批教案继续；正文尚未开始"
                 )
             elif completed_relation_batches:
                 if course_graph_stage.get("status") == "completed":

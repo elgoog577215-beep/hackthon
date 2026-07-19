@@ -86,7 +86,7 @@ describe('CourseTaskCenter', () => {
     expect(pause).toHaveBeenCalledWith('course-1', 'task-pending')
   })
 
-  it('用中英文产品文案显示一次全课教案规划与正文生成阶段', async () => {
+  it('用中英文产品文案显示全课教案规划与正文生成阶段', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [{
       id: 'task-plan', course_id: 'course-1', course_name: '线性代数', status: 'running',
@@ -98,7 +98,7 @@ describe('CourseTaskCenter', () => {
     const wrapper = mountCenter()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('一次规划全课小节教案')
+    expect(wrapper.text()).toContain('规划并汇编全课小节教案')
     const rows = wrapper.findAll('.task-row')
     await rows[1]!.trigger('click')
     await flushPromises()
@@ -109,7 +109,7 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('Generating course content')
     await rows[0]!.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('Planning all section lesson plans once')
+    expect(wrapper.text()).toContain('Planning and assembling all section lesson plans')
   })
 
   it('同一课程的多次生成分别成行，并按所选任务 ID 执行控制', async () => {
@@ -232,7 +232,7 @@ describe('CourseTaskCenter', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('确认课程目录')
-    expect(wrapper.text()).toContain('确认后会一次规划全课小节教案')
+    expect(wrapper.text()).toContain('确认后会冻结全课知识职责')
     expect(wrapper.text()).toContain('确认发布')
     expect(wrapper.text()).toContain('目录小节')
     await wrapper.find('.blueprint-nodes input').setValue('向量空间与线性映射')
@@ -393,6 +393,35 @@ describe('CourseTaskCenter', () => {
     await wrapper.get('.task-actions .primary-button').trigger('click')
     await flushPromises()
     expect(resume).toHaveBeenCalledWith('course-1', 'task-4')
+  })
+
+  it('显示详细教案批次的真实恢复位置', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-plan-batch', course_id: 'course-1', course_name: '深度神经网络', status: 'failed',
+      progress: 43, current_phase: 'course_teaching_plan_batch_validation', message: '第 3 批结构检查失败',
+      recovery: {
+        state: 'manual_resume', can_resume: true, reason_code: 'checkpoint_available', reason: 'checkpoint available',
+        checkpoint: {
+          phase: 'course_teaching_plan_batch_validation', completed_nodes: 0, total_nodes: 0,
+          draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [],
+          outline_ready: true, teaching_plan_ready: false, teaching_plan_mode: 'batched',
+          completed_teaching_plan_batches: 2, total_teaching_plan_batches: 4,
+          completed_teaching_plan_sections: 6, total_teaching_plan_sections: 12,
+          failed_teaching_plan_batch_id: 'TP-B03', next_teaching_plan_batch_index: 3,
+        },
+      },
+    }]
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('检查当前详细教案批次')
+    expect(wrapper.text()).toContain('已保留 6/12 个小节教案，可从第 3 批继续；正文尚未开始')
+
+    await setLocale('en')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Validating the current lesson-plan batch')
+    expect(wrapper.text()).toContain('6/12 section lesson plans are preserved; resume from batch 3. Content has not started')
   })
 
   it('目录前失败显示重试当前阶段，不伪造 0/0 正文检查点', async () => {

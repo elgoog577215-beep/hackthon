@@ -364,6 +364,13 @@ export interface TaskRecoveryCheckpoint {
     requirements_ready?: boolean
     outline_ready?: boolean
     teaching_plan_ready?: boolean
+    teaching_plan_mode?: 'compact' | 'batched' | string | null
+    completed_teaching_plan_batches?: number
+    total_teaching_plan_batches?: number
+    completed_teaching_plan_sections?: number
+    total_teaching_plan_sections?: number
+    failed_teaching_plan_batch_id?: string | null
+    next_teaching_plan_batch_index?: number
     completed_knowledge_packages?: number
     total_knowledge_packages?: number
     workspace_status?: string | null

@@ -105,10 +105,23 @@ from course_pedagogy import (
     parse_mode,
     resolve_pedagogy_profile,
 )
+from course_planning_budget import (
+    CoursePlanningBudget,
+    build_compact_planning_context,
+    build_teaching_plan_batches,
+    estimate_json_tokens,
+)
 from course_prompt_composer import (
     PROMPT_CONTRACT_VERSION,
     CoursePromptComposer,
     get_course_prompt_composer,
+)
+from course_teaching_plan_v3 import (
+    assemble_course_teaching_plan_v3,
+    normalize_teaching_plan_batch_v3,
+    normalize_teaching_plan_skeleton_v3,
+    validate_teaching_plan_batch_v3,
+    validate_teaching_plan_skeleton_v3,
 )
 from course_quality import evaluate_node_content, validate_blueprint
 from learner_context import DEFAULT_USER_ID
@@ -197,6 +210,10 @@ class CourseService(AIBase):
         )
         self._planning_semaphore = asyncio.Semaphore(
             self._planning_concurrency
+        )
+        self._teaching_plan_budget = CoursePlanningBudget.from_env()
+        self._teaching_plan_semaphore = asyncio.Semaphore(
+            self._teaching_plan_budget.concurrency
         )
 
     # ------------------------------------------------------------------
@@ -958,6 +975,620 @@ class CourseService(AIBase):
         return working
 
     async def _prepare_course_teaching_plan(
+        self,
+        *,
+        course_data: dict[str, Any],
+        plan: dict[str, Any],
+        artifacts: dict[str, Any] | None,
+        on_phase: Callable[..., Awaitable[None] | None] | None,
+        on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+    ) -> dict[str, Any]:
+        """Build one official plan through a compact or 1-N-1 path."""
+        sections: list[dict[str, Any]] = []
+        planning_sections: list[dict[str, Any]] = []
+        for chapter_index, chapter in enumerate(plan.get("chapters") or [], start=1):
+            if not isinstance(chapter, dict):
+                continue
+            chapter_id = str(
+                chapter.get("chapter_id")
+                or chapter.get("chapter_number")
+                or f"chapter-{chapter_index}"
+            )
+            for section in chapter.get("sections") or []:
+                if not isinstance(section, dict):
+                    continue
+                sections.append(section)
+                item = deepcopy(section)
+                item["chapter_id"] = chapter_id
+                item["evidence_hints"] = (
+                    build_section_knowledge_skeleton_evidence_hints(
+                        artifacts or course_data,
+                        section,
+                    )
+                )
+                planning_sections.append(item)
+
+        scope_contract = build_course_knowledge_scope_contract(plan)
+        outline_revision_id = str(scope_contract.get("revision_id") or "")
+        course_data["course_knowledge_scope_contract"] = scope_contract
+        teaching_stage = course_data.setdefault(
+            "generation_stage_artifacts", {}
+        ).setdefault("course_teaching_plan", {})
+        if (
+            teaching_stage.get("source_outline_revision_id")
+            and teaching_stage.get("source_outline_revision_id") != outline_revision_id
+        ):
+            teaching_stage.clear()
+
+        existing_payload = (
+            course_data.get("course_teaching_plan")
+            if isinstance(course_data.get("course_teaching_plan"), dict)
+            else {}
+        )
+        existing_plan = compile_course_teaching_plan_modules(
+            existing_payload,
+            sections=sections,
+        )
+        existing_report = validate_course_teaching_plan(
+            existing_plan,
+            sections=sections,
+            expected_outline_revision_id=outline_revision_id,
+        )
+        if existing_report.get("passed"):
+            planned_course = apply_course_teaching_plan(plan, existing_plan)
+            teaching_stage.update({
+                "status": "completed",
+                "schema_version": existing_plan.get("schema_version"),
+                "revision_id": existing_plan.get("revision_id"),
+                "source_outline_revision_id": outline_revision_id,
+                "validation_report": deepcopy(existing_report),
+                "strategy": str(
+                    teaching_stage.get("strategy") or "restored_official_plan"
+                ),
+                "model_call_count": 0,
+                "resumed": True,
+            })
+            course_data.update({
+                "course_teaching_plan": existing_plan,
+                "course_plan": deepcopy(planned_course),
+                "knowledge_relations": deepcopy(
+                    planned_course.get("knowledge_relations") or []
+                ),
+                "generation_status": "course_teaching_plan_compiled",
+            })
+            return planned_course
+
+        course_title = str(
+            plan.get("course_title") or course_data.get("course_name") or ""
+        )
+        positioning = str(plan.get("positioning") or "")
+        planning_context = build_compact_planning_context(
+            planning_sections,
+            composition_style=str(
+                (course_data.get("course_composition_profile") or {}).get("style")
+                or ""
+            ),
+        )
+        planning_mode = self._teaching_plan_budget.choose_mode(
+            sections=planning_sections,
+            compact_input_tokens=estimate_json_tokens({
+                "course_title": course_title,
+                "positioning": positioning,
+                "learning_objectives": plan.get("learning_objectives") or [],
+                "planning_context": planning_context,
+            }),
+        )
+        if planning_mode == "compact":
+            planned_course = await self._prepare_course_teaching_plan_compact_legacy(
+                course_data=course_data,
+                plan=plan,
+                artifacts=artifacts,
+                on_phase=on_phase,
+                on_checkpoint=on_checkpoint,
+            )
+            course_data["generation_stage_artifacts"]["course_teaching_plan"].update({
+                "planning_mode": "compact",
+                "strategy": "compact_single_call",
+            })
+            return planned_course
+
+        strategy = "global_skeleton_bounded_batches"
+        started_at = time.monotonic()
+        counter = {
+            "calls": int(teaching_stage.get("model_call_count") or 0),
+            "prompt_chars": int(teaching_stage.get("prompt_chars") or 0),
+        }
+        counter_lock = asyncio.Lock()
+
+        async def request_model(
+            *,
+            user_prompt: str,
+            system_prompt: str,
+            enable_thinking: bool,
+            phase: str,
+            progress: int,
+            heartbeat_message: str,
+            phase_detail: dict[str, Any],
+        ) -> str:
+            try:
+                async with self._teaching_plan_semaphore:
+                    return await self._call_llm_with_heartbeat(
+                        user_prompt,
+                        system_prompt,
+                        enable_thinking=enable_thinking,
+                        on_phase=on_phase,
+                        phase=phase,
+                        base_progress=progress,
+                        stage_timeout_seconds=(
+                            self._teaching_plan_budget.batch_timeout_seconds
+                        ),
+                        heartbeat_message=heartbeat_message,
+                        phase_detail=phase_detail,
+                    )
+            finally:
+                async with counter_lock:
+                    counter["calls"] += 1
+                    counter["prompt_chars"] += len(system_prompt)
+
+        raw_skeleton = teaching_stage.get("skeleton")
+        skeleton = normalize_teaching_plan_skeleton_v3(
+            raw_skeleton if isinstance(raw_skeleton, dict) else {},
+            outline_revision_id=outline_revision_id,
+        )
+        skeleton_report = validate_teaching_plan_skeleton_v3(
+            skeleton,
+            sections=planning_sections,
+        )
+        skeleton_is_current = bool(
+            isinstance(raw_skeleton, dict)
+            and raw_skeleton.get("source_outline_revision_id") == outline_revision_id
+            and skeleton_report.get("passed")
+        )
+        if not skeleton_is_current:
+            skeleton_prompt = self._prompt_composer.build_teaching_plan_skeleton_v3_prompt(
+                course_title=course_title,
+                positioning=positioning,
+                learning_objectives=list(plan.get("learning_objectives") or []),
+                planning_context=planning_context,
+            )
+            await self._notify_phase(
+                on_phase,
+                "course_teaching_plan_skeleton",
+                35,
+                f"正在冻结全课知识职责（0/{len(sections)} 节）",
+                phase_progress=0,
+                phase_detail={
+                    "artifact_type": "course_teaching_plan_skeleton",
+                    "completed_sections": 0,
+                    "total_sections": len(sections),
+                    "strategy": strategy,
+                },
+            )
+            response = await request_model(
+                user_prompt="规划全课知识职责骨架 V3，只输出 JSON。",
+                system_prompt=skeleton_prompt,
+                enable_thinking=True,
+                phase="course_teaching_plan_skeleton",
+                progress=35,
+                heartbeat_message="仍在等待 AI 冻结全课知识职责",
+                phase_detail={
+                    "artifact_type": "course_teaching_plan_skeleton",
+                    "total_sections": len(sections),
+                },
+            )
+            parsed = self._extract_json(response) if response else None
+            skeleton = normalize_teaching_plan_skeleton_v3(
+                parsed if isinstance(parsed, dict) else {},
+                outline_revision_id=outline_revision_id,
+            )
+            skeleton_report = validate_teaching_plan_skeleton_v3(
+                skeleton,
+                sections=planning_sections,
+            )
+            if not skeleton_report.get("passed"):
+                correction_prompt = self._prompt_composer.build_teaching_plan_skeleton_v3_correction_prompt(
+                    original_prompt=skeleton_prompt,
+                    issues=skeleton_report.get("blocking_issues") or [],
+                )
+                corrected = await request_model(
+                    user_prompt="只修复全课知识职责骨架 V3，输出完整 JSON。",
+                    system_prompt=correction_prompt,
+                    enable_thinking=False,
+                    phase="course_teaching_plan_skeleton_validation",
+                    progress=38,
+                    heartbeat_message="仍在等待 AI 修复知识职责骨架",
+                    phase_detail={
+                        "artifact_type": "course_teaching_plan_skeleton",
+                        "total_sections": len(sections),
+                    },
+                )
+                parsed = self._extract_json(corrected) if corrected else None
+                skeleton = normalize_teaching_plan_skeleton_v3(
+                    parsed if isinstance(parsed, dict) else {},
+                    outline_revision_id=outline_revision_id,
+                )
+                skeleton_report = validate_teaching_plan_skeleton_v3(
+                    skeleton,
+                    sections=planning_sections,
+                )
+            if not skeleton_report.get("passed"):
+                teaching_stage.update({
+                    "status": "failed",
+                    "schema_version": "course_teaching_plan_v3",
+                    "source_outline_revision_id": outline_revision_id,
+                    "planning_mode": planning_mode,
+                    "strategy": strategy,
+                    "skeleton_validation_report": deepcopy(skeleton_report),
+                    "model_call_count": counter["calls"],
+                    "prompt_chars": counter["prompt_chars"],
+                })
+                course_data["generation_status"] = "course_teaching_plan_failed"
+                await self._notify_checkpoint(on_checkpoint, course_data)
+                messages = "；".join(
+                    str(item.get("message") or "未知骨架错误")
+                    for item in skeleton_report.get("blocking_issues") or []
+                )
+                raise AIProviderRequestError(
+                    f"全课知识职责骨架未通过结构验收：{messages}"
+                )
+
+        course_data["course_teaching_plan_skeleton"] = skeleton
+        batch_specs = build_teaching_plan_batches(
+            list(planning_context.get("sections") or []),
+            skeleton,
+            self._teaching_plan_budget,
+        )
+        stored_batches = teaching_stage.setdefault("batches", {})
+        if not isinstance(stored_batches, dict):
+            stored_batches = {}
+            teaching_stage["batches"] = stored_batches
+        results: dict[str, dict[str, Any]] = {}
+        pending_specs: list[dict[str, Any]] = []
+        for spec in batch_specs:
+            batch_id = str(spec.get("batch_id") or "")
+            stored = stored_batches.get(batch_id)
+            stored_payload = stored.get("payload") if isinstance(stored, dict) else {}
+            candidate = normalize_teaching_plan_batch_v3(
+                stored_payload if isinstance(stored_payload, dict) else {},
+                batch_id=batch_id,
+                skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+            )
+            candidate_report = validate_teaching_plan_batch_v3(
+                candidate,
+                batch_spec=spec,
+                skeleton=skeleton,
+                sections=planning_sections,
+            )
+            if (
+                isinstance(stored, dict)
+                and stored.get("status") == "completed"
+                and stored.get("skeleton_revision_id") == skeleton.get("revision_id")
+                and list(stored.get("section_ids") or []) == list(spec.get("section_ids") or [])
+                and candidate_report.get("passed")
+            ):
+                results[batch_id] = candidate
+            else:
+                pending_specs.append(spec)
+
+        teaching_stage.update({
+            "status": "in_progress",
+            "schema_version": "course_teaching_plan_v3",
+            "source_outline_revision_id": outline_revision_id,
+            "planning_mode": planning_mode,
+            "strategy": strategy,
+            "skeleton": deepcopy(skeleton),
+            "skeleton_revision_id": skeleton.get("revision_id"),
+            "skeleton_validation_report": deepcopy(skeleton_report),
+            "batch_count": len(batch_specs),
+            "completed_batch_count": len(results),
+            "completed_section_count": sum(
+                len(spec.get("section_ids") or [])
+                for spec in batch_specs
+                if spec.get("batch_id") in results
+            ),
+            "section_count": len(sections),
+            "max_concurrency": self._teaching_plan_budget.concurrency,
+            "model_call_count": counter["calls"],
+            "prompt_chars": counter["prompt_chars"],
+        })
+        await self._notify_checkpoint(on_checkpoint, course_data)
+        batch_progress_detail: dict[str, Any] = {
+            "artifact_type": "course_teaching_plan_batch",
+            "completed_batches": len(results),
+            "total_batches": len(batch_specs),
+            "completed_sections": teaching_stage.get("completed_section_count", 0),
+            "total_sections": len(sections),
+        }
+        state_lock = asyncio.Lock()
+
+        async def generate_batch(spec: dict[str, Any]) -> dict[str, Any]:
+            batch_id = str(spec.get("batch_id") or "")
+            section_ids = list(spec.get("section_ids") or [])
+            compact_by_id = {
+                str(item.get("node_id") or ""): item
+                for item in planning_context.get("sections") or []
+            }
+            identity_by_id = {
+                str(item.get("node_id") or ""): item
+                for item in skeleton.get("sections") or []
+                if isinstance(item, dict)
+            }
+            batch_prompt = self._prompt_composer.build_teaching_plan_batch_v3_prompt(
+                course_title=course_title,
+                positioning=positioning,
+                batch_spec=spec,
+                batch_sections=[compact_by_id[item] for item in section_ids],
+                knowledge_registry=list(skeleton.get("knowledge_registry") or []),
+                section_identities=[identity_by_id[item] for item in section_ids],
+                module_catalog=list(planning_context.get("module_catalog") or []),
+                skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+            )
+            previous = stored_batches.get(batch_id)
+            attempt_count = int(
+                (previous or {}).get("attempt_count", 0)
+                if isinstance(previous, dict) else 0
+            )
+            try:
+                async with state_lock:
+                    completed_before = len(results)
+                await self._notify_phase(
+                    on_phase,
+                    "course_teaching_plan_batch",
+                    39 + int(7 * completed_before / max(1, len(batch_specs))),
+                    f"正在生成第 {int(batch_id[-2:])} 批详细教案（已完成 {completed_before}/{len(batch_specs)} 批）",
+                    phase_progress=int(100 * completed_before / max(1, len(batch_specs))),
+                    phase_detail={
+                        "artifact_type": "course_teaching_plan_batch",
+                        "batch_id": batch_id,
+                        "completed_batches": completed_before,
+                        "total_batches": len(batch_specs),
+                        "completed_sections": teaching_stage.get("completed_section_count", 0),
+                        "total_sections": len(sections),
+                    },
+                )
+                attempt_count += 1
+                response = await request_model(
+                    user_prompt=f"生成详细小节教案批次 {batch_id}，只输出 JSON。",
+                    system_prompt=batch_prompt,
+                    enable_thinking=True,
+                    phase="course_teaching_plan_batch",
+                    progress=40,
+                    heartbeat_message=f"仍在等待 AI 完成教案批次 {batch_id}",
+                    phase_detail=batch_progress_detail,
+                )
+                parsed = self._extract_json(response) if response else None
+                batch = normalize_teaching_plan_batch_v3(
+                    parsed if isinstance(parsed, dict) else {},
+                    batch_id=batch_id,
+                    skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+                )
+                batch_report = validate_teaching_plan_batch_v3(
+                    batch,
+                    batch_spec=spec,
+                    skeleton=skeleton,
+                    sections=planning_sections,
+                )
+                if not batch_report.get("passed"):
+                    correction_prompt = self._prompt_composer.build_teaching_plan_batch_v3_correction_prompt(
+                        original_prompt=batch_prompt,
+                        issues=batch_report.get("blocking_issues") or [],
+                    )
+                    attempt_count += 1
+                    corrected = await request_model(
+                        user_prompt=f"只修复详细教案批次 {batch_id}，输出完整 JSON。",
+                        system_prompt=correction_prompt,
+                        enable_thinking=False,
+                        phase="course_teaching_plan_batch_validation",
+                        progress=44,
+                        heartbeat_message=f"仍在等待 AI 修复教案批次 {batch_id}",
+                        phase_detail=batch_progress_detail,
+                    )
+                    parsed = self._extract_json(corrected) if corrected else None
+                    batch = normalize_teaching_plan_batch_v3(
+                        parsed if isinstance(parsed, dict) else {},
+                        batch_id=batch_id,
+                        skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+                    )
+                    batch_report = validate_teaching_plan_batch_v3(
+                        batch,
+                        batch_spec=spec,
+                        skeleton=skeleton,
+                        sections=planning_sections,
+                    )
+                if not batch_report.get("passed"):
+                    messages = "；".join(
+                        str(item.get("message") or "未知批次错误")
+                        for item in batch_report.get("blocking_issues") or []
+                    )
+                    raise AIProviderRequestError(
+                        f"教案批次 {batch_id} 未通过结构验收：{messages}"
+                    )
+                async with state_lock:
+                    results[batch_id] = batch
+                    stored_batches[batch_id] = {
+                        "status": "completed",
+                        "section_ids": section_ids,
+                        "skeleton_revision_id": skeleton.get("revision_id"),
+                        "revision_id": batch.get("revision_id"),
+                        "attempt_count": attempt_count,
+                        "validation_report": deepcopy(batch_report),
+                        "payload": deepcopy(batch),
+                    }
+                    teaching_stage["completed_batch_count"] = len(results)
+                    teaching_stage["completed_section_count"] = sum(
+                        len(item.get("section_ids") or [])
+                        for key, item in stored_batches.items()
+                        if key in results and isinstance(item, dict)
+                    )
+                    teaching_stage["model_call_count"] = counter["calls"]
+                    teaching_stage["prompt_chars"] = counter["prompt_chars"]
+                    batch_progress_detail.update({
+                        "completed_batches": teaching_stage["completed_batch_count"],
+                        "completed_sections": teaching_stage["completed_section_count"],
+                    })
+                    course_data["generation_status"] = "course_teaching_plan_in_progress"
+                    await self._notify_checkpoint(on_checkpoint, course_data)
+                return batch
+            except Exception as exc:
+                async with state_lock:
+                    stored_batches[batch_id] = {
+                        "status": "failed",
+                        "section_ids": section_ids,
+                        "skeleton_revision_id": skeleton.get("revision_id"),
+                        "attempt_count": attempt_count,
+                        "error": str(exc),
+                    }
+                    teaching_stage["failed_batch_id"] = batch_id
+                    teaching_stage["model_call_count"] = counter["calls"]
+                    teaching_stage["prompt_chars"] = counter["prompt_chars"]
+                    await self._notify_checkpoint(on_checkpoint, course_data)
+                raise
+
+        generated = await asyncio.gather(
+            *(generate_batch(spec) for spec in pending_specs),
+            return_exceptions=True,
+        )
+        failures = [item for item in generated if isinstance(item, BaseException)]
+        if failures:
+            teaching_stage.update({
+                "status": "failed",
+                "duration_ms": int((time.monotonic() - started_at) * 1000),
+                "completed_batch_count": len(results),
+                "completed_section_count": sum(
+                    len(spec.get("section_ids") or [])
+                    for spec in batch_specs
+                    if spec.get("batch_id") in results
+                ),
+            })
+            course_data["generation_status"] = "course_teaching_plan_failed"
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            first = failures[0]
+            if isinstance(first, AIProviderRequestError):
+                raise first
+            raise AIProviderRequestError(str(first)) from first
+
+        await self._notify_phase(
+            on_phase,
+            "course_teaching_plan_assembly",
+            47,
+            "正在汇编唯一的全课教案并本地编译知识库",
+            phase_progress=0,
+            phase_detail={
+                "artifact_type": "course_teaching_plan_assembly",
+                "completed_batches": len(batch_specs),
+                "total_batches": len(batch_specs),
+                "completed_sections": len(sections),
+                "total_sections": len(sections),
+            },
+        )
+        assembled = assemble_course_teaching_plan_v3(
+            skeleton=skeleton,
+            batches=[
+                results[str(spec.get("batch_id") or "")]
+                for spec in batch_specs
+            ],
+            outline_revision_id=outline_revision_id,
+        )
+        course_teaching_plan = compile_course_teaching_plan_modules(
+            assembled,
+            sections=sections,
+        )
+        report = validate_course_teaching_plan(
+            course_teaching_plan,
+            sections=sections,
+            expected_outline_revision_id=outline_revision_id,
+        )
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        if not report.get("passed"):
+            teaching_stage.update({
+                "status": "failed",
+                "validation_report": deepcopy(report),
+                "duration_ms": duration_ms,
+                "model_call_count": counter["calls"],
+                "prompt_chars": counter["prompt_chars"],
+            })
+            course_data["generation_status"] = "course_teaching_plan_failed"
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            messages = "；".join(
+                str(item.get("message") or "未知教案错误")
+                for item in report.get("blocking_issues") or []
+            )
+            raise AIProviderRequestError(
+                f"全课小节教案未通过结构验收：{messages}"
+            )
+
+        planned_course = apply_course_teaching_plan(plan, course_teaching_plan)
+        teaching_stage.update({
+            "status": "completed",
+            "schema_version": course_teaching_plan.get("schema_version"),
+            "revision_id": course_teaching_plan.get("revision_id"),
+            "source_outline_revision_id": outline_revision_id,
+            "validation_report": deepcopy(report),
+            "duration_ms": duration_ms,
+            "model_call_count": counter["calls"],
+            "prompt_chars": counter["prompt_chars"],
+            "planning_mode": planning_mode,
+            "strategy": strategy,
+            "section_count": len(sections),
+            "completed_section_count": len(sections),
+            "completed_batch_count": len(batch_specs),
+            "batch_count": len(batch_specs),
+            "knowledge_point_count": (report.get("actual") or {}).get(
+                "knowledge_point_count", 0
+            ),
+            "teaching_module_count": (report.get("actual") or {}).get(
+                "teaching_module_count", 0
+            ),
+            "knowledge_compilation_model_call_count": 0,
+            "graph_compilation_model_call_count": 0,
+        })
+        teaching_stage.pop("failed_batch_id", None)
+        course_data.update({
+            "course_teaching_plan": course_teaching_plan,
+            "course_plan": deepcopy(planned_course),
+            "knowledge_relations": deepcopy(
+                planned_course.get("knowledge_relations") or []
+            ),
+            "nodes": self._merge_generation_nodes(
+                self._convert_plan_to_nodes(
+                    planned_course,
+                    str(course_data.get("course_id") or ""),
+                ),
+                course_data.get("nodes") or [],
+            ),
+            "generation_status": "course_teaching_plan_compiled",
+        })
+        if artifacts:
+            course_data["course_blueprint"] = build_course_blueprint_from_plan(
+                planned_course,
+                artifacts,
+            )
+        await self._notify_checkpoint(on_checkpoint, course_data)
+        await self._notify_phase(
+            on_phase,
+            "course_teaching_plan",
+            48,
+            "全课小节教案已完成，知识库与关系图已经在本地编译",
+            phase_progress=100,
+            phase_detail={
+                "artifact_type": "course_teaching_plan",
+                "completed_items": len(sections),
+                "total_items": len(sections),
+                "completed_batches": len(batch_specs),
+                "total_batches": len(batch_specs),
+                "completed_sections": len(sections),
+                "total_sections": len(sections),
+                "knowledge_point_count": (
+                    report.get("actual") or {}
+                ).get("knowledge_point_count", 0),
+                "model_call_count": counter["calls"],
+                "knowledge_compilation_model_call_count": 0,
+                "graph_compilation_model_call_count": 0,
+            },
+        )
+        return planned_course
+
+    async def _prepare_course_teaching_plan_compact_legacy(
         self,
         *,
         course_data: dict[str, Any],

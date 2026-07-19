@@ -138,7 +138,7 @@
           <section class="form-section guided-intro">
             <div class="guided-intro__heading">
               <strong>{{ t('courseGeneration.guided.title', '四步完成课程') }}</strong>
-              <span>{{ t('courseGeneration.guided.help', '确认目录后，系统一次规划全课教案，并行生成各节正文。') }}</span>
+              <span>{{ t('courseGeneration.guided.help', '确认目录后，系统先冻结全课知识职责，再按预算生成详细教案与各节正文。') }}</span>
             </div>
             <ol class="guided-intro__steps">
               <li v-for="(label, index) in guidedStepLabels" :key="label">

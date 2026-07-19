@@ -35,7 +35,7 @@
               <div>
                 <span>{{ t('courseGeneration.gate.outlineEyebrow', '生成关卡 02') }}</span>
                 <h2>{{ t('courseGeneration.gate.outlineTitle', '检查并确认课程目录') }}</h2>
-                <p>{{ t('courseGeneration.gate.outlineHelp', '这里确认讲什么；确认后系统一次规划全课教案，再并行生成正文。') }}</p>
+                <p>{{ t('courseGeneration.gate.outlineHelp', '这里确认讲什么；确认后系统先冻结全课知识职责，再按预算生成详细教案与正文。') }}</p>
               </div>
               <button type="button" :aria-label="t('common.close', '关闭')" @click="editorOpen = false"><X :size="18" /></button>
             </header>

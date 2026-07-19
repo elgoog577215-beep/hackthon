@@ -17,7 +17,7 @@ from course_knowledge_base import (
 )
 from course_pedagogy import TEMPLATES, SubjectPedagogyProfile, module_block_role
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v17"
+PROMPT_CONTRACT_VERSION = "course_prompt_v18"
 
 
 class CoursePromptComposer:
@@ -294,6 +294,199 @@ class CoursePromptComposer:
 
 只修复这些错误并重新输出完整 JSON。不得改变目录、模板、难度或课程风格，不得
 输出正文、评分、解释或 Markdown 围栏。
+
+{original_prompt}
+""".strip()
+
+    def build_teaching_plan_skeleton_v3_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        learning_objectives: list[str],
+        planning_context: dict[str, Any],
+    ) -> str:
+        return f"""## 全课知识职责骨架 V3
+
+你只做一次轻量的全局决策：冻结全课原子知识身份、唯一首次负责小节、合法复用、
+前置知识键和允许承担职责的课程块。不要展开能力、易错、掌握标准、正文或题目。
+目录已经冻结，不得增删、改名或调序。只输出有效 JSON。
+
+## 课程
+- 名称：{course_title}
+- 定位：{positioning}
+- 全课成果：{json.dumps(learning_objectives, ensure_ascii=False)}
+
+## 已去重的规划上下文
+{json.dumps(planning_context, ensure_ascii=False)}
+
+## 约束
+1. `sections` 必须按输入顺序完整返回全部 `node_id`。
+2. 每个知识点使用稳定、简短且全课唯一的 `knowledge_key`，如 `K001`；规范名称与
+   一句话陈述全课唯一，后续批次不得改名或改写。
+3. 每节通常首次负责 2-5 个可单独解释、练习和诊断的原子知识点；知识名不得复制
+   小节标题，也不得写成教学动作。
+4. 每个键只有一个 `owner_node_id`。复用只能发生在负责小节之后，并同时登记到注册表
+   的 `reused_in_node_ids` 与对应小节的 `reused_knowledge_keys`。
+5. `prerequisite_keys` 只能引用当前知识之前已经定义的键；没有前置时留空。
+6. `module_ids` 只能从负责小节的 `allowed_module_ids` 中选择，至少选择一个。
+7. `difficulty_baseline` 只出现一次；各小节只叠加自己的 `difficulty_delta`。
+
+## JSON Schema
+{{
+  "knowledge_registry": [
+    {{
+      "knowledge_key": "K001",
+      "name": "原子知识规范名称",
+      "statement": "可独立成立的一句话规范陈述",
+      "owner_node_id": "L2-1-1",
+      "reused_in_node_ids": [],
+      "prerequisite_keys": [],
+      "module_ids": ["core_explanation"]
+    }}
+  ],
+  "sections": [
+    {{
+      "node_id": "L2-1-1",
+      "owned_knowledge_keys": ["K001"],
+      "reused_knowledge_keys": []
+    }}
+  ]
+}}""".strip()
+
+    def build_teaching_plan_skeleton_v3_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 上一次输出不是完整有效的骨架 JSON"
+        return f"""## 全课知识职责骨架 V3 纠正
+
+上一次骨架存在以下结构或引用错误：
+{issue_text}
+
+只修复错误并重新输出完整骨架 JSON。不得展开详细教案、正文、题目或解释。
+
+{original_prompt}
+""".strip()
+
+    def build_teaching_plan_batch_v3_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        batch_spec: dict[str, Any],
+        batch_sections: list[dict[str, Any]],
+        knowledge_registry: list[dict[str, Any]],
+        section_identities: list[dict[str, Any]],
+        module_catalog: list[dict[str, Any]],
+        skeleton_revision_id: str,
+    ) -> str:
+        return f"""## 详细小节教案批次 V3
+
+全课知识身份已经冻结。你只展开当前批次，不得新增、删除、改名或迁移知识键；不得
+修改其他批次。只输出有效 JSON，不输出正文、题目、评分、解释或 Markdown 围栏。
+
+## 课程与批次
+- 课程：{course_title}
+- 定位：{positioning}
+- 批次：{json.dumps(batch_spec, ensure_ascii=False)}
+- 骨架修订：{skeleton_revision_id}
+
+## 当前小节（已去重）
+{json.dumps(batch_sections, ensure_ascii=False)}
+
+## 全局知识注册表（只读）
+{json.dumps(knowledge_registry, ensure_ascii=False)}
+
+## 当前批次知识职责（只读）
+{json.dumps(section_identities, ensure_ascii=False)}
+
+## 共享课程块目录（只出现一次）
+{json.dumps(module_catalog, ensure_ascii=False)}
+
+## 约束
+1. `sections` 必须按批次指定顺序返回，`knowledge_details` 必须按本节
+   `owned_knowledge_keys` 顺序逐个展开，不能展开复用键。
+2. 每个知识详情必须给出成立条件或边界、可观察能力、至少一个可信易错点和可验证
+   掌握标准；易错点必须包含具体错误表现、判别方法与修复策略。
+3. 关系端点只能使用全局注册表中的键。当前批次不得把未来知识当作已经掌握的复用，
+   也不得修改骨架冻结的前置关系。
+4. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
+   集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
+
+## JSON Schema
+{{
+  "sections": [
+    {{
+      "node_id": "L2-1-1",
+      "knowledge_details": [
+        {{
+          "knowledge_key": "K001",
+          "concept_group": "知识问题域",
+          "group_description": "本组作用与边界",
+          "knowledge_type": "definition",
+          "conditions": ["成立条件"],
+          "boundaries": ["不适用范围"],
+          "counterexamples": [],
+          "capability_points": [{{
+            "name": "能力名称",
+            "observable_behavior": "独立可观察动作",
+            "required_evidence_types": ["practice_attempt"]
+          }}],
+          "misconceptions": [{{
+            "name": "错误模式",
+            "observable_error_pattern": "具体错误表现",
+            "confused_with": "易混对象",
+            "discrimination": "判别方法",
+            "repair_strategy": "修复策略"
+          }}],
+          "mastery_criteria": [{{
+            "name": "掌握标准",
+            "observable_performance": "独立表现",
+            "required_independence": "independent",
+            "required_transfer": "variation",
+            "verification_method": "验证方法",
+            "required_evidence_types": ["practice_attempt"]
+          }}],
+          "aliases": []
+        }}
+      ],
+      "knowledge_relations": [{{
+        "source_key": "K001",
+        "target_key": "K002",
+        "relation_type": "prerequisite",
+        "reason": "具体语义理由"
+      }}],
+      "teaching_modules": [{{
+        "module_id": "core_explanation",
+        "teaching_purpose": "本节具体教学职责",
+        "knowledge_keys": ["K001"],
+        "teaching_guidance": "正文必须体现的讲法或学习者行动"
+      }}]
+    }}
+  ]
+}}""".strip()
+
+    def build_teaching_plan_batch_v3_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 上一次输出不是完整有效的批次 JSON"
+        return f"""## 详细教案批次 V3 纠正
+
+当前批次存在以下结构或引用错误：
+{issue_text}
+
+只重新输出当前批次的完整 JSON。骨架修订、知识键、目录和批次范围不得改变；其他
+已完成批次保持不变。不要输出解释或 Markdown 围栏。
 
 {original_prompt}
 """.strip()

@@ -67,14 +67,38 @@ const activeDetail = computed(() => {
     return t('courseGeneration.lifecycle.outlineReady', '目录已就绪，等待你确认后继续')
   }
   if (activeIndex.value === 2) {
-    const total = Number(props.task?.phaseDetail?.item_total || props.task?.totalNodes || 0)
+    const detail = props.task?.phaseDetail || {}
+    const totalSections = Number(detail.total_sections || detail.item_total || props.task?.totalNodes || 0)
     const wait = t('courseGeneration.lifecycle.waited', '已等待 {seconds} 秒')
       .replace('{seconds}', String(props.elapsedSeconds))
-    return total
-      ? t('courseGeneration.lifecycle.planningAll', '正在一次规划全课 {count} 个小节教案 · {wait}')
-        .replace('{count}', String(total))
+    if (/skeleton/.test(phase.value)) {
+      const completedSections = Number(detail.completed_sections || 0)
+      return totalSections
+        ? t('courseGeneration.lifecycle.skeletonProgress', '正在冻结全课知识职责 {completed}/{total} 节 · {wait}')
+          .replace('{completed}', String(completedSections))
+          .replace('{total}', String(totalSections))
+          .replace('{wait}', wait)
+        : t('courseGeneration.lifecycle.skeletonWorking', '正在冻结全课知识职责 · {wait}').replace('{wait}', wait)
+    }
+    const totalBatches = Number(detail.total_batches || 0)
+    if (/batch/.test(phase.value) || totalBatches > 0) {
+      const completedBatches = Number(detail.completed_batches || 0)
+      const completedSections = Number(detail.completed_sections || 0)
+      return t('courseGeneration.lifecycle.batchProgress', '详细教案已完成 {completedBatches}/{totalBatches} 批、{completedSections}/{totalSections} 节 · {wait}')
+        .replace('{completedBatches}', String(completedBatches))
+        .replace('{totalBatches}', String(totalBatches || 1))
+        .replace('{completedSections}', String(completedSections))
+        .replace('{totalSections}', String(totalSections || props.task?.totalNodes || 0))
         .replace('{wait}', wait)
-      : t('courseGeneration.lifecycle.planning', '正在一次规划全课教案 · {wait}').replace('{wait}', wait)
+    }
+    if (/assembly|validation/.test(phase.value)) {
+      return t('courseGeneration.lifecycle.assembling', '正在汇编并校验唯一的全课教案 · {wait}').replace('{wait}', wait)
+    }
+    return totalSections
+      ? t('courseGeneration.lifecycle.planningAll', '正在生成并汇编全课 {count} 个小节教案 · {wait}')
+        .replace('{count}', String(totalSections))
+        .replace('{wait}', wait)
+      : t('courseGeneration.lifecycle.planning', '正在生成并汇编全课教案 · {wait}').replace('{wait}', wait)
   }
   if (activeIndex.value === 3) {
     const completed = Number(props.task?.completedNodes || props.task?.phaseDetail?.completed_items || 0)

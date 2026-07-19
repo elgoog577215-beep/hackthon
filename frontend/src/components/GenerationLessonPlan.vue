@@ -2,12 +2,12 @@
   <section class="generation-lesson-plan">
     <header class="generation-lesson-plan__header">
       <div>
-        <span>{{ t('courseGeneration.lessonPlan.eyebrow', '整门课一次规划') }}</span>
+        <span>{{ t('courseGeneration.lessonPlan.eyebrow', '唯一正式全课教案') }}</span>
         <h2>{{ t('courseGeneration.lessonPlan.title', '课程教案') }}</h2>
         <p>{{ planReady
           ? t('courseGeneration.lessonPlan.ready', '教案、知识点与教学块已经由同一份全课计划生成')
           : live
-            ? t('courseGeneration.lessonPlan.pending', '目录已经确定；全课教案返回后会一次展开到每个小节')
+            ? t('courseGeneration.lessonPlan.pending', '目录已经确定；详细教案会按预算分批生成并汇编到每个小节')
             : t('courseGeneration.lessonPlan.legacyUnavailable', '这门旧课程还没有结构化全课教案，现展示已有学习目标') }}</p>
       </div>
       <dl v-if="planReady">

@@ -467,7 +467,7 @@ def validate_course_knowledge_skeleton(
 def normalize_course_teaching_plan(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Normalize the one-call whole-course section teaching plan.
+    """Normalize the official whole-course section teaching plan.
 
     Knowledge, capability, mastery and block intent share this one semantic
     source. ``CourseKnowledgeBase`` is compiled from it later; it is not a
@@ -523,8 +523,11 @@ def normalize_course_teaching_plan(
             ),
             "teaching_modules": teaching_modules,
         })
+    schema_version = str(payload.get("schema_version") or "")
+    if schema_version not in {"course_teaching_plan_v2", "course_teaching_plan_v3"}:
+        schema_version = "course_teaching_plan_v2"
     normalized = {
-        "schema_version": "course_teaching_plan_v2",
+        "schema_version": schema_version,
         "source_outline_revision_id": str(
             payload.get("source_outline_revision_id")
             or payload.get("source_scope_revision_id")
@@ -532,6 +535,10 @@ def normalize_course_teaching_plan(
         ),
         "sections": normalized_sections,
     }
+    if schema_version == "course_teaching_plan_v3":
+        normalized["skeleton_revision_id"] = str(
+            payload.get("skeleton_revision_id") or ""
+        )
     normalized["revision_id"] = stable_hash(
         normalized,
         prefix="teaching_",
@@ -711,6 +718,8 @@ def compile_course_teaching_plan_modules(
         available_names.extend(local_names)
 
     return normalize_course_teaching_plan({
+        "schema_version": teaching_plan.get("schema_version"),
+        "skeleton_revision_id": teaching_plan.get("skeleton_revision_id"),
         "source_outline_revision_id": teaching_plan.get(
             "source_outline_revision_id"
         ),
@@ -936,7 +945,9 @@ def apply_course_teaching_plan(
                 ],
                 "knowledge_names": list(section.get("key_points") or []),
             }
-    plan["teaching_plan_schema_version"] = "course_teaching_plan_v2"
+    plan["teaching_plan_schema_version"] = str(
+        teaching_plan.get("schema_version") or "course_teaching_plan_v2"
+    )
     plan["teaching_plan_revision_id"] = teaching_plan.get("revision_id")
     return normalize_course_plan_contract(plan)
 
