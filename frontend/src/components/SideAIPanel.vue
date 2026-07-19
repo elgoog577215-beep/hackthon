@@ -258,7 +258,7 @@
           <div>
             <span><WandSparkles :size="14" /></span>
             <div>
-              <small>{{ t('courseWorkspace.personalization.eyebrow', '个性化正文优化') }}</small>
+              <small>{{ t('courseWorkspace.personalization.eyebrow', '调整课程') }}</small>
               <strong>{{ blockTargetTitle }}</strong>
             </div>
           </div>
@@ -276,7 +276,7 @@
             :class="{ active: personalizationDirection === direction.value }"
             role="radio"
             :aria-checked="personalizationDirection === direction.value"
-            :disabled="personalizationBusy || Boolean(personalizationProposal)"
+            :disabled="personalizationBusy || Boolean(personalizationPlan)"
             @click="personalizationDirection = direction.value"
           >
             <component :is="direction.icon" :size="14" />
@@ -296,7 +296,7 @@
               role="radio"
               :aria-checked="personalizationScope === 'current_block'"
               :class="{ active: personalizationScope === 'current_block' }"
-              :disabled="personalizationBusy || Boolean(personalizationProposal)"
+              :disabled="personalizationBusy || Boolean(personalizationPlan)"
               @click="personalizationScope = 'current_block'"
             >
               <LocateFixed :size="14" />
@@ -307,11 +307,26 @@
             </button>
             <button
               type="button"
+              data-scope="current_section"
+              role="radio"
+              :aria-checked="personalizationScope === 'current_section'"
+              :class="{ active: personalizationScope === 'current_section' }"
+              :disabled="personalizationBusy || Boolean(personalizationPlan)"
+              @click="personalizationScope = 'current_section'"
+            >
+              <Layers3 :size="14" />
+              <span>
+                <b>{{ t('courseWorkspace.personalization.scopeSection', '调整当前小节') }}</b>
+                <small>{{ t('courseWorkspace.personalization.scopeSectionHint', 'AI 在本节内寻找需要协同修改的位置') }}</small>
+              </span>
+            </button>
+            <button
+              type="button"
               data-scope="whole_course"
               role="radio"
               :aria-checked="personalizationScope === 'whole_course'"
               :class="{ active: personalizationScope === 'whole_course' }"
-              :disabled="personalizationBusy || Boolean(personalizationProposal)"
+              :disabled="personalizationBusy || Boolean(personalizationPlan)"
               @click="personalizationScope = 'whole_course'"
             >
               <BookOpenText :size="14" />
@@ -325,6 +340,8 @@
             {{
               personalizationScope === 'whole_course'
                 ? t('courseWorkspace.personalization.scopeWholeCourseNotice', 'AI 会先生成全课程影响预览；确认前不会修改任何内容。')
+                : personalizationScope === 'current_section'
+                  ? t('courseWorkspace.personalization.scopeSectionNotice', 'AI 只会在当前小节寻找候选；找到多处后转入居中审阅。')
                 : t('courseWorkspace.personalization.scopeCurrentNotice', '当前范围只会修改你正在查看的这个正文块。')
             }}
           </small>
@@ -336,18 +353,18 @@
             v-model="personalizationFeedback"
             class="personalization-feedback"
             rows="4"
-            :disabled="personalizationBusy || Boolean(personalizationProposal)"
+            :disabled="personalizationBusy || Boolean(personalizationPlan)"
             :placeholder="personalizationFeedbackPlaceholder"
           />
         </label>
 
-        <div v-if="!personalizationProposal" class="personalization-original-preview">
+        <div v-if="!personalizationPlan" class="personalization-original-preview">
           <small>{{ t('courseWorkspace.personalization.currentContent', '当前正文') }}</small>
           <MarkdownRenderer :content="blockOriginalContent" />
         </div>
 
         <button
-          v-if="!personalizationProposal"
+          v-if="!personalizationPlan"
           type="button"
           class="primary-command personalization-generate"
           :disabled="!canGeneratePersonalization"
@@ -358,7 +375,9 @@
           {{
             personalizationScope === 'whole_course'
               ? t('courseWorkspace.personalization.generateWholeCourse', '生成全课程影响预览')
-              : t('courseWorkspace.personalization.generate', '生成优化对比')
+              : personalizationScope === 'current_section'
+                ? t('courseWorkspace.personalization.generateSection', '生成本节调整方案')
+                : t('courseWorkspace.personalization.generate', '生成调整对比')
           }}
         </button>
 
@@ -367,48 +386,62 @@
           <span>{{ personalizationError }}</span>
         </div>
 
-        <template v-if="personalizationProposal">
-          <div class="personalization-proposal-summary">
+        <template v-if="personalizationPlan">
+          <div
+            v-if="personalizationPlan.generation_status === 'generating'"
+            class="personalization-proposal-summary"
+          >
+            <LoaderCircle class="spin" :size="15" />
+            <span>{{ t('courseWorkspace.personalization.generatingPlan', '正在生成课程调整候选，关闭侧栏也不会丢失任务') }}</span>
+          </div>
+          <div
+            v-else-if="personalizationPlan.generation_status === 'failed'"
+            class="personalization-error"
+          >
+            <AlertCircle :size="16" />
+            <span>{{ personalizationPlan.impact_summary?.generation_error || t('courseWorkspace.personalization.generateFailed', '课程调整候选生成失败，请重新发起') }}</span>
+          </div>
+          <div v-if="personalizationOperations.length" class="personalization-proposal-summary">
             <FileDiff :size="15" />
-            <span>{{ t('courseWorkspace.personalization.reviewCount', '请核对 {count} 个受影响课程块').replace('{count}', String(personalizationProposal.items.length)) }}</span>
+            <span>{{ t('courseWorkspace.personalization.reviewCount', '请核对 {count} 个受影响课程块').replace('{count}', String(personalizationOperations.length)) }}</span>
           </div>
 
-          <div class="personalization-diff-list">
+          <div v-if="personalizationOperations.length" class="personalization-diff-list">
             <article
-              v-for="(item, index) in personalizationProposal.items"
-              :key="item.item_id"
+              v-for="(operation, index) in personalizationOperations"
+              :key="operation.operation_id"
               class="personalization-diff-card"
-              :class="{ selected: selectedPersonalizationItemIds.has(item.item_id) }"
+              :class="{ selected: selectedPersonalizationItemIds.has(operation.operation_id) }"
             >
               <header>
                 <label>
                   <input
                     class="personalization-item-check"
                     type="checkbox"
-                    :checked="selectedPersonalizationItemIds.has(item.item_id)"
-                    :disabled="personalizationBusy || Boolean(personalizationResult)"
-                    @change="togglePersonalizationItem(item.item_id, $event)"
+                    :checked="selectedPersonalizationItemIds.has(operation.operation_id)"
+                    :disabled="personalizationBusy || personalizationApplied"
+                    @change="togglePersonalizationItem(operation.operation_id, $event)"
                   />
-                  <span>{{ personalizationItemTitle(item, index) }}</span>
+                  <span>{{ personalizationOperationTitle(operation, index) }}</span>
                 </label>
-                <small>{{ item.block_id }}</small>
+                <small>{{ operation.target_block_id }}</small>
               </header>
               <div class="personalization-diff-columns">
                 <div class="personalization-before">
                   <span>{{ t('courseWorkspace.personalization.before', '优化前') }}</span>
-                  <MarkdownRenderer :content="proposalItemContent(item.before)" />
+                  <MarkdownRenderer :content="operationBeforeContent(operation)" />
                 </div>
                 <div class="personalization-after">
                   <span>{{ t('courseWorkspace.personalization.after', '优化后') }}</span>
-                  <MarkdownRenderer :content="proposalItemContent(item.after)" />
+                  <MarkdownRenderer :content="operationAfterContent(operation)" />
                 </div>
               </div>
-              <p v-if="item.reason">{{ item.reason }}</p>
+              <p v-if="operation.reason">{{ operation.reason }}</p>
             </article>
           </div>
 
           <button
-            v-if="!personalizationResult"
+            v-if="!personalizationApplied && personalizationOperations.length"
             type="button"
             class="primary-command personalization-apply"
             :disabled="selectedPersonalizationItemIds.size === 0 || personalizationBusy"
@@ -420,7 +453,7 @@
           </button>
         </template>
 
-        <div v-if="personalizationResult" class="personalization-apply-receipt">
+        <div v-if="personalizationApplied" class="personalization-apply-receipt">
           <CheckCircle2 :size="18" />
           <div>
             <strong>{{ t('courseWorkspace.personalization.applied', '所选优化已写入课程真源') }}</strong>
@@ -573,6 +606,7 @@ import {
   ChevronDown,
   FileDiff,
   History,
+  Layers3,
   Lightbulb,
   LocateFixed,
   LoaderCircle,
@@ -595,14 +629,16 @@ import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import {
   useCourseEvolutionStore,
+  type CourseAdjustmentScope,
   type CourseEvolutionAnchorRole,
+  type CourseEvolutionPlan,
+  type EvolutionOperation,
 } from '../stores/courseEvolution'
 import { useNoteStore } from '../stores/notes'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { t } from '../shared/i18n'
 import type { CourseBlockEditTarget } from '../stores/types'
 import type {
-  ApplySelectedChangeProposalResult,
   ChangeProposal,
   ChangeProposalAfterPayload,
   ChangeProposalBlockPayload,
@@ -644,11 +680,10 @@ const messageList = ref<HTMLElement | null>(null)
 const inputElement = ref<HTMLTextAreaElement | null>(null)
 const selectedConversationId = ref('')
 const personalizationDirection = ref<PersonalizationDirection>('simplify')
-const personalizationScope = ref<'current_block' | 'whole_course'>('current_block')
+const personalizationScope = ref<CourseAdjustmentScope>('current_block')
 const personalizationFeedback = ref('')
-const personalizationProposal = ref<ChangeProposal | null>(null)
+const personalizationPlanId = ref('')
 const selectedPersonalizationItemIds = reactive(new Set<string>())
-const personalizationResult = ref<ApplySelectedChangeProposalResult | null>(null)
 const personalizationError = ref('')
 const personalizationGenerationLoading = ref(false)
 const personalizationApplying = ref(false)
@@ -686,6 +721,17 @@ const currentConversationTitle = computed(() => (
 ))
 const blockTargetTitle = computed(() => String(props.blockTarget?.block.payload.title || props.blockTarget?.nodeName || ''))
 const blockOriginalContent = computed(() => String(props.blockTarget?.block.payload.markdown || props.blockTarget?.block.payload.text || ''))
+const personalizationPlan = computed<CourseEvolutionPlan | null>(() => (
+  courseEvolutionStore.plans.find(
+    plan => plan.change_set_id === personalizationPlanId.value,
+  ) || null
+))
+const personalizationOperations = computed(() => (
+  personalizationPlan.value?.operations.filter(
+    operation => operation.operation_type !== 'ADJUST_COURSE_DIFFICULTY',
+  ) || []
+))
+const personalizationApplied = computed(() => personalizationPlan.value?.status === 'applied')
 const representationSyncUnitCount = computed(() => (
   (changeProposalsStore.lastRepresentationSync?.rebuilt || []).reduce(
     (total: number, item: Record<string, any>) => total + (item.rebuilt_unit_ids?.length || 0),
@@ -725,14 +771,20 @@ const personalizationFeedbackPlaceholder = computed(() => ({
   custom: t('courseWorkspace.personalization.placeholders.custom', '具体描述你希望如何调整本段'),
 })[personalizationDirection.value])
 const personalizationAffectedBlockIds = computed(() => (
-  personalizationResult.value?.receipt.affected_block_ids || []
+  personalizationPlan.value?.applied_block_ids || []
+))
+const personalizationRepresentationUnitCount = computed(() => (
+  (personalizationPlan.value?.application_receipt?.representation_sync?.rebuilt || []).reduce(
+    (total: number, item: Record<string, any>) => total + (item.rebuilt_unit_ids?.length || 0),
+    0,
+  )
 ))
 const personalizationRepresentationSummary = computed(() => {
-  const sync = personalizationResult.value?.representation_sync
+  const sync = personalizationPlan.value?.application_receipt?.representation_sync
   if (!sync) return ''
   if (sync.status === 'synchronized') {
     return t('courseWorkspace.personalization.representationSynced', '表示同步完成，共重建 {count} 个单元')
-      .replace('{count}', String(representationSyncUnitCount.value))
+      .replace('{count}', String(personalizationRepresentationUnitCount.value))
   }
   return t('courseWorkspace.personalization.representationFallback', '表示同步未通过，继续使用上一可用版本')
 })
@@ -862,15 +914,14 @@ function resetPersonalization() {
   personalizationDirection.value = 'simplify'
   personalizationScope.value = 'current_block'
   personalizationFeedback.value = props.prefill || ''
-  personalizationProposal.value = null
-  personalizationResult.value = null
+  personalizationPlanId.value = ''
   personalizationError.value = ''
   selectedPersonalizationItemIds.clear()
 }
 
 function personalizationErrorText(error: any, fallback: string) {
   const detail = error?.response?.data?.detail
-  if (detail?.code === 'section_evolution_generation_failed') {
+  if (['section_evolution_generation_failed', 'course_adjustment_generation_failed'].includes(detail?.code)) {
     return detail.message || fallback
   }
   if (detail?.code === 'personalization_generation_in_progress') {
@@ -886,6 +937,7 @@ function personalizationErrorText(error: any, fallback: string) {
     )
   }
   return detail?.message
+    || error?.message
     || fallback
 }
 
@@ -895,7 +947,7 @@ interface PersonalizationTargetSnapshot {
   expectedDocumentRevision: string
   expectedBlockRevision: string
   direction: PersonalizationDirection
-  scope: 'current_block' | 'whole_course'
+  scope: CourseAdjustmentScope
   feedback: string
 }
 
@@ -936,49 +988,61 @@ function personalizationAnchorRole(target: CourseBlockEditTarget): CourseEvoluti
   return undefined
 }
 
-function wholeCoursePersonalizationInstruction(snapshot: PersonalizationTargetSnapshot) {
+function courseAdjustmentInstruction(snapshot: PersonalizationTargetSnapshot) {
+  if (snapshot.scope === 'current_block') return snapshot.feedback
   const direction = personalizationDirections.value.find(item => item.value === snapshot.direction)
   return [
-    t(
-      'courseWorkspace.personalization.wholeCourseInstruction',
-      '请把这项优化要求应用到全课程同类内容，并先生成逐项影响预览。',
-    ),
+    snapshot.scope === 'whole_course'
+      ? t(
+          'courseWorkspace.personalization.wholeCourseInstruction',
+          '请把这项调整要求应用到全课程同类内容，并先生成逐项影响预览。',
+        )
+      : t(
+          'courseWorkspace.personalization.sectionInstruction',
+          '请在当前小节内找到需要协同调整的位置，并生成候选。',
+        ),
     `${t('courseWorkspace.personalization.direction', '优化方向')}：${direction?.label || snapshot.direction}`,
     `${t('courseWorkspace.personalization.feedback', '你的反馈')}：${snapshot.feedback}`,
   ].join('\n')
 }
 
-async function generateWholeCoursePersonalization(
+function coursePlanNeedsWorkbench(plan: CourseEvolutionPlan) {
+  const contentOperations = plan.operations.filter(
+    operation => operation.operation_type !== 'ADJUST_COURSE_DIFFICULTY',
+  )
+  const affectedSections = new Set(
+    (plan.impact_summary?.affected_section_ids || []).map(String),
+  )
+  return plan.scope_selection === 'whole_course'
+    || affectedSections.size > 1
+    || contentOperations.length > 1
+}
+
+function selectAllPersonalizationOperations(plan: CourseEvolutionPlan) {
+  selectedPersonalizationItemIds.clear()
+  for (const operation of plan.operations) {
+    if (
+      operation.operation_type !== 'ADJUST_COURSE_DIFFICULTY'
+      && operation.payload?.candidate_status !== 'quality_failed'
+    ) {
+      selectedPersonalizationItemIds.add(operation.operation_id)
+    }
+  }
+}
+
+function findCreatedAdjustmentPlan(
+  baselinePlanIds: Set<string>,
   snapshot: PersonalizationTargetSnapshot,
-  target: CourseBlockEditTarget,
 ) {
-  if (courseEvolutionStore.courseId !== snapshot.courseId) {
-    await courseEvolutionStore.load(snapshot.courseId)
-  }
-  const existingPlanIds = new Set(
-    courseEvolutionStore.pendingPlans.map(plan => plan.change_set_id),
-  )
-  const instruction = wholeCoursePersonalizationInstruction(snapshot)
-  await courseEvolutionStore.createSectionPlan(
-    target.block.section_id || target.nodeId,
-    instruction,
-    'whole_course',
-    personalizationAnchorRole(target),
-  )
-  const createdPlan = [...courseEvolutionStore.pendingPlans].reverse().find(plan => (
-    !existingPlanIds.has(plan.change_set_id)
-    && plan.source_kind === 'manual_section_request'
-    && plan.scope_selection === 'whole_course'
-  ))
-  if (!createdPlan) {
-    throw new Error(t(
-      'courseWorkspace.personalization.wholeCoursePlanMissing',
-      '全课程影响方案已经生成，但暂时无法定位，请返回 AI 老师后重新打开。',
-    ))
-  }
-  if (!isCurrentPersonalizationTarget(snapshot)) return
-  focusedEvolutionPlanId.value = createdPlan.change_set_id
-  emit('clearBlockTarget')
+  return [...courseEvolutionStore.plans].reverse().find(plan => (
+    !baselinePlanIds.has(plan.change_set_id)
+    && plan.status === 'pending'
+    && plan.target_section_id === (props.blockTarget?.block.section_id || props.blockTarget?.nodeId)
+    && (
+      plan.scope_selection !== 'current_block'
+      || plan.impact_summary?.anchor_block_id === snapshot.blockId
+    )
+  )) || null
 }
 
 async function generatePersonalizationProposal() {
@@ -990,26 +1054,41 @@ async function generatePersonalizationProposal() {
   personalizationError.value = ''
   personalizationGenerationLoading.value = true
   try {
-    if (snapshot.scope === 'whole_course') {
-      await generateWholeCoursePersonalization(snapshot, target)
-      return
+    if (courseEvolutionStore.courseId !== snapshot.courseId) {
+      await courseEvolutionStore.load(snapshot.courseId)
     }
-    const proposal = await changeProposalsStore.createPersonalizationProposal({
-      courseId: snapshot.courseId,
-      blockId: snapshot.blockId,
-      requestId: crypto.randomUUID(),
+    const existingPlanIds = new Set(
+      courseEvolutionStore.plans.map(plan => plan.change_set_id),
+    )
+    const requestId = globalThis.crypto?.randomUUID?.() || `course-adjustment-${Date.now()}`
+    await courseEvolutionStore.createPlan({
+      sectionId: target.block.section_id || target.nodeId,
+      blockId: snapshot.scope === 'current_block' ? snapshot.blockId : undefined,
+      requestId,
+      instruction: courseAdjustmentInstruction(snapshot),
+      scopeSelection: snapshot.scope,
       expectedDocumentRevision: snapshot.expectedDocumentRevision,
       expectedBlockRevision: snapshot.expectedBlockRevision,
       direction: snapshot.direction,
-      feedback: snapshot.feedback,
-      scopeSelection: 'current_block',
+      anchorRole: snapshot.scope === 'whole_course'
+        ? personalizationAnchorRole(target)
+        : undefined,
     })
     if (requestToken !== personalizationGenerationToken || !isCurrentPersonalizationTarget(snapshot)) return
-    personalizationProposal.value = proposal
-    selectedPersonalizationItemIds.clear()
-    for (const item of proposal.items) {
-      if (item.selected !== false) selectedPersonalizationItemIds.add(item.item_id)
+    const createdPlan = findCreatedAdjustmentPlan(existingPlanIds, snapshot)
+    if (!createdPlan) {
+      throw new Error(t(
+        'courseWorkspace.personalization.planMissing',
+        '课程调整方案已经生成，但暂时无法定位，请返回 AI 老师后重新打开。',
+      ))
     }
+    if (coursePlanNeedsWorkbench(createdPlan)) {
+      focusedEvolutionPlanId.value = createdPlan.change_set_id
+      emit('clearBlockTarget')
+      return
+    }
+    personalizationPlanId.value = createdPlan.change_set_id
+    selectAllPersonalizationOperations(createdPlan)
   } catch (error: any) {
     if (requestToken !== personalizationGenerationToken || !isCurrentPersonalizationTarget(snapshot)) return
     personalizationError.value = personalizationErrorText(
@@ -1029,83 +1108,95 @@ function togglePersonalizationItem(itemId: string, event: Event) {
   else selectedPersonalizationItemIds.delete(itemId)
 }
 
-function invalidatePersonalizationProposal() {
-  personalizationProposal.value = null
-  personalizationResult.value = null
-  selectedPersonalizationItemIds.clear()
+async function restorePersonalizationPlan() {
+  const target = props.blockTarget
+  const courseId = courseStore.currentCourseId
+  if (!target || !courseId) return
+  if (
+    (
+      courseEvolutionStore.courseId !== courseId
+      || courseEvolutionStore.plans.length === 0
+    )
+    && import.meta.env.MODE !== 'test'
+  ) {
+    try {
+      await courseEvolutionStore.load(courseId)
+    } catch {
+      return
+    }
+  }
+  const plan = [...courseEvolutionStore.pendingPlans].reverse().find(item => {
+    const directBlockIds = (item.impact_summary?.direct_block_ids || []).map(String)
+    return (
+      (
+        item.impact_summary?.anchor_block_id === target.block.block_id
+        || directBlockIds.includes(target.block.block_id)
+      )
+      && item.target_section_id === (target.block.section_id || target.nodeId)
+    )
+  })
+  if (!plan) return
+  if (coursePlanNeedsWorkbench(plan)) {
+    focusedEvolutionPlanId.value = plan.change_set_id
+    emit('clearBlockTarget')
+    return
+  }
+  personalizationPlanId.value = plan.change_set_id
+  personalizationScope.value = plan.scope_selection || 'current_block'
+  const direction = String(plan.impact_summary?.scene_analysis?.direction || '')
+  if (['simplify', 'expand', 'custom'].includes(direction)) {
+    personalizationDirection.value = direction as PersonalizationDirection
+  }
+  if (plan.scope_selection === 'current_block' && plan.request_text) {
+    personalizationFeedback.value = plan.request_text
+  }
+  personalizationError.value = plan.generation_status === 'failed'
+    ? String(plan.impact_summary?.generation_error || '')
+    : ''
+  selectAllPersonalizationOperations(plan)
 }
 
-function personalizationItemTitle(item: ChangeProposalItem, index: number) {
-  const before = item.before
-  if (before && typeof before === 'object') {
-    const payload = 'payload' in before && before.payload && typeof before.payload === 'object'
-      ? before.payload as ChangeProposalBlockPayload
-      : before as ChangeProposalBlockPayload
-    if (typeof payload.title === 'string' && payload.title.trim()) return payload.title.trim()
-  }
+function personalizationOperationTitle(operation: EvolutionOperation, index: number) {
+  const before = operation.payload?.before_block as Record<string, any> | undefined
+  const title = String(before?.payload?.title || operation.payload?.target_section_title || '').trim()
+  if (title) return title
   return t('courseWorkspace.personalization.blockFallback', '课程块 {index}')
     .replace('{index}', String(index + 1))
 }
 
+function operationBeforeContent(operation: EvolutionOperation) {
+  const before = operation.payload?.before_block as Record<string, any> | undefined
+  return String(before?.payload?.markdown || before?.payload?.text || operation.payload?.before_preview || '')
+}
+
+function operationAfterContent(operation: EvolutionOperation) {
+  const after = operation.payload?.proposed_block as Record<string, any> | undefined
+  return String(after?.payload?.markdown || after?.payload?.text || operation.payload?.after_preview || '')
+}
+
 async function applySelectedPersonalization() {
-  const proposal = personalizationProposal.value
+  const plan = personalizationPlan.value
   const target = props.blockTarget
-  if (!proposal || !target || !selectedPersonalizationItemIds.size || personalizationBusy.value) return
-  const itemIds = proposal.items
-    .filter(item => selectedPersonalizationItemIds.has(item.item_id))
-    .map(item => item.item_id)
-  const expectedRevision = String(
-    proposal.generation_meta?.base_document_revision || courseStore.currentDocumentRevision,
-  )
-  const targetProposalItem = proposal.items.find(item => item.block_id === target.block.block_id)
-  if (
-    expectedRevision !== courseStore.currentDocumentRevision
-    || targetProposalItem?.expected_block_revision !== target.block.internal_revision
-  ) {
-    invalidatePersonalizationProposal()
-    personalizationError.value = personalizationErrorText(
-      { response: { status: 409 } },
-      t('courseWorkspace.personalization.conflict', '课程内容已变化，未应用任何优化；请关闭后重新发起'),
-    )
-    return
-  }
-  const snapshot = personalizationTargetSnapshot(target, expectedRevision)
+  if (!plan || !target || !selectedPersonalizationItemIds.size || personalizationBusy.value) return
+  const operationIds = personalizationOperations.value
+    .filter(operation => selectedPersonalizationItemIds.has(operation.operation_id))
+    .map(operation => operation.operation_id)
+  const snapshot = personalizationTargetSnapshot(target, courseStore.currentDocumentRevision)
   const requestToken = ++personalizationApplyToken
   personalizationError.value = ''
   personalizationApplying.value = true
   try {
-    const result = await changeProposalsStore.applySelectedItems(
-      proposal.proposal_id,
-      itemIds,
-      expectedRevision,
+    await courseEvolutionStore.accept(
+      plan.change_set_id,
+      'current',
+      operationIds,
     )
-    const responseCourseId = result.document.course_id
-    const shouldWriteCurrentTarget = requestToken === personalizationApplyToken
-      && isCurrentPersonalizationTarget(snapshot)
-    const shouldRefreshCurrentCourse = Boolean(
-      responseCourseId && responseCourseId === courseStore.currentCourseId,
-    )
-    if (shouldRefreshCurrentCourse) {
-      courseStore.applyCourseDocumentEnvelope(result.document)
-    }
-    if (!shouldWriteCurrentTarget) {
-      if (shouldRefreshCurrentCourse) {
-        void courseStore.refreshCourseData(responseCourseId).catch(error => {
-          logger.warn('Course refresh deferred after personalization apply', error)
-        })
-      }
-      return
-    }
-    personalizationProposal.value = result.proposal
-    personalizationResult.value = result
+    if (requestToken !== personalizationApplyToken) return
     emit('blockApplied', target)
-    if (shouldRefreshCurrentCourse) {
-      void courseStore.refreshCourseData(responseCourseId).catch(error => {
-        logger.warn('Course refresh deferred after personalization apply', error)
-      })
-    }
+    await courseStore.refreshCourseData(snapshot.courseId)
+    await progressStore.loadRuntime(snapshot.courseId)
   } catch (error: any) {
-    if (requestToken !== personalizationApplyToken || !isCurrentPersonalizationTarget(snapshot)) return
+    if (requestToken !== personalizationApplyToken) return
     personalizationError.value = personalizationErrorText(
       error,
       error?.response?.status === 409
@@ -1319,10 +1410,9 @@ function handleOffline() { isOnline.value = false }
 watch(() => props.quoteText, value => { quoteVisible.value = Boolean(value) })
 watch(() => props.prefill, value => {
   if (props.blockTarget) {
-    if (personalizationProposal.value || personalizationResult.value) {
-      invalidatePersonalizationProposal()
+    if (!personalizationPlan.value) {
+      personalizationFeedback.value = value || ''
     }
-    personalizationFeedback.value = value || ''
   } else if (value) {
     input.value = value
     nextTick(resizeComposer)
@@ -1331,6 +1421,7 @@ watch(() => props.prefill, value => {
 watch(() => `${props.blockTarget?.block.block_id || ''}:${props.blockTarget?.block.internal_revision || ''}`, () => {
   if (props.blockTarget) focusedEvolutionPlanId.value = ''
   resetPersonalization()
+  void restorePersonalizationPlan()
 }, { immediate: true })
 watch(() => aiStore.currentConversationId, value => { selectedConversationId.value = value })
 watch(() => aiStore.messages.length, scrollToBottom)
@@ -1452,7 +1543,7 @@ onUnmounted(() => {
 .personalization-direction-chip:disabled { opacity:.65; cursor:not-allowed; }
 .personalization-scope { display:grid; gap:6px; margin-bottom:12px; }
 .personalization-scope > span { color:var(--lz-text-secondary); font-size:10px; font-weight:750; }
-.personalization-scope > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.personalization-scope > div { display:grid; grid-template-columns:1fr; gap:6px; }
 .personalization-scope button { min-width:0; min-height:50px; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:center; gap:7px; padding:7px 8px; border:1px solid #dbe3f2; border-radius:9px; color:var(--lz-text-secondary); background:#fff; text-align:left; cursor:pointer; transition:border-color .16s ease,color .16s ease,background .16s ease,transform .16s ease; }
 .personalization-scope button:hover:not(:disabled) { transform:translateY(-1px); border-color:#a5b4fc; color:var(--lz-brand-strong); }
 .personalization-scope button.active { border-color:#818cf8; color:#3730a3; background:#eef2ff; box-shadow:0 0 0 2px rgba(99,102,241,.08); }

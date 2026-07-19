@@ -17,7 +17,7 @@ from course_knowledge_base import (
 )
 from course_pedagogy import TEMPLATES, SubjectPedagogyProfile, module_block_role
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v15"
+PROMPT_CONTRACT_VERSION = "course_prompt_v17"
 
 
 class CoursePromptComposer:
@@ -162,6 +162,138 @@ class CoursePromptComposer:
 
 请重新输出一份完整的轻量目录 JSON。不得输出知识点、知识关系、正文、Markdown
 围栏、占位目录或解释。所有原始要求、学科模式和难度契约仍以下面的原始契约为准。
+
+{original_prompt}
+""".strip()
+
+    def build_course_teaching_plan_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        learning_objectives: list[str],
+        sections: list[dict[str, Any]],
+    ) -> str:
+        return f"""## 输出契约
+你一次性规划整门课所有小节的教案。目录已经冻结，不得修改章节、小节、顺序、
+目标或范围。教案确定本节知识、能力、掌握标准和需要额外强调的课程块职责；系统会
+把它编译到模板拥有的课程块骨架上，并从同一结果编译课程知识库，不存在第二次
+知识库或知识图谱生成。只输出有效 JSON，不输出解释或 Markdown 围栏。
+
+## 课程
+- 名称：{course_title}
+- 定位：{positioning}
+- 全课成果：{json.dumps(learning_objectives, ensure_ascii=False)}
+- 按教学顺序排列的小节与模板：{json.dumps(sections, ensure_ascii=False)}
+
+## 教案原则
+1. 必须按输入顺序完整返回每个 `node_id`，不得增删、改名或调序。
+2. 全课只维护一套知识身份。每个知识规范名称只在首次完整教学的小节定义一次；
+   后续使用只写入 `reused_knowledge_names`。
+3. 每节通常首次负责 2-5 个可单独解释、练习和诊断的原子知识点；不得把小节标题
+   直接当知识点，也不得为凑数量拆分同义节点。
+4. 每个知识点必须包含独立陈述、条件或边界、可观察能力、可验证掌握标准，以及
+   它为何是课程入口或依赖哪些此前已经定义的知识。
+5. `prerequisite_names` 只能引用本节更早出现或前序小节已定义的规范名称。确有
+   对比、推导、应用或一般化关系时可写入 `relations`；不得为了画图制造关系。
+6. 易错点只有能给出具体错误表现、辨别方法和修复策略时才生成。
+7. 模板拥有硬骨架：`required=true` 的块由系统自动保留，不需要为了确认而重复
+   返回；`required=false` 的块只在确有教学价值时选择。不得返回输入列表之外的块。
+8. `teaching_modules` 只表达需要额外强调的局部职责。返回某个块时，应说明具体
+   职责、负责的知识规范名称和写作指导；未显式绑定的新知识由系统绑定到核心教学
+   块。教案只拥有局部选择和强调自由，不能删除或改写模板硬约束。
+9. 遵守 `learning_objective`、`scope_boundary`、难度和编排风格，不提前完成后续
+   小节的核心教学，不输出正文、题目或内部稳定 ID。
+10. 带有 `evidence_hints` 时，只吸收与本节目标直接相关的资料概念，不得虚构来源。
+
+## JSON Schema
+{{
+  "sections": [
+    {{
+      "node_id": "L2-1-1",
+      "knowledge_structure": [
+        {{
+          "concept_group": "知识问题域",
+          "description": "该问题域在本节中的作用与边界",
+          "knowledge_points": [
+            {{
+              "name": "原子知识规范名称",
+              "statement": "独立成立的知识命题或操作规则",
+              "knowledge_type": "definition",
+              "conditions": ["成立条件"],
+              "boundaries": ["不适用范围或易混边界"],
+              "counterexamples": [],
+              "entry_reason": "没有前置知识时说明为何从这里开始，否则留空",
+              "prerequisite_names": [],
+              "relations": [
+                {{
+                  "target_name": "已经定义的相关知识名称",
+                  "relation_type": "contrasts_with",
+                  "reason": "具体关系理由",
+                  "distinction": "对比关系必须提供判别维度"
+                }}
+              ],
+              "capability_points": [
+                {{
+                  "name": "能力名称",
+                  "observable_behavior": "不依赖答案时可以观察到的动作",
+                  "required_evidence_types": ["practice_attempt"]
+                }}
+              ],
+              "misconceptions": [
+                {{
+                  "name": "错误模式",
+                  "observable_error_pattern": "具体怎样出错",
+                  "confused_with": "容易与什么混淆",
+                  "discrimination": "用什么条件或反例区分",
+                  "repair_strategy": "如何修复"
+                }}
+              ],
+              "mastery_criteria": [
+                {{
+                  "name": "掌握标准",
+                  "observable_performance": "独立表现",
+                  "required_independence": "independent",
+                  "required_transfer": "variation",
+                  "verification_method": "验证方法",
+                  "required_evidence_types": ["practice_attempt"]
+                }}
+              ],
+              "aliases": []
+            }}
+          ]
+        }}
+      ],
+      "reused_knowledge_names": [],
+      "knowledge_relations": [],
+      "teaching_modules": [
+        {{
+          "module_id": "输入模板中允许的模块 ID",
+          "teaching_purpose": "该课程块在本节承担的具体教学职责",
+          "knowledge_names": ["该块负责的知识规范名称"],
+          "teaching_guidance": "正文生成时必须体现的讲法、例子或学习者行动"
+        }}
+      ]
+    }}
+  ]
+}}""".strip()
+
+    def build_course_teaching_plan_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 上一次输出不是完整有效的 JSON"
+        return f"""## 全课小节教案结构纠正
+
+上一次整课教案存在以下结构或引用错误：
+{issue_text}
+
+只修复这些错误并重新输出完整 JSON。不得改变目录、模板、难度或课程风格，不得
+输出正文、评分、解释或 Markdown 围栏。
 
 {original_prompt}
 """.strip()

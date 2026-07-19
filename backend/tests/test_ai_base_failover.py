@@ -61,6 +61,7 @@ def _make_service(monkeypatch, completions, models=("model-a", "model-b")):
     service.smart_models = list(models)
     service.fast_models = list(models)
     service._working_model_cache.clear()
+    service._model_failure_cache.clear()
     service._provider_failure = None
     return service
 
@@ -169,6 +170,27 @@ async def test_call_llm_still_fails_over_on_rate_limit_chinese_marker(monkeypatc
 
     assert result == "ok-answer"
     assert completions.calls == ["model-a", "model-b"]
+
+
+@pytest.mark.asyncio
+async def test_quota_failed_model_is_skipped_by_later_calls(monkeypatch):
+    completions = SequencedCompletions(
+        lambda: _make_status_error(
+            429,
+            "insufficient_quota: exceeded today's quota",
+        )
+    )
+    service = _make_service(monkeypatch, completions)
+
+    assert await service._call_llm("first", retry_count=1) == "ok-answer"
+    service._working_model_cache.clear()
+    assert await service._call_llm("second", retry_count=1) == "ok-answer"
+
+    assert completions.calls == ["model-a", "model-b", "model-b"]
+    assert (
+        service.api_base,
+        "model-a",
+    ) in service._model_failure_cache
 
 
 @pytest.mark.asyncio

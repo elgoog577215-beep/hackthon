@@ -75,11 +75,28 @@ class Storage:
             with open(self._annotations_file, 'w', encoding='utf-8') as f:
                 json.dump([], f)
 
-        # Git Auto-Sync
+        # Git Auto-Sync is an explicit deployment option, never a local default.
+        # Persisting data already happens through atomic file writes; silently
+        # committing runtime data would move whichever branch happens to host
+        # the server and make otherwise identical worktrees appear divergent.
+        # Tests, smoke runs and isolated workspaces must never start it either.
+        formal_data_dir = Path(DATA_DIR).resolve()
+        current_data_dir = Path(self._data_dir).resolve()
+        sync_enabled = os.getenv(
+            "GIT_AUTO_SYNC_ENABLED",
+            "false",
+        ).strip().lower() in {"1", "true", "yes", "on"}
         self.dirty = False
-        self.running = True
-        self.sync_thread = threading.Thread(target=self._auto_sync_loop, daemon=True)
-        self.sync_thread.start()
+        self.running = bool(
+            sync_enabled and current_data_dir == formal_data_dir
+        )
+        self.sync_thread: threading.Thread | None = None
+        if self.running:
+            self.sync_thread = threading.Thread(
+                target=self._auto_sync_loop,
+                daemon=True,
+            )
+            self.sync_thread.start()
 
     # =========================================================================
     # 锁管理

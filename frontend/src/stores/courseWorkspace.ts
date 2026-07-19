@@ -684,7 +684,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     },
     async confirmGenerationStep(
       courseId: string,
-      step: 'outline' | 'knowledge' | 'teaching' | 'content' | 'release',
+      step: 'outline' | 'content' | 'release',
     ) {
       const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/confirm`)
       return res.data

@@ -7,8 +7,9 @@
 # 使用 asyncio.Queue 调度任务，asyncio.Semaphore 控制并发上限。
 #
 # 生成流程：
-# 1. 创建唯一 GenerationJob → 2. 解析教学画像与课程蓝图
-# 3. 按依赖并发生成节点正文 → 4. 质量检查与定点修复 → 5. 保存并推送进度
+# 1. 创建唯一 GenerationJob → 2. 生成并确认课程目录
+# 3. 一次生成全课小节教案并本地编译知识库 → 4. 并行生成正文
+# 5. 编译学习资产并执行确定性结构校验 → 6. 保存并推送进度
 #
 # Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 10.1, 10.2, 10.3, 10.4,
 #               6.5, 7.1, 7.2, 7.5, 13.1, 13.2, 13.4, 13.5
@@ -49,6 +50,7 @@ from course_repository import (
     CourseDocumentNotFound,
     CourseDocumentRepository,
 )
+from course_teaching_plan_projection import project_course_teaching_plan
 from course_versioning import (
     analyze_blueprint_impact,
     build_blueprint_draft,
@@ -75,6 +77,7 @@ from guided_generation import (
     is_confirmed as guided_step_confirmed,
     mark_running as mark_guided_step_running,
     mark_waiting as mark_guided_step_waiting,
+    migrate_guided_workflow,
     step_state as guided_step_state,
 )
 from learning_asset_storage import LearningAssetRepository, learning_asset_repository
@@ -221,7 +224,6 @@ class TaskManager:
         workspace_repository: GenerationWorkspaceRepository | None = None,
         document_repository: CourseDocumentRepository | None = None,
         question_bank_repository_override: QuestionBankRepository | None = None,
-        practice_analysis_service: Any | None = None,
     ) -> None:
         self.storage = storage
         self.course_service = course_service
@@ -234,7 +236,6 @@ class TaskManager:
         )
         self._generation_workspace_repository = workspace_repository or generation_workspace_repository
         self._course_document_repository = document_repository or CourseDocumentRepository(storage)
-        self._practice_analysis_service = practice_analysis_service
         self.max_concurrency = max_concurrency
         self.max_course_concurrency = max_course_concurrency
 
@@ -461,9 +462,9 @@ class TaskManager:
             legacy_style=request_snapshot.get("style"),
         )
         request_snapshot["composition_style"] = composition_profile["style"]
-        # First-time generation has one product path: every product artifact is
-        # reviewed in the six-step workflow. Keep the legacy field only as a
-        # transport compatibility detail.
+        # First-time generation has one product path. Requirements and outline
+        # are followed by automatic teaching-plan/content production, then one
+        # content review and one release confirmation.
         request_snapshot["generation_mode"] = "review_blueprint"
         legacy_bindings, metadata_only = await ingest_legacy_material_inputs(
             request_snapshot.get("materials") or [],
@@ -623,10 +624,14 @@ class TaskManager:
         working["course_outline"] = deepcopy(plan)
         for field in (
             "course_knowledge_scope_contract",
+            "course_teaching_plan",
+            "course_knowledge_index",
             "course_knowledge_base",
             "course_knowledge_map",
             "course_knowledge_quality_report",
             "knowledge_relations",
+            "knowledge_relation_decisions",
+            "knowledge_relation_schema_version",
             "course_plan_constraint_report",
             "course_module_plan",
             "course_block_distribution",
@@ -873,11 +878,9 @@ class TaskManager:
             task["phase"] = f"{step}_confirmed"
             task["phase_progress"] = 100
             task["message"] = {
-                "outline": "课程目录已确认，开始生成知识蓝图",
-                "knowledge": "知识蓝图已确认，开始生成教学方案",
-                "teaching": "教学方案已确认，开始生成课程内容",
-                "content": "课程内容已确认，开始执行质量与发布检查",
-                "release": "质量与发布已确认，正在发布课程",
+                "outline": "课程目录已确认，开始一次规划全课小节教案并生成正文",
+                "content": "课程内容已确认，开始执行结构与发布预检",
+                "release": "确认发布已完成，正在发布课程",
             }.get(step, "当前步骤已确认，继续生成")
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
@@ -1193,7 +1196,7 @@ class TaskManager:
             nodes.append(node)
 
         return {
-            "schema_version": "generation_preview_v1",
+            "schema_version": "generation_preview_v2",
             "projection": "generation_workspace",
             "course_id": str(course_data.get("course_id") or course_id),
             "course_name": str(course_data.get("course_name") or task.get("course_name") or ""),
@@ -1224,6 +1227,7 @@ class TaskManager:
                     "recovery",
                 )
             },
+            "teaching_plan": project_course_teaching_plan(course_data),
             "nodes": nodes,
         }
 
@@ -1281,124 +1285,6 @@ class TaskManager:
                     for node in course_data.get("nodes") or []
                 ],
             }
-        elif step == "knowledge":
-            knowledge_base = course_data.get("course_knowledge_base") or {}
-            knowledge_quality = (
-                knowledge_base.get("quality_report")
-                or course_data.get("course_knowledge_quality_report")
-                or {}
-            )
-            knowledge_blocking_issues = deepcopy(
-                knowledge_quality.get("blocking_issues") or []
-            )
-            groups = knowledge_base.get("concept_groups") or []
-            points = knowledge_base.get("knowledge_points") or []
-            point_names = {
-                str(
-                    point.get("knowledge_id")
-                    or point.get("point_id")
-                    or point.get("id")
-                    or ""
-                ): str(point.get("name") or point.get("title") or "")
-                for point in points
-                if isinstance(point, dict)
-            }
-            relations = knowledge_base.get("relations") or []
-            scope_contract = course_data.get("course_knowledge_scope_contract") or {}
-            artifact = {
-                "lifecycle_status": knowledge_base.get("lifecycle_status"),
-                "revision_id": knowledge_base.get("revision_id"),
-                "concept_group_count": len(groups),
-                "knowledge_point_count": len(points),
-                "relation_count": len(relations),
-                "section_responsibilities": deepcopy(
-                    scope_contract.get("section_responsibilities") or []
-                ),
-                "concept_groups": [
-                    {
-                        "name": str(group.get("name") or group.get("title") or ""),
-                        "summary": str(
-                            group.get("summary")
-                            or group.get("description")
-                            or group.get("learning_purpose")
-                            or ""
-                        ),
-                    }
-                    for group in groups[:24]
-                    if isinstance(group, dict)
-                ],
-                "knowledge_points": [
-                    {
-                        "name": str(point.get("name") or point.get("title") or ""),
-                        "statement": str(
-                            point.get("knowledge_statement")
-                            or point.get("statement")
-                            or point.get("definition")
-                            or ""
-                        ),
-                    }
-                    for point in points[:40]
-                    if isinstance(point, dict)
-                ],
-                "relations": [
-                    {
-                        "source_name": point_names.get(
-                            str(
-                                relation.get("source_knowledge_id")
-                                or relation.get("source_id")
-                                or ""
-                            ),
-                            str(relation.get("source_name") or ""),
-                        ),
-                        "target_name": point_names.get(
-                            str(
-                                relation.get("target_knowledge_id")
-                                or relation.get("target_id")
-                                or ""
-                            ),
-                            str(relation.get("target_name") or ""),
-                        ),
-                        "relation_type": str(
-                            relation.get("relation_type") or ""
-                        ),
-                        "reason": str(relation.get("reason") or ""),
-                    }
-                    for relation in relations[:40]
-                    if isinstance(relation, dict)
-                ],
-                "quality": deepcopy(
-                    knowledge_quality
-                ),
-                "quality_status": (
-                    "blocked"
-                    if knowledge_blocking_issues
-                    else "passed"
-                ),
-                "blocking_issues": knowledge_blocking_issues,
-            }
-        elif step == "teaching":
-            plan = course_data.get("learning_asset_plan") or {}
-            artifact = {
-                "enabled_assets": deepcopy(plan.get("enabled_assets") or plan.get("enabled") or {}),
-                "composition_profile": deepcopy(
-                    course_data.get("course_composition_profile") or {}
-                ),
-                "block_distribution": deepcopy(
-                    course_data.get("course_block_distribution") or {}
-                ),
-                "sections": [
-                    {
-                        "node_id": str(node.get("node_id") or ""),
-                        "name": str(node.get("node_name") or ""),
-                        "learning_objective": str(node.get("learning_objective") or ""),
-                        "module_plan": deepcopy(node.get("module_plan") or []),
-                        "examples_plan": deepcopy(node.get("examples_plan") or {}),
-                        "exercise_plan": deepcopy(node.get("exercise_plan") or {}),
-                    }
-                    for node in course_data.get("nodes") or []
-                    if int(node.get("node_level") or 1) == 2
-                ],
-            }
         elif step == "content":
             content_nodes = [
                 node
@@ -1408,6 +1294,10 @@ class TaskManager:
             learning_assets = course_data.get("learning_assets") or {}
             quality_report = course_data.get("generation_quality_report") or {}
             asset_quality = course_data.get("asset_quality_report") or {}
+            blocking_issues = [
+                *deepcopy(quality_report.get("blocking_issues") or []),
+                *deepcopy(asset_quality.get("blocking_issues") or []),
+            ]
             assessment_items = assessment_assets(learning_assets)
             questions = [item for _, item in assessment_items]
             question_samples = []
@@ -1458,8 +1348,9 @@ class TaskManager:
                     ),
                     "samples": question_samples,
                 },
-                "blocking_issues": deepcopy(
-                    quality_report.get("blocking_issues") or []
+                "blocking_issues": blocking_issues,
+                "asset_blocking_issues": deepcopy(
+                    asset_quality.get("blocking_issues") or []
                 ),
                 "warnings": deepcopy(
                     quality_report.get("warnings")
@@ -1504,16 +1395,11 @@ class TaskManager:
                 and workflow.get("review_step") == step
                 and (
                     (
-                        step != "knowledge"
-                        or (
-                            artifact.get("lifecycle_status") == "active"
-                            and not artifact.get("blocking_issues")
-                        )
-                    )
-                    and (
                         step != "content"
                         or (
-                            artifact.get("asset_quality_passed")
+                            artifact.get("completed_count")
+                            == artifact.get("section_count")
+                            and not artifact.get("blocking_issues")
                             and not (artifact.get("question_review") or {}).get(
                                 "blocked"
                             )
@@ -1552,6 +1438,7 @@ class TaskManager:
                 "interrupted_node_ids": [],
                 "requirements_ready": False,
                 "outline_ready": False,
+                "teaching_plan_ready": False,
                 "completed_knowledge_packages": 0,
                 "total_knowledge_packages": 0,
                 "workspace_status": None,
@@ -1641,16 +1528,36 @@ class TaskManager:
         completed_nodes = sum(1 for node in nodes if self._is_content_complete(node))
         stage_artifacts = course_data.get("generation_stage_artifacts") or {}
         package_states = stage_artifacts.get("section_knowledge") or {}
-        completed_knowledge_packages = sum(
-            1 for item in package_states.values()
-            if isinstance(item, dict) and item.get("status") == "completed"
+        course_teaching_stage = (
+            stage_artifacts.get("course_teaching_plan") or {}
+        )
+        knowledge_index_stage = (
+            stage_artifacts.get("course_knowledge_index") or {}
+        )
+        completed_knowledge_packages = (
+            len(nodes)
+            if (
+                course_teaching_stage.get("status") == "completed"
+                or knowledge_index_stage.get("status") == "completed"
+            )
+            else sum(
+                1 for item in package_states.values()
+                if isinstance(item, dict)
+                and item.get("status") == "completed"
+            )
         )
         relation_stage = stage_artifacts.get("course_relations") or {}
         relation_batches = relation_stage.get("batches") or {}
-        completed_relation_batches = sum(
+        course_graph_stage = stage_artifacts.get("course_graph") or {}
+        completed_relation_batches = (
             1
-            for item in relation_batches.values()
-            if isinstance(item, dict) and item.get("status") == "completed"
+            if course_graph_stage.get("status") == "completed"
+            else sum(
+                1
+                for item in relation_batches.values()
+                if isinstance(item, dict)
+                and item.get("status") == "completed"
+            )
         )
         requirements_ready = bool(
             course_data.get("course_generation_brief")
@@ -1665,12 +1572,26 @@ class TaskManager:
             "interrupted_node_ids": interrupted_node_ids,
             "requirements_ready": requirements_ready,
             "outline_ready": bool(course_data.get("course_outline")),
+            "teaching_plan_ready": bool(
+                course_teaching_stage.get("status") == "completed"
+            ),
             "completed_knowledge_packages": completed_knowledge_packages,
             "total_knowledge_packages": len(nodes),
             "completed_relation_batches": completed_relation_batches,
-            "total_relation_batches": len(nodes),
-            "knowledge_registry_revision_id": relation_stage.get(
-                "knowledge_registry_revision_id"
+            "total_relation_batches": (
+                0
+                if course_teaching_stage.get("status") == "completed"
+                else 1
+                if knowledge_index_stage
+                else len(nodes)
+            ),
+            "knowledge_registry_revision_id": (
+                course_graph_stage.get(
+                    "knowledge_identity_revision_id"
+                )
+                or relation_stage.get(
+                    "knowledge_registry_revision_id"
+                )
             ),
             "workspace_status": workspace.get("status"),
             "updated_at": workspace.get("updated_at") or task.get("updated_at"),
@@ -1704,25 +1625,39 @@ class TaskManager:
                 **base,
                 "state": "quality_blocked",
                 "reason_code": "quality_gate_failed",
-                "reason": "内容已经生成，但质量检查未通过；重复运行不会自动修复同一问题",
+                "reason": "内容已经生成，但结构或引用检查未通过；重复运行不会绕过同一错误",
                 "checkpoint": checkpoint,
             }
         if status in {"paused", "failed", "completed_with_warnings"}:
             if completed_nodes or draft_node_ids:
                 reason = "已保留完成内容和中断草稿，可以从保存点继续"
+            elif course_teaching_stage.get("status") == "completed":
+                reason = (
+                    "全课小节教案、知识库与图谱已经保留，"
+                    "可以从未完成正文继续"
+                )
             elif completed_relation_batches:
-                reason = (
-                    f"已冻结全部知识节点，并保留 "
-                    f"{completed_relation_batches}/{len(nodes)} 个关系邻域，"
-                    "可以从下一个未完成邻域继续"
-                )
+                if course_graph_stage.get("status") == "completed":
+                    reason = "整课知识关系图已保留，可以从未完成正文继续"
+                else:
+                    reason = (
+                        "已冻结全部知识节点，并保留 "
+                        f"{completed_relation_batches}/{len(nodes)} 个旧版关系检查点，"
+                        "可以从下一个未完成检查点继续"
+                    )
             elif completed_knowledge_packages:
-                reason = (
-                    f"已保留课程目录和 {completed_knowledge_packages}/{len(nodes)} "
-                    "个小节知识包，可以从下一个未完成小节继续"
-                )
+                if knowledge_index_stage.get("status") == "completed":
+                    reason = (
+                        "课程目录与旧版整课知识索引已保留，"
+                        "继续后将迁移为同源小节教案与课程知识库"
+                    )
+                else:
+                    reason = (
+                        f"已保留课程目录和 {completed_knowledge_packages}/{len(nodes)} "
+                        "个旧版知识检查点，可以从下一个未完成检查点继续"
+                    )
             elif course_data.get("course_outline"):
-                reason = "已保留课程目录，可以从逐节知识生成阶段继续"
+                reason = "已保留课程目录，可以从全课小节教案阶段继续"
             elif requirements_ready:
                 reason = "已保留课程需求与资料处理结果；继续后将重新生成课程目录"
             else:
@@ -1980,7 +1915,7 @@ class TaskManager:
         phase = (
             "content_generation"
             if knowledge_ready or has_content_checkpoint
-            else "section_knowledge_generation"
+            else "course_teaching_plan"
             if has_outline
             else "requirement_analysis"
         )
@@ -2534,7 +2469,7 @@ class TaskManager:
             task_id,
             "course_knowledge_blueprint",
             46,
-            "正在编译已冻结的知识节点、能力包与全课关系网",
+            "正在编译已冻结的知识节点、能力包与稳定 ID",
             phase_progress=35,
         )
         course_map = compile_course_knowledge_map(working)
@@ -2562,7 +2497,7 @@ class TaskManager:
             task_id,
             "knowledge_mapping",
             49,
-            "正在检查稳定知识 ID、关系结构与精确教学绑定",
+            "正在检查稳定知识 ID 与精确教学绑定",
             phase_progress=100,
             phase_detail={
                 "course_knowledge_base_revision_id": course_knowledge_base.get(
@@ -2587,7 +2522,7 @@ class TaskManager:
             for item in report.get("blocking_issues") or report.get("issues") or []
             if str(item.get("message") or "").strip()
         ]
-        detail = "；".join(messages[:6]) or "课程知识蓝图缺失或尚未通过质量门"
+        detail = "；".join(messages[:6]) or "课程知识库缺失或结构不完整"
         raise RuntimeError(f"正文生成已停止：{detail}")
 
     async def _pause_for_guided_review(
@@ -2736,7 +2671,6 @@ class TaskManager:
                 web_question_enrichment=request.get("web_question_enrichment") or {"enabled": False},
                 existing_course_data=course_data,
                 stop_after_outline=stop_after_outline,
-                stop_after_knowledge=guided,
                 on_phase=on_phase,
                 on_checkpoint=on_checkpoint,
             )
@@ -2757,7 +2691,7 @@ class TaskManager:
                         "outline",
                         phase="outline_ready",
                         progress=35,
-                        message="课程目录等待确认；确认后才会生成知识蓝图",
+                        message="课程目录等待确认；确认后将规划全课小节教案并生成正文",
                         revision=guided_artifact_revision(
                             "outline",
                             course_data,
@@ -2785,7 +2719,7 @@ class TaskManager:
                 await self._update_task_status(
                     task_id,
                     "waiting_for_review",
-                    message="课程目录等待确认；确认后才会生成逐节知识包和正文",
+                    message="课程目录等待确认；确认后将规划全课小节教案并生成正文",
                     completed_nodes=0,
                     total_nodes=int(outline_actual.get("section_count") or 0),
                 )
@@ -2807,26 +2741,10 @@ class TaskManager:
                 await self._save_task_course(task_id, course_data)
             self._require_course_knowledge_ready(course_data)
 
-        if guided and not guided_step_confirmed(guided_workflow, "knowledge"):
-            await self._pause_for_guided_review(
-                task_id,
-                course_data,
-                "knowledge",
-                phase="knowledge_ready",
-                progress=48,
-                message="知识蓝图等待确认；确认后才会设计每节怎样讲",
-                phase_detail={
-                    "knowledge_revision_id": (
-                        course_data.get("course_knowledge_base") or {}
-                    ).get("revision_id"),
-                },
-            )
-            return
-
         if task.get("type") == "course_generation":
             teaching_stage = (
                 course_data.get("generation_stage_artifacts") or {}
-            ).get("teaching") or {}
+            ).get("course_teaching_plan") or {}
             teaching_ready = bool(
                 teaching_stage.get("status") == "completed"
                 and all(
@@ -2839,6 +2757,8 @@ class TaskManager:
                 self.course_service,
                 "compile_teaching_plan",
             ):
+                # Only persisted pre-v9 checkpoints reach this deterministic
+                # adapter. New jobs already contain the one-call plan.
                 course_data = self.course_service.compile_teaching_plan(course_data)
                 await self._save_task_course(task_id, course_data)
             if not course_data.get("learning_asset_plan"):
@@ -2846,16 +2766,6 @@ class TaskManager:
                 if isinstance(course_data.get("course_blueprint"), dict):
                     course_data["course_blueprint"]["learning_asset_plan"] = course_data["learning_asset_plan"]
                 await self._save_task_course(task_id, course_data)
-            if guided and not guided_step_confirmed(guided_workflow, "teaching"):
-                await self._pause_for_guided_review(
-                    task_id,
-                    course_data,
-                    "teaching",
-                    phase="teaching_ready",
-                    progress=55,
-                    message="教学方案等待确认；确认后才会生成完整课程内容",
-                )
-                return
             course_data["generation_status"] = "content_generation"
             await self._save_task_course(task_id, course_data)
 
@@ -2871,83 +2781,74 @@ class TaskManager:
 
         # The V2 blueprint already owns the complete L1/L2 structure.
         incomplete_l2 = [n for n in l2_nodes if not self._is_content_complete(n)]
+        if incomplete_l2:
+            total = len(l2_nodes)
+            completed = len(l2_nodes) - len(incomplete_l2)
+            await self._update_task_status(
+                task_id,
+                "running",
+                message="正在根据小节教案并行生成正文",
+                completed_nodes=completed,
+                total_nodes=total,
+            )
+            await self._update_phase(
+                task_id,
+                "content_generation",
+                max(55, task.get("progress", 55)),
+                "正在根据小节教案并行生成正文",
+                phase_progress=int(
+                    completed / max(1, total) * 100
+                ),
+                phase_detail={
+                    "artifact_type": "course_content",
+                    "completed_items": completed,
+                    "total_items": total,
+                    "teaching_plan_status": "completed",
+                    "knowledge_compilation": "deterministic_completed",
+                    "graph_compilation": "deterministic_completed",
+                },
+            )
+            await self._schedule_nodes(task_id, incomplete_l2)
 
-        if not incomplete_l2:
-            if guided and not guided_step_confirmed(guided_workflow, "content"):
-                (
-                    course_data,
-                    _quality_report,
-                    _failed_nodes,
-                    _strict_quality_passed,
-                    _publication_allowed,
-                ) = await self._prepare_content_candidate(task_id, course_data)
-                await self._pause_for_guided_review(
-                    task_id,
-                    course_data,
+        course_data = self._load_task_course(task_id) or course_data
+        if guided and not guided_step_confirmed(guided_workflow, "content"):
+            l2_nodes = [
+                node
+                for node in course_data.get("nodes") or []
+                if int(node.get("node_level") or 1) == 2
+            ]
+            (
+                course_data,
+                _quality_report,
+                _failed_nodes,
+                _strict_quality_passed,
+                _publication_allowed,
+            ) = await self._prepare_content_candidate(task_id, course_data)
+            content_revision = guided_artifact_revision(
+                "content",
+                course_data,
+                request=task.get("request_snapshot") or {},
+            )
+            async with self._lock:
+                mark_guided_step_waiting(
+                    guided_workflow,
                     "content",
-                    phase="content_ready",
-                    progress=88,
-                    message="课程内容已经生成，等待你整体审阅",
-                    phase_detail={
-                        "completed_items": len(l2_nodes),
-                        "total_items": len(l2_nodes),
-                    },
+                    revision=content_revision,
                 )
-                return
-            await self._complete_task(task_id, course_data)
-            return
-
-        total = len(l2_nodes)
-        completed = len(l2_nodes) - len(incomplete_l2)
-        await self._update_task_status(
-            task_id, "running",
-            message="正在生成正文内容...",
-            completed_nodes=completed,
-            total_nodes=total,
-        )
-        await self._update_phase(
-            task_id,
-            "content_generation",
-            max(50, task.get("progress", 50)),
-            "正在生成正文内容",
-            phase_progress=int(completed / max(1, total) * 100),
-        )
-
-        # Schedule all incomplete L2 nodes with level-priority
-        await self._schedule_nodes(task_id, incomplete_l2)
-
-        # After all nodes processed, check for completion
-        course_data = self._load_task_course(task_id)
-        if course_data:
-            if guided and not guided_step_confirmed(guided_workflow, "content"):
-                l2_nodes = [
-                    node
-                    for node in course_data.get("nodes") or []
-                    if int(node.get("node_level") or 1) == 2
-                ]
-                (
-                    course_data,
-                    _quality_report,
-                    _failed_nodes,
-                    _strict_quality_passed,
-                    _publication_allowed,
-                ) = await self._prepare_content_candidate(task_id, course_data)
-                await self._pause_for_guided_review(
-                    task_id,
-                    course_data,
+                confirm_waiting_step(
+                    guided_workflow,
                     "content",
-                    phase="content_ready",
-                    progress=88,
-                    message="课程内容已经生成，等待你整体审阅",
-                    phase_detail={
-                        "completed_items": sum(
-                            self._is_content_complete(node) for node in l2_nodes
-                        ),
-                        "total_items": len(l2_nodes),
-                    },
+                    revision=content_revision,
                 )
-                return
-            await self._complete_task(task_id, course_data)
+                task["phase"] = "content_confirmed"
+                task["current_phase"] = "content_confirmed"
+                task["phase_progress"] = 100
+                task["message"] = "课程正文已完成，正在准备最终发布确认"
+                task["updated_at"] = datetime.now().isoformat()
+                self.save_tasks()
+            await self._save_task_course(task_id, course_data)
+            await self._push_progress(task_id)
+        await self._complete_task(task_id, course_data)
 
     async def _save_generated_node_content(
         self,
@@ -2971,25 +2872,15 @@ class TaskManager:
                     node["grounding_invalid_refs"] = grounding_invalid_refs or []
                     node["error_summary"] = None
                     node.pop("node_content_draft", None)
-                    # Prefer the quality/grounding re-check already performed by
-                    # course_service right after the (bounded, single) repair
-                    # attempt — it was computed with the fully-populated node
-                    # contract. Only fall back to recomputing here if the
-                    # caller didn't supply it (e.g. older code paths/tests).
+                    # Persist deterministic diagnostics without starting a
+                    # second model scoring/repair chain.
                     node["generation_quality"] = (
                         generation_quality
                         if generation_quality is not None
                         else evaluate_node_content(fixed_content, node)
                     )
-                    # Reuse the existing weak-node mechanism: if the content
-                    # still fails quality/grounding after the single repair
-                    # retry, keep the node COMPLETED (avoid infinite retries)
-                    # but explicitly flag it as needing manual review. This
-                    # flag rides along with generation_quality["passed"] in
-                    # build_final_course_quality_report's weak_nodes list, so
-                    # it is visible in the API response, not just logs.
                     node["needs_manual_review"] = bool(
-                        needs_manual_review or not node["generation_quality"].get("passed", True)
+                        needs_manual_review
                     )
                     break
             return fresh_data
@@ -3344,6 +3235,24 @@ class TaskManager:
                 task.setdefault("blueprint_revision_id", None)
                 task.setdefault("workspace_id", None)
                 task.setdefault("base_document_revision", None)
+                workflow = task.get("guided_workflow")
+                if isinstance(workflow, dict):
+                    legacy_review = str(
+                        workflow.get("review_step") or ""
+                    )
+                    task["guided_workflow"] = migrate_guided_workflow(
+                        workflow,
+                        request=task.get("request_snapshot") or {},
+                    )
+                    if (
+                        legacy_review in {"knowledge", "teaching"}
+                        and task.get("status") == "waiting_for_review"
+                    ):
+                        task["status"] = "pending"
+                        task["phase"] = "course_teaching_plan_migrated"
+                        task["message"] = (
+                            "旧知识或教学确认点已合并，正在按新链路继续生成课程"
+                        )
                 if task.get("type") != "course_generation":
                     task["legacy_read_only"] = True
                     if task.get("status") in ("pending", "running", "paused"):
@@ -3747,30 +3656,6 @@ class TaskManager:
                 set_node_content_blocks(node, str(node.get("node_content") or ""))
 
         coherence_report = evaluate_course_coherence(fresh_course)
-        if (
-            not coherence_report.get("passed")
-            and hasattr(self.course_service, "repair_course_coherence")
-        ):
-            await self._update_phase(
-                task_id,
-                "coherence_repair",
-                86,
-                "正在定点修复跨章节重复或断裂",
-                phase_progress=40,
-            )
-            try:
-                fresh_course, coherence_report = (
-                    await self.course_service.repair_course_coherence(
-                        fresh_course,
-                        coherence_report,
-                    )
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Course coherence repair failed for %s: %s",
-                    task_id,
-                    exc,
-                )
         fresh_course["course_coherence_contract"] = compile_course_coherence_contract(
             fresh_course
         )
@@ -3816,125 +3701,45 @@ class TaskManager:
             question_bank_bundle=question_bank_bundle,
         )
         asset_bundle.pop("question_bank_bundle", None)
-        fresh_course["question_analysis_required"] = bool(
-            self._practice_analysis_service
+        # Learning-asset compilation deterministically assigns the objective
+        # identities and course-knowledge bindings used by its own contracts.
+        # Persist that exact node projection before evaluating or publishing so
+        # the course and its generated assets share one source of truth.
+        fresh_course["nodes"] = deepcopy(asset_course.get("nodes") or [])
+        fresh_course["question_analysis_required"] = True
+        analyzed_questions = [
+            item
+            for _, item in assessment_assets(asset_bundle["assets"])
+        ]
+        asset_bundle["quality_report"] = evaluate_learning_asset_quality(
+            fresh_course,
+            asset_bundle["plan"],
+            asset_bundle["assets"],
         )
-        if self._practice_analysis_service:
-            fresh_course["learning_asset_plan"] = asset_bundle["plan"]
-            fresh_course["learning_assets"] = asset_bundle["assets"]
-            fresh_course["question_analysis_status"] = "running"
-            await self._save_task_course(task_id, fresh_course)
-            await self._update_phase(
-                task_id,
-                "question_analysis",
-                87,
-                "正在逐题解析实际考查目标，并核对知识、能力与易错点",
-                phase_progress=55,
-            )
-            try:
-                assessment_targets = [
-                    item
-                    for _, item in assessment_assets(asset_bundle["assets"])
-                ]
-                analyzed_questions = (
-                    await self._practice_analysis_service.analyze_questions(
-                        assessment_targets
-                    )
-                )
-                if hasattr(
-                    self._practice_analysis_service,
-                    "repair_blocked_questions",
-                ):
-                    try:
-                        repaired_questions = (
-                            await self._practice_analysis_service.repair_blocked_questions(
-                                analyzed_questions
-                            )
-                        )
-                        repair_targets = [
-                            item
-                            for item in repaired_questions
-                            if not item.get("question_analysis")
-                        ]
-                        if repair_targets:
-                            await self._update_phase(
-                                task_id,
-                                "question_analysis",
-                                87,
-                                "正在定点重写未通过解析的题目，并再次核对",
-                                phase_progress=72,
-                            )
-                            repaired_results = (
-                                await self._practice_analysis_service.analyze_questions(
-                                    repair_targets
-                                )
-                            )
-                            repaired_by_revision = {
-                                str(item.get("revision_id") or ""): item
-                                for item in repaired_results
-                            }
-                            analyzed_questions = [
-                                repaired_by_revision.get(
-                                    str(item.get("revision_id") or ""),
-                                    item,
-                                )
-                                for item in repaired_questions
-                            ]
-                    except Exception as repair_exc:
-                        logger.warning(
-                            "Question repair failed for %s; keeping blocked review: %s",
-                            task_id,
-                            repair_exc,
-                        )
-            except Exception as exc:
-                fresh_course["question_analysis_status"] = "failed"
-                fresh_course["question_analysis_error"] = str(exc)
-                await self._save_task_course(task_id, fresh_course)
-                raise
-            analyzed_by_source_revision = {
-                str(
-                    (item.get("question_repair") or {}).get("source_revision_id")
-                    or item.get("revision_id")
-                    or ""
-                ): item
+        fresh_course["question_analysis_status"] = (
+            "passed"
+            if all(
+                (item.get("question_analysis") or {}).get("status")
+                == "passed"
                 for item in analyzed_questions
-            }
-            revision_remap: dict[str, str] = {}
-            for _, target in assessment_assets(asset_bundle["assets"]):
-                revision_id = str(target.get("revision_id") or "")
-                analyzed = analyzed_by_source_revision.get(revision_id)
-                if analyzed:
-                    analyzed_revision_id = str(analyzed.get("revision_id") or "")
-                    if analyzed_revision_id and analyzed_revision_id != revision_id:
-                        revision_remap[revision_id] = analyzed_revision_id
-                    target.clear()
-                    target.update(analyzed)
-            if revision_remap:
-                _remap_assessment_revision_references(
-                    asset_bundle["assets"],
-                    revision_remap,
-                )
-            asset_bundle["quality_report"] = evaluate_learning_asset_quality(
-                fresh_course,
-                asset_bundle["plan"],
-                asset_bundle["assets"],
             )
-            fresh_course["question_analysis_status"] = (
-                "passed"
-                if asset_bundle["quality_report"].get("passed")
-                else "blocked"
-            )
-            fresh_course["question_analysis_summary"] = {
-                "total": len(analyzed_questions),
-                "passed": sum(
-                    (item.get("question_analysis") or {}).get("status") == "passed"
-                    for item in analyzed_questions
-                ),
-                "blocked": sum(
-                    (item.get("question_analysis") or {}).get("status") == "blocked"
-                    for item in analyzed_questions
-                ),
-            }
+            else "blocked"
+        )
+        fresh_course["question_analysis_summary"] = {
+            "source": "compiled_contract",
+            "model_call_count": 0,
+            "total": len(analyzed_questions),
+            "passed": sum(
+                (item.get("question_analysis") or {}).get("status")
+                == "passed"
+                for item in analyzed_questions
+            ),
+            "blocked": sum(
+                (item.get("question_analysis") or {}).get("status")
+                == "blocked"
+                for item in analyzed_questions
+            ),
+        }
         question_bank_bundle = self._question_bank_repository.save_bundle(
             str(task["course_id"]),
             question_bank_bundle,
@@ -3984,7 +3789,7 @@ class TaskManager:
             task_id,
             "content_validation",
             88,
-            "正在执行课程内容与资产质量检查",
+            "正在执行课程结构、引用与资产完整性检查",
             phase_progress=60,
         )
         nodes = fresh_course.get("nodes", [])
@@ -4044,13 +3849,55 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             return
-        (
-            fresh_course,
-            quality_report,
-            failed_nodes,
-            strict_quality_passed,
-            publication_allowed,
-        ) = await self._prepare_content_candidate(task_id, course_data)
+        guided_workflow = task.get("guided_workflow")
+        content_stage = (
+            course_data.get("generation_stage_artifacts") or {}
+        ).get("content_candidate") or {}
+        confirmed_content_checkpoint = bool(
+            isinstance(guided_workflow, dict)
+            and guided_step_confirmed(guided_workflow, "content")
+            and content_stage.get("status") == "completed"
+            and isinstance(
+                course_data.get("generation_quality_report"),
+                dict,
+            )
+            and isinstance(course_data.get("asset_quality_report"), dict)
+        )
+        if confirmed_content_checkpoint:
+            # A confirmed content candidate is immutable. Recompiling assets
+            # here can create new revisions after the user reviewed them and
+            # would both waste work and invalidate the source-chain proof.
+            fresh_course = deepcopy(course_data)
+            quality_report = deepcopy(
+                fresh_course.get("generation_quality_report") or {}
+            )
+            failed_nodes = [
+                node
+                for node in fresh_course.get("nodes") or []
+                if node.get("generation_status") == NodeStatus.ERROR.value
+            ]
+            publication_allowed = self._quality_allows_publication(
+                fresh_course,
+                quality_report,
+            )
+            strict_quality_passed = bool(
+                quality_report.get("final_status") == "passed"
+                and (
+                    fresh_course.get("asset_quality_report") or {}
+                ).get("passed", False)
+                and not failed_nodes
+            )
+        else:
+            (
+                fresh_course,
+                quality_report,
+                failed_nodes,
+                strict_quality_passed,
+                publication_allowed,
+            ) = await self._prepare_content_candidate(
+                task_id,
+                course_data,
+            )
         nodes = fresh_course.get("nodes", [])
         await self._update_phase(
             task_id,
@@ -4060,9 +3907,8 @@ class TaskManager:
             phase_progress=90,
         )
 
-        guided_workflow = task.get("guided_workflow")
         if isinstance(guided_workflow, dict):
-            # The reviewed content candidate stays immutable after step five,
+            # The reviewed content candidate stays immutable after step three,
             # while the release gate remains a derived decision over that
             # candidate and the latest confirmed workflow state.
             publication_allowed = self._quality_allows_publication(

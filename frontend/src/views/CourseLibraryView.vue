@@ -190,9 +190,9 @@ async function generateCourse(payload: { subject: string; options: CourseGenerat
       return
     }
     createDialogOpen.value = false
-    await courseStore.fetchCourseList()
-    openTaskCenter(result.courseId)
-    ElMessage.success(t('courseLibrary.createStarted', '课程已经进入后台生成队列'))
+    openCourse(result.courseId)
+    void courseStore.fetchCourseList()
+    ElMessage.success(t('courseLibrary.createStarted', '课程已开始生成，正在进入生成现场'))
   } catch {
     ElMessage.error(t('courseLibrary.createFailed', '课程创建失败'))
   } finally {

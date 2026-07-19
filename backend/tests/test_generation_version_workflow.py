@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 
 import pytest
@@ -51,9 +52,34 @@ class BlueprintService:
                 "composition_source": "composition_style",
                 "block_difficulty_contract": {"target_level": "intermediate"},
             }]
-        course.setdefault("generation_stage_artifacts", {})["teaching"] = {
+        course["course_teaching_plan"] = {
+            "schema_version": "course_teaching_plan_v2",
+            "revision_id": "teaching-plan-1",
+            "sections": [
+                {
+                    "node_id": "L2-1-1",
+                    "teaching_modules": [
+                        {
+                            "module_id": "core_explanation",
+                            "teaching_purpose": "解释概念边界",
+                            "knowledge_names": ["概念的内涵", "概念的外延"],
+                        },
+                        {
+                            "module_id": "composition_case_extension",
+                            "teaching_purpose": "用案例检验概念边界",
+                            "knowledge_names": ["概念的外延"],
+                        },
+                    ],
+                }
+            ],
+        }
+        course.setdefault("generation_stage_artifacts", {})["course_teaching_plan"] = {
             "status": "completed",
-            "schema_version": "course_teaching_plan_v1",
+            "schema_version": "course_teaching_plan_v2",
+            "strategy": "single_whole_course_call",
+            "model_call_count": 1,
+            "knowledge_compilation_model_call_count": 0,
+            "graph_compilation_model_call_count": 0,
         }
         return course
 
@@ -147,14 +173,124 @@ class BlueprintService:
                 node["key_points"] = []
                 node["module_plan"] = []
             return course
-        if kwargs.get("stop_after_knowledge"):
-            for node in course["nodes"]:
-                node["module_plan"] = []
-            return course
         return self._attach_teaching(course)
 
     def compile_teaching_plan(self, course):
         return self._attach_teaching(deepcopy(course))
+
+
+@pytest.mark.asyncio
+async def test_content_generation_never_starts_a_separate_graph_model_call(
+    tmp_path,
+    monkeypatch,
+):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(
+        task_manager_module,
+        "TASKS_FILE",
+        tmp_path / "tasks.json",
+    )
+    graph_called = {"value": False}
+
+    class NoGraphService:
+        async def generate_course_graph_enrichment(
+            self,
+            *_args,
+            **_kwargs,
+        ):
+            graph_called["value"] = True
+            raise AssertionError("正文阶段不得再调用图谱模型")
+
+        @staticmethod
+        def register_course_generation_metadata(_course_id, _course):
+            return None
+
+    course = {
+        "course_id": "parallel-course",
+        "course_name": "并行课程",
+        "course_blueprint": {"nodes": [{"node_id": "L2-1-1"}]},
+        "course_knowledge_base": {
+            "lifecycle_status": "active",
+            "revision_id": "knowledge-1",
+        },
+        "course_knowledge_map": {
+            "course_knowledge_base_revision_id": "knowledge-1",
+        },
+        "course_teaching_plan": {
+            "schema_version": "course_teaching_plan_v2",
+            "revision_id": "teaching-1",
+        },
+        "learning_asset_plan": {"status": "ready"},
+        "generation_stage_artifacts": {
+            "course_teaching_plan": {
+                "status": "completed",
+                "knowledge_compilation_model_call_count": 0,
+                "graph_compilation_model_call_count": 0,
+            },
+        },
+        "nodes": [{
+            "node_id": "L2-1-1",
+            "node_level": 2,
+            "node_name": "并行节点",
+            "module_plan": [{"module_id": "core_explanation"}],
+            "generation_status": "pending",
+        }],
+    }
+    storage = MemoryStorage(course)
+    manager = TaskManager(
+        storage,
+        NoGraphService(),
+        None,
+        version_repository=CourseVersionRepository(
+            tmp_path / "versions"
+        ),
+        workspace_repository=GenerationWorkspaceRepository(
+            tmp_path / "workspaces"
+        ),
+        document_repository=CourseDocumentRepository(storage),
+    )
+    manager.tasks["parallel-job"] = {
+        "job_id": "parallel-job",
+        "task_id": "parallel-job",
+        "course_id": "parallel-course",
+        "type": "course_generation",
+        "status": "pending",
+        "progress": 55,
+        "request_snapshot": {"generation_mode": "fast"},
+        "blueprint_confirmed": True,
+        "current_nodes": [],
+        "logs": [],
+    }
+
+    async def fake_schedule(_task_id, _nodes):
+        def finish_content(fresh):
+            fresh["nodes"][0].update({
+                "node_content": "正文检查点",
+                "generated_chars": 5,
+                "generation_status": "completed",
+            })
+            return fresh
+
+        await manager._mutate_task_course(
+            "parallel-job",
+            finish_content,
+        )
+
+    completed = {"value": False}
+
+    async def fake_complete(_task_id, _course):
+        completed["value"] = True
+
+    monkeypatch.setattr(manager, "_schedule_nodes", fake_schedule)
+    monkeypatch.setattr(manager, "_complete_task", fake_complete)
+
+    await manager._process_task("parallel-job")
+
+    assert graph_called["value"] is False
+    assert completed["value"] is True
+    assert storage.course["nodes"][0]["node_content"] == "正文检查点"
+    assert "course_graph" not in storage.course["generation_stage_artifacts"]
 
 
 @pytest.mark.asyncio
@@ -200,6 +336,8 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert preview["task"]["status"] == "waiting_for_review"
     assert preview["nodes"][0]["node_name"] == "概念"
     assert preview["nodes"][0]["content_state"] == "pending"
+    assert preview["teaching_plan"]["status"] == "pending"
+    assert preview["teaching_plan"]["sections"] == []
     assert "request_snapshot" not in preview["task"]
 
     workspaces.update_course(
@@ -221,6 +359,55 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     active_preview = manager.get_generation_preview(job["course_id"])
     assert active_preview is not None
     assert active_preview["nodes"][0]["generation_status"] == "generating"
+    workspaces.update_course(
+        job["job_id"],
+        lambda course: {
+            **course,
+            "course_teaching_plan": {
+                "schema_version": "course_teaching_plan_v2",
+                "revision_id": "teaching-preview-1",
+                "sections": [{
+                    "node_id": course["nodes"][0]["node_id"],
+                    "key_points": ["概念边界"],
+                    "knowledge_structure": [{
+                        "concept_group": "概念组",
+                        "knowledge_points": [{
+                            "name": "概念边界",
+                            "statement": "说明概念边界",
+                            "relation_decision_reason": "内部判断不得投影",
+                        }],
+                    }],
+                    "teaching_modules": [{
+                        "module_id": "core_explanation",
+                        "teaching_purpose": "解释概念边界",
+                        "knowledge_names": ["概念边界"],
+                        "internal_trace": "不得投影",
+                    }],
+                }],
+            },
+            "generation_stage_artifacts": {
+                **(course.get("generation_stage_artifacts") or {}),
+                "course_teaching_plan": {
+                    "status": "completed",
+                    "strategy": "single_whole_course_call",
+                    "model_call_count": 1,
+                    "section_count": 1,
+                    "knowledge_point_count": 1,
+                    "teaching_module_count": 1,
+                },
+            },
+        },
+    )
+    plan_preview = manager.get_generation_preview(job["course_id"])
+    assert plan_preview["teaching_plan"]["status"] == "completed"
+    assert plan_preview["teaching_plan"]["sections"][0]["key_points"] == ["概念边界"]
+    assert "model_call_count" not in plan_preview["teaching_plan"]
+    serialized_plan = json.dumps(
+        plan_preview["teaching_plan"],
+        ensure_ascii=False,
+    )
+    assert "relation_decision_reason" not in serialized_plan
+    assert "internal_trace" not in serialized_plan
     from routers import course_versions as course_versions_router
 
     async def load_formal_shell(_course_id):
@@ -250,7 +437,10 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_guided_job_waits_for_knowledge_then_teaching_confirmation(tmp_path, monkeypatch):
+async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates(
+    tmp_path,
+    monkeypatch,
+):
     import task_manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
@@ -269,35 +459,46 @@ async def test_guided_job_waits_for_knowledge_then_teaching_confirmation(tmp_pat
     await manager.confirm_generation_step(job["course_id"], "outline")
     assert await manager._task_queue.get() == job["job_id"]
 
-    await manager._process_task(job["job_id"])
-    task = manager.tasks[job["job_id"]]
-    assert task["status"] == "waiting_for_review"
-    assert task["guided_workflow"]["review_step"] == "knowledge"
-    review = manager.get_generation_review(job["course_id"])
-    assert review["step"] == "knowledge"
-    assert review["can_confirm"] is True
+    async def finish_content(_task_id, _nodes):
+        manager._generation_workspace_repository.update_course(
+            job["job_id"],
+            lambda course: {
+                **course,
+                "nodes": [
+                    {
+                        **node,
+                        "node_content": "完整课程内容。" * 120,
+                        "generation_status": "completed",
+                    }
+                    for node in course["nodes"]
+                ],
+            },
+        )
 
-    await manager.confirm_generation_step(job["course_id"], "knowledge")
-    assert await manager._task_queue.get() == job["job_id"]
+    monkeypatch.setattr(manager, "_schedule_nodes", finish_content)
     await manager._process_task(job["job_id"])
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"
-    assert task["guided_workflow"]["review_step"] == "teaching"
-    teaching_review = manager.get_generation_review(job["course_id"])
-    assert teaching_review["step"] == "teaching"
-    assert teaching_review["artifact"]["composition_profile"]["style"] == "example_driven"
-    assert teaching_review["artifact"]["block_distribution"]["role_counts"]["example"] == 1
-    assert teaching_review["artifact"]["sections"][0]["module_plan"][1][
-        "composition_source"
-    ] == "composition_style"
+    assert task["guided_workflow"]["review_step"] == "release"
+    assert next(
+        step for step in task["guided_workflow"]["steps"]
+        if step["key"] == "content"
+    )["status"] == "confirmed"
+    review = manager.get_generation_review(job["course_id"])
+    assert review["step"] == "release"
+    generated_course = manager.get_generation_workspace_course(job["course_id"])
+    assert generated_course["course_teaching_plan"]["schema_version"] == (
+        "course_teaching_plan_v2"
+    )
+    assert generated_course["course_knowledge_base"]["lifecycle_status"] == "active"
+    plan_stage = generated_course["generation_stage_artifacts"][
+        "course_teaching_plan"
+    ]
+    assert plan_stage["knowledge_compilation_model_call_count"] == 0
+    assert plan_stage["graph_compilation_model_call_count"] == 0
 
     reopened = await manager.reopen_generation_step(job["course_id"], "outline")
-    assert reopened["invalidated_steps"] == [
-        "knowledge",
-        "teaching",
-        "content",
-        "release",
-    ]
+    assert reopened["invalidated_steps"] == ["content", "release"]
     assert task["guided_workflow"]["review_step"] == "outline"
     edited_draft = manager._version_repository.load_draft(job["course_id"])
     edited_draft["nodes"][0]["learning_objective"] = "能够比较概念的内涵与外延"
@@ -309,32 +510,6 @@ async def test_guided_job_waits_for_knowledge_then_teaching_confirmation(tmp_pat
     assert invalidated_course["nodes"][0].get("module_plan") is None
     assert invalidated_course["nodes"][0]["generation_status"] == "pending"
 
-    await manager._process_task(job["job_id"])
-    assert manager.tasks[job["job_id"]]["guided_workflow"]["review_step"] == "knowledge"
-    await manager.confirm_generation_step(job["course_id"], "knowledge")
-    assert await manager._task_queue.get() == job["job_id"]
-    await manager._process_task(job["job_id"])
-    assert manager.tasks[job["job_id"]]["guided_workflow"]["review_step"] == "teaching"
-
-    await manager.confirm_generation_step(job["course_id"], "teaching")
-    assert await manager._task_queue.get() == job["job_id"]
-    manager._generation_workspace_repository.update_course(
-        job["job_id"],
-        lambda course: {
-            **course,
-            "nodes": [{
-                **course["nodes"][0],
-                "node_content": "完整课程内容。" * 120,
-                "generation_status": "completed",
-            }],
-        },
-    )
-    await manager._process_task(job["job_id"])
-    task = manager.tasks[job["job_id"]]
-    assert task["status"] == "waiting_for_review"
-    assert task["guided_workflow"]["review_step"] == "content"
-    await manager.confirm_generation_step(job["course_id"], "content")
-    assert await manager._task_queue.get() == job["job_id"]
     monkeypatch.setattr(
         manager,
         "_quality_allows_publication",
@@ -344,6 +519,15 @@ async def test_guided_job_waits_for_knowledge_then_teaching_confirmation(tmp_pat
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"
     assert task["guided_workflow"]["review_step"] == "release"
+
+    async def reject_confirmed_content_recompile(*_args, **_kwargs):
+        raise AssertionError("已确认的内容候选不得再次编译")
+
+    monkeypatch.setattr(
+        manager,
+        "_prepare_content_candidate",
+        reject_confirmed_content_recompile,
+    )
     release_review = manager.get_generation_review(job["course_id"])
     assert release_review["step"] == "release"
     assert release_review["artifact"]["source_chain"]["can_publish"] is True

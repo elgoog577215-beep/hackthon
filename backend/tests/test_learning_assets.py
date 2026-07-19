@@ -221,11 +221,24 @@ def test_quality_gate_rejects_missing_required_questions():
     assert any(item["asset_type"] == "questions" for item in report["blocking_issues"])
 
 
-def test_quality_gate_blocks_unanalyzed_question_when_analysis_is_required():
+def test_question_analysis_is_compiled_without_ai_and_missing_contract_is_blocked():
     course = _course()
     bundle = compile_learning_assets(course)
     course["question_analysis_required"] = True
 
+    questions = [
+        item
+        for items in bundle["assets"].values()
+        for item in items
+        if isinstance(item, dict) and item.get("question_analysis")
+    ]
+    assert questions
+    assert all(
+        item["question_analysis"]["analysis_source"]
+        == "compiled_contract"
+        for item in questions
+    )
+    questions[0].pop("question_analysis")
     report = evaluate_learning_asset_quality(
         course,
         bundle["plan"],
@@ -234,7 +247,7 @@ def test_quality_gate_blocks_unanalyzed_question_when_analysis_is_required():
 
     assert report["passed"] is False
     assert any(
-        "独立解析" in item["message"]
+        "题目合同" in item["message"]
         for item in report["blocking_issues"]
     )
 
@@ -342,6 +355,37 @@ def test_all_generated_learning_tasks_preserve_valid_subject_contracts():
     }
     assert len(validation_stimuli) == 2
     assert validation_stimuli.isdisjoint(shown_stimuli)
+
+
+def test_missing_approved_bank_item_uses_concrete_question_contract():
+    course = _course()
+    empty_bank = {
+        "course_id": course["course_id"],
+        "items": [],
+    }
+
+    questions = compile_learning_assets(
+        course,
+        question_bank_bundle=empty_bank,
+    )["assets"]["questions"]
+
+    assert len(questions) == 3
+    assert all(
+        item["question_spec"]["schema_version"] == "question_spec_v1"
+        and item["domain_validation"]["passed"]
+        and item["input_materials"]
+        and item["deliverable"]
+        and item["constraints"]
+        and item["result_checks"]
+        for item in questions
+    )
+    mastery = next(
+        item
+        for item in questions
+        if item["practice_level"] == "mastery_check"
+    )
+    assert mastery["question_spec"]["target"]["assessment_actions"]
+    assert mastery["question_spec"]["task"]["deliverable"]
 
 
 def test_compilation_uses_the_reviewed_question_bank_revision_as_source_of_truth():

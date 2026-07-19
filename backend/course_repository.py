@@ -20,6 +20,7 @@ from course_document import (
 )
 from course_feedback import project_feedback_structures
 from course_revisions import revision_event_for_documents, revision_vector_for_document
+from course_teaching_plan_projection import project_course_teaching_plan
 
 _GENERATED_METADATA_EXCLUDES = {
     "nodes",
@@ -298,6 +299,7 @@ class CourseDocumentRepository:
             "current_course_version_id": str(raw.get("current_course_version_id") or ""),
             "subject_pedagogy_profile": deepcopy(raw.get("subject_pedagogy_profile")),
             "generation_quality_report": deepcopy(raw.get("generation_quality_report")),
+            "teaching_plan": project_course_teaching_plan(raw),
             "source_format": "canonical" if canonical else "legacy_projection",
             "migration": {
                 "required": not canonical,

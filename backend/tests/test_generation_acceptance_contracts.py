@@ -9,6 +9,7 @@ from course_repository import CourseDocumentRepository
 from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
 from learning_asset_storage import LearningAssetRepository
+from question_bank import QuestionBankRepository
 from task_manager import TaskManager
 
 
@@ -159,6 +160,9 @@ async def _manager(tmp_path, monkeypatch, course):
         asset_repository=assets,
         workspace_repository=workspaces,
         document_repository=documents,
+        question_bank_repository_override=QuestionBankRepository(
+            tmp_path / "question_banks"
+        ),
     )
     manager.save_tasks = lambda: None
     manager.tasks["job-1"] = {

@@ -16,7 +16,7 @@ import threading
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
@@ -133,7 +133,11 @@ class CourseEvolutionPlan(BaseModel):
     user_id: str
     course_id: str
     hypothesis_id: str
-    source_kind: Literal["learning_evidence", "manual_section_request"] = "learning_evidence"
+    source_kind: Literal[
+        "learning_evidence",
+        "manual_section_request",
+        "manual_request",
+    ] = "learning_evidence"
     target_section_id: str = ""
     request_text: str = ""
     growth_direction: Literal["remediation", "challenge", "author_directed"] = "remediation"
@@ -143,7 +147,11 @@ class CourseEvolutionPlan(BaseModel):
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
     evidence_ids: list[str] = Field(default_factory=list)
     operations: list[CourseEvolutionOperation] = Field(default_factory=list)
-    scope_selection: Literal["current_section", "whole_course"] = "current_section"
+    scope_selection: Literal[
+        "current_block",
+        "current_section",
+        "whole_course",
+    ] = "current_section"
     allowed_scopes: list[Literal["current", "current_and_next"]] = Field(default_factory=list)
     selected_scope: Literal["current", "current_and_next"] | None = None
     selected_operation_ids: list[str] = Field(default_factory=list)
@@ -204,36 +212,74 @@ class CourseEvolutionRepository:
 
     def load(self, user_id: str, course_id: str) -> CourseEvolutionState:
         key = self._key(user_id, course_id)
-        path = self.root / f"{key}.json"
         with self._lock(key):
-            if not path.exists():
-                return self._refresh(CourseEvolutionState(
-                    user_id=user_id,
-                    course_id=course_id,
-                    updated_at=_now(),
-                ))
-            with path.open(encoding="utf-8") as handle:
-                state = CourseEvolutionState.model_validate(json.load(handle))
-            if state.user_id != user_id or state.course_id != course_id:
-                raise ValueError("Course evolution state belongs to another learner or course")
-            return state
+            return self._load_unlocked(user_id, course_id, key)
 
     def save(self, state: CourseEvolutionState) -> CourseEvolutionState:
         key = self._key(state.user_id, state.course_id)
-        path = self.root / f"{key}.json"
         with self._lock(key):
-            value = self._refresh(state)
-            temp = path.with_suffix(f".{threading.get_ident()}.tmp")
-            try:
-                with temp.open("w", encoding="utf-8") as handle:
-                    json.dump(value.model_dump(mode="json"), handle, ensure_ascii=False, indent=2)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temp, path)
-            finally:
-                if temp.exists():
-                    temp.unlink()
-            return value
+            return self._save_unlocked(state, key)
+
+    def update(
+        self,
+        user_id: str,
+        course_id: str,
+        updater: Callable[[CourseEvolutionState], CourseEvolutionState | None],
+    ) -> CourseEvolutionState:
+        """Read, mutate and persist one learner-course state under one lock.
+
+        Generation routes use this to claim a stable request before any model
+        call. Two identical requests therefore share one persisted plan instead
+        of both appending parallel candidates.
+        """
+        key = self._key(user_id, course_id)
+        with self._lock(key):
+            current = self._load_unlocked(user_id, course_id, key)
+            updated = updater(current)
+            value = current if updated is None else updated
+            if not isinstance(value, CourseEvolutionState):
+                value = CourseEvolutionState.model_validate(value)
+            if value.user_id != user_id or value.course_id != course_id:
+                raise ValueError("Course evolution updater changed learner or course ownership")
+            return self._save_unlocked(value, key)
+
+    def _load_unlocked(
+        self,
+        user_id: str,
+        course_id: str,
+        key: str,
+    ) -> CourseEvolutionState:
+        path = self.root / f"{key}.json"
+        if not path.exists():
+            return self._refresh(CourseEvolutionState(
+                user_id=user_id,
+                course_id=course_id,
+                updated_at=_now(),
+            ))
+        with path.open(encoding="utf-8") as handle:
+            state = CourseEvolutionState.model_validate(json.load(handle))
+        if state.user_id != user_id or state.course_id != course_id:
+            raise ValueError("Course evolution state belongs to another learner or course")
+        return state
+
+    def _save_unlocked(
+        self,
+        state: CourseEvolutionState,
+        key: str,
+    ) -> CourseEvolutionState:
+        path = self.root / f"{key}.json"
+        value = self._refresh(state)
+        temp = path.with_suffix(f".{threading.get_ident()}.tmp")
+        try:
+            with temp.open("w", encoding="utf-8") as handle:
+                json.dump(value.model_dump(mode="json"), handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp, path)
+        finally:
+            if temp.exists():
+                temp.unlink()
+        return value
 
     @staticmethod
     def _key(user_id: str, course_id: str) -> str:

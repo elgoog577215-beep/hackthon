@@ -4,9 +4,13 @@
       type="button"
       :class="['node-button', `level-${node.node_level}`, { active: activeId === node.node_id }]"
       :style="{ '--node-depth': String(depth) }"
-      @click="emit('select', node)"
+      :aria-expanded="hasDisclosure ? disclosureExpanded : undefined"
+      :aria-controls="hasDisclosure ? disclosureId : undefined"
+      @click="handleNodeClick"
+      @keydown.left.prevent="collapseDisclosure"
+      @keydown.right.prevent="expandDisclosure"
     >
-      <ChevronRight v-if="hasChildren" :size="13" :class="{ open: expanded }" @click.stop="expanded = !expanded" />
+      <ChevronRight v-if="hasDisclosure" :size="13" :class="{ open: disclosureExpanded }" @click.stop="toggleDisclosure" />
       <span v-else class="node-spacer"></span>
       <span v-if="isChapter" class="node-kind chapter-kind"><BookOpenText :size="14" /></span>
       <span v-else class="node-kind leaf-kind" :class="[{ active: activeId === node.node_id, learned: isLearned }, generationState]"></span>
@@ -19,6 +23,27 @@
       <CircleDot v-else-if="activeId === node.node_id" :size="13" class="status current" />
       <span v-else-if="progress?.reading_status === 'learned'" class="read-dot"></span>
     </button>
+    <ol
+      v-if="showBlockOutline"
+      :id="blockOutlineId"
+      class="course-block-outline"
+      :aria-label="t('learningNavigator.sectionBlocks', '本节内容')"
+    >
+      <li v-for="entry in visibleBlockEntries" :key="entry.block.block_id">
+        <button
+          type="button"
+          class="course-block-link"
+          :class="{ active: activeBlockId === entry.block.block_id }"
+          :data-role="entry.block.role"
+          :aria-current="activeBlockId === entry.block.block_id ? 'location' : undefined"
+          :title="`${entry.roleLabel} · ${entry.title}`"
+          @click.stop="emit('selectBlock', { node, blockId: entry.block.block_id })"
+        >
+          <span class="course-block-role">{{ entry.roleLabel }}</span>
+          <span class="course-block-title">{{ entry.title }}</span>
+        </button>
+      </li>
+    </ol>
     <ol v-if="growthTrail.length" class="growth-trail" :data-state="growthTrailState">
       <li v-for="step in growthTrail" :key="step.key">
         <span></span>
@@ -28,15 +53,17 @@
         </div>
       </li>
     </ol>
-    <ul v-if="hasChildren && expanded">
+    <ul v-if="hasChildren && expanded" :id="`course-node-children-${node.node_id}`">
       <CourseNavigatorNode
         v-for="child in node.children"
         :key="child.node_id"
         :node="child"
         :active-id="activeId"
+        :active-block-id="activeBlockId"
         :query="query"
         :depth="depth + 1"
         @select="emit('select', $event)"
+        @select-block="emit('selectBlock', $event)"
       />
     </ul>
   </li>
@@ -45,20 +72,30 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { BookOpenText, CheckCircle2, ChevronRight, CircleDot, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
-import type { Node } from '../stores/types'
+import type { CourseBlockNavigationTarget, CourseDocumentBlock, Node } from '../stores/types'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { useCourseStore } from '../stores/course'
 import { useCourseEvolutionStore } from '../stores/courseEvolution'
 import { t } from '../shared/i18n'
 
 defineOptions({ name: 'CourseNavigatorNode' })
-const props = withDefaults(defineProps<{ node: Node; activeId?: string; query?: string; depth?: number }>(), { activeId: '', query: '', depth: 0 })
-const emit = defineEmits<{ (event: 'select', node: Node): void }>()
+const props = withDefaults(defineProps<{
+  node: Node
+  activeId?: string
+  activeBlockId?: string
+  query?: string
+  depth?: number
+}>(), { activeId: '', activeBlockId: '', query: '', depth: 0 })
+const emit = defineEmits<{
+  (event: 'select', node: Node): void
+  (event: 'selectBlock', target: CourseBlockNavigationTarget): void
+}>()
 const progressStore = useLearningProgressStore()
 const courseStore = useCourseStore()
 const evolutionStore = useCourseEvolutionStore()
 const expanded = ref(props.depth < 2)
 const hasChildren = computed(() => Boolean(props.node.children?.length))
+const blockOutlineExpanded = ref(props.activeId === props.node.node_id)
 const progress = computed(() => progressStore.nodeProgress(props.node.node_id))
 const isChapter = computed(() => props.depth === 0 || props.node.node_level === 1)
 const isLearned = computed(() => progress.value?.reading_status === 'learned' || progress.value?.mastery_status === 'mastered')
@@ -197,12 +234,92 @@ const generationIcon = computed(() => {
   return null
 })
 const normalizedQuery = computed(() => props.query.trim().toLocaleLowerCase())
+const blockRoleLabel = (role: CourseDocumentBlock['role']) => t(`courseBlocks.${role}`, ({
+  orientation: '引入', prerequisite: '前置', objective: '任务', concept: '概念',
+  reasoning: '推理', example: '例子', counterexample: '辨析', application: '应用',
+  activity: '行动', feedback: '核对', misconception: '易错点', checkpoint: '检查',
+  remediation: '补救', summary: '小结', transfer: '迁移',
+} as Record<CourseDocumentBlock['role'], string>)[role] || t('courseBlocks.content', '内容'))
+const blockEntries = computed(() => (props.node.course_blocks || [])
+  .filter(block => block.status !== 'retired')
+  .slice()
+  .sort((left, right) => left.position - right.position)
+  .map((block, index) => ({
+    block,
+    roleLabel: blockRoleLabel(block.role),
+    title: String(block.payload.title || '').trim()
+      || `${t('learningNavigator.blockFallback', '内容块')} ${index + 1}`,
+  })))
+const matchingBlockEntries = computed(() => {
+  if (!normalizedQuery.value) return blockEntries.value
+  return blockEntries.value.filter(entry => (
+    `${entry.roleLabel} ${entry.title}`.toLocaleLowerCase().includes(normalizedQuery.value)
+  ))
+})
+const hasBlockOutline = computed(() => blockEntries.value.length > 0 && !hasChildren.value)
+const showBlockOutline = computed(() => hasBlockOutline.value && (
+  blockOutlineExpanded.value
+  || Boolean(normalizedQuery.value && matchingBlockEntries.value.length)
+))
+const visibleBlockEntries = computed(() => (
+  normalizedQuery.value ? matchingBlockEntries.value : blockEntries.value
+))
+const hasDisclosure = computed(() => hasChildren.value || hasBlockOutline.value)
+const disclosureExpanded = computed(() => (
+  hasChildren.value ? expanded.value : showBlockOutline.value
+))
+const blockOutlineId = computed(() => `course-block-outline-${props.node.node_id}`)
+const disclosureId = computed(() => (
+  hasChildren.value ? `course-node-children-${props.node.node_id}` : blockOutlineId.value
+))
+const nodeMatchesQuery = (node: Node): boolean => {
+  if (node.node_name.toLocaleLowerCase().includes(normalizedQuery.value)) return true
+  if ((node.course_blocks || []).some(block => {
+    const title = String(block.payload.title || '')
+    return `${blockRoleLabel(block.role)} ${title}`.toLocaleLowerCase().includes(normalizedQuery.value)
+  })) return true
+  return node.children?.some(nodeMatchesQuery) || false
+}
 const visible = computed(() => {
   if (!normalizedQuery.value) return true
-  if (props.node.node_name.toLocaleLowerCase().includes(normalizedQuery.value)) return true
-  return props.node.children?.some(child => child.node_name.toLocaleLowerCase().includes(normalizedQuery.value)) || false
+  return nodeMatchesQuery(props.node)
 })
+const toggleDisclosure = () => {
+  if (hasChildren.value) expanded.value = !expanded.value
+  else if (hasBlockOutline.value) {
+    if (props.activeId !== props.node.node_id) {
+      emit('select', props.node)
+      return
+    }
+    blockOutlineExpanded.value = !blockOutlineExpanded.value
+  }
+}
+const expandDisclosure = () => {
+  if (hasChildren.value) expanded.value = true
+  else if (hasBlockOutline.value) {
+    if (props.activeId !== props.node.node_id) {
+      emit('select', props.node)
+      return
+    }
+    blockOutlineExpanded.value = true
+  }
+}
+const collapseDisclosure = () => {
+  if (hasChildren.value) expanded.value = false
+  else if (hasBlockOutline.value) blockOutlineExpanded.value = false
+}
+const handleNodeClick = () => {
+  if (hasBlockOutline.value && props.activeId === props.node.node_id) {
+    toggleDisclosure()
+    return
+  }
+  emit('select', props.node)
+}
 watch(normalizedQuery, value => { if (value) expanded.value = true })
+watch(() => props.activeId, (value, previous) => {
+  if (value === props.node.node_id && value !== previous) blockOutlineExpanded.value = true
+  if (previous === props.node.node_id && value !== props.node.node_id) blockOutlineExpanded.value = false
+})
 </script>
 
 <style scoped>
@@ -240,6 +357,24 @@ watch(normalizedQuery, value => { if (value) expanded.value = true })
 .adaptation-marker[data-state="validated"] b { background:#16a34a; }
 .adaptation-marker[data-state="review"] { border-color:#fde68a; color:#b45309; background:#fffbeb; }
 .adaptation-marker[data-state="review"] b { background:#d97706; }
+.course-block-outline { position:relative; display:grid; gap:1px; margin:1px 7px 7px 55px; padding:3px 0 3px 10px; border-left:1px solid rgba(165,180,252,.52); list-style:none; }
+.course-block-outline::before { content:""; position:absolute; top:0; left:-1px; width:7px; height:1px; background:rgba(165,180,252,.56); }
+.course-block-outline li { min-width:0; margin:0; padding:0; }
+.course-block-link { --block-role-color:#64748b; width:100%; min-height:28px; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:6px; padding:3px 6px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-muted); background:transparent; text-align:left; cursor:pointer; transition:color .15s ease,background .15s ease,border-color .15s ease,transform .15s ease; }
+.course-block-link:hover,.course-block-link:focus-visible { color:var(--lz-text-strong); border-color:rgba(224,231,255,.82); background:rgba(255,255,255,.82); outline:none; transform:translateX(1px); }
+.course-block-link.active { border-color:rgba(199,210,254,.78); color:var(--lz-brand-strong); background:linear-gradient(90deg,rgba(238,242,255,.94),rgba(250,250,255,.72)); box-shadow:inset 2px 0 0 var(--block-role-color); }
+.course-block-role { display:inline-flex; align-items:center; min-height:16px; padding:1px 4px; border-radius:4px; color:var(--block-role-color); background:color-mix(in srgb,var(--block-role-color) 8%,white); font-size:8px; font-weight:800; line-height:1; white-space:nowrap; }
+.course-block-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:9px; font-weight:600; letter-spacing:0; }
+.course-block-link[data-role="orientation"] { --block-role-color:#7c3aed; }
+.course-block-link[data-role="objective"],.course-block-link[data-role="concept"] { --block-role-color:#4f46e5; }
+.course-block-link[data-role="reasoning"] { --block-role-color:#0f766e; }
+.course-block-link[data-role="example"] { --block-role-color:#b45309; }
+.course-block-link[data-role="counterexample"],.course-block-link[data-role="misconception"] { --block-role-color:#b91c1c; }
+.course-block-link[data-role="application"] { --block-role-color:#0e7490; }
+.course-block-link[data-role="activity"],.course-block-link[data-role="checkpoint"] { --block-role-color:#be185d; }
+.course-block-link[data-role="feedback"] { --block-role-color:#047857; }
+.course-block-link[data-role="remediation"] { --block-role-color:#c2410c; }
+.course-block-link[data-role="summary"],.course-block-link[data-role="transfer"] { --block-role-color:#6d28d9; }
 .growth-trail { display:grid; gap:5px; margin:1px 8px 7px 56px; padding:4px 0 2px; list-style:none; }
 .growth-trail li { min-width:0; display:grid; grid-template-columns:8px minmax(0,1fr); align-items:start; gap:7px; color:#6d28d9; }
 .growth-trail li > span { width:7px; height:7px; margin-top:4px; border:2px solid currentColor; border-radius:50%; background:#fff; }
@@ -258,5 +393,10 @@ watch(normalizedQuery, value => { if (value) expanded.value = true })
 .status.generation.failed { color:#dc2626; }
 .status.spinning { animation:navigator-generation-spin .9s linear infinite; }
 .read-dot { width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; }
+@media (max-width:1023px) {
+  .course-block-link { min-height:36px; padding:5px 6px; }
+  .course-block-role { min-height:18px; font-size:9px; }
+  .course-block-title { font-size:10px; }
+}
 @keyframes navigator-generation-spin { to { transform:rotate(360deg); } }
 </style>

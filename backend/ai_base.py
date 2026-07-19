@@ -17,6 +17,7 @@ import json
 import logging
 import sys
 import asyncio
+import time
 import httpx
 from pathlib import Path
 from urllib.parse import urlparse
@@ -37,7 +38,6 @@ project_root = Path(__file__).parent.parent
 # 加载环境变量（必须在读取环境变量之前调用）
 load_dotenv(project_root / ".env")
 sys.path.insert(0, str(project_root))
-from shared.prompt_config import DIFFICULTY_LEVELS, TEACHING_STYLES, DifficultyLevel, TeachingStyle
 
 # ============================================================================
 # 配置与常量
@@ -55,22 +55,15 @@ else:
     logger.error("AI_API_KEY not found in environment variables")
 
 DEFAULT_SMART_MODELS = [
-    "deepseek-ai/DeepSeek-V4-Pro",
-    "deepseek-ai/DeepSeek-V4-Flash",
-    "deepseek-ai/DeepSeek-V3.2",
-    "ZhipuAI/GLM-5.2",
+    "Qwen/Qwen3.5-27B",
+    "Qwen/Qwen3.5-122B-A10B",
     "Qwen/Qwen3.5-397B-A17B",
-    "Qwen/Qwen3-235B-A22B-Instruct-2507",
-    "Qwen/Qwen3-Next-80B-A3B-Instruct",
-    "Qwen/Qwen3-32B",
 ]
 
 DEFAULT_FAST_MODELS = [
-    "deepseek-ai/DeepSeek-V4-Flash",
-    "deepseek-ai/DeepSeek-V3.2",
-    "ZhipuAI/GLM-4.7-Flash",
-    "Qwen/Qwen3-Next-80B-A3B-Instruct",
-    "Qwen/Qwen3-32B",
+    "Qwen/Qwen3.5-27B",
+    "Qwen/Qwen3.5-122B-A10B",
+    "Qwen/Qwen3.5-397B-A17B",
 ]
 
 
@@ -105,6 +98,7 @@ class AIBase:
     所有 AI 子服务均继承此类。
     """
     _working_model_cache = {}
+    _model_failure_cache: dict[tuple[str, str], float] = {}
 
     def __init__(self):
         # 通过环境变量配置 API 密钥
@@ -174,13 +168,87 @@ class AIBase:
 
     def _models_for(self, use_fast_model: bool) -> List[str]:
         models = self.fast_models if use_fast_model else self.smart_models
+        now = time.monotonic()
+        available: list[str] = []
+        for model in models:
+            failure_key = (self.api_base, model)
+            blocked_until = float(
+                self._model_failure_cache.get(failure_key) or 0
+            )
+            if blocked_until <= now:
+                self._model_failure_cache.pop(failure_key, None)
+                available.append(model)
         cached = self._working_model_cache.get(self._model_cache_key(use_fast_model))
-        if cached in models:
-            return [cached] + [model for model in models if model != cached]
-        return models
+        if cached in available:
+            return [cached] + [
+                model for model in available if model != cached
+            ]
+        return available
 
     def _remember_model(self, use_fast_model: bool, model_id: str) -> None:
         self._working_model_cache[self._model_cache_key(use_fast_model)] = model_id
+        self._model_failure_cache.pop((self.api_base, model_id), None)
+
+    @staticmethod
+    def _model_failure_cooldown_seconds(error: Exception) -> float:
+        """Choose a bounded cooldown from the failure's operational meaning."""
+        status_code = AIBase._error_status_code(error)
+        message = str(error).lower()
+        quota_exhausted = any(marker in message for marker in (
+            "insufficient_quota",
+            "insufficient balance",
+            "exceeded today's quota",
+            "exceeded your current quota",
+            "额度",
+        ))
+        if quota_exhausted:
+            return max(
+                1.0,
+                float(
+                    os.getenv(
+                        "AI_MODEL_QUOTA_COOLDOWN_SECONDS",
+                        "3600",
+                    )
+                ),
+            )
+        if status_code == 429 or any(marker in message for marker in (
+            "limit_burst_rate",
+            "rate limit",
+            "速率限制",
+        )):
+            return max(
+                1.0,
+                float(
+                    os.getenv(
+                        "AI_MODEL_RATE_LIMIT_COOLDOWN_SECONDS",
+                        "120",
+                    )
+                ),
+            )
+        return max(
+            1.0,
+            float(
+                os.getenv(
+                    "AI_MODEL_TRANSIENT_COOLDOWN_SECONDS",
+                    "30",
+                )
+            ),
+        )
+
+    def _cool_down_model(
+        self,
+        model_id: str,
+        error: Exception,
+    ) -> None:
+        cooldown = self._model_failure_cooldown_seconds(error)
+        self._model_failure_cache[(self.api_base, model_id)] = (
+            time.monotonic() + cooldown
+        )
+        logger.warning(
+            "AI model circuit opened (Model: %s, cooldown=%ss)",
+            model_id,
+            int(cooldown),
+        )
 
     @staticmethod
     def _error_status_code(error: Exception) -> Optional[int]:
@@ -705,6 +773,7 @@ class AIBase:
                             raise AIProviderUnavailable("authentication_failed") from e
                         return None
                     if self._should_try_next_model(e):
+                        self._cool_down_model(model_id, e)
                         break
                     if attempt < retry_count - 1:
                         await asyncio.sleep(2 ** attempt)  # Exponential backoff
@@ -783,7 +852,10 @@ class AIBase:
                     self._block_provider("authentication_failed")
                     raise AIProviderUnavailable("authentication_failed") from e
                 last_error = e
-                if yielded or not self._should_try_next_model(e):
+                should_try_next = self._should_try_next_model(e)
+                if should_try_next:
+                    self._cool_down_model(model_id, e)
+                if yielded or not should_try_next:
                     raise AIProviderRequestError(str(e)) from e
         if isinstance(last_error, AIProviderRequestError):
             raise last_error

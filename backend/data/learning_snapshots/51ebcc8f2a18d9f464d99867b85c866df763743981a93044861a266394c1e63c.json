@@ -1,15 +1,15 @@
 {
   "course_version_id": "",
-  "node_id": "a97f1505-11ad-4c48-abc8-8eee37f53fb8",
-  "node_name": "1.4 子空间的交与和 - 子节点 1",
+  "node_id": "98758984-0268-4cf1-85ba-06d740d4fb25",
+  "node_name": "1.1 向量空间的公理化定义 - 子节点 1",
   "content_anchor": {
-    "block_id": "a97f1505-11ad-4c48-abc8-8eee37f53fb8-1-intro",
-    "block_revision_id": "cbr_365537fceaf453ce3d21a5fa",
+    "block_id": "98758984-0268-4cf1-85ba-06d740d4fb25-7-example",
+    "block_revision_id": "cbr_8e0f52b99246a1678785b65c",
     "content_fingerprint": "",
-    "block_type": "intro",
-    "title": "引入引入问题",
-    "progress": 0.3094429347826087,
-    "text_quote": "引入引入问题"
+    "block_type": "example",
+    "title": "例子🏭 实战案例/行业应用在信号处理中，一个常见的向量空间是 L2 空间，它是所有平方可积函数的集合。该空间用于分析和合成音频信号，其上的内积运算允许我们计算信号的能量与相似性。此外，在机器学习中，特征向量空间常常由样本数据组成，每个样本被视为一个向量，从而可以使用线性代数工具进行降维或分类。 解释举例简化提问",
+    "progress": 0.124902496099844,
+    "text_quote": "例子🏭 实战案例/行业应用在信号处理中，一个常见的向量空间是 L2 空间，它是所有平方可积函数的集合。该空间用于分析和合成音频信号，其上的内积运算允许我们计算信号的能量与相似性。此外，在机器学习中，特征向量空间常常由样本数据组成，每个样本被视为一个向量，从而可以使用线性代数工具进行降维或分类。 解释举例简化提问"
   },
   "session": {
     "session_id": "session_bdcc80d4-40d2-46f6-a69c-b32a0cce6f38",
@@ -35,14 +35,14 @@
     "issue_id": "",
     "remediation_session_id": ""
   },
-  "fallback_scroll_top": 36474,
-  "activity_at": "2026-07-14T04:30:39.001Z",
-  "source": "live",
+  "fallback_scroll_top": 5016,
+  "activity_at": "2026-07-14T16:44:47.264Z",
+  "source": "offline_recovery",
   "snapshot_id": "ls_51ebcc8f2a18d9f464d99867",
   "user_id": "learner_7bd89735-ca69-4b18-ab4e-f3def7bdf6f4",
   "course_id": "8436d166-2710-457e-abf9-9f630ededb87",
-  "revision": 30,
+  "revision": 31,
   "schema_version": 2,
   "created_at": "2026-07-14T02:44:50.542684+00:00",
-  "updated_at": "2026-07-14T05:03:34.314471+00:00"
+  "updated_at": "2026-07-19T03:40:23.960382+00:00"
 }

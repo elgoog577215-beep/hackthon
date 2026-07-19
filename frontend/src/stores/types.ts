@@ -81,9 +81,56 @@ export interface CourseDocumentEnvelope {
     rationale?: string
   } | null
   generation_quality_report?: Record<string, unknown> | null
+  teaching_plan?: CourseTeachingPlanProjection | null
   source_format: 'canonical' | 'legacy_projection'
   migration: { required: boolean; source_checksum?: string | null; migrated_at?: string | null }
   document: CourseDocument
+}
+
+export interface CourseTeachingPlanModule {
+  module_id: string
+  teaching_purpose: string
+  knowledge_names: string[]
+  teaching_guidance?: string
+}
+
+export interface CourseTeachingPlanSection {
+  node_id: string
+  knowledge_structure: Array<{
+    concept_group?: string
+    description?: string
+    knowledge_points?: Array<{
+      knowledge_id?: string
+      name?: string
+      statement?: string
+      description?: string
+      knowledge_type?: string
+      conditions?: string[]
+      boundaries?: string[]
+      counterexamples?: string[]
+      capability?: string
+      capability_points?: Array<string | Record<string, unknown>>
+      misconceptions?: Array<string | Record<string, unknown>>
+      mastery_criteria?: Array<string | Record<string, unknown>>
+      aliases?: string[]
+      prerequisite_names?: string[]
+    }>
+  }>
+  key_points: string[]
+  reused_knowledge_names: string[]
+  knowledge_relations: Array<Record<string, unknown>>
+  teaching_modules: CourseTeachingPlanModule[]
+}
+
+export interface CourseTeachingPlanProjection {
+  schema_version: 'course_teaching_plan_projection_v1'
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | string
+  revision_id: string
+  strategy: string
+  section_count: number
+  knowledge_point_count: number
+  teaching_module_count: number
+  sections: CourseTeachingPlanSection[]
 }
 
 export interface CourseBlockEditTarget {
@@ -178,6 +225,11 @@ export interface Node {
   error_summary?: string
   difficulty_contract?: Record<string, unknown>
   generation_quality?: Record<string, unknown>
+}
+
+export interface CourseBlockNavigationTarget {
+  node: Node
+  blockId: string
 }
 
 export interface TaskProgress {
@@ -311,6 +363,7 @@ export interface TaskRecoveryCheckpoint {
     interrupted_node_ids: string[]
     requirements_ready?: boolean
     outline_ready?: boolean
+    teaching_plan_ready?: boolean
     completed_knowledge_packages?: number
     total_knowledge_packages?: number
     workspace_status?: string | null
@@ -325,7 +378,7 @@ export interface TaskRecovery {
     checkpoint: TaskRecoveryCheckpoint
 }
 
-export type GuidedGenerationStepKey = 'requirements' | 'outline' | 'knowledge' | 'teaching' | 'content' | 'release'
+export type GuidedGenerationStepKey = 'requirements' | 'outline' | 'content' | 'release'
 
 export interface GuidedGenerationStep {
     number: number
@@ -337,7 +390,7 @@ export interface GuidedGenerationStep {
 }
 
 export interface GuidedGenerationWorkflow {
-    schema_version: 'guided_course_generation_v1'
+    schema_version: 'guided_course_generation_v2'
     current_step: GuidedGenerationStepKey
     review_step?: GuidedGenerationStepKey | null
     steps: GuidedGenerationStep[]

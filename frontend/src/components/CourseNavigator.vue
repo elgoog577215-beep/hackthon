@@ -6,7 +6,7 @@
       </button>
       <label class="navigator-search">
         <Search :size="14" />
-        <input v-model="query" type="search" :placeholder="t('learningNavigator.search', '查找章节')" />
+        <input v-model="query" type="search" :placeholder="t('learningNavigator.search', '查找章节或内容')" />
       </label>
       <button type="button" :title="t('learningNavigator.close', '收起目录')" @click="emit('close')">
         <PanelLeftClose :size="16" />
@@ -20,8 +20,10 @@
           :key="node.node_id"
           :node="node"
           :active-id="courseStore.currentNode?.node_id"
+          :active-block-id="activeBlockId"
           :query="query"
           @select="emit('select', $event)"
+          @select-block="emit('selectBlock', $event)"
         />
       </ul>
     </nav>
@@ -33,11 +35,13 @@ import { ref } from 'vue'
 import { ArrowLeft, PanelLeftClose, Search } from 'lucide-vue-next'
 import CourseNavigatorNode from './CourseNavigatorNode.vue'
 import { useCourseStore } from '../stores/course'
-import type { Node } from '../stores/types'
+import type { CourseBlockNavigationTarget, Node } from '../stores/types'
 import { t } from '../shared/i18n'
 
+withDefaults(defineProps<{ activeBlockId?: string }>(), { activeBlockId: '' })
 const emit = defineEmits<{
   (event: 'select', node: Node): void
+  (event: 'selectBlock', target: CourseBlockNavigationTarget): void
   (event: 'back' | 'close'): void
 }>()
 const courseStore = useCourseStore()
