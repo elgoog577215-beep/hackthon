@@ -11,6 +11,7 @@ BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+EVOLUTION_DEMO_MODE="${EVOLUTION_DEMO_MODE:-0}"
 
 BACKEND_PID=""
 FRONTEND_PID=""
@@ -58,9 +59,11 @@ wait_for_url() {
     fail "$name 在 20 秒内没有通过健康检查：$url"
 }
 
-[ -f "$ENV_FILE" ] || fail "缺少 $ENV_FILE，请先配置 AI_API_KEY"
-grep -Eq '^[[:space:]]*AI_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]#]+' "$ENV_FILE" \
-    || fail "$ENV_FILE 中缺少有效的 AI_API_KEY"
+if [[ ! "$EVOLUTION_DEMO_MODE" =~ ^(1|true|yes|on)$ ]]; then
+    [ -f "$ENV_FILE" ] || fail "缺少 $ENV_FILE，请先配置 AI_API_KEY"
+    grep -Eq '^[[:space:]]*AI_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]#]+' "$ENV_FILE" \
+        || fail "$ENV_FILE 中缺少有效的 AI_API_KEY"
+fi
 
 if [ -x "$BACKEND_DIR/.venv/bin/python" ]; then
     PYTHON_BIN="$BACKEND_DIR/.venv/bin/python"

@@ -7,6 +7,11 @@ set "BACKEND_DIR=%~dp0backend"
 set "FRONTEND_DIR=%~dp0frontend"
 set "ENV_FILE=%~dp0.env"
 
+if /I "%EVOLUTION_DEMO_MODE%"=="1" goto env_ready
+if /I "%EVOLUTION_DEMO_MODE%"=="true" goto env_ready
+if /I "%EVOLUTION_DEMO_MODE%"=="yes" goto env_ready
+if /I "%EVOLUTION_DEMO_MODE%"=="on" goto env_ready
+
 if not exist "%ENV_FILE%" (
     echo [错误] 未找到根目录 .env 文件。
     echo 请在项目根目录执行：
@@ -23,6 +28,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:env_ready
 if not exist "%PYTHON%" (
     echo [错误] 未找到后端虚拟环境：backend\.venv
     echo 请在项目根目录执行一次：
