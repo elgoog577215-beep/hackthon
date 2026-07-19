@@ -19,6 +19,7 @@ _project_root = os.path.join(_backend_dir, "..")
 sys.path.insert(0, _backend_dir)
 sys.path.insert(0, _project_root)
 
+import storage as storage_module
 from storage import Storage
 
 
@@ -33,6 +34,20 @@ async def tmp_storage(tmp_path: Path) -> Storage:
     assert s.running is False
     assert s.sync_thread is None
     return s
+
+
+def test_git_auto_sync_requires_explicit_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """正式数据目录也不应在未配置时偷偷提交当前 Git 分支。"""
+    monkeypatch.setattr(storage_module, "DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("GIT_AUTO_SYNC_ENABLED", raising=False)
+
+    storage = Storage()
+
+    assert storage.running is False
+    assert storage.sync_thread is None
 
 
 def _course_data(name: str = "测试课程", nodes: int = 1) -> dict:
