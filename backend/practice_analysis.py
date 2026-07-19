@@ -570,15 +570,23 @@ class PracticeAnalysisService(AIBase):
         *,
         system_prompt: str,
     ) -> dict[str, Any]:
-        response = await self._call_llm(
-            json.dumps(payload, ensure_ascii=False),
-            system_prompt=system_prompt,
-            use_fast_model=False,
-            retry_count=2,
-            enable_thinking=True,
-            raise_on_failure=True,
-        )
-        parsed = self._extract_json(response or "")
+        parsed: Any = None
+        # First try with thinking; if the output cannot be parsed as JSON
+        # (usually truncation or stray prose), retry once with thinking off
+        # and a larger completion budget instead of failing the whole course.
+        for attempt, enable_thinking in enumerate((True, False)):
+            response = await self._call_llm(
+                json.dumps(payload, ensure_ascii=False),
+                system_prompt=system_prompt,
+                use_fast_model=False,
+                retry_count=2,
+                enable_thinking=enable_thinking,
+                max_tokens=16000 if attempt else None,
+                raise_on_failure=True,
+            )
+            parsed = self._extract_json(response or "")
+            if isinstance(parsed, dict):
+                break
         if not isinstance(parsed, dict):
             raise PracticeAnalysisUnavailable("analysis output is not valid JSON")
         return parsed
