@@ -1,4 +1,4 @@
-export type KnowledgeNodeType = 'subject' | 'domain' | 'topic' | 'concept' | 'knowledge_point'
+export type KnowledgeNodeType = 'course' | 'chapter' | 'section' | 'concept_group' | 'knowledge_point'
 
 export interface KnowledgeNode {
   knowledge_id: string
@@ -23,6 +23,12 @@ export interface KnowledgeNode {
   skill_unit_ids: string[]
   mistake_point_ids: string[]
   improvement_ids: string[]
+  mastery_criterion_ids: string[]
+  statement?: string
+  conditions?: string[]
+  boundaries?: string[]
+  counterexamples?: string[]
+  granularity_status?: string
   covered_by_course: boolean
   source_status: string
   status: string
@@ -33,15 +39,27 @@ export interface KnowledgeRelation {
   relation_id: string
   source_knowledge_id: string
   target_knowledge_id: string
-  relation_type: 'prerequisite' | 'derives' | 'contrasts_with' | 'applies_to' | 'related' | string
+  relation_type:
+    | 'prerequisite'
+    | 'derives'
+    | 'equivalent_to'
+    | 'contrasts_with'
+    | 'applies_to'
+    | 'generalizes'
+    | 'related'
+    | 'application'
+    | 'confusable'
   source_status: string
   status: 'accepted' | 'candidate' | 'rejected' | string
   reason: string
+  conditions?: string[]
+  distinction?: string
+  derivation_steps?: string[]
   revision_id: string
 }
 
 export interface KnowledgeLibraryView {
-  schema_version: 'knowledge_library_view_v2'
+  schema_version: 'knowledge_library_view_v3'
   asset_id: string
   library_id: string
   subject_id: string
@@ -51,11 +69,14 @@ export interface KnowledgeLibraryView {
   relations: KnowledgeRelation[]
   skill_units: SkillUnit[]
   mistake_points: MistakePoint[]
-  improvement_points: ImprovementPoint[]
+  mastery_criteria: CourseMasteryCriterion[]
+  improvement_points?: ImprovementPoint[]
   usage_policy: {
     ai_must_judge_independently: boolean
     allowed_fit: Array<'hit' | 'partial' | 'miss'>
     may_invent_formal_ids: boolean
+    identity_scope?: 'course_only' | 'subject_shared'
+    personal_state_can_modify_library?: boolean
   }
   course_map_revision_id: string
   coverage: {
@@ -64,10 +85,60 @@ export interface KnowledgeLibraryView {
     unmapped_count: number
     mapped_ratio: number
     status: string
+    section_count?: number
+    covered_section_count?: number
   }
   unresolved_mappings: unknown[]
   status: string
   revision_id: string
+  binding_revision_id: string
+  lifecycle_status: 'candidate' | 'accepted' | 'rejected' | 'degraded'
+  origin: 'curated' | 'model_generated' | 'course_and_domain_generated' | 'course_index' | string
+  quality_report: SubjectOntologyQualityReport
+  generation_audit?: {
+    generation_calls: number
+    review_calls: number
+    repair_calls: number
+    sources: string[]
+    semantic_review?: { passed?: boolean; issues?: string[] } | null
+    provider_failure?: { code: string; message: string; retryable: boolean } | null
+  }
+  source_summary?: Record<string, number>
+}
+
+export interface SubjectOntologyQualityReport {
+  passed: boolean
+  strict_passed?: boolean
+  score: number
+  critical_count?: number
+  major_count?: number
+  issue_count?: number
+  blocking_issue_count?: number
+  metrics: {
+    mapped_ratio?: number
+    relation_coverage?: number
+    cross_skill_ratio?: number
+    [key: string]: number | boolean | undefined
+  }
+  coverage?: {
+    section_count?: number
+    covered_section_count?: number
+    concept_group_count?: number
+    knowledge_point_count?: number
+    skill_unit_count?: number
+    misconception_count?: number
+    mastery_criterion_count?: number
+    relation_count?: number
+    relation_coverage?: number
+    binding_count?: number
+  }
+  issues: Array<{ code: string; severity: string; message: string }>
+  blocking_issues: Array<{ code: string; severity: string; message: string }>
+}
+
+export interface KnowledgeLibraryReview {
+  previous_revision_id?: string | null
+  diff: { added: number; modified: number; removed: number }
 }
 
 export interface KnowledgeLibraryRow {
@@ -125,4 +196,15 @@ export interface ImprovementPoint {
   learning_goal?: string
   practice_strategy?: string
   knowledge_ids: string[]
+}
+
+export interface CourseMasteryCriterion {
+  criterion_id: string
+  name: string
+  observable_performance: string
+  knowledge_ids: string[]
+  skill_ids: string[]
+  required_independence?: string
+  required_transfer?: string
+  verification_method?: string
 }

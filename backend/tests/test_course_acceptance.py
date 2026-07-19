@@ -16,15 +16,71 @@ from learning_assets import compile_learning_assets
 from routers import course_acceptance as acceptance_router
 
 
+def _knowledge_structure(name):
+    definition = f"{name}的定义条件"
+    boundary = f"{name}的应用边界"
+    return [{
+        "concept_group": f"{name}的核心结构",
+        "description": f"区分{name}的成立条件与应用边界",
+        "knowledge_points": [{
+            "name": definition,
+            "statement": f"{name}只有在明确对象与成立条件后，才能作为后续推理依据。",
+            "knowledge_type": "definition",
+            "conditions": [f"已经明确{name}所处理的对象"],
+            "boundaries": [f"超出{name}定义域时不能直接使用"],
+            "capability_points": [{
+                "name": f"解释{name}定义",
+                "observable_behavior": f"给定一个案例，准确说出{name}的对象与成立条件",
+            }],
+            "misconceptions": [{
+                "name": f"忽略{name}的适用条件",
+                "observable_error_pattern": f"未检查条件就直接使用{name}",
+                "discrimination": f"逐项核对{name}的对象、条件与结论",
+                "repair_strategy": f"先标注{name}的成立条件，再重新完成推理",
+            }],
+            "mastery_criteria": [{
+                "name": f"{name}定义解释达标",
+                "observable_performance": f"独立解释{name}的定义、条件与一个反例",
+                "verification_method": "使用正例、反例和边界例进行口头或书面验收",
+            }],
+            "entry_reason": f"{definition}是本节的学习入口。",
+            "relations": [{
+                "target_name": boundary,
+                "relation_type": "prerequisite",
+                "reason": f"先明确{name}的定义条件，才能判断其应用边界",
+            }],
+        }, {
+            "name": boundary,
+            "statement": f"应用{name}前必须检查成立条件，超出边界时需要更换方法。",
+            "knowledge_type": "rule",
+            "conditions": [f"案例满足{name}的成立条件"],
+            "boundaries": [f"存在违反{name}成立条件的边界例"],
+            "capability_points": [{
+                "name": f"判断{name}边界",
+                "observable_behavior": f"在新情境中判断{name}是否适用并说明依据",
+            }],
+            "mastery_criteria": [{
+                "name": f"{name}边界判断达标",
+                "observable_performance": f"独立判断{name}在新情境中的适用性并检查结果",
+                "verification_method": "完成一个迁移任务并说明条件检查过程",
+            }],
+        }],
+    }]
+
+
 def _node(node_id, parent_id, name, *, prerequisite_node_ids=None):
     return {
         "node_id": node_id,
         "parent_node_id": parent_id,
         "node_level": 2,
         "node_name": name,
-        "node_content": f"## 核心概念\n\n{name} 的定义、条件和应用。",
+        "node_content": (
+            f"## {name}的定义条件\n\n说明{name}的对象、成立条件与反例。\n\n"
+            f"## {name}的应用边界\n\n在新情境中检查{name}是否适用。"
+        ),
         "learning_objective": f"能够解释并应用{name}",
-        "key_points": [name, f"{name}的条件"],
+        "knowledge_structure": _knowledge_structure(name),
+        "key_points": [f"{name}的定义条件", f"{name}的应用边界"],
         "assessment": [f"在新情境中应用{name}并检查结果"],
         "misconceptions": [f"忽略{name}的适用条件"] if node_id == "L2-1-1" else [],
         "prerequisite_node_ids": prerequisite_node_ids or [],

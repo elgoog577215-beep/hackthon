@@ -25,7 +25,9 @@ try:
     from storage import storage
     from ai_service import ai_service
     from task_manager import TaskManager
+    from course_repository import CourseDocumentRepository
     from dependencies import init_task_manager
+    from practice_analysis import practice_analysis_service
     from websocket_service import WebSocketService
     from course_service import get_course_service
 except ImportError:
@@ -33,7 +35,9 @@ except ImportError:
         from backend.storage import storage
         from backend.ai_service import ai_service
         from backend.task_manager import TaskManager
+        from backend.course_repository import CourseDocumentRepository
         from backend.dependencies import init_task_manager
+        from backend.practice_analysis import practice_analysis_service
         from backend.websocket_service import WebSocketService
         from backend.course_service import get_course_service
     except ImportError as e:
@@ -47,7 +51,9 @@ from routers import (
     code_execution, diagrams, tasks,
     markdown_import, materials, course_versions, learning_assets,
     learning_snapshots, learning_progress, learning_records, learning_continuation, learning_runtime, practice, diagnostics,
-    course_acceptance, block_regeneration, learner_model, change_proposals
+    question_bank,
+    course_acceptance, block_regeneration, learner_model, change_proposals,
+    knowledge_libraries, teaching_representations, course_evolution,
 )
 
 @asynccontextmanager
@@ -66,7 +72,14 @@ app = FastAPI(lifespan=lifespan)
 try:
     ws_service = WebSocketService()
     course_service = get_course_service()
-    task_manager = TaskManager(storage, course_service, ws_service)
+    course_repository = CourseDocumentRepository(storage)
+    task_manager = TaskManager(
+        storage,
+        course_service,
+        ws_service,
+        document_repository=course_repository,
+        practice_analysis_service=practice_analysis_service,
+    )
     ws_service.set_command_handler(task_manager.handle_command)
     init_task_manager(task_manager)
 except NameError:
@@ -136,10 +149,16 @@ app.include_router(learning_continuation.router, prefix="/api")
 app.include_router(learning_runtime.router, prefix="/api")
 app.include_router(learner_model.router, prefix="/api")
 app.include_router(practice.router, prefix="/api")
+app.include_router(question_bank.router, prefix="/api")
 app.include_router(diagnostics.router, prefix="/api")
 app.include_router(course_acceptance.router, prefix="/api")
 app.include_router(block_regeneration.router, prefix="/api")
 app.include_router(change_proposals.router, prefix="/api")
+app.include_router(change_proposals.authoring_router, prefix="/api")
+app.include_router(knowledge_libraries.router, prefix="/api")
+app.include_router(teaching_representations.router, prefix="/api")
+app.include_router(course_evolution.router, prefix="/api")
+app.include_router(course_evolution.personal_router, prefix="/api")
 
 
 # ============================================================================

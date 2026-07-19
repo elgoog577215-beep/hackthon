@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from enum import Enum
 from math import ceil
+import re
 from typing import Any, Iterable
 
 
@@ -57,6 +58,7 @@ class TeachingModuleSpec:
         return {
             "module_id": self.module_id,
             "label": self.label,
+            "block_role": module_block_role(self.module_id),
             "scope": self.scope.value,
             "frequency": self.frequency.value,
             "source_mode": source_mode,
@@ -132,7 +134,91 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "lesson_goal": _module("lesson_goal", "本节任务", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "给出可观察的本节学习目标", "开头直接说明本节要解决的问题和学会后的可验证行为"),
     "core_explanation": _module("core_explanation", "核心教学", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "讲清当前核心知识或方法", "围绕节点目标解释必要内容，不扩写无关百科背景"),
     "learner_action": _module("learner_action", "学习者行动", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求学习者完成主动加工任务", "安排计算、实现、分析、表达或操作，而不是只让学习者阅读"),
-    "feedback_check": _module("feedback_check", "检查与反馈", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提供验收标准、答案方向或反馈", "说明怎样判断任务是否完成以及典型错误意味着什么"),
+    "feedback_check": _module(
+        "feedback_check",
+        "检查与反馈",
+        ModuleScope.LESSON,
+        ModuleFrequency.LESSON_REQUIRED,
+        "按学习者任务分别提供核对标准、参考结论、推导依据和典型错误",
+        "静态课程块不是个性化反馈；每个任务使用三级标题，先说明核对标准，再给参考结论和依据",
+    ),
+
+    # 课程编排偏好扩展。它们只负责跨学科的块节奏，不能替代下方学科模块。
+    "composition_deep_reasoning": _module(
+        "composition_deep_reasoning",
+        "深入推演",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "把核心结论展开为可检查的因果、推理或推导链",
+        "逐步说明关键中间判断及其依据，并指出结论依赖的条件",
+    ),
+    "composition_case_extension": _module(
+        "composition_case_extension",
+        "补充案例",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "增加一个与本节目标直接对应、可逐步拆解的典型案例",
+        "案例必须写清情境、输入、关键判断、过程和结果检查，不得只换名词复述正文",
+    ),
+    "composition_real_application": _module(
+        "composition_real_application",
+        "真实场景",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "把本节能力用于一个有角色、目标与约束的真实情境",
+        "说明情境约束、选择步骤和完成标准；缺少资料依据时使用明确标注的教学情境，不编造行业事实",
+    ),
+    "composition_project_task": _module(
+        "composition_project_task",
+        "项目实战",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "产出可检查的阶段性项目成果",
+        "给出任务背景、输入、交付物、约束、完成条件和自检方式，并与前后课程成果连续",
+    ),
+    "composition_inquiry": _module(
+        "composition_inquiry",
+        "问题探究",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "围绕一个关键问题提出假设、搜集依据并形成可检验结论",
+        "先提出能区分不同解释的问题，再组织假设、依据、推演和检验，不能用连续反问代替教学",
+    ),
+    "composition_boundary": _module(
+        "composition_boundary",
+        "边界与反例",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "用边界条件或反例检验当前概念、方法或结论",
+        "明确哪些条件改变后原结论不再成立，并解释失败原因",
+    ),
+
+    # 难度配方扩展。难度不只改变同一个块的支架和挑战，也会选择不同的
+    # 教学动作；这些模块由 course_composition 按目标等级确定性启用。
+    "difficulty_scaffolded_example": _module(
+        "difficulty_scaffolded_example",
+        "分步示范",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "把一个标准任务拆成可跟随、可核对的完整步骤",
+        "逐步展示输入、当前判断、所用依据和结果检查，在关键步骤解释为什么这样做",
+    ),
+    "difficulty_guided_practice": _module(
+        "difficulty_guided_practice",
+        "带支架练习",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "让学习者在提示、半成品或检查点支持下完成相邻任务",
+        "提供逐级减少的提示或中间检查点，但保留需要学习者亲自完成的关键步骤",
+    ),
+    "difficulty_transfer_challenge": _module(
+        "difficulty_transfer_challenge",
+        "迁移挑战",
+        ModuleScope.LESSON,
+        ModuleFrequency.CONDITIONAL,
+        "在新条件、多重约束或陌生情境中独立迁移本节能力",
+        "改变情境、条件或目标，要求学习者说明方法选择、边界、取舍和验收依据",
+    ),
 
     # 通用课程
     "general_concept_map": _module("general_concept_map", "概念地图", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "连接核心概念和方法", "用清晰关系组织概念，避免百科式堆砌"),
@@ -215,6 +301,108 @@ MODULES: dict[str, TeachingModuleSpec] = {
 }
 
 
+# 教学模块和课程块共享这一套语义角色。生成器、Markdown 拆块器和前端标签
+# 都必须消费这里的结果，不能再按“第几个块”猜测角色。
+MODULE_BLOCK_ROLES: dict[str, str] = {
+    "course_positioning": "orientation",
+    "learning_path": "orientation",
+    "integrated_transfer": "transfer",
+    "lesson_goal": "objective",
+    "core_explanation": "concept",
+    "learner_action": "activity",
+    "feedback_check": "feedback",
+    "composition_deep_reasoning": "reasoning",
+    "composition_case_extension": "example",
+    "composition_real_application": "application",
+    "composition_project_task": "activity",
+    "composition_inquiry": "reasoning",
+    "composition_boundary": "counterexample",
+    "difficulty_scaffolded_example": "example",
+    "difficulty_guided_practice": "activity",
+    "difficulty_transfer_challenge": "transfer",
+    "general_concept_map": "concept",
+    "general_explained_example": "example",
+    "general_application": "application",
+    "general_checklist": "application",
+    "general_comparison": "counterexample",
+    "math_prerequisite_diagnostic": "prerequisite",
+    "math_intuition": "orientation",
+    "math_formalization": "concept",
+    "math_worked_example": "example",
+    "math_variation": "activity",
+    "math_error_analysis": "misconception",
+    "math_proof": "reasoning",
+    "math_modeling": "application",
+    "engineering_artifact_path": "orientation",
+    "engineering_minimal_run": "example",
+    "engineering_output": "feedback",
+    "engineering_mechanism": "reasoning",
+    "engineering_modification": "activity",
+    "engineering_debugging": "misconception",
+    "engineering_testing": "feedback",
+    "engineering_architecture": "concept",
+    "science_phenomenon_path": "orientation",
+    "science_phenomenon": "orientation",
+    "science_model": "concept",
+    "science_evidence": "reasoning",
+    "science_boundary": "concept",
+    "science_prediction": "application",
+    "science_experiment_design": "activity",
+    "science_data_analysis": "reasoning",
+    "life_system_levels": "concept",
+    "life_location_structure": "concept",
+    "life_function": "concept",
+    "life_mechanism": "reasoning",
+    "life_regulation": "reasoning",
+    "life_case": "example",
+    "life_normal_abnormal": "counterexample",
+    "life_evidence": "reasoning",
+    "humanities_question_path": "orientation",
+    "humanities_context": "orientation",
+    "humanities_source": "example",
+    "humanities_claim": "reasoning",
+    "humanities_comparison": "counterexample",
+    "humanities_response": "activity",
+    "humanities_source_criticism": "activity",
+    "humanities_timeline": "orientation",
+    "language_scenario_path": "orientation",
+    "language_input": "example",
+    "language_chunks": "concept",
+    "language_form_use": "concept",
+    "language_controlled_practice": "activity",
+    "language_output": "activity",
+    "language_review": "remediation",
+    "language_pronunciation": "concept",
+    "language_pragmatics": "application",
+    "business_deliverable_path": "orientation",
+    "business_scenario": "orientation",
+    "business_framework": "concept",
+    "business_case": "example",
+    "business_tool": "application",
+    "business_task": "activity",
+    "business_metric": "feedback",
+    "business_roleplay": "activity",
+    "business_data": "reasoning",
+}
+
+
+def module_block_role(module_id: str) -> str:
+    return MODULE_BLOCK_ROLES.get(str(module_id or ""), "concept")
+
+
+def module_role_from_heading(title: str) -> str | None:
+    """Resolve a generated heading only when it matches a registered module label."""
+    normalized = re.sub(r"\s+", "", str(title or "")).strip("：:、。 ").lower()
+    if not normalized:
+        return None
+    matches: list[tuple[int, str]] = []
+    for module_id, module in MODULES.items():
+        label = re.sub(r"\s+", "", module.label).strip("：:、。 ").lower()
+        if normalized == label or normalized.startswith(f"{label}：") or normalized.startswith(f"{label}:"):
+            matches.append((len(label), module_block_role(module_id)))
+    return max(matches, default=(0, ""))[1] or None
+
+
 COMMON_COURSE_MODULES = ("course_positioning", "learning_path", "integrated_transfer")
 COMMON_LESSON_MODULES = ("lesson_goal", "core_explanation", "learner_action", "feedback_check")
 
@@ -245,7 +433,25 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
     PedagogyMode.PROGRAMMING_ENGINEERING: PedagogyTemplate(
         PedagogyMode.PROGRAMMING_ENGINEERING, "编程与工程技术",
         ("构建可运行项目", "实现系统", "调试程序", "完成工程成果"),
-        ("编程", "软件", "算法", "数据库", "网络", "机器学习", "人工智能", "python", "java", "javascript", "react", "vue"),
+        (
+            "编程",
+            "软件",
+            "算法",
+            "数据库",
+            "网络",
+            "机器学习",
+            "人工智能",
+            "python",
+            "java",
+            "javascript",
+            "c++",
+            "c#",
+            "rust",
+            "golang",
+            "go语言",
+            "react",
+            "vue",
+        ),
         ("实现", "编写", "运行", "调试", "部署", "构建", "代码"),
         ("engineering_artifact_path",),
         ("engineering_minimal_run", "engineering_output", "engineering_mechanism", "engineering_modification", "engineering_debugging"),
@@ -568,6 +774,12 @@ def attach_module_plans_to_plan(
 
 def validate_module_registry() -> list[str]:
     issues: list[str] = []
+    missing_roles = sorted(set(MODULES) - set(MODULE_BLOCK_ROLES))
+    unknown_modules = sorted(set(MODULE_BLOCK_ROLES) - set(MODULES))
+    if missing_roles:
+        issues.append(f"教学模块缺少课程块角色: {', '.join(missing_roles)}")
+    if unknown_modules:
+        issues.append(f"课程块角色引用了不存在的教学模块: {', '.join(unknown_modules)}")
     for mode, template in TEMPLATES.items():
         referenced = template.course_modules + template.lesson_modules + template.conditional_modules
         missing = [module_id for module_id in referenced if module_id not in MODULES]
@@ -649,6 +861,7 @@ __all__ = [
     "PedagogyTemplate",
     "SubjectPedagogyProfile",
     "MODULES",
+    "MODULE_BLOCK_ROLES",
     "TEMPLATES",
     "COMMON_COURSE_MODULES",
     "COMMON_LESSON_MODULES",
@@ -657,5 +870,7 @@ __all__ = [
     "coerce_persisted_profile",
     "build_course_module_plan",
     "attach_module_plans_to_plan",
+    "module_block_role",
+    "module_role_from_heading",
     "validate_module_registry",
 ]

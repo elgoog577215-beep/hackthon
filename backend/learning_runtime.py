@@ -7,6 +7,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from content_blocks import resolve_content_anchor
+from course_evolution import (
+    course_evolution_repository,
+    course_evolution_view,
+    personal_course_overlay,
+    project_applied_adaptive_blocks,
+)
 from course_learning_availability import project_course_learning_availability
 from course_versioning import stable_hash
 from diagnostic_service import workflow_view
@@ -88,6 +94,26 @@ def build_learning_runtime(
         source_revision_vector=revision_vector,
     )
     revision_vector["learner_model_revision_id"] = learner_model["model_revision_id"]
+    evolution_state = course_evolution_repository.load(user_id, course_id)
+    personal_overlay = personal_course_overlay(evolution_state)
+    personal_adaptive_blocks = project_applied_adaptive_blocks(
+        evolution_state,
+        node_id=node_id,
+    )
+    for block in personal_adaptive_blocks:
+        feedback = _adaptive_feedback(events, str(block.get("adaptive_block_id") or ""))
+        block["feedback"]["value"] = feedback or "unrated"
+    personal_adaptive_blocks = [
+        block for block in personal_adaptive_blocks
+        if (block.get("feedback") or {}).get("value") != "dismissed"
+    ]
+    temporary_adaptive_blocks = _adaptive_blocks(
+        course,
+        attempts=attempts,
+        workflow=workflow,
+        events=events,
+        requested_node_id=node_id,
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "course_id": course_id,
@@ -108,13 +134,9 @@ def build_learning_runtime(
             learner_model,
             node_id=str(current_objective.get("node_id") or node_id or "") or None,
         ),
-        "adaptive_blocks": _adaptive_blocks(
-            course,
-            attempts=attempts,
-            workflow=workflow,
-            events=events,
-            requested_node_id=node_id,
-        ),
+        "course_evolution": course_evolution_view(evolution_state),
+        "personal_course_overlay": personal_overlay.model_dump(mode="json"),
+        "adaptive_blocks": personal_adaptive_blocks + temporary_adaptive_blocks,
         "active_task": deepcopy((continuation.get("primary_action") or {}).get("task_ref")),
         "continuation": continuation,
     }

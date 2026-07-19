@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
+import threading
 
 import pytest
 
@@ -9,14 +11,15 @@ from change_proposals import (
     ChangeProposalNotFound,
     ChangeProposalRepository,
     apply_item,
+    apply_objective_item,
     create_proposal,
     reject_item,
     regenerate_item,
 )
 from course_commands import CourseCommandService
+from course_knowledge_base import compile_course_knowledge_base
 from course_repository import CourseDocumentRepository
 import learning_events
-import storage as storage_module
 
 
 class MemoryDataStorage:
@@ -244,51 +247,141 @@ async def test_apply_item_writes_via_course_command_service_and_is_isolated(tmp_
 
 
 @pytest.mark.asyncio
-async def test_reject_item_records_reason_and_is_idempotent_protected(tmp_path, monkeypatch):
-    memory_events = MemoryDataStorage()
-    monkeypatch.setattr(learning_events, "storage", memory_events)
-    _storage, _repo, proposals, _cmd, document = await canonical_setup(tmp_path)
-    target1 = block(document, "block-1")
+async def test_objective_apply_blocks_reject_until_course_and_proposal_are_committed(
+    tmp_path,
+    monkeypatch,
+):
+    _storage, repository, proposals, command_service, document = await canonical_setup(tmp_path)
+    section = document.sections[0]
+    next_objective = "能够解释向量方向与大小的关系"
     proposal = create_proposal(
         proposals,
         "course-1",
-        request_id="req-reject",
-        scope="block",
-        target_block_ids=["block-1"],
-        items=[
-            {
-                "block_id": "block-1",
-                "before": target1.payload,
-                "after": {"payload": target1.payload},
-                "reason": "补充解释",
-            }
-        ],
+        request_id="objective-apply-reject-race",
+        scope="section",
+        target_block_ids=[section.section_id],
+        items=[{
+            "block_id": section.section_id,
+            "target_kind": "course_objective",
+            "before": {
+                "learning_objective": section.learning_objective,
+                "objective_revision_id": section.objective_revision_id,
+            },
+            "after": {"learning_objective": next_objective},
+            "reason": "明确学习目标",
+        }],
     )
     item_id = proposal["items"][0]["item_id"]
+    objective_committed = asyncio.Event()
+    release_apply = asyncio.Event()
+    original_update = command_service.update_section_objective
 
-    rejected = reject_item(proposals, proposal["proposal_id"], item_id, reason="内容不准确")
+    async def pause_after_course_commit(*args, **kwargs):
+        receipt = await original_update(*args, **kwargs)
+        objective_committed.set()
+        await release_apply.wait()
+        return receipt
+
+    monkeypatch.setattr(command_service, "update_section_objective", pause_after_course_commit)
+    apply_task = asyncio.create_task(apply_objective_item(
+        proposals,
+        command_service,
+        proposal["proposal_id"],
+        item_id,
+        expected_document_revision=document.document_revision,
+        actor="teacher-1",
+    ))
+    await asyncio.wait_for(objective_committed.wait(), timeout=1)
+    reject_task = asyncio.create_task(asyncio.to_thread(
+        reject_item,
+        proposals,
+        proposal["proposal_id"],
+        item_id,
+        reason="concurrent reject",
+    ))
+    await asyncio.wait({reject_task}, timeout=0.1)
+    release_apply.set()
+
+    applied, rejected = await asyncio.wait_for(
+        asyncio.gather(apply_task, reject_task, return_exceptions=True),
+        timeout=1,
+    )
+
+    assert not isinstance(applied, BaseException)
+    assert isinstance(rejected, ChangeProposalConflict)
+    assert proposals.load(proposal["proposal_id"])["items"][0]["status"] == "applied"
+    updated_document, _canonical = repository.load_document("course-1")
+    assert updated_document.sections[0].learning_objective == next_objective
+
+
+@pytest.mark.asyncio
+async def test_evidence_must_use_course_evolution_instead_of_second_proposal_circuit(tmp_path):
+    storage, repository, proposals, _command_service, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    saves_before = storage.save_count
+
+    with pytest.raises(ValueError, match="course evolution plan"):
+        create_proposal(
+            proposals,
+            "course-1",
+            request_id="evidence-must-use-course-evolution",
+            scope="block",
+            target_block_ids=[target.block_id],
+            items=[{
+                "block_id": target.block_id,
+                "before": target.payload,
+                "after": {"payload": {**target.payload, "markdown": "课程补充"}},
+                "reason": "学习证据触发课程演进",
+            }],
+            source="evidence",
+        )
+
+    unchanged, _ = repository.load_document("course-1")
+    assert unchanged == document
+    assert storage.save_count == saves_before
+
+
+@pytest.mark.asyncio
+async def test_base_course_rejection_does_not_become_learner_evidence(tmp_path, monkeypatch):
+    memory_events = MemoryDataStorage()
+    monkeypatch.setattr(learning_events, "storage", memory_events)
+    _storage, _repo, proposals, _cmd, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="teacher-rejects-authoring-change",
+        scope="block",
+        target_block_ids=[target.block_id],
+        items=[{
+            "block_id": target.block_id,
+            "before": target.payload,
+            "after": {"payload": target.payload},
+            "reason": "课程维护建议",
+        }],
+        source="representation_semantic",
+    )
+
+    rejected = reject_item(
+        proposals,
+        proposal["proposal_id"],
+        proposal["items"][0]["item_id"],
+        reason="维护者认为语义不准确",
+    )
     item = rejected["items"][0]
     assert item["status"] == "rejected"
-    assert item["resolution_reason"] == "内容不准确"
+    assert item["resolution_reason"] == "维护者认为语义不准确"
     assert rejected["status"] == "resolved"
-
-    # Evidence back-flow: the rejection reason MUST be written back as a new
-    # LearningEvent (spec §4), not just parked on the change-proposal item.
-    recorded_events = memory_events.data.get(learning_events.LEARNING_EVENTS_FILE, [])
-    reason_events = [
-        e for e in recorded_events
-        if e.get("event_type") == "learner_self_reported"
-        and e.get("source") == "change_proposal_rejection"
-    ]
-    assert len(reason_events) == 1
-    reason_event = reason_events[0]
-    assert reason_event["evidence"]["statement"] == "内容不准确"
-    assert reason_event["course_id"] == "course-1"
-    assert reason_event["node_id"] == "block-1"
-    assert reason_event["evidence"]["change_proposal_item_id"] == item_id
-
+    assert memory_events.data.get(learning_events.LEARNING_EVENTS_FILE, []) == []
     with pytest.raises(ChangeProposalConflict):
-        reject_item(proposals, proposal["proposal_id"], item_id, reason="again")
+        reject_item(
+            proposals,
+            proposal["proposal_id"],
+            proposal["items"][0]["item_id"],
+            reason="重复拒绝",
+        )
+
+    assert memory_events.data.get(learning_events.LEARNING_EVENTS_FILE, []) == []
 
 
 @pytest.mark.asyncio
@@ -339,73 +432,6 @@ async def test_regenerate_item_creates_new_pending_item_without_reusing_content(
 
 
 @pytest.mark.asyncio
-async def test_regenerate_item_reruns_template_generator_for_evidence_source(tmp_path, monkeypatch):
-    """`source == "evidence"` items targeting a real course block should get a
-    freshly-regenerated `after.payload` (via the same MVP template generator
-    `evaluate_and_propose_change` uses), rather than being left permanently
-    `after=None`, whenever the triggering course/block/evidence can still be
-    resolved.
-
-    Forces the template-fallback path deterministically (rather than
-    depending on whether the host environment happens to have a real
-    AI_API_KEY configured) by making `_llm_supplement_text` behave like the
-    provider is unavailable - `learner_model_service._generate_supplement_payload`
-    tries the real LLM first and only falls back to the template otherwise."""
-    import learner_model_service
-
-    async def _no_llm(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(learner_model_service, "_llm_supplement_text", _no_llm)
-
-    memory_events = MemoryDataStorage()
-    monkeypatch.setattr(learning_events, "storage", memory_events)
-    storage, _repo, proposals, _cmd, document = await canonical_setup(tmp_path)
-    # The lazily-imported `storage.storage` singleton inside change_proposals
-    # must resolve to the same course storage this test set up.
-    monkeypatch.setattr(storage_module, "storage", storage)
-
-    learning_events.record_learning_event(
-        event_type="learner_self_reported",
-        actor="learner",
-        source="test",
-        user_id="learner-1",
-        course_id="course-1",
-        node_id="block-1",
-        evidence={"statement": "这里讲得太快，没听懂方向的定义。"},
-    )
-
-    target1 = block(document, "block-1")
-    proposal = create_proposal(
-        proposals,
-        "course-1",
-        request_id="req-regen-evidence",
-        scope="block",
-        target_block_ids=["block-1"],
-        items=[
-            {
-                "block_id": "block-1",
-                "before": target1.payload,
-                "after": {"payload": {**target1.payload, "markdown": "第一版候选内容"}},
-                "reason": "学习证据触发变更",
-            }
-        ],
-        source="evidence",
-        generation_meta={"user_id": "learner-1"},
-    )
-    item_id = proposal["items"][0]["item_id"]
-
-    updated = regenerate_item(proposals, proposal["proposal_id"], item_id)
-    new_item = next(i for i in updated["items"] if i["item_id"] != item_id)
-
-    assert new_item["status"] == "pending"
-    assert new_item["after"] is not None
-    assert new_item["after"]["payload"]["title"] == target1.payload["title"]
-    assert "这里讲得太快，没听懂方向的定义。" in new_item["after"]["payload"]["markdown"]
-    assert "AI 补充说明" in new_item["after"]["payload"]["markdown"]
-
-
-@pytest.mark.asyncio
 async def test_apply_item_reports_awaiting_generation_for_null_after(tmp_path):
     """`apply_item` on an item whose `after is None` (the "awaiting
     regeneration" contract) must fail with a message that tells the caller
@@ -448,40 +474,298 @@ async def test_apply_item_reports_awaiting_generation_for_null_after(tmp_path):
     assert message != "Item 'after' payload is invalid"
 
 
-def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeypatch):
-    """Route-level: an item whose target_kind is "kg_node" must never reach
-    the course-block lookup (which would previously 404 with a misleading
-    "Course block not found"). When the course's subject resolves to a real
-    curated knowledge library, applying it now succeeds by recording an
-    operator review-acknowledgement on the catalog node (see
-    `change_proposals.apply_kg_node_item`), instead of the old unconditional
-    409."""
+@pytest.mark.asyncio
+async def test_regenerate_route_generates_candidate_before_replacing_item(tmp_path, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    import shutil
+    import routers.change_proposals as change_proposals_router
+
+    _storage, course_repository, proposals, _cmd, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="req-route-regen",
+        scope="block",
+        target_block_ids=["block-1"],
+        items=[{
+            "block_id": "block-1",
+            "before": target.payload,
+            "after": {"payload": {**target.payload, "markdown": "first candidate"}},
+            "reason": "improve explanation",
+        }],
+    )
+    item_id = proposal["items"][0]["item_id"]
+
+    class ReadyRegenerationService:
+        def __init__(self):
+            self.calls = []
+
+        async def create_candidate(self, course_id, block_id, **kwargs):
+            self.calls.append({"course_id": course_id, "block_id": block_id, **kwargs})
+            return {
+                "candidate_id": "candidate-ready-1",
+                "status": "ready",
+                "proposed_block": {
+                    "payload": {**target.payload, "markdown": "AI regenerated content"},
+                },
+                "quality_report": {"passed": True, "issues": []},
+            }
+
+    regeneration_service = ReadyRegenerationService()
+    monkeypatch.setattr(change_proposals_router, "get_change_proposal_repository", lambda: proposals)
+    monkeypatch.setattr(change_proposals_router, "get_course_document_repository", lambda: course_repository)
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_change_proposal_regeneration_service",
+        lambda: regeneration_service,
+        raising=False,
+    )
+
+    app = FastAPI()
+    app.include_router(change_proposals_router.authoring_router, prefix="")
+    client = TestClient(app)
+    response = client.post(
+        f"/courses/course-1/authoring-changes/{proposal['proposal_id']}/items/{item_id}/regenerate",
+        json={"extra_instruction": "make it more concrete"},
+        headers={"X-User-Id": "user-1"},
+    )
+
+    assert response.status_code == 200
+    assert len(regeneration_service.calls) == 1
+    updated = response.json()
+    old_item = next(item for item in updated["items"] if item["item_id"] == item_id)
+    new_item = next(item for item in updated["items"] if item.get("regenerated_from") == item_id)
+    assert old_item["status"] == "rejected"
+    assert new_item["status"] == "pending"
+    assert new_item["after"]["payload"]["markdown"] == "AI regenerated content"
+    assert new_item["generation_meta"]["candidate_id"] == "candidate-ready-1"
+
+
+@pytest.mark.asyncio
+async def test_router_base_course_apply_returns_representation_sync_receipt(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
 
     import routers.change_proposals as change_proposals_router
-    import storage as storage_module
-    import subject_knowledge
 
-    # Isolate the curated catalog directory so this test's write doesn't
-    # mutate the real production catalog file on disk.
-    catalog_copy = tmp_path / "catalogs"
-    catalog_copy.mkdir()
-    shutil.copy(
-        subject_knowledge.CATALOG_DIR / "debate-logic-v1.json",
-        catalog_copy / "debate-logic-v1.json",
+    _storage, course_repository, proposals, _command_service, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="base-course-sync-receipt",
+        scope="block",
+        target_block_ids=[target.block_id],
+        items=[{
+            "block_id": target.block_id,
+            "before": target.payload,
+            "after": {
+                "payload": {
+                    **target.payload,
+                    "content": "向量不仅有坐标，还表达大小与方向。",
+                },
+            },
+            "reason": "修正课程语义",
+        }],
+        source="representation_semantic",
     )
-    monkeypatch.setattr(subject_knowledge, "CATALOG_DIR", catalog_copy)
-    subject_knowledge.load_subject_library.cache_clear()
-    subject_knowledge.available_subject_libraries.cache_clear()
+    sync_receipt = {
+        "status": "synchronized",
+        "quality": {"passed": True, "issues": []},
+        "stale_before": [{
+            "representation_type": "slide_deck",
+            "stale_unit_ids": ["slide:section-a"],
+        }],
+        "rebuilt": [{
+            "representation_type": "slide_deck",
+            "rebuilt_unit_ids": ["slide:section-a"],
+        }],
+    }
+    monkeypatch.setattr(change_proposals_router, "change_proposal_repository", proposals)
+    monkeypatch.setattr(change_proposals_router, "get_change_proposal_repository", lambda: proposals)
+    monkeypatch.setattr(change_proposals_router, "get_course_document_repository", lambda: course_repository)
+    monkeypatch.setattr(
+        change_proposals_router,
+        "synchronize_teaching_representations",
+        lambda _course_id: sync_receipt,
+    )
 
-    class _Storage:
-        def load_course(self, _course_id: str) -> dict:
-            return {"course_id": "course-1", "course_name": "辩论：逻辑构建与实战技巧"}
+    app = FastAPI()
+    app.include_router(change_proposals_router.router)
+    client = TestClient(app)
+    response = client.post(
+        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{proposal['items'][0]['item_id']}/apply",
+        headers={"X-User-Id": "teacher-1"},
+    )
 
-    monkeypatch.setattr(storage_module, "storage", _Storage())
+    assert response.status_code == 200
+    assert response.json()["representation_sync"] == sync_receipt
+    updated, canonical = course_repository.load_document("course-1")
+    assert canonical is True
+    assert block(updated, target.block_id).payload["content"] == "向量不仅有坐标，还表达大小与方向。"
+
+
+@pytest.mark.asyncio
+async def test_router_rejects_personalization_through_single_item_apply(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import routers.change_proposals as change_proposals_router
+
+    storage, course_repository, proposals, _command_service, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="personalization-single-apply",
+        scope="block",
+        target_block_ids=[target.block_id],
+        items=[{
+            "block_id": target.block_id,
+            "before": target.model_dump(mode="json"),
+            "after": {
+                **target.model_dump(mode="json"),
+                "payload": {**target.payload, "markdown": "personalized content"},
+            },
+            "reason": "learner feedback",
+            "expected_block_revision": target.internal_revision,
+        }],
+        source="personalization",
+        generation_meta={"base_document_revision": document.document_revision},
+    )
+    before = deepcopy(storage.course)
+    monkeypatch.setattr(change_proposals_router, "get_change_proposal_repository", lambda: proposals)
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        change_proposals_router,
+        "synchronize_teaching_representations",
+        lambda _course_id: {"status": "unexpected"},
+    )
+    app = FastAPI()
+    app.include_router(change_proposals_router.router)
+
+    response = TestClient(app).post(
+        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{proposal['items'][0]['item_id']}/apply",
+        headers={"X-User-Id": "student-1"},
+    )
+
+    assert response.status_code == 409
+    assert "apply-selected" in response.json()["detail"]["message"]
+    assert storage.course == before
+    assert proposals.load(proposal["proposal_id"])["items"][0]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_single_item_apply_rejects_when_proposal_base_revision_is_stale(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import routers.change_proposals as change_proposals_router
+
+    _storage, course_repository, proposals, command_service, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    unrelated = block(document, "block-2")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="base-revision-single-apply",
+        scope="block",
+        target_block_ids=[target.block_id],
+        items=[{
+            "block_id": target.block_id,
+            "before": target.model_dump(mode="json"),
+            "after": {
+                **target.model_dump(mode="json"),
+                "payload": {**target.payload, "markdown": "proposal content"},
+            },
+            "reason": "authoring change",
+            "expected_block_revision": target.internal_revision,
+        }],
+        generation_meta={"base_document_revision": document.document_revision},
+    )
+    await command_service.replace_block(
+        "course-1",
+        command_id="unrelated-change-after-proposal",
+        expected_document_revision=document.document_revision,
+        expected_block_revision=unrelated.internal_revision,
+        block_id=unrelated.block_id,
+        payload={**unrelated.payload, "markdown": "unrelated newer content"},
+    )
+    monkeypatch.setattr(change_proposals_router, "get_change_proposal_repository", lambda: proposals)
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        change_proposals_router,
+        "synchronize_teaching_representations",
+        lambda _course_id: {"status": "unexpected"},
+    )
+    app = FastAPI()
+    app.include_router(change_proposals_router.router)
+
+    response = TestClient(app).post(
+        f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{proposal['items'][0]['item_id']}/apply",
+        headers={"X-User-Id": "teacher-1"},
+    )
+
+    assert response.status_code == 409
+    assert "base document revision" in response.json()["detail"]["message"]
+    current, _ = course_repository.load_document("course-1")
+    assert block(current, target.block_id).payload == target.payload
+    assert proposals.load(proposal["proposal_id"])["items"][0]["status"] == "pending"
+
+
+def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeypatch):
+    """Accepting a knowledge-node proposal records a course-local review."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import routers.change_proposals as change_proposals_router
+
+    course = legacy_course()
+    course["nodes"][0]["knowledge_structure"] = [
+        {
+            "concept_group": "向量语义",
+            "description": "向量的几何与代数含义。",
+            "knowledge_points": [
+                {
+                    "name": "向量的大小与方向",
+                    "statement": "向量同时具有大小和方向。",
+                    "knowledge_type": "definition",
+                    "conditions": ["向量已定义"],
+                    "boundaries": ["标量没有方向"],
+                    "entry_reason": "这是理解向量表示与运算的基础。",
+                    "capability_points": [
+                        {
+                            "name": "识别向量的大小与方向",
+                            "observable_behavior": "能从表示中指出大小与方向。",
+                        }
+                    ],
+                    "mastery_criteria": [
+                        {
+                            "name": "解释向量语义",
+                            "observable_performance": "能用自己的语言说明大小与方向。",
+                            "verification_method": "独立解释并完成概念检查。",
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+    course["course_knowledge_base"] = compile_course_knowledge_base(deepcopy(course))
+    knowledge_id = course["course_knowledge_base"]["knowledge_points"][0]["knowledge_id"]
+
+    class _CourseRepository:
+        def load_course_view(self, _course_id: str) -> dict:
+            return deepcopy(course)
 
     proposals = ChangeProposalRepository(tmp_path / "change_proposals")
     proposal = create_proposal(
@@ -489,17 +773,17 @@ def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeyp
         "course-1",
         request_id="req-kg-node",
         scope="block",
-        target_block_ids=["debate.logic.argument.claim"],
+        target_block_ids=[knowledge_id],
         items=[
             {
-                "block_id": "debate.logic.argument.claim",
+                "block_id": knowledge_id,
                 "target_kind": "kg_node",
-                "before": {"name": "论点（Claim）"},
+                "before": {"name": "formal knowledge node"},
                 "after": {
-                    "note": "课程正文已变更，建议核对该知识节点定义是否需要同步更新。",
+                    "note": "Course content changed; review the formal definition.",
                     "source_block_id": "block-1",
                 },
-                "reason": "内容变更同步到知识库节点",
+                "reason": "Synchronize a reviewed content change",
             }
         ],
     )
@@ -511,7 +795,11 @@ def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeyp
         "get_change_proposal_repository",
         lambda: proposals,
     )
-
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_course_document_repository",
+        lambda: _CourseRepository(),
+    )
     app = FastAPI()
     app.include_router(change_proposals_router.router, prefix="")
     client = TestClient(app)
@@ -521,62 +809,37 @@ def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeyp
         headers={"X-User-Id": "user-1"},
     )
 
-    assert response.status_code != 404
     assert response.status_code == 200
 
     reloaded = proposals.load(proposal["proposal_id"])
     item = next(i for i in reloaded["items"] if i["item_id"] == item_id)
     assert item["status"] == "applied"
-    assert item["receipt"]["kind"] == "kg_node_review_acknowledged"
+    assert item["receipt"]["kind"] == "course_knowledge_review_acknowledged"
+    assert item["receipt"]["knowledge_scope"] == "current_course_only"
+    assert item["receipt"]["knowledge_id"] == knowledge_id
     assert item["receipt"]["reviewed_by"] == "user-1"
-
-    # The review note is preserved on the raw curated catalog file (an audit
-    # trail for the human maintainer), not surfaced through the normalized
-    # runtime view `load_subject_library` returns.
-    import json
-
-    raw = json.loads((catalog_copy / "debate-logic-v1.json").read_text(encoding="utf-8"))
-
-    def find_node(node: dict, knowledge_id: str) -> dict | None:
-        if node.get("knowledge_id") == knowledge_id:
-            return node
-        for child in node.get("children") or []:
-            found = find_node(child, knowledge_id)
-            if found:
-                return found
-        return None
-
-    raw_node = find_node(raw["tree"], "debate.logic.argument.claim")
-    assert raw_node["review_notes"][0]["source_block_id"] == "block-1"
-
-    # Clear caches while still pointed at the tmp catalog dir, so the next
-    # real lookup (once monkeypatch reverts CATALOG_DIR) re-reads the real,
-    # untouched production catalog instead of this test's cached copy.
-    subject_knowledge.load_subject_library.cache_clear()
-    subject_knowledge.available_subject_libraries.cache_clear()
+    assert item["receipt"]["source_block_id"] == "block-1"
 
 
-def test_router_rejects_kg_node_item_apply_with_409_when_library_unresolvable(tmp_path, monkeypatch):
-    """When the course's subject doesn't resolve to any curated knowledge
-    library, applying a kg_node item must fail with an honest 409 rather
-    than silently succeeding or 404ing on a course-block lookup that never
-    applies to kg_node items. Reject must still work normally."""
+def test_router_rejects_kg_node_item_apply_with_409_when_id_is_not_course_local(
+    tmp_path,
+    monkeypatch,
+):
+    """A knowledge review cannot target an ID outside the current course."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     import routers.change_proposals as change_proposals_router
-    import storage as storage_module
 
-    class _Storage:
-        def load_course(self, _course_id: str) -> dict:
-            return {"course_id": "course-1", "course_name": "一门无法匹配任何知识库的课程"}
+    class _CourseRepository:
+        def load_course_view(self, _course_id: str) -> dict:
+            return {
+                "course_id": "course-1",
+                "course_name": "当前课程",
+                "nodes": [],
+            }
 
-    monkeypatch.setattr(storage_module, "storage", _Storage())
-    # The reject path records rejection evidence via `learning_events`, which
-    # binds its own `storage` reference at import time (`from storage import
-    # storage`) - patching `storage_module.storage` above does not affect it,
-    # so it must be isolated separately to avoid writing to the real
-    # DATA_DIR/learning_events.json on every test run.
+    # Isolate the compatibility reject side effect from the real data store.
     monkeypatch.setattr(learning_events, "storage", MemoryDataStorage())
 
     proposals = ChangeProposalRepository(tmp_path / "change_proposals")
@@ -604,7 +867,11 @@ def test_router_rejects_kg_node_item_apply_with_409_when_library_unresolvable(tm
         "get_change_proposal_repository",
         lambda: proposals,
     )
-
+    monkeypatch.setattr(
+        change_proposals_router,
+        "get_course_document_repository",
+        lambda: _CourseRepository(),
+    )
     app = FastAPI()
     app.include_router(change_proposals_router.router, prefix="")
     client = TestClient(app)
@@ -625,6 +892,7 @@ def test_router_rejects_kg_node_item_apply_with_409_when_library_unresolvable(tm
     reject_response = client.post(
         f"/courses/course-1/change_proposals/{proposal['proposal_id']}/items/{item_id}/reject",
         json={"reason": "人工核对后拒绝"},
+        headers={"X-User-Id": "user-1"},
     )
     assert reject_response.status_code == 200
     rejected = proposals.load(proposal["proposal_id"])

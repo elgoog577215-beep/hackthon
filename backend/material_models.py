@@ -55,6 +55,9 @@ class MaterialBinding(BaseModel):
     priority: MaterialPriority = "core"
     authority: MaterialAuthority = "primary"
     usage_policy: MaterialUsagePolicy = "prefer"
+    reuse_policy: Literal["verbatim_allowed", "reference_only", "original_generation"] = "verbatim_allowed"
+    rights_basis: Literal["teacher_asserted", "open_license", "license_unknown", "platform_owned"] = "teacher_asserted"
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
     user_description: str = Field(default="", max_length=2000)
     source_label: str = Field(default="", max_length=200)
 

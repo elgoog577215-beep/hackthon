@@ -15,6 +15,15 @@
         <button type="button" :title="t('courseWorkspace.learningOverview.export', '导出正式学习概况')" :aria-label="t('courseWorkspace.learningOverview.export', '导出正式学习概况')" :disabled="!model" @click="exportModel">
           <Download :size="17" />
         </button>
+        <button
+          v-if="closable"
+          type="button"
+          :title="t('learningDock.closeStats', '关闭学习概况')"
+          :aria-label="t('learningDock.closeStats', '关闭学习概况')"
+          @click="emit('close')"
+        >
+          <X :size="17" />
+        </button>
       </div>
     </header>
 
@@ -167,12 +176,23 @@ import {
   Route,
   ScanSearch,
   ShieldCheck,
+  X,
 } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
 import { useLearnerModelStore, type EvidenceConfidence, type LearnerModelItem } from '../stores/learnerModel'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { learningActionPresentation } from '../utils/learning-action'
 import { t } from '../shared/i18n'
+
+withDefaults(defineProps<{
+  closable?: boolean
+}>(), {
+  closable: false,
+})
+
+const emit = defineEmits<{
+  (event: 'close'): void
+}>()
 
 const courseStore = useCourseStore()
 const learnerModelStore = useLearnerModelStore()

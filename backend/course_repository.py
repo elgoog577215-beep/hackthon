@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
+import threading
 from copy import deepcopy
 from datetime import datetime, timezone
-import inspect
-from typing import Any
+from typing import Any, Callable
 
 from course_document import (
     COURSE_DOCUMENT_SCHEMA,
@@ -13,9 +15,11 @@ from course_document import (
     course_view_from_document,
     document_from_legacy_course,
     legacy_source_checksum,
+    repair_document_block_semantics,
     refresh_document_revision,
 )
-
+from course_feedback import project_feedback_structures
+from course_revisions import revision_event_for_documents, revision_vector_for_document
 
 _GENERATED_METADATA_EXCLUDES = {
     "nodes",
@@ -26,6 +30,8 @@ _GENERATED_METADATA_EXCLUDES = {
     "course_operation_log",
     "current_course_version_id",
 }
+_COMMAND_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
+_COMMAND_LOCKS_GUARD = threading.Lock()
 
 
 class CourseDocumentNotFound(KeyError):
@@ -68,6 +74,28 @@ class CourseDocumentRepository:
             return raw
         return course_view_from_document(raw, raw["course_document"])
 
+    async def create_imported_course(
+        self,
+        course_id: str,
+        *,
+        imported_course: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.storage.load_course(course_id):
+            raise CourseDocumentConflict("Course already exists")
+
+        from learning_progress import project_learning_objective_bindings
+
+        prepared = project_learning_objective_bindings(deepcopy(imported_course))
+        imported_course_id = str(prepared.get("course_id") or course_id)
+        if imported_course_id != course_id:
+            raise CourseDocumentConflict("Imported course belongs to another course")
+        prepared["course_id"] = course_id
+
+        document = document_from_legacy_course(prepared)
+        canonical = self._canonical_storage_envelope(prepared, document)
+        await self._save_raw(course_id, canonical)
+        return self.document_envelope(course_id)
+
     async def create_generation_shell(
         self,
         course_id: str,
@@ -95,6 +123,7 @@ class CourseDocumentRepository:
             "course_schema_version": COURSE_DOCUMENT_SCHEMA,
             "course_document": document.model_dump(mode="json"),
             "course_document_revision": document.document_revision,
+            "course_revision_vector": revision_vector_for_document(document).model_dump(mode="json"),
             "course_document_authoritative": True,
             "current_course_version_id": "",
             "generation_job_id": job_id,
@@ -134,6 +163,26 @@ class CourseDocumentRepository:
             raw["generation_error"] = error
         elif status not in {"failed", "completed_with_warnings"}:
             raw.pop("generation_error", None)
+        await self._save_raw(course_id, raw)
+        return raw
+
+    async def update_metadata(
+        self,
+        course_id: str,
+        updates: dict[str, Any],
+        *,
+        expected_binding_revision_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Update non-document course metadata without mutating canonical content."""
+        raw = self.load_raw(course_id)
+        if expected_binding_revision_id is not None:
+            current = str((raw.get("knowledge_library_binding") or {}).get("revision_id") or "")
+            if current != expected_binding_revision_id:
+                raise CourseDocumentConflict("Knowledge-library binding changed")
+        for key, value in updates.items():
+            if key in _GENERATED_METADATA_EXCLUDES:
+                raise CourseDocumentConflict(f"Metadata update cannot replace {key}")
+            raw[key] = deepcopy(value)
         await self._save_raw(course_id, raw)
         return raw
 
@@ -190,6 +239,15 @@ class CourseDocumentRepository:
             "affected_block_ids": [block.block_id for block in updated.blocks],
             "committed_at": datetime.now(timezone.utc).isoformat(),
         }
+        revision_change = revision_event_for_documents(
+            current,
+            updated,
+            command_id=command_id,
+            operation="publish_generation",
+            affected_block_ids=[block.block_id for block in updated.blocks],
+            created_at=receipt["committed_at"],
+        )
+        receipt["revision_change"] = revision_change.model_dump(mode="json")
         operation_log = list(raw.get("course_operation_log") or [])
         operation_log.append({
             "command_id": command_id,
@@ -199,6 +257,7 @@ class CourseDocumentRepository:
             "receipt": receipt,
         })
         published["course_operation_log"] = operation_log[-200:]
+        published["course_revision_vector"] = revision_change.current.model_dump(mode="json")
         published["course_document_publication"] = {
             "source_format": "generation_workspace_v1",
             "job_id": job_id,
@@ -232,6 +291,7 @@ class CourseDocumentRepository:
             document = CourseDocument.model_validate(raw["course_document"])
         else:
             document = document_from_legacy_course(prepared_legacy_course or raw)
+        presentation_document = project_feedback_structures(document)
         return {
             "course_id": str(raw.get("course_id") or course_id),
             "course_name": str(raw.get("course_name") or document.title),
@@ -244,7 +304,8 @@ class CourseDocumentRepository:
                 "source_checksum": None if canonical else legacy_source_checksum(raw),
                 "migrated_at": (raw.get("course_document_migration") or {}).get("migrated_at"),
             },
-            "document": document.model_dump(mode="json"),
+            "document": presentation_document.model_dump(mode="json"),
+            "revision_vector": revision_vector_for_document(document).model_dump(mode="json"),
         }
 
     async def migrate_legacy_course(
@@ -264,13 +325,7 @@ class CourseDocumentRepository:
 
         prepared = project_learning_objective_bindings(deepcopy(raw))
         document = document_from_legacy_course(prepared)
-        canonical = {
-            key: deepcopy(value)
-            for key, value in raw.items()
-            if key != "nodes"
-        }
-        canonical["course_schema_version"] = COURSE_DOCUMENT_SCHEMA
-        canonical["course_document"] = document.model_dump(mode="json")
+        canonical = self._canonical_storage_envelope(raw, document)
         canonical["course_document_migration"] = {
             "source_format": "legacy_nodes_markdown",
             "source_checksum": actual_checksum,
@@ -278,7 +333,6 @@ class CourseDocumentRepository:
             "block_count": len(document.blocks),
             "migrated_at": datetime.now(timezone.utc).isoformat(),
         }
-        canonical.setdefault("course_operation_log", [])
         await self._save_raw(course_id, canonical)
         return self.document_envelope(course_id)
 
@@ -290,13 +344,59 @@ class CourseDocumentRepository:
         expected_revision: str,
         operation: dict[str, Any],
     ) -> dict[str, Any]:
-        raw = self.load_raw(course_id)
+        async with self._command_lock(course_id):
+            raw = self.load_raw(course_id)
+            return await self._commit_document_locked(
+                course_id,
+                raw,
+                document,
+                expected_revision=expected_revision,
+                operation=operation,
+            )
+
+    async def apply_command(
+        self,
+        course_id: str,
+        *,
+        expected_revision: str,
+        operation: dict[str, Any],
+        mutation: Callable[[CourseDocument], None],
+    ) -> dict[str, Any]:
+        async with self._command_lock(course_id):
+            raw = self.load_raw(course_id)
+            if not self.is_canonical(raw):
+                raise CourseDocumentConflict("Course must be migrated before canonical writes")
+            command_id = str(operation.get("command_id") or "")
+            existing = next(
+                (item for item in raw.get("course_operation_log") or [] if item.get("command_id") == command_id),
+                None,
+            )
+            if command_id and existing:
+                return deepcopy(existing.get("receipt") or {})
+            current = CourseDocument.model_validate(raw["course_document"])
+            if current.document_revision != expected_revision:
+                raise CourseDocumentConflict("Course document revision changed")
+            document = current.model_copy(deep=True)
+            mutation(document)
+            return await self._commit_document_locked(
+                course_id,
+                raw,
+                document,
+                expected_revision=expected_revision,
+                operation=operation,
+            )
+
+    async def _commit_document_locked(
+        self,
+        course_id: str,
+        raw: dict[str, Any],
+        document: CourseDocument,
+        *,
+        expected_revision: str,
+        operation: dict[str, Any],
+    ) -> dict[str, Any]:
         if not self.is_canonical(raw):
             raise CourseDocumentConflict("Course must be migrated before canonical writes")
-        current = CourseDocument.model_validate(raw["course_document"])
-        if current.document_revision != expected_revision:
-            raise CourseDocumentConflict("Course document revision changed")
-
         command_id = str(operation.get("command_id") or "")
         existing = next(
             (item for item in raw.get("course_operation_log") or [] if item.get("command_id") == command_id),
@@ -304,6 +404,9 @@ class CourseDocumentRepository:
         )
         if command_id and existing:
             return deepcopy(existing.get("receipt") or {})
+        current = CourseDocument.model_validate(raw["course_document"])
+        if current.document_revision != expected_revision:
+            raise CourseDocumentConflict("Course document revision changed")
 
         updated = refresh_document_revision(document)
         receipt = {
@@ -314,6 +417,15 @@ class CourseDocumentRepository:
             "affected_block_ids": sorted({str(item) for item in operation.get("affected_block_ids") or [] if item}),
             "committed_at": datetime.now(timezone.utc).isoformat(),
         }
+        revision_change = revision_event_for_documents(
+            current,
+            updated,
+            command_id=command_id,
+            operation=receipt["operation"],
+            affected_block_ids=receipt["affected_block_ids"],
+            created_at=receipt["committed_at"],
+        )
+        receipt["revision_change"] = revision_change.model_dump(mode="json")
         entry = {
             "command_id": command_id,
             "operation": receipt["operation"],
@@ -326,15 +438,86 @@ class CourseDocumentRepository:
         raw["course_operation_log"] = operation_log[-200:]
         raw["course_document"] = updated.model_dump(mode="json")
         raw["course_document_revision"] = updated.document_revision
+        raw["course_revision_vector"] = revision_change.current.model_dump(mode="json")
         raw["current_course_version_id"] = updated.document_revision
         raw.pop("nodes", None)
         await self._save_raw(course_id, raw)
         return receipt
 
+    def _command_lock(self, course_id: str) -> asyncio.Lock:
+        key = (id(self.storage), course_id)
+        with _COMMAND_LOCKS_GUARD:
+            return _COMMAND_LOCKS.setdefault(key, asyncio.Lock())
+
+    async def repair_block_semantics(
+        self,
+        course_id: str,
+        *,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        document, canonical = self.load_document(course_id)
+        if not canonical:
+            raise CourseDocumentConflict("Course must be migrated before semantic repair")
+        repaired, report = repair_document_block_semantics(document)
+        result = {
+            "course_id": course_id,
+            "document_revision": document.document_revision,
+            **report,
+        }
+        if dry_run or not report["changed"]:
+            return result
+
+        command_id = f"repair-block-semantics-v1:{course_id}:{document.document_revision}"
+        receipt = await self.commit_document(
+            course_id,
+            repaired,
+            expected_revision=document.document_revision,
+            operation={
+                "command_id": command_id,
+                "operation": "repair_block_semantics",
+                "reason": "移除空课程块，并依据教学模块契约修复课程块角色",
+                "actor": "course_semantic_repair",
+                "affected_block_ids": report["affected_block_ids"],
+            },
+        )
+        result["receipt"] = receipt
+        result["document_revision"] = receipt["document_revision"]
+        return result
+
     async def _save_raw(self, course_id: str, data: dict[str, Any]) -> None:
         result = self.storage.save_course(course_id, data)
         if inspect.isawaitable(result):
             await result
+
+    @staticmethod
+    def _canonical_storage_envelope(
+        raw: dict[str, Any],
+        document: CourseDocument,
+    ) -> dict[str, Any]:
+        validated = refresh_document_revision(CourseDocument.model_validate(
+            document.model_dump(mode="json"),
+        ))
+        raw_course_id = str(raw.get("course_id") or validated.course_id)
+        if raw_course_id != validated.course_id:
+            raise CourseDocumentConflict("Course metadata and document IDs differ")
+
+        canonical = {
+            key: deepcopy(value)
+            for key, value in raw.items()
+            if key != "nodes"
+        }
+        canonical.update({
+            "course_id": validated.course_id,
+            "course_name": str(canonical.get("course_name") or validated.title),
+            "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+            "course_document": validated.model_dump(mode="json"),
+            "course_document_revision": validated.document_revision,
+            "course_revision_vector": revision_vector_for_document(validated).model_dump(mode="json"),
+            "course_document_authoritative": True,
+            "current_course_version_id": validated.document_revision,
+        })
+        canonical.setdefault("course_operation_log", [])
+        return canonical
 
     def _require_generation_shell(self, raw: dict[str, Any], job_id: str) -> None:
         if not self.is_canonical(raw):

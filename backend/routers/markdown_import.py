@@ -10,10 +10,9 @@ import uuid
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
+from dependencies import get_course_document_repository
 from models import ImportMarkdownResponse
-from storage import storage
 from markdown_parser import parse_markdown_to_nodes
-from storage_utils import save_course_compat
 
 router = APIRouter(prefix="/api", tags=["import"])
 
@@ -44,6 +43,9 @@ async def import_markdown(file: UploadFile = File(...)):
     except ValueError:
         raise HTTPException(status_code=422, detail="未检测到 Markdown 标题，请确保文件包含至少一个 # 标题")
 
+    if not any(str(node.get("node_content", "")).strip() for node in nodes):
+        raise HTTPException(status_code=422, detail="课程至少需要一段可讲授正文，不能只有标题或层级")
+
     course_id = str(uuid.uuid4())
     course_tree = {
         "course_id": course_id,
@@ -55,5 +57,8 @@ async def import_markdown(file: UploadFile = File(...)):
         "create_time": datetime.utcnow().isoformat(),
     }
 
-    await save_course_compat(storage, course_id, course_tree)
+    await get_course_document_repository().create_imported_course(
+        course_id,
+        imported_course=course_tree,
+    )
     return ImportMarkdownResponse(course_id=course_id, course_name=course_name)

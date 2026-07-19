@@ -1,3 +1,5 @@
+import pytest
+
 from practice_grading import PracticeGrader, _normalized
 
 
@@ -73,3 +75,124 @@ def test_normal_string_answer_incorrect():
 def test_unanswered_normal_string_question_is_not_graded_correct():
     result = _deterministic(expected="北京", actual=None)
     assert result["passed"] is False
+
+
+@pytest.mark.asyncio
+async def test_rubric_grading_recovers_single_numeric_literal_noise(monkeypatch):
+    grader = PracticeGrader()
+    grader.client = object()
+
+    async def fake_call(*_args, **_kwargs):
+        return """{
+          "score": 狂欢76s,
+          "passed": true,
+          "confidence": 0.8,
+          "feedback": "计算和复合顺序解释正确。",
+          "rubric_results": [
+            {
+              "criterion": "比较 AB 与 BA 并解释原因",
+              "met": true,
+              "score": 76分,
+              "feedback": "给出了可检查的计算与解释。"
+            }
+          ]
+        }"""
+
+    monkeypatch.setattr(grader, "_call_llm", fake_call)
+    question = {
+        "prompt": "计算 AB 和 BA，并解释为什么通常不相等。",
+        "question_type": "derivation",
+        "practice_level": "mastery_check",
+        "answer_spec": {
+            "type": "rubric",
+            "criteria": ["比较 AB 与 BA 并解释原因"],
+            "expected_keywords": ["线性映射复合", "不可交换"],
+            "pass_score": 70,
+        },
+        "grading_policy": {
+            "method": "rubric_ai",
+            "confidence_threshold": 0.72,
+        },
+        "validation_policy": {
+            "mastery_eligible": True,
+            "max_support_level_for_mastery": 1,
+        },
+    }
+    result = await grader.grade(question, {
+        "status": "submitted",
+        "submitted_answer_payload": {"text": "给出完整计算与结果检查"},
+        "revealed_hint_levels": [],
+    })
+
+    assert result["status"] == "graded"
+    assert result["score"] == 76
+    assert result["passed"] is True
+    assert result["grading_confidence"] == 0.8
+    assert result["rubric_results"][0]["score"] == 76
+
+
+@pytest.mark.asyncio
+async def test_rubric_grading_receives_hidden_canonical_answer_and_solution_trace(
+    monkeypatch,
+):
+    grader = PracticeGrader()
+    grader.client = object()
+    captured = {}
+
+    async def fake_call(prompt, **_kwargs):
+        captured["prompt"] = prompt
+        return """{
+          "score": 85,
+          "passed": true,
+          "confidence": 0.9,
+          "feedback": "旋转和遍历结果正确。",
+          "rubric_results": [
+            {
+              "criterion": "旋转判断正确",
+              "met": true,
+              "score": 85,
+              "feedback": "与标准过程一致。"
+            }
+          ]
+        }"""
+
+    monkeypatch.setattr(grader, "_call_llm", fake_call)
+    question = {
+        "prompt": "向AVL树插入给定键并说明旋转。",
+        "question_type": "worked_solution",
+        "practice_level": "mastery_check",
+        "answer_spec": {
+            "criteria": ["旋转判断正确"],
+            "canonical_answer": {
+                "preorder": [30, 20, 10, 25, 40, 50],
+                "rotations": ["在30执行LL右旋", "在20执行RR左旋"],
+            },
+            "solution_trace": [
+                "插入10后在30执行LL右旋",
+                "插入50后在20执行RR左旋",
+            ],
+            "pass_score": 70,
+        },
+        "grading_policy": {
+            "method": "rubric_ai_with_reference",
+            "confidence_threshold": 0.72,
+        },
+        "validation_policy": {
+            "mastery_eligible": True,
+            "max_support_level_for_mastery": 1,
+        },
+    }
+
+    result = await grader.grade(question, {
+        "status": "submitted",
+        "submitted_answer_payload": {
+            "text": "两次旋转后先序为30,20,10,25,40,50。",
+        },
+        "revealed_hint_levels": [],
+    })
+
+    prompt = captured["prompt"]
+    assert '"canonical_answer"' in prompt
+    assert "在30执行LL右旋" in prompt
+    assert '"solution_trace"' in prompt
+    assert result["passed"] is True

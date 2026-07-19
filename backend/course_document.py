@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import hashlib
 import json
+from copy import deepcopy
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from content_blocks import blocks_to_markdown, content_fingerprint, normalize_blocks
-
+from content_blocks import (
+    block_type_from_title,
+    blocks_to_markdown,
+    content_fingerprint,
+    heading_matches_section,
+    normalize_blocks,
+)
+from course_feedback import default_block_kind_for_role, enrich_feedback_payload
 
 COURSE_DOCUMENT_SCHEMA = "course_document_v1"
 
@@ -38,11 +44,14 @@ BlockKind = Literal[
 BlockRole = Literal[
     "orientation",
     "prerequisite",
+    "objective",
     "concept",
     "reasoning",
     "example",
     "counterexample",
     "application",
+    "activity",
+    "feedback",
     "misconception",
     "checkpoint",
     "remediation",
@@ -58,9 +67,9 @@ _KINDS = {
 }
 
 _ROLES = {
-    "orientation", "prerequisite", "concept", "reasoning", "example",
-    "counterexample", "application", "misconception", "checkpoint",
-    "remediation", "summary", "transfer",
+    "orientation", "prerequisite", "objective", "concept", "reasoning",
+    "example", "counterexample", "application", "activity", "feedback",
+    "misconception", "checkpoint", "remediation", "summary", "transfer",
 }
 
 _LEGACY_NODE_FIELDS = {
@@ -172,15 +181,34 @@ def document_from_legacy_course(course_data: dict[str, Any]) -> CourseDocument:
             section_id,
             node.get("content_blocks"),
             str(node.get("node_content") or ""),
+            str(node.get("node_name") or ""),
         )
         for block_index, legacy_block in enumerate(legacy_blocks):
             metadata = legacy_block.get("metadata") if isinstance(legacy_block.get("metadata"), dict) else {}
-            kind = str(metadata.get("kind") or "rich_text")
-            if kind not in _KINDS:
-                kind = "rich_text"
             role = str(metadata.get("role") or _legacy_role(legacy_block))
             if role not in _ROLES:
                 role = "concept"
+            kind = str(metadata.get("kind") or default_block_kind_for_role(role))
+            if kind not in _KINDS:
+                kind = default_block_kind_for_role(role)
+            payload = {
+                "title": str(legacy_block.get("title") or ""),
+                "markdown": str(legacy_block.get("content") or ""),
+                "summary": str(legacy_block.get("summary") or ""),
+                "knowledge_binding_status": metadata.get("knowledge_binding_status"),
+            }
+            for trace_key in (
+                "module_id",
+                "module_instance_id",
+                "composition_source",
+                "composition_style",
+                "selection_reasons",
+                "block_difficulty_contract",
+            ):
+                if metadata.get(trace_key) not in (None, "", {}, []):
+                    payload[trace_key] = deepcopy(metadata.get(trace_key))
+            if role == "feedback":
+                payload = enrich_feedback_payload(payload)
             block = CourseBlock(
                 block_id=str(legacy_block.get("block_id") or f"{section_id}-block-{block_index + 1}"),
                 section_id=section_id,
@@ -188,18 +216,17 @@ def document_from_legacy_course(course_data: dict[str, Any]) -> CourseDocument:
                 position=block_index,
                 kind=kind,
                 role=role,
-                payload={
-                    "title": str(legacy_block.get("title") or ""),
-                    "markdown": str(legacy_block.get("content") or ""),
-                    "summary": str(legacy_block.get("summary") or ""),
-                    "knowledge_binding_status": metadata.get("knowledge_binding_status"),
-                },
+                payload=payload,
                 asset_refs=_unique_refs(metadata.get("asset_refs")),
                 objective_refs=_unique_refs(
                     metadata.get("objective_refs"),
                     [objective_id] if objective_id else [],
                 ),
-                concept_refs=_unique_refs(metadata.get("concept_refs")),
+                concept_refs=_unique_refs(
+                    metadata.get("concept_refs")
+                    if metadata.get("concept_refs")
+                    else node.get("concept_refs")
+                ),
                 evidence_refs=_unique_refs(metadata.get("evidence_refs")),
                 status="draft" if legacy_block.get("status") == "draft" else "final",
             )
@@ -277,16 +304,86 @@ def course_view_from_document(
     return view
 
 
+def repair_document_block_semantics(
+    document: CourseDocument | dict[str, Any],
+) -> tuple[CourseDocument, dict[str, Any]]:
+    """Repair role drift without rewriting any substantive course content.
+
+    The operation removes empty presentation-only blocks, turns a repeated
+    section heading with real body text into an introduction, and resolves
+    explicit teaching-module headings through the shared role registry. Block
+    ids and body markdown remain stable for every retained block.
+    """
+    original = document if isinstance(document, CourseDocument) else CourseDocument.model_validate(document)
+    repaired = CourseDocument.model_validate(original.model_dump(mode="json"))
+    section_titles = {section.section_id: section.title for section in repaired.sections}
+    removed_block_ids: list[str] = []
+    role_changes: list[dict[str, str]] = []
+    title_changes: list[dict[str, str]] = []
+    retained: list[CourseBlock] = []
+
+    for block in repaired.blocks:
+        title = str(block.payload.get("title") or "").strip()
+        content = str(block.payload.get("markdown") or block.payload.get("text") or "").strip()
+        if block.status != "retired" and not content:
+            removed_block_ids.append(block.block_id)
+            continue
+
+        section_title = section_titles.get(block.section_id, "")
+        if heading_matches_section(title, section_title):
+            block.payload["title"] = "引入问题"
+            title_changes.append({
+                "block_id": block.block_id,
+                "from": title,
+                "to": "引入问题",
+            })
+            title = "引入问题"
+
+        inferred_type = block_type_from_title(title, block.position, content)
+        inferred_role = _canonical_role(inferred_type, title)
+        if inferred_role and inferred_role != block.role:
+            role_changes.append({
+                "block_id": block.block_id,
+                "title": title,
+                "from": block.role,
+                "to": inferred_role,
+            })
+            block.role = inferred_role
+        retained.append(block)
+
+    positions: dict[str, int] = {}
+    for block in sorted(retained, key=lambda item: (
+        next((section.position for section in repaired.sections if section.section_id == item.section_id), 0),
+        item.position,
+    )):
+        block.position = positions.get(block.section_id, 0)
+        positions[block.section_id] = block.position + 1
+
+    repaired.blocks = retained
+    changed = bool(removed_block_ids or role_changes or title_changes)
+    if changed:
+        repaired = refresh_document_revision(repaired)
+    report = {
+        "changed": changed,
+        "removed_empty_block_ids": removed_block_ids,
+        "role_changes": role_changes,
+        "title_changes": title_changes,
+        "affected_block_ids": sorted({
+            *removed_block_ids,
+            *(item["block_id"] for item in role_changes),
+            *(item["block_id"] for item in title_changes),
+        }),
+    }
+    return repaired, report
+
+
 def _legacy_block(block: CourseBlock) -> dict[str, Any]:
     title = str(block.payload.get("title") or "")
     content = str(block.payload.get("markdown") or block.payload.get("text") or "")
-    legacy_type = block.role if block.role in {
-        "concept", "reasoning", "example", "application", "summary"
-    } else {
+    legacy_type = {
         "orientation": "intro",
         "checkpoint": "exercise",
-        "misconception": "summary",
-    }.get(block.role, "custom")
+    }.get(block.role, block.role)
     return {
         "block_id": block.block_id,
         "parent_block_id": block.parent_group_id,
@@ -319,9 +416,24 @@ def _legacy_role(block: dict[str, Any]) -> str:
         return "example" if any(word in title for word in ("例题", "推演", "示例")) else "checkpoint"
     if old_type == "summary":
         return "misconception" if any(word in title for word in ("错误", "误区")) else "summary"
-    if old_type in {"concept", "reasoning", "example", "application"}:
+    if old_type in _ROLES:
         return old_type
-    return "concept"
+    inferred = block_type_from_title(
+        str(block.get("title") or ""),
+        int(block.get("order") or 0),
+        str(block.get("content") or ""),
+    )
+    return _canonical_role(inferred, title) or "concept"
+
+
+def _canonical_role(block_type: str, title: str = "") -> str | None:
+    if block_type == "intro":
+        return "orientation"
+    if block_type == "exercise":
+        return "example" if any(word in title for word in ("例题", "推演", "示例")) else "checkpoint"
+    if block_type in _ROLES:
+        return block_type
+    return None
 
 
 def _walk_legacy_nodes(nodes: list[dict[str, Any]]):

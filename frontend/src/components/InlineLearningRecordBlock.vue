@@ -8,9 +8,29 @@
       <span><NotebookTabs :size="14" /></span>
       <strong>{{ recordLabel }}</strong>
       <small v-if="note.syncState === 'local_only'">{{ t('inlineRecords.localOnly', '仅保存在本机') }}</small>
-      <button type="button" :title="t('inlineRecords.edit', '编辑学习记录')" :aria-label="t('inlineRecords.edit', '编辑学习记录')" @click="openEditor">
+      <div class="record-actions">
+        <button
+          v-if="isAiRecord"
+          type="button"
+          :title="t('inlineRecords.regenerateAi', '重新生成这段 AI 讲解')"
+          :aria-label="t('inlineRecords.regenerateAi', '重新生成这段 AI 讲解')"
+          @click="emit('regenerate', note)"
+        >
+          <RotateCcw :size="14" />
+        </button>
+        <button type="button" :title="t('inlineRecords.edit', '编辑学习记录')" :aria-label="t('inlineRecords.edit', '编辑学习记录')" @click="openEditor">
         <PencilLine :size="14" />
-      </button>
+        </button>
+        <button
+          v-if="isAiRecord"
+          type="button"
+          :title="t('inlineRecords.delete', '删除这段 AI 讲解')"
+          :aria-label="t('inlineRecords.delete', '删除这段 AI 讲解')"
+          @click="emit('delete', note)"
+        >
+          <Trash2 :size="14" />
+        </button>
+      </div>
     </header>
     <p v-if="note.title" class="record-title">{{ note.title }}</p>
     <MarkdownRenderer
@@ -23,13 +43,18 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NotebookTabs, PencilLine } from 'lucide-vue-next'
+import { NotebookTabs, PencilLine, RotateCcw, Trash2 } from 'lucide-vue-next'
 import type { Note } from '@/stores/types'
 import { t } from '@/shared/i18n'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 
 const props = defineProps<{ note: Note }>()
-const emit = defineEmits<{ open: [payload: { note: Note; x: number; y: number }] }>()
+const emit = defineEmits<{
+  open: [payload: { note: Note; x: number; y: number }]
+  regenerate: [note: Note]
+  delete: [note: Note]
+}>()
+const isAiRecord = computed(() => props.note.sourceType === 'ai' && props.note.metadata?.record_subtype === 'anchored_ai_qa')
 
 const recordLabel = computed(() => {
   if (props.note.sourceType === 'ai') return t('inlineRecords.aiSummary', 'AI 问答摘要')
@@ -53,10 +78,11 @@ function openEditor(event: MouseEvent) {
 .inline-learning-record { --record-accent:#d97706; margin:2px 0 0; padding:12px 14px 12px 16px; border-left:3px solid var(--record-accent); border-radius:0 7px 7px 0; color:var(--lz-text); background:#fffbeb; }
 .inline-learning-record[data-source="ai"] { --record-accent:#6366f1; background:#f5f3ff; }
 .inline-learning-record[data-sync-state="local_only"] { border-left-style:dashed; }
-.inline-learning-record header { display:grid; grid-template-columns:22px minmax(0,1fr) auto 28px; align-items:center; gap:7px; }
+.inline-learning-record header { display:grid; grid-template-columns:22px minmax(0,1fr) auto auto; align-items:center; gap:7px; }
 .inline-learning-record header > span { width:22px; height:22px; display:grid; place-items:center; color:var(--record-accent); }
 .inline-learning-record header strong { color:var(--lz-text-strong); font-size:11px; }
 .inline-learning-record header small { color:var(--lz-warning); font-size:9px; }
+.record-actions { display:flex; align-items:center; }
 .inline-learning-record header button { width:28px; height:28px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-muted); background:transparent; cursor:pointer; }
 .inline-learning-record header button:hover { color:var(--record-accent); background:rgba(255,255,255,.72); }
 .record-title { margin:9px 0 0 29px; color:var(--lz-text-strong); font-size:12px; font-weight:700; line-height:1.5; }

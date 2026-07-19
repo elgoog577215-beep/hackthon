@@ -430,7 +430,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'quoteAsk', payload: { text: string; nodeId: string; anchor?: Record<string, unknown> }): void
-  (e: 'startPractice', node: any): void
+  (e: 'startPractice', node: any, taskRevisionId?: string): void
   (e: 'improveBlock', payload: CourseBlockEditTarget): void
 }>()
 
@@ -2014,10 +2014,10 @@ const askAiFromInlineRecord = (note: Note) => {
 
 
 
-const handleStartPractice = (node: any) => {
+const handleStartPractice = (node: any, taskRevisionId?: string) => {
     courseStore.selectNode(node)
     workspaceStore.mode = 'practice'
-    emit('startPractice', node)
+    emit('startPractice', node, taskRevisionId)
 }
 
 

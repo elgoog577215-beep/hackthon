@@ -7,13 +7,13 @@
         <p v-if="node.learning_objective">{{ node.learning_objective }}</p>
       </header>
       <div v-if="node.node_content" class="opening-content" :style="contentStyle">
-        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" />
+        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
       </div>
       <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
         <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
         <span>{{ generationLabel }}</span>
       </div>
-      <AdaptiveLearningBlock v-if="adaptiveBlock && !generationPreview" :block="adaptiveBlock" />
+      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" :practice-available="hasFormalPractice" @verify="emit('startPractice', node)" />
     </template>
 
     <template v-else-if="node.node_level === 2">
@@ -45,7 +45,7 @@
       </header>
 
       <div v-if="node.node_content" class="chapter-content" :style="contentStyle">
-        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" />
+        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
       </div>
 
       <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
@@ -53,7 +53,7 @@
         <span>{{ generationLabel }}</span>
       </div>
 
-      <AdaptiveLearningBlock v-if="adaptiveBlock && !generationPreview" :block="adaptiveBlock" />
+      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" :practice-available="hasFormalPractice" @verify="emit('startPractice', node)" />
 
       <button
         v-if="hasFormalPractice && !generationPreview"
@@ -88,13 +88,13 @@
         </small>
       </header>
       <div v-if="node.node_content" class="section-content" :style="contentStyle">
-        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" />
+        <CourseBlockStream :node="node" :content="node.node_content" :records="records" :search-words="searchWords" :is-streaming="isStreaming" :can-improve-blocks="canImproveBlocks" @open-record="emit('openRecord', $event)" @improve-block="emit('improveBlock', $event)" @start-practice="emit('startPractice', node, $event)" />
       </div>
       <div v-else-if="generationPreview" class="generation-placeholder" :data-state="generationState">
         <component :is="generationIcon" :size="16" :class="{ spinning: generationState === 'generating' }" />
         <span>{{ generationLabel }}</span>
       </div>
-      <AdaptiveLearningBlock v-if="adaptiveBlock && !generationPreview" :block="adaptiveBlock" />
+      <AdaptiveLearningBlock v-for="block in adaptiveBlocks" v-if="!generationPreview" :key="block.adaptive_block_id" :block="block" :practice-available="hasFormalPractice" @verify="emit('startPractice', node)" />
     </template>
   </section>
 </template>
@@ -122,7 +122,7 @@ const props = defineProps<{
   generationPreview?: boolean
 }>()
 const emit = defineEmits<{
-  (event: 'startPractice', node: Node): void
+  (event: 'startPractice', node: Node, taskRevisionId?: string): void
   (event: 'openRecord', payload: { note: Note; x: number; y: number }): void
   (event: 'improveBlock', payload: CourseBlockEditTarget): void
 }>()
@@ -164,9 +164,9 @@ const practiceCountLabel = computed(() => (
   t('courseBlocks.practiceCount', '{count} 道正式题').replace('{count}', String(practiceQuestions.value.length))
 ))
 const nodeProgress = computed(() => progressStore.nodeProgress(props.node.node_id))
-const adaptiveBlock = computed(() => (progressStore.runtime?.adaptive_blocks || []).find(block => (
+const adaptiveBlocks = computed(() => (progressStore.runtime?.adaptive_blocks || []).filter(block => (
   block.status === 'active' && block.anchor.node_id === props.node.node_id
-)) || null)
+)))
 const readingStatusLabel = computed(() => t(`courseWorkspace.progress.reading.${nodeProgress.value?.reading_status || 'not_started'}`, '尚未开始'))
 const masteryStatusLabel = computed(() => t(`courseWorkspace.progress.mastery.${nodeProgress.value?.mastery_status || 'not_checked'}`, '尚未检查'))
 const contentStyle = computed(() => ({

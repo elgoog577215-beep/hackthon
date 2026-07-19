@@ -171,6 +171,30 @@ async def test_call_llm_still_fails_over_on_rate_limit_chinese_marker(monkeypatc
     assert completions.calls == ["model-a", "model-b"]
 
 
+@pytest.mark.asyncio
+async def test_call_llm_raise_on_failure_surfaces_error_after_all_candidates(monkeypatch):
+    error = _make_status_error(503, "provider unavailable")
+    completions = SequencedCompletions(
+        lambda: error,
+        failing_model="model-a",
+    )
+    service = _make_service(monkeypatch, completions, models=("model-a",))
+
+    with pytest.raises(AIProviderRequestError, match="provider unavailable"):
+        await service._call_llm("hi", retry_count=1, raise_on_failure=True)
+
+    assert completions.calls == ["model-a"]
+
+
+@pytest.mark.asyncio
+async def test_call_llm_strict_mode_reports_missing_provider(monkeypatch):
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    service = AIBase()
+
+    with pytest.raises(AIProviderUnavailable, match="not_configured"):
+        await service._call_llm("hi", raise_on_failure=True)
+
+
 def test_is_authentication_error_recognizes_403_and_forbidden():
     assert AIBase._is_authentication_error(_make_status_error(403, "forbidden"))
     assert AIBase._is_authentication_error(RuntimeError("403 Forbidden"))

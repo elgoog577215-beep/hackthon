@@ -1,31 +1,33 @@
-"""Course-local coverage mapped onto an independent subject knowledge library."""
+"""Course-local knowledge coverage and compatibility projection."""
 
 from __future__ import annotations
 
-from copy import deepcopy
 import re
+from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
-from subject_knowledge import (
-    knowledge_index,
-    knowledge_library_slice,
-    match_subject_knowledge,
-    resolve_subject_library,
-    suggest_subject_knowledge,
-)
 
-
-COURSE_MAP_SCHEMA = "course_knowledge_map_v1"
+COURSE_MAP_SCHEMA = "course_knowledge_map_v2"
 
 
 def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize course-local outline concepts without promoting them to formal knowledge."""
+    """Normalize the course-owned knowledge blueprint without copying section titles.
+
+    Historical ``key_points`` remain readable as degraded candidates, but a missing
+    knowledge blueprint is never repaired by manufacturing a point from the section
+    title. New-course publication is blocked later by the v2 knowledge quality gate.
+    """
     normalized: list[dict[str, Any]] = []
     for topic_index, raw_topic in enumerate(section.get("knowledge_structure") or []):
         if not isinstance(raw_topic, dict):
             continue
-        topic_name = str(raw_topic.get("topic") or raw_topic.get("name") or "").strip()
+        topic_name = str(
+            raw_topic.get("concept_group")
+            or raw_topic.get("topic")
+            or raw_topic.get("name")
+            or ""
+        ).strip()
         points = [
             point
             for point_index, raw_point in enumerate(raw_topic.get("knowledge_points") or [])
@@ -34,6 +36,7 @@ def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any
         if not topic_name or not points:
             continue
         normalized.append({
+            "concept_group": topic_name,
             "topic": topic_name,
             "description": str(raw_topic.get("description") or "").strip(),
             "knowledge_points": points,
@@ -43,6 +46,7 @@ def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any
 
     if normalized:
         section["knowledge_structure"] = normalized
+        section["knowledge_structure_status"] = "structured"
         section["key_points"] = _unique([
             point["name"]
             for topic in normalized
@@ -56,16 +60,28 @@ def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any
         if str(item).strip()
     ])
     if not names:
-        names = [str(section.get("node_name") or section.get("title") or "本节内容").strip()]
-    topic_name = str(section.get("node_name") or section.get("title") or "本节内容").strip()
+        section["knowledge_structure"] = []
+        section["knowledge_structure_status"] = "needs_enrichment"
+        return []
     normalized = [{
-        "topic": topic_name,
-        "description": "来自课程大纲的局部表述，尚未完成课程内细化。",
+        "concept_group": "待知识化内容",
+        "topic": "待知识化内容",
+        "description": "历史课程只保留了要点名称，尚未形成可发布的原子知识结构。",
         "knowledge_points": [{
             "name": name,
+            "statement": "",
             "description": "",
-            "capability": f"能够解释并在本节任务中应用「{name}」",
+            "knowledge_type": "definition",
+            "conditions": [],
+            "boundaries": [],
+            "counterexamples": [],
+            "capability": "",
+            "capability_points": [],
+            "misconceptions": [],
+            "mastery_criteria": [],
+            "relations": [],
             "aliases": [],
+            "entry_reason": "",
             "prerequisite_names": [],
             "order": index,
         } for index, name in enumerate(names)],
@@ -73,6 +89,7 @@ def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any
         "order": 0,
     }]
     section["knowledge_structure"] = normalized
+    section["knowledge_structure_status"] = "needs_enrichment"
     section["key_points"] = names
     return normalized
 
@@ -81,9 +98,13 @@ def compile_course_knowledge_map(
     course_data: dict[str, Any],
     library: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compile deterministic course coverage without creating formal knowledge IDs."""
-    subject_library = deepcopy(library) if library is not None else resolve_subject_library(course_data)
-    formal_nodes = knowledge_index(subject_library)
+    """Compile deterministic coverage for one course only.
+
+    ``library`` is retained as a read-compatible argument for older callers, but
+    deliberately ignored. A course can never acquire identity from another
+    course or from a shared subject catalog.
+    """
+    del library
     course_id = str(course_data.get("course_id") or "")
     sections = [
         node for node in course_data.get("nodes") or []
@@ -99,6 +120,161 @@ def compile_course_knowledge_map(
         section_mappings: list[dict[str, Any]] = []
         local_entries = _local_entries(structures)
         for local_order, entry in enumerate(local_entries):
+            mapping_scope = _mapping_scope(section, entry)
+            mapping_id = stable_hash({
+                "course": course_id,
+                "section": section_id,
+                "kind": entry["local_kind"],
+                "topic": entry["local_topic"],
+                "name": entry["local_name"],
+            }, prefix="ckm_")
+            mapping = {
+                "mapping_id": mapping_id,
+                "section_id": section_id,
+                "local_kind": entry["local_kind"],
+                "local_topic": entry["local_topic"],
+                "local_name": entry["local_name"],
+                "local_description": entry["local_description"],
+                "local_capability": entry["local_capability"],
+                "anchor_knowledge_id": None,
+                "knowledge_ids": [],
+                "match_status": "awaiting_course_binding",
+                "mapping_scope": mapping_scope,
+                "confidence": 0.0,
+                "suggestions": [],
+                "block_ids": [],
+                "objective_ids": _unique([str(section.get("objective_id") or "")]),
+                "evidence_ids": _section_evidence_ids(section),
+                "source_status": "material_supported" if _section_evidence_ids(section) else "course_structure",
+                "detail_status": entry["detail_status"],
+                "order": local_order,
+            }
+            mapping["revision_id"] = _revision_id(mapping, "ckmr_")
+            mappings.append(mapping)
+            section_mappings.append(mapping)
+
+        _bind_section_blocks(section, section_mappings, {})
+        formal_ids: list[str] = []
+        mapping_ids = [str(mapping["mapping_id"]) for mapping in section_mappings]
+        section_knowledge_ids[section_id] = formal_ids
+        section_mapping_ids[section_id] = mapping_ids
+        section["concept_refs"] = formal_ids
+        section["knowledge_refs"] = formal_ids
+        section["knowledge_mapping_refs"] = mapping_ids
+
+    sequence_relations = _course_sequence_relations(course_id, sections)
+    knowledge_mappings = [
+        mapping for mapping in mappings if mapping.get("mapping_scope") == "knowledge"
+    ]
+    unresolved = [
+        deepcopy(mapping) for mapping in mappings
+        if mapping.get("mapping_scope") == "knowledge"
+        and mapping.get("match_status") == "awaiting_course_binding"
+    ]
+    mapped = [
+        mapping
+        for mapping in knowledge_mappings
+        if mapping.get("match_status") == "course_local"
+    ]
+    formal_ids = _unique([
+        knowledge_id
+        for mapping in mapped
+        for knowledge_id in mapping.get("knowledge_ids") or []
+    ])
+    payload = {
+        "schema_version": COURSE_MAP_SCHEMA,
+        "asset_id": stable_hash({"course": course_id, "kind": "course_knowledge_map"}, prefix="ckma_"),
+        "course_id": course_id,
+        "knowledge_library_id": None,
+        "knowledge_library_version": None,
+        "knowledge_library_revision_id": None,
+        "binding_revision_id": None,
+        "library_lifecycle_status": "course_local",
+        "mappings": mappings,
+        "section_knowledge_ids": section_knowledge_ids,
+        "section_mapping_ids": section_mapping_ids,
+        "sequence_relations": sequence_relations,
+        "coverage": {
+            "mapping_count": len(knowledge_mappings),
+            "excluded_pedagogical_count": len(mappings) - len(knowledge_mappings),
+            "mapped_count": len(mapped),
+            "unmapped_count": len(unresolved),
+            "formal_knowledge_count": len(formal_ids),
+            "formal_knowledge_ids": formal_ids,
+            "mapped_ratio": (
+                round(len(mapped) / len(knowledge_mappings), 4)
+                if knowledge_mappings
+                else 0.0
+            ),
+            "status": (
+                "mapped"
+                if knowledge_mappings and not unresolved
+                else "partial"
+                if mapped
+                else "unmapped"
+            ),
+        },
+        "unresolved_candidates": unresolved,
+        "status": "awaiting_course_binding",
+    }
+    payload["revision_id"] = _revision_id(payload, "ckmvr_")
+    return payload
+
+
+def compile_legacy_subject_course_map(
+    course_data: dict[str, Any],
+    library: dict[str, Any],
+) -> dict[str, Any]:
+    """Compile the retired subject-library mapping for explicit migration only.
+
+    Production callers must use :func:`compile_course_knowledge_map`. This
+    adapter exists so historical subject packages can still be inspected and
+    copied into a course without restoring a hidden runtime dependency.
+    """
+    from subject_knowledge import (
+        knowledge_index,
+        match_subject_knowledge,
+        suggest_subject_knowledge,
+    )
+
+    if not isinstance(library, dict) or not library.get("nodes"):
+        raise ValueError("显式历史迁移必须提供可解析的旧学科知识包")
+    subject_library = deepcopy(library)
+    formal_nodes = knowledge_index(subject_library)
+    course_id = str(course_data.get("course_id") or "")
+    sections = [
+        node
+        for node in course_data.get("nodes") or []
+        if int(node.get("node_level") or 1) == 2
+    ]
+    mappings: list[dict[str, Any]] = []
+    section_knowledge_ids: dict[str, list[str]] = {}
+    section_mapping_ids: dict[str, list[str]] = {}
+
+    for section_order, section in enumerate(sections):
+        section_id = str(section.get("node_id") or f"section-{section_order + 1}")
+        structures = normalize_knowledge_structure(section)
+        section_mappings: list[dict[str, Any]] = []
+        local_entries = _local_entries(structures)
+        if not local_entries:
+            section_name = str(
+                section.get("node_name") or section.get("title") or ""
+            ).strip()
+            explicit_match = match_subject_knowledge(subject_library, section_name)
+            if explicit_match and explicit_match.get("match_status") in {
+                "exact_name",
+                "exact_alias",
+            }:
+                local_entries = [{
+                    "local_kind": "concept",
+                    "local_topic": section_name,
+                    "local_name": section_name,
+                    "local_description": "",
+                    "local_capability": "",
+                    "detail_status": "subject_alias_bridge",
+                }]
+        for local_order, entry in enumerate(local_entries):
+            mapping_scope = _mapping_scope(section, entry)
             match = match_subject_knowledge(subject_library, entry["local_name"])
             mapping_id = stable_hash({
                 "course": course_id,
@@ -118,12 +294,24 @@ def compile_course_knowledge_map(
                 "anchor_knowledge_id": (match or {}).get("anchor_knowledge_id"),
                 "knowledge_ids": list((match or {}).get("knowledge_ids") or []),
                 "match_status": (match or {}).get("match_status", "unmapped"),
+                "mapping_scope": mapping_scope,
                 "confidence": float((match or {}).get("confidence") or 0.0),
-                "suggestions": [] if match else suggest_subject_knowledge(subject_library, entry["local_name"]),
+                "suggestions": (
+                    []
+                    if match
+                    else suggest_subject_knowledge(
+                        subject_library,
+                        entry["local_name"],
+                    )
+                ),
                 "block_ids": [],
                 "objective_ids": _unique([str(section.get("objective_id") or "")]),
                 "evidence_ids": _section_evidence_ids(section),
-                "source_status": "material_supported" if _section_evidence_ids(section) else "course_structure",
+                "source_status": (
+                    "material_supported"
+                    if _section_evidence_ids(section)
+                    else "course_structure"
+                ),
                 "detail_status": entry["detail_status"],
                 "order": local_order,
             }
@@ -145,12 +333,21 @@ def compile_course_knowledge_map(
         section["knowledge_refs"] = formal_ids
         section["knowledge_mapping_refs"] = mapping_ids
 
-    sequence_relations = _course_sequence_relations(course_id, sections)
+    knowledge_mappings = [
+        mapping
+        for mapping in mappings
+        if mapping.get("mapping_scope") == "knowledge"
+    ]
     unresolved = [
-        deepcopy(mapping) for mapping in mappings
+        deepcopy(mapping)
+        for mapping in knowledge_mappings
         if mapping.get("match_status") == "unmapped"
     ]
-    mapped = [mapping for mapping in mappings if mapping.get("match_status") != "unmapped"]
+    mapped = [
+        mapping
+        for mapping in knowledge_mappings
+        if mapping.get("match_status") != "unmapped"
+    ]
     formal_ids = _unique([
         knowledge_id
         for mapping in mapped
@@ -158,26 +355,50 @@ def compile_course_knowledge_map(
     ])
     payload = {
         "schema_version": COURSE_MAP_SCHEMA,
-        "asset_id": stable_hash({"course": course_id, "kind": "course_knowledge_map"}, prefix="ckma_"),
+        "asset_id": stable_hash(
+            {"course": course_id, "kind": "legacy_subject_course_map"},
+            prefix="ckma_",
+        ),
         "course_id": course_id,
         "knowledge_library_id": subject_library.get("library_id"),
         "knowledge_library_version": subject_library.get("version"),
         "knowledge_library_revision_id": subject_library.get("revision_id"),
+        "binding_revision_id": (
+            (course_data.get("knowledge_library_binding") or {}).get("revision_id")
+        ),
+        "library_lifecycle_status": subject_library.get(
+            "lifecycle_status",
+            "accepted"
+            if subject_library.get("status") == "active"
+            else "degraded",
+        ),
         "mappings": mappings,
         "section_knowledge_ids": section_knowledge_ids,
         "section_mapping_ids": section_mapping_ids,
-        "sequence_relations": sequence_relations,
+        "sequence_relations": _course_sequence_relations(course_id, sections),
         "coverage": {
-            "mapping_count": len(mappings),
+            "mapping_count": len(knowledge_mappings),
+            "excluded_pedagogical_count": len(mappings) - len(knowledge_mappings),
             "mapped_count": len(mapped),
             "unmapped_count": len(unresolved),
             "formal_knowledge_count": len(formal_ids),
             "formal_knowledge_ids": formal_ids,
-            "mapped_ratio": round(len(mapped) / len(mappings), 4) if mappings else 0.0,
-            "status": "mapped" if mappings and not unresolved else "partial" if mapped else "unmapped",
+            "mapped_ratio": (
+                round(len(mapped) / len(knowledge_mappings), 4)
+                if knowledge_mappings
+                else 0.0
+            ),
+            "status": (
+                "mapped"
+                if knowledge_mappings and not unresolved
+                else "partial"
+                if mapped
+                else "unmapped"
+            ),
         },
         "unresolved_candidates": unresolved,
-        "status": "active" if formal_nodes else "library_unavailable",
+        "status": "legacy_migration_only",
+        "identity_scope": "retired_subject_reference",
     }
     payload["revision_id"] = _revision_id(payload, "ckmvr_")
     return payload
@@ -185,56 +406,42 @@ def compile_course_knowledge_map(
 
 def project_course_knowledge_map(course_data: dict[str, Any]) -> dict[str, Any]:
     projected = deepcopy(course_data)
-    return compile_course_knowledge_map(projected)
+    course_map = compile_course_knowledge_map(projected)
+    from course_knowledge_base import (
+        bind_course_knowledge_base_to_map,
+        compile_course_knowledge_base,
+    )
+
+    knowledge_base = compile_course_knowledge_base(
+        projected,
+        assets=projected.get("learning_assets") or {},
+    )
+    if knowledge_base.get("lifecycle_status") != "active":
+        return course_map
+    return bind_course_knowledge_base_to_map(course_map, knowledge_base)
 
 
 def project_learning_assets_to_knowledge(
     course_data: dict[str, Any],
     assets: dict[str, list[dict[str, Any]]],
 ) -> dict[str, list[dict[str, Any]]]:
-    """Return a read-only current projection for legacy or current asset bundles."""
+    """Return a read-only, course-local projection for legacy asset bundles."""
     from course_knowledge_base import (
         bind_course_knowledge_base_to_map,
         build_course_knowledge_library_view,
         compile_course_knowledge_base,
         knowledge_binding_for_section,
     )
-    from subject_knowledge import build_knowledge_library_view
 
     projected_course = deepcopy(course_data)
     projected_assets = deepcopy(assets)
-    library = resolve_subject_library(projected_course)
-    course_map = compile_course_knowledge_map(projected_course, library)
-    formal_ids = set(knowledge_index(library))
-    legacy_mapping = _legacy_concept_mapping(projected_assets, library)
-
-    for values in projected_assets.values():
-        if not isinstance(values, list):
-            continue
-        for asset in values:
-            if not isinstance(asset, dict):
-                continue
-            _project_asset_library_refs(
-                asset,
-                library=library,
-                course_map=course_map,
-                formal_ids=formal_ids,
-                legacy_mapping=legacy_mapping,
-            )
-
+    course_map = compile_course_knowledge_map(projected_course)
     course_knowledge_base = compile_course_knowledge_base(
         projected_course,
-        library=library,
         course_map=course_map,
         assets=projected_assets,
     )
     course_map = bind_course_knowledge_base_to_map(course_map, course_knowledge_base)
-    course_knowledge_base = compile_course_knowledge_base(
-        projected_course,
-        library=library,
-        course_map=course_map,
-        assets=projected_assets,
-    )
     for asset_type, values in projected_assets.items():
         if asset_type in {"knowledge_library", "course_knowledge_base", "course_knowledge_map"}:
             continue
@@ -253,22 +460,25 @@ def project_learning_assets_to_knowledge(
             ]
             for field in (
                 "course_knowledge_refs",
-                "course_capability_refs",
-                "course_mistake_refs",
-                "course_improvement_refs",
+                "course_skill_refs",
+                "course_misconception_refs",
+                "course_mastery_refs",
             ):
-                asset[field] = _unique([
+                explicit = _unique(list(asset.get(field) or []))
+                asset[field] = explicit or _unique([
                     ref for binding in bindings for ref in binding.get(field) or []
                 ])
+            asset["course_capability_refs"] = list(asset["course_skill_refs"])
+            asset["course_mistake_refs"] = list(asset["course_misconception_refs"])
+            asset["course_improvement_refs"] = []
             asset["course_knowledge_base_revision_id"] = course_knowledge_base.get("revision_id")
 
-    knowledge_view = build_knowledge_library_view(library, course_map, projected_assets)
-    if knowledge_view.get("status") == "unavailable":
-        knowledge_view = build_course_knowledge_library_view(
-            course_knowledge_base,
-            course_map,
-            projected_assets,
-        )
+    knowledge_view = build_course_knowledge_library_view(
+        course_knowledge_base,
+        course_map,
+        projected_assets,
+        projected_course,
+    )
     projected_assets.pop("knowledge_graph", None)
     projected_assets.pop("subject_knowledge", None)
     projected_assets.pop("teaching_standards", None)
@@ -276,76 +486,6 @@ def project_learning_assets_to_knowledge(
     projected_assets["course_knowledge_map"] = [course_map]
     projected_assets["knowledge_library"] = [knowledge_view]
     return projected_assets
-
-
-def _project_asset_library_refs(
-    asset: dict[str, Any],
-    *,
-    library: dict[str, Any],
-    course_map: dict[str, Any],
-    formal_ids: set[str],
-    legacy_mapping: dict[str, str],
-    fallback_concept_ids: list[str] | None = None,
-) -> None:
-    """Project legacy learning assets onto the current library without mutating storage."""
-    original = [str(item) for item in asset.get("concept_ids") or [] if item]
-    inferred = list(fallback_concept_ids or [])
-    if not original:
-        section_ids = [str(asset.get("node_id") or ""), *[str(item) for item in asset.get("node_ids") or []]]
-        inferred = _unique([
-            *inferred,
-            *[
-                knowledge_id
-                for section_id in section_ids
-                for knowledge_id in knowledge_ids_for_section(course_map, section_id)
-                if section_id
-            ],
-        ])
-    projected = _unique([
-        item if item in formal_ids else legacy_mapping.get(item, "")
-        for item in (original or inferred)
-    ])
-    if not projected:
-        return
-
-    changed = projected != original
-    asset["concept_ids"] = projected
-    library_slice = knowledge_library_slice(library, projected)
-    for field, collection, id_key in (
-        ("skill_unit_ids", "skill_units", "skill_unit_id"),
-        ("mistake_point_ids", "mistake_points", "mistake_point_id"),
-        ("improvement_point_ids", "improvement_points", "improvement_point_id"),
-    ):
-        available = _unique([
-            str(item.get(id_key) or "") for item in library_slice.get(collection) or []
-        ])
-        existing = [str(item) for item in asset.get(field) or [] if item]
-        valid_existing = [item for item in existing if item in set(available)]
-        current = valid_existing or available
-        if current != existing:
-            changed = True
-        asset[field] = current
-
-    legacy_mistake_id = asset.pop("standard_mistake_id", None)
-    if legacy_mistake_id and not asset.get("mistake_point_id"):
-        mistake_ids = set(asset.get("mistake_point_ids") or [])
-        if str(legacy_mistake_id) in mistake_ids:
-            asset["mistake_point_id"] = str(legacy_mistake_id)
-    if legacy_mistake_id is not None:
-        changed = True
-
-    guided_task = asset.get("guided_task")
-    if isinstance(guided_task, dict):
-        _project_asset_library_refs(
-            guided_task,
-            library=library,
-            course_map=course_map,
-            formal_ids=formal_ids,
-            legacy_mapping=legacy_mapping,
-            fallback_concept_ids=projected,
-        )
-    if changed:
-        asset["knowledge_identity_status"] = "compatibility_projection"
 
 
 def propose_kb_linkage_from_block_change(
@@ -357,53 +497,42 @@ def propose_kb_linkage_from_block_change(
     library: dict[str, Any] | None = None,
     course_map: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Content -> knowledge-base linkage.
-
-    Call this right after a course block's content change has been durably
-    applied - i.e. from the two call sites that represent "a block's content
-    just became the new canonical text": `BlockRegenerationService.apply_candidate`
-    (backend/block_regeneration.py) and `change_proposals.apply_item`
-    (backend/change_proposals.py). Both are wired in from the routers
-    (backend/routers/block_regeneration.py, backend/routers/change_proposals.py)
-    rather than from those two service modules themselves, so this feature does
-    not require touching either of them.
-
-    Uses the same keyword/term matching `compile_course_knowledge_map` already
-    performs (`_bind_section_blocks` / `_term_matches`) to find which formal
-    knowledge nodes are already bound to `block_id`. For each match, emits one
-    pending `source="kb_link"`, `target_kind="kg_node"` change-proposal item
-    suggesting the linked knowledge node definition be reviewed. This function
-    NEVER edits the knowledge library - it only produces a pending proposal via
-    `change_proposals.create_proposal`; an operator (or a future knowledge-edit
-    command) must still apply it.
-    """
+    """Propose review of current-course knowledge points linked to a changed block."""
     from change_proposals import create_proposal
+    from course_knowledge_base import compile_course_knowledge_base
 
-    subject_library = library if library is not None else resolve_subject_library(course_data)
-    resolved_map = course_map if course_map is not None else compile_course_knowledge_map(
-        deepcopy(course_data), subject_library
+    del library, course_map
+    knowledge_base = course_data.get("course_knowledge_base") or compile_course_knowledge_base(
+        deepcopy(course_data)
     )
-    formal_nodes = knowledge_index(subject_library)
+    points_by_id = {
+        str(item.get("knowledge_id") or ""): item
+        for item in knowledge_base.get("knowledge_points") or []
+    }
 
     target_block = _find_course_block(course_data, block_id)
     if target_block is None:
         return None
 
-    candidate_mappings = [
-        mapping for mapping in resolved_map.get("mappings") or []
-        if block_id in (mapping.get("block_ids") or [])
-        and mapping.get("match_status") not in (None, "unmapped")
-        and mapping.get("anchor_knowledge_id")
-    ]
-    if not candidate_mappings:
+    metadata = target_block.get("metadata") if isinstance(target_block.get("metadata"), dict) else {}
+    knowledge_ids = _unique([
+        *(metadata.get("course_knowledge_refs") or []),
+        *[
+            knowledge_id
+            for binding in knowledge_base.get("bindings") or []
+            if binding.get("target_type") == "course_block"
+            and str(binding.get("target_id") or "") == block_id
+            for knowledge_id in binding.get("knowledge_ids") or []
+        ],
+    ])
+    if not knowledge_ids:
         return None
 
     block_text = f"{target_block.get('title') or ''} {target_block.get('content') or ''}".strip()
     items: list[dict[str, Any]] = []
     kg_target_ids: list[str] = []
-    for mapping in candidate_mappings:
-        node_id = str(mapping["anchor_knowledge_id"])
-        node = formal_nodes.get(node_id)
+    for node_id in knowledge_ids:
+        node = points_by_id.get(node_id)
         if not node or node_id in kg_target_ids:
             continue
         kg_target_ids.append(node_id)
@@ -424,7 +553,7 @@ def propose_kb_linkage_from_block_change(
             "reason": (
                 f"课程正文块 {block_id} 的内容变更已被接受，其关联的知识节点"
                 f"「{node.get('name')}」（{node_id}）可能需要同步复核。"
-                "注意：本条目的目标是知识库节点，不是课程正文块。"
+                "该节点只属于当前课程，不会影响其他课程。"
             ),
         })
     if not items:
@@ -441,6 +570,7 @@ def propose_kb_linkage_from_block_change(
         generation_meta={
             "linkage_direction": "content_to_kb",
             "trigger_block_id": block_id,
+            "knowledge_scope": "current_course_only",
         },
     )
 
@@ -462,14 +592,7 @@ def knowledge_names_for_section(
     section_id: str,
     library: dict[str, Any] | None = None,
 ) -> list[str]:
-    formal = knowledge_index(library or {})
-    names = [
-        str(formal[knowledge_id].get("name") or "")
-        for knowledge_id in knowledge_ids_for_section(course_map, section_id)
-        if knowledge_id in formal
-    ]
-    if names:
-        return _unique(names)
+    del library
     return _unique([
         str(mapping.get("local_name") or "")
         for mapping in course_map.get("mappings") or []
@@ -487,8 +610,12 @@ def validate_course_knowledge_map(
     issues: list[dict[str, str]] = []
     if course_map.get("schema_version") != COURSE_MAP_SCHEMA:
         return [_map_issue("structure", "critical", "课程知识映射格式不正确")]
-    subject_library = library or resolve_subject_library(course_data)
-    formal_ids = set(knowledge_index(subject_library))
+    del library
+    course_knowledge_base = next(iter((assets or {}).get("course_knowledge_base") or []), None)
+    local_ids = {
+        str(item.get("knowledge_id") or "")
+        for item in (course_knowledge_base or {}).get("knowledge_points") or []
+    }
     mappings = list(course_map.get("mappings") or [])
     mapping_ids = [str(item.get("mapping_id") or "") for item in mappings]
     if not all(mapping_ids) or len(mapping_ids) != len(set(mapping_ids)):
@@ -498,11 +625,11 @@ def validate_course_knowledge_map(
             str(item) for item in [mapping.get("anchor_knowledge_id"), *(mapping.get("knowledge_ids") or [])]
             if item
         }
-        invalid = refs - formal_ids
+        invalid = refs - local_ids
         if invalid:
-            issues.append(_map_issue("structure", "critical", f"映射引用不存在的正式知识：{sorted(invalid)}"))
-        if mapping.get("match_status") == "unmapped" and refs:
-            issues.append(_map_issue("semantic", "critical", "待归一映射不得携带正式知识 ID"))
+            issues.append(_map_issue("structure", "critical", f"映射引用不存在的本课程知识：{sorted(invalid)}"))
+        if mapping.get("match_status") == "awaiting_course_binding" and refs:
+            issues.append(_map_issue("semantic", "critical", "待绑定映射不得携带课程知识 ID"))
     section_ids = {
         str(node.get("node_id") or "") for node in course_data.get("nodes") or []
         if int(node.get("node_level") or 1) == 2
@@ -516,27 +643,23 @@ def validate_course_knowledge_map(
             "major",
             f"仍有 {len(course_map.get('unresolved_candidates') or [])} 个课程局部知识待归一",
         ))
+    valid_asset_knowledge_ids = local_ids
     for values in (assets or {}).values():
         if not isinstance(values, list):
             continue
         for asset in values:
             if not isinstance(asset, dict):
                 continue
-            invalid = set(str(item) for item in asset.get("concept_ids") or []) - formal_ids
+            invalid = set(str(item) for item in asset.get("concept_ids") or []) - valid_asset_knowledge_ids
             if invalid:
-                issues.append(_map_issue("structure", "critical", f"学习资产引用不存在的正式知识：{sorted(invalid)}"))
+                issues.append(_map_issue("structure", "critical", f"学习资产引用不存在的正式知识或课程知识：{sorted(invalid)}"))
     for section in course_data.get("nodes") or []:
         for block in section.get("content_blocks") or []:
             refs = ((block.get("metadata") or {}).get("concept_refs") or [])
-            invalid = set(str(item) for item in refs) - formal_ids
+            invalid = set(str(item) for item in refs) - valid_asset_knowledge_ids
             if invalid:
-                issues.append(_map_issue("structure", "critical", f"正文块引用不存在的正式知识：{sorted(invalid)}"))
-    course_knowledge_base = next(iter((assets or {}).get("course_knowledge_base") or []), None)
+                issues.append(_map_issue("structure", "critical", f"正文块引用不存在的知识条目：{sorted(invalid)}"))
     if course_knowledge_base:
-        local_ids = {
-            str(item.get("node_id") or "")
-            for item in course_knowledge_base.get("nodes") or []
-        }
         for mapping in mappings:
             invalid_local = {
                 str(item) for item in mapping.get("course_knowledge_node_ids") or []
@@ -585,6 +708,41 @@ def _local_entries(structures: list[dict[str, Any]]) -> list[dict[str, str]]:
                 "detail_status": detail_status,
             })
     return entries
+
+
+def _mapping_scope(section: dict[str, Any], entry: dict[str, str]) -> str:
+    """Exclude instructional scaffolding from formal knowledge coverage metrics."""
+    section_name = _normalize_text(section.get("node_name") or section.get("title"))
+    local_name = _normalize_text(entry.get("local_name"))
+    pedagogical_section = any(
+        marker in section_name
+        for marker in (
+            "前置知识诊断",
+            "诊断测试",
+            "项目设计",
+            "项目实现",
+            "章节总结",
+            "课程总结",
+        )
+    )
+    if entry.get("local_kind") == "topic" and (
+        pedagogical_section
+        or any(
+            marker in local_name
+            for marker in ("诊断评估", "系统设计", "项目实现", "章节总结")
+        )
+    ):
+        return "pedagogical"
+    if local_name in {
+        "需求定义",
+        "架构选择",
+        "核心实现",
+        "测试验证",
+        "项目复盘",
+        "学习总结",
+    }:
+        return "pedagogical"
+    return "knowledge"
 
 
 def _bind_section_blocks(
@@ -638,23 +796,6 @@ def _course_sequence_relations(course_id: str, sections: list[dict[str, Any]]) -
     return relations
 
 
-def _legacy_concept_mapping(
-    assets: dict[str, list[dict[str, Any]]],
-    library: dict[str, Any],
-) -> dict[str, str]:
-    legacy_graph = next(iter(assets.get("knowledge_graph") or []), {})
-    mapping: dict[str, str] = {}
-    for concept in legacy_graph.get("concepts") or []:
-        match = match_subject_knowledge(library, concept.get("label"))
-        if concept.get("concept_id") and match:
-            mapping[str(concept["concept_id"])] = str(match["anchor_knowledge_id"])
-    for node in legacy_graph.get("nodes") or []:
-        match = match_subject_knowledge(library, node.get("name"))
-        if node.get("knowledge_id") and match:
-            mapping[str(node["knowledge_id"])] = str(match["anchor_knowledge_id"])
-    return mapping
-
-
 def _normalize_point(raw_point: Any, order: int) -> dict[str, Any] | None:
     if isinstance(raw_point, str):
         name = raw_point.strip()
@@ -667,19 +808,34 @@ def _normalize_point(raw_point: Any, order: int) -> dict[str, Any] | None:
     if not name:
         return None
     return {
+        "knowledge_id": str(raw.get("knowledge_id") or "").strip(),
         "name": name,
-        "description": str(raw.get("description") or "").strip(),
-        "capability": str(raw.get("capability") or f"能够解释并应用「{name}」").strip(),
+        "statement": str(raw.get("statement") or raw.get("description") or "").strip(),
+        "description": str(raw.get("description") or raw.get("statement") or "").strip(),
+        "knowledge_type": str(raw.get("knowledge_type") or "definition").strip(),
+        "conditions": _unique(raw.get("conditions") or []),
+        "boundaries": _unique(raw.get("boundaries") or []),
+        "counterexamples": _unique(raw.get("counterexamples") or []),
+        "content_block_refs": _unique(
+            raw.get("content_block_refs") or raw.get("block_refs") or []
+        ),
+        "capability": str(raw.get("capability") or "").strip(),
         "capability_points": _normalize_standard_points(
             raw.get("capability_points") or raw.get("capabilities") or []
         ),
-        "mistake_points": _normalize_standard_points(
+        "misconceptions": _normalize_standard_points(
             raw.get("mistake_points") or raw.get("misconceptions") or []
         ),
-        "improvement_points": _normalize_standard_points(
-            raw.get("improvement_points") or []
+        "mastery_criteria": _normalize_standard_points(
+            raw.get("mastery_criteria") or []
         ),
+        "relations": _normalize_relations(raw.get("relations") or []),
         "aliases": _unique([str(item).strip() for item in raw.get("aliases") or []]),
+        "entry_reason": str(raw.get("entry_reason") or "").strip(),
+        "relation_state": str(raw.get("relation_state") or "").strip(),
+        "relation_decision_reason": str(
+            raw.get("relation_decision_reason") or ""
+        ).strip(),
         "prerequisite_names": _unique([str(item).strip() for item in raw.get("prerequisite_names") or []]),
         "order": order,
     }
@@ -697,7 +853,10 @@ def _normalize_standard_points(values: Any) -> list[Any]:
                 if key in {
                     "name", "label", "statement", "description", "learning_goal",
                     "observable_behavior", "capability", "repair_strategy",
-                    "practice_strategy", "source_status",
+                    "practice_strategy", "source_status", "observable_error_pattern",
+                    "confused_with", "discrimination", "observable_performance",
+                    "required_independence", "required_transfer", "verification_method",
+                    "required_evidence_types", "related_knowledge_names",
                 }
             }
             if any(str(item.get(key) or "").strip() for key in ("name", "label", "statement")):
@@ -705,6 +864,32 @@ def _normalize_standard_points(values: Any) -> list[Any]:
         elif str(value).strip():
             normalized.append(str(value).strip())
     return normalized
+
+
+def _normalize_relations(values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        values = [values] if values else []
+    result: list[dict[str, Any]] = []
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        target_name = str(value.get("target_name") or "").strip()
+        relation_type = str(value.get("relation_type") or "").strip()
+        if not target_name or not relation_type:
+            continue
+        result.append({
+            "target_name": target_name,
+            "relation_type": relation_type,
+            "reason": str(value.get("reason") or "").strip(),
+            "conditions": _unique(value.get("conditions") or []),
+            "distinction": str(value.get("distinction") or "").strip(),
+            "derivation_steps": _unique(value.get("derivation_steps") or []),
+            "necessity": str(value.get("necessity") or "").strip(),
+            "priority": str(value.get("priority") or "core").strip(),
+            "relation_group_id": str(value.get("relation_group_id") or "").strip() or None,
+            "group_operator": str(value.get("group_operator") or "").strip() or None,
+        })
+    return result
 
 
 def _section_evidence_ids(section: dict[str, Any]) -> list[str]:
@@ -751,6 +936,7 @@ def _dedupe_issues(issues: list[dict[str, str]]) -> list[dict[str, str]]:
 __all__ = [
     "COURSE_MAP_SCHEMA",
     "compile_course_knowledge_map",
+    "compile_legacy_subject_course_map",
     "knowledge_ids_for_section",
     "knowledge_names_for_section",
     "normalize_knowledge_structure",

@@ -67,6 +67,10 @@ describe('learning records through notes store', () => {
     await store.loadCourseRecords('c1')
 
     expect(httpMock.post).toHaveBeenCalledTimes(1)
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/c1/learning-records/migrate-legacy-annotations',
+      { include_unowned: false },
+    )
     expect(store.notes[0]?.recordType).toBe('note')
     expect(store.notes[0]?.revision).toBe(1)
   })

@@ -19,6 +19,7 @@ import sys
 import asyncio
 import httpx
 from pathlib import Path
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 from openai import (
     AsyncOpenAI,
@@ -109,17 +110,20 @@ class AIBase:
         # 通过环境变量配置 API 密钥
         self.api_key = os.getenv("AI_API_KEY")
         self.api_base = os.getenv("AI_API_BASE", "https://api-inference.modelscope.cn/v1")
-        
-        self.smart_models = (
+        smart_models = (
             _parse_model_list(os.getenv("AI_MODEL_CANDIDATES"))
             or _parse_model_list(os.getenv("AI_MODEL"))
-            or DEFAULT_SMART_MODELS
         )
-        self.fast_models = (
+        fast_models = (
             _parse_model_list(os.getenv("AI_MODEL_FAST_CANDIDATES"))
             or _parse_model_list(os.getenv("AI_MODEL_FAST"))
-            or DEFAULT_FAST_MODELS
         )
+        if self._is_official_deepseek_base(self.api_base):
+            self.smart_models = smart_models or ["deepseek-v4-pro"]
+            self.fast_models = fast_models or ["deepseek-v4-flash"]
+        else:
+            self.smart_models = smart_models or DEFAULT_SMART_MODELS
+            self.fast_models = fast_models or DEFAULT_FAST_MODELS
         self.model_smart = self.smart_models[0]
         self.model_fast = self.fast_models[0]
         # No max_tokens was ever passed to the provider before this, so every
@@ -130,6 +134,15 @@ class AIBase:
         # get cut off mid-string, and fail JSON parsing in a way that looks
         # like a content-quality bug rather than a truncation bug.
         self.max_tokens = int(os.getenv("AI_MAX_TOKENS", "8192"))
+        self.thinking_enabled = os.getenv(
+            "AI_THINKING_ENABLED",
+            os.getenv("AI_ENABLE_THINKING", "true"),
+        ).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         self._provider_failure: str | None = None
         
         if self.api_key:
@@ -144,6 +157,16 @@ class AIBase:
         else:
             self.client = None
             logger.warning("AI_API_KEY not found. AI features will be disabled.")
+
+    @staticmethod
+    def _is_official_deepseek_base(api_base: str) -> bool:
+        return urlparse(api_base).hostname == "api.deepseek.com"
+
+    def _thinking_extra_body(self, enable_thinking: bool) -> Dict:
+        thinking_enabled = enable_thinking and self.thinking_enabled
+        if self._is_official_deepseek_base(self.api_base):
+            return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
+        return {"enable_thinking": thinking_enabled}
 
     def _model_cache_key(self, use_fast_model: bool):
         models = self.fast_models if use_fast_model else self.smart_models
@@ -560,7 +583,8 @@ class AIBase:
         retry_count: int = 3,
         enable_thinking: bool = False,
         max_tokens: int | None = None,
-    ) -> str:
+        raise_on_failure: bool = False,
+    ) -> Optional[str]:
         """
         通用 LLM 调用函数。
         
@@ -579,19 +603,25 @@ class AIBase:
             max_tokens: 单次调用允许的最大输出 token 数，默认取
                 `self.max_tokens`（环境变量 AI_MAX_TOKENS，默认 8192）。
                 输出型任务（如课程蓝图 JSON）应显式传入更大的值。
+            raise_on_failure: 失败时是否抛出统一的提供方异常，而不是返回 None
 
         Returns:
             LLM 完整响应文本，失败返回 None
         """
         if not self.api_key:
+            if raise_on_failure:
+                raise AIProviderUnavailable("not_configured")
             return None
         if self._provider_failure:
+            if raise_on_failure:
+                raise AIProviderUnavailable(self._provider_failure)
             return None
 
+        last_error: Exception | None = None
         for model_id in self._models_for(use_fast_model):
             for attempt in range(retry_count):
                 try:
-                    extra_body = {"enable_thinking": enable_thinking}
+                    extra_body = self._thinking_extra_body(enable_thinking)
 
                     response = await self.client.chat.completions.create(
                         model=model_id,
@@ -647,17 +677,24 @@ class AIBase:
                     return full_content
 
                 except Exception as e:
+                    last_error = e
                     logger.error(f"AI API Call Error (Model: {model_id}, Attempt {attempt+1}/{retry_count}): {e}")
                     if self._is_authentication_error(e):
                         self._block_provider("authentication_failed")
+                        if raise_on_failure:
+                            raise AIProviderUnavailable("authentication_failed") from e
                         return None
                     if self._should_try_next_model(e):
                         break
                     if attempt < retry_count - 1:
                         await asyncio.sleep(2 ** attempt)  # Exponential backoff
                     else:
-                        return None
-        
+                        break
+
+        if raise_on_failure:
+            if last_error is not None:
+                raise AIProviderRequestError(str(last_error)) from last_error
+            raise AIProviderRequestError("empty_response")
         return None
 
     async def _stream_llm(
@@ -691,7 +728,7 @@ class AIBase:
         for model_id in self._models_for(use_fast_model):
             yielded = False
             try:
-                extra_body = {"enable_thinking": enable_thinking}
+                extra_body = self._thinking_extra_body(enable_thinking)
 
                 response = await self.client.chat.completions.create(
                     model=model_id,

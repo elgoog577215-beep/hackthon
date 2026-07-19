@@ -80,6 +80,10 @@ def _get_client_ip(request: Request) -> str:
 
 def _match_rate_limit(path: str) -> Tuple[int, int]:
     """根据路径匹配速率限制规则"""
+    # 实时审阅工作台只读取已经落盘的生成检查点。它需要短间隔轮询，
+    # 但不会触发 AI 生成或写入正式课程，因此与课程 CRUD 分开限流。
+    if path.startswith("/api/courses/") and path.endswith("/evolution/progress"):
+        return 120, 60
     for prefix, limits in RATE_LIMITS.items():
         if prefix.startswith("/") and path.startswith(prefix):
             return limits

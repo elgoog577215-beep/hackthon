@@ -5,27 +5,19 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from course_coherence import course_coherence_prompt_context
+from course_composition import format_block_difficulty, format_composition_profile
 from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
 )
-from course_coherence import course_coherence_prompt_context
 from course_knowledge_base import (
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
 )
-from course_knowledge_map import knowledge_ids_for_section, project_course_knowledge_map
-from course_pedagogy import MODULES, TEMPLATES, SubjectPedagogyProfile
-from subject_knowledge import (
-    knowledge_index,
-    knowledge_library_prompt_context,
-    knowledge_library_slice,
-    knowledge_library_slice_prompt_context,
-    resolve_subject_library,
-)
+from course_pedagogy import TEMPLATES, SubjectPedagogyProfile, module_block_role
 
-
-PROMPT_CONTRACT_VERSION = "course_prompt_v8"
+PROMPT_CONTRACT_VERSION = "course_prompt_v15"
 
 
 class CoursePromptComposer:
@@ -80,19 +72,11 @@ class CoursePromptComposer:
         material_context: str,
     ) -> str:
         profile_data = profile.to_dict()
-        enabled_modules = [
-            MODULES[module_id].to_dict(
-                source_mode="allowed",
-                required=MODULES[module_id].frequency.value.endswith("required"),
-            )
-            for module_id in profile.enabled_module_ids
-            if module_id in MODULES
-        ]
         primary = TEMPLATES[profile.primary_mode]
         guardrails = "\n".join(f"- {item}" for item in primary.quality_guardrails)
-        subject_knowledge_context = knowledge_library_prompt_context(subject)
         return f"""## 输出契约
-你负责生成课程蓝图，不生成正文。只输出有效 JSON，不输出寒暄、计划或 Markdown 代码围栏。
+你只负责生成供用户审阅的轻量课程目录，不生成知识点、知识关系、正文或练习。
+只输出有效 JSON，不输出寒暄、计划或 Markdown 代码围栏。
 
 ## 课程输入
 - 主题：{subject}
@@ -113,34 +97,21 @@ class CoursePromptComposer:
 
 主模式决定课程顺序和最终考核。辅模式只在主任务依赖它的位置注入。不要把两套目录简单拼接。
 
-## 可用教学模块
-{json.dumps(enabled_modules, ensure_ascii=False)}
-
 ## 主模式质量边界
 {guardrails}
 
 ## 资料上下文
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
 
-## 学科知识参照
-{subject_knowledge_context}
-
-## 蓝图要求
+## 目录要求
 1. 用户明确指定章数或小节总数时必须精确满足；未指定时才由知识和能力依赖决定。不要为了凑数重复主题，也不要用节数表示难度。
-2. 每个小节必须承担明确的能力推进，后端会根据整体顺序编译锯齿型难度曲线。
-3. 每个小节给出可观察学习目标、前置节点、范围边界、误区和验收标准。
-4. `suggested_module_ids` 只能从可用模块中选择；后端会补齐必备模块并校验辅模式注入。
-5. 每个小节必须给出 `node_id`，统一使用 `L2-章号-节号`，例如第 1 章第 1 节是 `L2-1-1`。
-6. 前置依赖只能引用已经出现的 `node_id`，不得使用 `1.1`、`L1-1` 或尚未出现的节点。
-7. `knowledge_structure` 表达本课程对学科知识的覆盖，不是另一套正式知识库。优先使用学科参照中的规范名称或正式别名，并按实际教学需要组织 1-4 个局部主题；不得为了凑数重复知识。
-8. 每个局部主题包含 1-5 个可单独解释、练习和诊断的细知识要求；说明对象、成立条件或适用边界。
-9. 每个细知识点必须继续拆出能力点、易错点和提升点，层级固定为“知识点 → 能力点 → 易错点/提升点”。能力必须是可观察动作；易错必须描述会怎样错；提升必须描述在何种新情境或更高约束下独立完成什么。
-10. 同一个能力、误区或提升要求不要在多个知识点下机械复制。它们必须与父知识点直接相关，并能指导正文、练习和反馈。
-11. 不得输出或编造正式知识 ID。参照中没有的课程必要内容可以保留真实名称，后端会将其标记为课程局部知识，不要强行套入相近概念。
-12. 不编造论文、链接、书目、年份或未上传资料。
-13. 从整门课程角度分配小节责任：相邻小节的学习目标不得只是换句话重复；需要承接的前置必须写入 `prerequisite_node_ids`，只需上下文衔接但可并行生成的内容不要伪造成硬依赖。
-14. 每节只完整展开自己的知识与能力产出。允许简短回顾前置，但不得复制前节实质讲解；后续小节的核心知识只能提示方向，不能在当前小节提前讲完。
-15. 全课程使用统一术语和符号。相同概念优先复用规范名称，把其他叫法写入知识点 `aliases`，不得在不同章节把同一概念写成互不关联的新知识点。
+2. 每个小节只承担一个明确、可观察、与其他小节不同的学习责任。
+3. 每个小节给出可观察学习目标、前置小节、范围边界和验收任务。
+4. 每个小节必须给出 `node_id`，统一使用 `L2-章号-节号`，例如第 1 章第 1 节是 `L2-1-1`。
+5. 前置依赖只能引用已经出现的 `node_id`，不得引用尚未出现的小节。
+6. 只需上下文衔接但可以独立生成的内容不要伪造成硬依赖。
+7. 不输出 `knowledge_structure`、`knowledge_relations`、`reused_knowledge_names`、正文、题目或内部知识 ID。
+8. 不编造论文、链接、书目、年份或未上传资料。
 
 ## JSON Schema
 {{
@@ -158,48 +129,10 @@ class CoursePromptComposer:
           "node_id": "L2-1-1",
           "section_number": "1.1",
           "title": "小节名",
-          "key_points": ["核心知识点"],
-          "knowledge_structure": [
-            {{
-              "topic": "可教学主题",
-              "description": "本主题在本节中的作用与边界",
-              "knowledge_points": [
-                {{
-                  "name": "可单独解释和检测的细知识点",
-                  "description": "对象、条件、机制或适用边界",
-                  "capability": "学习者能够完成的可观察动作",
-                  "capability_points": [
-                    {{
-                      "name": "细颗粒能力名称",
-                      "observable_behavior": "学习者在不依赖答案时可观察到的动作"
-                    }}
-                  ],
-                  "mistake_points": [
-                    {{
-                      "name": "常见错误模式",
-                      "description": "错误表现与触发条件",
-                      "repair_strategy": "如何辨别并修复"
-                    }}
-                  ],
-                  "improvement_points": [
-                    {{
-                      "name": "提升方向",
-                      "learning_goal": "更高水平的独立表现",
-                      "practice_strategy": "新情境、变式、边界或综合任务"
-                    }}
-                  ],
-                  "aliases": [],
-                  "prerequisite_names": []
-                }}
-              ]
-            }}
-          ],
           "learning_objective": "学完后能完成的任务",
           "prerequisite_node_ids": [],
-          "misconceptions": ["需要澄清的误区"],
           "assessment": ["验收标准或任务"],
-          "scope_boundary": "本节边界",
-          "suggested_module_ids": ["module_id"]
+          "scope_boundary": "本节负责什么，以及明确不提前展开什么"
         }}
       ]
     }}
@@ -218,17 +151,322 @@ class CoursePromptComposer:
         ) or "- 上一次输出不是完整有效的 JSON"
         shape = brief.get("course_shape_constraints") or {}
         return f"""
-## 蓝图纠正任务
+## 轻量目录纠正任务
 
-上一次课程蓝图未通过确定性验收：
+上一次轻量课程目录未通过确定性验收：
 {issue_text}
 
 用户明确课程形状：
 - 章数：{shape.get('chapter_count') or '由教学设计决定'}
 - 小节总数：{shape.get('section_count') or '由教学设计决定'}
 
-请从头重新输出一份完整 JSON。不得输出截断 JSON、Markdown 围栏、简化占位大纲或解释。
-所有原始要求、学科模式、知识结构和难度契约仍以下面的完整原始契约为准。
+请重新输出一份完整的轻量目录 JSON。不得输出知识点、知识关系、正文、Markdown
+围栏、占位目录或解释。所有原始要求、学科模式和难度契约仍以下面的原始契约为准。
+
+{original_prompt}
+""".strip()
+
+    def build_course_knowledge_skeleton_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        sections: list[dict[str, Any]],
+        locked_knowledge_names_by_section: dict[str, list[str]] | None = None,
+    ) -> str:
+        return f"""## 输出契约
+你只负责规划全课知识点的规范名称与首次归属，不生成知识陈述、能力、易错点、掌握标准、知识关系或正文。
+只输出有效 JSON，不输出 Markdown 围栏或解释。
+
+## 课程上下文
+- 课程：{course_title}
+- 定位：{positioning}
+- 按教学顺序排列的小节：{json.dumps(sections, ensure_ascii=False)}
+
+## 已完成小节的锁定知识名称
+{json.dumps(locked_knowledge_names_by_section or {}, ensure_ascii=False)}
+
+## 规划要求
+1. 必须按输入顺序完整返回每个 `node_id`，不得增删、改名或调序。
+2. 每个小节在 `owned_knowledge_names` 中放入 1-8 个本节首次完整教学的原子知识规范名称。
+3. 同一规范名称全课只能有一个首次负责小节；后续确实需要承接时，写入该小节的 `reused_knowledge_names`。
+4. 复用只能指向更早小节已经首次负责的规范名称，不能复用后续知识。
+5. 名称必须是可单独解释、练习和诊断的知识对象，不得复制小节标题，不得写成宽泛主题或教学动作。
+6. 必须遵守每节的学习目标和范围边界，不能提前完成后续小节的核心教学。
+7. 小节带有 `evidence_hints` 时，规范名称必须覆盖其中与本节目标直接相关的资料概念；不得虚构提示中不存在的资料结论。
+8. `locked_knowledge_names_by_section` 中的名称来自已完成检查点，必须原样作为对应小节的 `owned_knowledge_names` 返回，不得替换、增删或迁移。
+
+## JSON Schema
+{{
+  "sections": [
+    {{
+      "node_id": "L2-1-1",
+      "owned_knowledge_names": ["原子知识规范名称"],
+      "reused_knowledge_names": []
+    }}
+  ]
+}}"""
+
+    def build_course_knowledge_skeleton_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 上一次输出不是完整有效的 JSON"
+        return f"""## 全课知识身份骨架纠正任务
+
+上一次骨架未通过确定性检查：
+{issue_text}
+
+重新输出完整 JSON。不得改变目录，不得生成知识详情、关系、正文或解释。
+
+{original_prompt}
+""".strip()
+
+    def build_section_knowledge_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        section: dict[str, Any],
+        available_knowledge_names: list[str],
+        material_context: str,
+        course_scope_contract: dict[str, Any] | None = None,
+        knowledge_identity_contract: dict[str, Any] | None = None,
+    ) -> str:
+        return f"""## 输出契约
+你只负责一个已经冻结的小节知识包，不得修改课程名称、章节、小节、顺序、学习目标或范围。
+只输出有效 JSON，不输出 Markdown 围栏或解释。
+
+## 课程上下文
+- 课程：{course_title}
+- 定位：{positioning}
+- 当前小节：{json.dumps(section, ensure_ascii=False)}
+- 前序已冻结知识规范名称：{json.dumps(available_knowledge_names, ensure_ascii=False)}
+
+## 当前小节知识责任切片
+{json.dumps(course_scope_contract or {}, ensure_ascii=False)}
+
+## 已冻结的知识身份契约
+{json.dumps(knowledge_identity_contract or {}, ensure_ascii=False)}
+
+当前知识包必须服务本节唯一学习责任，并遵守 `course_path` 中的全课边界。
+`owned_knowledge_names` 是本节必须且只能展开的新知识点名称，
+`reused_knowledge_names` 必须原样写入输出的同名字段。不得自行新增、删减、改名或迁移知识身份。
+
+## 资料上下文
+{material_context or '当前没有上传资料；不得伪装资料引用。'}
+
+## 生成要求
+1. 当前小节组织 1-3 个概念组，将所有 `owned_knowledge_names` 各展开为且只展开为一个可单独解释、练习和诊断的原子知识点。
+2. 概念组名称表达知识问题域，禁止复制小节标题。
+3. 每个新知识点必须有独立 `statement`、`knowledge_type`、`conditions` 或 `boundaries`、可观察能力和可验证掌握标准。
+4. 输出的 `reused_knowledge_names` 必须与知识身份契约完全一致，不得重新创建同名知识。
+5. 易错点允许为空；生成时必须包含具体错误表现、辨别方法和修复策略。
+6. 本阶段只冻结知识节点及其能力包。不得输出知识关系、入口判断、前置名称或内部知识 ID。
+7. 全课所有知识节点冻结并由系统分配 ID 后，会进入独立关系建网阶段；不要在这里提前猜关系。
+8. 不输出 ImprovementPoint、章节关系、课程顺序关系或泛化的 `related`。
+
+## JSON Schema
+{{
+  "knowledge_structure": [
+    {{
+      "concept_group": "知识问题域",
+      "description": "该问题域在本节中的作用与边界",
+      "knowledge_points": [
+        {{
+          "name": "原子知识规范名称",
+          "statement": "独立成立的知识命题或操作规则",
+          "knowledge_type": "definition",
+          "conditions": ["成立条件"],
+          "boundaries": ["不适用范围或易混边界"],
+          "counterexamples": [],
+          "capability_points": [
+            {{
+              "name": "能力名称",
+              "observable_behavior": "不依赖答案时可以观察到的动作",
+              "required_evidence_types": ["practice_attempt"]
+            }}
+          ],
+          "misconceptions": [
+            {{
+              "name": "错误模式",
+              "observable_error_pattern": "具体怎样出错",
+              "confused_with": "容易与什么混淆",
+              "discrimination": "用什么条件或反例区分",
+              "repair_strategy": "如何修复"
+            }}
+          ],
+          "mastery_criteria": [
+            {{
+              "name": "掌握标准",
+              "observable_performance": "独立表现",
+              "required_independence": "independent",
+              "required_transfer": "variation",
+              "verification_method": "验证方法",
+              "required_evidence_types": ["practice_attempt"]
+            }}
+          ],
+          "aliases": []
+        }}
+      ]
+    }}
+  ],
+  "reused_knowledge_names": []
+}}"""
+
+    def build_section_knowledge_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 上一次输出不是完整有效的 JSON"
+        return f"""## 单节知识包纠正任务
+
+上一次只针对当前小节的知识包未通过检查：
+{issue_text}
+
+只重新输出当前小节知识包 JSON。不得修改课程目录，不得输出其他小节，不得输出解释。
+
+{original_prompt}
+""".strip()
+
+    def build_section_relation_correction_prompt(
+        self,
+        *,
+        section_title: str,
+        local_knowledge_names: list[str],
+        available_knowledge_names: list[str],
+        original_relations: list[dict[str, Any]],
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 当前小节关系批次不是完整有效的 JSON"
+        return f"""## 单节关系批次纠正任务
+
+当前小节「{section_title}」的知识结构已经冻结，不得新增、删除、改名或重写知识点。
+只修复 `reused_knowledge_names` 与 `knowledge_relations`，只输出有效 JSON。
+
+## 当前小节新知识规范名称
+{json.dumps(local_knowledge_names, ensure_ascii=False)}
+
+## 前序可复用知识规范名称
+{json.dumps(available_knowledge_names, ensure_ascii=False)}
+
+## 上一次关系批次
+{json.dumps(original_relations, ensure_ascii=False)}
+
+## 未通过的问题
+{issue_text}
+
+## 约束
+1. 关系端点只能引用上面两组规范名称中的两个不同知识点。
+2. 关系类型只允许 `prerequisite / derives / equivalent_to / contrasts_with / applies_to / generalizes`。
+3. 每条关系必须给出具体理由；`derives` 必须给出步骤；`contrasts_with` 必须给出判别维度。
+4. 不输出知识结构、课程目录、正文、解释或 Markdown 围栏。
+
+## JSON Schema
+{{
+  "reused_knowledge_names": [],
+  "knowledge_relations": [
+    {{
+      "source_name": "来源知识规范名称",
+      "target_name": "目标知识规范名称",
+      "relation_type": "prerequisite",
+      "reason": "具体语义理由",
+      "conditions": [],
+      "distinction": "",
+      "derivation_steps": [],
+      "necessity": "required",
+      "priority": "core"
+    }}
+  ]
+}}""".strip()
+
+    def build_course_relation_batch_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        batch_id: str,
+        section: dict[str, Any],
+        target_points: list[dict[str, Any]],
+        context_points: list[dict[str, Any]],
+    ) -> str:
+        return f"""## 全课知识关系建网：局部批次
+
+全课知识节点已经全部冻结，内部 ID 已由系统分配。你只负责为当前目标小节判断
+直接、可教学的知识语义关系；不得新增、删除、改名或重写知识点。
+只输出有效 JSON，不输出 Markdown 围栏或解释。
+
+## 课程
+- 名称：{course_title}
+- 定位：{positioning}
+- 批次：{batch_id}
+- 目标小节：{json.dumps(section, ensure_ascii=False)}
+
+## 本批次必须逐一处理的目标知识点
+{json.dumps(target_points, ensure_ascii=False)}
+
+## 本批次允许引用的关系上下文
+{json.dumps(context_points, ensure_ascii=False)}
+
+## 建网规则
+1. 对每个目标知识点恰好输出一个 `node_decisions` 决定，不得遗漏。
+2. 有直接语义入边时使用 `connected`；只有在允许上下文内确实没有合理入边、且它是课程真实起点时，才使用 `course_entry` 并说明原因。
+3. 关系只允许 `prerequisite / derives / equivalent_to / contrasts_with / applies_to / generalizes`。
+4. 端点必须逐字复制上方系统 ID，`target_knowledge_id` 必须属于目标知识点。
+5. 只建立直接且会影响教学顺序、解释、辨析、应用或迁移的关系。不要凑数量，不使用章节先后代替知识关系。
+6. 每条关系必须有具体理由；`derives` 必须给出推导步骤；`contrasts_with` 必须给出判别维度。
+7. `prerequisite` 和 `generalizes` 不得形成循环；不得输出自环、重复关系、`related` 或父子包含关系。
+
+## JSON Schema
+{{
+  "node_decisions": [
+    {{
+      "knowledge_id": "系统知识 ID",
+      "decision": "connected",
+      "reason": "为什么存在入边，或为什么它是课程真实入口"
+    }}
+  ],
+  "relations": [
+    {{
+      "source_knowledge_id": "系统知识 ID",
+      "target_knowledge_id": "目标知识 ID",
+      "relation_type": "prerequisite",
+      "reason": "具体语义理由",
+      "conditions": [],
+      "distinction": "仅 contrasts_with 必填",
+      "derivation_steps": ["仅 derives 必填"],
+      "necessity": "required",
+      "priority": "core"
+    }}
+  ]
+}}""".strip()
+
+    def build_course_relation_batch_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {item.get('message')}" for item in issues
+        ) or "- 上一次输出不是完整有效的关系批次 JSON"
+        return f"""## 关系建网批次结构纠正
+
+上一次关系批次存在以下结构错误：
+{issue_text}
+
+只修复这些结构错误并重新输出完整 JSON。知识节点、系统 ID、目标范围和六类关系
+约束均不得改变；不要输出解释、评分或 Markdown 围栏。
 
 {original_prompt}
 """.strip()
@@ -246,7 +484,15 @@ class CoursePromptComposer:
         difficulty_contract = node.get("difficulty_contract") or {}
         modules = node.get("module_plan") or []
         module_contract = "\n".join(
-            f"- {item.get('output_contract')}；{item.get('prompt_instruction')}"
+            (
+                f"- {'必需' if item.get('required', True) else '可选'}模块 "
+                f"`## {item.get('label')}` "
+                f"[角色={item.get('block_role') or module_block_role(item.get('module_id'))}] "
+                f"[来源={item.get('composition_source') or 'subject_required'}；"
+                f"实例={item.get('module_instance_id') or item.get('module_id')}；"
+                f"难度={format_block_difficulty(item.get('block_difficulty_contract') or {})}]："
+                f"{item.get('output_contract')}；{item.get('prompt_instruction')}"
+            )
             for item in modules
         )
         continuation = bool(existing_draft.strip())
@@ -273,18 +519,26 @@ class CoursePromptComposer:
         system_prompt = f"""## 输出契约
 1. 只输出可直接保存的 Markdown 正文或续写，不输出寒暄、身份、计划、边界确认或任务复述。
 2. 只讲当前小节，不重写整章，不提前展开后续节点。
-3. 教学模块是语义要求，不要机械地把模块名称全部写成标题。
+3. `##` 二级标题是同级教学块的语义边界。每个必需模块都必须以契约中的原始标签输出一次（可在标签后用冒号补充说明）；`###` 及更深标题只用于模块内部。
 4. 不编造论文、来源、链接、年份、机构或未上传资料。
 5. 基础课程正文只服从持久化课程蓝图，不根据临时学习状态改变主线。
 6. 如果使用资料事实，必须在对应陈述后追加 `[[evidence:证据ID]]`；证据 ID 只能来自当前节点允许列表。
 7. 证据标记不是参考文献装饰，不能把讲法参考或弱背景伪装成事实来源。
 8. 输出前完成内部一致性检查；正文不得保留“我的计算有误”“等待，更正”“请重新检查任务”等模型自我纠错痕迹，也不得让题干、答案和量规互相矛盾。
-9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和提升坐标，不得各写各的。
+9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和掌握标准，不得各写各的。
+10. 当前节点名称已经由页面显示，正文不得再次把“{node.get('node_name', '')}”写成二级标题，也不得输出只有标题没有正文的空模块。
+11. 每个 `##` 教学块必须在首段明确写出它实际讲解、练习或检查的一个或多个知识点规范名称；不得只用“本概念”“上述方法”等代词。规范名称来自下方“当前课程知识库契约”，用于建立正文块到知识点的精确绑定。
+12. `## 检查与反馈` 是静态检查参考，不得声称已经评价当前学生。对应多个学习任务时，每个任务必须使用 `### 任务 N：名称` 作为内部边界，并在任务内清楚区分核对标准、参考结论、推导依据和典型错误；不得把所有答案压成一个长段落。
+13. Markdown 列表必须使用真实的 `1.` 或 `-` 列表语法并保留必要空行。任务级标题使用 `###`，不要用单独一行加粗文字伪装标题。
+14. 数学表达必须使用 `$...$` 或 `$$...$$`，反引号只用于代码标识、命令或程序片段；不得用反引号书写幂、上下标、分式、复杂度或数学关系。
 
 ## 课程
 - 名称：{course_data.get('course_name', '')}
 - 学习对象：{course_data.get('target_audience', '大学生')}
 - 教学画像：{json.dumps(profile, ensure_ascii=False)}
+
+## 课程块编排画像
+{format_composition_profile(course_data.get('course_composition_profile') or {})}
 
 ## 全课难度能力契约
 {format_difficulty_profile(difficulty_profile)}
@@ -299,10 +553,10 @@ class CoursePromptComposer:
 - 验收标准：{'；'.join(node.get('assessment', []))}
 - 范围边界：{node.get('scope_boundary', '')}
 
-## 正式学科知识切片
+## 当前课程知识身份边界
 {knowledge_context}
 
-## 当前知识下的能力、易错与提升
+## 当前课程教学边界
 {teaching_context}
 
 ## 当前课程知识库契约
@@ -346,28 +600,11 @@ class CoursePromptComposer:
             course_data
         )
         local_context = course_knowledge_base_prompt_context(course_knowledge_base, node_id)
-        library = resolve_subject_library(course_data)
-        if not library.get("nodes"):
-            return (
-                "当前课程尚无正式学科包；保留课程局部知识表述，不得编造正式 ID。",
-                "正式学科库尚未覆盖本主题；能力、易错和提升以当前课程知识库为准。",
-                local_context,
-            )
-        course_map = project_course_knowledge_map(course_data)
-        selected_ids = knowledge_ids_for_section(course_map, node_id)
-        by_id = knowledge_index(library)
-        rows = [
-            " / ".join(by_id[item].get("path_names") or [])
-            for item in selected_ids
-            if item in by_id
-        ]
-        knowledge_context = "\n".join(
-            ["以下是当前节点已确定映射的正式知识路径：", *[f"- {row}" for row in rows]]
-        ) if rows else "当前节点尚无精确正式映射；保留课程局部表述，不得强行映射。"
-        teaching_context = knowledge_library_slice_prompt_context(
-            knowledge_library_slice(library, selected_ids),
+        return (
+            "只允许使用当前课程知识点 ID；禁止读取或映射其他课程知识。",
+            "能力、易错与掌握标准均以当前课程知识库为唯一依据。",
+            local_context,
         )
-        return knowledge_context, teaching_context, local_context
 
     def build_repair_prompt(
         self,

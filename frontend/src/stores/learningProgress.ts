@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import http from '../utils/http'
 import logger from '../utils/logger'
 import type { LearnerModelSummary } from './learnerModel'
+import { useCourseEvolutionStore } from './courseEvolution'
 
 export type ReadingProgressStatus = 'not_started' | 'in_progress' | 'learned'
 export type MasteryProgressStatus = 'not_checked' | 'evidence_insufficient' | 'partial' | 'mastered' | 'needs_review'
@@ -146,23 +147,47 @@ export interface LearningProgressProjection {
   nodes: LearningObjectiveProgress[]
 }
 
-export type AdaptiveBlockKind = 'explanation' | 'counterexample' | 'transition' | 'understanding_check'
+export type AdaptiveBlockKind = 'explanation' | 'counterexample' | 'transition' | 'understanding_check' | 'animation'
 export type AdaptiveBlockFeedback = 'unrated' | 'helpful' | 'not_helpful' | 'dismissed'
+export type AdaptiveBlockInteraction = 'animation_played' | 'animation_answered' | 'validation_started'
 
 export interface AdaptiveLearningBlock {
   adaptive_block_id: string
+  change_set_id?: string
   anchor: {
     node_id: string
     content_block_id: string
     placement: 'after_block' | 'after_node'
   }
   kind: AdaptiveBlockKind
-  role: 'low_risk_support'
+  role: 'low_risk_support' | 'accepted_personal_course_growth' | 'course_evolution_block'
   payload: {
     body: string
     contrast: string
     prompt: string
     objective: string
+    knowledge_refs?: string[]
+    ability_refs?: string[]
+    expected_effect?: string
+    steps?: Array<{ index: number; label: string }>
+    animation_spec?: {
+      schema_version: 'animation_spec_v1'
+      animation_id: string
+      title: string
+      scene: Record<string, string>
+      object_bindings: Array<Record<string, unknown>>
+      knowledge_refs: string[]
+      keyframes: Array<{
+        index: number
+        label: string
+        state: Record<string, string>
+        transformations: string[]
+        duration_ms: number
+        pause_after: boolean
+      }>
+      fallback_frames: Array<{ index: number; label: string; description?: string }>
+      accessibility_text: string
+    }
   }
   reason_code: string
   evidence_refs: string[]
@@ -203,6 +228,8 @@ export interface LearningRuntimeProjection {
   }
   diagnostic: Record<string, any>
   learner_model: LearnerModelSummary
+  course_evolution?: Record<string, any>
+  personal_course_overlay?: Record<string, any>
   adaptive_blocks: AdaptiveLearningBlock[]
   active_task: LearningTaskRef | null
   continuation: LearningContinuationProjection
@@ -303,6 +330,9 @@ export const useLearningProgressStore = defineStore('learningProgress', {
         this.runtime = res.data
         this.projection = res.data.progress
         this.continuation = res.data.continuation
+        if (res.data.course_evolution) {
+          useCourseEvolutionStore().applyPayload(courseId, res.data.course_evolution)
+        }
         return this.runtime
       } finally {
         if (requestSeq === this.runtimeRequestSeq) this.runtimeLoading = false
@@ -336,6 +366,30 @@ export const useLearningProgressStore = defineStore('learningProgress', {
       }
     },
 
+    async recordAdaptiveBlockInteraction(
+      courseId: string,
+      block: AdaptiveLearningBlock,
+      interaction: AdaptiveBlockInteraction,
+      details: {
+        answer?: 'right_then_left' | 'left_then_right'
+        correct?: boolean
+        frame_index?: number
+      } = {},
+    ) {
+      try {
+        await http.post(`/api/courses/${courseId}/learning-runtime/adaptive-blocks/interactions`, {
+          adaptive_block_id: block.adaptive_block_id,
+          node_id: block.anchor.node_id,
+          interaction,
+          ...details,
+        })
+        return true
+      } catch (error) {
+        logger.warn('Adaptive block interaction deferred', error)
+        return false
+      }
+    },
+
     async deferRisk(courseId: string, riskId: string, nodeId?: string) {
       if (!this.continuation) return null
       const res = await http.post(`/api/courses/${courseId}/learning-continuation/risks/${riskId}/defer`, {
@@ -364,6 +418,9 @@ export const useLearningProgressStore = defineStore('learningProgress', {
       this.runtime = runtime
       this.projection = runtime.progress
       this.continuation = runtime.continuation
+      if (runtime.course_evolution) {
+        useCourseEvolutionStore().applyPayload(courseId, runtime.course_evolution)
+      }
       return res.data
     },
 

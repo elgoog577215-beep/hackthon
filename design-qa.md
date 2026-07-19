@@ -1,3 +1,108 @@
+# 2026-07-17 当前练习内容密度 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-ed5086ed-f8ca-41c7-a8af-58ecc17efc47.png`
+- implementation screenshot path: `C:\Users\Lenovo\AppData\Local\Temp\design-qa-current-practice-expanded.png`
+- viewport: `2086 × 1225`
+- state: 高级数据结构课程 `1.1 前置知识诊断测试`，第一题待作答
+- full-view comparison evidence: `C:\Users\Lenovo\AppData\Local\Temp\design-qa-practice-density-composite.png`
+- focused region comparison evidence: 未单独裁切；对照图中的题目、输入框、操作区和底部余量均清晰可读，并用 DOM 几何数据精确核对尺寸
+
+**Findings**
+
+- 无可执行的 P0/P1/P2 差异。桌面作答区由 `920px` 扩大到 `1280px`，当前视口下输入框高度约 `662px`，操作区下方余量约 `82px`。
+- 字体与排版：题目层级、字号、字重和行高保持不变；加宽后长题目仍保持清晰阅读层级。
+- 间距与布局：练习标签、诊断带、题目、输入框及操作栏统一采用更宽的内容轨道；底部内边距由 `90px` 收紧到 `36px`。
+- 色彩与视觉令牌：未改变现有背景、边框、选中态、禁用态和提交按钮颜色。
+- 图片与资源：该界面无内容图片或插画，现有图标未替换。
+- 文案与内容：题目、占位提示和操作文案均保持不变。
+- 响应式：`1024 × 768` 和 `390 × 844` 均无页面级横向溢出；移动端继续使用 `180px` 输入框高度。
+
+**Open Questions**
+
+- 无。
+
+**Implementation Checklist**
+
+- [x] 桌面内容轨道扩大到 `1280px`。
+- [x] 作答输入框使用 `clamp(360px, 54vh, 680px)` 自适应高度。
+- [x] 收紧题目区底部留白。
+- [x] 保留移动端紧凑布局。
+- [x] 检查桌面、中等宽度和移动端溢出。
+
+**Comparison History**
+
+- 初始 P2：内容轨道仅 `920px`，输入框最小高度 `220px`，题目区底部预留 `90px`，在大屏形成明显空洞。
+- 修复：将主要练习轨道扩大到 `1280px`，输入框按视口增高，底部间距降至 `36px`。
+- 修复后视觉证据：`C:\Users\Lenovo\AppData\Local\Temp\design-qa-current-practice-expanded.png`
+- 修复后结构证据：当前视口下题目轨道 `1280px`、输入框约 `662px`，页面横向溢出为 `0`。
+
+**Primary Interactions Tested**
+
+- 当前练习待作答状态正常呈现。
+- 提示、问老师和提交按钮保持可见。
+- 桌面、中等宽度、移动端布局切换正常。
+- Console errors checked: `0`。
+
+**Follow-up Polish**
+
+- 无阻断性 P3 建议。
+
+final result: passed
+
+---
+
+# 2026-07-17 当前练习与学习记录统一 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-b993a736-f715-4cf6-a612-db54568adf65.png`
+- implementation screenshot path: `C:\Users\Lenovo\AppData\Local\Temp\design-qa-current-practice-unified.png`
+- viewport: `2128 × 1410`
+- state: 高级数据结构课程 `1.1 前置知识诊断测试`，当前练习已打开，第一题待作答
+- full-view comparison evidence: `C:\Users\Lenovo\AppData\Local\Temp\design-qa-practice-vs-records-composite.png`
+- focused region comparison evidence: 未单独裁切；全视图中顶部三级标签、关闭按钮、任务标题、作答区和外层工作区均可清晰辨认，已另外用 DOM 几何数据核对工具层边界
+
+**Findings**
+
+- 无可执行的 P0/P1/P2 差异。当前练习与学习记录使用相同的 `learning-tool-overlay` 外壳，并占用相同工作区矩形：`x=302.67, y=80.67, width=1814.67, height=1318.67`。
+- 字体与排版：沿用现有界面字族、字号、字重和层级；任务标题、状态与控件没有新增截断或异常换行。
+- 间距与布局：两种工具状态的边界、顶部标签带、关闭按钮位置和内容区留白一致；左侧章节目录继续保留。
+- 色彩与视觉令牌：沿用学习记录的白色工具层、淡色分隔线、紫色选中态和青绿色练习状态，不新增独立弹窗阴影或灰色遮罩。
+- 图片与资源：该状态无内容图片或插画；现有图标继续复用同一图标体系，没有用临时图形替代。
+- 文案与内容：保留当前练习、练习历史、待巩固及题目内容，不改变业务文案。
+
+**Open Questions**
+
+- 无。
+
+**Implementation Checklist**
+
+- [x] 移除居中 `MorphingDialog` 与全局背景遮罩。
+- [x] 当前练习复用学习工具全幅页内外壳。
+- [x] 当前练习、学习记录、学习概况继续在进入后的顶部标签切换。
+- [x] 验证当前练习 → 学习记录 → 当前练习双向切换。
+- [x] 验证 Escape/关闭按钮语义、`role="dialog"` 和 `aria-modal="true"`。
+
+**Comparison History**
+
+- 初始问题：当前练习是居中弹窗，尺寸、背景遮罩和空间层级均与学习记录不一致。
+- 修复：移除弹窗包装，新增共享 `learning-tool-overlay` 外壳，并让三个学习工具状态复用同一绝对定位与移动端规则。
+- 修复后视觉证据：`C:\Users\Lenovo\AppData\Local\Temp\design-qa-current-practice-unified.png`
+- 修复后结构证据：当前练习与学习记录边界数据完全一致；旧 `.morphing-dialog` 与遮罩数量均为 `0`。
+
+**Primary Interactions Tested**
+
+- 底部“学习”进入当前练习。
+- 顶部“学习记录”切换并返回“当前练习”。
+- 当前练习关闭按钮存在且唯一。
+- Console errors checked: `0`。
+
+**Follow-up Polish**
+
+- 无阻断性 P3 建议。
+
+final result: passed
+
+---
+
 # 课程块 AI 助手 Design QA
 
 ## 结论
@@ -98,3 +203,59 @@
 - 本轮只接正式练习；错题本和知识图谱没有接入新的弹窗壳，也没有改为全屏或右侧抽屉。
 - 正文预览不新增答案框、完成度推断或本地练习状态；所有作答仍进入同一个正式 `PracticeAttempt`。
 - 弹窗内部不增加第二个 AI 对话，问老师继续调用已有全局 AI 协作入口。
+
+---
+
+# 2026-07-18 学习工具父子层级 Design QA
+
+final result: passed
+
+## Reference and implementation
+
+- Reference concept: `C:\Users\Lenovo\.codex\generated_images\019f75a5-d3f1-7ac1-8ffb-186183c11e21\call_hGVGrTlQ2epqUk3BfYD5mWbV.png`
+- Desktop implementation capture: `design-qa-learning-tools-implementation.png`
+- Same-input side-by-side comparison: `design-qa-learning-tools-comparison.png`
+- Mobile implementation capture: `design-qa-learning-tools-mobile.png`
+- Desktop viewport: 1487 × 1058
+- Mobile viewport: 390 × 844
+- Tested route: `/course/4215dc17-7c34-48ad-91c8-a1b780c0366d/learn/L2-1-1`
+- Compared state: “学习任务 · 3” expanded with its three child actions visible.
+
+## Visual comparison
+
+- The bottom dock keeps two explicit parent controls: “学习任务 · 3” and “课程资料 · 2”.
+- “智能助教” remains an independent peer action.
+- Expanding a parent opens a visually attached floating tray directly above its trigger.
+- The learning tray contains “当前练习 / 学习记录 / 学习概况”.
+- The resource tray contains “知识库 / 教学资源”.
+- Active state, upward chevron, tray pointer, icon treatment, spacing, borders, and shadow match the selected concept and the existing product visual language.
+- The implementation adapts the concept to the real application shell; its information architecture and parent-child grouping remain equivalent to the reference.
+
+## Responsive and accessibility checks
+
+- Desktop: tray is fully visible, aligned to its parent, and does not cover the trigger.
+- Mobile: the same hierarchy becomes a bottom sheet above the fixed three-part dock without horizontal overflow.
+- Parent buttons expose `aria-haspopup`, `aria-expanded`, and `aria-controls`.
+- Child actions use menu/menuitem semantics.
+- Escape closes the tray and restores focus to the originating parent control.
+- Clicking the other parent swaps trays without navigating.
+- Clicking outside closes the tray.
+- Unavailable practice remains visible and disabled with a reason/status.
+
+## Runtime verification
+
+- Browser console errors/warnings: none.
+- Full frontend tests: 59 files, 347 tests passed.
+- Production build: passed.
+- Vue TypeScript check: passed.
+- Focused security scan of changed frontend files: no secrets, debug logging, or unsafe HTML rendering found.
+- `npm audit` could not run because the configured `npmmirror.com` registry does not implement the npm audit endpoint; the registry configuration was left unchanged.
+
+## QA history
+
+1. Captured the selected concept and desktop implementation at the same 1487 × 1058 viewport/state.
+2. Compared both images side by side in one visual input.
+3. Verified learning and resource tray switching.
+4. Verified Escape dismissal and focus restoration.
+5. Verified the mobile bottom-sheet adaptation at 390 × 844.
+6. Re-ran the complete frontend test suite, production build, and TypeScript check.

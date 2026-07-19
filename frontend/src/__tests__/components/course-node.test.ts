@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 import CourseNode from '@/components/CourseNode.vue'
 import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
+import { useLearningProgressStore } from '@/stores/learningProgress'
 import type { Node as CourseNodeModel } from '@/stores/types'
 
 const node: CourseNodeModel = {
@@ -63,6 +64,58 @@ describe('CourseNode 正式练习入口', () => {
     expect(wrapper.get('.task-launcher').text()).toContain('为什么线性组合仍然属于这个向量空间？')
     await wrapper.find('.task-launcher').trigger('click')
     expect(wrapper.emitted('startPractice')?.[0]?.[0]).toMatchObject({ node_id: node.node_id })
+  })
+
+  it('个人理解检查复用同一正式练习弹窗', async () => {
+    const workspace = useCourseWorkspaceStore()
+    workspace.assets = {
+      course_id: 'course-1',
+      plan: {},
+      quality_report: {},
+      course_availability: { schema_version: 'course_learning_availability_v1', mode: 'standard', reason_code: 'ready', capabilities: {} },
+      assets: {
+        questions: [{ asset_id: 'q1', revision_id: 'qr1', node_id: node.node_id, prompt: '解释复合顺序。' }],
+      },
+    }
+    useLearningProgressStore().runtime = {
+      adaptive_blocks: [{
+        adaptive_block_id: 'check-1',
+        anchor: { node_id: node.node_id },
+        status: 'active',
+      }],
+    } as any
+    const wrapper = mount(CourseNode, {
+      props: { node, index: 0, fontSize: 16, fontFamily: 'sans', lineHeight: 1.8 },
+      global: {
+        stubs: {
+          CourseBlockStream: { template: '<div class="block-stream" />' },
+          AdaptiveLearningBlock: {
+            emits: ['verify'],
+            template: '<button class="formal-verify" @click="$emit(\'verify\')">复验</button>',
+          },
+        },
+      },
+    })
+
+    await wrapper.get('.formal-verify').trigger('click')
+    expect(wrapper.emitted('startPractice')?.[0]?.[0]).toMatchObject({ node_id: node.node_id })
+  })
+
+  it('正文中的针对性练习把指定题目修订一并交给练习弹窗', async () => {
+    const wrapper = mount(CourseNode, {
+      props: { node, index: 0, fontSize: 16, fontFamily: 'sans', lineHeight: 1.8 },
+      global: {
+        stubs: {
+          CourseBlockStream: {
+            emits: ['startPractice'],
+            template: '<button class="targeted-practice" @click="$emit(\'startPractice\', \'qr-targeted\')">开始练习</button>',
+          },
+        },
+      },
+    })
+
+    await wrapper.get('.targeted-practice').trigger('click')
+    expect(wrapper.emitted('startPractice')?.[0]).toEqual([node, 'qr-targeted'])
   })
 
   it('章节正文会应用阅读字号、字体和行高', () => {

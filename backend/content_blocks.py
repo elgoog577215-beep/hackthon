@@ -8,37 +8,91 @@ import json
 import re
 from typing import Any
 
+from course_pedagogy import module_role_from_heading
+
 
 DEFAULT_BLOCKS: list[tuple[str, str]] = [
     ("intro", "引入问题"),
+    ("objective", "本节任务"),
     ("concept", "核心概念"),
     ("reasoning", "推理过程"),
     ("example", "例子讲解"),
     ("application", "应用场景"),
+    ("activity", "学习者行动"),
     ("exercise", "自测练习"),
+    ("feedback", "检查与反馈"),
     ("summary", "小结"),
 ]
 
 TYPE_TITLES = dict(DEFAULT_BLOCKS)
+TYPE_TITLES.update({
+    "orientation": "引入",
+    "prerequisite": "前置",
+    "counterexample": "辨析",
+    "misconception": "易错点",
+    "checkpoint": "检查",
+    "remediation": "补救",
+    "transfer": "迁移",
+    "custom": "内容",
+})
 
 
-def block_type_from_title(title: str, order: int = 0) -> str:
-    text = title.lower()
-    pairs = [
-        ("intro", ("引入", "问题", "直观", "why", "背景")),
-        ("concept", ("概念", "定义", "核心", "是什么", "基础")),
-        ("reasoning", ("推理", "证明", "原理", "过程", "为什么")),
-        ("example", ("例子", "案例", "示例", "讲解")),
-        ("application", ("应用", "场景", "实践", "怎么用")),
-        ("exercise", ("练习", "自测", "题", "检查")),
-        ("summary", ("小结", "总结", "回顾")),
+def block_type_from_title(title: str, order: int = 0, content: str = "") -> str:
+    """Resolve a pedagogical role without using block order as hidden meaning.
+
+    ``order`` remains in the signature for compatibility, but deliberately does
+    not participate in classification. An unknown heading is honest ``custom``
+    content instead of becoming a false introduction, concept, or example.
+    """
+    del order
+    registered = module_role_from_heading(title)
+    if registered:
+        return registered
+
+    text = _normalize_heading(title)
+    explicit_patterns = [
+        ("objective", r"^(本节任务|学习目标|学习任务|目标与任务|要解决的问题)$"),
+        ("orientation", r"^(引入|引入问题|直觉|直观理解|背景|问题导入|现象与问题)(?:[:：].*)?$"),
+        ("prerequisite", r"^(前置|前置知识|前置诊断|准备知识)(?:[:：].*)?$"),
+        ("counterexample", r"^(反例|对比|辨析|案例比较|观点比较|材料辨析)(?:[:：].*)?$"),
+        ("misconception", r"^(错误分析|常见错误|常见误区|易错点|陷阱)(?:[:：].*)?$"),
+        ("remediation", r"^(补救|局部补救|纠错|间隔复习)(?:[:：].*)?$"),
+        ("feedback", r"^(检查与反馈|答案与评价标准|评价标准|运行结果|测试与质量)(?:[:：].*)?$"),
+        ("activity", r"^(学习者行动|实战任务|修改任务|变式练习|控制练习|真实输出|讨论或写作|角色模拟|实验设计)(?:[:：].*)?$"),
+        ("checkpoint", r"^(检查|理解检查|自测|自测练习|随堂练习)(?:[:：].*)?$"),
+        ("summary", r"^(小结|总结|本节回顾|回顾)(?:[:：].*)?$"),
+        ("example", r"^(例子|案例|示例|例题|例题推演|解释性例子|调试案例|机制案例|案例拆解|最小可运行示例)(?:[:：].*)?$"),
+        ("application", r"^(应用|应用场景|实践|预测与应用|工具与模板|数学建模)(?:[:：].*)?$"),
+        ("reasoning", r"^(推理|推导|证明|原理|机制|机制拆解|机制过程|观点与论证|数据分析)(?:[:：].*)?$"),
+        ("concept", r"^(概念|核心概念|核心教学|概念地图|定义|正式定义|模型与规律|架构设计|方法框架)(?:[:：].*)?$"),
+        ("transfer", r"^(迁移|综合迁移|跨情境迁移)(?:[:：].*)?$"),
     ]
-    for block_type, keywords in pairs:
-        if any(keyword in text for keyword in keywords):
+    for block_type, pattern in explicit_patterns:
+        if re.match(pattern, text, flags=re.IGNORECASE):
             return block_type
-    if 0 <= order < len(DEFAULT_BLOCKS):
-        return DEFAULT_BLOCKS[order][0]
-    return "concept"
+    if re.search(r"(?:定义|基本概念|抽象数据类型|渐进记号|结构与性质|核心结构)$", text):
+        return "concept"
+
+    evidence = summarize_text(content, 360).lower()
+    if re.search(r"(?:要解决的问题|可验证的学习目标|学完本节后).{0,100}(?:能够|应当)", evidence):
+        return "objective"
+    if re.search(r"(?:答案与评价标准|正确标准|评分标准|典型错误|参考答案)", evidence):
+        return "feedback"
+    if re.search(r"^(?:任务|请独立|请完成|尝试|动手|练习)[：:]", evidence):
+        return "activity"
+    if re.search(r"(?:形式定义|定义为|当且仅当|称为|核心关系)", evidence):
+        return "concept"
+    return "custom"
+
+
+def heading_matches_section(title: str, section_title: str) -> bool:
+    return bool(section_title) and _normalize_heading(title) == _normalize_heading(section_title)
+
+
+def _normalize_heading(value: str) -> str:
+    text = re.sub(r"^[#\s]+", "", str(value or ""))
+    text = re.sub(r"[\s　]+", " ", text).strip()
+    return text.strip("：:、。 ")
 
 
 def block_title(block: dict[str, Any]) -> str:
@@ -89,9 +143,10 @@ def normalize_blocks(
     node_id: str,
     blocks: Any,
     fallback_markdown: str = "",
+    node_title: str = "",
 ) -> list[dict[str, Any]]:
     if not isinstance(blocks, list) or not blocks:
-        return blocks_from_markdown(node_id, fallback_markdown)
+        return blocks_from_markdown(node_id, fallback_markdown, node_title=node_title)
 
     normalized: list[dict[str, Any]] = []
     for idx, raw in enumerate(blocks):
@@ -99,7 +154,7 @@ def normalize_blocks(
             continue
         content = str(raw.get("content") or "").strip()
         title = str(raw.get("title") or "").strip()
-        block_type = str(raw.get("type") or block_type_from_title(title, idx))
+        block_type = str(raw.get("type") or block_type_from_title(title, idx, content))
         block = {
             "block_id": str(raw.get("block_id") or make_block_id(node_id, idx, block_type)),
             "parent_block_id": raw.get("parent_block_id"),
@@ -119,16 +174,18 @@ def normalize_blocks(
         normalized.append(enriched)
 
     if not normalized:
-        return blocks_from_markdown(node_id, fallback_markdown)
+        return blocks_from_markdown(node_id, fallback_markdown, node_title=node_title)
     return sorted(normalized, key=lambda b: b.get("order", 0))
 
 
-def blocks_from_markdown(node_id: str, markdown: str) -> list[dict[str, Any]]:
+def blocks_from_markdown(node_id: str, markdown: str, *, node_title: str = "") -> list[dict[str, Any]]:
     text = (markdown or "").strip()
     if not text:
         return []
 
-    heading_re = re.compile(r"^(#{2,4})\s+(.+?)\s*$", re.MULTILINE)
+    # Only level-two headings define peer teaching blocks. Deeper headings stay
+    # inside the block body instead of acquiring an unrelated role of their own.
+    heading_re = re.compile(r"^(##)\s+(.+?)\s*$", re.MULTILINE)
     matches = list(heading_re.finditer(text))
     parts: list[tuple[str, str]] = []
 
@@ -144,9 +201,18 @@ def blocks_from_markdown(node_id: str, markdown: str) -> list[dict[str, Any]]:
             end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
             parts.append((match.group(2).strip(), text[start:end].strip()))
 
+    meaningful_parts: list[tuple[str, str]] = []
+    for title, content in parts:
+        if heading_matches_section(title, node_title):
+            if content:
+                meaningful_parts.append(("引入问题", content))
+            continue
+        if content:
+            meaningful_parts.append((title, content))
+
     blocks: list[dict[str, Any]] = []
-    for idx, (title, content) in enumerate(parts):
-        block_type = block_type_from_title(title, idx)
+    for idx, (title, content) in enumerate(meaningful_parts):
+        block_type = block_type_from_title(title, idx, content)
         blocks.append(with_block_revision_metadata({
             "block_id": make_block_id(node_id, idx, block_type),
             "parent_block_id": None,
@@ -191,12 +257,58 @@ def set_node_content_blocks(node: dict[str, Any], content: str) -> list[dict[str
         str(node.get("node_id", "")),
         node.get("content_blocks"),
         content,
+        str(node.get("node_name") or ""),
     )
     if not blocks and content:
-        blocks = blocks_from_markdown(str(node.get("node_id", "")), content)
+        blocks = blocks_from_markdown(
+            str(node.get("node_id", "")),
+            content,
+            node_title=str(node.get("node_name") or ""),
+        )
+    _attach_module_plan_metadata(blocks, node.get("module_plan") or [])
     node["content_blocks"] = blocks
     node["node_content"] = blocks_to_markdown(blocks) if blocks else content
     return blocks
+
+
+def _attach_module_plan_metadata(
+    blocks: list[dict[str, Any]],
+    module_plan: list[dict[str, Any]],
+) -> None:
+    """把已确认模块实例追溯信息挂到生成块，供 CourseDocument 落盘。"""
+    candidates = [
+        item for item in module_plan
+        if isinstance(item, dict) and str(item.get("label") or "").strip()
+    ]
+    for block in blocks:
+        title = _normalize_heading(str(block.get("title") or ""))
+        matched = next(
+            (
+                item
+                for item in candidates
+                if title == _normalize_heading(str(item.get("label") or ""))
+                or title.startswith(f"{_normalize_heading(str(item.get('label') or ''))}：")
+                or title.startswith(f"{_normalize_heading(str(item.get('label') or ''))}:")
+            ),
+            None,
+        )
+        if not matched:
+            continue
+        metadata = deepcopy(block.get("metadata") or {})
+        metadata.update({
+            "module_id": matched.get("module_id"),
+            "module_instance_id": matched.get("module_instance_id"),
+            "composition_source": matched.get("composition_source"),
+            "composition_style": matched.get("composition_style"),
+            "selection_reasons": deepcopy(
+                matched.get("selection_reasons") or []
+            ),
+            "block_difficulty_contract": deepcopy(
+                matched.get("block_difficulty_contract") or {}
+            ),
+            "role": matched.get("block_role") or block.get("type"),
+        })
+        block["metadata"] = metadata
 
 
 def project_course_content_blocks(course_data: dict[str, Any]) -> dict[str, Any]:
@@ -207,6 +319,7 @@ def project_course_content_blocks(course_data: dict[str, Any]) -> dict[str, Any]
             str(node.get("node_id") or ""),
             node.get("content_blocks"),
             str(node.get("node_content") or ""),
+            str(node.get("node_name") or ""),
         )
     return projected
 

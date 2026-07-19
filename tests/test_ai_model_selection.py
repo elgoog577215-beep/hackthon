@@ -78,6 +78,7 @@ async def test_call_llm_falls_back_to_next_available_model(monkeypatch):
 async def test_call_llm_can_enable_thinking_for_high_value_steps(monkeypatch):
     monkeypatch.setenv("AI_API_KEY", "test-key")
     monkeypatch.setenv("AI_MODEL_CANDIDATES", "good-model")
+    monkeypatch.setenv("AI_ENABLE_THINKING", "true")
 
     from ai_base import AIBase
 

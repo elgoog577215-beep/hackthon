@@ -76,6 +76,7 @@ export interface SendAIMessagePayload {
   contextRef?: AIContextRef
   taskRef?: Record<string, any>
   onAssistantMessage?: (message: AIMessage) => void
+  onQuestionRecorded?: () => void | Promise<void>
 }
 
 export type AIAnswerFeedback = 'resolved' | 'unclear'
@@ -259,18 +260,40 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       if (!reader) throw new Error('missing_stream')
       const decoder = new TextDecoder()
       let buffer = ''
+      let questionRecordedNotified = false
+      const notifyQuestionRecorded = () => {
+        if (questionRecordedNotified) return
+        questionRecordedNotified = true
+        void Promise.resolve(payload.onQuestionRecorded?.()).catch((callbackError) => {
+          logger.warn('Failed to refresh course growth after recording AI question', callbackError)
+        })
+      }
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
         buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
         let splitAt = buffer.indexOf('\n\n')
         while (splitAt >= 0) {
-          handleEvent(buffer.slice(0, splitAt), assistantMessage, conversation, localUserId)
+          handleEvent(
+            buffer.slice(0, splitAt),
+            assistantMessage,
+            conversation,
+            localUserId,
+            notifyQuestionRecorded,
+          )
           buffer = buffer.slice(splitAt + 2)
           splitAt = buffer.indexOf('\n\n')
         }
       }
-      if (buffer.trim()) handleEvent(buffer, assistantMessage, conversation, localUserId)
+      if (buffer.trim()) {
+        handleEvent(
+          buffer,
+          assistantMessage,
+          conversation,
+          localUserId,
+          notifyQuestionRecorded,
+        )
+      }
       assistantMessage.status = assistantMessage.status === 'failed' ? 'failed' : 'complete'
       await refreshConversation(conversation.conversation_id)
     } catch (sendError: any) {
@@ -294,6 +317,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     assistantMessage: AIMessage,
     conversation: AIConversation,
     localUserId: string,
+    onQuestionRecorded?: () => void,
   ) {
     let eventName = ''
     const dataLines: string[] = []
@@ -315,6 +339,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       const userMessage = conversation.messages.find(item => item.message_id === localUserId)
       if (userMessage && data.user_message_id) userMessage.message_id = data.user_message_id
       if (data.conversation_id) currentConversationId.value = data.conversation_id
+      onQuestionRecorded?.()
     } else if (eventName === 'answer') {
       assistantMessage.content += data.chunk || ''
     } else if (eventName === 'final_answer') {

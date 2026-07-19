@@ -9,7 +9,11 @@ const httpMock = vi.hoisted(() => ({
 
 vi.mock('@/utils/http', () => ({ default: httpMock }))
 
-import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
+import {
+  unresolvedMistakeAttempts,
+  useCourseWorkspaceStore,
+  type PracticeAttempt,
+} from '@/stores/courseWorkspace'
 
 const runtimeResponse = {
   schema_version: 'learning_runtime_v1', course_id: 'c1', user_id: 'default_user',
@@ -31,7 +35,7 @@ const question = {
   input_contract: { mode: 'rich_text' },
 }
 
-const attempt = (overrides: Record<string, any> = {}) => ({
+const attempt = (overrides: Record<string, any> = {}): PracticeAttempt => ({
   attempt_id: 'pa1',
   task_revision_id: 'qr1',
   question_revision_id: 'qr1',
@@ -44,6 +48,36 @@ const attempt = (overrides: Record<string, any> = {}) => ({
   ai_support_level: 0,
   active_seconds: 0,
   ...overrides,
+})
+
+describe('mistake book projection', () => {
+  it('只保留每条针对再练链上最新且仍未解决的作答', () => {
+    const original = attempt({
+      attempt_id: 'pa-original',
+      status: 'graded',
+      result: { passed: false, mastery_eligible: false },
+    })
+    const failedRetry = attempt({
+      attempt_id: 'pa-retry-failed',
+      status: 'graded',
+      origin_attempt_id: 'pa-original',
+      practice_intent: 'targeted_retry',
+      result: { passed: false, mastery_eligible: false },
+    })
+
+    expect(unresolvedMistakeAttempts([original, failedRetry]).map(item => item.attempt_id))
+      .toEqual(['pa-retry-failed'])
+
+    const passedRetry = attempt({
+      attempt_id: 'pa-retry-passed',
+      status: 'graded',
+      origin_attempt_id: 'pa-retry-failed',
+      practice_intent: 'targeted_retry',
+      result: { passed: true, mastery_eligible: true },
+    })
+
+    expect(unresolvedMistakeAttempts([original, failedRetry, passedRetry])).toEqual([])
+  })
 })
 
 beforeEach(() => {
@@ -70,6 +104,62 @@ describe('formal practice attempt store', () => {
 
     expect(store.currentAttempt?.attempt_id).toBe('pa1')
     expect(store.practiceSaveState).toBe('saved')
+  })
+
+  it('恢复活动 Attempt 时同步恢复已经查看的提示正文', async () => {
+    httpMock.get
+      .mockResolvedValueOnce({ data: {
+        course_id: 'c1',
+        course_version_id: 'cv1',
+        scope: 'node',
+        questions: [question],
+        active_attempts: [attempt({
+          node_id: 'n1',
+          course_version_id: 'cv1',
+          revealed_hint_levels: [1],
+          revealed_hints: [
+            { level: 1, kind: 'orientation', content: '先区分大小与方向。' },
+          ],
+        })],
+        summary: {},
+      } })
+      .mockResolvedValueOnce({ data: { phase: 'practice', case: null, session: null, current_task: null } })
+      .mockResolvedValue({ data: runtimeResponse })
+    const store = useCourseWorkspaceStore()
+
+    await store.loadPractice('c1', 'n1')
+
+    expect(store.revealedHints).toEqual([
+      { level: 1, kind: 'orientation', content: '先区分大小与方向。' },
+    ])
+  })
+
+  it('加载新题修订时清除仍指向旧题的活动 Attempt', async () => {
+    httpMock.get
+      .mockResolvedValueOnce({ data: {
+        course_id: 'c1',
+        course_version_id: 'cv2',
+        scope: 'node',
+        questions: [question],
+        active_attempts: [],
+        summary: {},
+      } })
+      .mockResolvedValueOnce({ data: { phase: 'practice', case: null, session: null, current_task: null } })
+      .mockResolvedValue({ data: runtimeResponse })
+    const store = useCourseWorkspaceStore()
+    store.currentAttempt = attempt({
+      task_revision_id: 'qr-retired',
+      question_revision_id: 'qr-retired',
+      revealed_hint_levels: [1, 2, 3],
+    }) as any
+    store.revealedHints = [
+      { level: 1, content: '旧题提示' },
+    ]
+
+    await store.loadPractice('c1', 'n1')
+
+    expect(store.currentAttempt).toBeNull()
+    expect(store.revealedHints).toEqual([])
   })
 
   it('草稿先写本地，再用期望修订同步服务端', async () => {
@@ -186,6 +276,183 @@ describe('formal practice attempt store', () => {
     expect(httpMock.post).not.toHaveBeenCalled()
   })
 
+  it('针对未通过记录优先选择同易错点的另一道版本化练习并保留来源', async () => {
+    const sourceQuestion = {
+      ...question,
+      mistake_point_ids: ['mistake-1'],
+      skill_unit_ids: ['skill-1'],
+    }
+    const targetedQuestion = {
+      ...question,
+      asset_id: 'q2',
+      revision_id: 'qr2',
+      task_revision_id: 'qr2',
+      prompt: '换一种情境解释向量。',
+      mistake_point_ids: ['mistake-1'],
+      skill_unit_ids: ['skill-1'],
+    }
+    const unrelatedQuestion = {
+      ...question,
+      asset_id: 'q3',
+      revision_id: 'qr3',
+      task_revision_id: 'qr3',
+      node_id: 'n2',
+      mistake_point_ids: ['mistake-2'],
+      skill_unit_ids: ['skill-2'],
+    }
+    const failedAttempt = attempt({
+      status: 'graded',
+      result: { passed: false },
+      mistake_point_ids: ['mistake-1'],
+      skill_unit_ids: ['skill-1'],
+    })
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        status: 'created',
+        attempt: attempt({
+          attempt_id: 'pa2',
+          task_revision_id: 'qr2',
+          question_revision_id: 'qr2',
+          origin_attempt_id: 'pa1',
+          practice_intent: 'targeted_retry',
+        }),
+      },
+    })
+    const store = useCourseWorkspaceStore()
+    store.practice = {
+      course_id: 'c1',
+      course_version_id: 'cv1',
+      scope: 'node',
+      questions: [sourceQuestion, targetedQuestion, unrelatedQuestion],
+      active_attempts: [],
+      summary: {},
+    } as any
+
+    const result = await store.startTargetedRetry('c1', failedAttempt as any)
+
+    expect(result?.task_revision_id).toBe('qr2')
+    expect(store.currentQuestionIndex).toBe(1)
+    expect(httpMock.post).toHaveBeenCalledWith('/api/courses/c1/practice/attempts', expect.objectContaining({
+      task_revision_id: 'qr2',
+      resume: false,
+      origin_attempt_id: 'pa1',
+      practice_intent: 'targeted_retry',
+    }))
+  })
+
+  it('针对再练优先使用本次答案诊断，而不是沿用题目上全部候选标签', async () => {
+    const sourceQuestion = {
+      ...question,
+      mistake_point_ids: ['mistake-old'],
+      skill_unit_ids: ['skill-old'],
+    }
+    const oldSignalQuestion = {
+      ...question,
+      asset_id: 'q-old',
+      revision_id: 'qr-old',
+      task_revision_id: 'qr-old',
+      mistake_point_ids: ['mistake-old'],
+      skill_unit_ids: ['skill-old'],
+    }
+    const diagnosedQuestion = {
+      ...question,
+      asset_id: 'q-diagnosed',
+      revision_id: 'qr-diagnosed',
+      task_revision_id: 'qr-diagnosed',
+      mistake_point_ids: ['mistake-real'],
+      skill_unit_ids: ['skill-real'],
+    }
+    const failedAttempt = attempt({
+      status: 'graded',
+      result: {
+        passed: false,
+        answer_diagnosis: {
+          status: 'completed',
+          diagnosis: {
+            knowledge_ids: [],
+            skill_ids: ['skill-real'],
+            misconception_ids: ['mistake-real'],
+          },
+        },
+      },
+    })
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        status: 'created',
+        attempt: attempt({
+          task_revision_id: 'qr-diagnosed',
+          question_revision_id: 'qr-diagnosed',
+        }),
+      },
+    })
+    const store = useCourseWorkspaceStore()
+    store.practice = {
+      course_id: 'c1',
+      scope: 'node',
+      questions: [sourceQuestion, oldSignalQuestion, diagnosedQuestion],
+      active_attempts: [],
+      summary: {},
+    } as any
+
+    await store.startTargetedRetry('c1', failedAttempt as any)
+
+    expect(store.currentQuestionIndex).toBe(2)
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/c1/practice/attempts',
+      expect.objectContaining({ task_revision_id: 'qr-diagnosed' }),
+    )
+  })
+
+  it('从错题本首次发起针对再练时先加载错题所在节点的正式题目', async () => {
+    const failedAttempt = attempt({
+      node_id: 'n1',
+      status: 'graded',
+      result: { passed: false, mastery_eligible: false },
+    })
+    httpMock.get
+      .mockResolvedValueOnce({
+        data: {
+          course_id: 'c1',
+          course_version_id: 'cv1',
+          scope: 'node',
+          questions: [question],
+          active_attempts: [],
+          summary: {},
+        },
+      })
+      .mockResolvedValueOnce({
+        data: { phase: 'practice', case: null, session: null, current_task: null },
+      })
+      .mockResolvedValue({ data: runtimeResponse })
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        status: 'created',
+        attempt: attempt({
+          attempt_id: 'pa-retry',
+          status: 'in_progress',
+          origin_attempt_id: 'pa1',
+          practice_intent: 'targeted_retry',
+        }),
+      },
+    })
+    const store = useCourseWorkspaceStore()
+
+    const result = await store.startTargetedRetry('c1', failedAttempt)
+
+    expect(httpMock.get).toHaveBeenNthCalledWith(1, '/api/courses/c1/practice', {
+      params: { scope: 'node', node_id: 'n1' },
+    })
+    expect(result?.origin_attempt_id).toBe('pa1')
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/c1/practice/attempts',
+      expect.objectContaining({
+        task_revision_id: 'qr1',
+        origin_attempt_id: 'pa1',
+        practice_intent: 'targeted_retry',
+      }),
+    )
+  })
+
   it('查看完整解析后同步 Attempt 证据状态', async () => {
     httpMock.post.mockResolvedValue({ data: {
       attempt: attempt({ revision: 3, status: 'graded', solution_revealed: true }),
@@ -200,6 +467,24 @@ describe('formal practice attempt store', () => {
     expect(store.currentAttempt?.solution_revealed).toBe(true)
     expect(store.revealedSolution?.criteria).toEqual(['条件完整'])
     expect(httpMock.get).toHaveBeenCalledWith('/api/courses/c1/learning-runtime', { params: undefined })
+  })
+
+  it('恢复已揭示解析的 Attempt 时保留结构化答案', async () => {
+    httpMock.post.mockResolvedValueOnce({ data: {
+      attempt: attempt({ revision: 4, status: 'graded', solution_revealed: true }),
+      solution: {
+        schema_version: 'solution_spec_v1',
+        steps: ['先定位首次失衡节点'],
+        final_answer: { preorder: [30, 20, 10, 25, 40, 50] },
+        checks: ['中序严格递增'],
+      },
+    } })
+    const store = useCourseWorkspaceStore()
+
+    await store.startPracticeAttempt('c1', 'qr1')
+
+    expect(store.revealedSolution?.steps).toEqual(['先定位首次失衡节点'])
+    expect(store.revealedSolution?.final_answer.preorder).toEqual([30, 20, 10, 25, 40, 50])
   })
 
   it('连续性动作精确恢复第二道题的活动 Attempt', async () => {
@@ -272,6 +557,43 @@ describe('formal practice attempt store', () => {
     expect(httpMock.post).not.toHaveBeenCalled()
   })
 
+  it('课程生长插入的针对性练习按后端题目修订精确定位', async () => {
+    const alternateQuestion = {
+      ...question,
+      asset_id: 'q-targeted',
+      revision_id: 'qr-targeted',
+      task_revision_id: 'qr-targeted',
+      prompt: '解释复合顺序。',
+    }
+    httpMock.get
+      .mockResolvedValueOnce({ data: {
+        course_id: 'c1', course_version_id: 'cv1', scope: 'node',
+        questions: [question, alternateQuestion], active_attempts: [], summary: {},
+      } })
+      .mockResolvedValueOnce({ data: { phase: 'practice', case: null, session: null, current_task: null } })
+      .mockResolvedValue({ data: runtimeResponse })
+    const store = useCourseWorkspaceStore()
+    store.preparePracticeTask('c1', 'n1', 'qr-targeted')
+
+    await store.loadPractice('c1', 'n1')
+
+    expect(store.currentQuestionIndex).toBe(1)
+    expect(store.currentPracticeQuestion?.task_revision_id).toBe('qr-targeted')
+    expect(store.currentAttempt).toBeNull()
+    expect(store.taskResumeError).toBe('')
+    expect(httpMock.get).toHaveBeenNthCalledWith(
+      1,
+      '/api/courses/c1/practice',
+      {
+        params: {
+          scope: 'node',
+          node_id: 'n1',
+          task_revision_id: 'qr-targeted',
+        },
+      },
+    )
+  })
+
   it('目标 Attempt 与题目修订不一致时不打开其他活动题目', async () => {
     const otherAttempt = attempt({ attempt_id: 'pa-other', task_revision_id: 'qr1', question_revision_id: 'qr1' })
     httpMock.get
@@ -331,5 +653,113 @@ describe('formal practice attempt store', () => {
     expect(store.currentPracticeQuestion?.task_revision_id).toBe('remediation-r1')
     expect(store.taskResumeError).toBe('')
     expect(store.requestedTaskRef).toBeNull()
+  })
+
+  it('手动换题会保留旧记录并切换到服务端选择的冻结题目', async () => {
+    const alternateQuestion = {
+      ...question,
+      asset_id: 'q2',
+      revision_id: 'qr2',
+      task_revision_id: 'qr2',
+      prompt: '同目标的另一道题。',
+    }
+    httpMock.post
+      .mockResolvedValueOnce({
+        data: { status: 'abandoned', attempt: attempt({ status: 'abandoned', revision: 2 }) },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          question: alternateQuestion,
+          has_alternative: true,
+          selection_policy: 'frozen_course_question',
+        },
+      })
+    const store = useCourseWorkspaceStore()
+    store.practice = {
+      course_id: 'c1',
+      course_version_id: 'cv1',
+      scope: 'node',
+      questions: [question, alternateQuestion],
+      active_attempts: [],
+      summary: {},
+    } as any
+    store.currentAttempt = attempt() as any
+    store.currentDraft = { text: '未提交草稿' }
+
+    const refreshed = await store.refreshPracticeQuestion('c1', 'n1', 'node')
+
+    expect(httpMock.post).toHaveBeenNthCalledWith(
+      1,
+      '/api/courses/c1/practice/attempts/pa1/abandon',
+      { expected_revision: 1 },
+    )
+    expect(httpMock.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/courses/c1/practice/refresh',
+      {
+        current_task_revision_id: 'qr1',
+        node_id: 'n1',
+        scope: 'node',
+      },
+    )
+    expect(refreshed?.task_revision_id).toBe('qr2')
+    expect(store.currentQuestionIndex).toBe(1)
+    expect(store.currentAttempt).toBeNull()
+    expect(store.currentDraft).toEqual({})
+  })
+
+  it('换到批次外题目时替换当前位置并保持三题上限', async () => {
+    const second = {
+      ...question,
+      asset_id: 'q2',
+      revision_id: 'qr2',
+      task_revision_id: 'qr2',
+      prompt: '第二题。',
+    }
+    const third = {
+      ...question,
+      asset_id: 'q3',
+      revision_id: 'qr3',
+      task_revision_id: 'qr3',
+      prompt: '第三题。',
+    }
+    const replacement = {
+      ...question,
+      asset_id: 'q4',
+      revision_id: 'qr4',
+      task_revision_id: 'qr4',
+      prompt: '替换题。',
+    }
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        question: replacement,
+        has_alternative: true,
+        selection_policy: 'frozen_course_question',
+      },
+    })
+    const store = useCourseWorkspaceStore()
+    store.practice = {
+      course_id: 'c1',
+      course_version_id: 'cv1',
+      scope: 'node',
+      batch_size: 3,
+      questions: [question, second, third],
+      active_attempts: [],
+      summary: {},
+    } as any
+    store.currentQuestionIndex = 1
+
+    const refreshed = await store.refreshPracticeQuestion('c1', 'n1', 'node')
+
+    expect(refreshed?.task_revision_id).toBe('qr4')
+    expect(store.practice?.questions).toHaveLength(3)
+    expect(store.practice?.questions.map(
+      item => item.task_revision_id || item.revision_id,
+    )).toEqual([
+      'qr1',
+      'qr4',
+      'qr3',
+    ])
+    expect(store.currentQuestionIndex).toBe(1)
   })
 })

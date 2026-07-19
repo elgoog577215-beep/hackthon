@@ -11,6 +11,7 @@ from routers import (
     diagnostics,
     diagrams,
     learner_model,
+    knowledge_libraries,
     learning_assets,
     learning_continuation,
     learning_progress,
@@ -21,6 +22,7 @@ from routers import (
     materials,
     nodes,
     practice,
+    question_bank,
     review,
     tasks,
 )

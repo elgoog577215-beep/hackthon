@@ -1,73 +1,93 @@
 ---
 title: Knowledge Map AI
-emoji: 🧠
+emoji: "🧠"
 colorFrom: blue
 colorTo: indigo
 sdk: docker
 app_port: 7860
 ---
 
-# 灵知（KnowledgeMap）AI 学习系统
+# 灵知（Knowledge Map AI）
 
-这是一个围绕课程生成、连续学习、正式学习证据、学习者模型和统一 AI 老师构建的智能学习系统。
+灵知是一个面向课程生成、连续学习和学习证据管理的 AI 学习系统。
 
-## 功能特点
-- **智能课程生成**：根据学习目标、难度和资料生成课程结构、正文与正式学习资产。
-- **连续学习工作区**：保留课程目录、连续正文和统一 AI 老师，并支持断点恢复。
-- **学科知识库**：用跨课程正式知识树表达学科结构，通过课程知识映射显示本课覆盖。
-- **教学标准与学习者模型**：统一能力点、易错点和提升点，并从正式证据投影个人知识状态。
-- **正式练习与复习**：题目、作答、诊断、补救和复验共享同一条可审计链路。
+## 本地开发（Windows PowerShell）
+
+以下命令不需要激活虚拟环境，也不依赖全局 `pip` 或 `uvicorn`。在项目根目录执行：
+
+```powershell
+# 第一次安装
+py -3.10 -m venv backend\.venv
+.\backend\.venv\Scripts\python.exe -m pip install -r .\backend\requirements.txt
+
+Set-Location .\frontend
+npm install
+Set-Location ..
+
+# 仅首次：从安全示例创建自己的配置；不会覆盖已有 .env
+Copy-Item .env.example .env
+notepad .env
+
+# 每次启动
+.\dev.bat
+```
+
+启动后访问：
+
+- 前端：<http://localhost:5173>
+- 后端：<http://localhost:8000>
+- API 文档：<http://localhost:8000/docs>
+
+`dev.bat` 不会在启动时安装依赖；如果虚拟环境、Python 依赖或 `frontend\node_modules` 缺失，它会给出一次性安装命令后退出。
+
+### PowerShell 的 Activate.ps1 报错
+
+如果直接输入 `backend\.venv\Scripts\Activate.ps1` 后出现“无法加载模块 backend”，PowerShell 将路径当作模块/命令名解析了。相对路径需要调用运算符：
+
+```powershell
+& .\backend\.venv\Scripts\Activate.ps1
+```
+
+不过本项目推荐始终直接使用 `.\backend\.venv\Scripts\python.exe`，无需激活，也能确保使用正确的 Python 环境。
+
+## AI 提供方配置
+
+根目录 `.env` 只能选择一个提供方。先用 `.env.example` 创建文件，再填入自己的密钥；不要提交真实密钥。
+
+### 官方 DeepSeek（推荐）
+
+```dotenv
+AI_API_KEY=your_deepseek_api_key
+AI_API_BASE=https://api.deepseek.com
+AI_THINKING_ENABLED=true
+AI_SLIDE_PLANNER_ENABLED=true
+
+# 可省略：官方 DeepSeek 会自动使用以下默认模型
+AI_MODEL=deepseek-v4-pro
+AI_MODEL_FAST=deepseek-v4-flash
+```
+
+官方 DeepSeek 使用 OpenAI 兼容地址 `https://api.deepseek.com`。未显式设置 `AI_MODEL*` 时，智能任务默认 `deepseek-v4-pro`，快速任务默认 `deepseek-v4-flash`；thinking 会按官方 OpenAI SDK 兼容参数发送。`AI_THINKING_ENABLED=false` 会统一关闭 thinking。为兼容旧配置，`AI_ENABLE_THINKING` 仍可使用，但新配置请使用 `AI_THINKING_ENABLED`。
+
+### ModelScope（兼容保留）
+
+```dotenv
+AI_API_KEY=your_modelscope_api_key
+AI_API_BASE=https://api-inference.modelscope.cn/v1
+AI_THINKING_ENABLED=true
+AI_SLIDE_PLANNER_ENABLED=true
+
+# 可选：不设置时保持项目内置的 ModelScope 候选模型列表
+# AI_MODEL_CANDIDATES=deepseek-ai/DeepSeek-V4-Pro,deepseek-ai/DeepSeek-V4-Flash
+# AI_MODEL_FAST_CANDIDATES=deepseek-ai/DeepSeek-V4-Flash
+```
+
+ModelScope 路径会继续使用原有候选模型和 `enable_thinking` 兼容字段。`AI_SLIDE_PLANNER_ENABLED=true` 用于启用 AI 幻灯片规划功能。
 
 ## 技术栈
-- **Frontend**: Vue 3, Vite, TailwindCSS, Mermaid.js
-- **Backend**: FastAPI, Python 3.10
-- **AI Model**: ModelScope API (Qwen/Qwen2.5)
 
-## 本地运行
+- 前端：Vue 3、Vite、TailwindCSS、Mermaid.js
+- 后端：FastAPI、Python 3.10
+- AI：官方 DeepSeek OpenAI 兼容接口或 ModelScope 兼容接口
 
-首次运行前，在项目根目录创建 `.env` 并至少配置：
-
-```bash
-AI_API_KEY=你的模型服务密钥
-AI_API_BASE=https://api-inference.modelscope.cn/v1
-```
-
-安装后端依赖到 `backend/.venv`，并在 `frontend` 执行一次 `npm install`。之后使用统一启动脚本：
-
-```bash
-# Linux/macOS
-./dev.sh
-
-# Windows
-dev.bat
-```
-
-脚本会在前后端都通过健康检查后输出访问地址。需要避开已占用端口时可显式指定：
-
-```bash
-BACKEND_PORT=8011 FRONTEND_PORT=5197 ./dev.sh
-```
-
-或手动分别启动：
-
-```bash
-# 后端
-cd backend
-pip install -r requirements.txt
-PYTHONPATH=.. uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-
-# 前端（新终端）
-cd frontend
-npm install
-npm run dev
-```
-
-访问：
-- 前端: http://localhost:5173
-- 后端: http://localhost:8000
-- API文档: http://localhost:8000/docs
-
-详细开发指南请查看 [DEVELOPMENT.md](./.kiro/docs/DEVELOPMENT.md)
-
-## 部署
-本项目已配置 Dockerfile，可直接部署到 ModelScope 创空间或 Docker 环境。
+更多开发说明见 [DEVELOPMENT.md](./.kiro/docs/DEVELOPMENT.md)。

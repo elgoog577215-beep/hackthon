@@ -4,7 +4,7 @@
 """
 
 import pytest
-from conftest import MockStorage, make_course, make_annotation
+from .conftest import MockStorage, make_course, make_annotation
 
 
 class TestMockStorageCourses:

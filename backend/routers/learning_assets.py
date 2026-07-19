@@ -21,6 +21,8 @@ from learning_progress import build_learning_progress, project_learning_objectiv
 
 router = APIRouter(prefix="/courses/{course_id}/learning-assets", tags=["learning_assets"])
 
+INTERNAL_ASSET_TYPES = {"course_knowledge_base", "course_knowledge_map"}
+
 
 class CriterionConfirmation(BaseModel):
     confirmed: bool = True
@@ -40,14 +42,7 @@ async def get_learning_assets(course_id: str, request: Request, node_id: str | N
         compile_learning_asset_plan(course),
         assets,
     )
-    filtered = {
-        asset_type: [
-            item for item in values
-            if not node_id or not item.get("node_id") or item.get("node_id") == node_id
-        ]
-        for asset_type, values in assets.items()
-        if isinstance(values, list)
-    }
+    filtered = _public_learning_assets(assets, node_id=node_id)
     filtered["checklist"] = _project_checklist(
         course,
         filtered.get("checklist") or [],
@@ -121,6 +116,22 @@ async def confirm_criterion(
         result={"status": "self_confirmed" if confirmation.confirmed else "not_started"},
     )
     return {"status": "recorded", "event_id": event["event_id"]}
+
+
+def _public_learning_assets(
+    assets: dict[str, Any],
+    *,
+    node_id: str | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Expose learning products, not internal compilation and governance models."""
+    return {
+        asset_type: [
+            item for item in values
+            if not node_id or not item.get("node_id") or item.get("node_id") == node_id
+        ]
+        for asset_type, values in assets.items()
+        if isinstance(values, list) and asset_type not in INTERNAL_ASSET_TYPES
+    }
 
 
 def _find_by_revision(items: list[dict[str, Any]], revision_id: str) -> dict[str, Any] | None:

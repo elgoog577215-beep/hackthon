@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from dependencies import get_course_or_404
+from dependencies import get_course_document_repository, get_course_or_404
+from course_repository import CourseDocumentNotFound
 from learner_context import require_user_id
 from learning_events import record_learning_event
 from learning_runtime import build_learning_runtime
@@ -22,6 +23,30 @@ class AdaptiveBlockFeedbackPayload(BaseModel):
     adaptive_block_id: str = Field(..., min_length=1, max_length=160)
     node_id: str = Field(..., min_length=1, max_length=240)
     feedback: str = Field(..., pattern="^(helpful|not_helpful|dismissed)$")
+
+
+class AdaptiveBlockInteractionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    adaptive_block_id: str = Field(..., min_length=1, max_length=160)
+    node_id: str = Field(..., min_length=1, max_length=240)
+    interaction: Literal[
+        "animation_played",
+        "animation_answered",
+        "validation_started",
+    ]
+    answer: Literal["right_then_left", "left_then_right"] | None = None
+    correct: bool | None = None
+    frame_index: int | None = Field(default=None, ge=0, le=100)
+
+    @model_validator(mode="after")
+    def validate_answer_details(self):
+        if self.interaction == "animation_answered":
+            if self.answer is None or self.correct is None:
+                raise ValueError("Animation answers require answer and correctness")
+        elif self.answer is not None or self.correct is not None:
+            raise ValueError("Answer details are only valid for animation answers")
+        return self
 
 
 @router.get("")
@@ -54,17 +79,19 @@ async def record_adaptive_block_feedback(
         user_id=user_id,
         node_id=payload.node_id,
     )
-    block = next((
-        item for item in runtime.get("adaptive_blocks") or []
-        if item.get("adaptive_block_id") == payload.adaptive_block_id
-    ), None)
+    block = _find_learning_support_block(
+        runtime,
+        course,
+        adaptive_block_id=payload.adaptive_block_id,
+        node_id=payload.node_id,
+    )
     if not block:
         raise HTTPException(status_code=404, detail="Adaptive block not found or expired")
     event = await run_in_threadpool(
         record_learning_event,
         event_type="adaptive_block_feedback",
         actor="user",
-        source="learning_runtime.adaptive_block",
+        source=str(block.get("event_source") or "learning_runtime.adaptive_block"),
         user_id=user_id,
         course_id=course_id,
         course_version_id=course.get("current_course_version_id"),
@@ -73,7 +100,7 @@ async def record_adaptive_block_feedback(
         result={"feedback": payload.feedback},
         operation_id=f"adaptive-feedback:{payload.adaptive_block_id}:{payload.feedback}",
         idempotency_key=f"{payload.adaptive_block_id}:{payload.feedback}",
-        entity_type="adaptive_learning_block",
+        entity_type=str(block.get("entity_type") or "adaptive_learning_block"),
         entity_id=payload.adaptive_block_id,
         entity_revision=runtime.get("runtime_revision_id"),
         metadata={
@@ -83,6 +110,118 @@ async def record_adaptive_block_feedback(
         },
     )
     return {"status": "recorded", "event_id": event["event_id"], "feedback": payload.feedback}
+
+
+@router.post("/adaptive-blocks/interactions")
+async def record_adaptive_block_interaction(
+    course_id: str,
+    payload: AdaptiveBlockInteractionPayload,
+    request: Request,
+) -> dict[str, Any]:
+    course = await get_course_or_404(course_id)
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    runtime = await run_in_threadpool(
+        build_learning_runtime,
+        course,
+        user_id=user_id,
+        node_id=payload.node_id,
+    )
+    block = _find_learning_support_block(
+        runtime,
+        course,
+        adaptive_block_id=payload.adaptive_block_id,
+        node_id=payload.node_id,
+    )
+    if not block:
+        raise HTTPException(status_code=404, detail="Adaptive block not found or expired")
+    event = await run_in_threadpool(
+        record_learning_event,
+        event_type="adaptive_block_interaction",
+        actor="user",
+        source=str(block.get("event_source") or "learning_runtime.adaptive_block"),
+        user_id=user_id,
+        course_id=course_id,
+        course_version_id=course.get("current_course_version_id"),
+        node_id=payload.node_id,
+        evidence={"evidence_refs": block.get("evidence_refs") or []},
+        result={
+            "interaction": payload.interaction,
+            **({"answer": payload.answer, "correct": payload.correct}
+               if payload.interaction == "animation_answered" else {}),
+            **({"frame_index": payload.frame_index}
+               if payload.frame_index is not None else {}),
+        },
+        operation_id=f"adaptive-interaction:{payload.adaptive_block_id}:{payload.interaction}",
+        idempotency_key=(
+            f"{payload.adaptive_block_id}:{payload.interaction}:"
+            f"{payload.answer or ''}:{payload.correct}"
+        ),
+        entity_type=str(block.get("entity_type") or "adaptive_learning_block"),
+        entity_id=payload.adaptive_block_id,
+        entity_revision=runtime.get("runtime_revision_id"),
+        metadata={
+            "adaptive_block_id": payload.adaptive_block_id,
+            "kind": block.get("kind"),
+            "reason_code": block.get("reason_code"),
+        },
+    )
+    return {
+        "status": "recorded",
+        "event_id": event["event_id"],
+        "interaction": payload.interaction,
+    }
+
+
+def _find_learning_support_block(
+    runtime: dict[str, Any],
+    course: dict[str, Any],
+    *,
+    adaptive_block_id: str,
+    node_id: str,
+) -> dict[str, Any] | None:
+    runtime_block = next((
+        item for item in runtime.get("adaptive_blocks") or []
+        if item.get("adaptive_block_id") == adaptive_block_id
+    ), None)
+    if runtime_block:
+        return runtime_block
+
+    for node in course.get("nodes") or []:
+        if str(node.get("node_id") or "") != node_id:
+            continue
+        for course_block in node.get("course_blocks") or []:
+            payload = course_block.get("payload") or {}
+            evolution = payload.get("course_evolution") or {}
+            if str(evolution.get("operation_id") or "") != adaptive_block_id:
+                continue
+            return {
+                "adaptive_block_id": adaptive_block_id,
+                "kind": str(course_block.get("kind") or ""),
+                "reason_code": "accepted_evidence_driven_growth",
+                "evidence_refs": list(course_block.get("evidence_refs") or []),
+                "event_source": "learning_runtime.course_evolution_block",
+                "entity_type": "course_evolution_block",
+            }
+
+    try:
+        document, _ = get_course_document_repository().load_document(str(course.get("course_id") or ""))
+    except CourseDocumentNotFound:
+        return None
+    for course_block in document.blocks:
+        if course_block.section_id != node_id or course_block.status == "retired":
+            continue
+        evolution = course_block.payload.get("course_evolution") or {}
+        if str(evolution.get("operation_id") or "") != adaptive_block_id:
+            continue
+        return {
+            "adaptive_block_id": adaptive_block_id,
+            "kind": course_block.kind,
+            "reason_code": "accepted_evidence_driven_growth",
+            "evidence_refs": list(course_block.evidence_refs),
+            "event_source": "learning_runtime.course_evolution_block",
+            "entity_type": "course_evolution_block",
+        }
+    return None
 
 
 __all__ = ["router"]

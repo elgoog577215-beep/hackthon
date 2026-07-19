@@ -14,8 +14,16 @@
 /** 难度等级 */
 export type DifficultyLevel = 'beginner' | 'intermediate' | 'advanced';
 
-/** 教学风格 */
+/** 旧节点级文案风格；仅用于历史接口兼容 */
 export type TeachingStyle = 'academic' | 'industrial' | 'socratic' | 'humorous';
+
+/** 课程块编排偏好 */
+export type CourseCompositionStyle =
+  | 'balanced'
+  | 'theory_driven'
+  | 'example_driven'
+  | 'project_driven'
+  | 'inquiry_driven';
 
 /** 课程教学结构模式 */
 export type PedagogyMode =
@@ -57,6 +65,14 @@ export const TEACHING_STYLES = {
   INDUSTRIAL: 'industrial' as const,
   SOCRATIC: 'socratic' as const,
   HUMOROUS: 'humorous' as const
+};
+
+export const COURSE_COMPOSITION_STYLES = {
+  BALANCED: 'balanced' as const,
+  THEORY_DRIVEN: 'theory_driven' as const,
+  EXAMPLE_DRIVEN: 'example_driven' as const,
+  PROJECT_DRIVEN: 'project_driven' as const,
+  INQUIRY_DRIVEN: 'inquiry_driven' as const,
 };
 
 export const PEDAGOGY_MODE_OPTIONS: Array<{
@@ -123,6 +139,14 @@ export const VALID_TEACHING_STYLES: TeachingStyle[] = [
   'humorous'
 ];
 
+export const VALID_COURSE_COMPOSITION_STYLES: CourseCompositionStyle[] = [
+  'balanced',
+  'theory_driven',
+  'example_driven',
+  'project_driven',
+  'inquiry_driven',
+];
+
 /** 有效的节点类型列表 */
 export const VALID_NODE_TYPES: NodeType[] = [
   'original',
@@ -158,6 +182,14 @@ export interface CourseMaterialBindingInput {
   priority: 'core' | 'supporting' | 'weak';
   authority: 'primary' | 'secondary' | 'context_only';
   usage_policy: 'must_use' | 'prefer' | 'optional' | 'style_only';
+  reuse_policy: 'verbatim_allowed' | 'reference_only' | 'original_generation';
+  rights_basis: 'teacher_asserted' | 'open_license' | 'license_unknown' | 'platform_owned';
+  source_metadata: {
+    year?: number;
+    term?: string;
+    exam_type?: string;
+    source_url?: string;
+  };
   user_description?: string;
   source_label?: string;
 }
@@ -178,7 +210,8 @@ export interface GenerateCourseParams {
   subject: string;
   request_id?: string;
   difficulty: DifficultyLevel;
-  style: TeachingStyle;
+  composition_style: CourseCompositionStyle;
+  style?: TeachingStyle;
   target_audience?: string;
   requirements?: string;
   materials?: CourseMaterialInput[];
@@ -193,6 +226,9 @@ export interface GenerateCourseParams {
   generation_mode?: 'fast' | 'review_blueprint';
   course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
   asset_preferences?: Record<string, boolean>;
+  web_question_enrichment?: {
+    enabled: boolean;
+  };
 }
 
 export type CourseGenerationOptions = Partial<Omit<GenerateCourseParams, 'subject'>>;
@@ -218,6 +254,10 @@ export function validateDifficulty(difficulty: string): boolean {
  */
 export function validateStyle(style: string): boolean {
   return VALID_TEACHING_STYLES.includes(style as TeachingStyle);
+}
+
+export function validateCompositionStyle(style: string): boolean {
+  return VALID_COURSE_COMPOSITION_STYLES.includes(style as CourseCompositionStyle);
 }
 
 /**
@@ -252,10 +292,16 @@ export function validateGenerateCourseParams(
     errors.push(`Invalid difficulty: ${params.difficulty}. Must be one of: ${VALID_DIFFICULTY_LEVELS.join(', ')}`);
   }
   
-  if (!params.style) {
-    errors.push('style is required');
-  } else if (!validateStyle(params.style)) {
-    errors.push(`Invalid style: ${params.style}. Must be one of: ${VALID_TEACHING_STYLES.join(', ')}`);
+  if (params.composition_style) {
+    if (!validateCompositionStyle(params.composition_style)) {
+      errors.push(`Invalid composition_style: ${params.composition_style}. Must be one of: ${VALID_COURSE_COMPOSITION_STYLES.join(', ')}`);
+    }
+  } else if (params.style) {
+    if (!validateStyle(params.style)) {
+      errors.push(`Invalid legacy style: ${params.style}. Must be one of: ${VALID_TEACHING_STYLES.join(', ')}`);
+    }
+  } else {
+    errors.push('composition_style is required');
   }
   
   return {

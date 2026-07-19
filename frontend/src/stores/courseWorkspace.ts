@@ -40,11 +40,34 @@ export interface PracticeAttempt {
   attempt_number: number
   answer_payload: Record<string, any>
   revealed_hint_levels: number[]
+  revealed_hints?: Array<Record<string, any>>
   solution_revealed: boolean
   ai_support_level: number
   active_seconds: number
+  origin_attempt_id?: string
+  practice_intent?: 'standard' | 'targeted_retry'
   result?: Record<string, any>
   [key: string]: any
+}
+
+export function unresolvedMistakeAttempts(attempts: PracticeAttempt[]): PracticeAttempt[] {
+  const supersededOriginIds = new Set(
+    attempts
+      .filter(attempt => (
+        attempt.practice_intent === 'targeted_retry'
+        && attempt.origin_attempt_id
+        && ['grading', 'graded'].includes(attempt.status)
+      ))
+      .map(attempt => String(attempt.origin_attempt_id)),
+  )
+  return attempts.filter(attempt => {
+    const needsReview = (
+      attempt.status === 'grading'
+      || attempt.result?.passed === false
+      || attempt.result?.mastery_eligible === false
+    )
+    return needsReview && !supersededOriginIds.has(attempt.attempt_id)
+  })
 }
 
 export interface DiagnosticWorkflow {
@@ -67,6 +90,10 @@ export interface FormalPracticeResponse {
     node_id?: string
   }
   questions: LearningAssetItem[]
+  batch_size: number
+  question_count: number
+  available_question_count: number
+  batch_policy: string
   active_attempts: PracticeAttempt[]
   summary: Record<string, number>
 }
@@ -74,12 +101,34 @@ export interface FormalPracticeResponse {
 const practiceDraftKey = (courseId: string, attemptId: string) => `practice_attempt_draft_v1:${courseId}:${attemptId}`
 const requestId = () => globalThis.crypto?.randomUUID?.() || `request-${Date.now()}-${Math.random().toString(16).slice(2)}`
 
+function sharedCount(left: unknown, right: unknown): number {
+  const rightValues = new Set(Array.isArray(right) ? right.map(String) : [])
+  return (Array.isArray(left) ? left : [])
+    .map(String)
+    .filter(value => rightValues.has(value))
+    .length
+}
+
+function targetedRetryScore(source: Record<string, any>, candidate: Record<string, any>): number {
+  let semanticScore = 0
+  semanticScore += sharedCount(source.mistake_point_ids, candidate.mistake_point_ids) * 12
+  semanticScore += sharedCount(source.skill_unit_ids, candidate.skill_unit_ids) * 8
+  semanticScore += sharedCount(source.concept_ids, candidate.concept_ids) * 4
+  if (
+    source.objective_revision_id
+    && source.objective_revision_id === candidate.objective_revision_id
+  ) semanticScore += 6
+  if (!semanticScore) return 0
+  return semanticScore + (source.node_id && source.node_id === candidate.node_id ? 1 : 0)
+}
+
 export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
   state: () => ({
     mode: 'reading' as CourseWorkspaceMode,
     practiceScope: 'node' as 'node' | 'final' | 'all',
     assets: null as LearningAssetsResponse | null,
     blueprint: null as any,
+    generationReview: null as any,
     versions: [] as any[],
     currentVersionId: '' as string,
     versionDiff: null as any,
@@ -92,11 +141,18 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     revealedSolution: null as Record<string, any> | null,
     practiceResult: null as Record<string, any> | null,
     practiceHistory: null as Record<string, any> | null,
+    mistakeBookAttempts: [] as PracticeAttempt[],
     practiceLandingView: 'current' as 'current' | 'history' | 'needs_review',
     practiceNeedsReviewCount: 0,
     practiceSaveState: 'idle' as PracticeSaveState,
     practiceSubmitRequestId: '',
     practiceStartedAt: 0,
+    targetedRetryContext: null as {
+      originAttemptId: string
+      sourceTaskRevisionId: string
+      targetTaskRevisionId: string
+      usedAlternateQuestion: boolean
+    } | null,
     requestedTaskRef: null as LearningTaskRef | null,
     taskResumeError: '',
     loading: false,
@@ -120,8 +176,19 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.loading = true
       this.practiceLoading = true
       try {
+        const requestedTaskRevisionId = (
+          this.requestedTaskRef?.kind === 'practice'
+            ? this.requestedTaskRef.task_revision_id
+            : ''
+        )
         const res = await http.get(`/api/courses/${courseId}/practice`, {
-          params: { scope, ...(nodeId ? { node_id: nodeId } : {}) },
+          params: {
+            scope,
+            ...(nodeId ? { node_id: nodeId } : {}),
+            ...(requestedTaskRevisionId
+              ? { task_revision_id: requestedTaskRevisionId }
+              : {}),
+          },
         })
         try {
           await this.loadDiagnosticWorkflow(courseId, nodeId)
@@ -132,6 +199,23 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         this.applyRequestedTask(courseId)
         this.currentQuestionIndex = Math.min(this.currentQuestionIndex, Math.max(0, (res.data.questions || []).length - 1))
         const question = this.currentPracticeQuestion
+        const questionTaskRevisionId = question?.task_revision_id || question?.revision_id || ''
+        const currentAttemptTaskRevisionId = (
+          this.currentAttempt?.task_revision_id || this.currentAttempt?.question_revision_id || ''
+        )
+        if (
+          this.currentAttempt
+          && (!questionTaskRevisionId || currentAttemptTaskRevisionId !== questionTaskRevisionId)
+        ) {
+          this.currentAttempt = null
+          this.currentDraft = {}
+          this.revealedHints = []
+          this.revealedSolution = null
+          this.practiceResult = null
+          this.practiceSaveState = 'idle'
+          this.practiceSubmitRequestId = ''
+          this.targetedRetryContext = null
+        }
         const active = question
           ? (res.data.active_attempts || []).find((item: PracticeAttempt) => (
               item.task_revision_id || item.question_revision_id
@@ -160,6 +244,23 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     },
     prepareLearningAction(action: NextLearningAction) {
       this.requestedTaskRef = action.task_ref || null
+      this.taskResumeError = ''
+      this.practiceLandingView = 'current'
+      this.practiceScope = 'node'
+    },
+    preparePracticeTask(courseId: string, nodeId: string, taskRevisionId: string) {
+      if (!taskRevisionId) return
+      this.requestedTaskRef = {
+        kind: 'practice',
+        object_id: '',
+        task_revision_id: taskRevisionId,
+        status: 'available',
+        context: {
+          course_id: courseId,
+          node_id: nodeId,
+        },
+        return_node_id: nodeId,
+      }
       this.taskResumeError = ''
       this.practiceLandingView = 'current'
       this.practiceScope = 'node'
@@ -201,28 +302,51 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         this.requestedTaskRef = null
       }
     },
-    async startPracticeAttempt(courseId: string, taskRevisionId: string, forceNew = false) {
+    async startPracticeAttempt(
+      courseId: string,
+      taskRevisionId: string,
+      forceNew = false,
+      context?: { originAttemptId: string; practiceIntent: 'targeted_retry' },
+    ) {
       const res = await http.post(`/api/courses/${courseId}/practice/attempts`, {
         task_revision_id: taskRevisionId,
         practice_run_id: this.practiceRunId(courseId),
         resume: !forceNew,
+        ...(context ? {
+          origin_attempt_id: context.originAttemptId,
+          practice_intent: context.practiceIntent,
+        } : {}),
       })
-      this.applyPracticeAttempt(courseId, res.data.attempt)
+      this.applyPracticeAttempt(courseId, res.data.attempt, res.data.solution)
       this.practiceResult = res.data.attempt?.result || null
       this.practiceStartedAt = Date.now()
       await this.syncLearningTask(courseId)
       return res.data.attempt as PracticeAttempt
     },
-    applyPracticeAttempt(courseId: string, attempt: PracticeAttempt) {
+    applyPracticeAttempt(
+      courseId: string,
+      attempt: PracticeAttempt,
+      solution: Record<string, any> | null = null,
+    ) {
       this.currentAttempt = attempt
       const local = this.readPracticeDraft(courseId, attempt.attempt_id)
       this.currentDraft = local?.revision >= attempt.revision
         ? { ...(attempt.answer_payload || {}), ...(local.answer_payload || {}) }
         : { ...(attempt.answer_payload || {}) }
-      this.revealedHints = []
-      this.revealedSolution = attempt.solution_revealed ? {} : null
+      this.revealedHints = Array.isArray(attempt.revealed_hints)
+        ? attempt.revealed_hints.map(item => ({ ...item }))
+        : []
+      this.revealedSolution = attempt.solution_revealed ? solution : null
       this.practiceSaveState = local?.revision > attempt.revision ? 'local_only' : 'saved'
       this.practiceSubmitRequestId = ''
+      this.targetedRetryContext = attempt.practice_intent === 'targeted_retry' && attempt.origin_attempt_id
+        ? {
+            originAttemptId: attempt.origin_attempt_id,
+            sourceTaskRevisionId: '',
+            targetTaskRevisionId: attempt.task_revision_id || attempt.question_revision_id || '',
+            usedAlternateQuestion: false,
+          }
+        : null
     },
     async savePracticeDraft(courseId: string) {
       const attempt = this.currentAttempt
@@ -324,6 +448,129 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.revealedSolution = null
       return this.startPracticeAttempt(courseId, question.task_revision_id || question.revision_id, true)
     },
+    async refreshPracticeQuestion(
+      courseId: string,
+      nodeId?: string,
+      scope: 'node' | 'final' | 'all' = 'node',
+    ) {
+      const question = this.currentPracticeQuestion
+      const currentTaskRevisionId = question?.task_revision_id || question?.revision_id
+      if (!question || !currentTaskRevisionId) return null
+
+      const attempt = this.currentAttempt
+      if (attempt?.status === 'in_progress') {
+        await http.post(
+          `/api/courses/${courseId}/practice/attempts/${attempt.attempt_id}/abandon`,
+          { expected_revision: attempt.revision },
+        )
+        localStorage.removeItem(practiceDraftKey(courseId, attempt.attempt_id))
+      }
+      const res = await http.post(`/api/courses/${courseId}/practice/refresh`, {
+        current_task_revision_id: currentTaskRevisionId,
+        node_id: nodeId || null,
+        scope,
+      })
+      const selected = res.data.question
+      if (!selected) return null
+      const questions = this.practice?.questions || []
+      const selectedRevisionId = selected.task_revision_id || selected.revision_id
+      let selectedIndex = questions.findIndex(item => (
+        (item.task_revision_id || item.revision_id) === selectedRevisionId
+      ))
+      if (selectedIndex < 0 && this.practice) {
+        const batchSize = Math.max(1, Number(this.practice.batch_size || 3))
+        if (questions.length >= batchSize) {
+          const replacementIndex = Math.min(
+            this.currentQuestionIndex,
+            questions.length - 1,
+          )
+          const nextQuestions = [...questions]
+          nextQuestions[replacementIndex] = selected
+          this.practice.questions = nextQuestions
+          selectedIndex = replacementIndex
+        } else {
+          this.practice.questions = [...questions, selected]
+          selectedIndex = this.practice.questions.length - 1
+        }
+      }
+      this.currentQuestionIndex = Math.max(0, selectedIndex)
+      this.currentAttempt = null
+      this.currentDraft = {}
+      this.practiceResult = null
+      this.revealedHints = []
+      this.revealedSolution = null
+      this.practiceSaveState = 'idle'
+      this.practiceSubmitRequestId = ''
+      this.practiceStartedAt = Date.now()
+      this.targetedRetryContext = null
+      return selected
+    },
+    async startTargetedRetry(courseId: string, failedAttempt: PracticeAttempt) {
+      const sourceTaskRevisionId = failedAttempt.task_revision_id || failedAttempt.question_revision_id || ''
+      let questions = this.practice?.questions || []
+      let sourceQuestion = questions.find(question => (
+        (question.task_revision_id || question.revision_id) === sourceTaskRevisionId
+      ))
+      if (!sourceQuestion && failedAttempt.node_id) {
+        await this.loadPractice(courseId, String(failedAttempt.node_id), 'node')
+        questions = this.practice?.questions || []
+        sourceQuestion = questions.find(question => (
+          (question.task_revision_id || question.revision_id) === sourceTaskRevisionId
+        ))
+      }
+      const diagnosed = failedAttempt.result?.answer_diagnosis?.diagnosis || {}
+      const sourceSignals = {
+        ...(sourceQuestion || {}),
+        ...failedAttempt,
+        concept_ids: diagnosed.knowledge_ids?.length
+          ? diagnosed.knowledge_ids
+          : (sourceQuestion?.concept_ids || failedAttempt.concept_ids || []),
+        skill_unit_ids: diagnosed.skill_ids?.length
+          ? diagnosed.skill_ids
+          : (sourceQuestion?.skill_unit_ids || failedAttempt.skill_unit_ids || []),
+        mistake_point_ids: diagnosed.misconception_ids?.length
+          ? diagnosed.misconception_ids
+          : (sourceQuestion?.mistake_point_ids || failedAttempt.mistake_point_ids || []),
+      }
+      const ranked = questions
+        .map((question, index) => ({
+          question,
+          index,
+          score: (question.task_revision_id || question.revision_id) === sourceTaskRevisionId
+            ? 0
+            : targetedRetryScore(sourceSignals, question),
+        }))
+        .filter(item => item.score > 0)
+        .sort((left, right) => right.score - left.score || left.index - right.index)
+      const selected = ranked[0] || (
+        sourceQuestion
+          ? { question: sourceQuestion, index: questions.indexOf(sourceQuestion), score: 0 }
+          : null
+      )
+      if (!selected || selected.index < 0) return null
+
+      const targetTaskRevisionId = selected.question.task_revision_id || selected.question.revision_id
+      if (!targetTaskRevisionId) return null
+      this.currentQuestionIndex = selected.index
+      this.currentAttempt = null
+      this.currentDraft = {}
+      this.practiceResult = null
+      this.revealedHints = []
+      this.revealedSolution = null
+      this.practiceSaveState = 'idle'
+      this.practiceSubmitRequestId = ''
+      const attempt = await this.startPracticeAttempt(courseId, targetTaskRevisionId, true, {
+        originAttemptId: failedAttempt.attempt_id,
+        practiceIntent: 'targeted_retry',
+      })
+      this.targetedRetryContext = {
+        originAttemptId: failedAttempt.attempt_id,
+        sourceTaskRevisionId,
+        targetTaskRevisionId,
+        usedAlternateQuestion: targetTaskRevisionId !== sourceTaskRevisionId,
+      }
+      return attempt
+    },
     async loadPracticeHistory(courseId: string, view: 'all' | 'needs_review' | 'legacy' = 'all', nodeId?: string) {
       const res = await http.get(`/api/courses/${courseId}/practice/history`, {
         params: { view, ...(nodeId ? { node_id: nodeId } : {}) },
@@ -331,6 +578,17 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.practiceHistory = res.data
       if (view === 'needs_review') this.practiceNeedsReviewCount = (res.data.attempts || []).length
       return res.data
+    },
+    async loadMistakeBook(courseId: string) {
+      const res = await http.get(`/api/courses/${courseId}/practice/history`, {
+        params: { view: 'all' },
+      })
+      this.mistakeBookAttempts = unresolvedMistakeAttempts(res.data.attempts || [])
+      this.practiceNeedsReviewCount = this.mistakeBookAttempts.length
+      return {
+        ...res.data,
+        attempts: this.mistakeBookAttempts,
+      }
     },
     async migrateLegacyPracticeData(courseId: string, courseNodeIds: string[]) {
       const wrong = this.readLegacyArray('quiz_wrong_answers')
@@ -370,6 +628,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.practiceSaveState = 'idle'
       this.practiceSubmitRequestId = ''
       this.practiceStartedAt = Date.now()
+      this.targetedRetryContext = null
     },
     readPracticeDraft(courseId: string, attemptId: string) {
       try {
@@ -411,7 +670,30 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       }
     },
     async confirmBlueprint(courseId: string) {
-      const res = await http.post(`/api/courses/${courseId}/blueprint/confirm`)
+      return this.confirmGenerationStep(courseId, 'outline')
+    },
+    async loadGenerationReview(courseId: string) {
+      this.loading = true
+      try {
+        const res = await http.get(`/api/courses/${courseId}/generation/review`)
+        this.generationReview = res.data
+        return res.data
+      } finally {
+        this.loading = false
+      }
+    },
+    async confirmGenerationStep(
+      courseId: string,
+      step: 'outline' | 'knowledge' | 'teaching' | 'content' | 'release',
+    ) {
+      const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/confirm`)
+      return res.data
+    },
+    async reopenGenerationStep(
+      courseId: string,
+      step: 'outline',
+    ) {
+      const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/reopen`)
       return res.data
     },
     async discardBlueprint(courseId: string) {

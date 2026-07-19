@@ -60,6 +60,10 @@ class RecordArchive(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+class LegacyAnnotationMigrationRequest(BaseModel):
+    include_unowned: bool = False
+
+
 @router.get("")
 async def list_learning_records(
     course_id: str,
@@ -155,9 +159,14 @@ async def archive_learning_record(
 
 
 @router.post("/migrate-legacy-annotations")
-async def migrate_legacy_annotations(course_id: str, request: Request):
+async def migrate_legacy_annotations(
+    course_id: str,
+    request: Request,
+    payload: LegacyAnnotationMigrationRequest | None = None,
+):
     course = await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
+    include_unowned = bool(payload and payload.include_unowned)
     node_ids = {str(node.get("node_id") or "") for node in course.get("nodes") or []}
     annotations = await run_in_threadpool(storage.load_annotations)
     existing = await run_in_threadpool(learning_record_repository.list, user_id, course_id)
@@ -175,6 +184,16 @@ async def migrate_legacy_annotations(course_id: str, request: Request):
         if annotation_course and annotation_course != course_id:
             continue
         if not annotation_course and node_id not in node_ids:
+            continue
+        annotation_owner = str(
+            annotation.get("user_id")
+            or annotation.get("owner_id")
+            or annotation.get("created_by")
+            or ""
+        )
+        if annotation_owner and annotation_owner != user_id:
+            continue
+        if not annotation_owner and not include_unowned:
             continue
         source_type = str(annotation.get("source_type") or "user")
         if source_type == "format":
@@ -196,6 +215,8 @@ async def migrate_legacy_annotations(course_id: str, request: Request):
             "metadata": {
                 "legacy_annotation_id": annotation_id,
                 "legacy_source_type": source_type,
+                "legacy_owner_id": annotation_owner,
+                "claimed_unowned": not annotation_owner,
                 "confidence": "low" if source_type in {"wrong", "ai"} else "medium",
                 "user_confirmation_unknown": source_type == "ai",
             },

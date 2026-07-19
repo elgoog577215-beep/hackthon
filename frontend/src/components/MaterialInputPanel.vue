@@ -54,7 +54,7 @@
             class="sr-only"
             type="file"
             multiple
-            accept=".pdf,.docx,.pptx,.xlsx,.md,.markdown,.txt,.csv,.json,.py,.js,.ts,.html,.css"
+            accept=".pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.md,.markdown,.txt,.csv,.json,.py,.js,.ts,.html,.css"
             @change="handleFiles"
           />
         </label>
@@ -148,6 +148,29 @@
         </el-select></label>
       </div>
 
+      <div v-if="material.purpose === 'question_source'" class="question-source-settings">
+        <label>
+          <span>{{ t('courseGeneration.materials.question.year', '年份') }}</span>
+          <input v-model.number="material.source_metadata.year" type="number" min="1900" max="2200" />
+        </label>
+        <label>
+          <span>{{ t('courseGeneration.materials.question.term', '学期') }}</span>
+          <input v-model="material.source_metadata.term" type="text" :placeholder="t('courseGeneration.materials.question.termPlaceholder', '如：秋季')" />
+        </label>
+        <label>
+          <span>{{ t('courseGeneration.materials.question.examType', '考试类型') }}</span>
+          <input v-model="material.source_metadata.exam_type" type="text" :placeholder="t('courseGeneration.materials.question.examTypePlaceholder', '如：期末')" />
+        </label>
+        <label>
+          <span>{{ t('courseGeneration.materials.question.reuse', '原题复用') }}</span>
+          <select v-model="material.reuse_policy">
+            <option value="verbatim_allowed">{{ t('courseGeneration.materials.question.verbatimAllowed', '允许课程内原题复用') }}</option>
+            <option value="reference_only">{{ t('courseGeneration.materials.question.referenceOnly', '仅作结构与情境参考') }}</option>
+          </select>
+        </label>
+        <p>{{ t('courseGeneration.materials.question.rightsNotice', '上传即记录教师权利声明；平台不替代法律审查。') }}</p>
+      </div>
+
       <el-input
         v-model="material.user_description"
         type="textarea"
@@ -204,6 +227,9 @@ const newDraft = (filename: string, file?: File): CourseMaterialDraft => ({
   priority: 'core',
   authority: 'primary',
   usage_policy: 'must_use',
+  reuse_policy: 'verbatim_allowed',
+  rights_basis: 'teacher_asserted',
+  source_metadata: {},
   user_description: '',
   source_label: '',
   upload_status: 'pending',
@@ -332,6 +358,9 @@ const ensureUploaded = async (): Promise<CourseMaterialBindingInput[]> => {
     priority: item.priority,
     authority: item.authority,
     usage_policy: item.usage_policy,
+    reuse_policy: item.reuse_policy,
+    rights_basis: item.rights_basis,
+    source_metadata: { ...item.source_metadata },
     user_description: item.user_description?.trim() || '',
     source_label: item.source_label?.trim() || '',
   }))

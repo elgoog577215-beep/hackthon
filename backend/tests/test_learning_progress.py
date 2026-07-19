@@ -317,3 +317,19 @@ def test_mastery_confirmation_records_current_objective_revision(monkeypatch):
     objective = project_learning_objective_bindings(_course())["learning_objectives"][0]
     assert event["objective_id"] == objective["objective_id"]
     assert event["objective_revision_id"] == objective["objective_revision_id"]
+
+
+def test_student_learning_assets_hide_internal_knowledge_compilation_models():
+    assets = {
+        "knowledge_library": [{"schema_version": "knowledge_library_view_v3"}],
+        "questions": [{"node_id": "n1", "prompt": "解释向量"}],
+        "course_knowledge_base": [{"quality_report": {"issues": ["internal"]}}],
+        "course_knowledge_map": [{"mappings": ["internal"]}],
+    }
+
+    projected = assets_router._public_learning_assets(assets, node_id=None)
+
+    assert projected["knowledge_library"]
+    assert projected["questions"]
+    assert "course_knowledge_base" not in projected
+    assert "course_knowledge_map" not in projected

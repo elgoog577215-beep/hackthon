@@ -2,12 +2,16 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SideAIPanel from '@/components/SideAIPanel.vue'
+import enMessages from '@/../public/locales/en/translation.json'
+import zhMessages from '@/../public/locales/zh/translation.json'
+import { setLocale } from '@/shared/i18n'
 import { useAITeacherStore, type AIConversation } from '@/stores/aiTeacher'
 import { useCourseStore } from '@/stores/course'
 import { useLearningProgressStore } from '@/stores/learningProgress'
 import { useChangeProposalsStore } from '@/stores/changeProposals'
+import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import type { ChangeProposal } from '@/types/changeProposal'
-import type { BlockRegenerationCandidate, CourseBlockEditTarget } from '@/stores/types'
+import type { CourseBlockEditTarget } from '@/stores/types'
 
 const conversation = (): AIConversation => ({
   conversation_id: 'conversation-1',
@@ -69,6 +73,68 @@ function mountPanel(
       },
     },
   })
+}
+
+function personalizationProposal(target: CourseBlockEditTarget, itemCount = 3): ChangeProposal {
+  const relatedBlocks = [
+    target.block,
+    {
+      ...target.block,
+      block_id: 'block-2',
+      role: 'example' as const,
+      payload: { title: '相关例子', markdown: '旧例子' },
+      internal_revision: 'cbr-2',
+    },
+    {
+      ...target.block,
+      block_id: 'block-3',
+      role: 'summary' as const,
+      payload: { title: '相关小结', markdown: '旧小结' },
+      internal_revision: 'cbr-3',
+    },
+  ].slice(0, itemCount)
+  return {
+    proposal_id: 'personalization-1',
+    course_id: 'course-1',
+    scope: 'section',
+    target_block_ids: relatedBlocks.map(block => block.block_id),
+    source: 'personalization',
+    status: 'pending',
+    created_at: '2026-07-18T00:00:00Z',
+    generation_meta: { base_document_revision: 'cdr-1', direction: 'expand' },
+    items: relatedBlocks.map((block, index) => ({
+      item_id: `item-${index + 1}`,
+      block_id: block.block_id,
+      before: block,
+      after: { ...block, payload: { ...block.payload, markdown: `优化后正文 ${index + 1}` } },
+      reason: index === 0 ? '直接响应反馈' : '同步相关课程块',
+      selected: true,
+      expected_block_revision: block.internal_revision,
+      status: 'pending',
+    })),
+  }
+}
+
+function personalizationTarget(blockId = 'block-1', revision = 'cbr-1'): CourseBlockEditTarget {
+  return {
+    nodeId: 'node-1',
+    nodeName: '向量空间与线性相关',
+    block: {
+      block_id: blockId, section_id: 'node-1', position: 0, kind: 'rich_text', role: 'concept',
+      payload: { title: `正文 ${blockId}`, markdown: `旧正文 ${blockId}` }, asset_refs: [], objective_refs: ['lo-1'],
+      concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: revision, status: 'final',
+    },
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
 }
 
 describe('SideAIPanel', () => {
@@ -138,6 +204,29 @@ describe('SideAIPanel', () => {
     expect(wrapper.find('.action-receipt').text()).toContain('已保存到当前章节')
   })
 
+  it('AI 提问写入事实后立即刷新统一课程生长状态', async () => {
+    const wrapper = mountPanel()
+    const aiStore = useAITeacherStore()
+    const progressStore = useLearningProgressStore()
+    const refreshRuntime = vi.spyOn(progressStore, 'loadRuntime').mockResolvedValue(null)
+    vi.spyOn(aiStore, 'sendMessage').mockImplementation(async payload => {
+      await payload.onQuestionRecorded?.()
+    })
+
+    await wrapper.get('textarea').setValue('为什么是先做右边的变换？')
+    await wrapper.get('.send-button').trigger('click')
+    await flushPromises()
+
+    expect(aiStore.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      courseId: 'course-1',
+      nodeId: 'node-1',
+      question: '为什么是先做右边的变换？',
+      onQuestionRecorded: expect.any(Function),
+    }))
+    expect(refreshRuntime).toHaveBeenCalledWith('course-1', 'node-1')
+    expect(refreshRuntime).toHaveBeenCalledTimes(1)
+  })
+
   it('在移动视口使用同一 AI 工作区的覆盖形态', () => {
     Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true })
     const wrapper = mountPanel()
@@ -148,7 +237,7 @@ describe('SideAIPanel', () => {
     expect(wrapper.findAll('.quick-actions button')).toHaveLength(2)
   })
 
-  it('在右侧 AI 老师内预览候选，确认后才应用正式课程块', async () => {
+  it('默认把块级优化硬限制在当前内容，并一次应用当前候选', async () => {
     const blockTarget: CourseBlockEditTarget = {
       nodeId: 'node-1',
       nodeName: '向量空间与线性相关',
@@ -158,85 +247,471 @@ describe('SideAIPanel', () => {
         concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'cbr-1', status: 'final',
       },
     }
-    const candidate: BlockRegenerationCandidate = {
-      candidate_id: 'candidate-1', request_id: 'request-1', course_id: 'course-1', block_id: 'block-1', section_id: 'node-1',
-      status: 'ready', action_type: 'rewrite', instruction: '把定义讲得更清楚',
-      expected_document_revision: 'cdr-1', expected_block_revision: 'cbr-1',
-      proposed_block: { ...blockTarget.block, payload: { title: '线性相关定义', markdown: '经过检查的新正文' } },
-      quality_report: { passed: true, status: 'passed', gates: [], issues: [] },
-      attempts: [{ attempt: 1, quality_report: { passed: true, status: 'passed', gates: [], issues: [] } }],
-    }
-    const wrapper = mountPanel([], '', blockTarget)
-    const courseStore = useCourseStore()
-    vi.spyOn(courseStore, 'createBlockRegenerationCandidate').mockResolvedValue(candidate)
-    vi.spyOn(courseStore, 'applyBlockRegenerationCandidate').mockResolvedValue({
-      candidate: { ...candidate, status: 'applied', receipt: { command_id: 'apply-candidate-1' } },
-      receipt: { command_id: 'apply-candidate-1' },
-      document: {} as any,
-    })
-
-    expect(wrapper.find('.conversation-shell').exists()).toBe(false)
-    expect(wrapper.find('.block-edit-workspace').exists()).toBe(true)
-    expect(wrapper.text()).toContain('旧正文')
-
-    await wrapper.get('textarea').setValue('把定义讲得更清楚')
-    await wrapper.get('.send-button').trigger('click')
-    await flushPromises()
-
-    expect(courseStore.createBlockRegenerationCandidate).toHaveBeenCalledWith(blockTarget, '把定义讲得更清楚')
-    expect(wrapper.find('.block-candidate-preview').text()).toContain('经过检查的新正文')
-    expect(wrapper.find('.block-candidate-actions .primary-command').exists()).toBe(true)
-
-    await wrapper.get('.block-candidate-actions .primary-command').trigger('click')
-    await flushPromises()
-
-    expect(courseStore.applyBlockRegenerationCandidate).toHaveBeenCalledWith(candidate)
-    expect(wrapper.emitted('blockApplied')).toEqual([[blockTarget]])
-    expect(wrapper.find('.block-applied-receipt').exists()).toBe(true)
-  })
-
-  it('重新打开正文工具时找回中断候选，并继续同一个候选', async () => {
-    const blockTarget: CourseBlockEditTarget = {
-      nodeId: 'node-1',
-      nodeName: '向量空间与线性相关',
-      block: {
-        block_id: 'block-1', section_id: 'node-1', position: 0, kind: 'rich_text', role: 'concept',
-        payload: { title: '线性相关定义', markdown: '旧正文' }, asset_refs: [], objective_refs: ['lo-1'],
-        concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'cbr-1', status: 'final',
-      },
-    }
-    const interrupted: BlockRegenerationCandidate = {
-      candidate_id: 'candidate-interrupted', request_id: 'request-interrupted', course_id: 'course-1',
-      block_id: 'block-1', section_id: 'node-1', status: 'generation_failed', action_type: 'rewrite',
-      instruction: '把定义讲得更清楚', expected_document_revision: 'cdr-1', expected_block_revision: 'cbr-1',
-      proposed_block: { ...blockTarget.block }, quality_report: null, attempts: [], retryable: true,
-      failure_code: 'process_interrupted', failure_reason: '这段后端原始文案不应直接展示',
-    }
-    const ready: BlockRegenerationCandidate = {
-      ...interrupted,
-      status: 'ready',
-      proposed_block: { ...blockTarget.block, payload: { ...blockTarget.block.payload, markdown: '恢复后生成的新正文' } },
-      quality_report: { passed: true, status: 'passed', gates: [], issues: [] },
-      attempts: [{ attempt: 1, quality_report: { passed: true, status: 'passed', gates: [], issues: [] } }],
-    }
-    let latest: any
-    let retry: any
+    const proposal = personalizationProposal(blockTarget, 1)
     const wrapper = mountPanel([], '', blockTarget, store => {
       store.currentDocumentRevision = 'cdr-1'
-      latest = vi.spyOn(store, 'getLatestBlockRegenerationCandidate').mockResolvedValue(interrupted)
-      retry = vi.spyOn(store, 'retryBlockRegenerationCandidate').mockResolvedValue(ready)
+    })
+    const courseStore = useCourseStore()
+    const changeProposalsStore = useChangeProposalsStore()
+    const createProposal = vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockResolvedValue(proposal)
+    const applySelected = vi.spyOn(changeProposalsStore, 'applySelectedItems').mockResolvedValue({
+      proposal: {
+        ...proposal,
+        status: 'resolved',
+        items: proposal.items.map(item => ({ ...item, status: 'applied' })),
+      },
+      receipt: { affected_block_ids: ['block-1'] },
+      document: {
+        course_id: 'course-1',
+        document: { course_id: 'course-1', title: '课程', document_revision: 'cdr-2', sections: [], blocks: [] },
+      } as any,
+      representation_sync: { status: 'synchronized', rebuilt: [] },
+    })
+    const refreshCourse = vi.spyOn(courseStore, 'refreshCourseData').mockResolvedValue()
+
+    expect(wrapper.find('.conversation-shell').exists()).toBe(false)
+    expect(wrapper.findAll('.personalization-workspace')).toHaveLength(1)
+    expect(wrapper.find('.block-edit-workspace').exists()).toBe(false)
+    expect(wrapper.text()).toContain('旧正文')
+    expect(wrapper.findAll('.personalization-direction-chip')).toHaveLength(3)
+    expect(wrapper.get('[data-scope="current_block"]').attributes('aria-checked')).toBe('true')
+
+    await wrapper.findAll('.personalization-direction-chip')[1]!.trigger('click')
+    await wrapper.get('.personalization-feedback').setValue('请补充推导过程')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+
+    expect(createProposal).toHaveBeenCalledWith(expect.objectContaining({
+      courseId: 'course-1',
+      blockId: 'block-1',
+      expectedDocumentRevision: 'cdr-1',
+      expectedBlockRevision: 'cbr-1',
+      direction: 'expand',
+      feedback: '请补充推导过程',
+      scopeSelection: 'current_block',
+    }))
+    expect(wrapper.findAll('.personalization-diff-card')).toHaveLength(1)
+    expect(wrapper.findAll('.personalization-item-check').every(check => (
+      (check.element as HTMLInputElement).checked
+    ))).toBe(true)
+    expect(wrapper.text()).toContain('优化后正文 1')
+
+    await wrapper.get('.personalization-apply').trigger('click')
+    await flushPromises()
+
+    expect(applySelected).toHaveBeenCalledTimes(1)
+    expect(applySelected).toHaveBeenCalledWith('personalization-1', ['item-1'], 'cdr-1')
+    expect(refreshCourse).toHaveBeenCalledWith('course-1')
+    expect(wrapper.emitted('blockApplied')).toEqual([[blockTarget]])
+    expect(wrapper.get('.personalization-apply-receipt').text()).toContain('block-1')
+    expect(wrapper.get('.personalization-apply-receipt').text()).toContain('表示同步')
+  })
+
+  it('把全课程同类内容交给课程生长计划，并以当前块教学定位作为默认锚点', async () => {
+    const blockTarget = personalizationTarget()
+    const wrapper = mountPanel([], '', blockTarget, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const changeProposalsStore = useChangeProposalsStore()
+    const evolutionStore = useCourseEvolutionStore()
+    evolutionStore.applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [],
+    })
+    const createPersonalization = vi.spyOn(
+      changeProposalsStore,
+      'createPersonalizationProposal',
+    )
+    const createSectionPlan = vi.spyOn(evolutionStore, 'createSectionPlan')
+      .mockImplementation(async () => {
+        evolutionStore.plans = [{
+          change_set_id: 'whole-course-plan',
+          hypothesis_id: 'hypothesis-1',
+          source_kind: 'manual_section_request',
+          target_section_id: 'node-1',
+          request_text: '讲得更深入',
+          growth_direction: 'challenge',
+          generation_status: 'ready',
+          requested_roles: ['concept'],
+          evidence_ids: [],
+          operations: [],
+          scope_selection: 'whole_course',
+          allowed_scopes: ['current'],
+          impact_summary: {},
+          expected_effect: '同类内容更深入',
+          status: 'pending',
+          effect_evaluation: {},
+        }]
+        return {} as any
+      })
+
+    await wrapper.get('[data-scope="whole_course"]').trigger('click')
+    await wrapper.findAll('.personalization-direction-chip')[1]!.trigger('click')
+    await wrapper.get('.personalization-feedback').setValue('之后都可以用更高级的数学讲解')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+
+    expect(createPersonalization).not.toHaveBeenCalled()
+    expect(createSectionPlan).toHaveBeenCalledWith(
+      'node-1',
+      expect.stringContaining('之后都可以用更高级的数学讲解'),
+      'whole_course',
+      'concept',
+    )
+    expect(wrapper.emitted('clearBlockTarget')).toHaveLength(1)
+  })
+
+  it('取消全部对比项后禁用应用所选优化', async () => {
+    const blockTarget: CourseBlockEditTarget = {
+      nodeId: 'node-1',
+      nodeName: '向量空间与线性相关',
+      block: {
+        block_id: 'block-1', section_id: 'node-1', position: 0, kind: 'rich_text', role: 'concept',
+        payload: { title: '线性相关定义', markdown: '旧正文' }, asset_refs: [], objective_refs: ['lo-1'],
+        concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'cbr-1', status: 'final',
+      },
+    }
+    const wrapper = mountPanel([], '', blockTarget, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockResolvedValue(
+      personalizationProposal(blockTarget, 1),
+    )
+
+    await wrapper.get('.personalization-feedback').setValue('请按我的理解方式调整')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.personalization-diff-card')).toHaveLength(1)
+    for (const checkbox of wrapper.findAll('.personalization-item-check')) {
+      await checkbox.setValue(false)
+    }
+    expect((wrapper.get('.personalization-apply').element as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('应用前发现提案版本已过期时不发送请求，并使旧提案失效', async () => {
+    const target = personalizationTarget()
+    const proposal = personalizationProposal(target, 1)
+    const wrapper = mountPanel([], '', target, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const courseStore = useCourseStore()
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockResolvedValue(proposal)
+    const applySelected = vi.spyOn(changeProposalsStore, 'applySelectedItems').mockResolvedValue({} as any)
+
+    await wrapper.get('.personalization-feedback').setValue('请补充推导过程')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+    courseStore.currentDocumentRevision = 'cdr-2'
+    await wrapper.get('.personalization-apply').trigger('click')
+    await flushPromises()
+
+    expect(applySelected).not.toHaveBeenCalled()
+    expect(wrapper.find('.personalization-diff-card').exists()).toBe(false)
+    expect(wrapper.get('.personalization-error').text()).toContain('课程内容已变化')
+  })
+
+  it('提案生成后锁定输入，prefill 变化会清除旧提案', async () => {
+    const target = personalizationTarget()
+    const wrapper = mountPanel([], '', target, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockResolvedValue(
+      personalizationProposal(target, 1),
+    )
+
+    await wrapper.get('.personalization-feedback').setValue('初始反馈')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+
+    expect((wrapper.get('.personalization-direction-chip').element as HTMLButtonElement).disabled).toBe(true)
+    expect((wrapper.get('.personalization-feedback').element as HTMLTextAreaElement).disabled).toBe(true)
+
+    await wrapper.setProps({ prefill: '新的反馈' })
+    await flushPromises()
+
+    expect(wrapper.find('.personalization-diff-card').exists()).toBe(false)
+    expect((wrapper.get('.personalization-feedback').element as HTMLTextAreaElement).value).toBe('新的反馈')
+  })
+
+  it('在同一内容生成进行中时显示专属 503 提示，而不是课程冲突', async () => {
+    const blockTarget = personalizationTarget()
+    const wrapper = mountPanel([], '', blockTarget, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockRejectedValue({
+      response: { status: 503, data: { detail: { code: 'personalization_generation_in_progress' } } },
+    })
+
+    await wrapper.get('.personalization-feedback').setValue('请补充推导过程')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.personalization-error').text()).toContain('同一内容的优化正在生成')
+    expect(wrapper.text()).not.toContain('课程内容已变化')
+  })
+
+  it('在新目标已得到结果后忽略旧生成请求的成功写回', async () => {
+    const first = deferred<ChangeProposal>()
+    const second = deferred<ChangeProposal>()
+    const firstTarget = personalizationTarget('block-1', 'cbr-1')
+    const secondTarget = personalizationTarget('block-2', 'cbr-2')
+    const wrapper = mountPanel([], '', firstTarget, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal')
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+
+    await wrapper.get('.personalization-feedback').setValue('优化第一个正文')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await wrapper.setProps({ blockTarget: secondTarget })
+    await wrapper.get('.personalization-feedback').setValue('优化第二个正文')
+    await wrapper.get('.personalization-generate').trigger('click')
+    second.resolve({ ...personalizationProposal(secondTarget, 1), proposal_id: 'personalization-2' })
+    await flushPromises()
+
+    first.resolve(personalizationProposal(firstTarget, 1))
+    await flushPromises()
+
+    expect(wrapper.get('.personalization-diff-card').text()).toContain('正文 block-2')
+    expect(wrapper.get('.personalization-diff-card').text()).not.toContain('正文 block-1')
+  })
+
+  it('在新目标已得到结果后忽略旧生成请求的失败写回', async () => {
+    const first = deferred<ChangeProposal>()
+    const firstTarget = personalizationTarget('block-1', 'cbr-1')
+    const secondTarget = personalizationTarget('block-2', 'cbr-2')
+    const wrapper = mountPanel([], '', firstTarget, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal')
+      .mockImplementationOnce(() => first.promise)
+      .mockResolvedValueOnce({ ...personalizationProposal(secondTarget, 1), proposal_id: 'personalization-2' })
+
+    await wrapper.get('.personalization-feedback').setValue('优化第一个正文')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await wrapper.setProps({ blockTarget: secondTarget })
+    await wrapper.get('.personalization-feedback').setValue('优化第二个正文')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+
+    first.reject({ response: { status: 503, data: { detail: { code: 'personalization_generation_in_progress' } } } })
+    await flushPromises()
+
+    expect(wrapper.find('.personalization-error').exists()).toBe(false)
+    expect(wrapper.get('.personalization-diff-card').text()).toContain('正文 block-2')
+  })
+
+  it('切换目标后不让旧生成请求的 loading 禁用新目标', async () => {
+    const first = deferred<ChangeProposal>()
+    const firstTarget = personalizationTarget('block-1', 'cbr-1')
+    const secondTarget = personalizationTarget('block-2', 'cbr-2')
+    const wrapper = mountPanel([], '', firstTarget, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockImplementation(async () => {
+      changeProposalsStore.personalizationLoading = true
+      try {
+        return await first.promise
+      } finally {
+        changeProposalsStore.personalizationLoading = false
+      }
+    })
+
+    await wrapper.get('.personalization-feedback').setValue('优化第一个正文')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await wrapper.setProps({ blockTarget: secondTarget })
+    await flushPromises()
+
+    expect((wrapper.get('.personalization-generate').element as HTMLButtonElement).disabled).toBe(false)
+
+    first.resolve(personalizationProposal(firstTarget, 1))
+    await flushPromises()
+  })
+
+  it('同一课程块的文档版本变化后，旧生成成功不写回但清理自身 busy', async () => {
+    const first = deferred<ChangeProposal>()
+    const target = personalizationTarget('block-1', 'cbr-1')
+    const wrapper = mountPanel([], '', target, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const courseStore = useCourseStore()
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockReturnValue(first.promise)
+
+    await wrapper.get('.personalization-feedback').setValue('优化正文')
+    await wrapper.get('.personalization-generate').trigger('click')
+    courseStore.currentDocumentRevision = 'cdr-2'
+    first.resolve(personalizationProposal(target, 1))
+    await flushPromises()
+
+    expect(wrapper.find('.personalization-diff-card').exists()).toBe(false)
+    expect((wrapper.get('.personalization-generate').element as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('同一课程块的文档版本变化后，旧生成失败不写错错误但清理自身 busy', async () => {
+    const first = deferred<ChangeProposal>()
+    const target = personalizationTarget('block-1', 'cbr-1')
+    const wrapper = mountPanel([], '', target, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const courseStore = useCourseStore()
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockReturnValue(first.promise)
+
+    await wrapper.get('.personalization-feedback').setValue('优化正文')
+    await wrapper.get('.personalization-generate').trigger('click')
+    courseStore.currentDocumentRevision = 'cdr-2'
+    first.reject({ response: { status: 503, data: { detail: { code: 'personalization_generation_in_progress' } } } })
+    await flushPromises()
+
+    expect(wrapper.find('.personalization-error').exists()).toBe(false)
+    expect((wrapper.get('.personalization-generate').element as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('请求中 prefill 变化后不展示旧提案，并清理旧 attempt 的 busy', async () => {
+    const pending = deferred<ChangeProposal>()
+    const target = personalizationTarget('block-1', 'cbr-1')
+    const wrapper = mountPanel([], '', target, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockReturnValue(pending.promise)
+
+    await wrapper.get('.personalization-feedback').setValue('初始反馈')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await wrapper.setProps({ prefill: '新的反馈' })
+    pending.resolve(personalizationProposal(target, 1))
+    await flushPromises()
+
+    expect(wrapper.find('.personalization-diff-card').exists()).toBe(false)
+    expect((wrapper.get('.personalization-generate').element as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('切换目标后不让旧应用请求的 loading 禁用新目标', async () => {
+    const applied = deferred<any>()
+    const firstTarget = personalizationTarget('block-1', 'cbr-1')
+    const secondTarget = personalizationTarget('block-2', 'cbr-2')
+    const proposal = personalizationProposal(firstTarget, 1)
+    const wrapper = mountPanel([], '', firstTarget, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const courseStore = useCourseStore()
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockResolvedValue(proposal)
+    vi.spyOn(courseStore, 'refreshCourseData').mockResolvedValue()
+    vi.spyOn(changeProposalsStore, 'applySelectedItems').mockImplementation(async () => {
+      changeProposalsStore.applyingSelected = true
+      try {
+        return await applied.promise
+      } finally {
+        changeProposalsStore.applyingSelected = false
+      }
+    })
+
+    await wrapper.get('.personalization-feedback').setValue('优化第一个正文')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+    await wrapper.get('.personalization-apply').trigger('click')
+    await wrapper.setProps({ blockTarget: secondTarget })
+    await flushPromises()
+
+    expect((wrapper.get('.personalization-generate').element as HTMLButtonElement).disabled).toBe(false)
+
+    applied.resolve({
+      proposal: { ...proposal, status: 'resolved' },
+      receipt: { affected_block_ids: ['block-1'] },
+      document: {
+        course_id: 'course-1',
+        document: { course_id: 'course-1', title: '课程', document_revision: 'cdr-2', sections: [], blocks: [] },
+      },
+      representation_sync: { status: 'synchronized', rebuilt: [] },
+    })
+    await flushPromises()
+  })
+
+  it('立即写回 apply 返回的课程 envelope，并在刷新失败后保留成功回执', async () => {
+    const blockTarget = personalizationTarget()
+    const proposal = personalizationProposal(blockTarget, 1)
+    const wrapper = mountPanel([], '', blockTarget, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const courseStore = useCourseStore()
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockResolvedValue(proposal)
+    const document = {
+      course_id: 'course-1',
+      document: { course_id: 'course-1', title: '课程', document_revision: 'cdr-2', sections: [], blocks: [] },
+    } as any
+    vi.spyOn(changeProposalsStore, 'applySelectedItems').mockResolvedValue({
+      proposal: { ...proposal, status: 'resolved' },
+      receipt: { affected_block_ids: ['block-1'] },
+      document,
+      representation_sync: { status: 'synchronized', rebuilt: [] },
+    })
+    const applyEnvelope = vi.spyOn(courseStore, 'applyCourseDocumentEnvelope').mockImplementation(() => {
+      courseStore.currentDocumentRevision = 'cdr-2'
+    })
+    vi.spyOn(courseStore, 'refreshCourseData').mockRejectedValue(new Error('refresh unavailable'))
+
+    await wrapper.get('.personalization-feedback').setValue('请补充推导过程')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+    await wrapper.get('.personalization-apply').trigger('click')
+    await flushPromises()
+
+    expect(applyEnvelope).toHaveBeenCalledWith(document)
+    expect(wrapper.emitted('blockApplied')).toEqual([[blockTarget]])
+    expect(wrapper.find('.personalization-apply-receipt').exists()).toBe(true)
+    expect(wrapper.find('.personalization-error').exists()).toBe(false)
+    expect((wrapper.vm as any).personalizationApplying).toBe(false)
+  })
+
+  it('不把旧课程的 apply 成功写入切换后的目标或课程状态', async () => {
+    const applied = deferred<any>()
+    const firstTarget = personalizationTarget('block-1', 'cbr-1')
+    const secondTarget = personalizationTarget('block-2', 'cbr-2')
+    const proposal = personalizationProposal(firstTarget, 1)
+    const wrapper = mountPanel([], '', firstTarget, store => {
+      store.currentDocumentRevision = 'cdr-1'
+    })
+    const courseStore = useCourseStore()
+    const changeProposalsStore = useChangeProposalsStore()
+    vi.spyOn(changeProposalsStore, 'createPersonalizationProposal').mockResolvedValue(proposal)
+    vi.spyOn(changeProposalsStore, 'applySelectedItems').mockImplementation(() => applied.promise)
+    const applyEnvelope = vi.spyOn(courseStore, 'applyCourseDocumentEnvelope').mockImplementation(() => {})
+
+    await wrapper.get('.personalization-feedback').setValue('请补充推导过程')
+    await wrapper.get('.personalization-generate').trigger('click')
+    await flushPromises()
+    await wrapper.get('.personalization-apply').trigger('click')
+    courseStore.currentCourseId = 'course-2'
+    courseStore.currentDocumentRevision = 'cdr-2'
+    await wrapper.setProps({ blockTarget: secondTarget })
+
+    applied.resolve({
+      proposal: { ...proposal, status: 'resolved' },
+      receipt: { affected_block_ids: ['block-1'] },
+      document: {
+        course_id: 'course-1',
+        document: { course_id: 'course-1', title: '课程', document_revision: 'cdr-2', sections: [], blocks: [] },
+      },
+      representation_sync: { status: 'synchronized', rebuilt: [] },
     })
     await flushPromises()
 
-    expect(latest!).toHaveBeenCalledWith(blockTarget)
-    expect(wrapper.text()).toContain('生成已中断，可继续')
-    expect(wrapper.text()).toContain('生成服务曾中断，请从当前候选继续')
-    expect(wrapper.text()).not.toContain('这段后端原始文案不应直接展示')
-    await wrapper.get('.block-candidate-actions .primary-command').trigger('click')
-    await flushPromises()
-
-    expect(retry!).toHaveBeenCalledWith(interrupted)
-    expect(wrapper.find('.block-candidate-preview').text()).toContain('恢复后生成的新正文')
+    expect(applyEnvelope).not.toHaveBeenCalled()
+    expect(wrapper.find('.personalization-apply-receipt').exists()).toBe(false)
+    expect(wrapper.emitted('blockApplied')).toBeUndefined()
   })
 
   it('kg_node 变更提案条目展示接受按钮，并提示接受后仅记录复核备注', () => {
@@ -344,5 +819,74 @@ describe('SideAIPanel', () => {
       await rejectButtons[0]!.trigger('click')
       expect(card.find('.change-item-prompt').exists()).toBe(true)
     })
+  })
+
+  it('renders structured proposal payloads as readable markdown', async () => {
+    const wrapper = mountPanel()
+    const changeProposalsStore = useChangeProposalsStore()
+    changeProposalsStore.courseId = 'course-1'
+    changeProposalsStore.proposals = [{
+      proposal_id: 'proposal-structured-1',
+      course_id: 'course-1',
+      scope: 'section',
+      target_block_ids: ['block-1'],
+      source: 'evidence',
+      status: 'pending',
+      created_at: '2026-07-16T00:00:00Z',
+      items: [{
+        item_id: 'item-structured-1',
+        block_id: 'block-1',
+        target_kind: 'course_block',
+        before: {
+          title: 'internal old title',
+          markdown: 'visible original markdown',
+          summary: 'internal old summary',
+        },
+        after: {
+          payload: {
+            title: 'internal new title',
+            markdown: 'visible regenerated markdown',
+            summary: 'internal new summary',
+          },
+        },
+        reason: 'improve the explanation',
+        status: 'pending',
+      }],
+    } as unknown as ChangeProposal]
+
+    await flushPromises()
+
+    const cardText = wrapper.get('.change-proposal-card').text()
+    expect(cardText).toContain('visible original markdown')
+    expect(cardText).toContain('visible regenerated markdown')
+    expect(cardText).not.toContain('payload')
+    expect(cardText).not.toContain('internal old title')
+    expect(cardText).not.toContain('internal new summary')
+  })
+
+  it('英文移动模式完整呈现块级范围选择且没有中文回退文案', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/')
+        ? enMessages
+        : zhMessages,
+    })))
+    await setLocale('en')
+    Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true })
+
+    try {
+      const wrapper = mountPanel([], '', personalizationTarget())
+      expect(wrapper.get('.ai-teacher-panel').classes()).toContain('is-overlay')
+      expect(wrapper.get('[data-scope="current_block"]').text()).toContain(
+        'Improve current content only',
+      )
+      expect(wrapper.get('[data-scope="whole_course"]').text()).toContain(
+        'Apply to matching content across the course',
+      )
+      expect(wrapper.text()).not.toContain('应用范围')
+    } finally {
+      await setLocale('zh')
+      vi.unstubAllGlobals()
+    }
   })
 })

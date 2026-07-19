@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -14,7 +13,7 @@ from course_versioning import stable_hash
 
 
 SUBJECT_LIBRARY_SCHEMA = "knowledge_library_v2"
-SUBJECT_VIEW_SCHEMA = "knowledge_library_view_v2"
+SUBJECT_VIEW_SCHEMA = "knowledge_library_view_v3"
 KNOWLEDGE_SLICE_SCHEMA = "knowledge_library_slice_v2"
 CATALOG_DIR = Path(__file__).resolve().parent / "catalogs" / "subject_knowledge"
 NODE_TYPES = ("subject", "domain", "topic", "concept", "knowledge_point")
@@ -50,7 +49,16 @@ def available_subject_libraries() -> tuple[dict[str, Any], ...]:
 
 
 def resolve_subject_library(source: str | dict[str, Any]) -> dict[str, Any]:
-    """Resolve a curated subject library from course metadata without inventing one."""
+    """Resolve only a pinned revision or a curated library; reads never generate one."""
+    if isinstance(source, dict) and source.get("knowledge_library_binding"):
+        try:
+            from subject_library_repository import subject_library_repository
+
+            bound = subject_library_repository.resolve_for_course(source)
+            if bound is not None:
+                return bound
+        except (KeyError, ValueError):
+            pass
     hint = _subject_hint(source)
     normalized_hint = _normalize_text(hint)
     best: tuple[int, str] | None = None
@@ -83,73 +91,257 @@ def resolve_subject_library(source: str | dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _catalog_path_for_library_id(library_id: str) -> Path | None:
-    for path in sorted(CATALOG_DIR.glob("*.json")):
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        if str(raw.get("library_id") or "") == library_id:
-            return path
-    return None
+def _build_course_derived_library(course_data: dict[str, Any]) -> dict[str, Any] | None:
+    """Build a deterministic provisional library when no curated subject catalog exists.
 
-
-def acknowledge_knowledge_node_review(
-    library_id: str,
-    knowledge_id: str,
-    *,
-    note: str,
-    source_block_id: str,
-    reviewed_by: str,
-) -> dict[str, Any]:
-    """Record that an operator accepted a pending `kb_link`/`kg_node` change
-    proposal item pointing at this knowledge node, by appending a
-    `review_notes` entry directly onto the curated catalog file on disk.
-
-    This intentionally does NOT rewrite the curated `name`/`description`
-    text: the pending item's `after` payload only ever carries a review note
-    pointing at what changed in the course, never a proposed replacement
-    definition (see `course_knowledge_map.propose_kb_linkage_from_block_change`).
-    Appending a note gives kb_link proposals a real, persisted "accept"
-    outcome instead of being permanently stuck behind a 409, while curated
-    definitions themselves remain edited only by a human maintaining the
-    catalog file.
+    Generated IDs are owned by this compiler rather than the language model. The
+    resulting library is stored in the course learning assets and can later be
+    replaced by a curated subject catalog without changing the course outline.
     """
-    path = _catalog_path_for_library_id(library_id)
-    if path is None:
-        raise KeyError(f"Unknown subject library: {library_id}")
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    topics = _course_topics(course_data)
+    if not topics:
+        return None
 
-    target: dict[str, Any] | None = None
+    course_id = str(course_data.get("course_id") or "").strip()
+    title = str(course_data.get("subject") or course_data.get("course_name") or "课程知识库").strip()
+    # Keep the namespace stable across normal course evolution. Individual
+    # topic/point IDs are derived from their canonical names below, while the
+    # library revision still changes whenever the generated content changes.
+    identity_seed = (
+        {"course_id": course_id}
+        if course_id
+        else {"title": _normalize_text(title)}
+    )
+    identity = stable_hash(identity_seed)
+    namespace = f"generated.{identity}"
+    root_id = f"{namespace}.subject"
+    domain_id = f"{namespace}.course"
+    source_ref = f"course:{course_id or identity}"
 
-    def walk(node: dict[str, Any]) -> None:
-        nonlocal target
-        if target is not None:
-            return
-        if str(node.get("knowledge_id") or "") == knowledge_id:
-            target = node
-            return
-        for child in node.get("children") or []:
-            walk(child)
+    point_ids: dict[str, str] = {}
+    topic_children: list[dict[str, Any]] = []
+    for topic_order, topic in enumerate(topics):
+        topic_id = f"{namespace}.topic.{stable_hash({'name': topic['name']})}"
+        point_children: list[dict[str, Any]] = []
+        for point_order, point in enumerate(topic["points"]):
+            normalized_name = _normalize_text(point["name"])
+            point_id = point_ids.setdefault(
+                normalized_name,
+                f"{namespace}.kp.{stable_hash({'name': normalized_name})}",
+            )
+            point_children.append({
+                "knowledge_id": point_id,
+                "node_type": "knowledge_point",
+                "name": point["name"],
+                "aliases": point["aliases"],
+                "description": point["description"],
+                "learning_actions": [point["capability"]] if point["capability"] else [],
+                "typical_problems": [],
+                "source_refs": [source_ref],
+                "source_status": "course_generated",
+                "status": "provisional",
+                "sort_order": point_order,
+            })
+        topic_children.append({
+            "knowledge_id": topic_id,
+            "node_type": "concept",
+            "name": topic["name"],
+            "description": topic["description"],
+            "learning_actions": [],
+            "source_refs": [source_ref],
+            "source_status": "course_generated",
+            "status": "provisional",
+            "sort_order": topic_order,
+            "children": point_children,
+        })
 
-    walk(raw.get("tree") or {})
-    if target is None:
-        raise KeyError(f"Unknown knowledge node: {knowledge_id}")
-
-    entry = {
-        "note": note,
-        "source_block_id": source_block_id,
-        "reviewed_by": reviewed_by,
-        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+    raw_library = {
+        "schema_version": SUBJECT_LIBRARY_SCHEMA,
+        "library_id": namespace,
+        "subject_id": namespace,
+        "version": "1.0.0-provisional",
+        "title": f"{title}·课程派生知识库",
+        "match_terms": [title, str(course_data.get("course_name") or "")],
+        "source_refs": [source_ref],
+        "tree": {
+            "knowledge_id": root_id,
+            "node_type": "subject",
+            "name": title,
+            "description": "根据新课程结构自动建立、等待后续学科治理的知识体系。",
+            "source_status": "course_generated",
+            "status": "provisional",
+            "children": [{
+                "knowledge_id": domain_id,
+                "node_type": "domain",
+                "name": str(course_data.get("course_name") or title),
+                "description": "本课程覆盖的知识主题、知识点与能力要求。",
+                "source_status": "course_generated",
+                "status": "provisional",
+                "children": topic_children,
+            }],
+        },
+        "relations": _generated_knowledge_relations(namespace, topics, point_ids),
+        **_generated_teaching_standards(namespace, topics, point_ids),
+        "skill_relations": [],
     }
-    target.setdefault("review_notes", []).append(entry)
+    library = _normalize_library(raw_library)
+    library.update({
+        "status": "provisional",
+        "origin": "course_generation",
+        "generated_from_course_id": course_id,
+        "governance_status": "pending_curation",
+    })
+    library["revision_id"] = stable_hash(library, prefix="skl_")
+    return library
 
-    path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
-    load_subject_library.cache_clear()
-    available_subject_libraries.cache_clear()
-    return entry
+
+def _course_topics(course_data: dict[str, Any]) -> list[dict[str, Any]]:
+    topics_by_name: dict[str, dict[str, Any]] = {}
+    point_owner: dict[str, str] = {}
+    for section in course_data.get("nodes") or []:
+        if int(section.get("node_level") or 1) != 2:
+            continue
+        structures = [item for item in section.get("knowledge_structure") or [] if isinstance(item, dict)]
+        if not structures:
+            structures = [{
+                "topic": section.get("node_name") or section.get("title") or "课程知识",
+                "description": section.get("learning_objective") or "",
+                "knowledge_points": section.get("key_points") or [section.get("node_name")],
+            }]
+        for structure in structures:
+            topic_name = str(structure.get("topic") or structure.get("name") or "").strip()
+            if not topic_name:
+                continue
+            topic_key = _normalize_text(topic_name)
+            topic = topics_by_name.setdefault(topic_key, {
+                "name": topic_name,
+                "description": str(structure.get("description") or "").strip(),
+                "points": [],
+            })
+            for raw_point in structure.get("knowledge_points") or []:
+                point = _course_point(raw_point)
+                if point is None:
+                    continue
+                point_key = _normalize_text(point["name"])
+                if not point_key or point_key in point_owner:
+                    continue
+                point_owner[point_key] = topic_key
+                topic["points"].append(point)
+    return [topic for topic in topics_by_name.values() if topic["points"]]
+
+
+def _course_point(raw_point: Any) -> dict[str, Any] | None:
+    if isinstance(raw_point, str):
+        name = raw_point.strip()
+        source: dict[str, Any] = {}
+    elif isinstance(raw_point, dict):
+        source = raw_point
+        name = str(source.get("name") or source.get("knowledge_point") or "").strip()
+    else:
+        return None
+    if not name:
+        return None
+    capability = str(source.get("capability") or f"能够解释并应用{name}").strip()
+    return {
+        "name": name,
+        "description": str(source.get("description") or "").strip(),
+        "capability": capability,
+        "aliases": list(dict.fromkeys(
+            str(item).strip() for item in source.get("aliases") or [] if str(item).strip()
+        )),
+        "prerequisite_names": list(dict.fromkeys(
+            str(item).strip()
+            for item in source.get("prerequisite_names") or []
+            if str(item).strip()
+        )),
+    }
+
+
+def _generated_knowledge_relations(
+    namespace: str,
+    topics: list[dict[str, Any]],
+    point_ids: dict[str, str],
+) -> list[dict[str, Any]]:
+    relations: list[dict[str, Any]] = []
+    for topic in topics:
+        for point in topic["points"]:
+            target_id = point_ids.get(_normalize_text(point["name"]))
+            for prerequisite_name in point["prerequisite_names"]:
+                source_id = point_ids.get(_normalize_text(prerequisite_name))
+                if not source_id or not target_id or source_id == target_id:
+                    continue
+                relations.append({
+                    "relation_id": f"{namespace}.relation.{stable_hash({'source': source_id, 'target': target_id})}",
+                    "source_knowledge_id": source_id,
+                    "target_knowledge_id": target_id,
+                    "relation_type": "prerequisite",
+                    "reason": f"课程将“{prerequisite_name}”列为“{point['name']}”的前置知识。",
+                    "source_status": "course_generated",
+                    "status": "candidate",
+                })
+    return relations
+
+
+def _generated_teaching_standards(
+    namespace: str,
+    topics: list[dict[str, Any]],
+    point_ids: dict[str, str],
+) -> dict[str, list[dict[str, Any]]]:
+    skills: list[dict[str, Any]] = []
+    mistakes: list[dict[str, Any]] = []
+    improvements: list[dict[str, Any]] = []
+    for topic in topics:
+        for point in topic["points"]:
+            point_id = point_ids[_normalize_text(point["name"])]
+            suffix = stable_hash({"point": point_id})
+            skill_id = f"skill.generated.{suffix}"
+            mistake_id = f"mistake.generated.{suffix}"
+            improvement_id = f"improve.generated.{suffix}"
+            skills.append({
+                "skill_unit_id": skill_id,
+                "name": point["capability"],
+                "description": point["description"] or point["capability"],
+                "learning_goal": point["capability"],
+                "primary_knowledge_id": point_id,
+                "knowledge_ids": [point_id],
+                "source_status": "course_generated",
+            })
+            mistakes.append({
+                "mistake_point_id": mistake_id,
+                "skill_unit_id": skill_id,
+                "name": f"{point['name']}：忽略适用条件或边界",
+                "description": "只记结论或步骤，没有检查定义、适用条件和边界情况。",
+                "misconception": "把局部示例当成无条件成立的通用规则。",
+                "symptom": "答案缺少条件说明、过程验证或边界检查。",
+                "repair_strategy": "回到定义，按条件、过程、结果检查三步重新作答。",
+                "severity": "medium",
+                "primary_knowledge_id": point_id,
+                "knowledge_ids": [point_id],
+                "source_status": "course_generated",
+            })
+            improvements.append({
+                "improvement_point_id": improvement_id,
+                "skill_unit_id": skill_id,
+                "name": f"建立{point['name']}的可检查解题流程",
+                "description": "把知识点转化为可执行、可复核的学习步骤。",
+                "improvement_goal": point["capability"],
+                "practice_strategy": "先说明适用条件，再执行关键步骤，最后用边界或反例检查结果。",
+                "student_benefit": "减少只会复述概念、不会在新情境中应用的问题。",
+                "primary_knowledge_id": point_id,
+                "knowledge_ids": [point_id],
+                "related_mistake_ids": [mistake_id],
+                "source_status": "course_generated",
+            })
+    return {
+        "skill_units": skills,
+        "mistake_points": mistakes,
+        "improvement_points": improvements,
+    }
 
 
 def validate_subject_library(library: dict[str, Any]) -> list[str]:
     issues: list[str] = []
-    if library.get("schema_version") != SUBJECT_LIBRARY_SCHEMA:
+    if library.get("schema_version") not in {SUBJECT_LIBRARY_SCHEMA, "knowledge_library_v3"}:
         issues.append("schema_version 不正确")
     nodes = list(library.get("nodes") or [])
     ids = [str(node.get("knowledge_id") or "") for node in nodes]
@@ -306,90 +498,13 @@ def propose_content_linkage_from_kb_change(
     request_id: str,
     library: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Knowledge-base -> content linkage.
+    """Retired compatibility entry point.
 
-    Sibling, additive branch next to `suggest_subject_knowledge`: that function
-    "never promotes a mapping" for the course->library direction; this one
-    keeps the same non-binding contract for the opposite direction. Call this
-    after a knowledge-library node's definition has been updated (there is
-    currently no route in this repo that mutates the curated catalogs under
-    `backend/catalogs/subject_knowledge/` - this function is the integration
-    seam a future knowledge-editing command/route should call with the
-    node's freshly-updated definition).
-
-    Finds every course content block already bound to `kg_node_id` (reusing
-    `course_knowledge_map.compile_course_knowledge_map`'s block<->node
-    association) and, if any exist, emits one pending `source="kb_link"`,
-    `target_kind="course_block"` change-proposal item per block suggesting the
-    course text be synchronized. Never edits course content directly - only
-    produces a pending proposal via `change_proposals.create_proposal`; a
-    human/operator must still review and apply it.
+    A legacy cross-course subject node can never drive current-course content.
+    Knowledge changes must originate from the current course maintenance
+    surface and use current-course IDs.
     """
-    from change_proposals import create_proposal
-    from course_knowledge_map import compile_course_knowledge_map
-
-    subject_library = library if library is not None else resolve_subject_library(course_data)
-    course_map = compile_course_knowledge_map(deepcopy(course_data), subject_library)
-
-    block_ids: list[str] = []
-    for mapping in course_map.get("mappings") or []:
-        refs = {
-            str(mapping.get("anchor_knowledge_id") or ""),
-            *(str(item) for item in mapping.get("knowledge_ids") or []),
-        }
-        if kg_node_id in refs:
-            block_ids.extend(str(item) for item in mapping.get("block_ids") or [])
-    block_ids = list(dict.fromkeys(bid for bid in block_ids if bid))
-    if not block_ids:
-        return None
-
-    node_name = str(updated_definition.get("name") or kg_node_id)
-    new_description = str(updated_definition.get("description") or "")
-    items: list[dict[str, Any]] = []
-    for block_id in block_ids:
-        block = _find_legacy_block(course_data, block_id)
-        if block is None:
-            continue
-        current = {
-            "title": block.get("title"),
-            "content": block.get("content"),
-        }
-        note = f"\n\n[知识库同步建议] 知识节点「{node_name}」定义已更新为：{new_description}"
-        suggested = dict(current)
-        suggested["content"] = f"{suggested.get('content') or ''}{note}".strip()
-        items.append({
-            "block_id": block_id,
-            "target_kind": "course_block",
-            "before": current,
-            "after": {"payload": suggested},
-            "reason": (
-                f"知识库节点「{node_name}」（{kg_node_id}）已更新为「{new_description}」，"
-                f"建议同步课程正文块 {block_id}。"
-            ),
-        })
-    if not items:
-        return None
-
-    return create_proposal(
-        repository,
-        str(course_data.get("course_id") or ""),
-        request_id=request_id,
-        scope="block" if len(block_ids) == 1 else "sections",
-        target_block_ids=block_ids,
-        items=items,
-        source="kb_link",
-        generation_meta={
-            "linkage_direction": "kb_to_content",
-            "trigger_kg_node_id": kg_node_id,
-        },
-    )
-
-
-def _find_legacy_block(course_data: dict[str, Any], block_id: str) -> dict[str, Any] | None:
-    for node in course_data.get("nodes") or []:
-        for block in node.get("content_blocks") or []:
-            if str(block.get("block_id") or "") == block_id:
-                return block
+    del course_data, kg_node_id, updated_definition, repository, request_id, library
     return None
 
 
@@ -600,6 +715,18 @@ def build_knowledge_library_view(
                 if node_id in by_id and item_id:
                     binding(str(node_id))[binding_key].add(item_id)
 
+    direct_binding_snapshots = [
+        (node_id, {key: set(values) for key, values in entry.items()})
+        for node_id, entry in bindings.items()
+    ]
+    for node_id, source_binding in direct_binding_snapshots:
+        parent_id = str((by_id.get(node_id) or {}).get("parent_id") or "")
+        while parent_id and parent_id in by_id:
+            ancestor_binding = binding(parent_id)
+            for key, values in source_binding.items():
+                ancestor_binding[key].update(values)
+            parent_id = str((by_id.get(parent_id) or {}).get("parent_id") or "")
+
     view_nodes: list[dict[str, Any]] = []
     for node in library.get("nodes") or []:
         node_id = str(node["knowledge_id"])
@@ -619,11 +746,29 @@ def build_knowledge_library_view(
         if relation.get("source_knowledge_id") in selected_ids
         and relation.get("target_knowledge_id") in selected_ids
     ]
+    source_summary: dict[str, int] = {}
+    for collection in (
+        view_nodes,
+        relations,
+        library.get("skill_units") or [],
+        library.get("mistake_points") or [],
+        library.get("improvement_points") or [],
+    ):
+        for item in collection:
+            source_type = str(item.get("source_type") or item.get("source_status") or "unknown")
+            source_summary[source_type] = source_summary.get(source_type, 0) + 1
     payload = {
         "schema_version": SUBJECT_VIEW_SCHEMA,
         "library_id": library.get("library_id"),
         "subject_id": library.get("subject_id"),
+        "identity_scope": "subject_shared",
         "library_version": library.get("version"),
+        "binding_revision_id": course_map.get("binding_revision_id") or library.get("revision_id"),
+        "lifecycle_status": library.get("lifecycle_status", "accepted" if library.get("status") == "active" else "degraded"),
+        "origin": library.get("origin", "curated" if library.get("status") == "active" else "course_index"),
+        "quality_report": deepcopy(library.get("quality_report") or {}),
+        "generation_audit": deepcopy(library.get("generation_audit") or {}),
+        "source_summary": source_summary,
         "root_node_id": library.get("root_node_id"),
         "nodes": view_nodes,
         "relations": relations,
@@ -635,7 +780,11 @@ def build_knowledge_library_view(
         "course_map_revision_id": course_map.get("revision_id"),
         "coverage": deepcopy(course_map.get("coverage") or {}),
         "unresolved_mappings": deepcopy(course_map.get("unresolved_candidates") or []),
-        "status": "active" if view_nodes else "unavailable",
+        "status": (
+            "active"
+            if view_nodes and library.get("lifecycle_status", "accepted" if library.get("status") == "active" else "degraded") in {"accepted", "candidate"}
+            else "degraded" if view_nodes else "unavailable"
+        ),
     }
     payload["asset_id"] = stable_hash({
         "library": library.get("library_id"),
@@ -666,10 +815,13 @@ def _normalize_library(raw: dict[str, Any]) -> dict[str, Any]:
             "path_ids": path_ids,
             "path_names": path_names,
             "aliases": list(dict.fromkeys(str(item).strip() for item in source.get("aliases") or [] if str(item).strip())),
+            "alias_sources": deepcopy(source.get("alias_sources") or []),
             "learning_actions": [str(item).strip() for item in source.get("learning_actions") or [] if str(item).strip()],
             "typical_problems": [str(item).strip() for item in source.get("typical_problems") or [] if str(item).strip()],
             "source_refs": [str(item).strip() for item in source.get("source_refs") or raw.get("source_refs") or [] if str(item).strip()],
             "source_status": str(source.get("source_status") or "curated"),
+            "source_type": str(source.get("source_type") or source.get("source_status") or "curated"),
+            "confidence": float(source.get("confidence") if source.get("confidence") is not None else 1.0),
             "status": str(source.get("status") or "active"),
             "library_version": str(raw.get("version") or ""),
         }
@@ -688,6 +840,8 @@ def _normalize_library(raw: dict[str, Any]) -> dict[str, Any]:
             "relation_type": str(relation.get("relation_type") or "related"),
             "reason": str(relation.get("reason") or ""),
             "source_status": str(relation.get("source_status") or "curated"),
+            "source_type": str(relation.get("source_type") or relation.get("source_status") or "curated"),
+            "confidence": float(relation.get("confidence") if relation.get("confidence") is not None else 1.0),
             "status": str(relation.get("status") or "accepted"),
         }
         normalized["revision_id"] = stable_hash(normalized, prefix="krr_")

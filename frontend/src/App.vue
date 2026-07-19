@@ -1,12 +1,8 @@
 <template>
-  <div class="app-shell">
-    <header class="app-header glass-panel-elevated">
+  <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute }">
+    <header v-if="!isPptRoute" class="app-header glass-panel-elevated">
       <button class="brand-button" type="button" :aria-label="t('app.backToLibrary', '返回课程库')" @click="router.push('/courses')">
-        <span class="brand-mark"><GraduationCap :size="21" /></span>
-        <span class="brand-copy">
-          <strong>{{ t('app.brand', '灵知') }}</strong>
-          <small>{{ t('app.product', 'KnowledgeMap') }}</small>
-        </span>
+        <img class="brand-logo" :src="qizhiLogoUrl" alt="" />
       </button>
 
       <div v-if="isLearningRoute" class="header-actions">
@@ -22,6 +18,11 @@
             <X :size="14" />
           </button>
         </label>
+
+        <button type="button" class="header-ppt-button" :title="t('pptWorkspace.open', '打开 PPT 工作台')" @click="openPptWorkspace">
+          <Presentation :size="17" />
+          <span>{{ t('pptWorkspace.shortTitle', 'PPT 工作台') }}</span>
+        </button>
 
         <el-popover placement="bottom-end" :width="224" trigger="click">
           <template #reference>
@@ -80,18 +81,46 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Download, GraduationCap, Scan, Search, Settings2, X } from 'lucide-vue-next'
+import { Download, Presentation, Scan, Search, Settings2, X } from 'lucide-vue-next'
+import qizhiLogoUrl from './assets/qizhi-logo.svg'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import { useCourseStore } from './stores/course'
+import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { t } from './shared/i18n'
 
 const router = useRouter()
 const route = useRoute()
 const courseStore = useCourseStore()
+const generationStore = useGenerationStore()
+
+const reconcileGenerationTasks = () => {
+  void generationStore.fetchGlobalTasks()
+}
+const reconcileGenerationTasksFromStorage = (event: StorageEvent) => {
+  if (event.key === GENERATION_STATE_KEY) reconcileGenerationTasks()
+}
+const reconcileVisibleGenerationTasks = () => {
+  if (document.visibilityState === 'visible') reconcileGenerationTasks()
+}
+
+onMounted(() => {
+  generationStore.restoreGenerationState()
+  generationStore.startGlobalMonitor()
+  window.addEventListener('storage', reconcileGenerationTasksFromStorage)
+  window.addEventListener('focus', reconcileGenerationTasks)
+  document.addEventListener('visibilitychange', reconcileVisibleGenerationTasks)
+})
+onBeforeUnmount(() => {
+  generationStore.stopGlobalMonitor()
+  window.removeEventListener('storage', reconcileGenerationTasksFromStorage)
+  window.removeEventListener('focus', reconcileGenerationTasks)
+  document.removeEventListener('visibilitychange', reconcileVisibleGenerationTasks)
+})
 
 const isLearningRoute = computed(() => route.name === 'learning')
+const isPptRoute = computed(() => route.name === 'ppt-workspace')
 const searchQuery = computed({
   get: () => courseStore.globalSearchQuery,
   set: value => { courseStore.globalSearchQuery = value },
@@ -105,6 +134,11 @@ const fontOptions = computed(() => [
 function handleExport(command: string) {
   if (command === 'json') courseStore.exportCourseJson()
   else courseStore.exportCourseMarkdown()
+}
+
+function openPptWorkspace() {
+  const courseId = courseStore.currentCourseId || String(route.params.courseId || '')
+  if (courseId) void router.push({ name: 'ppt-workspace', params: { courseId } })
 }
 
 function updateFontSize(event: Event) {
@@ -125,6 +159,8 @@ function updateFontSize(event: Event) {
   color: var(--lz-text);
   background: transparent;
 }
+.app-shell.is-ppt-workspace { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#e9edf3; }
+.app-shell.is-ppt-workspace .app-main { border-radius:0; }
 
 .app-header {
   position: relative;
@@ -166,36 +202,42 @@ function updateFontSize(event: Event) {
   transition: transform .2s ease, background .2s ease;
 }
 .brand-button:hover { transform: translateY(-1px); }
-.brand-button:hover .brand-mark { transform: scale(1.05) rotate(-4deg); box-shadow:0 9px 20px rgba(99,102,241,.3),inset 0 1px 0 rgba(255,255,255,.32); }
-.brand-button:hover .brand-copy strong { color:#4f46e5; }
+.brand-button:hover .brand-logo { transform: scale(1.025); filter: drop-shadow(0 6px 10px rgba(0,16,129,.16)); }
 
-.brand-mark {
-  width: 40px;
+.brand-logo {
+  width: 87px;
   height: 40px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255,255,255,.35);
-  border-radius: 13px;
-  color: #fff;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #a855f7 100%);
-  box-shadow: 0 7px 16px rgba(99, 102, 241, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  transition: transform .25s ease, box-shadow .25s ease;
+  display: block;
+  object-fit: contain;
+  transition: transform .2s ease, filter .2s ease;
 }
 
-.brand-copy,
 .course-context-copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
-.brand-copy strong { font-size:17px; line-height:1.05; color:#312e81; transition:color .2s ease; }
-.brand-copy small { margin-top:3px; font-size:9px; color:#94a3b8; font-weight:600; }
-
 .header-actions { position:relative; display:flex; align-items:center; justify-content:flex-end; gap:5px; padding-left:13px; }
 .header-actions::before { content:""; position:absolute; left:0; width:1px; height:26px; background:linear-gradient(180deg,transparent,#dbe3ef,transparent); }
 .header-icon-button { width:36px; height:36px; display:grid; place-items:center; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease; }
 .header-icon-button:hover, .header-icon-button.active { transform:translateY(-1px); border-color:#e0e7ff; color:var(--lz-brand-strong); background:#f5f3ff; }
+.header-ppt-button {
+  min-height:36px;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:0 12px;
+  border:1px solid #c7d6f8;
+  border-radius:11px;
+  color:#214cae;
+  background:#eef3ff;
+  font-size:11px;
+  font-weight:720;
+  cursor:pointer;
+  transition:transform .16s ease,box-shadow .16s ease,background .16s ease;
+}
+.header-ppt-button:hover { transform:translateY(-1px); background:#e4ecff; box-shadow:0 6px 14px rgba(37,86,216,.13); }
 
 .header-search {
   width: clamp(180px, 22vw, 300px);
@@ -225,7 +267,7 @@ function updateFontSize(event: Event) {
 
 @media (max-width: 900px) {
   .app-header { grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 0 10px; }
-  .brand-copy small, .header-search { display: none; }
+  .header-search { display: none; }
 }
 
 @media (max-width: 600px) {
@@ -233,9 +275,11 @@ function updateFontSize(event: Event) {
   .app-header { border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
   .app-main { border-radius: 0; }
   .app-header { grid-template-columns: auto minmax(0, 1fr); }
-  .brand-copy { display: none; }
+  .brand-logo { width: 78px; height: 36px; }
   .header-actions .header-icon-button:nth-of-type(1),
   .header-actions :deep(.el-popover__reference-wrapper),
   .header-actions :deep(.el-dropdown) { display: none; }
+  .header-ppt-button { width:36px; padding:0; justify-content:center; }
+  .header-ppt-button span { display:none; }
 }
 </style>

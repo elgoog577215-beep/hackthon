@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from material_models import DocumentBlock, DocumentLocator, MaterialAsset, ParsedDocument
-from material_storage import TEXT_EXTENSIONS, MaterialRepository
+from material_storage import IMAGE_EXTENSIONS, TEXT_EXTENSIONS, MaterialRepository
 
 PARSE_OPTIONS_VERSION = "material_parse_v1"
 
@@ -124,6 +124,65 @@ class TextDocumentParser:
         return blocks
 
 
+class ImageOcrParser:
+    name = "rapidocr"
+    version = "1"
+
+    def supports(self, extension: str) -> bool:
+        return extension in IMAGE_EXTENSIONS
+
+    def parse(self, asset: MaterialAsset, source_path: Path) -> ParsedDocument:
+        segments = _ocr_image(source_path)
+        blocks: list[DocumentBlock] = []
+        confidences: list[float] = []
+        for segment in segments:
+            text = str(segment.get("text") or "").strip()
+            if not text:
+                continue
+            confidence = max(0.0, min(1.0, float(segment.get("confidence") or 0)))
+            confidences.append(confidence)
+            blocks.append(DocumentBlock(
+                block_id=f"blk-{len(blocks) + 1}",
+                kind=_detect_block_kind(text),
+                text=text,
+                order=len(blocks),
+                locator=DocumentLocator(
+                    page=max(1, int(segment.get("page") or 1)),
+                    bbox=_normalized_bbox(segment.get("bbox")),
+                ),
+                metadata={
+                    "ocr_engine": self.name,
+                    "ocr_confidence": round(confidence, 4),
+                },
+            ))
+        if not blocks:
+            raise RuntimeError("OCR 没有从图片中提取到可用文字")
+        average_confidence = round(sum(confidences) / max(1, len(confidences)), 4)
+        quality = {
+            **_quality(blocks),
+            "ocr_confidence": average_confidence,
+            "ocr_engine": self.name,
+        }
+        degraded = average_confidence < 0.85
+        return ParsedDocument(
+            document_id=f"doc-{uuid.uuid4().hex}",
+            asset_id=asset.asset_id,
+            source_sha256=asset.sha256,
+            parse_status="degraded" if degraded else "parsed",
+            parser_name=self.name,
+            parser_version=self.version,
+            parse_options_hash=_options_hash(self.name),
+            blocks=blocks,
+            quality=quality,
+            warnings=(
+                ["OCR 平均置信度低于 0.85，相关题目必须进入教师审核"]
+                if degraded
+                else []
+            ),
+            created_at=_now(),
+        )
+
+
 class DoclingDocumentParser:
     name = "docling"
 
@@ -232,6 +291,8 @@ async def parse_material_asset(
     parsers: list[DocumentParser]
     if asset.extension in TEXT_EXTENSIONS:
         parsers = [TextDocumentParser()]
+    elif asset.extension in IMAGE_EXTENSIONS:
+        parsers = [ImageOcrParser()]
     else:
         parsers = [DoclingDocumentParser(), MarkItDownFallbackParser()]
 
@@ -399,10 +460,53 @@ def _normalized_bbox(raw: Any) -> dict[str, float] | None:
     return result or None
 
 
+def _ocr_image(path: Path) -> list[dict[str, Any]]:
+    """Run optional local OCR without sending course material to a third party."""
+    try:
+        from PIL import Image
+        from rapidocr_onnxruntime import RapidOCR
+    except ImportError as exc:
+        raise RuntimeError(
+            "图片 OCR 组件未安装；请安装 rapidocr-onnxruntime 后重试"
+        ) from exc
+
+    engine = RapidOCR()
+    raw_result, _elapsed = engine(str(path))
+    if not raw_result:
+        return []
+    with Image.open(path) as image:
+        width, height = image.size
+    result: list[dict[str, Any]] = []
+    for raw in raw_result:
+        if not isinstance(raw, (list, tuple)) or len(raw) < 3:
+            continue
+        points, text, confidence = raw[0], raw[1], raw[2]
+        xs = [float(point[0]) for point in points or [] if len(point) >= 2]
+        ys = [float(point[1]) for point in points or [] if len(point) >= 2]
+        bbox = None
+        if xs and ys and width > 0 and height > 0:
+            left, right = min(xs), max(xs)
+            top, bottom = min(ys), max(ys)
+            bbox = {
+                "x": round(left / width, 6),
+                "y": round(top / height, 6),
+                "width": round((right - left) / width, 6),
+                "height": round((bottom - top) / height, 6),
+            }
+        result.append({
+            "text": str(text or ""),
+            "confidence": float(confidence or 0),
+            "bbox": bbox,
+            "page": 1,
+        })
+    return result
+
+
 __all__ = [
     "DoclingDocumentParser",
     "DocumentParser",
     "MarkItDownFallbackParser",
+    "ImageOcrParser",
     "TextDocumentParser",
     "parse_material_asset",
 ]

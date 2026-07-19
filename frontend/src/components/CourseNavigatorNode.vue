@@ -11,11 +11,23 @@
       <span v-if="isChapter" class="node-kind chapter-kind"><BookOpenText :size="14" /></span>
       <span v-else class="node-kind leaf-kind" :class="[{ active: activeId === node.node_id, learned: isLearned }, generationState]"></span>
       <span class="node-label">{{ node.node_name }}</span>
+      <span v-if="adaptationMarker" class="adaptation-marker" :data-state="adaptationMarker.state" :title="adaptationMarker.title">
+        {{ adaptationMarker.label }}<b>{{ adaptationMarker.count }}</b>
+      </span>
       <component v-if="isGenerationPreview && generationIcon" :is="generationIcon" :size="13" class="status generation" :class="[generationState, { spinning: generationState === 'generating' }]" />
       <CheckCircle2 v-else-if="progress?.mastery_status === 'mastered'" :size="13" class="status mastered" />
       <CircleDot v-else-if="activeId === node.node_id" :size="13" class="status current" />
       <span v-else-if="progress?.reading_status === 'learned'" class="read-dot"></span>
     </button>
+    <ol v-if="growthTrail.length" class="growth-trail" :data-state="growthTrailState">
+      <li v-for="step in growthTrail" :key="step.key">
+        <span></span>
+        <div>
+          <b>{{ step.label }}</b>
+          <small>{{ step.detail }}</small>
+        </div>
+      </li>
+    </ol>
     <ul v-if="hasChildren && expanded">
       <CourseNavigatorNode
         v-for="child in node.children"
@@ -36,18 +48,122 @@ import { BookOpenText, CheckCircle2, ChevronRight, CircleDot, LoaderCircle, Tria
 import type { Node } from '../stores/types'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { useCourseStore } from '../stores/course'
+import { useCourseEvolutionStore } from '../stores/courseEvolution'
+import { t } from '../shared/i18n'
 
 defineOptions({ name: 'CourseNavigatorNode' })
 const props = withDefaults(defineProps<{ node: Node; activeId?: string; query?: string; depth?: number }>(), { activeId: '', query: '', depth: 0 })
 const emit = defineEmits<{ (event: 'select', node: Node): void }>()
 const progressStore = useLearningProgressStore()
 const courseStore = useCourseStore()
+const evolutionStore = useCourseEvolutionStore()
 const expanded = ref(props.depth < 2)
 const hasChildren = computed(() => Boolean(props.node.children?.length))
 const progress = computed(() => progressStore.nodeProgress(props.node.node_id))
 const isChapter = computed(() => props.depth === 0 || props.node.node_level === 1)
 const isLearned = computed(() => progress.value?.reading_status === 'learned' || progress.value?.mastery_status === 'mastered')
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
+const courseEvolutionPlans = computed(() => (
+  evolutionStore.courseId && evolutionStore.courseId === progressStore.courseId
+    ? evolutionStore.plans
+    : progressStore.runtime?.course_evolution?.course_evolution_plans
+      || progressStore.runtime?.course_evolution?.adaptation_plans
+      || []
+))
+const relevantPlans = computed(() => {
+  const ids = new Set<string>()
+  const collect = (node: Node) => {
+    ids.add(node.node_id)
+    for (const child of node.children || []) collect(child)
+  }
+  collect(props.node)
+  return courseEvolutionPlans.value.filter((plan: Record<string, any>) => {
+    const affected = plan.impact_summary?.affected_section_ids || []
+    return affected.some((sectionId: string) => ids.has(sectionId))
+      || (plan.operations || []).some((operation: Record<string, any>) => ids.has(operation.target_section_id))
+  })
+})
+const adaptationCounts = computed(() => {
+  const counts = { pending: 0, active: 0, validated: 0, review: 0 }
+  for (const plan of relevantPlans.value) {
+    if (plan.status === 'pending') counts.pending += 1
+    if (plan.status !== 'applied') continue
+    const effect = String(plan.effect_evaluation?.status || 'insufficient_evidence')
+    if (effect === 'effective') counts.validated += 1
+    else if (effect === 'ineffective' || effect === 'harmful') counts.review += 1
+    else counts.active += 1
+  }
+  return counts
+})
+const adaptationMarker = computed(() => {
+  const value = adaptationCounts.value
+  if (value.pending) return {
+    state: 'pending',
+    count: value.pending,
+    label: t('courseEvolution.navigatorMarker', 'AI 建议'),
+    title: t('courseEvolution.navigatorMarkerDetail', '该位置在待确认的课程调整范围内'),
+  }
+  if (value.review) return {
+    state: 'review',
+    count: value.review,
+    label: t('courseEvolution.navigatorReview', '待复核'),
+    title: t('courseEvolution.navigatorReviewDetail', '后续证据表明这里的课程变化需要复核'),
+  }
+  if (value.active) return {
+    state: 'active',
+    count: value.active,
+    label: t('courseEvolution.navigatorApplied', '已应用'),
+    title: t('courseEvolution.navigatorAppliedDetail', '当前课程已更新，等待正式复验'),
+  }
+  if (value.validated) return {
+    state: 'validated',
+    count: value.validated,
+    label: t('courseEvolution.navigatorValidated', '已生长'),
+    title: t('courseEvolution.navigatorValidatedDetail', '当前课程变化已获得后续正式证据支持'),
+  }
+  return null
+})
+const growthPlan = computed<Record<string, any> | null>(() => {
+  if (hasChildren.value) return null
+  return [...relevantPlans.value].reverse().find(plan => (
+    plan.status === 'pending' || plan.status === 'applied'
+  )) || null
+})
+const growthTrailState = computed(() => {
+  const plan = growthPlan.value
+  if (!plan) return ''
+  if (plan.status === 'pending') return 'pending'
+  const effect = String(plan.effect_evaluation?.status || 'insufficient_evidence')
+  if (effect === 'effective') return 'validated'
+  if (effect === 'ineffective' || effect === 'harmful') return 'review'
+  return 'active'
+})
+const growthTrail = computed(() => {
+  const operations = growthPlan.value?.operations || []
+  const steps: Array<{ key: string; label: string; detail: string }> = []
+  if (operations.some((item: Record<string, any>) => item.scope === 'current')) {
+    steps.push({
+      key: 'current',
+      label: t('courseEvolution.growthTrail.current', '当前位置解释'),
+      detail: t('courseEvolution.growthTrail.currentDetail', '解释与分步演示'),
+    })
+  }
+  if (operations.some((item: Record<string, any>) => item.operation_type === 'ADD_TRANSITION_SUPPORT')) {
+    steps.push({
+      key: 'transition',
+      label: t('courseEvolution.growthTrail.transition', '下一处承接'),
+      detail: t('courseEvolution.growthTrail.transitionDetail', '补充概念过渡'),
+    })
+  }
+  if (operations.some((item: Record<string, any>) => item.operation_type === 'ADD_CHECKPOINT')) {
+    steps.push({
+      key: 'checkpoint',
+      label: t('courseEvolution.growthTrail.checkpoint', '后续顺序检查'),
+      detail: t('courseEvolution.growthTrail.checkpointDetail', '在后续推导中复验'),
+    })
+  }
+  return steps
+})
 const generationState = computed(() => {
   if (!isGenerationPreview.value) return ''
   const status = String(props.node.generation_status || '')
@@ -77,7 +193,7 @@ watch(normalizedQuery, value => { if (value) expanded.value = true })
 .navigator-node ul { position:relative; margin:1px 0 4px 19px; padding:1px 0 2px 12px; border-left:1px dashed rgba(167,180,214,.72); transition:border-color .18s ease; }
 .navigator-node ul:hover { border-left-color:rgba(139,92,246,.52); }
 .navigator-node ul::before { content:""; position:absolute; top:0; left:-1px; width:8px; height:1px; background:rgba(165,180,252,.48); }
-.node-button { position:relative; width:100%; min-height:38px; display:grid; grid-template-columns:13px 24px minmax(0,1fr) auto; align-items:center; gap:7px; overflow:hidden; padding:5px 8px; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease; }
+.node-button { position:relative; width:100%; min-height:38px; display:grid; grid-template-columns:13px 24px minmax(0,1fr) auto auto; align-items:center; gap:7px; overflow:hidden; padding:5px 8px; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease; }
 .node-button::before { content:""; position:absolute; left:0; top:50%; width:3px; height:0; border-radius:0 4px 4px 0; background:linear-gradient(180deg,#818cf8,#7c3aed); transform:translateY(-50%); transition:height .18s ease; }
 .node-button:hover { transform:translateX(1px); color:var(--lz-text-strong); background:rgba(255,255,255,.7); }
 .node-button.active { border-color:rgba(255,255,255,.9); color:var(--lz-brand-strong); background:linear-gradient(90deg,rgba(255,255,255,.96),rgba(238,242,255,.84)); box-shadow:0 7px 18px rgba(99,102,241,.11),inset 0 1px 0 #fff; font-weight:700; }
@@ -97,6 +213,24 @@ watch(normalizedQuery, value => { if (value) expanded.value = true })
 .leaf-kind.draft { border-color:#8b5cf6; background:#ddd6fe; }
 .leaf-kind.failed { border-color:#ef4444; background:#fecaca; }
 .node-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; letter-spacing:0; }
+.adaptation-marker { display:inline-flex; align-items:center; gap:3px; padding:2px 5px; border:1px solid #c4b5fd; border-radius:5px; color:#6d28d9; background:#f5f3ff; font-size:8px; font-weight:700; white-space:nowrap; }
+.adaptation-marker b { min-width:12px; height:12px; display:grid; place-items:center; border-radius:50%; color:#fff; background:#8b5cf6; font-size:7px; }
+.adaptation-marker[data-state="active"] { border-color:#bfdbfe; color:#1d4ed8; background:#eff6ff; }
+.adaptation-marker[data-state="active"] b { background:#3b82f6; }
+.adaptation-marker[data-state="validated"] { border-color:#bbf7d0; color:#15803d; background:#f0fdf4; }
+.adaptation-marker[data-state="validated"] b { background:#16a34a; }
+.adaptation-marker[data-state="review"] { border-color:#fde68a; color:#b45309; background:#fffbeb; }
+.adaptation-marker[data-state="review"] b { background:#d97706; }
+.growth-trail { display:grid; gap:5px; margin:1px 8px 7px 56px; padding:4px 0 2px; list-style:none; }
+.growth-trail li { min-width:0; display:grid; grid-template-columns:8px minmax(0,1fr); align-items:start; gap:7px; color:#6d28d9; }
+.growth-trail li > span { width:7px; height:7px; margin-top:4px; border:2px solid currentColor; border-radius:50%; background:#fff; }
+.growth-trail li:not(:last-child) > span::after { content:""; display:block; width:1px; height:23px; margin:5px 0 0 1px; background:currentColor; opacity:.28; }
+.growth-trail li > div { min-width:0; display:flex; align-items:baseline; gap:6px; }
+.growth-trail b { flex:0 0 auto; font-size:9px; letter-spacing:0; }
+.growth-trail small { min-width:0; overflow:hidden; color:var(--lz-text-muted); text-overflow:ellipsis; white-space:nowrap; font-size:8px; letter-spacing:0; }
+.growth-trail[data-state="active"] li { color:#2563eb; }
+.growth-trail[data-state="validated"] li { color:#16a34a; }
+.growth-trail[data-state="review"] li { color:#d97706; }
 .status { flex: 0 0 auto; }
 .status.mastered { color: var(--lz-success); }
 .status.current { color: var(--lz-brand); }

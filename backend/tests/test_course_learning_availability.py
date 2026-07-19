@@ -91,3 +91,107 @@ def test_standard_course_can_report_an_empty_local_scope_without_asset_failure()
 
     assert practice["status"] == "empty"
     assert practice["reason_code"] == "no_questions_in_scope"
+
+
+def test_practice_reports_active_question_generation_with_progress():
+    course = _modern_course(questions=False)
+
+    practice = project_practice_availability(
+        course,
+        scope="node",
+        node_id="n1",
+        scoped_question_count=0,
+        question_bank_state={
+            "job": {
+                "job_id": "job-1",
+                "status": "running",
+                "progress": 55,
+                "current_stage": "question_generation",
+                "message": "正在生成题目",
+            },
+        },
+    )
+
+    assert practice == {
+        "status": "generating",
+        "reason_code": "question_generation_in_progress",
+        "scope": "node",
+        "node_id": "n1",
+        "job_id": "job-1",
+        "progress": 55,
+        "current_stage": "question_generation",
+        "message": "正在生成题目",
+    }
+
+
+def test_practice_distinguishes_review_validation_and_source_blocks():
+    course = _modern_course(questions=False)
+    base_bundle = {
+        "items": [],
+        "assessment_objectives": [{
+            "node_id": "n1",
+            "source_sufficiency": "sufficient",
+            "generation_status": "ready",
+        }],
+    }
+
+    review = project_practice_availability(
+        course,
+        scope="node",
+        node_id="n1",
+        scoped_question_count=0,
+        question_bank_state={
+            "bundle": {
+                **base_bundle,
+                "items": [{
+                    "node_id": "n1",
+                    "node_ids": ["n1"],
+                    "generation_status": "waiting_review",
+                }],
+            },
+        },
+    )
+    validation = project_practice_availability(
+        course,
+        scope="node",
+        node_id="n1",
+        scoped_question_count=0,
+        question_bank_state={
+            "bundle": {
+                **base_bundle,
+                "items": [{
+                    "node_id": "n1",
+                    "node_ids": ["n1"],
+                    "generation_status": "validation_failed",
+                }],
+            },
+        },
+    )
+    source = project_practice_availability(
+        course,
+        scope="node",
+        node_id="n1",
+        scoped_question_count=0,
+        question_bank_state={
+            "bundle": {
+                **base_bundle,
+                "assessment_objectives": [{
+                    "node_id": "n1",
+                    "source_sufficiency": "insufficient",
+                    "generation_status": "candidate_only",
+                }],
+            },
+        },
+    )
+    disabled = project_practice_availability(
+        course,
+        scope="node",
+        node_id="n2",
+        scoped_question_count=0,
+        question_bank_state={"bundle": base_bundle},
+    )
+
+    assert review["reason_code"] == "question_review_pending"
+    assert validation["reason_code"] == "question_validation_failed"
+    assert source["reason_code"] == "question_source_insufficient"
+    assert disabled["reason_code"] == "node_assessment_not_enabled"

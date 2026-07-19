@@ -228,6 +228,7 @@ def test_legacy_annotation_migration_is_idempotent_and_degrades_wrong_items(monk
             "anno_id": "a-note",
             "course_id": "c1",
             "node_id": "n1",
+            "user_id": "u1",
             "answer": "我的理解",
             "anno_summary": "向量笔记",
             "source_type": "user",
@@ -236,6 +237,7 @@ def test_legacy_annotation_migration_is_idempotent_and_degrades_wrong_items(monk
             "anno_id": "a-wrong",
             "course_id": "c1",
             "node_id": "n1",
+            "user_id": "u1",
             "question": "旧错题",
             "answer": "旧解析",
             "source_type": "wrong",
@@ -244,6 +246,7 @@ def test_legacy_annotation_migration_is_idempotent_and_degrades_wrong_items(monk
             "anno_id": "a-format",
             "course_id": "c1",
             "node_id": "n1",
+            "user_id": "u1",
             "source_type": "format",
         },
     ]
@@ -267,3 +270,54 @@ def test_legacy_annotation_migration_is_idempotent_and_degrades_wrong_items(monk
     assert by_origin["legacy_annotation"]["record_type"] == "note"
     assert by_origin["legacy_wrong_annotation"]["record_type"] == "review_task"
     assert by_origin["legacy_wrong_annotation"]["status"] == "pending"
+
+
+def test_legacy_annotation_migration_never_leaks_unowned_or_other_user_records(
+    monkeypatch,
+    tmp_path,
+):
+    repository = LearningRecordRepository(tmp_path)
+    storage = MemoryStorage()
+    storage.annotations = [
+        {
+            "anno_id": "owned-by-u1",
+            "course_id": "c1",
+            "node_id": "n1",
+            "user_id": "u1",
+            "answer": "u1 的历史笔记",
+            "source_type": "user",
+        },
+        {
+            "anno_id": "unowned",
+            "course_id": "c1",
+            "node_id": "n1",
+            "answer": "旧单机版本未记录归属",
+            "source_type": "user",
+        },
+    ]
+    monkeypatch.setattr(records_router, "learning_record_repository", repository)
+    monkeypatch.setattr(records_router, "storage", storage)
+    monkeypatch.setattr(learning_events, "storage", storage)
+
+    async def fake_course(_course_id):
+        return _course()
+
+    monkeypatch.setattr(records_router, "get_course_or_404", fake_course)
+    app = FastAPI()
+    app.include_router(records_router.router, prefix="/api")
+
+    u2 = TestClient(app, headers={"X-User-Id": "u2"})
+    automatic = u2.post(
+        "/api/courses/c1/learning-records/migrate-legacy-annotations",
+        json={"include_unowned": False},
+    )
+    assert automatic.json()["created"] == 0
+    assert repository.list("u2", "c1") == []
+
+    claimed = u2.post(
+        "/api/courses/c1/learning-records/migrate-legacy-annotations",
+        json={"include_unowned": True},
+    )
+    assert claimed.json()["created"] == 1
+    assert repository.list("u2", "c1")[0]["metadata"]["claimed_unowned"] is True
+    assert repository.list("u1", "c1") == []
