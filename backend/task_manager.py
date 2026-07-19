@@ -467,9 +467,9 @@ class TaskManager:
             legacy_style=request_snapshot.get("style"),
         )
         request_snapshot["composition_style"] = composition_profile["style"]
-        # First-time generation has one product path. Requirements and outline
-        # are followed by automatic teaching-plan/content production, then one
-        # content review and one release confirmation.
+        # First-time generation has one product path. Submitting requirements
+        # confirms step 1; only the outline and final release wait for review.
+        # Teaching-plan/content production stays inside the same durable job.
         request_snapshot["generation_mode"] = "review_blueprint"
         legacy_bindings, metadata_only = await ingest_legacy_material_inputs(
             request_snapshot.get("materials") or [],
@@ -2902,7 +2902,9 @@ class TaskManager:
                 pedagogy_mode=str(request.get("pedagogy_mode") or "auto"),
                 secondary_mode=request.get("secondary_mode"),
                 secondary_intensity=request.get("secondary_intensity"),
-                generation_mode=str(request.get("generation_mode") or "fast"),
+                generation_mode=str(
+                    request.get("generation_mode") or "review_blueprint"
+                ),
                 course_purpose=str(request.get("course_purpose") or "systematic"),
                 asset_preferences=request.get("asset_preferences") or {},
                 web_question_enrichment=request.get("web_question_enrichment") or {"enabled": False},

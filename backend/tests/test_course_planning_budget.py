@@ -8,6 +8,7 @@ from course_planning_budget import (
 from course_teaching_plan_v3 import (
     normalize_teaching_plan_batch_v3,
     normalize_teaching_plan_skeleton_v3,
+    promote_course_teaching_plan_v3,
     validate_teaching_plan_batch_v3,
     validate_teaching_plan_skeleton_v3,
 )
@@ -50,6 +51,44 @@ def test_planning_context_deduplicates_shared_contracts():
     naive = json.dumps(sections, ensure_ascii=False)
     compact = json.dumps(context, ensure_ascii=False)
     assert len(compact) < len(naive) * 0.8
+
+
+def test_compact_plan_is_promoted_to_one_stable_v3_contract():
+    compact = {
+        "schema_version": "course_teaching_plan_v2",
+        "source_outline_revision_id": "outline-1",
+        "sections": [{
+            "node_id": "L2-1-1",
+            "knowledge_structure": [{
+                "concept_group": "核心",
+                "knowledge_points": [{
+                    "name": "稳定知识",
+                    "statement": "稳定知识有明确陈述",
+                    "prerequisite_names": [],
+                }],
+            }],
+            "reused_knowledge_names": [],
+            "teaching_modules": [{
+                "module_id": "core_explanation",
+                "knowledge_names": ["稳定知识"],
+            }],
+        }],
+    }
+
+    first = promote_course_teaching_plan_v3(
+        compact,
+        outline_revision_id="outline-1",
+    )
+    resumed = promote_course_teaching_plan_v3(
+        first,
+        outline_revision_id="outline-1",
+    )
+
+    assert first["schema_version"] == "course_teaching_plan_v3"
+    assert first["skeleton_revision_id"].startswith(
+        "teaching_skeleton_"
+    )
+    assert resumed == first
 
 
 def test_batch_planner_prefers_chapter_boundaries_and_enforces_budgets():

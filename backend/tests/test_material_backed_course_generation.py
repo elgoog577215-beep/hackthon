@@ -13,7 +13,6 @@ from course_generation_workflow import (
     build_course_generation_artifacts,
     build_course_knowledge_scope_contract,
     build_node_generation_context,
-    build_section_knowledge_scope_slice,
     build_section_knowledge_skeleton_evidence_hints,
     merge_course_relation_batches,
     normalize_course_knowledge_skeleton,
@@ -21,10 +20,10 @@ from course_generation_workflow import (
     normalize_course_plan_contract,
     normalize_course_relation_batch,
     normalize_section_knowledge_package,
+    repair_course_relation_batch_decisions,
     validate_course_knowledge_skeleton,
     validate_course_outline_constraints,
     validate_course_plan_constraints,
-    repair_course_relation_batch_decisions,
     validate_course_relation_batch,
     validate_section_knowledge_package,
 )
@@ -33,7 +32,6 @@ from course_pedagogy import (
     attach_module_plans_to_plan,
     resolve_pedagogy_profile,
 )
-from course_prompt_composer import CoursePromptComposer
 from course_service import CourseService
 
 
@@ -443,7 +441,7 @@ def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
         }],
     )
 
-    assert artifacts["pipeline_version"] == "course_generation_v9"
+    assert artifacts["pipeline_version"] == "course_generation_v10"
     assert artifacts["course_generation_brief"]["course_shape_constraints"] == {}
     assert artifacts["material_cards"][0]["usage"] == "content_source"
     assert artifacts["material_cards"][0]["parse_status"] == "metadata_only"
@@ -586,22 +584,17 @@ def test_generation_route_creates_one_persisted_job():
 
 
 @pytest.mark.asyncio
-async def test_course_service_builds_v9_blueprint_from_one_course_teaching_plan(
+async def test_course_service_builds_v10_blueprint_without_profile_model_call(
     monkeypatch,
     tmp_path,
 ):
     from material_storage import MaterialRepository
 
     service = CourseService(materials=MaterialRepository(tmp_path / "materials"))
+    calls: list[str] = []
 
     async def fake_call_llm(prompt, system_prompt, **_kwargs):
-        if "判断课程教学结构" in prompt:
-            return json.dumps({
-                "primary_mode": "math_formal",
-                "secondary_mode": None,
-                "evidence": ["微积分", "定义"],
-                "rationale": "需要形式推理",
-            }, ensure_ascii=False)
+        calls.append(prompt)
         if "整门课所有小节教案" in prompt:
             return _teaching_plan_response(
                 system_prompt,
@@ -649,9 +642,11 @@ async def test_course_service_builds_v9_blueprint_from_one_course_teaching_plan(
         }],
     )
 
-    assert data["generation_pipeline_version"] == "course_generation_v9"
-    assert data["generation_schema_version"] == "course_generation_v9"
-    assert data["prompt_contract_version"] == "course_prompt_v18"
+    assert data["generation_pipeline_version"] == "course_generation_v10"
+    assert data["generation_schema_version"] == "course_generation_v10"
+    assert data["prompt_contract_version"] == "course_prompt_v19"
+    assert len(calls) == 2
+    assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"
     assert data["generation_mode"] == "fast"
     assert data["asset_preferences"] == {"questions": True, "final_assessment": True}
@@ -795,6 +790,43 @@ async def test_outline_provider_failure_is_not_reported_as_structure_error():
             phase="outline_generation",
             base_progress=32,
         )
+
+
+@pytest.mark.asyncio
+async def test_outline_phase_is_persisted_before_immediate_provider_failure(
+    monkeypatch,
+):
+    service = CourseService()
+    phases: list[tuple[str, str]] = []
+
+    async def fail_immediately(*_args, **_kwargs):
+        raise AIProviderRequestError("provider rejected immediately")
+
+    async def capture_phase(
+        phase,
+        _progress,
+        message,
+        _phase_progress,
+        _phase_detail,
+    ):
+        phases.append((phase, message))
+
+    monkeypatch.setattr(service, "_call_llm", fail_immediately)
+    with pytest.raises(
+        AIProviderRequestError,
+        match="provider rejected immediately",
+    ):
+        await service.build_course_draft(
+            course_id="course-outline-phase",
+            topic="量子力学",
+            pedagogy_mode="auto",
+            on_phase=capture_phase,
+        )
+
+    assert phases[-1] == (
+        "outline_generation",
+        "正在请求 AI 生成轻量课程目录",
+    )
 
 
 def test_lightweight_outline_validation_does_not_require_knowledge_packages():
@@ -1036,73 +1068,6 @@ def test_course_relation_batches_merge_by_stable_ids():
     }]
 
 
-@pytest.mark.asyncio
-async def test_section_node_stage_discards_relation_fields_without_extra_call(monkeypatch):
-    service = CourseService()
-    plan = normalize_course_outline_contract({
-        "course_title": "关系局部修复",
-        "chapters": [{
-            "title": "第一章",
-            "sections": [{
-                "title": "关系小节",
-                "learning_objective": "能解释两个知识点的前置关系",
-                "assessment": ["说明关系理由"],
-                "scope_boundary": "只覆盖当前关系",
-            }],
-        }],
-    })
-    artifacts = build_course_generation_artifacts(
-        course_id="course-relation-repair",
-        topic="关系局部修复",
-        difficulty="intermediate",
-        style="academic",
-    )
-    course_data = {
-        "course_id": "course-relation-repair",
-        "course_name": "关系局部修复",
-        "generation_stage_artifacts": {},
-        "nodes": [],
-    }
-    invalid_package = _section_knowledge_package("关系判断")
-    invalid_package["knowledge_relations"][0]["reason"] = ""
-    calls = []
-
-    async def fake_call_llm(user_prompt, system_prompt, **_kwargs):
-        calls.append((user_prompt, system_prompt))
-        if "知识身份骨架" in user_prompt:
-            return _knowledge_skeleton_response(
-                system_prompt,
-                {"关系小节": "关系判断"},
-            )
-        return json.dumps(invalid_package, ensure_ascii=False)
-
-    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
-    result = await service._enrich_section_knowledge_packages(
-        course_data=course_data,
-        plan=plan,
-        artifacts=artifacts,
-        on_phase=None,
-        on_checkpoint=None,
-    )
-
-    section = result["chapters"][0]["sections"][0]
-    assert len(calls) == 2
-    assert '"source_name"' not in calls[1][1]
-    assert '"target_name"' not in calls[1][1]
-    assert section["knowledge_package_status"] == "completed"
-    assert section["knowledge_quality_report"]["passed"] is True
-    assert section["knowledge_relations"] == []
-    assert not {
-        item["code"]
-        for item in section["knowledge_quality_report"]["advisory_issues"]
-        if item["code"].startswith("section_knowledge:relation_")
-    }
-    assert (
-        course_data["generation_stage_artifacts"]["section_knowledge"][
-            section["node_id"]
-        ]["status"]
-        == "completed"
-    )
 
 
 def test_section_knowledge_validation_still_blocks_unusable_core_content():
@@ -1228,190 +1193,8 @@ async def test_stage_timeout_becomes_a_resumable_provider_error(monkeypatch):
         )
 
 
-@pytest.mark.asyncio
-async def test_section_knowledge_resume_skips_completed_packages(monkeypatch):
-    service = CourseService()
-    plan = normalize_course_outline_contract({
-        "course_title": "断点知识包课程",
-        "positioning": "验证单节恢复",
-        "chapters": [{
-            "title": "第一章",
-            "sections": [{
-                "title": "第一小节",
-                "learning_objective": "完成第一项任务",
-                "assessment": ["任务一"],
-                "scope_boundary": "只负责第一项任务",
-            }, {
-                "title": "第二小节",
-                "learning_objective": "完成第二项任务",
-                "assessment": ["任务二"],
-                "scope_boundary": "只负责第二项任务",
-            }],
-        }],
-    })
-    artifacts = build_course_generation_artifacts(
-        course_id="course-package-resume",
-        topic="断点知识包课程",
-        difficulty="intermediate",
-        style="academic",
-    )
-    course_data = {
-        "course_id": "course-package-resume",
-        "course_name": "断点知识包课程",
-        "generation_stage_artifacts": {},
-        "nodes": [],
-    }
-    first_calls = []
-
-    async def fail_second_package(prompt, _system_prompt, **_kwargs):
-        first_calls.append(prompt)
-        if "知识身份骨架" in prompt:
-            return _knowledge_skeleton_response(
-                _system_prompt,
-                {
-                    "第一小节": "第一项任务",
-                    "第二小节": "第二项任务",
-                },
-            )
-        if "第一小节" in prompt:
-            return json.dumps(_section_knowledge_package("第一项任务"), ensure_ascii=False)
-        return "不是 JSON"
-
-    monkeypatch.setattr(service, "_call_llm", fail_second_package)
-    with pytest.raises(AIProviderRequestError, match="第二小节"):
-        await service._enrich_section_knowledge_packages(
-            course_data=course_data,
-            plan=plan,
-            artifacts=artifacts,
-            on_phase=None,
-            on_checkpoint=None,
-        )
-
-    states = course_data["generation_stage_artifacts"]["section_knowledge"]
-    assert states["L2-1-1"]["status"] == "completed"
-    assert states["L2-1-2"]["status"] == "failed"
-    assert course_data["generation_status"] == "section_knowledge_failed"
-    assert (
-        course_data["generation_stage_artifacts"][
-            "section_knowledge_strategy"
-        ]["status"]
-        == "failed"
-    )
-    assert len(first_calls) == 4
-
-    resume_calls = []
-
-    async def finish_second_package(prompt, _system_prompt, **_kwargs):
-        resume_calls.append(prompt)
-        return json.dumps(_section_knowledge_package("第二项任务"), ensure_ascii=False)
-
-    monkeypatch.setattr(service, "_call_llm", finish_second_package)
-    resumed = await service._enrich_section_knowledge_packages(
-        course_data=course_data,
-        plan=plan,
-        artifacts=artifacts,
-        on_phase=None,
-        on_checkpoint=None,
-    )
-
-    assert len(resume_calls) == 1
-    assert "第二小节" in resume_calls[0]
-    assert states["L2-1-1"]["status"] == "completed"
-    assert states["L2-1-2"]["status"] == "completed"
-    assert len(resumed["chapters"][0]["sections"][0]["knowledge_structure"]) == 1
-    assert len(resumed["chapters"][0]["sections"][1]["knowledge_structure"]) == 1
 
 
-@pytest.mark.asyncio
-async def test_course_relation_stage_resumes_from_the_failed_neighborhood(monkeypatch):
-    service = CourseService()
-    plan = normalize_course_outline_contract({
-        "course_title": "关系建网恢复课程",
-        "positioning": "验证节点冻结后独立建网",
-        "chapters": [{
-            "title": "第一章",
-            "sections": [{
-                "title": "第一小节",
-                "learning_objective": "理解第一组知识",
-                "assessment": ["说明第一组关系"],
-                "scope_boundary": "只覆盖第一组",
-                "knowledge_structure": _section_knowledge_package(
-                    "第一组"
-                )["knowledge_structure"],
-            }, {
-                "title": "第二小节",
-                "learning_objective": "理解第二组知识",
-                "assessment": ["说明第二组关系"],
-                "scope_boundary": "只覆盖第二组",
-                "prerequisite_node_ids": ["L2-1-1"],
-                "knowledge_structure": _section_knowledge_package(
-                    "第二组"
-                )["knowledge_structure"],
-            }],
-        }],
-    })
-    course_data = {
-        "course_id": "course-relation-resume",
-        "course_name": "关系建网恢复课程",
-        "generation_stage_artifacts": {},
-        "nodes": [],
-    }
-    first_calls = []
-
-    async def fail_second_batch(prompt, system_prompt, **_kwargs):
-        first_calls.append(prompt)
-        if "第一小节" in prompt:
-            return _relation_batch_response(system_prompt)
-        return "{}"
-
-    monkeypatch.setattr(service, "_call_llm", fail_second_batch)
-    with pytest.raises(AIProviderRequestError, match="第二小节"):
-        await service._enrich_course_knowledge_relations(
-            course_data=course_data,
-            plan=plan,
-            on_phase=None,
-            on_checkpoint=None,
-        )
-
-    batches = course_data["generation_stage_artifacts"]["course_relations"][
-        "batches"
-    ]
-    assert batches["L2-1-1"]["status"] == "completed"
-    assert batches["L2-1-2"]["status"] == "failed"
-    assert (
-        course_data["generation_status"]
-        == "course_relation_generation_failed"
-    )
-    assert (
-        course_data["generation_stage_artifacts"][
-            "course_relations"
-        ]["status"]
-        == "failed"
-    )
-    assert len(first_calls) == 3
-
-    resume_calls = []
-
-    async def finish_second_batch(prompt, system_prompt, **_kwargs):
-        resume_calls.append(prompt)
-        return _relation_batch_response(system_prompt)
-
-    monkeypatch.setattr(service, "_call_llm", finish_second_batch)
-    resumed = await service._enrich_course_knowledge_relations(
-        course_data=course_data,
-        plan=plan,
-        on_phase=None,
-        on_checkpoint=None,
-    )
-
-    assert len(resume_calls) == 1
-    assert "第二小节" in resume_calls[0]
-    assert len(resumed["knowledge_relation_decisions"]) == 4
-    assert len(resumed["knowledge_relations"]) == 3
-    assert all(
-        item.get("source_knowledge_id") and item.get("target_knowledge_id")
-        for item in resumed["knowledge_relations"]
-    )
 
 
 def test_explicit_course_shape_is_compiled_as_a_hard_constraint():
@@ -1624,6 +1407,14 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
     stage = course_data["generation_stage_artifacts"][
         "course_teaching_plan"
     ]
+    assert stage["schema_version"] == "course_teaching_plan_v3"
+    assert course_data["course_teaching_plan"]["schema_version"] == (
+        "course_teaching_plan_v3"
+    )
+    assert course_data["course_teaching_plan"]["skeleton_revision_id"]
+    assert course_data["generation_stage_artifacts"]["teaching"][
+        "schema_version"
+    ] == "course_teaching_plan_v3"
     if section_count == 2:
         assert stage["strategy"] == "compact_single_call"
         assert stage["model_call_count"] == 1
@@ -1808,387 +1599,14 @@ def test_course_planning_concurrency_has_a_production_hard_cap(monkeypatch):
     assert CourseService()._planning_concurrency == 4
 
 
-@pytest.mark.asyncio
-async def test_scope_revision_change_invalidates_old_skeleton_and_packages(
-    monkeypatch,
-):
-    old_plan = _multi_section_outline(["旧知识任务"])
-    old_skeleton = _knowledge_skeleton_for_plan(
-        old_plan,
-        ["旧知识任务"],
-    )
-    plan = _multi_section_outline(["新知识任务"])
-    section = plan["chapters"][0]["sections"][0]
-    section["knowledge_structure"] = _section_knowledge_package(
-        "旧知识任务"
-    )["knowledge_structure"]
-    artifacts = build_course_generation_artifacts(
-        course_id="course-scope-invalidated",
-        topic="目录修订验证课程",
-        difficulty="intermediate",
-        style="academic",
-    )
-    course_data = {
-        "course_id": "course-scope-invalidated",
-        "course_name": "目录修订验证课程",
-        "course_knowledge_skeleton": old_skeleton,
-        "course_knowledge_scope_contract": (
-            build_course_knowledge_scope_contract(old_plan)
-        ),
-        "generation_stage_artifacts": {},
-        "nodes": [],
-    }
-    service = CourseService(planning_concurrency=2)
-    calls = []
-
-    async def fake_call_llm(
-        user_prompt,
-        system_prompt,
-        **_kwargs,
-    ):
-        calls.append(user_prompt)
-        if "知识身份骨架" in user_prompt:
-            return _knowledge_skeleton_response(
-                system_prompt,
-                {"第1小节": "新知识任务"},
-            )
-        return json.dumps(
-            _section_knowledge_package("新知识任务"),
-            ensure_ascii=False,
-        )
-
-    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
-    result = await service._enrich_section_knowledge_packages(
-        course_data=course_data,
-        plan=plan,
-        artifacts=artifacts,
-        on_phase=None,
-        on_checkpoint=None,
-    )
-
-    assert len(calls) == 2
-    assert calls[0].startswith("规划全课知识身份骨架")
-    assert calls[1].startswith("为小节「第1小节」生成独立知识包")
-    assert (
-        result["chapters"][0]["sections"][0][
-            "knowledge_structure"
-        ][0]["knowledge_points"][0]["name"]
-        == "新知识任务的成立条件"
-    )
-    assert (
-        course_data["course_knowledge_skeleton"][
-            "source_scope_revision_id"
-        ]
-        == build_course_knowledge_scope_contract(plan)["revision_id"]
-    )
 
 
-@pytest.mark.asyncio
-async def test_section_knowledge_details_are_bounded_parallel_and_merge_in_course_order(
-    monkeypatch,
-):
-    labels = [f"知识任务{index}" for index in range(1, 7)]
-    plan = _multi_section_outline(labels)
-    artifacts = build_course_generation_artifacts(
-        course_id="course-parallel-knowledge",
-        topic="并行生成验证课程",
-        difficulty="intermediate",
-        style="academic",
-    )
-    skeleton = _knowledge_skeleton_for_plan(plan, labels)
-    course_data = {
-        "course_id": "course-parallel-knowledge",
-        "course_name": "并行生成验证课程",
-        "course_knowledge_skeleton": skeleton,
-        "course_knowledge_scope_contract": (
-            build_course_knowledge_scope_contract(plan)
-        ),
-        "generation_stage_artifacts": {},
-        "nodes": [],
-    }
-    service = CourseService(planning_concurrency=3)
-    active = 0
-    max_active = 0
-    completion_order = []
-    thinking_flags = []
-
-    async def fake_call_llm(
-        user_prompt,
-        _system_prompt,
-        **kwargs,
-    ):
-        nonlocal active, max_active
-        match = re.search(r"第(\d+)小节", user_prompt)
-        assert match, user_prompt
-        index = int(match.group(1))
-        active += 1
-        max_active = max(max_active, active)
-        thinking_flags.append(kwargs.get("enable_thinking"))
-        await asyncio.sleep((7 - index) * 0.003)
-        completion_order.append(index)
-        active -= 1
-        return json.dumps(
-            _section_knowledge_package(labels[index - 1]),
-            ensure_ascii=False,
-        )
-
-    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
-    result = await service._enrich_section_knowledge_packages(
-        course_data=course_data,
-        plan=plan,
-        artifacts=artifacts,
-        on_phase=None,
-        on_checkpoint=None,
-    )
-
-    assert max_active == 3
-    assert completion_order != sorted(completion_order)
-    assert thinking_flags == [True] * len(labels)
-    assert [
-        section["knowledge_structure"][0]["knowledge_points"][0]["name"]
-        for chapter in result["chapters"]
-        for section in chapter["sections"]
-    ] == [f"{label}的成立条件" for label in labels]
-    strategy = course_data["generation_stage_artifacts"][
-        "section_knowledge_strategy"
-    ]
-    assert strategy["status"] == "completed"
-    assert strategy["max_concurrency"] == 3
-    assert strategy["critical_path_rounds"] == 2
-    assert strategy["merge_order"] == [
-        f"L2-1-{index}" for index in range(1, 7)
-    ]
 
 
-@pytest.mark.asyncio
-async def test_relation_batches_keep_course_order_when_responses_finish_out_of_order(
-    monkeypatch,
-):
-    labels = ["关系任务一", "关系任务二", "关系任务三"]
-    plan = _multi_section_outline(labels)
-    for section, label in zip(
-        plan["chapters"][0]["sections"],
-        labels,
-        strict=True,
-    ):
-        section["knowledge_structure"] = _section_knowledge_package(
-            label
-        )["knowledge_structure"]
-    course_data = {
-        "course_id": "course-parallel-relations",
-        "course_name": "并行关系验证课程",
-        "generation_stage_artifacts": {},
-        "nodes": [],
-    }
-    service = CourseService(planning_concurrency=2)
-    active = 0
-    max_active = 0
-    completion_order = []
-    delays = {1: 0.05, 2: 0.005, 3: 0.005}
-
-    async def fake_call_llm(
-        user_prompt,
-        system_prompt,
-        **_kwargs,
-    ):
-        nonlocal active, max_active
-        match = re.search(r"第(\d+)小节", user_prompt)
-        assert match, user_prompt
-        index = int(match.group(1))
-        active += 1
-        max_active = max(max_active, active)
-        await asyncio.sleep(delays[index])
-        completion_order.append(index)
-        active -= 1
-        return _relation_batch_response(system_prompt)
-
-    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
-    result = await service._enrich_course_knowledge_relations(
-        course_data=course_data,
-        plan=plan,
-        on_phase=None,
-        on_checkpoint=None,
-    )
-
-    stage = course_data["generation_stage_artifacts"][
-        "course_relations"
-    ]
-    expected_decision_order = [
-        decision["knowledge_id"]
-        for section_id in stage["merge_order"]
-        for decision in stage["batches"][section_id]["payload"][
-            "node_decisions"
-        ]
-    ]
-    assert max_active == 2
-    assert completion_order == [2, 1, 3]
-    assert stage["status"] == "completed"
-    assert stage["critical_path_rounds"] == 2
-    assert stage["merge_order"] == [
-        "L2-1-1",
-        "L2-1-2",
-        "L2-1-3",
-    ]
-    assert [
-        decision["knowledge_id"]
-        for decision in result["knowledge_relation_decisions"]
-    ] == expected_decision_order
 
 
-def test_section_scope_slices_remove_cubic_prompt_growth():
-    composer = CoursePromptComposer()
-
-    def prompt_sizes(section_count):
-        labels = [
-            f"规模知识{index}"
-            for index in range(1, section_count + 1)
-        ]
-        plan = _multi_section_outline(labels)
-        contract = build_course_knowledge_scope_contract(plan)
-        skeleton = _knowledge_skeleton_for_plan(plan, labels)
-        sections = plan["chapters"][0]["sections"]
-        sliced_total = len(
-            composer.build_course_knowledge_skeleton_prompt(
-                course_title=plan["course_title"],
-                positioning=plan["positioning"],
-                sections=sections,
-                locked_knowledge_names_by_section={},
-            )
-        )
-        repeated_full_total = 0
-        available_names = []
-        for section, identity in zip(
-            sections,
-            skeleton["sections"],
-            strict=True,
-        ):
-            common = {
-                "course_title": plan["course_title"],
-                "positioning": plan["positioning"],
-                "section": section,
-                "available_knowledge_names": available_names,
-                "material_context": "",
-                "knowledge_identity_contract": identity,
-            }
-            sliced_total += len(
-                composer.build_section_knowledge_prompt(
-                    **common,
-                    course_scope_contract=(
-                        build_section_knowledge_scope_slice(
-                            contract,
-                            section["node_id"],
-                        )
-                    ),
-                )
-            )
-            repeated_full_total += len(
-                composer.build_section_knowledge_prompt(
-                    **common,
-                    course_scope_contract=contract,
-                )
-            )
-            available_names = [
-                *available_names,
-                *identity["owned_knowledge_names"],
-            ]
-        return sliced_total, repeated_full_total
-
-    sliced_7, _full_7 = prompt_sizes(7)
-    sliced_21, full_21 = prompt_sizes(21)
-
-    assert sliced_21 < full_21 * 0.45
-    assert sliced_21 / sliced_7 < 12
 
 
-@pytest.mark.asyncio
-async def test_twenty_one_section_strategy_keeps_quality_gates_with_thirteen_wait_rounds(
-    monkeypatch,
-):
-    labels = [f"生产知识{index}" for index in range(1, 22)]
-    plan = _multi_section_outline(labels)
-    artifacts = build_course_generation_artifacts(
-        course_id="course-21-section-benchmark",
-        topic="二十一节生产课程",
-        difficulty="intermediate",
-        style="academic",
-    )
-    course_data = {
-        "course_id": "course-21-section-benchmark",
-        "course_name": "二十一节生产课程",
-        "generation_stage_artifacts": {},
-        "nodes": [],
-    }
-    service = CourseService(planning_concurrency=4)
-    calls = {
-        "skeleton": 0,
-        "knowledge": 0,
-        "relations": 0,
-    }
-    labels_by_title = {
-        f"第{index}小节": label
-        for index, label in enumerate(labels, start=1)
-    }
-
-    async def fake_call_llm(
-        user_prompt,
-        system_prompt,
-        **_kwargs,
-    ):
-        if "知识身份骨架" in user_prompt:
-            calls["skeleton"] += 1
-            return _knowledge_skeleton_response(
-                system_prompt,
-                labels_by_title,
-            )
-        match = re.search(r"第(\d+)小节", user_prompt)
-        assert match, user_prompt
-        index = int(match.group(1))
-        if "独立知识包" in user_prompt:
-            calls["knowledge"] += 1
-            return json.dumps(
-                _section_knowledge_package(labels[index - 1]),
-                ensure_ascii=False,
-            )
-        calls["relations"] += 1
-        return _relation_batch_response(system_prompt)
-
-    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
-    plan = await service._enrich_section_knowledge_packages(
-        course_data=course_data,
-        plan=plan,
-        artifacts=artifacts,
-        on_phase=None,
-        on_checkpoint=None,
-    )
-    plan = await service._enrich_course_knowledge_relations(
-        course_data=course_data,
-        plan=plan,
-        on_phase=None,
-        on_checkpoint=None,
-    )
-
-    knowledge_strategy = course_data["generation_stage_artifacts"][
-        "section_knowledge_strategy"
-    ]
-    relation_strategy = course_data["generation_stage_artifacts"][
-        "course_relations"
-    ]
-    assert calls == {
-        "skeleton": 1,
-        "knowledge": 21,
-        "relations": 21,
-    }
-    assert knowledge_strategy["critical_path_rounds"] == 6
-    assert relation_strategy["critical_path_rounds"] == 6
-    assert 1 + 6 + 6 == 13
-    assert all(
-        state["quality_report"]["passed"]
-        for state in course_data["generation_stage_artifacts"][
-            "section_knowledge"
-        ].values()
-    )
-    assert relation_strategy["global_validation_report"]["passed"] is True
-    assert len(plan["knowledge_relation_decisions"]) == 42
 
 
 @pytest.mark.asyncio

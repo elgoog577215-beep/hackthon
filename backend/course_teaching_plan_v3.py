@@ -18,6 +18,82 @@ def _issue(code: str, message: str) -> dict[str, str]:
     return {"code": code, "message": message, "severity": "blocking"}
 
 
+def promote_course_teaching_plan_v3(
+    payload: dict[str, Any],
+    *,
+    outline_revision_id: str,
+) -> dict[str, Any]:
+    """Wrap a valid compact/legacy plan in the one official V3 envelope.
+
+    Compact planning already contains the same section knowledge and teaching
+    intent as the batched path. The only missing V3 field is a stable revision
+    for the embedded whole-course identity decision. Building that revision
+    locally keeps small courses at one model call while ensuring every newly
+    persisted official plan has the same public schema.
+    """
+    sections = [
+        deepcopy(section)
+        for section in payload.get("sections") or []
+        if isinstance(section, dict)
+    ]
+    skeleton_revision_id = str(
+        payload.get("skeleton_revision_id") or ""
+    ).strip()
+    if not skeleton_revision_id:
+        identity_contract = {
+            "schema_version": "course_teaching_plan_identity_v3",
+            "source_outline_revision_id": outline_revision_id,
+            "sections": [
+                {
+                    "node_id": str(section.get("node_id") or ""),
+                    "owned_knowledge": [
+                        {
+                            "name": str(point.get("name") or ""),
+                            "statement": str(point.get("statement") or ""),
+                            "prerequisite_names": _unique(
+                                list(point.get("prerequisite_names") or [])
+                            ),
+                        }
+                        for group in section.get("knowledge_structure") or []
+                        if isinstance(group, dict)
+                        for point in group.get("knowledge_points") or []
+                        if isinstance(point, dict)
+                    ],
+                    "reused_knowledge_names": _unique(
+                        list(section.get("reused_knowledge_names") or [])
+                    ),
+                    "module_bindings": [
+                        {
+                            "module_id": str(module.get("module_id") or ""),
+                            "knowledge_names": _unique(
+                                list(module.get("knowledge_names") or [])
+                            ),
+                        }
+                        for module in section.get("teaching_modules") or []
+                        if isinstance(module, dict)
+                    ],
+                }
+                for section in sections
+            ],
+        }
+        skeleton_revision_id = stable_hash(
+            identity_contract,
+            prefix="teaching_skeleton_",
+        )
+
+    upgraded = {
+        "schema_version": "course_teaching_plan_v3",
+        "source_outline_revision_id": (
+            str(payload.get("source_outline_revision_id") or "").strip()
+            or outline_revision_id
+        ),
+        "skeleton_revision_id": skeleton_revision_id,
+        "sections": sections,
+    }
+    upgraded["revision_id"] = stable_hash(upgraded, prefix="teaching_")
+    return upgraded
+
+
 # Deterministic shape repair for knowledge-detail entries.
 #
 # Models reliably produce the right *content* but drift on the *shape*: a bare
@@ -444,10 +520,6 @@ def assemble_course_teaching_plan_v3(
     registry = {
         str(item.get("knowledge_key") or ""): item
         for item in skeleton.get("knowledge_registry") or [] if isinstance(item, dict)
-    }
-    identity_by_id = {
-        str(item.get("node_id") or ""): item
-        for item in skeleton.get("sections") or [] if isinstance(item, dict)
     }
     details_by_id = {
         str(item.get("node_id") or ""): item

@@ -223,7 +223,7 @@ export interface GenerateCourseParams {
   pedagogy_mode?: PedagogyModeSelection;
   secondary_mode?: PedagogyMode;
   secondary_intensity?: SecondaryIntensity;
-  generation_mode?: 'fast' | 'review_blueprint';
+  generation_mode?: 'review_blueprint';
   course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
   asset_preferences?: Record<string, boolean>;
   web_question_enrichment?: {

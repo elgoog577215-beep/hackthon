@@ -477,17 +477,19 @@
 
 系统 MUST 为一次课程生成或局部再生成创建唯一 `GenerationJob`。brief、资料解析、证据编译、教学画像、难度契约、覆盖计划、蓝图、可选蓝图等待、正文、学习资产、质量检查、候选版本和最终保存 MUST 使用同一任务模型与 TaskManager；前端 MUST NOT 创建独立任务身份或调用第二阶段生成入口。
 
-#### Scenario: 快速模式创建课程
+#### Scenario: 历史快速模式请求
 
 - **WHEN** 客户端提交 `generation_mode=fast`
 - **THEN** 服务端 MUST 创建唯一 GenerationJob 并立即返回 job_id/course_id
-- **AND** 任务 MUST 自动完成蓝图、正文、学习资产、质量和课程版本
+- **AND** 服务端 MUST 将历史值归一为唯一的 `review_blueprint` 产品路径
+- **AND** 任务 MUST 在目录与发布处等待确认，MUST NOT 绕过目录审阅
 
-#### Scenario: 蓝图审阅模式创建课程
+#### Scenario: 唯一课程生产路径
 
 - **WHEN** 客户端提交 `generation_mode=review_blueprint`
-- **THEN** 同一任务 MUST 在 blueprint_ready 进入 waiting_for_review
-- **AND** 用户确认后 MUST 继续同一 job_id
+- **THEN** 同一任务 MUST 在目录完成后进入 `waiting_for_review`
+- **AND** 用户确认目录后 MUST 在同一 job_id 自动完成教案、正文和学习资产
+- **AND** 最终只在发布处再次等待确认
 
 #### Scenario: 局部再生成
 
@@ -499,6 +501,8 @@
 ### Requirement: 课程生成必须形成教学画像
 
 系统 MUST 在生成课程蓝图前形成 `SubjectPedagogyProfile`。实际主模式 MUST 是八种已注册教学模式之一，辅模式最多一个；`auto` MUST NOT 作为最终主模式保存。
+教学画像 MUST 由用户显式选择或确定性规则直接编译，MUST NOT 为自动模式增加独立
+模型分类调用或目录前的额外网络故障点。
 
 #### Scenario: 自动识别教学模式
 
@@ -506,6 +510,7 @@
 - **THEN** 系统 MUST 综合最终成果、主要学习行为、资料结构和课程主题
 - **AND** MUST 输出主模式、可选辅模式、辅助强度、置信度、证据和判断理由
 - **AND** 低置信度 MUST 回退通用课程而不是自然科学
+- **AND** MUST NOT 调用模型重新判断确定性结果
 
 #### Scenario: 用户手动指定模式
 

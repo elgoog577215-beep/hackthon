@@ -26,7 +26,7 @@ from course_pedagogy import SubjectPedagogyProfile
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
-PIPELINE_VERSION = "course_generation_v9"
+PIPELINE_VERSION = "course_generation_v10"
 
 COURSE_RELATION_TYPES = {
     "prerequisite",
