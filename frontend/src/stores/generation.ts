@@ -16,7 +16,7 @@ import { t } from '@/shared/i18n'
 export { ElMessage, TEACHING_STYLES }
 export type { TeachingStyle }
 
-const GENERATION_STATE_KEY = 'course-generation-state-v1'
+export const GENERATION_STATE_KEY = 'course-generation-state-v1'
 const SERVER_BACKED_TASK_STATUSES = new Set<Task['status']>([
   'pending',
   'running',
@@ -776,7 +776,10 @@ export const useGenerationStore = defineStore('generation', {
     restoreGenerationState() {
       if (this.stateRestored) { const cs = this._courseStore(); return cs.currentCourseId }
       const raw = localStorage.getItem(GENERATION_STATE_KEY)
-      if (!raw) return null
+      if (!raw) {
+        this.stateRestored = true
+        return null
+      }
       try {
         const data = JSON.parse(raw)
         const tasks = new Map<string, Task>()

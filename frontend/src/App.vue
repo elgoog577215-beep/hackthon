@@ -81,17 +81,43 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Download, Presentation, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import qizhiLogoUrl from './assets/qizhi-logo.svg'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import { useCourseStore } from './stores/course'
+import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { t } from './shared/i18n'
 
 const router = useRouter()
 const route = useRoute()
 const courseStore = useCourseStore()
+const generationStore = useGenerationStore()
+
+const reconcileGenerationTasks = () => {
+  void generationStore.fetchGlobalTasks()
+}
+const reconcileGenerationTasksFromStorage = (event: StorageEvent) => {
+  if (event.key === GENERATION_STATE_KEY) reconcileGenerationTasks()
+}
+const reconcileVisibleGenerationTasks = () => {
+  if (document.visibilityState === 'visible') reconcileGenerationTasks()
+}
+
+onMounted(() => {
+  generationStore.restoreGenerationState()
+  generationStore.startGlobalMonitor()
+  window.addEventListener('storage', reconcileGenerationTasksFromStorage)
+  window.addEventListener('focus', reconcileGenerationTasks)
+  document.addEventListener('visibilitychange', reconcileVisibleGenerationTasks)
+})
+onBeforeUnmount(() => {
+  generationStore.stopGlobalMonitor()
+  window.removeEventListener('storage', reconcileGenerationTasksFromStorage)
+  window.removeEventListener('focus', reconcileGenerationTasks)
+  document.removeEventListener('visibilitychange', reconcileVisibleGenerationTasks)
+})
 
 const isLearningRoute = computed(() => route.name === 'learning')
 const isPptRoute = computed(() => route.name === 'ppt-workspace')

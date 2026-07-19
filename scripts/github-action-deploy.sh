@@ -12,6 +12,7 @@ VENV="${LINGZHI_VENV:-$BASE_DIR/.venv}"
 REPOSITORY_URL="${LINGZHI_REPOSITORY_URL:-git@github.com-lingzhi:elgoog577215-beep/hackthon.git}"
 BRANCH="${LINGZHI_BRANCH:-main}"
 HEALTH_URL="${LINGZHI_HEALTH_URL:-http://127.0.0.1:7862/api/health}"
+TASKS_URL="${LINGZHI_TASKS_URL:-${HEALTH_URL%/health}/tasks?limit=100}"
 SERVICE_NAME="${LINGZHI_SERVICE_NAME:-lingzhi}"
 LOCK_FILE="${LINGZHI_DEPLOY_LOCK:-/var/lock/lingzhi-deploy.lock}"
 KEEP_RELEASES="${LINGZHI_KEEP_RELEASES:-2}"
@@ -130,6 +131,26 @@ wait_for_health() {
     return 1
 }
 
+active_generation_task_ids() {
+    local payload
+    if ! payload="$(curl --fail --silent --show-error --max-time 5 "$TASKS_URL")"; then
+        return 1
+    fi
+    printf '%s' "$payload" | "$VENV/bin/python" -c '
+import json
+import sys
+
+tasks = json.load(sys.stdin)
+if not isinstance(tasks, list):
+    raise SystemExit("task list response must be an array")
+print(" ".join(sorted(
+    str(task.get("id") or "")
+    for task in tasks
+    if str(task.get("status") or "") in {"pending", "running"}
+)))
+'
+}
+
 rollback() {
     local exit_code=$?
     local active_path=""
@@ -228,6 +249,17 @@ if [ ! -f "$release_path/.deploy-ready" ]; then
     touch "$release_path/.deploy-ready"
 fi
 
+if systemctl is-active --quiet "$SERVICE_NAME"; then
+    if ! active_task_ids="$(active_generation_task_ids)"; then
+        log "无法读取任务状态，拒绝停止当前服务：$TASKS_URL"
+        exit 75
+    fi
+    if [ -n "$active_task_ids" ]; then
+        log "检测到正在生成的任务，取消本次发布：$active_task_ids"
+        exit 75
+    fi
+fi
+
 if [ -d "$CURRENT_LINK/backend/data" ] && [ ! "$CURRENT_LINK/backend/data" -ef "$STATE_DIR/backend-data" ]; then
     log "冻结服务并迁移持久化数据"
     systemctl stop "$SERVICE_NAME"
@@ -245,6 +277,13 @@ else
     systemctl stop "$SERVICE_NAME"
     service_stopped=1
     tar -C "$STATE_DIR" -czf "$BACKUP_DIR/data-$timestamp.tgz" backend-data
+fi
+
+if [ ! -f "$STATE_DIR/backend-data/generation_jobs.json" ] \
+    && [ -f "$CURRENT_LINK/backend/tasks.json" ]; then
+    log "迁移旧任务历史到持久化数据目录"
+    install -m 600 "$CURRENT_LINK/backend/tasks.json" \
+        "$STATE_DIR/backend-data/generation_jobs.json"
 fi
 
 if [ -d "$CURRENT_LINK" ] && [ ! -L "$CURRENT_LINK" ]; then

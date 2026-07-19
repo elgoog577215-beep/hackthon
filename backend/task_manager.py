@@ -99,10 +99,13 @@ from models import (
 )
 from representation_compiler import compile_core_representations
 from teaching_representations import teaching_representation_repository
+from storage import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
-TASKS_FILE = Path(__file__).with_name("tasks.json")
+DEFAULT_TASKS_FILE = Path(DATA_DIR) / "generation_jobs.json"
+TASKS_FILE = DEFAULT_TASKS_FILE
+LEGACY_TASKS_FILE = Path(__file__).with_name("tasks.json")
 
 DEFAULT_MAX_CONCURRENCY = 2
 DEFAULT_MAX_COURSE_CONCURRENCY = 2
@@ -3271,43 +3274,58 @@ class TaskManager:
 
     def load_tasks(self) -> None:
         """从文件加载任务。"""
-        if TASKS_FILE.exists():
-            try:
-                with TASKS_FILE.open(encoding="utf-8") as f:
-                    self.tasks = json.load(f)
-                for task_id, task in self.tasks.items():
-                    task.setdefault("id", task_id)
-                    task.setdefault("type", "legacy_content_generation")
-                    task.setdefault("phase", "content_generation")
-                    task.setdefault("phase_progress", 0)
-                    task.setdefault("phase_detail", {})
-                    task.setdefault("request_snapshot", {})
-                    task.setdefault("node_drafts", {})
-                    task.setdefault("operation", "generate")
-                    task.setdefault("candidate_id", None)
-                    task.setdefault("base_version_id", None)
-                    task.setdefault("blueprint_confirmed", False)
-                    task.setdefault("blueprint_revision_id", None)
-                    task.setdefault("workspace_id", None)
-                    task.setdefault("base_document_revision", None)
-                    if task.get("type") != "course_generation":
-                        task["legacy_read_only"] = True
-                        if task.get("status") in ("pending", "running", "paused"):
-                            task["status"] = "completed"
-                            task["phase"] = "legacy_read_only"
-                            task["message"] = "旧版任务仅供历史查看"
-            except Exception as e:
-                logger.error("Failed to load tasks: %s", e)
+        source = TASKS_FILE
+        if (
+            not source.exists()
+            and TASKS_FILE == DEFAULT_TASKS_FILE
+            and LEGACY_TASKS_FILE.exists()
+        ):
+            source = LEGACY_TASKS_FILE
+        try:
+            if not source.exists():
                 self.tasks = {}
+                return
+            with source.open(encoding="utf-8") as handle:
+                loaded = json.load(handle)
+            if not isinstance(loaded, dict):
+                raise ValueError("Generation job index must contain an object")
+            self.tasks = loaded
+            for task_id, task in self.tasks.items():
+                task.setdefault("id", task_id)
+                task.setdefault("type", "legacy_content_generation")
+                task.setdefault("phase", "content_generation")
+                task.setdefault("phase_progress", 0)
+                task.setdefault("phase_detail", {})
+                task.setdefault("request_snapshot", {})
+                task.setdefault("node_drafts", {})
+                task.setdefault("operation", "generate")
+                task.setdefault("candidate_id", None)
+                task.setdefault("base_version_id", None)
+                task.setdefault("blueprint_confirmed", False)
+                task.setdefault("blueprint_revision_id", None)
+                task.setdefault("workspace_id", None)
+                task.setdefault("base_document_revision", None)
+                if task.get("type") != "course_generation":
+                    task["legacy_read_only"] = True
+                    if task.get("status") in ("pending", "running", "paused"):
+                        task["status"] = "completed"
+                        task["phase"] = "legacy_read_only"
+                        task["message"] = "旧版任务仅供历史查看"
+            if source == LEGACY_TASKS_FILE:
+                self.save_tasks(strict=True)
+        except Exception as e:
+            logger.error("Failed to load tasks: %s", e)
+            self.tasks = {}
 
     def save_tasks(self, *, strict: bool = False) -> None:
-        """Atomically persist jobs to a stable backend-local path."""
+        """Atomically persist jobs to the deployment-persistent data root."""
         try:
+            TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
             temp_path = TASKS_FILE.with_suffix(".tmp")
-            with temp_path.open("w", encoding="utf-8") as f:
-                json.dump(self.tasks, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
+            with temp_path.open("w", encoding="utf-8") as handle:
+                json.dump(self.tasks, handle, indent=2, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(temp_path, TASKS_FILE)
         except Exception as e:
             logger.error("Failed to save tasks: %s", e)
