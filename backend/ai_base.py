@@ -55,22 +55,15 @@ else:
     logger.error("AI_API_KEY not found in environment variables")
 
 DEFAULT_SMART_MODELS = [
-    "deepseek-ai/DeepSeek-V4-Pro",
-    "deepseek-ai/DeepSeek-V4-Flash",
-    "deepseek-ai/DeepSeek-V3.2",
-    "ZhipuAI/GLM-5.2",
+    "Qwen/Qwen3.5-27B",
+    "Qwen/Qwen3.5-122B-A10B",
     "Qwen/Qwen3.5-397B-A17B",
-    "Qwen/Qwen3-235B-A22B-Instruct-2507",
-    "Qwen/Qwen3-Next-80B-A3B-Instruct",
-    "Qwen/Qwen3-32B",
 ]
 
 DEFAULT_FAST_MODELS = [
-    "deepseek-ai/DeepSeek-V4-Flash",
-    "deepseek-ai/DeepSeek-V3.2",
-    "ZhipuAI/GLM-4.7-Flash",
-    "Qwen/Qwen3-Next-80B-A3B-Instruct",
-    "Qwen/Qwen3-32B",
+    "Qwen/Qwen3.5-27B",
+    "Qwen/Qwen3.5-122B-A10B",
+    "Qwen/Qwen3.5-397B-A17B",
 ]
 
 
