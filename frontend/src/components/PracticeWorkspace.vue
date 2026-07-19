@@ -141,23 +141,75 @@
                 : t('courseWorkspace.practice.refreshQuestion', '换一题') }}
             </button>
           </div>
-          <h3>{{ currentQuestion.prompt }}</h3>
+          <section
+            class="question-prompt"
+            data-testid="practice-question-markdown"
+            :aria-label="t('courseWorkspace.practice.questionContent', '题目内容')"
+          >
+            <div
+              v-if="currentQuestionMarkdown.stimulus"
+              class="question-stimulus"
+              data-testid="practice-question-stimulus"
+            >
+              <header>
+                <strong>{{ t('courseWorkspace.practice.questionStimulus', '题目材料') }}</strong>
+              </header>
+              <MarkdownRenderer
+                :content="currentQuestionMarkdown.stimulus"
+                :enable-code-run="false"
+              />
+            </div>
+
+            <div class="question-task" data-testid="practice-question-task">
+              <header>
+                <strong>{{ t('courseWorkspace.practice.answerTask', '作答任务') }}</strong>
+                <span>{{ t('courseWorkspace.practice.answerTaskHint', '先明确要求，再开始作答') }}</span>
+              </header>
+              <MarkdownRenderer
+                :content="currentQuestionMarkdown.task"
+                :enable-code-run="false"
+              />
+            </div>
+
+            <details
+              v-if="currentQuestionMarkdown.material"
+              :key="currentQuestion?.revision_id || currentQuestion?.asset_id || currentQuestion?.question_id"
+              class="question-material"
+              data-testid="practice-question-material"
+            >
+              <summary>
+                <span class="question-material__icon" aria-hidden="true">
+                  <BookOpenCheck :size="17" />
+                </span>
+                <span class="question-material__copy">
+                  <strong>{{ t('courseWorkspace.practice.referenceMaterial', '参考材料') }}</strong>
+                  <small>{{ t('courseWorkspace.practice.referenceMaterialHint', '课程原文较长，需要时再展开查看') }}</small>
+                </span>
+                <span class="question-material__action" aria-hidden="true">
+                  <span class="expand-label">{{ t('courseWorkspace.practice.expandMaterial', '展开材料') }}</span>
+                  <span class="collapse-label">{{ t('courseWorkspace.practice.collapseMaterial', '收起材料') }}</span>
+                  <ChevronDown :size="16" />
+                </span>
+              </summary>
+              <div class="question-material__body">
+                <MarkdownRenderer
+                  :content="currentQuestionMarkdown.material"
+                  :enable-code-run="false"
+                />
+              </div>
+            </details>
+          </section>
 
           <div v-if="workspace.currentAttempt?.status === 'invalidated'" class="state-notice danger">
             <CircleAlert :size="18" />
             <span>{{ t('courseWorkspace.practice.invalidated', '题目版本已经更新，本次草稿已保留，请重新开始') }}</span>
           </div>
 
-          <div v-if="isChoiceQuestion" class="choice-list">
-            <label v-for="option in currentQuestion.options || []" :key="option.id || option.value">
-              <input v-model="workspace.currentDraft.selected_option_id" type="radio" :value="option.id || option.value" :disabled="answerLocked" />
-              <span>{{ option.label || option.text || option.value }}</span>
-            </label>
-          </div>
-          <textarea
-            v-else
-            v-model="workspace.currentDraft.text"
-            class="answer-editor"
+          <PracticeAnswerRenderer
+            v-model="workspace.currentDraft"
+            :contract="currentQuestion.input_contract"
+            :options="currentQuestion.options || []"
+            :question-type="currentQuestion.question_type"
             :disabled="answerLocked"
             :placeholder="answerPlaceholder"
           />
@@ -382,13 +434,17 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ArrowRight, BookOpenCheck, CheckCircle2, Circle, CircleAlert, ClipboardCheck, Clock3, History,
+  ArrowRight, BookOpenCheck, CheckCircle2, ChevronDown, Circle, CircleAlert, ClipboardCheck, Clock3, History,
   Lightbulb, LoaderCircle, MessageCircleQuestion, RefreshCw, RotateCcw, Send,
 } from 'lucide-vue-next'
+import MarkdownRenderer from './MarkdownRenderer.vue'
+import PracticeAnswerRenderer from './PracticeAnswerRenderer.vue'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { t } from '../shared/i18n'
 import { isQuestionBankRepairReason, practiceAvailabilityCopy } from '../utils/course-availability'
 import { practiceScopeKind } from '../utils/learning-scope'
+import { splitPracticeQuestionMarkdown } from '../utils/practice-question-markdown'
+import { hasMeaningfulAnswer } from '../utils/answer-payload'
 import { presentSolutionValue } from '../utils/solution-presentation'
 import {
   runQuestionBankRebuild,
@@ -419,6 +475,9 @@ let rebuildAbortController: AbortController | null = null
 
 const questions = computed(() => workspace.practice?.questions || [])
 const currentQuestion = computed(() => workspace.currentPracticeQuestion)
+const currentQuestionMarkdown = computed(() => (
+  splitPracticeQuestionMarkdown(currentQuestion.value)
+))
 
 interface HintDisplayRow {
   level: number
@@ -461,9 +520,8 @@ const emptyState = computed(() => practiceAvailabilityCopy(
   workspace.practice?.practice_availability?.reason_code || 'no_questions_in_scope',
   t,
 ))
-const isChoiceQuestion = computed(() => currentQuestion.value?.input_contract?.mode === 'choice')
 const answerLocked = computed(() => !!workspace.currentAttempt && workspace.currentAttempt.status !== 'in_progress')
-const hasAnswer = computed(() => Object.values(workspace.currentDraft || {}).some(value => value !== '' && value !== null && value !== undefined))
+const hasAnswer = computed(() => hasMeaningfulAnswer(workspace.currentDraft || {}))
 const hasNext = computed(() => workspace.currentQuestionIndex < questions.value.length - 1)
 const normalizedCurrentPrompt = computed(() => String(currentQuestion.value?.prompt || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase())
 const canRefreshQuestion = computed(() => (
@@ -818,7 +876,7 @@ async function rebuildQuestionBank() {
     if (job.status === 'waiting_review') {
       ElMessage.warning(t(
         'courseAvailability.rebuildQuestionsReview',
-        '候选题已生成，需等待教师审核后才能进入正式练习。',
+        '候选题已生成。请教师前往“课程库 → 题库审核 → 课程题库与风险审核”处理。',
       ))
     } else {
       ElMessage.success(t(
@@ -862,7 +920,45 @@ function formatSolutionValue(value: unknown) {
 .practice-header-state { display:flex; align-items:center; gap:10px; white-space:nowrap; font-size:12px; color:#526174; }.practice-progress { font:700 13px ui-monospace,monospace; color:#0f766e; }
 .practice-tabs { display:flex; max-width:1280px; margin:18px auto 0; padding:0 20px; border-bottom:1px solid #dbe3ed; }.practice-tabs button { padding:10px 14px; border:0; border-bottom:2px solid transparent; background:transparent; color:#64748b; font-size:13px; }.practice-tabs button.active { color:#0f766e; border-color:#0f766e; font-weight:700; }
 .workflow-band { width:min(1280px,calc(100% - 64px)); margin:18px auto 0; padding:14px 0; border-top:2px solid #0f766e; border-bottom:1px solid #cbd5e1; display:flex; justify-content:space-between; gap:24px; align-items:flex-start; }.workflow-band>div { display:grid; gap:4px; }.workflow-band span { color:#0f766e; font-size:11px; font-weight:800; }.workflow-band strong { font-size:14px; }.workflow-band p { max-width:48%; margin:0; color:#526174; font-size:13px; line-height:1.55; }.workflow-band[data-phase="needs_support"] { border-top-color:#b45309; }.workflow-band[data-phase="resolved"] { border-top-color:#047857; }
-.question-stage,.history-list { width:min(1280px,calc(100% - 64px)); margin:0 auto; padding:24px 0 36px; }.question-content { padding:0; }.question-meta { display:flex; justify-content:space-between; align-items:center; gap:16px; color:#64748b; font-size:12px; }.question-meta>div { display:flex; gap:16px; }.refresh-question-command { display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:0 9px; border:1px solid #cbd5e1; border-radius:6px; color:#475569; background:#fff; font-size:12px; }.refresh-question-command:hover:not(:disabled) { border-color:#0f766e; color:#0f766e; }.refresh-question-command:disabled { opacity:.45; cursor:not-allowed; }.question-content h3 { margin:14px 0 20px; font-size:19px; line-height:1.65; letter-spacing:0; }
+.question-stage,.history-list { width:min(1280px,calc(100% - 64px)); margin:0 auto; padding:24px 0 36px; }.question-content { padding:0; }.question-meta { display:flex; justify-content:space-between; align-items:center; gap:16px; color:#64748b; font-size:12px; }.question-meta>div { display:flex; gap:16px; }.refresh-question-command { display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:0 9px; border:1px solid #cbd5e1; border-radius:6px; color:#475569; background:#fff; font-size:12px; }.refresh-question-command:hover:not(:disabled) { border-color:#0f766e; color:#0f766e; }.refresh-question-command:disabled { opacity:.45; cursor:not-allowed; }
+.question-prompt { display:grid; gap:12px; margin:14px 0 22px; color:#334155; font-size:15px; line-height:1.78; }
+.question-stimulus { padding:18px clamp(18px,2.5vw,26px); border:1px solid #dbe3ed; border-radius:8px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.03); }
+.question-stimulus>header { margin-bottom:9px; }
+.question-stimulus>header strong { color:#334155; font-size:13px; font-weight:800; }
+.question-stimulus :deep(p:last-child),.question-stimulus :deep(pre:last-child) { margin-bottom:0; }
+.question-task { padding:18px clamp(18px,2.5vw,26px); border:1px solid #99d8cf; border-left:4px solid #0f766e; border-radius:8px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.03); }
+.question-task>header { display:flex; justify-content:space-between; gap:16px; align-items:center; margin-bottom:9px; }
+.question-task>header strong { color:#115e59; font-size:13px; font-weight:800; }
+.question-task>header span { color:#64748b; font-size:11px; }
+.question-task :deep(p:last-child) { margin-bottom:0; }
+.question-material { overflow:hidden; border:1px solid #dbe3ed; border-radius:8px; background:#fff; }
+.question-material>summary { min-width:0; display:grid; grid-template-columns:36px minmax(0,1fr) auto; align-items:center; gap:11px; padding:13px 16px; cursor:pointer; list-style:none; }
+.question-material>summary::-webkit-details-marker { display:none; }
+.question-material>summary:focus-visible { outline:3px solid rgba(15,118,110,.16); outline-offset:-3px; }
+.question-material__icon { width:34px; height:34px; display:grid; place-items:center; border-radius:7px; color:#0f766e; background:#e9f8f5; }
+.question-material__copy { min-width:0; display:block; }
+.question-material__copy strong { display:block; color:#334155; font-size:13px; line-height:1.4; }
+.question-material__copy small { display:block; margin-top:2px; overflow:hidden; color:#64748b; font-size:11px; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+.question-material__action { display:inline-flex; align-items:center; gap:6px; color:#0f766e; font-size:11px; font-weight:750; white-space:nowrap; }
+.question-material__action svg { transition:transform .18s ease; }
+.question-material .collapse-label { display:none; }
+.question-material[open] .question-material__action svg { transform:rotate(180deg); }
+.question-material[open] .expand-label { display:none; }
+.question-material[open] .collapse-label { display:inline; }
+.question-material[open] .question-material__copy small { white-space:normal; }
+.question-material__body { padding:22px clamp(18px,2.5vw,30px); border-top:1px solid #dbe3ed; }
+.question-prompt :deep(h1),.question-prompt :deep(h2),.question-prompt :deep(h3),.question-prompt :deep(h4),.question-prompt :deep(h5),.question-prompt :deep(h6) { color:#172033; letter-spacing:0; }
+.question-prompt :deep(h1) { margin:0 0 18px; font-size:24px; line-height:1.35; }
+.question-prompt :deep(h2) { margin:30px 0 12px; padding-top:2px; font-size:19px; line-height:1.4; }
+.question-prompt :deep(h3) { margin:24px 0 10px; font-size:16px; line-height:1.45; }
+.question-prompt :deep(p) { margin:0 0 14px; line-height:1.82; }
+.question-prompt :deep(ul),.question-prompt :deep(ol) { margin:8px 0 18px; padding-left:24px; }
+.question-prompt :deep(li) { margin:6px 0; line-height:1.72; }
+.question-prompt :deep(hr) { margin:26px 0; border-color:#dbe3ed; }
+.question-prompt :deep(pre) { position:relative; margin:14px 0 20px; padding:16px 18px; overflow:auto; border:1px solid #1e293b; border-radius:8px; background:#0f172a; color:#e2e8f0; font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre; }
+.question-prompt :deep(pre code) { color:inherit; font:inherit; }
+.question-prompt :deep(blockquote) { margin:16px 0; border-left-color:#0f766e; background:#f0fdfa; }
+.question-prompt :deep(table) { display:block; width:100%; overflow-x:auto; }
 .answer-editor { width:100%; min-height:clamp(360px,54vh,680px); padding:16px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; resize:vertical; font:inherit; line-height:1.7; outline:none; }.answer-editor:focus { border-color:#0f766e; box-shadow:0 0 0 3px rgba(15,118,110,.1); }.answer-editor:disabled { background:#f1f5f9; }
 .choice-list { display:grid; gap:10px; }.choice-list label { display:flex; gap:10px; padding:13px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; }
 .practice-actions { position:sticky; bottom:0; display:flex; justify-content:space-between; gap:14px; align-items:center; margin-top:22px; padding:12px 0; background:linear-gradient(to bottom,rgba(248,250,252,.86),#f8fafc 28%); }.support-actions { display:flex; gap:8px; align-items:center; }.icon-command,.text-command,.primary-command { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; padding:0 12px; color:#334155; }.icon-command { width:42px; padding:0; }.icon-command:disabled,.text-command:disabled,.primary-command:disabled { opacity:.45; cursor:not-allowed; }.primary-command { border-color:#0f766e; background:#0f766e; color:#fff; font-weight:700; }
@@ -876,5 +972,5 @@ function formatSolutionValue(value: unknown) {
 .question-bank-rebuild__progress { width:min(380px,100%); display:grid; grid-template-columns:1fr auto; gap:6px 10px; align-items:center; color:#475569; font-size:11px; text-align:left; }.question-bank-rebuild__progress strong { color:#0f766e; }.question-bank-rebuild__progress i { grid-column:1/-1; height:5px; overflow:hidden; border-radius:999px; background:#dbe3ed; }.question-bank-rebuild__progress b { display:block; height:100%; border-radius:inherit; background:#0f766e; transition:width .25s ease; }
 .history-row { padding:16px 0; border-bottom:1px solid #dbe3ed; }.history-row>div { display:flex; justify-content:space-between; gap:20px; }.history-row span,.history-row small { color:#64748b; }.history-row.legacy { border-left:3px solid #94a3b8; padding-left:12px; }
 .history-row-actions { display:flex; align-items:center; gap:10px; }.targeted-retry-command { min-height:30px; display:inline-flex; align-items:center; gap:5px; padding:0 9px; border:1px solid #99f6e4; border-radius:6px; color:#0f766e; background:#f0fdfa; font-size:11px; font-weight:700; }.targeted-retry-command:disabled { opacity:.55; }.targeted-retry-context { display:flex; align-items:flex-start; gap:10px; margin-bottom:20px; padding:12px 14px; border:1px solid #99f6e4; border-radius:7px; color:#115e59; background:#f0fdfa; }.targeted-retry-context>div { min-width:0; }.targeted-retry-context strong { font-size:12px; }.targeted-retry-context p { margin:3px 0 0; color:#526174; font-size:11px; line-height:1.55; }
-@media (max-width:640px) { .practice-header { padding:12px 16px; align-items:flex-start; }.attempt-count { display:none; }.practice-tabs { margin-top:8px; padding:0 10px; overflow-x:auto; }.practice-tabs button { flex:0 0 auto; }.workflow-band { width:calc(100% - 28px); display:grid; gap:8px; }.workflow-band p { max-width:none; }.question-stage,.history-list { width:calc(100% - 28px); padding-top:18px; }.question-content h3 { font-size:17px; }.answer-editor { min-height:180px; }.practice-actions { padding-bottom:max(12px,env(safe-area-inset-bottom)); }.text-command { width:40px; padding:0; font-size:0; }.support-actions { gap:5px; }.icon-command { width:38px; }.primary-command { padding:0 11px; }.hint-result { grid-template-columns:1fr; gap:3px; }.answer-diagnosis dl { grid-template-columns:1fr; }.answer-diagnosis>header { align-items:flex-start; } }
+@media (max-width:640px) { .practice-header { padding:12px 16px; align-items:flex-start; }.attempt-count { display:none; }.practice-tabs { margin-top:8px; padding:0 10px; overflow-x:auto; }.practice-tabs button { flex:0 0 auto; }.workflow-band { width:calc(100% - 28px); display:grid; gap:8px; }.workflow-band p { max-width:none; }.question-stage,.history-list { width:calc(100% - 28px); padding-top:18px; }.question-prompt { font-size:14px; }.question-task { padding:16px 15px; }.question-task>header { display:grid; gap:2px; }.question-material>summary { grid-template-columns:32px minmax(0,1fr) 20px; gap:8px; padding:12px; }.question-material__icon { width:30px; height:30px; }.question-material__action>span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }.question-material__body { padding:18px 15px; }.question-prompt :deep(h1) { font-size:20px; }.question-prompt :deep(h2) { font-size:17px; }.answer-editor { min-height:180px; }.practice-actions { padding-bottom:max(12px,env(safe-area-inset-bottom)); }.text-command { width:40px; padding:0; font-size:0; }.support-actions { gap:5px; }.icon-command { width:38px; }.primary-command { padding:0 11px; }.hint-result { grid-template-columns:1fr; gap:3px; }.answer-diagnosis dl { grid-template-columns:1fr; }.answer-diagnosis>header { align-items:flex-start; } }
 </style>

@@ -110,4 +110,50 @@ describe('runQuestionBankRebuild', () => {
       message: '模型暂不可用',
     })
   })
+
+  it('backs off and continues polling when the status endpoint returns 429', async () => {
+    post.mockResolvedValue({
+      data: {
+        job_id: 'job-rate-limited',
+        status: 'running',
+        progress: 50,
+        status_url: '/api/jobs/job-rate-limited',
+      },
+    })
+    get
+      .mockRejectedValueOnce({
+        response: {
+          status: 429,
+          headers: { 'retry-after': '0' },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          job_id: 'job-rate-limited',
+          status: 'completed',
+          progress: 100,
+          status_url: '/api/jobs/job-rate-limited',
+        },
+      })
+    const messages: string[] = []
+
+    const result = await runQuestionBankRebuild(
+      'course-1',
+      {
+        request_id: 'request-rate-limited',
+        scope: 'nodes',
+        node_ids: ['node-1'],
+        mode: 'incremental',
+      },
+      {
+        pollIntervalMs: 0,
+        rateLimitBackoffMs: 0,
+        onUpdate: job => messages.push(job.message || ''),
+      },
+    )
+
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(messages).toContain('请求较多，系统正在自动重试…')
+    expect(result.status).toBe('completed')
+  })
 })

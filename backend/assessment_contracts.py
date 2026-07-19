@@ -156,10 +156,7 @@ def compile_course_assessment_profile(
     family = pedagogy.primary_mode.value
     locked = bool(persisted.get("user_locked"))
     course_text = _course_text(course_data)
-    high_stakes = family == "life_medical" or any(
-        marker in course_text.lower()
-        for marker in ("临床", "诊断", "治疗", "法律", "诉讼", "刑法")
-    )
+    high_stakes = _is_high_stakes_course(course_data, family)
     classification_confidence = (
         0.95
         if locked
@@ -207,20 +204,19 @@ def compile_course_assessment_profile(
                 "general_model_knowledge",
             ],
             "course_scope_only": True,
-            "web_enabled": bool(
-                (
-                    (course_data.get("generation_request") or {}).get(
-                        "web_question_enrichment"
-                    )
-                    or course_data.get("web_question_enrichment")
-                    or {}
-                ).get("enabled")
+            "web_enabled": _web_enrichment_enabled(
+                course_data
             ),
         },
         "review_policy": {
+            "schema_version": "exception_driven_question_quality_v1",
             "high_stakes_requires_teacher": high_stakes,
             "low_confidence_requires_teacher": True,
             "comprehensive_requires_teacher": True,
+            "deterministic_pass_auto_publish": True,
+            "default_publish_after_validation": True,
+            "post_publication_rework": True,
+            "family_sample_rate": 0,
         },
     }
     profile["profile_revision_id"] = stable_hash(
@@ -228,6 +224,66 @@ def compile_course_assessment_profile(
         prefix="cap_",
     )
     return profile
+
+
+def _is_high_stakes_course(
+    course_data: dict[str, Any],
+    family: str,
+) -> bool:
+    """Classify course-level safety risk from identity, not incidental lesson words.
+
+    Terms such as “诊断” are common in programming and engineering courses.
+    Scanning every lesson body therefore creates broad false positives (for
+    example, “内存泄漏诊断”).  High-stakes review is reserved for an explicitly
+    medical family or a clearly medical/legal course identity.
+    """
+    if family == "life_medical":
+        return True
+
+    request = course_data.get("generation_request") or {}
+    identity_text = " ".join(
+        str(value or "")
+        for value in (
+            course_data.get("course_name"),
+            course_data.get("course_purpose"),
+            course_data.get("description"),
+            request.get("course_name"),
+            request.get("topic"),
+            request.get("description"),
+            request.get("requirements"),
+        )
+    ).lower()
+    explicit_high_stakes_markers = (
+        "临床",
+        "患者",
+        "处方",
+        "用药",
+        "手术",
+        "诊疗",
+        "治疗方案",
+        "刑法",
+        "诉讼",
+        "法律实务",
+        "司法考试",
+    )
+    if any(
+        marker in identity_text
+        for marker in explicit_high_stakes_markers
+    ):
+        return True
+
+    medical_context = any(
+        marker in identity_text
+        for marker in ("医学", "疾病", "病理", "药理", "护理")
+    )
+    legal_context = family == "humanities_social" and any(
+        marker in identity_text
+        for marker in ("法律", "法学", "司法", "合规")
+    )
+    return bool(
+        (medical_context and "诊断" in identity_text)
+        or legal_context
+    )
 
 
 def compile_assessment_objectives(
@@ -400,6 +456,24 @@ def _course_text(course_data: dict[str, Any]) -> str:
             ],
         ]
     )
+
+
+def _web_enrichment_enabled(
+    course_data: dict[str, Any],
+) -> bool:
+    config = (
+        (course_data.get("generation_request") or {}).get(
+            "web_question_enrichment"
+        )
+        or course_data.get("web_question_enrichment")
+        or {}
+    )
+    mode = str(config.get("mode") or "").strip()
+    if mode:
+        return mode != "off"
+    if config.get("enabled") is not None:
+        return bool(config.get("enabled"))
+    return True
 
 
 def _discipline_signals(text: str, family: str) -> list[str]:

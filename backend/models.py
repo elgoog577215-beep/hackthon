@@ -94,7 +94,22 @@ class CourseMaterialBindingInput(BaseModel):
 
 
 class WebQuestionEnrichmentInput(BaseModel):
-    enabled: bool = False
+    mode: Literal["auto_on_gap", "off", "always"] = (
+        "auto_on_gap"
+    )
+    enabled: Optional[bool] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_enabled(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or "mode" in value:
+            return value
+        normalized = dict(value)
+        if normalized.get("enabled") is False:
+            normalized["mode"] = "off"
+        elif normalized.get("enabled") is True:
+            normalized["mode"] = "auto_on_gap"
+        return normalized
 
 
 class CourseGenerationRequest(BaseModel):

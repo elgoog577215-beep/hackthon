@@ -3,14 +3,29 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+import atexit
+from concurrent.futures import Future
 from copy import deepcopy
+import logging
+from threading import Event, Thread
 from typing import Any, Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator
 
 from assessment_orchestrator import AssessmentGenerationOrchestrator
+from assessment_contracts import (
+    compile_assessment_objectives,
+    compile_course_assessment_profile,
+)
+from assessment_blueprint import (
+    compile_course_assessment_blueprint,
+)
+from assessment_retrieval import (
+    compile_local_reference_package,
+    enrich_reference_package_with_web,
+)
 from course_document import COURSE_DOCUMENT_SCHEMA
 from course_repository import CourseDocumentRepository
 from course_versioning import stable_hash
@@ -22,14 +37,15 @@ from learner_context import require_user_id
 from material_storage import material_repository
 from question_bank import (
     filter_question_bank_items,
+    load_active_question_bank,
     question_bank_repository,
+    reconcile_item_question_bank,
     reconcile_question_bank,
     reconcile_scoped_question_bank,
     recalculate_question_bank_coverage,
     review_question_bank_item,
     revise_question_bank_item,
 )
-from question_search import enrich_question_bank_with_web
 from question_bank_jobs import (
     question_bank_rebuild_job_repository,
 )
@@ -41,11 +57,17 @@ router = APIRouter(
     tags=["question_bank"],
 )
 
+logger = logging.getLogger(__name__)
+
 
 class QuestionBankRebuildRequest(BaseModel):
     request_id: str | None = Field(default=None, min_length=8, max_length=200)
-    scope: Literal["course", "nodes"] = "course"
+    scope: Literal["course", "nodes", "items"] = "course"
     node_ids: list[str] = Field(default_factory=list, max_length=200)
+    revision_ids: list[str] = Field(
+        default_factory=list,
+        max_length=200,
+    )
     mode: Literal["incremental", "full"] = "incremental"
 
     @model_validator(mode="after")
@@ -55,23 +77,78 @@ class QuestionBankRebuildRequest(BaseModel):
             for value in self.node_ids
             if str(value).strip()
         })
+        self.revision_ids = sorted({
+            str(value).strip()
+            for value in self.revision_ids
+            if str(value).strip()
+        })
         if self.scope == "nodes" and not self.node_ids:
             raise ValueError(
                 "node_ids are required when scope is nodes"
             )
+        if self.scope == "items" and not self.revision_ids:
+            raise ValueError(
+                "revision_ids are required when scope is items"
+            )
         if self.scope == "course":
             self.node_ids = []
+            self.revision_ids = []
+        elif self.scope == "nodes":
+            self.revision_ids = []
         return self
 
 
 class QuestionBankRebuildExecutor:
-    """Run durable rebuild jobs outside the request lifecycle."""
+    """Run every rebuild coroutine on one durable event loop.
+
+    The assessment orchestrator owns asyncio primitives and an async HTTP
+    client.  Creating a fresh loop with ``asyncio.run`` for every job binds
+    those shared objects to the first job's loop and makes the next job fail.
+    A dedicated loop also preserves provider cooldown and request-spacing
+    state across a migration.
+    """
 
     def __init__(self, *, max_workers: int = 2) -> None:
-        self._pool = ThreadPoolExecutor(
-            max_workers=max(1, max_workers),
-            thread_name_prefix="question-bank-rebuild",
+        self.instance_id = f"qbw_{uuid4().hex}"
+        self._max_concurrency = max(1, max_workers)
+        self._loop = asyncio.new_event_loop()
+        self._ready = Event()
+        self._thread = Thread(
+            target=self._run_loop,
+            name="question-bank-rebuild-loop",
+            daemon=True,
         )
+        self._semaphore: asyncio.Semaphore | None = None
+        self._thread.start()
+        self._ready.wait()
+
+    def _run_loop(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        self._semaphore = asyncio.Semaphore(
+            self._max_concurrency,
+        )
+        self._ready.set()
+        try:
+            self._loop.run_forever()
+        finally:
+            pending = asyncio.all_tasks(self._loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                self._loop.run_until_complete(
+                    asyncio.gather(
+                        *pending,
+                        return_exceptions=True,
+                    ),
+                )
+            self._loop.close()
+
+    async def _run_bounded(self, coroutine) -> None:
+        semaphore = self._semaphore
+        if semaphore is None:
+            raise RuntimeError("question bank rebuild loop is not ready")
+        async with semaphore:
+            await coroutine
 
     def submit(
         self,
@@ -80,19 +157,39 @@ class QuestionBankRebuildExecutor:
         course_id: str,
         payload: QuestionBankRebuildRequest,
         course: dict[str, Any],
-    ) -> None:
-        self._pool.submit(
-            asyncio.run,
-            _run_rebuild_job(
-                job_id=job_id,
-                course_id=course_id,
-                payload=payload,
-                course=deepcopy(course),
+    ) -> Future[None]:
+        future = asyncio.run_coroutine_threadsafe(
+            self._run_bounded(
+                _run_rebuild_job(
+                    job_id=job_id,
+                    course_id=course_id,
+                    payload=payload,
+                    course=deepcopy(course),
+                ),
             ),
+            self._loop,
         )
+        future.add_done_callback(self._report_failure)
+        return future
+
+    @staticmethod
+    def _report_failure(future: Future[None]) -> None:
+        try:
+            future.result()
+        except Exception:
+            logger.exception(
+                "Question-bank rebuild coroutine exited unexpectedly",
+            )
+
+    def shutdown(self, *, timeout: float = 5.0) -> None:
+        if not self._loop.is_running():
+            return
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._thread.join(timeout=max(0.0, timeout))
 
 
 question_bank_rebuild_executor = QuestionBankRebuildExecutor()
+atexit.register(question_bank_rebuild_executor.shutdown)
 assessment_generation_orchestrator = AssessmentGenerationOrchestrator()
 
 
@@ -125,8 +222,11 @@ async def get_question_bank(
     ),
 ):
     require_user_id(x_user_id)
-    await get_course_or_404(course_id)
-    bundle = question_bank_repository.load_bundle(course_id)
+    course = await get_course_or_404(course_id)
+    bundle = load_active_question_bank(
+        course,
+        repository=question_bank_repository,
+    )
     if not bundle:
         raise HTTPException(
             status_code=404,
@@ -153,11 +253,64 @@ async def get_question_bank(
         "assessment_objectives": (
             bundle.get("assessment_objectives") or []
         ),
+        "assessment_blueprint": (
+            bundle.get("assessment_blueprint") or {}
+        ),
+        "reference_package": (
+            bundle.get("reference_package") or {}
+        ),
+        "generation_summary": _generation_summary(
+            bundle,
+            items,
+        ),
         "review_queue": bundle.get("review_queue") or {},
         "web_enrichment": bundle.get("web_enrichment") or {},
         "items": items,
         "total": len(items),
         "access_scope": "teacher_authenticated_course_management",
+    }
+
+
+def _generation_summary(
+    bundle: dict[str, Any],
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    question_types: dict[str, int] = {}
+    input_modes: dict[str, int] = {}
+    scores: list[int] = []
+    for item in items:
+        question_type = str(
+            item.get("question_type") or "unknown"
+        )
+        question_types[question_type] = (
+            question_types.get(question_type, 0) + 1
+        )
+        input_mode = str(
+            (item.get("input_contract") or {}).get("mode")
+            or "compatibility_text"
+        )
+        input_modes[input_mode] = input_modes.get(input_mode, 0) + 1
+        score = (item.get("quality_report") or {}).get("score")
+        if isinstance(score, (int, float)):
+            scores.append(int(score))
+    audit = bundle.get("generation_audit") or {}
+    return {
+        "question_type_distribution": question_types,
+        "input_mode_distribution": input_modes,
+        "quality_scores": {
+            "count": len(scores),
+            "minimum": min(scores) if scores else None,
+            "maximum": max(scores) if scores else None,
+            "average": (
+                round(sum(scores) / len(scores), 2)
+                if scores
+                else None
+            ),
+        },
+        "generation_calls": audit.get("generation_calls", 0),
+        "repair_calls": audit.get("repair_calls", 0),
+        "failure_count": audit.get("failure_count", 0),
+        "items": deepcopy(audit.get("items") or []),
     }
 
 
@@ -187,14 +340,72 @@ async def rebuild_question_bank(
                     "node_ids": unknown,
                 },
             )
+    elif payload.scope == "items":
+        bundle = _require_bundle(course)
+        requested_revisions = set(payload.revision_ids)
+        selected_items = [
+            item
+            for item in bundle.get("items") or []
+            if str(item.get("revision_id") or "")
+            in requested_revisions
+        ]
+        if not selected_items:
+            raw_bundle = question_bank_repository.load_bundle(
+                course_id
+            )
+            selected_items = [
+                item
+                for item in (raw_bundle or {}).get("items") or []
+                if str(item.get("revision_id") or "")
+                in requested_revisions
+            ]
+        found_revisions = {
+            str(item.get("revision_id") or "")
+            for item in selected_items
+        }
+        unknown = sorted(
+            requested_revisions - found_revisions
+        )
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "question_bank_rebuild_items_unknown",
+                    "revision_ids": unknown,
+                },
+            )
+        payload.node_ids = sorted({
+            str(node_id)
+            for item in selected_items
+            for node_id in (
+                item.get("node_ids")
+                or [item.get("node_id")]
+            )
+            if node_id
+        })
+        if not payload.node_ids:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "question_bank_rebuild_item_nodes_missing",
+                },
+            )
     job, created = (
         question_bank_rebuild_job_repository.create_job(
             course_id,
             request_id=payload.request_id,
             scope=payload.scope,
             node_ids=payload.node_ids,
+            revision_ids=payload.revision_ids,
             mode=payload.mode,
             actor_id=actor_id,
+            worker_id=str(
+                getattr(
+                    question_bank_rebuild_executor,
+                    "instance_id",
+                    "question-bank-worker",
+                )
+            ),
         )
     )
     if created:
@@ -285,6 +496,11 @@ async def _run_rebuild_job(
             retryable=exc.status_code >= 500,
         )
     except Exception as exc:
+        logger.exception(
+            "Question-bank rebuild failed: course_id=%s job_id=%s",
+            course_id,
+            job_id,
+        )
         repository.fail(
             job_id,
             code="question_bank_rebuild_failed",
@@ -363,11 +579,61 @@ async def _execute_question_bank_rebuild(
         stage_id="question_generation",
         message="正在生成三层候选题",
     )
+
+    async def report_generation_progress(
+        event: dict[str, Any],
+    ) -> None:
+        completed_items = int(event.get("completed_items") or 0)
+        total_items = max(1, int(event.get("total_items") or 1))
+        progress = 50 + min(
+            9,
+            int(completed_items * 9 / total_items),
+        )
+        repository.heartbeat(
+            job_id,
+            stage_id="question_generation",
+            progress=progress,
+            message=(
+                f"正在生成第 {completed_items}/{total_items} 道候选题"
+            ),
+            details=event,
+        )
+
+    assessment_profile = compile_course_assessment_profile(
+        course_for_bank
+    )
+    assessment_objectives = compile_assessment_objectives(
+        course_for_bank,
+        assessment_profile,
+    )
+    assessment_blueprint = compile_course_assessment_blueprint(
+        course_for_bank,
+        profile=assessment_profile,
+        objectives=assessment_objectives,
+    )
+    reference_package = compile_local_reference_package(
+        course_for_bank,
+        objectives=assessment_objectives,
+        blueprint=assessment_blueprint,
+    )
+    reference_package = await enrich_reference_package_with_web(
+        course_for_bank,
+        reference_package,
+        objectives=assessment_objectives,
+    )
     course_for_bank = (
         await assessment_generation_orchestrator.prepare_course(
-            course_for_bank
+            course_for_bank,
+            node_ids=(
+                payload.node_ids
+                if payload.scope in {"nodes", "items"}
+                else None
+            ),
+            on_progress=report_generation_progress,
+            reference_package=reference_package,
         )
     )
+    _require_complete_generation(course_for_bank)
     initial_assets = compile_learning_assets(
         course_for_bank,
         legacy_tasks=legacy_tasks,
@@ -400,7 +666,6 @@ async def _execute_question_bank_rebuild(
         stage_id="independent_solving",
         message="正在执行独立求解与确定性验证",
     )
-    bundle = await enrich_question_bank_with_web(course_for_bank, bundle)
     repository.advance(
         job_id,
         stage_id="quality_validation",
@@ -412,6 +677,12 @@ async def _execute_question_bank_rebuild(
             bundle,
             node_ids=payload.node_ids,
             preserve_reviewed=payload.mode == "incremental",
+        )
+    elif payload.scope == "items":
+        bundle = reconcile_item_question_bank(
+            previous,
+            bundle,
+            revision_ids=payload.revision_ids,
         )
     else:
         bundle = reconcile_question_bank(
@@ -495,6 +766,50 @@ async def _execute_question_bank_rebuild(
             message="题库与课程修订发布完成",
         )
     return response
+
+
+def _require_complete_generation(
+    course: dict[str, Any],
+) -> None:
+    """Fail before persistence when any planned slot was discarded."""
+    audit = course.get("_assessment_generation_audit") or {}
+    items = audit.get("items") or []
+    planned_count = int(audit.get("planned_item_count") or 0)
+    failure_count = int(audit.get("failure_count") or 0)
+    discarded = sum(
+        str(item.get("final_decision") or "") == "discard"
+        for item in items
+        if isinstance(item, dict)
+    )
+    if (
+        not planned_count
+        or len(items) != planned_count
+        or failure_count
+        or discarded
+    ):
+        failures = [
+            {
+                "node_id": str(item.get("node_id") or ""),
+                "practice_level": str(
+                    item.get("practice_level") or ""
+                ),
+                "error_code": str(item.get("error_code") or ""),
+                "last_attempt": deepcopy(
+                    (item.get("attempts") or [{}])[-1]
+                ),
+            }
+            for item in items
+            if isinstance(item, dict)
+            and str(item.get("final_decision") or "") == "discard"
+        ]
+        raise RuntimeError(
+            "question_generation_incomplete:"
+            f"planned={planned_count},"
+            f"completed={len(items)},"
+            f"failed={failure_count},"
+            f"discarded={discarded},"
+            f"details={failures[:5]}"
+        )
 
 
 def _rebuild_response(
@@ -940,8 +1255,8 @@ async def get_question_bank_item_solution(
     ),
 ):
     require_user_id(x_user_id)
-    await get_course_or_404(course_id)
-    bundle = _require_bundle(course_id)
+    course = await get_course_or_404(course_id)
+    bundle = _require_bundle(course)
     item = next(
         (
             candidate
@@ -994,8 +1309,8 @@ async def review_question(
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     reviewer_id = require_user_id(x_user_id)
-    await get_course_or_404(course_id)
-    bundle = _require_bundle(course_id)
+    course = await get_course_or_404(course_id)
+    bundle = _require_bundle(course)
     _require_expected_revision(bundle, payload.expected_bundle_revision_id)
     try:
         updated = review_question_bank_item(
@@ -1021,8 +1336,8 @@ async def revise_question(
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     editor_id = require_user_id(x_user_id)
-    await get_course_or_404(course_id)
-    bundle = _require_bundle(course_id)
+    course = await get_course_or_404(course_id)
+    bundle = _require_bundle(course)
     _require_expected_revision(bundle, payload.expected_bundle_revision_id)
     try:
         updated = revise_question_bank_item(
@@ -1050,8 +1365,13 @@ async def revise_question(
     }
 
 
-def _require_bundle(course_id: str) -> dict[str, Any]:
-    bundle = question_bank_repository.load_bundle(course_id)
+def _require_bundle(
+    course: dict[str, Any],
+) -> dict[str, Any]:
+    bundle = load_active_question_bank(
+        course,
+        repository=question_bank_repository,
+    )
     if not bundle:
         raise HTTPException(
             status_code=404,

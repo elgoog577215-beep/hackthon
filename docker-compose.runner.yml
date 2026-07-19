@@ -1,0 +1,43 @@
+services:
+  app:
+    build:
+      context: .
+    ports:
+      - "7860:7860"
+    environment:
+      FORMAL_RUNNER_URL: http://formal-runner:8091
+      FORMAL_RUNNER_TOKEN: ${FORMAL_RUNNER_TOKEN:?required}
+    depends_on:
+      formal-runner:
+        condition: service_healthy
+
+  formal-runner:
+    build:
+      context: ./runner
+    environment:
+      FORMAL_RUNNER_TOKEN: ${FORMAL_RUNNER_TOKEN:?required}
+      RUNNER_DATA_DIR: /var/lib/lingzhi-runner
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner-data:/var/lib/lingzhi-runner
+    group_add:
+      - "${DOCKER_GID:-999}"
+    ports:
+      # Keep the judge private while still allowing a host-run API process
+      # and local acceptance tests to reach it.
+      - "127.0.0.1:8091:8091"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8091/internal/health',headers={'Authorization':'Bearer '+os.environ['FORMAL_RUNNER_TOKEN']}); urllib.request.urlopen(r,timeout=2)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  runner-data:

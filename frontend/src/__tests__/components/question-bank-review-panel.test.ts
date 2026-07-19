@@ -102,22 +102,27 @@ describe('QuestionBankReviewPanel', () => {
     })
   })
 
-  it('展示覆盖矩阵摘要并只要求处理阻断题', async () => {
+  it('展示覆盖矩阵并允许浏览全部题目', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: { courseId: 'course-1' },
     })
     await flushPromises()
 
-    expect(get).toHaveBeenCalledWith('/api/courses/course-1/question-bank')
+    expect(get).toHaveBeenCalledWith(
+      '/api/courses/course-1/question-bank',
+      { silentError: true },
+    )
     expect(wrapper.text()).toContain('4 / 4')
-    expect(wrapper.text()).toContain('待审核 1')
+    expect(wrapper.text()).toContain('当前可用题目')
+    expect(wrapper.text()).toContain('1 道高风险题等待发布前确认')
+    expect(wrapper.text()).toContain('浏览全部题目')
     expect(wrapper.text()).toContain('thermodynamics')
     expect(wrapper.text()).toContain('解释热力学过程并验证能量守恒')
     expect(wrapper.text()).toContain('给定材料，完成跨章节分析并检查结论。')
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
   })
 
-  it('携带题库版本批准候选并刷新审核队列', async () => {
+  it('携带题库版本批准高风险题并保留在浏览列表', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: { courseId: 'course-1' },
     })
@@ -133,7 +138,124 @@ describe('QuestionBankReviewPanel', () => {
         expected_bundle_revision_id: 'qbb-1',
       },
     )
-    expect(get).toHaveBeenCalledTimes(2)
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
+    expect(wrapper.text()).toContain('已发布')
+  })
+
+  it('普通题自动发布并出现在完整浏览列表', async () => {
+    get.mockResolvedValueOnce({
+      data: {
+        bundle_revision_id: 'qbb-sample',
+        assessment_profile: {
+          subject_family: 'programming_engineering',
+          domain: 'python',
+          education_stage: 'undergraduate',
+          confidence: 0.96,
+        },
+        assessment_objectives: [],
+        coverage: {
+          required_objective_count: 1,
+          covered_objective_count: 1,
+          coverage_ratio: 1,
+        },
+        review_queue: { blocking_count: 0, sample_count: 0 },
+        web_enrichment: { status: 'not_needed', source_count: 0 },
+        items: [{
+          item_id: 'sample-1',
+          revision_id: 'sample-revision-1',
+          prompt: '解释 Python 对象模型中的类型关系。',
+          assessment_role: 'concept_check',
+          lifecycle_status: 'approved',
+          review_status: 'approved',
+          review_tier: 'auto_publish',
+          risk_flags: [],
+          quality_report: { passed: true, status: 'passed' },
+          source_records: [{ source_type: 'course_knowledge_base' }],
+          objective_id: 'objective-1',
+          archetype_id: 'concept_explanation',
+          validation_mode: 'rubric_validator',
+          generation_status: 'published',
+        }],
+      },
+    })
+
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-1' },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('当前可用题目')
+    expect(wrapper.text()).toContain('已发布')
+    expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
+  })
+
+  it('打回已发布题后按题目修订异步重做', async () => {
+    get.mockResolvedValueOnce({
+      data: {
+        bundle_revision_id: 'qbb-published',
+        assessment_profile: {},
+        assessment_objectives: [],
+        coverage: {
+          required_objective_count: 1,
+          covered_objective_count: 1,
+          coverage_ratio: 1,
+        },
+        review_queue: { blocking_count: 0 },
+        web_enrichment: {},
+        items: [{
+          item_id: 'item-published',
+          revision_id: 'revision-published',
+          prompt: '这是一道已经发布的练习题。',
+          assessment_role: 'practice',
+          lifecycle_status: 'approved',
+          review_status: 'approved',
+          review_tier: 'auto_publish',
+          risk_flags: [],
+          quality_report: { passed: true, status: 'passed' },
+          node_id: 'node-1',
+          generation_status: 'published',
+        }],
+      },
+    })
+    post.mockResolvedValueOnce({
+      data: {
+        bundle_revision_id: 'qbb-rejected',
+        review_queue: { blocking_count: 0 },
+        item: {
+          revision_id: 'revision-published',
+          lifecycle_status: 'rejected',
+          generation_status: 'rework_requested',
+        },
+      },
+    })
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-1' },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="rework-question"]').trigger('click')
+    await flushPromises()
+
+    expect(post).toHaveBeenCalledWith(
+      '/api/courses/course-1/question-bank/items/revision-published/reviews',
+      {
+        decision: 'rejected',
+        note: '',
+        expected_bundle_revision_id: 'qbb-published',
+      },
+    )
+    expect(runQuestionBankRebuild).toHaveBeenCalledWith(
+      'course-1',
+      {
+        request_id: expect.any(String),
+        scope: 'items',
+        node_ids: [],
+        revision_ids: ['revision-published'],
+        mode: 'incremental',
+      },
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
+    )
   })
 
   it('支持按节点异步重建并展示真实阶段', async () => {

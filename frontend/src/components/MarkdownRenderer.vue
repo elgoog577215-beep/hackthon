@@ -11,10 +11,14 @@ import { renderMermaidSvg } from '../utils/mermaid'
 import http from '../utils/http'
 import { ElMessage } from 'element-plus'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   content: string
   searchWords?: string[]
-}>()
+  enableCodeRun?: boolean
+}>(), {
+  searchWords: () => [],
+  enableCodeRun: true,
+})
 
 const containerRef = ref<HTMLElement | null>(null)
 const renderedContent = ref('')
@@ -107,7 +111,7 @@ const codeLanguage = (codeEl: HTMLElement) => {
 
 const enhanceCodeBlocks = async () => {
     await nextTick()
-    if (!containerRef.value) return
+    if (!containerRef.value || !props.enableCodeRun) return
     const blocks = containerRef.value.querySelectorAll('pre > code')
     blocks.forEach((codeEl) => {
         const code = codeEl as HTMLElement

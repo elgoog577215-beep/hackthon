@@ -77,6 +77,19 @@ def test_unanswered_normal_string_question_is_not_graded_correct():
     assert result["passed"] is False
 
 
+def test_multiple_choice_grading_is_order_independent():
+    result = PracticeGrader._grade_deterministic(
+        {
+            "type": "choice",
+            "correct_option_ids": ["A", "C"],
+        },
+        {"selected_option_ids": ["C", "A"]},
+    )
+
+    assert result["passed"] is True
+    assert result["score"] == 100
+
+
 @pytest.mark.asyncio
 async def test_rubric_grading_recovers_single_numeric_literal_noise(monkeypatch):
     grader = PracticeGrader()

@@ -227,7 +227,8 @@ export interface GenerateCourseParams {
   course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
   asset_preferences?: Record<string, boolean>;
   web_question_enrichment?: {
-    enabled: boolean;
+    mode?: 'auto_on_gap' | 'off' | 'always';
+    enabled?: boolean;
   };
 }
 

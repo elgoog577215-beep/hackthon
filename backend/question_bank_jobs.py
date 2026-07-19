@@ -51,6 +51,8 @@ class QuestionBankRebuildJobRepository:
         node_ids: list[str],
         mode: str,
         actor_id: str,
+        revision_ids: list[str] | None = None,
+        worker_id: str = "",
     ) -> tuple[dict[str, Any], bool]:
         normalized_course_id = _storage_id(course_id)
         normalized_scope = str(scope or "course")
@@ -60,26 +62,65 @@ class QuestionBankRebuildJobRepository:
             for value in node_ids
             if str(value).strip()
         })
-        if normalized_scope not in {"course", "nodes"}:
-            raise ValueError("scope must be course or nodes")
+        normalized_revisions = sorted({
+            str(value).strip()
+            for value in revision_ids or []
+            if str(value).strip()
+        })
+        if normalized_scope not in {"course", "nodes", "items"}:
+            raise ValueError("scope must be course, nodes, or items")
         if normalized_mode not in {"incremental", "full"}:
             raise ValueError("mode must be incremental or full")
         if normalized_scope == "nodes" and not normalized_nodes:
             raise ValueError("node_ids are required when scope is nodes")
+        if normalized_scope == "items" and not normalized_revisions:
+            raise ValueError(
+                "revision_ids are required when scope is items"
+            )
         if normalized_scope == "course":
             normalized_nodes = []
+            normalized_revisions = []
+        elif normalized_scope == "nodes":
+            normalized_revisions = []
         request_key = str(request_id or uuid4().hex).strip()
+        normalized_actor_id = str(actor_id or "")[:200]
+        normalized_worker_id = str(worker_id or "")[:200]
         job_id = stable_hash(
             {
                 "course_id": normalized_course_id,
                 "request_id": request_key,
                 "scope": normalized_scope,
                 "node_ids": normalized_nodes,
+                "revision_ids": normalized_revisions,
                 "mode": normalized_mode,
             },
             prefix="qbr_",
         )
         with self._lock:
+            directory = self.root_dir / normalized_course_id
+            if directory.exists():
+                for active_path in directory.glob("*.json"):
+                    active = self._read(active_path)
+                    if not _same_active_scope(
+                        active,
+                        scope=normalized_scope,
+                        node_ids=normalized_nodes,
+                        revision_ids=normalized_revisions,
+                        mode=normalized_mode,
+                        actor_id=normalized_actor_id,
+                    ):
+                        continue
+                    active_worker_id = str(
+                        active.get("worker_id") or ""
+                    )
+                    if (
+                        normalized_worker_id
+                        and active_worker_id != normalized_worker_id
+                    ):
+                        _mark_worker_restarted(active)
+                        self._write(active_path, active)
+                        continue
+                    return deepcopy(active), False
             path = self._path(normalized_course_id, job_id)
             if path.exists():
                 return self._read(path), False
@@ -92,8 +133,10 @@ class QuestionBankRebuildJobRepository:
                 "request_key": request_key,
                 "scope": normalized_scope,
                 "node_ids": normalized_nodes,
+                "revision_ids": normalized_revisions,
                 "mode": normalized_mode,
-                "actor_id": str(actor_id or "")[:200],
+                "actor_id": normalized_actor_id,
+                "worker_id": normalized_worker_id,
                 "status": "queued",
                 "progress": 0,
                 "current_stage": QUESTION_BANK_REBUILD_STAGES[0][0],
@@ -263,6 +306,47 @@ class QuestionBankRebuildJobRepository:
             self._write(path, job)
             return deepcopy(job)
 
+    def heartbeat(
+        self,
+        job_id: str,
+        *,
+        stage_id: str,
+        progress: int,
+        message: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        stage_ids = [
+            value for value, _ in QUESTION_BANK_REBUILD_STAGES
+        ]
+        if stage_id not in stage_ids:
+            raise ValueError(f"unknown rebuild stage: {stage_id}")
+        with self._lock:
+            path, job = self._load_by_job_id(job_id)
+            if job.get("status") in {
+                "completed",
+                "waiting_review",
+                "failed",
+            }:
+                raise ValueError("cannot heartbeat a terminal rebuild job")
+            if str(job.get("current_stage") or "") != stage_id:
+                raise ValueError("heartbeat stage must match current stage")
+            stage_index = stage_ids.index(stage_id)
+            next_stage_progress = int(
+                (stage_index + 1) * 100
+                / len(QUESTION_BANK_REBUILD_STAGES)
+            )
+            bounded_progress = min(
+                max(int(progress), int(job.get("progress") or 0)),
+                max(0, next_stage_progress - 1),
+            )
+            job["progress"] = bounded_progress
+            if message:
+                job["message"] = str(message)[:1000]
+            job["stage_details"] = deepcopy(details or {})
+            job["updated_at"] = _now()
+            self._write(path, job)
+            return deepcopy(job)
+
     def fail(
         self,
         job_id: str,
@@ -322,6 +406,45 @@ def _storage_id(value: str) -> str:
     if not _ID_RE.fullmatch(normalized):
         raise ValueError("invalid storage identifier")
     return normalized
+
+
+def _same_active_scope(
+    job: dict[str, Any],
+    *,
+    scope: str,
+    node_ids: list[str],
+    revision_ids: list[str],
+    mode: str,
+    actor_id: str,
+) -> bool:
+    return (
+        str(job.get("status") or "") in {"queued", "running"}
+        and str(job.get("scope") or "") == scope
+        and sorted(str(value) for value in job.get("node_ids") or [])
+        == node_ids
+        and sorted(
+            str(value)
+            for value in job.get("revision_ids") or []
+        ) == revision_ids
+        and str(job.get("mode") or "") == mode
+        and str(job.get("actor_id") or "") == actor_id
+    )
+
+
+def _mark_worker_restarted(job: dict[str, Any]) -> None:
+    job["status"] = "failed"
+    current_index = int(job.get("current_stage_index") or 0)
+    stages = job.get("stages") or []
+    if 0 <= current_index < len(stages):
+        stages[current_index]["status"] = "failed"
+    job["message"] = "服务已重启，请重新提交题库重建任务"
+    job["error"] = {
+        "code": "rebuild_worker_restarted",
+        "message": "后台生成进程已重启，原任务已安全终止",
+        "retryable": True,
+    }
+    job["completed_at"] = _now()
+    job["updated_at"] = job["completed_at"]
 
 
 def _now() -> str:

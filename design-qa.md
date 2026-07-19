@@ -210,6 +210,131 @@ final result: passed
 
 final result: passed
 
+---
+
+# 2026-07-19 练习题参考材料折叠 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-51da8b98-91b7-4e10-be2d-841cfb355e6f.png`
+- implementation screenshot path: `D:\lingzhi\hackthon\design-qa-practice-collapsed-material.png`
+- mobile implementation screenshot path: `D:\lingzhi\hackthon\design-qa-practice-collapsed-material-mobile.png`
+- viewport: desktop `2022 × 1042`，mobile `390 × 844`
+- state: Python 高级编程课程，1.1 Python 对象模型与类型系统，当前练习第 1 题，参考材料默认收起
+- full-view comparison evidence: `D:\lingzhi\hackthon\design-qa-practice-collapsed-material-comparison.png`
+- focused region comparison evidence: 全景并排图中的题目主区域已足够清楚，可直接比较原先占满视口的课程材料与修复后的任务卡、折叠入口和作答区
+
+**Findings**
+
+- 无可执行的 P0/P1/P2 差异。进入练习后，真正的作答任务完整出现在首屏，参考材料默认收起，作答输入区紧随其后。
+- 字体与排版：沿用现有字体和字号体系；“作答任务”使用 13px 强调标题，任务正文保持 15px 可读字号；参考材料的标题、说明和操作形成清晰的三级信息层级。
+- 间距与布局：桌面端任务卡、参考材料和作答区间距稳定；移动端没有水平溢出，任务内容、折叠行和作答框均完整落在 390px 视口内。
+- 色彩与视觉令牌：任务卡使用现有绿色强调色和中性白底；参考材料使用已有浅绿色图标底、灰色边框和正文色，不新增视觉体系。
+- 图片与资源：该区域没有课程图片资源；继续使用项目已有 Lucide 图标，不存在占位图、CSS 图形或低清资源替代。
+- 文案与内容：“作答任务”优先展示；“参考材料 / 课程原文较长，需要时再展开查看 / 展开材料”明确说明内容性质和操作结果。
+- 交互：原生 `details/summary` 支持键盘聚焦、展开和收起；切换到另一道题时，题目修订 ID 作为 key，参考材料会恢复默认收起状态。
+
+**Implementation Checklist**
+
+- [x] 将题目拆分为 `task` 与 `material` 两个独立展示字段。
+- [x] 作答任务固定显示在参考材料之前。
+- [x] 参考材料默认收起，可按需展开与再次收起。
+- [x] 展开后保留完整 Markdown、代码块、列表和图表能力。
+- [x] 换题时重新创建折叠区域，避免继承上一题的展开状态。
+- [x] 完成桌面与 390px 移动端适配。
+
+**Comparison History**
+
+- 初始 P1：课程原文、图表和代码占据几乎整个练习视口，真正的作答任务需要滚动到底部才能看到。
+- 修复：从题目契约的 `input_materials` 中分离课程材料，将剩余题干作为作答任务；作答任务提升到首屏，课程原文放入默认关闭的参考材料折叠区。
+- 修复后桌面证据：`D:\lingzhi\hackthon\design-qa-practice-collapsed-material.png`
+- 修复后移动端证据：`D:\lingzhi\hackthon\design-qa-practice-collapsed-material-mobile.png`
+
+**Primary Interactions Tested**
+
+- 从课程页打开当前练习。
+- 确认首屏直接显示作答任务，参考材料默认关闭。
+- 点击“展开材料”，真实页面显示 13 个 Markdown 标题和 5 个代码块。
+- 点击“收起材料”，参考材料正文再次隐藏。
+- 在 390 × 844 视口打开移动端练习，主要内容和底部操作完整可用。
+- Console errors/warnings checked: `0`。
+
+**Automated Verification**
+
+- 相关测试：4 个文件、42 个测试通过。
+- 最终聚焦测试：2 个文件、9 个测试通过。
+- 前端生产构建及 Vue TypeScript 检查：通过。
+
+**Open Questions**
+
+- 无。
+
+**Follow-up Polish**
+
+- 无阻断性 P3 建议。
+
+final result: passed
+
+---
+
+# 2026-07-19 练习题 Markdown 排版 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-1b2266d6-9db0-40f4-b711-f9463528d38f.png`
+- implementation screenshot path: `D:\lingzhi\hackthon\design-qa-practice-markdown.png`
+- viewport: `2191 × 1015`（与问题截图一致）
+- state: Python 高级编程课程，1.1 Python 对象模型与类型系统，当前练习第 1 题
+- full-view comparison evidence: `D:\lingzhi\hackthon\design-qa-practice-markdown-comparison.png`
+- focused region comparison evidence: 并排图中完整保留题目正文区域，能够直接比较原始单段文本与修复后的标题、段落、列表及代码层级
+
+**Findings**
+
+- 无可执行的 P0/P1/P2 差异。题目不再以一整段原始字符串展示，而是复用产品现有的安全 Markdown 渲染链路。
+- 字体与排版：建立 H1/H2/H3 层级、正常正文行高、段落留白和列表缩进；长内容保持左对齐，阅读节奏清晰。
+- 间距与布局：题目正文使用独立白色内容卡，分隔线、标题和正文采用一致的垂直节奏；底部作答工具栏不遮挡正文。
+- 色彩与视觉令牌：延续现有深色正文、绿色强调色、中性边框和浅色背景，不引入新的品牌色。
+- 代码与技术内容：行内代码、围栏代码块、列表、强调文本、表格及 Mermaid 继续使用现有 Markdown 能力；练习页关闭代码运行按钮，仅保留阅读和复制能力。
+- 文案与内容：清理 `<!-- BODY_START -->` 等内部注释；课程材料与实际作答要求之间增加分隔线和“作答任务”标题。
+- 截断兜底：课程材料被题库截断在未闭合代码围栏中时，前端自动闭合围栏，防止后续作答任务被错误吞入代码块。
+
+**Implementation Checklist**
+
+- [x] 使用现有 `MarkdownRenderer` 渲染正式练习题目。
+- [x] 保留 Markdown 原始换行、标题、列表、代码块和强调格式。
+- [x] 隐藏内部 HTML 注释标记。
+- [x] 将课程材料和作答任务明确分区。
+- [x] 对未闭合代码围栏做显示层兜底。
+- [x] 长题目在原有独立滚动容器内阅读，滚动条正常可见。
+- [x] 小屏样式降低标题字号和内容卡内边距。
+
+**Comparison History**
+
+- 初始 P1：题目通过普通 `<h3>{{ currentQuestion.prompt }}</h3>` 输出，浏览器折叠换行，Markdown 标记和正文全部挤成一坨。
+- 修复：改为安全 Markdown 组件，并增加练习题专用格式化函数，分离材料与任务、去除内部注释、闭合截断围栏。
+- 修复后视觉证据：`D:\lingzhi\hackthon\design-qa-practice-markdown.png`
+- 修复后结构证据：真实页面题目区域包含 14 个标题、29 个段落、5 组列表、5 个代码块；`BODY_START` 可见次数为 0；“作答任务”独立标题为 1。
+
+**Primary Interactions Tested**
+
+- 从课程页点击“练习”打开正式练习弹层。
+- 当前练习正确恢复为第 1/3 题。
+- 题目正文按 Markdown 层级渲染，列表、行内代码和代码块均可辨识。
+- 页面滚动区域正常，固定底部作答操作未遮挡正文。
+- Console errors/warnings checked: `0`。
+
+**Automated Verification**
+
+- 相关测试：4 个文件、41 个测试通过。
+- 最终聚焦测试：2 个文件、8 个测试通过。
+- 前端生产构建：通过。
+
+**Open Questions**
+
+- 无。
+
+**Follow-up Polish**
+
+- 无阻断性 P3 建议。
+
+final result: passed
+
 ## Reference and implementation
 
 - Reference concept: `C:\Users\Lenovo\.codex\generated_images\019f75a5-d3f1-7ac1-8ffb-186183c11e21\call_hGVGrTlQ2epqUk3BfYD5mWbV.png`
@@ -259,3 +384,112 @@ final result: passed
 4. Verified Escape dismissal and focus restoration.
 5. Verified the mobile bottom-sheet adaptation at 390 × 844.
 6. Re-ran the complete frontend test suite, production build, and TypeScript check.
+
+---
+
+# 2026-07-19 题库审核连续滚动 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-96afe83c-7138-4b80-96d3-313dd1c2bdbc.png`
+- implementation screenshot path: `D:\lingzhi\hackthon\design-qa-question-bank-scrollbar-scrolled.png`
+- viewport: `1280 × 720`（参考图按实现宽度等比缩放并裁切到同一视口）
+- state: Python 高级编程题库审核弹窗，覆盖矩阵滚动至高阶函数/装饰器附近
+- full-view comparison evidence: `D:\lingzhi\hackthon\design-qa-question-bank-comparison.png`
+- focused region comparison evidence: 未单独裁切；并排图中题目行、状态、重建按钮及右侧滚动条均清晰可辨
+
+**Findings**
+
+- 无可执行的 P0/P1/P2 差异。审核详情区拥有独立、常驻的纵向滚动轨道，真实页面从 `scrollTop=0` 滚动到 `760` 后仍停留在相同弹窗内。
+- 字体与排版：未改变既有字族、字号、字重、行高及题目层级；动态题目文案保持原样。
+- 间距与布局：保留原有双栏审核中心和题目行密度；滚动条通过稳定 gutter 占位，不挤压题目状态或操作按钮。
+- 色彩与视觉令牌：滚动轨道使用现有灰蓝中性色，滑块与背景有清晰对比；原有待审核状态色和卡片底色未变。
+- 图片与资源：该界面没有内容图片或插画；现有 Lucide 图标未替换。
+- 文案与内容：课程名、审核状态、节点标题和操作文案均未改动。
+- 行为：批准/拒绝成功后使用接口返回的题目、版本和审核队列就地更新，不再触发整块题库重新加载，因此不会因加载态收缩而回到顶部。
+
+**Open Questions**
+
+- 无。
+
+**Implementation Checklist**
+
+- [x] 审核详情区始终显示纵向滚动条。
+- [x] 使用稳定滚动条占位，避免内容宽度抖动。
+- [x] 批准/拒绝后就地更新当前题目和待审核数量。
+- [x] 清理已处理题目的备注与已加载答案缓存。
+- [x] 保留版本冲突时重新加载的安全兜底。
+
+**Comparison History**
+
+- 初始 P1：批准/拒绝后调用完整 `load()`，组件进入加载态，长内容瞬间收缩并把滚动位置钳制到顶部。
+- 修复：移除成功路径的完整重新加载，直接消费审核接口返回的 `bundle_revision_id`、`review_queue` 和 `item`；同时为详情区增加常驻、可见的滚动轨道。
+- 修复后视觉证据：`D:\lingzhi\hackthon\design-qa-question-bank-scrollbar-scrolled.png`
+- 修复后结构证据：真实页面 `overflow-y: scroll`、`scrollbar-gutter: stable`、`scrollHeight=510235`、`clientHeight=617`，滚动操作后 `scrollTop=760`。
+
+**Primary Interactions Tested**
+
+- 从课程库打开 Python 高级编程的题库审核中心。
+- 题库真实数据加载完成，待审核 196 条正常显示。
+- 右侧详情区从顶部向下滚动，滚动位置由 0 变为 760。
+- 审核成功路径由组件测试验证：仅加载题库一次，批准后题目原位移除且待审核计数更新为 0。
+- Console errors checked: `0`。
+
+**Follow-up Polish**
+
+- 无阻断性 P3 建议。
+
+final result: passed
+
+---
+
+# 2026-07-19 课程 / 大纲 / 教案壳层统一 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-9d610842-b879-44bb-bedb-daa6cae0fa02.png`
+- undesirable state reference path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-6316dbec-12fb-484b-ad99-3611d37d0002.png`
+- normalized course baseline path: `D:\lingzhi\hackthon\design-qa-course-shell.png`
+- implementation screenshot path: `D:\lingzhi\hackthon\design-qa-lesson-plan-final.png`
+- desktop viewport: `2048 × 1095`
+- mobile viewport: `390 × 844`
+- state: Python 高级编程课程，教案标签激活，教学资源为空
+- full-view comparison evidence: `D:\lingzhi\hackthon\design-qa-course-vs-lesson-plan.png`
+- focused region comparison evidence: `D:\lingzhi\hackthon\design-qa-course-vs-lesson-plan-top.png`
+
+**Findings**
+
+- 无可执行的 P0/P1/P2 差异。大纲和教案不再覆盖整个浏览器窗口，而是稳定地替换课程主面板内容。
+- 字体与排版：复用课程页现有字体、字号、字重和导航标签样式；资源标题与空状态文案保持不变。
+- 间距与布局节奏：课程与教案状态下，应用顶部栏均为 `2028 × 60`，左侧目录均为 `280 × 1005`，课程主面板均为 `1736 × 1005`；课程栏与资源栏均为 `58px` 高，标签组均为 `333 × 43` 且坐标一致。
+- 色彩与视觉令牌：沿用既有品牌紫、灰蓝文字、白色面板、边框和阴影，没有引入新的视觉语言。
+- 图片与资源：界面仅使用既有品牌 Logo 和图标库图标，没有以 CSS、字符或占位图替代可见资产。
+- 文案与内容：保留“课程大纲”“课程教案”“还没有可用的教学资源”“从当前课程生成”等现有产品文案。
+- 响应式：`390 × 844` 下资源栏固定为 `52px`，顶部品牌栏和底部学习工具栏保留，页面无横向溢出。
+- 可访问性：大纲 / 教案可见时，被覆盖的课程栏、正文和底栏使用 `inert` 与 `aria-hidden` 隔离，避免键盘焦点或读屏落入背后内容。
+
+**Comparison History**
+
+- 初始 P1：资源工作区使用 `position: fixed; inset: 0` 和 `100vw × 100dvh`，切换后遮住顶部品牌栏与左侧课程目录，形成明显的全屏放大和布局跳变。
+- 修复：将教学资源层约束为课程主面板内的绝对定位层，桌面栏高统一为 `58px`，移动端统一为 `52px`，并保留独立知识库原有的全屏工作区行为。
+- 修复后证据：`D:\lingzhi\hackthon\design-qa-course-vs-lesson-plan.png` 显示课程与教案两种状态的外层框架、尺寸和坐标保持一致。
+
+**Primary Interactions Tested**
+
+- 课程 → 大纲：主面板尺寸不变，顶部品牌栏和左侧目录保留。
+- 大纲 → 教案：仅资源类型和激活标签变化，框架尺寸不变。
+- 教案 → 课程：资源层关闭并恢复原课程正文，主面板尺寸不变。
+- 课程 → 练习 → 大纲：练习与资源工作区均保持在课程主面板内。
+- 移动端练习 → 大纲：资源栏固定为 `52px`，四个标签和操作区可用。
+- Console errors checked: 仅存在示例课程尚未迁移而无法编译教学资源的既有数据错误；该错误对应用户参考图中的空状态，不是本次壳层修改产生的布局或交互错误。
+
+**Automated Verification**
+
+- 3 个相关测试文件、13 个测试通过。
+- Vue TypeScript 检查与前端生产构建通过。
+
+**Open Questions**
+
+- 无。
+
+**Follow-up Polish**
+
+- 无阻断性 P3 建议。
+
+final result: passed

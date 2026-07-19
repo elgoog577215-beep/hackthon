@@ -13,7 +13,12 @@
     </Transition>
 
     <main class="learning-main glass-panel-elevated">
-      <div class="learning-context-bar" :class="{ 'is-generation': isGenerationPreview }">
+      <div
+        class="learning-context-bar"
+        :class="{ 'is-generation': isGenerationPreview }"
+        :inert="resourcesOpen"
+        :aria-hidden="resourcesOpen ? 'true' : undefined"
+      >
         <div class="context-leading">
           <button v-if="!navigatorVisible" type="button" :title="t('learningShell.openNavigator', '打开课程目录')" :aria-label="t('learningShell.openNavigator', '打开课程目录')" @click="navigatorOpen = true">
             <PanelLeftOpen :size="17" />
@@ -50,6 +55,8 @@
       <ContentArea
         ref="contentAreaRef"
         :side-ai-panel-visible="aiVisible"
+        :inert="resourcesOpen"
+        :aria-hidden="resourcesOpen ? 'true' : undefined"
         class="learning-content"
         @quote-ask="openAi"
         @start-practice="openTask"
@@ -58,6 +65,8 @@
 
       <LearningDock
         v-if="!isGenerationPreview"
+        :inert="resourcesOpen"
+        :aria-hidden="resourcesOpen ? 'true' : undefined"
         :location="dockLocation"
         :note-count="noteCount"
         :mistake-count="mistakeCount"

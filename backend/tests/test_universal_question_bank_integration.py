@@ -220,6 +220,73 @@ def test_question_bank_filters_v2_generation_metadata():
     )
 
 
+def test_low_risk_deterministic_questions_auto_publish():
+    course = _course(
+        course_id="course-programming-diagnostics",
+        mode="programming_engineering",
+        node_name="内存泄漏检测与诊断方法",
+        objective="诊断并修复 Python 内存泄漏",
+        content=(
+            "给定 tracemalloc 快照、引用链和失败测试。"
+            "需要定位泄漏原因、提交修复代码并执行回归测试。"
+        ),
+        assessment="提交代码、测试和诊断依据",
+    )
+
+    bundle = build_question_bank(course)
+    practice = [
+        item
+        for item in bundle["items"]
+        if item.get("assessment_role") == "practice"
+    ]
+
+    assert len(practice) == 3
+    assert {
+        item["review_tier"] for item in practice
+    } == {"auto_publish"}
+    assert all(
+        item["lifecycle_status"] == "approved"
+        and item["generation_status"] == "published"
+        and not item["review_required"]
+        for item in practice
+    )
+
+
+def test_valid_question_families_do_not_create_teacher_tasks():
+    course = _course(
+        course_id="course-family-sample",
+        mode="programming_engineering",
+        node_name="并发代码测试",
+        objective="定位竞态条件并验证修复",
+        content=(
+            "给定线程安全要求、失败测试和执行轨迹。"
+            "需要修复代码并补充边界测试。"
+        ),
+        assessment="提交代码、测试和执行证据",
+    )
+
+    bundle = build_question_bank(course)
+    practice = [
+        item
+        for item in bundle["items"]
+        if item.get("assessment_role") == "practice"
+    ]
+    assert len(practice) == 3
+    assert all(
+        item["review_tier"] == "auto_publish"
+        and item["lifecycle_status"] == "approved"
+        and item["review_status"] == "approved"
+        and item["generation_status"] == "published"
+        for item in practice
+    )
+    assert bundle["review_queue"]["sample_count"] == 0
+    assert bundle["review_queue"]["sample_items"] == []
+    assert bundle["review_policy"][
+        "default_publish_after_validation"
+    ] is True
+    assert bundle["review_policy"]["post_publication_rework"] is True
+
+
 def test_practice_student_payload_uses_public_allowlist():
     internal = {
         "revision_id": "qr-1",

@@ -9,8 +9,9 @@ export type QuestionBankRebuildStatus =
 
 export interface QuestionBankRebuildRequest {
   request_id: string
-  scope: 'course' | 'nodes'
+  scope: 'course' | 'nodes' | 'items'
   node_ids: string[]
+  revision_ids?: string[]
   mode: 'incremental' | 'full'
 }
 
@@ -32,6 +33,7 @@ export interface QuestionBankRebuildJob {
 
 interface RebuildOptions {
   pollIntervalMs?: number
+  rateLimitBackoffMs?: number
   maxPolls?: number
   onUpdate?: (job: QuestionBankRebuildJob) => void
   signal?: AbortSignal
@@ -68,7 +70,11 @@ export async function runQuestionBankRebuild(
   )
   let job = normalizeJob(created.data)
   options.onUpdate?.(job)
-  const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? 800)
+  const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? 2500)
+  const rateLimitBackoffMs = Math.max(
+    0,
+    options.rateLimitBackoffMs ?? 5000,
+  )
   const maxPolls = Math.max(1, options.maxPolls ?? 450)
   let pollCount = 0
 
@@ -91,7 +97,23 @@ export async function runQuestionBankRebuild(
     if (pollIntervalMs > 0) {
       await new Promise(resolve => setTimeout(resolve, pollIntervalMs))
     }
-    const response = await http.get(job.status_url)
+    let response
+    try {
+      response = await http.get(job.status_url, { silentError: true })
+    } catch (error: any) {
+      if (Number(error?.response?.status || 0) !== 429) throw error
+      pollCount += 1
+      job = {
+        ...job,
+        message: '请求较多，系统正在自动重试…',
+      }
+      options.onUpdate?.(job)
+      await wait(
+        retryAfterMilliseconds(error, rateLimitBackoffMs),
+        options.signal,
+      )
+      continue
+    }
     const next = normalizeJob({
       ...job,
       ...(response.data || {}),
@@ -108,6 +130,44 @@ export async function runQuestionBankRebuild(
     throw new QuestionBankRebuildError(job)
   }
   return job
+}
+
+async function wait(
+  milliseconds: number,
+  signal?: AbortSignal,
+) {
+  if (signal?.aborted) {
+    throw new DOMException('Question bank rebuild aborted', 'AbortError')
+  }
+  if (milliseconds <= 0) return
+  await new Promise<void>((resolve, reject) => {
+    const handleAbort = () => {
+      clearTimeout(timeoutId)
+      reject(new DOMException(
+        'Question bank rebuild aborted',
+        'AbortError',
+      ))
+    }
+    const timeoutId = setTimeout(() => {
+      signal?.removeEventListener('abort', handleAbort)
+      resolve()
+    }, milliseconds)
+    signal?.addEventListener('abort', handleAbort, { once: true })
+  })
+}
+
+function retryAfterMilliseconds(
+  error: any,
+  fallback: number,
+) {
+  const headers = error?.response?.headers
+  const retryAfter = typeof headers?.get === 'function'
+    ? headers.get('retry-after')
+    : headers?.['retry-after']
+  const seconds = Number(retryAfter)
+  return Number.isFinite(seconds) && seconds >= 0
+    ? seconds * 1000
+    : fallback
 }
 
 function normalizeJob(value: Record<string, unknown>): QuestionBankRebuildJob {

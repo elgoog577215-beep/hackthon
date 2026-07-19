@@ -302,11 +302,6 @@
               <p v-else-if="reviewError" class="blueprint-error">{{ reviewError }}</p>
             </section>
 
-            <QuestionBankReviewPanel
-              v-if="courseExists(selectedTask.courseId) && ['completed', 'completed_with_warnings'].includes(selectedTask.status)"
-              :course-id="selectedTask.courseId"
-            />
-
             <section v-if="selectedTask.status === 'error' || selectedTask.status === 'completed_with_warnings' || selectedTask.status === 'conflict'" class="task-notice" :data-status="selectedTask.status">
               <TriangleAlert :size="18" />
               <div>
@@ -366,7 +361,6 @@ import {
 import { useCourseStore } from '@/stores/course'
 import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import { useGenerationStore } from '@/stores/generation'
-import QuestionBankReviewPanel from '@/components/QuestionBankReviewPanel.vue'
 import type { GuidedGenerationStepKey, Task } from '@/stores/types'
 import { activeLocale, t } from '@/shared/i18n'
 

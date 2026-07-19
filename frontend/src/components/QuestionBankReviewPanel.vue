@@ -3,7 +3,7 @@
     <header class="question-bank-panel__header">
       <div>
         <p>{{ t('questionBank.eyebrow', '教师工作区') }}</p>
-        <h3 id="question-bank-title">{{ t('questionBank.title', '课程题库与风险审核') }}</h3>
+        <h3 id="question-bank-title">{{ t('questionBank.title', '课程题库质量管理') }}</h3>
       </div>
       <button type="button" :disabled="loading || rebuilding" @click="rebuild()">
         <RefreshCw :size="14" :class="{ spin: rebuilding }" />
@@ -43,9 +43,12 @@
           <small>{{ Math.round(Number(coverage.coverage_ratio || 0) * 100) }}%</small>
         </article>
         <article>
-          <span>{{ t('questionBank.reviewQueue', '风险队列') }}</span>
-          <strong>{{ t('questionBank.pendingCount', '待审核 {count}').replace('{count}', String(reviewQueue.blocking_count || 0)) }}</strong>
-          <small>{{ t('questionBank.blockingOnly', '只列出阻断题') }}</small>
+          <span>{{ t('questionBank.availableQuestions', '当前可用题目') }}</span>
+          <strong>{{ publishedCount }} {{ t('questionBank.questionUnit', '道') }}</strong>
+          <small>
+            {{ t('questionBank.exceptionReviewHint', '普通题自动生效；{count} 道高风险题等待发布前确认')
+              .replace('{count}', String(reviewQueue.blocking_count || 0)) }}
+          </small>
         </article>
         <article>
           <span>{{ t('questionBank.webSources', '联网补充') }}</span>
@@ -95,16 +98,43 @@
         </div>
       </section>
 
-      <div v-if="reviewItems.length" class="question-review-list">
+      <section class="question-browser">
+        <header>
+          <div>
+            <strong>{{ t('questionBank.browseTitle', '浏览全部题目') }}</strong>
+            <small>{{ browseItems.length }} / {{ activeItems.length }}</small>
+          </div>
+          <div class="question-browser__controls">
+            <label>
+              <Search :size="14" />
+              <input
+                v-model="browserQuery"
+                type="search"
+                :placeholder="t('questionBank.searchQuestion', '搜索题目内容')"
+              />
+            </label>
+            <select v-model="browserStatus">
+              <option value="all">{{ t('questionBank.filter.all', '全部状态') }}</option>
+              <option value="published">{{ t('questionBank.filter.published', '已发布') }}</option>
+              <option value="mandatory">{{ t('questionBank.filter.mandatory', '发布前审核') }}</option>
+              <option value="rework">{{ t('questionBank.filter.rework', '重做中') }}</option>
+            </select>
+          </div>
+        </header>
+      </section>
+
+      <div v-if="browseItems.length" class="question-review-list">
         <article
-          v-for="item in reviewItems"
+          v-for="item in browseItems"
           :key="item.revision_id"
           data-testid="question-review-item"
           class="question-review-item"
         >
           <header>
             <span>{{ roleLabel(item.assessment_role) }}</span>
-            <small>{{ riskLabel(item.risk_flags) }}</small>
+            <small :data-status="item.lifecycle_status">
+              {{ itemStatusLabel(item) }}
+            </small>
           </header>
           <p>{{ item.prompt }}</p>
           <dl>
@@ -151,23 +181,33 @@
           </section>
           <textarea
             v-model="reviewNotes[item.revision_id]"
-            :placeholder="t('questionBank.reviewNote', '可选：填写审核说明')"
+            :placeholder="t('questionBank.reworkNote', '可选：说明哪里有问题，帮助下一版改进')"
           />
           <footer>
             <button
               type="button"
               class="question-review-item__reject"
+              data-testid="rework-question"
               :disabled="actingRevision === item.revision_id"
-              @click="review(item, 'rejected')"
+              @click="rework(item)"
             >
-              <X :size="14" />{{ t('questionBank.reject', '拒绝') }}
+              <RefreshCw
+                v-if="actingRevision === item.revision_id"
+                :size="14"
+                class="spin"
+              />
+              <X v-else :size="14" />
+              {{ item.lifecycle_status === 'rejected'
+                ? t('questionBank.retryRework', '重新尝试')
+                : t('questionBank.rework', '打回重做') }}
             </button>
             <button
+              v-if="item.lifecycle_status === 'needs_review'"
               type="button"
               class="question-review-item__approve"
               data-testid="approve-question"
               :disabled="actingRevision === item.revision_id"
-              @click="review(item, 'approved')"
+              @click="approve(item)"
             >
               <Check :size="14" />{{ t('questionBank.approve', '批准') }}
             </button>
@@ -176,8 +216,8 @@
       </div>
       <div v-else class="question-bank-panel__empty">
         <CircleCheck :size="21" />
-        <strong>{{ t('questionBank.noBlocking', '没有待处理的阻断题') }}</strong>
-        <span>{{ t('questionBank.noBlockingHelp', '普通高质量题已自动生效；综合题仍需教师逐项确认。') }}</span>
+        <strong>{{ t('questionBank.noMatchingQuestions', '没有符合条件的题目') }}</strong>
+        <span>{{ t('questionBank.noMatchingQuestionsHelp', '调整搜索内容或状态筛选后再试。') }}</span>
       </div>
     </template>
   </section>
@@ -191,6 +231,7 @@ import {
   Eye,
   LoaderCircle,
   RefreshCw,
+  Search,
   TriangleAlert,
   X,
 } from 'lucide-vue-next'
@@ -215,6 +256,8 @@ interface QuestionBankItem {
   archetype_id?: string
   validation_mode?: string
   generation_status?: string
+  review_status?: string
+  review_tier?: 'auto_publish' | 'sample_review' | 'mandatory_review'
 }
 
 interface AssessmentObjective {
@@ -235,7 +278,7 @@ const actingRevision = ref('')
 const errorMessage = ref('')
 const bundleRevisionId = ref('')
 const coverage = ref<Record<string, number>>({})
-const reviewQueue = ref<Record<string, number>>({})
+const reviewQueue = ref<Record<string, any>>({})
 const webEnrichment = ref<Record<string, unknown>>({})
 const assessmentProfile = ref<Record<string, any>>({})
 const assessmentObjectives = ref<AssessmentObjective[]>([])
@@ -244,8 +287,42 @@ const reviewNotes = reactive<Record<string, string>>({})
 const rebuildJob = ref<QuestionBankRebuildJob | null>(null)
 const solutionLoadingRevision = ref('')
 const solutions = reactive<Record<string, Record<string, any>>>({})
+const browserQuery = ref('')
+const browserStatus = ref<'all' | 'published' | 'mandatory' | 'rework'>('all')
 
-const reviewItems = computed(() => items.value.filter(item => item.lifecycle_status === 'needs_review'))
+const activeItems = computed(() => items.value.filter(
+  item => item.lifecycle_status !== 'retired',
+))
+const publishedCount = computed(() => activeItems.value.filter(
+  item => item.lifecycle_status === 'approved',
+).length)
+const browseItems = computed(() => {
+  const keyword = browserQuery.value.trim().toLocaleLowerCase()
+  return activeItems.value.filter(item => {
+    const matchesQuery = !keyword || [
+      item.prompt,
+      item.assessment_role,
+      item.node_id,
+      item.objective_id,
+    ].some(value => String(value || '').toLocaleLowerCase().includes(keyword))
+    const matchesStatus = (
+      browserStatus.value === 'all'
+      || (
+        browserStatus.value === 'published'
+        && item.lifecycle_status === 'approved'
+      )
+      || (
+        browserStatus.value === 'mandatory'
+        && item.lifecycle_status === 'needs_review'
+      )
+      || (
+        browserStatus.value === 'rework'
+        && item.lifecycle_status === 'rejected'
+      )
+    )
+    return matchesQuery && matchesStatus
+  })
+})
 const objectiveRows = computed(() => assessmentObjectives.value.map(objective => {
   const related = items.value.filter(item => (
     item.objective_id === objective.objective_id
@@ -308,7 +385,10 @@ async function load() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const response = await http.get(`/api/courses/${props.courseId}/question-bank`)
+    const response = await http.get(
+      `/api/courses/${props.courseId}/question-bank`,
+      { silentError: true },
+    )
     const data = response.data || {}
     bundleRevisionId.value = String(data.bundle_revision_id || '')
     coverage.value = data.coverage || {}
@@ -377,18 +457,12 @@ async function loadSolution(item: QuestionBankItem) {
   }
 }
 
-async function review(item: QuestionBankItem, decision: 'approved' | 'rejected') {
+async function approve(item: QuestionBankItem) {
   actingRevision.value = item.revision_id
   try {
-    await http.post(
-      `/api/courses/${props.courseId}/question-bank/items/${item.revision_id}/reviews`,
-      {
-        decision,
-        note: reviewNotes[item.revision_id] || '',
-        expected_bundle_revision_id: bundleRevisionId.value,
-      },
-    )
-    await load()
+    await submitDecision(item, 'approved')
+    delete reviewNotes[item.revision_id]
+    delete solutions[item.revision_id]
     emit('updated', bundleRevisionId.value)
   } catch (error: any) {
     errorMessage.value = error?.response?.status === 409
@@ -398,6 +472,94 @@ async function review(item: QuestionBankItem, decision: 'approved' | 'rejected')
   } finally {
     actingRevision.value = ''
   }
+}
+
+async function rework(item: QuestionBankItem) {
+  if (!props.courseId || actingRevision.value) return
+  actingRevision.value = item.revision_id
+  rebuilding.value = true
+  errorMessage.value = ''
+  try {
+    if (item.lifecycle_status !== 'rejected') {
+      await submitDecision(item, 'rejected')
+    }
+    await runQuestionBankRebuild(
+      props.courseId,
+      {
+        request_id: crypto.randomUUID(),
+        scope: 'items',
+        node_ids: [],
+        revision_ids: [item.revision_id],
+        mode: 'incremental',
+      },
+      {
+        onUpdate: job => {
+          rebuildJob.value = job
+        },
+      },
+    )
+    delete reviewNotes[item.revision_id]
+    delete solutions[item.revision_id]
+    await load()
+    emit('updated', bundleRevisionId.value)
+  } catch (error: any) {
+    errorMessage.value = error?.response?.status === 409
+      ? t('questionBank.conflict', '题库已被其他操作更新，已重新加载。')
+      : t(
+        'questionBank.reworkFailed',
+        '题目已从练习中下架，但重新生成失败；可在“重做中”再次尝试。',
+      )
+    if (error?.response?.status === 409) await load()
+  } finally {
+    actingRevision.value = ''
+    rebuilding.value = false
+  }
+}
+
+async function submitDecision(
+  item: QuestionBankItem,
+  decision: 'approved' | 'rejected',
+) {
+  const response = await http.post(
+    `/api/courses/${props.courseId}/question-bank/items/${item.revision_id}/reviews`,
+    {
+      decision,
+      note: reviewNotes[item.revision_id] || '',
+      expected_bundle_revision_id: bundleRevisionId.value,
+    },
+  )
+  const data = response.data || {}
+  const updatedItem = data.item || {
+    ...item,
+    lifecycle_status: decision,
+  }
+  const itemIndex = items.value.findIndex(
+    candidate => candidate.revision_id === item.revision_id,
+  )
+  if (itemIndex >= 0) {
+    items.value.splice(itemIndex, 1, {
+      ...items.value[itemIndex],
+      ...updatedItem,
+    })
+  }
+  bundleRevisionId.value = String(
+    data.bundle_revision_id || bundleRevisionId.value,
+  )
+  reviewQueue.value = data.review_queue || reviewQueue.value
+  return updatedItem
+}
+
+function itemStatusLabel(item: QuestionBankItem) {
+  if (item.lifecycle_status === 'approved') {
+    return t('questionBank.status.published', '已发布')
+  }
+  if (item.lifecycle_status === 'rejected') {
+    return t('questionBank.status.rework', '已下架 · 等待重做')
+  }
+  if (item.lifecycle_status === 'needs_review') {
+    return `${t('questionBank.status.mandatory', '发布前审核')} · ${riskLabel(item.risk_flags)}`
+  }
+  return item.lifecycle_status
 }
 
 function roleLabel(role: string) {
@@ -474,11 +636,22 @@ function formatValue(value: unknown) {
 .question-bank-progress { display:grid; grid-template-columns:1fr auto; gap:8px 12px; padding:12px 14px; border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; }.question-bank-progress div { display:grid; gap:2px; }.question-bank-progress strong { color:#1e3a8a; font-size:12px; }.question-bank-progress span,.question-bank-progress b { color:#475569; font-size:10px; }.question-bank-progress i { grid-column:1/-1; height:5px; overflow:hidden; border-radius:999px; background:#dbeafe; }.question-bank-progress i span { display:block; height:100%; border-radius:inherit; background:#2563eb; transition:width .25s ease; }
 .assessment-profile,.assessment-matrix { display:grid; gap:10px; padding:13px; border:1px solid var(--lz-border); border-radius:11px; background:#fff; }.assessment-profile header,.assessment-matrix>header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }.assessment-profile header div,.assessment-matrix>header div { display:grid; gap:3px; }.assessment-profile span,.assessment-matrix span { color:var(--lz-text-muted); font-size:10px; }.assessment-profile strong,.assessment-matrix strong { color:var(--lz-text-strong); font-size:12px; }.assessment-profile small,.assessment-matrix small,.assessment-profile p { margin:0; color:var(--lz-text-muted); font-size:10px; line-height:1.55; }
 .assessment-matrix__rows { display:grid; gap:6px; }.assessment-matrix__rows article { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:10px; padding:9px 10px; border-radius:8px; background:var(--lz-surface-muted); }.assessment-matrix__rows article>div { min-width:0; display:grid; gap:3px; }.assessment-matrix__rows article>strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.assessment-matrix__rows article>span { padding:3px 6px; border-radius:999px; color:#475569; background:#e2e8f0; }.assessment-matrix__rows article>span[data-status="covered"] { color:#047857; background:#d1fae5; }.assessment-matrix__rows article>span[data-status="review"] { color:#b45309; background:#fef3c7; }.assessment-matrix__rows article>span[data-status="failed"] { color:#b91c1c; background:#fee2e2; }.assessment-matrix__rows button { display:inline-flex; align-items:center; gap:5px; padding:6px 8px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; }
+.question-browser { position:sticky; top:0; z-index:2; padding:10px 12px; border:1px solid var(--lz-border); border-radius:10px; background:rgba(255,255,255,.96); backdrop-filter:blur(8px); }
+.question-browser>header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.question-browser>header>div:first-child { display:flex; align-items:baseline; gap:7px; }
+.question-browser strong { color:var(--lz-text-strong); font-size:12px; }
+.question-browser small { color:var(--lz-text-muted); font-size:10px; }
+.question-browser__controls { display:flex; align-items:center; gap:8px; }
+.question-browser__controls label { min-width:220px; display:flex; align-items:center; gap:7px; padding:0 9px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-muted); background:#fff; }
+.question-browser__controls input { min-width:0; width:100%; height:31px; border:0; outline:0; color:var(--lz-text); background:transparent; font-size:11px; }
+.question-browser__controls select { height:33px; padding:0 28px 0 9px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-secondary); background:#fff; font-size:11px; }
 .question-review-list { display: grid; gap: 11px; }
 .question-review-item { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--lz-border); border-radius: 11px; background: #fff; }
 .question-review-item > header, .question-review-item > footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .question-review-item > header span { color: var(--lz-brand-strong); font-size: 11px; font-weight: 750; }
-.question-review-item > header small { color: #b45309; font-size: 10px; }
+.question-review-item > header small { padding:3px 7px; border-radius:999px; color:#b45309; background:#fef3c7; font-size:10px; }
+.question-review-item > header small[data-status="approved"] { color:#047857; background:#d1fae5; }
+.question-review-item > header small[data-status="rejected"] { color:#b91c1c; background:#fee2e2; }
 .question-review-item p { margin: 0; color: var(--lz-text); font-size: 12px; line-height: 1.65; white-space: pre-line; }
 .question-review-item dl { display: flex; flex-wrap: wrap; gap: 14px; margin: 0; }
 .question-review-item dl div { display: flex; gap: 5px; font-size: 10px; }
@@ -497,5 +670,5 @@ function formatValue(value: unknown) {
 .question-bank-panel__empty span { max-width: 420px; font-size: 11px; }
 .spin { animation: question-bank-spin .9s linear infinite; }
 @keyframes question-bank-spin { to { transform: rotate(360deg); } }
-@media (max-width: 720px) { .question-bank-summary { grid-template-columns: 1fr; }.assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__rows button { grid-column:1/-1; justify-self:start; }.question-solution-diff { grid-template-columns:1fr; } }
+@media (max-width: 720px) { .question-bank-summary { grid-template-columns: 1fr; }.assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__rows button { grid-column:1/-1; justify-self:start; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; } }
 </style>

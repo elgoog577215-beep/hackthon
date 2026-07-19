@@ -185,6 +185,8 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
     expect(wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' }).props('visible')).toBe(true)
     expect(wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' }).props('activeType')).toBe('outline')
+    expect(wrapper.get('.learning-context-bar').attributes('inert')).toBeDefined()
+    expect(wrapper.get('.learning-context-bar').attributes('aria-hidden')).toBe('true')
 
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.find('.ai-panel-stub').exists()).toBe(true)

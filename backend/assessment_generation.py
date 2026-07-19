@@ -6,12 +6,14 @@ from copy import deepcopy
 from typing import Any
 
 from assessment_contracts import (
+    ASSESSMENT_ARCHETYPES,
     QUESTION_SPEC_V2_SCHEMA,
     SOLUTION_ENVELOPE_SCHEMA,
     compile_assessment_objectives,
     compile_course_assessment_profile,
     select_assessment_archetype,
 )
+from assessment_blueprint import input_contract_for_slot
 from assessment_validators import validate_solution_envelope
 from course_versioning import stable_hash
 
@@ -25,6 +27,8 @@ def generate_universal_question_contract(
     practice_level: str,
     variant_index: int,
     independent_solution: Any = None,
+    slot: dict[str, Any] | None = None,
+    references: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Generate a grounded candidate through a domain-neutral archetype."""
     resolved_profile = profile or compile_course_assessment_profile(
@@ -43,20 +47,41 @@ def generate_universal_question_contract(
     )
     if not resolved_objective:
         raise ValueError("assessment objective is required")
-    archetype = select_assessment_archetype(
-        resolved_objective,
-        resolved_profile,
-    )
+    if (
+        slot
+        and str(slot.get("archetype_id") or "")
+        in ASSESSMENT_ARCHETYPES
+    ):
+        archetype = deepcopy(
+            ASSESSMENT_ARCHETYPES[str(slot["archetype_id"])]
+        )
+        archetype.update({
+            "archetype_id": str(slot["archetype_id"]),
+            "selection_method": "course_assessment_blueprint_v2",
+            "selection_confidence": 1.0,
+            "objective_id": resolved_objective.get("objective_id"),
+        })
+    else:
+        archetype = select_assessment_archetype(
+            resolved_objective,
+            resolved_profile,
+        )
     content = _question_content(
         resolved_objective,
         archetype,
         practice_level,
         variant_index,
+        slot=slot,
+        references=references or [],
     )
     solution_body = _solution_body(
         resolved_objective,
         archetype,
         content,
+        validation_mode=(
+            str((slot or {}).get("validation_mode") or "")
+            or None
+        ),
     )
     solution_revision_id = stable_hash(
         {
@@ -104,6 +129,7 @@ def generate_universal_question_contract(
         "task": deepcopy(content["task"]),
         "constraints": deepcopy(content["constraints"]),
         "response_contract": deepcopy(content["response_contract"]),
+        "input_contract": deepcopy(content["input_contract"]),
         "provenance": {
             "course_id": str(course_data.get("course_id") or ""),
             "source_priority": (
@@ -137,7 +163,7 @@ def generate_universal_question_contract(
         str(content["stimulus"]["rendered_text"]),
         str(content["task"]["rendered_text"]),
     ]).strip()
-    return {
+    result = {
         "schema_version": "universal_question_contract_v1",
         "prompt": prompt,
         "deliverable": content["task"]["deliverable"],
@@ -147,6 +173,7 @@ def generate_universal_question_contract(
         "constraints": deepcopy(content["constraints"]),
         "result_checks": deepcopy(content["result_checks"]),
         "question_type": _question_type(archetype["archetype_id"]),
+        "input_contract": deepcopy(content["input_contract"]),
         "estimated_minutes": _estimated_minutes(practice_level),
         "question_spec": question_spec,
         "solution_envelope": solution_envelope,
@@ -160,6 +187,9 @@ def generate_universal_question_contract(
             False,
         ),
     }
+    if slot and slot.get("question_type"):
+        result["question_type"] = str(slot["question_type"])
+    return result
 
 
 def _question_content(
@@ -167,6 +197,9 @@ def _question_content(
     archetype: dict[str, Any],
     practice_level: str,
     variant_index: int,
+    *,
+    slot: dict[str, Any] | None = None,
+    references: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     objective_text = str(objective.get("objective") or "")
     source = str(objective.get("source_excerpt") or "").strip()
@@ -175,6 +208,15 @@ def _question_content(
             f"当前课程目标为“{objective_text}”。"
             "课程尚未提供足够正文，以下内容只能作为待教师完善的候选。"
         )
+    source_limit = (
+        2400
+        if archetype["archetype_id"] in {
+            "evidence_argument",
+            "data_interpretation",
+        }
+        else 800
+    )
+    source = source[:source_limit]
     source_label = (
         "给定课程材料"
         if objective.get("source_sufficiency") == "sufficient"
@@ -185,6 +227,19 @@ def _question_content(
         objective,
         practice_level,
         variant_index,
+    )
+    family = str((slot or {}).get("discipline_family") or "")
+    input_contract = deepcopy(
+        (slot or {}).get("input_contract")
+        or input_contract_for_slot(
+            {
+                "input_mode": (
+                    (slot or {}).get("input_mode")
+                    or "rich_text"
+                )
+            },
+            family=family or "general",
+        )
     )
     return {
         "stimulus": {
@@ -211,6 +266,11 @@ def _question_content(
                 archetype["archetype_id"]
             ),
         },
+        "input_contract": input_contract,
+        "reference_patterns": [
+            deepcopy(reference.get("pattern") or {})
+            for reference in (references or [])[:3]
+        ],
         "result_checks": [
             "最终产物回应全部任务要求",
             "关键判断能够定位到材料、规则或计算步骤",
@@ -223,9 +283,14 @@ def _solution_body(
     objective: dict[str, Any],
     archetype: dict[str, Any],
     content: dict[str, Any],
+    *,
+    validation_mode: str | None = None,
 ) -> dict[str, Any]:
     archetype_id = archetype["archetype_id"]
-    validation_mode = archetype["eligible_validation_modes"][0]
+    resolved_validation_mode = (
+        validation_mode
+        or archetype["eligible_validation_modes"][0]
+    )
     rubric = _rubric(archetype_id, objective)
     canonical = {
         "objective": objective.get("objective"),
@@ -237,7 +302,7 @@ def _solution_body(
         ),
     }
     return {
-        "validation_mode": validation_mode,
+        "validation_mode": resolved_validation_mode,
         "canonical_answer": canonical,
         "acceptable_answers": [],
         "rubric": rubric,

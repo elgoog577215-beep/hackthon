@@ -6,6 +6,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from assessment_blueprint import (
+    compile_course_assessment_blueprint,
+    slot_for,
+)
+from assessment_contracts import (
+    compile_assessment_objectives,
+    compile_course_assessment_profile,
+)
+from assessment_generation import generate_universal_question_contract
 from course_versions import CourseVersionRepository
 from learning_asset_storage import LearningAssetRepository
 from question_bank import QuestionBankRepository, build_question_bank
@@ -46,6 +55,96 @@ class BlockingRebuildExecutor:
         )
         worker.start()
         worker.join()
+
+
+class DeterministicAssessmentOrchestrator:
+    """Keep API tests local and independent from provider availability."""
+
+    async def prepare_course(
+        self,
+        course_data,
+        *,
+        node_ids=None,
+        on_progress=None,
+        reference_package=None,
+    ):
+        prepared = deepcopy(course_data)
+        profile = compile_course_assessment_profile(prepared)
+        objectives = compile_assessment_objectives(prepared, profile)
+        blueprint = compile_course_assessment_blueprint(
+            prepared,
+            profile=profile,
+            objectives=objectives,
+        )
+        objective_by_node = {
+            str(objective["node_id"]): objective
+            for objective in objectives
+        }
+        requested = set(node_ids or []) if node_ids is not None else None
+        contracts = {}
+        audit_items = []
+        completed = 0
+        target_nodes = [
+            node
+            for node in prepared.get("nodes") or []
+            if int(node.get("node_level") or 1) == 2
+            and (
+                requested is None
+                or str(node.get("node_id") or "") in requested
+            )
+        ]
+        total = len(target_nodes) * 3
+        for node in target_nodes:
+            node_id = str(node.get("node_id") or "")
+            objective = objective_by_node[node_id]
+            contracts[node_id] = {}
+            for variant_index, practice_level in enumerate((
+                "concept_check",
+                "objective_practice",
+                "mastery_check",
+            )):
+                slot = slot_for(
+                    blueprint,
+                    node_id=node_id,
+                    practice_level=practice_level,
+                )
+                contract = generate_universal_question_contract(
+                    prepared,
+                    node,
+                    profile=profile,
+                    objective=objective,
+                    practice_level=practice_level,
+                    variant_index=variant_index,
+                    slot=slot,
+                    references=[],
+                )
+                contracts[node_id][practice_level] = contract
+                audit_items.append({
+                    "node_id": node_id,
+                    "practice_level": practice_level,
+                    "final_decision": "publish",
+                    "attempts": [{"attempt": 1, "passed": True}],
+                })
+                completed += 1
+                if on_progress is not None:
+                    await on_progress({
+                        "node_id": node_id,
+                        "practice_level": practice_level,
+                        "completed_items": completed,
+                        "total_items": total,
+                    })
+        prepared["_assessment_generated_contracts"] = contracts
+        prepared["_assessment_generation_audit"] = {
+            "schema_version": "question_generation_audit_v2",
+            "planned_item_count": total,
+            "failure_count": 0,
+            "items": audit_items,
+        }
+        prepared["_course_assessment_blueprint"] = blueprint
+        prepared["_question_reference_package"] = (
+            deepcopy(reference_package) if reference_package else {}
+        )
+        return prepared
 
 
 def _course():
@@ -105,6 +204,11 @@ def _client(monkeypatch, tmp_path):
         question_bank,
         "question_bank_rebuild_executor",
         BlockingRebuildExecutor(),
+    )
+    monkeypatch.setattr(
+        question_bank,
+        "assessment_generation_orchestrator",
+        DeterministicAssessmentOrchestrator(),
     )
     monkeypatch.setattr(question_bank, "storage", course_storage, raising=False)
     monkeypatch.setattr(question_bank, "get_course_or_404", get_course)

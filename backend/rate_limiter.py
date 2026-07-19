@@ -7,6 +7,7 @@
 import time
 import threading
 import logging
+import re
 from collections import defaultdict
 from typing import Dict, Tuple
 from fastapi import Request, HTTPException
@@ -66,6 +67,9 @@ RATE_LIMITS = {
     # 默认
     "_default": (60, 60),
 }
+QUESTION_BANK_REBUILD_STATUS_RE = re.compile(
+    r"^/api/courses/[^/]+/question-bank/rebuilds/[^/]+$"
+)
 
 
 def _get_client_ip(request: Request) -> str:
@@ -78,8 +82,16 @@ def _get_client_ip(request: Request) -> str:
     return "unknown"
 
 
-def _match_rate_limit(path: str) -> Tuple[int, int]:
+def _match_rate_limit(
+    path: str,
+    method: str = "",
+) -> Tuple[int, int]:
     """根据路径匹配速率限制规则"""
+    if (
+        method.upper() == "GET"
+        and QUESTION_BANK_REBUILD_STATUS_RE.fullmatch(path)
+    ):
+        return 120, 60
     for prefix, limits in RATE_LIMITS.items():
         if prefix.startswith("/") and path.startswith(prefix):
             return limits
@@ -100,7 +112,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         client_ip = _get_client_ip(request)
-        max_requests, window = _match_rate_limit(path)
+        max_requests, window = _match_rate_limit(
+            path,
+            request.method,
+        )
         key = f"{client_ip}:{path}"
 
         if not _counter.is_allowed(key, max_requests, window):
@@ -108,6 +123,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=429,
                 content={"detail": "请求过于频繁，请稍后再试"},
+                headers={"Retry-After": str(window)},
             )
 
         # 定期清理（每 100 次请求）

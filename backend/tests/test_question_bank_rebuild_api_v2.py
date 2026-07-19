@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 
 from fastapi import FastAPI
@@ -67,6 +68,44 @@ def _client(monkeypatch, tmp_path):
     app = FastAPI()
     app.include_router(question_bank.router, prefix="/api")
     return TestClient(app), jobs, executor
+
+
+def test_rebuild_executor_reuses_one_event_loop_across_jobs(
+    monkeypatch,
+):
+    loop_ids: list[int] = []
+    shared_lock = asyncio.Lock()
+
+    async def fake_run_rebuild_job(**_kwargs):
+        async with shared_lock:
+            loop_ids.append(id(asyncio.get_running_loop()))
+            await asyncio.sleep(0.01)
+
+    monkeypatch.setattr(
+        question_bank,
+        "_run_rebuild_job",
+        fake_run_rebuild_job,
+    )
+    executor = question_bank.QuestionBankRebuildExecutor(
+        max_workers=2,
+    )
+    try:
+        futures = [
+            executor.submit(
+                job_id=f"job-{index}",
+                course_id="course-jobs",
+                payload=None,
+                course={"course_id": "course-jobs"},
+            )
+            for index in range(3)
+        ]
+        for future in futures:
+            future.result(timeout=2)
+    finally:
+        executor.shutdown()
+
+    assert len(loop_ids) == 3
+    assert len(set(loop_ids)) == 1
 
 
 def test_rebuild_api_creates_real_job_and_supports_status_lookup(
@@ -163,3 +202,46 @@ def test_rebuild_management_requires_identity(monkeypatch, tmp_path):
     )
 
     assert created.status_code == 400
+
+
+def test_rebuild_api_accepts_item_scope_and_resolves_its_node(
+    monkeypatch,
+    tmp_path,
+):
+    client, _, executor = _client(monkeypatch, tmp_path)
+
+    class ItemBank:
+        @staticmethod
+        def load_bundle(_course_id: str):
+            return {
+                "course_id": "course-jobs",
+                "items": [{
+                    "item_id": "item-1",
+                    "revision_id": "revision-1",
+                    "node_id": "node-1",
+                    "node_ids": ["node-1"],
+                }],
+            }
+
+    monkeypatch.setattr(
+        question_bank,
+        "question_bank_repository",
+        ItemBank(),
+    )
+
+    created = client.post(
+        "/api/courses/course-jobs/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-item-rework",
+            "scope": "items",
+            "revision_ids": ["revision-1"],
+            "mode": "incremental",
+        },
+    )
+
+    assert created.status_code == 202
+    assert created.json()["scope"] == "items"
+    assert created.json()["revision_ids"] == ["revision-1"]
+    assert created.json()["node_ids"] == ["node-1"]
+    assert executor.submissions[0]["payload"]["scope"] == "items"
