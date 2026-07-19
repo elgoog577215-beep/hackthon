@@ -5,11 +5,17 @@ from copy import deepcopy
 import course_evolution
 import pytest
 from rate_limiter import _match_rate_limit
-from course_document import document_from_legacy_course
+from course_document import (
+    CourseBlock,
+    document_from_legacy_course,
+    refresh_document_revision,
+)
 from course_repository import CourseDocumentRepository
 from course_evolution import (
+    CourseEvolutionOperation,
     CourseEvolutionPlan,
     CourseEvolutionRepository,
+    CourseEvolutionState,
     accept_change_set,
     course_evolution_view,
     create_adjustment_plan,
@@ -19,6 +25,7 @@ from course_evolution import (
     synchronize_and_evaluate_course_evolution,
     undo_change_set,
 )
+from course_revisions import revision_vector_for_document
 
 
 class _MemoryCourseStorage:
@@ -71,6 +78,100 @@ def _course() -> dict:
 
 def _document_repository(course: dict) -> CourseDocumentRepository:
     return CourseDocumentRepository(_MemoryCourseStorage(course))
+
+
+def _legacy_overlay_state(course: dict) -> tuple[CourseEvolutionState, object]:
+    document = document_from_legacy_course(course)
+    target = next(block for block in document.blocks if block.status != "retired")
+    vector = revision_vector_for_document(document).revisions
+    operation = CourseEvolutionOperation(
+        operation_id="legacy-operation-1",
+        operation_type="INSERT_PERSONAL_SUPPORT",
+        target_block_id=target.block_id,
+        target_section_id=target.section_id,
+        reason="legacy personalized explanation",
+        payload={"body": "legacy support"},
+    )
+    plan = CourseEvolutionPlan(
+        plan_kind="personal_adaptation_plan",
+        write_target="personal_overlay",
+        change_set_id="legacy-plan-1",
+        user_id="student-a",
+        course_id=document.course_id,
+        hypothesis_id="legacy-hypothesis-1",
+        base_revision_vector={
+            f"block:{target.block_id}": vector[f"block:{target.block_id}"],
+            f"section:{target.section_id}": vector[f"section:{target.section_id}"],
+        },
+        operations=[operation],
+        selected_scope="current",
+        selected_operation_ids=[operation.operation_id],
+        expected_effect="explain the difficult point",
+        status="applied",
+        created_at="2026-07-17T00:00:00+00:00",
+        updated_at="2026-07-17T00:00:00+00:00",
+    )
+    state = CourseEvolutionState(
+        user_id="student-a",
+        course_id=document.course_id,
+        change_sets=[plan],
+        revision="legacy-state-1",
+        updated_at="2026-07-17T00:00:00+00:00",
+    )
+    return state, document
+
+
+def test_legacy_personal_overlay_rebases_when_block_anchor_is_unchanged():
+    state, document = _legacy_overlay_state(_course())
+    target = document.blocks[0]
+    document.blocks.append(CourseBlock(
+        block_id="new-sibling-block",
+        section_id=target.section_id,
+        position=target.position + 1,
+        kind="callout",
+        role="summary",
+        payload={"markdown": "new base course content"},
+    ))
+    updated = refresh_document_revision(document)
+    current_vector = revision_vector_for_document(updated).revisions
+
+    overlay = personal_course_overlay(
+        state,
+        current_revision_vector=current_vector,
+    )
+    projected = project_applied_adaptive_blocks(
+        state,
+        current_revision_vector=current_vector,
+    )
+
+    assert overlay.resolution_status == "active"
+    assert overlay.active_plan_ids == ["legacy-plan-1"]
+    assert [item.operation_id for item in overlay.operations] == ["legacy-operation-1"]
+    assert overlay.conflicts == []
+    assert overlay.relocations[0]["reason"] == "section_rebased_target_block_unchanged"
+    assert projected[0]["adaptive_block_id"] == "legacy-operation-1"
+
+
+def test_legacy_personal_overlay_conflict_is_reported_and_not_projected():
+    state, document = _legacy_overlay_state(_course())
+    document.blocks[0].payload["markdown"] = "base course changed the semantic target"
+    updated = refresh_document_revision(document)
+    current_vector = revision_vector_for_document(updated).revisions
+
+    overlay = personal_course_overlay(
+        state,
+        current_revision_vector=current_vector,
+    )
+
+    assert overlay.resolution_status == "conflicted"
+    assert overlay.active_plan_ids == []
+    assert overlay.operations == []
+    assert overlay.conflicts[0]["reason"] == "target_block_revision_changed"
+    assert overlay.conflicts[0]["requires_user_resolution"] is True
+    assert project_applied_adaptive_blocks(
+        state,
+        current_revision_vector=current_vector,
+    ) == []
 
 
 def _course_with_knowledge() -> dict:

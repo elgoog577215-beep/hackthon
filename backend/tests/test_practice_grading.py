@@ -1,6 +1,6 @@
 import pytest
 
-from practice_grading import PracticeGrader, _normalized
+from practice_grading import PracticeGrader, _normalized, _repair_numeric_literals
 
 
 def _deterministic(expected, actual):
@@ -75,6 +75,19 @@ def test_normal_string_answer_incorrect():
 def test_unanswered_normal_string_question_is_not_graded_correct():
     result = _deterministic(expected="北京", actual=None)
     assert result["passed"] is False
+
+
+def test_numeric_literal_repair_is_scoped_and_rejects_ambiguous_values():
+    original = (
+        '{"score": "between 70 and 80", "confidence": 80%, '
+        '"feedback": "score: 狂欢76s"}'
+    )
+
+    repaired = _repair_numeric_literals(original)
+
+    assert '"score": "between 70 and 80"' in repaired
+    assert '"confidence": 0.8' in repaired
+    assert '"feedback": "score: 狂欢76s"' in repaired
 
 
 @pytest.mark.asyncio

@@ -135,13 +135,17 @@ class PracticeGrader(AIBase):
             retry_count=2,
             enable_thinking=False,
         )
-        parsed = self._extract_json(response or "") if response else None
-        if not isinstance(parsed, dict) and response:
+        parsed = None
+        if response:
+            # Repair only the explicitly numeric grading fields before the generic
+            # JSON-repair fallback runs.  The fallback can otherwise turn a token
+            # such as `狂欢76s` into an arbitrary string while still returning a
+            # dict, which prevents the guarded numeric recovery below from ever
+            # getting a chance to run.
             repaired_response = _repair_numeric_literals(response)
-            if repaired_response != response:
-                parsed = self._extract_json(repaired_response)
-                if isinstance(parsed, dict):
-                    logger.warning("Recovered rubric grading JSON with malformed numeric literals")
+            parsed = self._extract_json(repaired_response)
+            if repaired_response != response and isinstance(parsed, dict):
+                logger.warning("Recovered rubric grading JSON with malformed numeric literals")
         if not isinstance(parsed, dict):
             return _pending_review("自动评阅结果不可解析，答案已进入待评阅")
         try:

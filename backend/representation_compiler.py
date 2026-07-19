@@ -12,6 +12,7 @@ from typing import Any
 
 from course_document import CourseBlock, CourseDocument, stable_hash
 from course_revisions import revision_vector_for_document
+from diagram_spec import DIAGRAM_COMPILER_VERSION, compile_diagram_spec, validate_diagram_spec
 from slide_deck import (
     SLIDE_DECK_COMPILER_VERSION,
     SlideDeckPlanV1,
@@ -28,8 +29,8 @@ from teaching_representations import (
     source_binding_for_document,
 )
 
-REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v3"
-CORE_TYPES = ("outline", "lesson_plan", "handout", "practice_sheet", "slide_deck")
+REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v4"
+CORE_TYPES = ("outline", "lesson_plan", "handout", "practice_sheet", "slide_deck", "diagram")
 
 
 def compile_core_representations(
@@ -93,6 +94,7 @@ def compile_core_representations(
             presentation_overrides=presentation_overrides,
             deck_plan=deck_plan,
         ),
+        "diagram": compile_diagram_spec(document),
     }
     built: list[dict[str, Any]] = []
     for representation_type, payload in payloads.items():
@@ -124,9 +126,11 @@ def compile_core_representations(
         payload_quality = (
             validate_slide_deck(payload, course_data=course_data)
             if representation_type == "slide_deck"
+            else validate_diagram_spec(payload)
+            if representation_type == "diagram"
             else {"passed": bool(unit_count), "issues": []}
         )
-        if representation_type == "slide_deck":
+        if representation_type in {"slide_deck", "diagram"}:
             payload["quality_report"] = deepcopy(payload_quality)
         spec_payload = {
             "compiler_version": compiler_version,
@@ -134,7 +138,7 @@ def compile_core_representations(
             "content": payload,
             **(
                 {"quality_report": deepcopy(payload_quality)}
-                if representation_type == "slide_deck"
+                if representation_type in {"slide_deck", "diagram"}
                 else {}
             ),
         }
@@ -226,6 +230,8 @@ def compile_core_representations(
 def _compiler_version_for(representation_type: str) -> str:
     if representation_type == "slide_deck":
         return f"{REPRESENTATION_COMPILER_VERSION}:{SLIDE_DECK_COMPILER_VERSION}"
+    if representation_type == "diagram":
+        return f"{REPRESENTATION_COMPILER_VERSION}:{DIAGRAM_COMPILER_VERSION}"
     return REPRESENTATION_COMPILER_VERSION
 
 
@@ -408,10 +414,91 @@ def validate_compiled_representations(specs: list[TeachingRepresentationSpec]) -
         if spec.representation_type == "slide_deck":
             slide_report = validate_slide_deck(content)
             issues.extend({**issue, "representation_type": "slide_deck"} for issue in slide_report["issues"])
+        if spec.representation_type == "diagram":
+            diagram_report = validate_diagram_spec(content)
+            issues.extend({**issue, "representation_type": "diagram"} for issue in diagram_report["issues"])
+    cross_product = _validate_cross_product_consistency(specs)
+    issues.extend(cross_product["issues"])
     return {
         "passed": not any(issue["severity"] == "critical" for issue in issues),
         "issues": issues,
         "representation_count": len(specs),
+        "cross_product": cross_product,
+    }
+
+
+def _validate_cross_product_consistency(
+    specs: list[TeachingRepresentationSpec],
+) -> dict[str, Any]:
+    """Verify every section keeps one objective and compatible knowledge refs."""
+    profiles: dict[str, dict[str, dict[str, set[str]]]] = {}
+    for spec in specs:
+        content = spec.payload.get("content") or {}
+        units = content.get("units") or content.get("slides") or content.get("sections") or []
+        for unit in units:
+            unit_id = str(unit.get("unit_id") or "")
+            bindings = spec.unit_bindings.get(unit_id) or []
+            section_id = str(unit.get("section_id") or "")
+            if not section_id:
+                continue
+            profile = profiles.setdefault(section_id, {}).setdefault(
+                spec.representation_type,
+                {"objectives": set(), "knowledge": set(), "practices": set()},
+            )
+            profile["knowledge"].update(str(value) for value in unit.get("knowledge_refs") or [] if value)
+            for binding in bindings:
+                profile["objectives"].update(
+                    key for key in binding.source_revisions if key.startswith("objective:")
+                )
+                profile["knowledge"].update(binding.knowledge_node_ids)
+                profile["practices"].update(binding.practice_task_ids)
+
+    issues: list[dict[str, Any]] = []
+    required_section_types = {"lesson_plan", "handout", "practice_sheet", "slide_deck", "diagram"}
+    checked_sections = 0
+    for section_id, by_type in profiles.items():
+        if "lesson_plan" not in by_type:
+            continue
+        checked_sections += 1
+        missing = sorted(required_section_types - set(by_type))
+        if missing:
+            issues.append({
+                "severity": "critical",
+                "code": "cross_product_section_missing",
+                "target": section_id,
+                "missing_representations": missing,
+            })
+        objective_sets = {
+            tuple(sorted(profile["objectives"]))
+            for profile in by_type.values()
+            if profile["objectives"]
+        }
+        if len(objective_sets) > 1:
+            issues.append({
+                "severity": "critical",
+                "code": "cross_product_objective_mismatch",
+                "target": section_id,
+                "objective_sets": [list(value) for value in sorted(objective_sets)],
+            })
+        knowledge_sets = {
+            representation_type: profile["knowledge"]
+            for representation_type, profile in by_type.items()
+            if profile["knowledge"]
+        }
+        if knowledge_sets:
+            canonical = set().union(*knowledge_sets.values())
+            for representation_type, values in knowledge_sets.items():
+                if values != canonical:
+                    issues.append({
+                        "severity": "warning",
+                        "code": "cross_product_partial_knowledge",
+                        "target": f"{section_id}:{representation_type}",
+                        "missing_knowledge_refs": sorted(canonical - values),
+                    })
+    return {
+        "passed": not any(item["severity"] == "critical" for item in issues),
+        "issues": issues,
+        "checked_section_count": checked_sections,
     }
 
 
@@ -533,6 +620,7 @@ def _first_visible_unit_change(
         "lesson_plan": ("teaching_focus", "learning_objective", "activities"),
         "handout": ("learning_prompt", "learning_objective"),
         "practice_sheet": ("prompt",),
+        "diagram": ("nodes", "mermaid", "title"),
         "slide_deck": ("key_message", "speaker_notes", "blocks"),
     }
     for field in fields_by_type.get(representation_type, ("title", "content")):
@@ -584,6 +672,7 @@ def _change_unit_label(
         "lesson_plan": "教案重点",
         "handout": "讲义解释",
         "practice_sheet": "理解检查",
+        "diagram": "知识图解",
         "slide_deck": {
             "learning_objective": "PPT 学习目标",
             "concept_and_reasoning": "PPT 核心讲解",

@@ -181,13 +181,25 @@ class CourseEvolutionState(BaseModel):
 
 
 class PersonalCourseOverlay(BaseModel):
-    schema_version: Literal["personal_course_overlay_v1"] = "personal_course_overlay_v1"
+    schema_version: Literal[
+        "personal_course_overlay_v1",
+        "personal_course_overlay_v2",
+    ] = "personal_course_overlay_v2"
     overlay_id: str
     user_id: str
     course_id: str
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
+    current_revision_vector: dict[str, str] = Field(default_factory=dict)
     active_plan_ids: list[str] = Field(default_factory=list)
     operations: list[CourseEvolutionOperation] = Field(default_factory=list)
+    resolution_status: Literal[
+        "empty",
+        "active",
+        "partially_active",
+        "conflicted",
+    ] = "empty"
+    relocations: list[dict[str, Any]] = Field(default_factory=list)
+    conflicts: list[dict[str, Any]] = Field(default_factory=list)
     revision: str
     updated_at: str
     deprecated: bool = True
@@ -723,12 +735,23 @@ def project_applied_adaptive_blocks(
     state: CourseEvolutionState,
     *,
     node_id: str | None = None,
+    current_revision_vector: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
+    resolved_overlay = personal_course_overlay(
+        state,
+        current_revision_vector=current_revision_vector,
+    )
+    active_operation_ids = {
+        operation.operation_id
+        for operation in resolved_overlay.operations
+    }
     blocks: list[dict[str, Any]] = []
     for change_set in state.change_sets:
         if change_set.status != "applied" or change_set.write_target != "personal_overlay":
             continue
         for operation in change_set.operations:
+            if operation.operation_id not in active_operation_ids:
+                continue
             if change_set.selected_scope == "current" and operation.scope == "next":
                 continue
             target_node_id = operation.target_section_id or operation.target_block_id
@@ -775,17 +798,38 @@ def project_applied_adaptive_blocks(
     return blocks
 
 
-def personal_course_overlay(state: CourseEvolutionState) -> PersonalCourseOverlay:
+def personal_course_overlay(
+    state: CourseEvolutionState,
+    *,
+    current_revision_vector: dict[str, str] | None = None,
+) -> PersonalCourseOverlay:
     active_plans = [
         item for item in state.change_sets
         if item.status == "applied" and item.write_target == "personal_overlay"
     ]
-    operations = [
-        operation.model_copy(deep=True)
-        for plan in active_plans
-        for operation in plan.operations
-        if plan.selected_scope != "current" or operation.scope != "next"
-    ]
+    operations: list[CourseEvolutionOperation] = []
+    active_plan_ids: list[str] = []
+    relocations: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    for plan in active_plans:
+        plan_has_active_operation = False
+        for operation in plan.operations:
+            if plan.selected_scope == "current" and operation.scope == "next":
+                continue
+            resolution = _resolve_personal_overlay_operation(
+                plan,
+                operation,
+                current_revision_vector=current_revision_vector,
+            )
+            if resolution["status"] == "conflict":
+                conflicts.append(resolution)
+                continue
+            operations.append(operation.model_copy(deep=True))
+            plan_has_active_operation = True
+            if resolution["status"] == "relocated":
+                relocations.append(resolution)
+        if plan_has_active_operation:
+            active_plan_ids.append(plan.change_set_id)
     base_revision_vector: dict[str, str] = {}
     for plan in active_plans:
         base_revision_vector.update(plan.base_revision_vector)
@@ -796,9 +840,26 @@ def personal_course_overlay(state: CourseEvolutionState) -> PersonalCourseOverla
         "user_id": state.user_id,
         "course_id": state.course_id,
         "base_revision_vector": base_revision_vector,
-        "active_plan_ids": [item.change_set_id for item in active_plans],
+        "current_revision_vector": current_revision_vector or {},
+        "active_plan_ids": active_plan_ids,
         "operations": [item.model_dump(mode="json") for item in operations],
+        "relocations": relocations,
+        "conflicts": conflicts,
     }
+    resolution_status: Literal[
+        "empty",
+        "active",
+        "partially_active",
+        "conflicted",
+    ]
+    if not active_plans:
+        resolution_status = "empty"
+    elif conflicts and operations:
+        resolution_status = "partially_active"
+    elif conflicts:
+        resolution_status = "conflicted"
+    else:
+        resolution_status = "active"
     return PersonalCourseOverlay(
         overlay_id=stable_hash(
             {"user_id": state.user_id, "course_id": state.course_id},
@@ -807,14 +868,127 @@ def personal_course_overlay(state: CourseEvolutionState) -> PersonalCourseOverla
         user_id=state.user_id,
         course_id=state.course_id,
         base_revision_vector=base_revision_vector,
-        active_plan_ids=payload["active_plan_ids"],
+        current_revision_vector=current_revision_vector or {},
+        active_plan_ids=active_plan_ids,
         operations=operations,
+        resolution_status=resolution_status,
+        relocations=relocations,
+        conflicts=conflicts,
         revision=stable_hash(payload, prefix="pcr_"),
         updated_at=updated_at,
     )
 
 
-def course_evolution_view(state: CourseEvolutionState) -> dict[str, Any]:
+def _resolve_personal_overlay_operation(
+    plan: CourseEvolutionPlan,
+    operation: CourseEvolutionOperation,
+    *,
+    current_revision_vector: dict[str, str] | None,
+) -> dict[str, Any]:
+    """Rebase a deprecated overlay operation only when its semantic anchor is intact."""
+    result = {
+        "plan_id": plan.change_set_id,
+        "operation_id": operation.operation_id,
+        "target_block_id": operation.target_block_id,
+        "target_section_id": operation.target_section_id,
+    }
+    if current_revision_vector is None:
+        return {**result, "status": "active", "reason": "revision_context_unavailable"}
+
+    block_key = f"block:{operation.target_block_id}" if operation.target_block_id else ""
+    section_key = f"section:{operation.target_section_id}" if operation.target_section_id else ""
+    expected_block_revision = plan.base_revision_vector.get(block_key) if block_key else None
+    expected_section_revision = plan.base_revision_vector.get(section_key) if section_key else None
+    current_block_revision = current_revision_vector.get(block_key) if block_key else None
+    current_section_revision = current_revision_vector.get(section_key) if section_key else None
+    revisions = {
+        "expected": {
+            key: value
+            for key, value in (
+                (block_key, expected_block_revision),
+                (section_key, expected_section_revision),
+            )
+            if key and value is not None
+        },
+        "current": {
+            key: value
+            for key, value in (
+                (block_key, current_block_revision),
+                (section_key, current_section_revision),
+            )
+            if key and value is not None
+        },
+    }
+
+    if expected_block_revision is not None:
+        if current_block_revision is None:
+            return {
+                **result,
+                **revisions,
+                "status": "conflict",
+                "reason": "target_block_removed",
+                "requires_user_resolution": True,
+            }
+        if current_block_revision != expected_block_revision:
+            return {
+                **result,
+                **revisions,
+                "status": "conflict",
+                "reason": "target_block_revision_changed",
+                "requires_user_resolution": True,
+            }
+        if (
+            expected_section_revision is not None
+            and current_section_revision != expected_section_revision
+        ):
+            return {
+                **result,
+                **revisions,
+                "status": "relocated",
+                "reason": "section_rebased_target_block_unchanged",
+                "requires_user_resolution": False,
+            }
+        return {
+            **result,
+            **revisions,
+            "status": "active",
+            "reason": "target_revision_unchanged",
+        }
+
+    if expected_section_revision is not None:
+        if current_section_revision is None:
+            reason = "target_section_removed"
+        elif current_section_revision != expected_section_revision:
+            reason = "target_section_revision_changed"
+        else:
+            return {
+                **result,
+                **revisions,
+                "status": "active",
+                "reason": "target_revision_unchanged",
+            }
+        return {
+            **result,
+            **revisions,
+            "status": "conflict",
+            "reason": reason,
+            "requires_user_resolution": True,
+        }
+
+    return {
+        **result,
+        **revisions,
+        "status": "conflict",
+        "reason": "missing_base_revision_binding",
+        "requires_user_resolution": True,
+    }
+
+
+def course_evolution_view(
+    state: CourseEvolutionState,
+    *,
+    current_revision_vector: dict[str, str] | None = None,
+) -> dict[str, Any]:
     payload = state.model_dump(mode="json")
     payload["view_schema_version"] = "course_evolution_v2"
     payload["course_evolution_plans"] = deepcopy(payload["change_sets"])
@@ -823,7 +997,10 @@ def course_evolution_view(state: CourseEvolutionState) -> dict[str, Any]:
         plan["plan_id"] = plan["change_set_id"]
     for plan in payload["course_evolution_plans"]:
         plan["plan_id"] = plan["change_set_id"]
-    payload["personal_course_overlay"] = personal_course_overlay(state).model_dump(mode="json")
+    payload["personal_course_overlay"] = personal_course_overlay(
+        state,
+        current_revision_vector=current_revision_vector,
+    ).model_dump(mode="json")
     payload["permissions"] = {
         "write_target": "course_document",
         "can_modify_current_course": True,

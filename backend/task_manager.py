@@ -100,7 +100,12 @@ from models import (
     NodeStatus,
     TaskLogEntry,
 )
-from representation_compiler import compile_core_representations
+from representation_compiler import (
+    compile_core_representations,
+    rebuild_core_representations_safely,
+    validate_compiled_representations,
+)
+from slide_deck import plan_slide_deck
 from teaching_representations import teaching_representation_repository
 from storage import DATA_DIR
 
@@ -1423,6 +1428,33 @@ class TaskManager:
         if not task:
             raise KeyError(task_id)
 
+        if task.get("type") == "teaching_representation_build":
+            status = str(task.get("status") or "")
+            checkpoint = {
+                "phase": str(task.get("phase") or "queued"),
+                "progress": int(task.get("progress") or 0),
+                "completed_representation_types": list(
+                    task.get("completed_representation_types") or []
+                ),
+                "last_event_sequence": int(task.get("event_sequence") or 0),
+                "updated_at": task.get("updated_at"),
+            }
+            if status == "completed":
+                return {
+                    "state": "completed", "can_resume": False,
+                    "reason_code": "already_published",
+                    "reason": "同源教学产物已经通过质量门并发布",
+                    "checkpoint": checkpoint,
+                }
+            can_resume = status in {"paused", "failed"}
+            return {
+                "state": "manual_resume" if can_resume else "auto_resuming" if status in {"pending", "running"} else "none",
+                "can_resume": can_resume,
+                "reason_code": "checkpoint_available" if can_resume else "job_active" if status in {"pending", "running"} else "not_needed",
+                "reason": "已完成的页面与产物会被复用，只重建未完成或失效单元" if can_resume else "同源教学产物任务正在执行",
+                "checkpoint": checkpoint,
+            }
+
         status = str(task.get("status") or "")
         base = {
             "state": "none",
@@ -1781,6 +1813,17 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             return False
+        if task.get("type") == "teaching_representation_build":
+            if task.get("status") not in {"pending", "running"}:
+                return False
+            task["status"] = "pending"
+            task["phase"] = "resuming"
+            task["current_phase"] = "resuming"
+            task["message"] = "服务重启后正从最近同源产物保存点恢复"
+            task["restart_recovery_count"] = int(task.get("restart_recovery_count") or 0) + 1
+            task["last_recovery_reason"] = "service_restart"
+            task["updated_at"] = datetime.now().isoformat()
+            return True
         if task.get("type") != "course_generation":
             return False
         if (
@@ -1887,6 +1930,30 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             raise KeyError(task_id)
+
+        if task.get("type") == "teaching_representation_build":
+            recovery = self.describe_task_recovery(task_id)
+            if task.get("status") in {"pending", "running"}:
+                return {"status": "already_active", "task": self._task_view(task)}
+            if task.get("status") == "completed":
+                return {"status": "completed", "task": self._task_view(task)}
+            if not recovery.get("can_resume"):
+                raise TaskRecoveryConflict(
+                    str(recovery.get("reason") or "当前同源产物任务无法继续"),
+                    recovery=recovery,
+                )
+            async with self._lock:
+                task["status"] = "pending"
+                task["phase"] = "resuming"
+                task["current_phase"] = "resuming"
+                task["message"] = "正在从最近同源产物保存点继续"
+                task["error"] = None
+                task["retry_count"] = int(task.get("retry_count") or 0) + 1
+                task["updated_at"] = datetime.now().isoformat()
+                self.save_tasks()
+            await self._task_queue.put(task_id)
+            await self._push_progress(task_id)
+            return {"status": "resumed", "task": self._task_view(task)}
 
         recovery = self.describe_task_recovery(task_id)
         if task.get("status") in {"pending", "running"}:
@@ -2623,6 +2690,110 @@ class TaskManager:
         )
         await self._push_progress(task_id)
 
+    async def _process_teaching_representation_task(self, task_id: str) -> None:
+        """Build same-source artifacts as a durable, resumable generation job."""
+        task = self.tasks.get(task_id)
+        if not task or task.get("status") == "paused":
+            return
+        course_id = str(task["course_id"])
+        await self._update_task_status(
+            task_id, "running", message="正在规划同源教案、讲义、练习、PPT 与图解",
+        )
+        document, canonical = await asyncio.to_thread(
+            self._course_document_repository.load_document, course_id,
+        )
+        if not canonical:
+            raise CourseDocumentConflict("Course must be canonical before building representations")
+        course_view = await asyncio.to_thread(
+            self._course_document_repository.load_course_view, course_id,
+        )
+        deck_plan = await plan_slide_deck(document, course_view)
+        await self._record_representation_event(task_id, {
+            "event": "deck_plan",
+            "progress": 8,
+            "stage": "slide_plan",
+            "strategy": "plan_then_fill",
+            "estimated_slide_count": len(deck_plan.slides),
+        })
+        loop = asyncio.get_running_loop()
+
+        def progress(payload: dict[str, Any]) -> None:
+            current = self.tasks.get(task_id) or {}
+            if current.get("status") in {"paused", "cancelled"}:
+                raise RuntimeError("teaching_representation_build_interrupted")
+            future = asyncio.run_coroutine_threadsafe(
+                self._record_representation_event(task_id, payload), loop,
+            )
+            future.result(timeout=10)
+
+        build = await asyncio.to_thread(
+            rebuild_core_representations_safely,
+            document,
+            course_view,
+            teaching_representation_repository,
+            progress_callback=progress,
+            deck_plan=deck_plan,
+        )
+        registry = teaching_representation_repository.load(course_id)
+        current_spec_ids = {item.spec_id for item in registry.representations}
+        quality = build.get("quality") or validate_compiled_representations([
+            item for item in registry.specs if item.spec_id in current_spec_ids
+        ])
+        if not quality.get("passed"):
+            raise RuntimeError("teaching_representation_quality_gate_failed")
+        result = {
+            "build": build,
+            "quality": quality,
+            "registry": registry.model_dump(mode="json"),
+        }
+        async with self._lock:
+            task = self.tasks.get(task_id)
+            if not task or task.get("status") in {"paused", "cancelled"}:
+                return
+            task["result"] = result
+            task["completed_representation_types"] = [
+                item.representation_type for item in registry.representations
+                if item.status == "ready"
+            ]
+            task["progress"] = 100
+            task["phase_progress"] = 100
+            task["phase"] = "complete"
+            task["current_phase"] = "complete"
+            task["message"] = "同源教学产物已通过质量门并发布"
+            task["updated_at"] = datetime.now().isoformat()
+            self.save_tasks()
+        await self._record_representation_event(task_id, {
+            "event": "build_complete", "progress": 100, **result,
+        })
+        await self._update_task_status(task_id, "completed", message="同源教学产物生成完成")
+
+    async def _record_representation_event(
+        self,
+        task_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        async with self._lock:
+            task = self.tasks.get(task_id)
+            if not task:
+                return
+            sequence = int(task.get("event_sequence") or 0) + 1
+            event = {**deepcopy(payload), "sequence": sequence}
+            task["event_sequence"] = sequence
+            history = list(task.get("event_history") or [])
+            history.append(event)
+            task["event_history"] = history[-240:]
+            task["last_event"] = event
+            task["progress"] = max(
+                int(task.get("progress") or 0), int(payload.get("progress") or 0),
+            )
+            task["phase_progress"] = int(payload.get("progress") or task.get("phase_progress") or 0)
+            task["phase"] = str(payload.get("stage") or payload.get("event") or task.get("phase") or "building")
+            task["current_phase"] = task["phase"]
+            task["message"] = str(payload.get("message") or task.get("message") or "正在生成同源教学产物")
+            task["updated_at"] = datetime.now().isoformat()
+            self.save_tasks()
+        await self._push_progress(task_id)
+
     async def _process_task(self, task_id: str) -> None:
         """处理单个任务：分析课程结构并调度节点。
 
@@ -2634,6 +2805,10 @@ class TaskManager:
             return
 
         if task["status"] == "paused":
+            return
+
+        if task.get("type") == "teaching_representation_build":
+            await self._process_teaching_representation_task(task_id)
             return
 
         course_id = task["course_id"]
@@ -3303,7 +3478,10 @@ class TaskManager:
                         task["message"] = (
                             "旧知识或教学确认点已合并，正在按新链路继续生成课程"
                         )
-                if task.get("type") != "course_generation":
+                if task.get("type") not in {
+                    "course_generation",
+                    "teaching_representation_build",
+                }:
                     task["legacy_read_only"] = True
                     if task.get("status") in ("pending", "running", "paused"):
                         task["status"] = "completed"

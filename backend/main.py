@@ -24,7 +24,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from storage import storage
     from task_manager import TaskManager
-    from course_repository import CourseDocumentRepository
+    from course_repository import CourseDocumentRepository, register_course_revision_listener
+    from representation_reconciliation import RepresentationReconciliationService
+    from teaching_representations import teaching_representation_repository
     from dependencies import init_task_manager
     from websocket_service import WebSocketService
     from course_service import get_course_service
@@ -32,7 +34,9 @@ except ImportError:
     try:
         from backend.storage import storage
         from backend.task_manager import TaskManager
-        from backend.course_repository import CourseDocumentRepository
+        from backend.course_repository import CourseDocumentRepository, register_course_revision_listener
+        from backend.representation_reconciliation import RepresentationReconciliationService
+        from backend.teaching_representations import teaching_representation_repository
         from backend.dependencies import init_task_manager
         from backend.websocket_service import WebSocketService
         from backend.course_service import get_course_service
@@ -55,12 +59,16 @@ from routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    if representation_reconciliation_service:
+        await representation_reconciliation_service.start()
     if task_manager:
         await task_manager.start()
     yield
     # Shutdown
     if task_manager:
         await task_manager.shutdown()
+    if representation_reconciliation_service:
+        await representation_reconciliation_service.shutdown()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -69,6 +77,11 @@ try:
     ws_service = WebSocketService()
     course_service = get_course_service()
     course_repository = CourseDocumentRepository(storage)
+    representation_reconciliation_service = RepresentationReconciliationService(
+        course_repository,
+        teaching_representation_repository,
+    )
+    register_course_revision_listener(representation_reconciliation_service.enqueue)
     task_manager = TaskManager(
         storage,
         course_service,
@@ -79,6 +92,7 @@ try:
     init_task_manager(task_manager)
 except NameError:
     task_manager = None
+    representation_reconciliation_service = None
 
 # ============================================================================
 # Middleware Configuration
