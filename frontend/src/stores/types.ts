@@ -311,6 +311,7 @@ export interface TaskRecoveryCheckpoint {
     interrupted_node_ids: string[]
     requirements_ready?: boolean
     outline_ready?: boolean
+    teaching_plan_ready?: boolean
     completed_knowledge_packages?: number
     total_knowledge_packages?: number
     workspace_status?: string | null
@@ -325,7 +326,7 @@ export interface TaskRecovery {
     checkpoint: TaskRecoveryCheckpoint
 }
 
-export type GuidedGenerationStepKey = 'requirements' | 'outline' | 'knowledge' | 'teaching' | 'content' | 'release'
+export type GuidedGenerationStepKey = 'requirements' | 'outline' | 'content' | 'release'
 
 export interface GuidedGenerationStep {
     number: number
@@ -337,7 +338,7 @@ export interface GuidedGenerationStep {
 }
 
 export interface GuidedGenerationWorkflow {
-    schema_version: 'guided_course_generation_v1'
+    schema_version: 'guided_course_generation_v2'
     current_step: GuidedGenerationStepKey
     review_step?: GuidedGenerationStepKey | null
     steps: GuidedGenerationStep[]

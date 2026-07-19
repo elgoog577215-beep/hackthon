@@ -75,11 +75,27 @@ class Storage:
             with open(self._annotations_file, 'w', encoding='utf-8') as f:
                 json.dump([], f)
 
-        # Git Auto-Sync
+        # Git Auto-Sync only belongs to the repository's formal data store.
+        # Tests, smoke runs and isolated workspaces often pass a temporary
+        # directory; letting those instances run ``git add backend/data``
+        # would commit unrelated runtime files from the current checkout.
+        formal_data_dir = Path(DATA_DIR).resolve()
+        current_data_dir = Path(self._data_dir).resolve()
+        sync_enabled = os.getenv(
+            "GIT_AUTO_SYNC_ENABLED",
+            "true",
+        ).strip().lower() in {"1", "true", "yes", "on"}
         self.dirty = False
-        self.running = True
-        self.sync_thread = threading.Thread(target=self._auto_sync_loop, daemon=True)
-        self.sync_thread.start()
+        self.running = bool(
+            sync_enabled and current_data_dir == formal_data_dir
+        )
+        self.sync_thread: threading.Thread | None = None
+        if self.running:
+            self.sync_thread = threading.Thread(
+                target=self._auto_sync_loop,
+                daemon=True,
+            )
+            self.sync_thread.start()
 
     # =========================================================================
     # 锁管理

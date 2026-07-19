@@ -4,7 +4,7 @@
 核心职责：
 - 将生成需求、参考资料和教学画像编译为课程蓝图
 - 使用持久化的节点模块契约流式生成正文
-- 对蓝图和正文执行分层质量检查与一次定向修复
+- 编译课程知识、关系、正文和题目合同，并执行确定性结构与引用检查
 - 为用户主动发起的局部重写保留课程与学习上下文
 """
 
@@ -60,6 +60,7 @@ from course_generation_strategy import (
 )
 from course_generation_workflow import (
     PIPELINE_VERSION,
+    apply_course_teaching_plan,
     apply_section_knowledge_package,
     attach_course_relation_plan,
     attach_difficulty_artifacts,
@@ -71,8 +72,9 @@ from course_generation_workflow import (
     build_node_generation_context,
     build_outline_generation_context,
     build_section_knowledge_material_context,
-    build_section_knowledge_skeleton_evidence_hints,
     build_section_knowledge_scope_slice,
+    build_section_knowledge_skeleton_evidence_hints,
+    compile_course_teaching_plan_modules,
     merge_course_relation_batches,
     normalize_course_knowledge_skeleton,
     normalize_course_outline_contract,
@@ -83,6 +85,7 @@ from course_generation_workflow import (
     validate_course_outline_constraints,
     validate_course_plan_constraints,
     validate_course_relation_batch,
+    validate_course_teaching_plan,
     validate_section_knowledge_package,
 )
 from course_knowledge_base import (
@@ -325,7 +328,6 @@ class CourseService(AIBase):
         web_question_enrichment: dict[str, Any] | None = None,
         existing_course_data: dict[str, Any] | None = None,
         stop_after_outline: bool = False,
-        stop_after_knowledge: bool = False,
         on_phase: Callable[..., Awaitable[None] | None] | None = None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
     ) -> dict[str, Any]:
@@ -360,6 +362,8 @@ class CourseService(AIBase):
             "course_generation_v5",
             "course_generation_v6",
             "course_generation_v7",
+            "course_generation_v8",
+            "course_generation_v9",
         }
         if checkpoint_ready:
             artifacts = {
@@ -675,9 +679,37 @@ class CourseService(AIBase):
             self.register_course_generation_metadata(course_id, course_data)
             return course_data
 
-        current_scope_contract = build_course_knowledge_scope_contract(
-            plan
+        # The template, difficulty and composition systems define the hard
+        # section skeleton before the model gets its intentionally small
+        # teaching-design freedom.
+        plan = attach_generation_artifacts_to_plan(plan, artifacts)
+        plan = attach_module_plans_to_plan(plan, profile)
+        difficulty_curve = attach_difficulty_contracts_to_plan(
+            plan,
+            profile=difficulty_profile,
+            adaptation=adaptation_decision,
         )
+        composition_artifacts = attach_composition_to_plan(
+            plan,
+            composition_style,
+            legacy_style=style,
+        )
+        artifacts.update(composition_artifacts)
+        course_data.update({
+            "course_plan": deepcopy(plan),
+            "course_module_plan": deepcopy(
+                plan.get("course_module_plan") or []
+            ),
+            "course_composition_profile": deepcopy(
+                composition_artifacts["course_composition_profile"]
+            ),
+            "course_block_distribution": deepcopy(
+                composition_artifacts["course_block_distribution"]
+            ),
+            "course_difficulty_curve": difficulty_curve,
+        })
+
+        current_scope_contract = build_course_knowledge_scope_contract(plan)
         persisted_scope_contract = (
             deepcopy(course_data.get("course_knowledge_scope_contract"))
             if isinstance(
@@ -699,16 +731,10 @@ class CourseService(AIBase):
             "revision_id": knowledge_scope_contract.get("revision_id"),
         }
         await self._notify_checkpoint(on_checkpoint, course_data)
-        plan = await self._enrich_section_knowledge_packages(
+        plan = await self._prepare_course_teaching_plan(
             course_data=course_data,
             plan=plan,
             artifacts=artifacts,
-            on_phase=on_phase,
-            on_checkpoint=on_checkpoint,
-        )
-        plan = await self._enrich_course_knowledge_relations(
-            course_data=course_data,
-            plan=plan,
             on_phase=on_phase,
             on_checkpoint=on_checkpoint,
         )
@@ -719,11 +745,11 @@ class CourseService(AIBase):
         )
         if not full_plan_report.get("passed"):
             messages = "；".join(
-                str(item.get("message") or "未知知识蓝图错误")
+                str(item.get("message") or "未知教案错误")
                 for item in full_plan_report.get("issues") or []
             )
             raise AIProviderRequestError(
-                f"逐节知识包合并后未通过课程知识验收：{messages or '知识结构不完整'}"
+                f"全课小节教案未通过课程合同验收：{messages or '教案结构不完整'}"
             )
         blueprint = build_course_blueprint_from_plan(plan, artifacts)
         blueprint["course_plan_constraint_report"] = full_plan_report
@@ -740,7 +766,7 @@ class CourseService(AIBase):
             "course_blueprint": blueprint,
             "course_plan_constraint_report": full_plan_report,
             "blueprint_validation_report": blueprint_report,
-            "generation_status": "knowledge_compiled",
+            "generation_status": "teaching_plan_compiled",
         })
         course_knowledge_map = compile_course_knowledge_map(course_data)
         course_knowledge_base = compile_course_knowledge_base(
@@ -763,16 +789,29 @@ class CourseService(AIBase):
         course_data["course_blueprint"]["course_coherence_revision_id"] = (
             coherence_contract["revision_id"]
         )
-        course_data["generation_status"] = "blueprint_ready"
+        course_data.setdefault("generation_stage_artifacts", {})[
+            "teaching"
+        ] = {
+            "status": "completed",
+            "schema_version": "course_teaching_plan_v2",
+            "revision_id": (
+                course_data.get("course_teaching_plan") or {}
+            ).get("revision_id"),
+            "knowledge_revision_id": course_knowledge_base.get(
+                "revision_id"
+            ),
+            "compiled_from": "single_whole_course_teaching_plan",
+        }
+        course_data["generation_status"] = "teaching_plan_ready"
         await self._notify_checkpoint(on_checkpoint, course_data)
         await self._notify_phase(
             on_phase,
             "blueprint_validation",
             50,
-            "知识节点注册表、全课关系网与一致性契约已完成编译",
+            "全课小节教案、知识库与稳定知识 ID 已完成编译",
             phase_progress=100,
             phase_detail={
-                "artifact_type": "course_knowledge_base",
+                "artifact_type": "course_teaching_plan",
                 "completed_items": len([
                     node for node in course_data.get("nodes") or []
                     if int(node.get("node_level") or 1) == 2
@@ -782,19 +821,38 @@ class CourseService(AIBase):
                     if int(node.get("node_level") or 1) == 2
                 ]),
                 "course_knowledge_base_revision_id": course_knowledge_base.get("revision_id"),
+                "model_call_count": (
+                    (
+                        course_data.get("generation_stage_artifacts")
+                        or {}
+                    ).get("course_teaching_plan")
+                    or {}
+                ).get("model_call_count", 0),
+                "knowledge_compilation_model_call_count": 0,
             },
         )
-        if not stop_after_knowledge:
-            course_data = self.compile_teaching_plan(course_data)
         self.register_course_generation_metadata(course_id, course_data)
         return course_data
 
     def compile_teaching_plan(self, course_data: dict[str, Any]) -> dict[str, Any]:
-        """Compile the first real teaching artifact from a confirmed knowledge base."""
+        """Read-compatible deterministic compiler for pre-v9 checkpoints.
+
+        New generation jobs receive their knowledge and block intent together
+        from ``_prepare_course_teaching_plan`` and never enter this method.
+        """
         working = deepcopy(course_data)
-        knowledge_base = working.get("course_knowledge_base") or {}
-        if knowledge_base.get("lifecycle_status") != "active":
-            raise ValueError("Teaching design requires an active confirmed knowledge blueprint")
+        stage = (
+            (working.get("generation_stage_artifacts") or {})
+            .get("teaching")
+            or {}
+        )
+        if (
+            (working.get("course_teaching_plan") or {}).get(
+                "schema_version"
+            ) == "course_teaching_plan_v2"
+            and stage.get("status") == "completed"
+        ):
+            return working
         plan = deepcopy(working.get("course_plan") or {})
         if not plan.get("chapters"):
             raise ValueError("Teaching design requires a confirmed course outline")
@@ -886,14 +944,311 @@ class CourseService(AIBase):
         )
         working.setdefault("generation_stage_artifacts", {})["teaching"] = {
             "status": "completed",
-            "schema_version": "course_teaching_plan_v1",
-            "knowledge_revision_id": knowledge_base.get("revision_id"),
+            "schema_version": "course_teaching_plan_legacy_adapter_v1",
+            "knowledge_revision_id": (
+                working.get("course_knowledge_base") or {}
+            ).get("revision_id"),
+            "compiled_from": "legacy_checkpoint",
         }
         self.register_course_generation_metadata(
             str(working.get("course_id") or ""),
             working,
         )
         return working
+
+    async def _prepare_course_teaching_plan(
+        self,
+        *,
+        course_data: dict[str, Any],
+        plan: dict[str, Any],
+        artifacts: dict[str, Any] | None,
+        on_phase: Callable[..., Awaitable[None] | None] | None,
+        on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+    ) -> dict[str, Any]:
+        """Generate all section teaching plans in one whole-course model call."""
+        sections = [
+            section
+            for chapter in plan.get("chapters") or []
+            if isinstance(chapter, dict)
+            for section in chapter.get("sections") or []
+            if isinstance(section, dict)
+        ]
+        scope_contract = build_course_knowledge_scope_contract(plan)
+        outline_revision_id = str(scope_contract.get("revision_id") or "")
+        course_data["course_knowledge_scope_contract"] = scope_contract
+        stage_artifacts = course_data.setdefault(
+            "generation_stage_artifacts", {}
+        )
+        teaching_stage = stage_artifacts.setdefault(
+            "course_teaching_plan", {}
+        )
+
+        existing_payload = (
+            course_data.get("course_teaching_plan")
+            if isinstance(course_data.get("course_teaching_plan"), dict)
+            else {}
+        )
+        existing_plan = compile_course_teaching_plan_modules(
+            existing_payload,
+            sections=sections,
+        )
+        report = validate_course_teaching_plan(
+            existing_plan,
+            sections=sections,
+            expected_outline_revision_id=outline_revision_id,
+        )
+        if report.get("passed"):
+            planned_course = apply_course_teaching_plan(
+                plan,
+                existing_plan,
+            )
+            teaching_stage.update({
+                "status": "completed",
+                "schema_version": existing_plan.get("schema_version"),
+                "revision_id": existing_plan.get("revision_id"),
+                "source_outline_revision_id": outline_revision_id,
+                "validation_report": deepcopy(report),
+                "strategy": "single_whole_course_call",
+                "model_call_count": 0,
+                "resumed": True,
+            })
+            course_data.update({
+                "course_teaching_plan": existing_plan,
+                "course_plan": deepcopy(planned_course),
+                "knowledge_relations": deepcopy(
+                    planned_course.get("knowledge_relations") or []
+                ),
+                "generation_status": "course_teaching_plan_compiled",
+            })
+            return planned_course
+
+        compact_sections: list[dict[str, Any]] = []
+        for section in sections:
+            compact_section = {
+                key: deepcopy(section.get(key))
+                for key in (
+                    "node_id",
+                    "section_number",
+                    "title",
+                    "learning_objective",
+                    "scope_boundary",
+                    "prerequisite_node_ids",
+                )
+            }
+            compact_section["difficulty_contract"] = deepcopy(
+                section.get("difficulty_contract") or {}
+            )
+            compact_section["composition_style"] = str(
+                (
+                    course_data.get("course_composition_profile")
+                    or {}
+                ).get("style")
+                or ""
+            )
+            compact_section["allowed_teaching_modules"] = [
+                {
+                    key: deepcopy(module.get(key))
+                    for key in (
+                        "module_id",
+                        "label",
+                        "block_role",
+                        "required",
+                        "output_contract",
+                    )
+                }
+                for module in section.get("module_plan") or []
+                if isinstance(module, dict)
+            ]
+            compact_section["evidence_hints"] = (
+                build_section_knowledge_skeleton_evidence_hints(
+                    artifacts or course_data,
+                    section,
+                )
+            )
+            compact_sections.append(compact_section)
+
+        prompt = self._prompt_composer.build_course_teaching_plan_prompt(
+            course_title=str(
+                plan.get("course_title")
+                or course_data.get("course_name")
+                or ""
+            ),
+            positioning=str(plan.get("positioning") or ""),
+            learning_objectives=list(
+                plan.get("learning_objectives") or []
+            ),
+            sections=compact_sections,
+        )
+        await self._notify_phase(
+            on_phase,
+            "course_teaching_plan",
+            35,
+            "正在一次性规划整门课所有小节教案",
+            phase_progress=0,
+            phase_detail={
+                "artifact_type": "course_teaching_plan",
+                "item_total": len(sections),
+                "strategy": "single_whole_course_call",
+                "model_call_budget": 1,
+            },
+        )
+        started_at = time.monotonic()
+        async with self._planning_semaphore:
+            response = await self._call_llm_with_heartbeat(
+                "生成整门课所有小节教案，只输出 JSON。",
+                prompt,
+                enable_thinking=True,
+                on_phase=on_phase,
+                phase="course_teaching_plan",
+                base_progress=35,
+                heartbeat_message="仍在等待 AI 完成全课小节教案",
+                phase_detail={
+                    "artifact_type": "course_teaching_plan",
+                    "item_total": len(sections),
+                    "strategy": "single_whole_course_call",
+                },
+            )
+        parsed = self._extract_json(response) if response else None
+        payload = parsed if isinstance(parsed, dict) else {}
+        payload["source_outline_revision_id"] = outline_revision_id
+        course_teaching_plan = compile_course_teaching_plan_modules(
+            payload,
+            sections=sections,
+        )
+        report = validate_course_teaching_plan(
+            course_teaching_plan,
+            sections=sections,
+            expected_outline_revision_id=outline_revision_id,
+        )
+        model_call_count = 1
+        if not report.get("passed"):
+            correction_prompt = (
+                self._prompt_composer
+                .build_course_teaching_plan_correction_prompt(
+                    original_prompt=prompt,
+                    issues=report.get("blocking_issues") or [],
+                )
+            )
+            async with self._planning_semaphore:
+                corrected = await self._call_llm_with_heartbeat(
+                    "只修复全课小节教案的结构和引用错误，输出完整 JSON。",
+                    correction_prompt,
+                    enable_thinking=False,
+                    on_phase=on_phase,
+                    phase="course_teaching_plan_validation",
+                    base_progress=43,
+                    heartbeat_message="仍在等待 AI 修复全课小节教案结构",
+                    phase_detail={
+                        "artifact_type": "course_teaching_plan",
+                        "item_total": len(sections),
+                    },
+                )
+            parsed = self._extract_json(corrected) if corrected else None
+            payload = parsed if isinstance(parsed, dict) else {}
+            payload["source_outline_revision_id"] = outline_revision_id
+            course_teaching_plan = compile_course_teaching_plan_modules(
+                payload,
+                sections=sections,
+            )
+            report = validate_course_teaching_plan(
+                course_teaching_plan,
+                sections=sections,
+                expected_outline_revision_id=outline_revision_id,
+            )
+            model_call_count += 1
+
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        if not report.get("passed"):
+            teaching_stage.update({
+                "status": "failed",
+                "schema_version": "course_teaching_plan_v2",
+                "source_outline_revision_id": outline_revision_id,
+                "validation_report": deepcopy(report),
+                "duration_ms": duration_ms,
+                "model_call_count": model_call_count,
+                "strategy": "single_whole_course_call",
+            })
+            course_data["generation_status"] = (
+                "course_teaching_plan_failed"
+            )
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            messages = "；".join(
+                str(item.get("message") or "未知教案错误")
+                for item in report.get("blocking_issues") or []
+            )
+            raise AIProviderRequestError(
+                "全课小节教案未通过结构验收："
+                f"{messages or '无法解析完整教案 JSON'}"
+            )
+
+        planned_course = apply_course_teaching_plan(
+            plan,
+            course_teaching_plan,
+        )
+        teaching_stage.update({
+            "status": "completed",
+            "schema_version": course_teaching_plan.get(
+                "schema_version"
+            ),
+            "revision_id": course_teaching_plan.get("revision_id"),
+            "source_outline_revision_id": outline_revision_id,
+            "validation_report": deepcopy(report),
+            "duration_ms": duration_ms,
+            "prompt_chars": len(prompt),
+            "model_call_count": model_call_count,
+            "strategy": "single_whole_course_call",
+            "section_count": len(sections),
+            "knowledge_point_count": (
+                report.get("actual") or {}
+            ).get("knowledge_point_count", 0),
+            "teaching_module_count": (
+                report.get("actual") or {}
+            ).get("teaching_module_count", 0),
+            "knowledge_compilation_model_call_count": 0,
+            "graph_compilation_model_call_count": 0,
+        })
+        course_data.update({
+            "course_teaching_plan": course_teaching_plan,
+            "course_plan": deepcopy(planned_course),
+            "knowledge_relations": deepcopy(
+                planned_course.get("knowledge_relations") or []
+            ),
+            "nodes": self._merge_generation_nodes(
+                self._convert_plan_to_nodes(
+                    planned_course,
+                    str(course_data.get("course_id") or ""),
+                ),
+                course_data.get("nodes") or [],
+            ),
+            "generation_status": "course_teaching_plan_compiled",
+        })
+        if artifacts:
+            course_data["course_blueprint"] = (
+                build_course_blueprint_from_plan(
+                    planned_course,
+                    artifacts,
+                )
+            )
+        await self._notify_checkpoint(on_checkpoint, course_data)
+        await self._notify_phase(
+            on_phase,
+            "course_teaching_plan",
+            48,
+            "全课小节教案已完成，知识库与图谱已在本地编译",
+            phase_progress=100,
+            phase_detail={
+                "artifact_type": "course_teaching_plan",
+                "completed_items": len(sections),
+                "total_items": len(sections),
+                "knowledge_point_count": (
+                    report.get("actual") or {}
+                ).get("knowledge_point_count", 0),
+                "model_call_count": model_call_count,
+                "knowledge_compilation_model_call_count": 0,
+                "graph_compilation_model_call_count": 0,
+            },
+        )
+        return planned_course
 
     async def _prepare_course_knowledge_skeleton(
         self,
@@ -2949,54 +3304,11 @@ class CourseService(AIBase):
         node["grounding_annotations"] = annotations
         node["grounding_invalid_refs"] = invalid_refs
         quality = evaluate_node_content(full_content, node)
-        if not quality["passed"]:
-            repair_user, repair_system = self._prompt_composer.build_repair_prompt(
-                course_data=persisted,
-                node=node,
-                content=raw_content,
-                issues=quality["issues"],
-            )
-            repaired = await self._call_llm(repair_user, repair_system, enable_thinking=True)
-            if repaired:
-                repaired_raw = self.clean_response_text(repaired)
-                repaired_content, repaired_annotations, repaired_invalid_refs = extract_grounding_annotations(
-                    repaired_raw,
-                    allowed_ids,
-                )
-                node["grounding_annotations"] = repaired_annotations
-                node["grounding_invalid_refs"] = repaired_invalid_refs
-                repaired_quality = evaluate_node_content(repaired_content, node)
-                if (
-                    repaired_quality.get("passed")
-                    or float(repaired_quality.get("score") or 0) > float(quality.get("score") or 0)
-                ):
-                    raw_content = repaired_raw
-                    full_content = repaired_content
-                    annotations = repaired_annotations
-                    invalid_refs = repaired_invalid_refs
-                else:
-                    node["grounding_annotations"] = annotations
-                    node["grounding_invalid_refs"] = invalid_refs
-
-            # Bug fix: a single repair retry is attempted above, but the fixed
-            # content was never re-validated — the node was unconditionally
-            # treated as passing afterwards. Re-run the same quality/grounding
-            # check on the (possibly) repaired content. If it still fails,
-            # do NOT retry again (bounded to one repair attempt) and do NOT
-            # silently mark it clean — flag it using the existing weak-node
-            # mechanism (`generation_quality.passed == False`) so it surfaces
-            # in `build_final_course_quality_report`'s `weak_nodes` list,
-            # which is part of the API-visible final quality report.
-            quality = evaluate_node_content(full_content, node)
-            if not quality["passed"]:
-                logger.warning(
-                    "Node %s (%s) still fails quality/grounding check after repair; "
-                    "flagging for manual review instead of silently completing it.",
-                    node_id,
-                    node_name,
-                )
         node["generation_quality"] = quality
-        node["needs_manual_review"] = not quality["passed"]
+        node["needs_manual_review"] = any(
+            item.get("severity") == "critical"
+            for item in quality.get("issues") or []
+        )
 
         self._record_generation_quality(
             output_type="node_content_stream",

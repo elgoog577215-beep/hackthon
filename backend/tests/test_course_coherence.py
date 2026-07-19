@@ -201,7 +201,7 @@ def test_forward_prerequisite_is_a_blocking_contract_error():
     assert any(item["code"] == "coherence:forward_prerequisite" for item in report["issues"])
 
 
-def test_duplicate_substantive_explanation_blocks_course_publication():
+def test_duplicate_substantive_explanation_is_diagnostic_not_ai_repair_blocker():
     course = _course()
     duplicate = (
         "函数图像把每一个输入与对应输出放在坐标平面中，因此观察图像时必须同时检查定义域、"
@@ -219,8 +219,11 @@ def test_duplicate_substantive_explanation_blocks_course_publication():
     assert coherence["passed"] is False
     assert coherence["duplicate_pair_count"] == 1
     assert any(item["code"] == "coherence:duplicate_explanation" for item in coherence["issues"])
-    assert final["publication_allowed"] is False
-    assert any(item["code"] == "coherence:duplicate_explanation" for item in final["blocking_issues"])
+    assert final["final_status"] == "completed_with_warnings"
+    assert not any(
+        item["code"] == "coherence:duplicate_explanation"
+        for item in final["blocking_issues"]
+    )
 
 
 def test_short_prerequisite_recap_is_allowed_and_not_treated_as_duplication():

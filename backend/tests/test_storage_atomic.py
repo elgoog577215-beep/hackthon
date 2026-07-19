@@ -7,7 +7,6 @@ import asyncio
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,7 +20,6 @@ sys.path.insert(0, _backend_dir)
 sys.path.insert(0, _project_root)
 
 from storage import Storage
-from models import ValidationReport
 
 
 # ---------------------------------------------------------------------------
@@ -32,6 +30,8 @@ from models import ValidationReport
 async def tmp_storage(tmp_path: Path) -> Storage:
     """创建使用临时目录的 Storage 实例。"""
     s = Storage(data_dir=str(tmp_path), max_versions=3)
+    assert s.running is False
+    assert s.sync_thread is None
     return s
 
 
