@@ -19,12 +19,15 @@
     <main class="learning-main glass-panel-elevated">
       <div class="learning-context-bar" :class="{ 'is-generation': isGenerationPreview }">
         <div class="context-leading">
-          <button v-if="!navigatorVisible" type="button" :title="t('learningShell.openNavigator', '打开课程目录')" :aria-label="t('learningShell.openNavigator', '打开课程目录')" @click="navigatorOpen = true">
+          <button v-if="navigatorAvailable && !navigatorVisible" type="button" :title="t('learningShell.openNavigator', '打开课程目录')" :aria-label="t('learningShell.openNavigator', '打开课程目录')" @click="navigatorOpen = true">
             <PanelLeftOpen :size="17" />
           </button>
+          <button v-else-if="isGenerationPreview && !navigatorAvailable" type="button" :title="t('learningNavigator.back', '返回课程库')" :aria-label="t('learningNavigator.back', '返回课程库')" @click="router.push('/courses')">
+            <ArrowLeft :size="17" />
+          </button>
           <div class="context-copy">
-            <span>{{ isGenerationPreview ? generationContextLabel : currentParentLabel }}</span>
-            <strong>{{ isGenerationPreview ? generationStatusText : (courseStore.currentNode?.node_name || t('learningShell.selectNode', '选择一个学习目标')) }}</strong>
+            <span>{{ isGenerationPreview ? t('courseGeneration.workspace.label', '课程生产') : currentParentLabel }}</span>
+            <strong>{{ isGenerationPreview ? generationContextLabel : (courseStore.currentNode?.node_name || t('learningShell.selectNode', '选择一个学习目标')) }}</strong>
           </div>
         </div>
         <CourseWorkspaceTabs
@@ -50,7 +53,6 @@
       <CourseGenerationLifecycle
         v-if="isGenerationPreview"
         :task="generationTask"
-        :elapsed-seconds="phaseElapsedSeconds"
       />
 
       <GenerationLessonPlan
@@ -230,7 +232,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, TriangleAlert } from 'lucide-vue-next'
+import { ArrowLeft, History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, TriangleAlert } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseGenerationGate from '../components/CourseGenerationGate.vue'
 import CourseGenerationLifecycle from '../components/CourseGenerationLifecycle.vue'
@@ -258,7 +260,7 @@ import { isQuestionBankRepairReason } from '../utils/course-availability'
 import { isStartableLearningObjective } from '../utils/learning-scope'
 import { isResumableLearningAction } from '../utils/learning-resume'
 import { canResumeCourseProduction, courseProductionStageIndex, hasVisibleCourseDraft } from '../utils/course-production'
-import { activeLocale, t } from '../shared/i18n'
+import { t } from '../shared/i18n'
 
 const route = useRoute()
 const router = useRouter()
@@ -335,32 +337,19 @@ const generationContextLabel = computed(() => (
   || generationTask.value?.courseName
   || t('courseGeneration.production.untitled', '新课程')
 ))
-const localizedGenerationStep = computed(() => {
-  const phase = String(generationTask.value?.currentPhase || '')
-  if (activeLocale.value === 'en' && phase) return t(`courseGeneration.phases.${phase}`, phase)
-  return generationTask.value?.currentStep
-    || (phase ? t(`courseGeneration.phases.${phase}`, phase) : '')
-})
-const generationStatusText = computed(() => (
-  generationTask.value?.status === 'error'
-    ? t('courseGeneration.workspace.interrupted', '课程生产已中断')
-    : generationTask.value?.status === 'paused'
-      ? t('courseGeneration.workspace.paused', '课程生产已暂停')
-      : generationTask.value?.status === 'conflict'
-        ? t('courseGeneration.workspace.blocked', '课程生产需要处理冲突')
-        : generationTask.value?.status === 'waiting_for_review'
-          ? t('courseGeneration.workspace.needsConfirmation', '课程生产等待你的确认')
-          : localizedGenerationStep.value
-  || t('courseGeneration.workspace.preparing', '正在准备课程结构')
+const navigatorAvailable = computed(() => (
+  !isGenerationPreview.value || courseStore.courseTree.length > 0
 ))
-const navigatorVisible = computed(() => !courseStore.isFocusMode && (isNarrow.value ? navigatorOpen.value : navigatorOpen.value))
+const navigatorVisible = computed(() => (
+  navigatorAvailable.value && !courseStore.isFocusMode && navigatorOpen.value
+))
 const phaseWorkspaceItem = computed<'lesson-plan' | 'course'>(() => {
   if (generationTerminal.value) return 'course'
   const phase = String(generationTask.value?.currentPhase || '')
   if (/teaching|knowledge|graph/.test(phase)) return 'lesson-plan'
   return 'course'
 })
-const overlayVisible = computed(() => isNarrow.value && navigatorOpen.value && !taskOpen.value)
+const overlayVisible = computed(() => isNarrow.value && navigatorVisible.value && !taskOpen.value)
 const noteCount = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format' && item.sourceType !== 'wrong').length)
 const mistakeCount = computed(() => workspaceStore.practiceNeedsReviewCount)
 const currentParentLabel = computed(() => {

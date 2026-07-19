@@ -61,6 +61,9 @@ describe('CourseProductionStage', () => {
     expect(wrapper.text()).toContain('课程需求与资料处理结果已保留')
     expect(wrapper.text()).toContain('可确认课程目录')
     expect(wrapper.text()).toContain('AI 服务暂时无法完成身份校验')
+    expect(wrapper.find('.production-sheet__header').exists()).toBe(false)
+    expect(wrapper.find('.production-sheet__number').exists()).toBe(false)
+    expect(wrapper.text().match(/课程需求与资料处理结果已保留/g)).toHaveLength(1)
 
     await wrapper.get('.production-actions button').trigger('click')
     expect(wrapper.emitted('resume')).toHaveLength(1)
@@ -84,6 +87,6 @@ describe('CourseProductionStage', () => {
     expect(stages).toHaveLength(5)
     expect(stages[0]!.attributes('data-status')).toBe('completed')
     expect(stages[1]!.attributes('data-status')).toBe('error')
-    expect(stages[1]!.text()).toContain('已中断')
+    expect(stages[1]!.attributes('aria-label')).toContain('已中断')
   })
 })

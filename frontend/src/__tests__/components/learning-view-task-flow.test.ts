@@ -442,6 +442,8 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('课程生产暂时中断')
+    expect(wrapper.find('course-navigator-stub').exists()).toBe(false)
+    expect(wrapper.get('.context-leading button').attributes('title')).toBe('返回课程库')
     expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('disabled')).toBeDefined()
     await wrapper.get('.production-actions button').trigger('click')
     await flushPromises()
