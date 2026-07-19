@@ -1195,6 +1195,75 @@ async def test_durable_representation_task_builds_and_recovers_after_restart(tmp
 
 
 @pytest.mark.asyncio
+async def test_cancelled_build_is_not_overwritten_as_failed_by_the_late_worker(
+    tmp_path, monkeypatch,
+):
+    """Cancelling a running build must survive the worker's own late exception.
+
+    Cancellation makes the in-flight progress callback raise an ordinary
+    ``RuntimeError``. ``_run_job``'s generic exception handler used to write
+    ``failed`` unconditionally, so a user's deliberate cancel was reported back
+    to them as a build error.
+    """
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = legacy_course()
+    document = document_from_legacy_course(course)
+    storage = MemoryStorage({
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_revision": document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+        "learning_assets": course_data_with_practice()["learning_assets"],
+    })
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "generation_jobs.json")
+    monkeypatch.setattr(
+        task_manager_module,
+        "teaching_representation_repository",
+        TeachingRepresentationRepository(tmp_path / "representations"),
+    )
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        "course-1", "teaching_representation_build", enqueue=False,
+    )
+
+    # Cancel the task the moment the first page is emitted, exactly as a user
+    # pressing cancel mid-build would.
+    original_record = manager._record_representation_event
+    cancelled_at: list[str] = []
+
+    async def cancel_on_first_slide(inner_task_id: str, payload: dict) -> None:
+        await original_record(inner_task_id, payload)
+        if payload.get("event") == "slide_upsert" and not cancelled_at:
+            cancelled_at.append(str(payload.get("event")))
+            manager.tasks[inner_task_id]["status"] = "cancelled"
+            manager.tasks[inner_task_id]["message"] = "任务已取消，正在清理生成状态"
+
+    monkeypatch.setattr(manager, "_record_representation_event", cancel_on_first_slide)
+
+    await manager._run_job(task_id)
+
+    task = manager.get_task(task_id)
+    assert cancelled_at, "the build never reached a slide_upsert event"
+    assert task["status"] == "cancelled"
+    assert task["status"] != "failed"
+    assert not task.get("error")
+    # The cancelled build must not have published a completion event either.
+    assert not any(
+        item["event"] == "build_complete"
+        for item in task.get("event_history") or []
+    )
+
+
+@pytest.mark.asyncio
 async def test_revision_listener_asynchronously_reconciles_stale_units(tmp_path):
     from course_repository import (
         register_course_revision_listener,

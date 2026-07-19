@@ -2468,8 +2468,20 @@ class TaskManager:
             raise
         except Exception as exc:
             logger.error("Error processing task %s: %s", task_id, exc, exc_info=True)
-            await self._update_task_status(task_id, "failed", error=str(exc))
-            await self._record_workspace_failure(task_id, str(exc))
+            # A cancel/pause request makes in-flight workers raise an ordinary
+            # exception (see the teaching-representation progress callback), so
+            # this handler races the request. ``cancelled`` and ``paused`` are
+            # deliberate terminal states: overwriting them with ``failed`` would
+            # report the user's own cancellation back to them as a build error.
+            task = self.tasks.get(task_id)
+            if task and task.get("status") in ("paused", "cancelled"):
+                logger.info(
+                    "Task %s ended with %s after it was %s; keeping the requested state",
+                    task_id, exc, task.get("status"),
+                )
+            else:
+                await self._update_task_status(task_id, "failed", error=str(exc))
+                await self._record_workspace_failure(task_id, str(exc))
         finally:
             self._running_job_tasks.pop(task_id, None)
 

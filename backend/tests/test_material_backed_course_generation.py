@@ -842,6 +842,20 @@ def test_outline_validation_leaves_fillable_quality_fields_for_review():
     )
 
 
+@pytest.mark.parametrize(
+    ("requirements", "expected"),
+    [
+        ("生成 4 章、每章 3 节，共 12 个小节", {"chapter_count": 4, "section_count": 12}),
+        ("安排四章，每章三节", {"chapter_count": 4, "section_count": 12}),
+        ("课程需要 12 个递进小节", {"section_count": 12}),
+    ],
+)
+def test_course_shape_constraints_distinguish_per_chapter_from_total(requirements, expected):
+    from course_generation_workflow import _extract_course_shape_constraints
+
+    assert _extract_course_shape_constraints(requirements) == expected
+
+
 def test_section_knowledge_validation_keeps_relation_defects_as_advisories():
     valid = normalize_section_knowledge_package(_section_knowledge_package("局部校验"))
     valid["knowledge_structure"][0]["knowledge_points"][1]["entry_reason"] = "用于隔离关系端点校验"
@@ -2175,3 +2189,65 @@ async def test_twenty_one_section_strategy_keeps_quality_gates_with_thirteen_wai
     )
     assert relation_strategy["global_validation_report"]["passed"] is True
     assert len(plan["knowledge_relation_decisions"]) == 42
+
+
+@pytest.mark.asyncio
+async def test_concurrent_batch_failures_report_one_consistent_batch_id(monkeypatch):
+    """The raised error and the checkpoint must name the same failed batch.
+
+    Batches run concurrently, so whichever one lost the race used to overwrite
+    ``failed_batch_id`` while the raised error described the first batch in
+    plan order. Resuming then pointed at the wrong place.
+    """
+    labels = [f"并发失败能力{index}" for index in range(1, 13)]
+    plan = _multi_section_outline(labels)
+    plan = attach_module_plans_to_plan(
+        plan,
+        resolve_pedagogy_profile(subject="并发失败课程", requirements=""),
+    )
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(chapter["sections"], labels, strict=True)
+    }
+    course_data = {
+        "course_id": "course-batch-failure-id",
+        "course_name": "并发失败课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        # Fail a later batch as well as an earlier one so the two race.
+        if any(batch_id in prompt for batch_id in ("TP-B02", "TP-B04")):
+            return "{}"
+        if (
+            prompt.startswith("生成详细小节教案批次")
+            or prompt.startswith("只修复详细教案批次")
+        ):
+            return _teaching_batch_v3_response(system_prompt, title_to_label)
+        raise AssertionError(prompt)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+    with pytest.raises(AIProviderRequestError) as excinfo:
+        await service._prepare_course_teaching_plan(
+            course_data=course_data,
+            plan=plan,
+            artifacts=None,
+            on_phase=None,
+            on_checkpoint=None,
+        )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    assert stage["status"] == "failed"
+    assert stage["failed_batch_id"] == "TP-B02"
+    assert stage["failed_batch_ids"] == ["TP-B02", "TP-B04"]
+    assert stage["failed_batch_id"] in str(excinfo.value)
+    assert "TP-B04" not in str(excinfo.value)
+    assert stage["batches"]["TP-B02"]["status"] == "failed"
+    assert stage["batches"]["TP-B04"]["status"] == "failed"
+    assert stage["batches"]["TP-B01"]["status"] == "completed"
+    assert stage["batches"]["TP-B03"]["status"] == "completed"

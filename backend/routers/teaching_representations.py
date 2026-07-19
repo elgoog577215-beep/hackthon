@@ -308,7 +308,18 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
                     progress_callback=publish,
                     deck_plan=deck_plan,
                 )
-                publish({"event": "build_complete", "progress": 100, **result})
+                # A blocked quality gate leaves the previous registry in place.
+                # Reporting build_complete would tell the caller a new build was
+                # published when nothing changed, so surface build_blocked.
+                blocked = (
+                    str((result.get("build") or {}).get("status") or "") != "synchronized"
+                    or not (result.get("quality") or {}).get("passed", False)
+                )
+                publish({
+                    "event": "build_blocked" if blocked else "build_complete",
+                    "progress": 100,
+                    **result,
+                })
             except Exception as exc:
                 publish({
                     "event": "error",

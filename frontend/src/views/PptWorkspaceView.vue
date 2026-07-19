@@ -7,6 +7,10 @@
       <p>{{ store.building ? stageLabel : t('pptWorkspace.loading', '正在读取同源课件与页面结构') }}</p>
       <div class="ppt-workspace-state__progress"><i :style="{ width: `${store.buildProgress}%` }"></i></div>
       <b>{{ store.building ? `${store.buildProgress}%` : '···' }}</b>
+      <div v-if="store.buildTaskId" class="ppt-workspace-state__task-actions">
+        <button v-if="store.building" type="button" @click="pauseBuild">暂停</button>
+        <button type="button" @click="cancelBuild">取消</button>
+      </div>
     </div>
 
     <div v-else-if="documentLoadError" class="ppt-workspace-state is-empty">
@@ -24,7 +28,7 @@
       <h1>{{ courseTitle }}</h1>
       <p>{{ buildErrorLabel || t('pptWorkspace.emptyDescription', '从课程目标、正文、知识点与理解检查编译一套可直接上课的 PPT。') }}</p>
       <button type="button" class="ppt-workspace-state__build" :disabled="store.building" @click="rebuild">
-        <Sparkles :size="17" />{{ t('pptWorkspace.build', '生成完整课件') }}
+        <Sparkles :size="17" />{{ store.buildPaused ? '从保存点继续' : t('pptWorkspace.build', '生成完整课件') }}
       </button>
     </div>
 
@@ -130,6 +134,8 @@ const stageLabel = computed(() => ({
   slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划整套页面'),
   slide_build: t('teachingRepresentations.slides.stages.slideBuild', '正在逐页生成教学内容'),
   quality: t('teachingRepresentations.slides.stages.quality', '正在检查课堂可用性'),
+  paused: '已暂停，可从保存点继续',
+  resuming: '正在从保存点继续',
   complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
 }[store.buildStage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
 
@@ -203,8 +209,17 @@ async function migrateCourse() {
 
 async function rebuild() {
   if (!courseId.value || store.building) return
-  await store.buildProgressive(courseId.value).catch(() => undefined)
+  if (store.buildPaused) await store.resumeBuild().catch(() => undefined)
+  else await store.buildProgressive(courseId.value).catch(() => undefined)
   if (slideRepresentation.value) await store.select(slideRepresentation.value.representation_id)
+}
+
+async function pauseBuild() {
+  await store.pauseBuild().catch(() => undefined)
+}
+
+async function cancelBuild() {
+  await store.cancelBuild().catch(() => undefined)
 }
 
 function backToCourse() {
@@ -249,6 +264,8 @@ onMounted(loadWorkspace)
 .ppt-workspace-state__progress { width:min(360px,70vw); height:5px; overflow:hidden; margin-top:26px; border-radius:99px; background:#dfe5ee; }
 .ppt-workspace-state__progress i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#2556d8,#087f74); transition:width .25s ease; }
 .ppt-workspace-state > b { margin-top:10px; color:#6f7c8d; font:700 11px/1 "Aptos Mono","SFMono-Regular",monospace; }
+.ppt-workspace-state__task-actions { display:flex; gap:8px; margin-top:14px; }
+.ppt-workspace-state__task-actions button { min-height:34px; padding:0 14px; border:1px solid #cbd5e1; border-radius:9px; color:#334155; background:#fff; cursor:pointer; }
 .ppt-workspace-state__back { position:absolute; top:22px; left:22px; width:40px; height:40px; display:grid; place-items:center; border:1px solid #d4dae4; border-radius:10px; color:#526174; background:#fff; cursor:pointer; }
 .ppt-workspace-state__build { min-height:42px; display:inline-flex; align-items:center; gap:8px; margin-top:26px; padding:0 18px; border:0; border-radius:10px; color:#fff; background:#2556d8; box-shadow:0 10px 24px rgba(37,86,216,.24); font-size:13px; font-weight:700; cursor:pointer; }
 .ppt-ai-enter-active,.ppt-ai-leave-active { transition:transform .22s ease,opacity .22s ease; }

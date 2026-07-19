@@ -30,6 +30,7 @@ from teaching_representations import (
 )
 
 REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v4"
+HANDOUT_COMPILER_VERSION = "block_units_v1"
 CORE_TYPES = ("outline", "lesson_plan", "handout", "practice_sheet", "slide_deck", "diagram")
 
 
@@ -42,6 +43,7 @@ def compile_core_representations(
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] | None = None,
     baseline_registry: Any | None = None,
     deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
+    resume_slides: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     vector = revision_vector_for_document(document).revisions
@@ -93,6 +95,7 @@ def compile_core_representations(
             progress_callback=progress_callback,
             presentation_overrides=presentation_overrides,
             deck_plan=deck_plan,
+            resume_slides=resume_slides,
         ),
         "diagram": compile_diagram_spec(document),
     }
@@ -232,6 +235,8 @@ def _compiler_version_for(representation_type: str) -> str:
         return f"{REPRESENTATION_COMPILER_VERSION}:{SLIDE_DECK_COMPILER_VERSION}"
     if representation_type == "diagram":
         return f"{REPRESENTATION_COMPILER_VERSION}:{DIAGRAM_COMPILER_VERSION}"
+    if representation_type == "handout":
+        return f"{REPRESENTATION_COMPILER_VERSION}:{HANDOUT_COMPILER_VERSION}"
     return REPRESENTATION_COMPILER_VERSION
 
 
@@ -242,6 +247,7 @@ def rebuild_core_representations_safely(
     *,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
+    resume_slides: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Compile in isolation and publish only a complete, quality-passing set.
 
@@ -274,6 +280,7 @@ def rebuild_core_representations_safely(
                 presentation_overrides=presentation_overrides,
                 baseline_registry=previous,
                 deck_plan=deck_plan,
+                resume_slides=resume_slides,
             )
             candidate = shadow.load(document.course_id)
             current_spec_ids = {item.spec_id for item in candidate.representations}
@@ -454,7 +461,12 @@ def _validate_cross_product_consistency(
                 profile["practices"].update(binding.practice_task_ids)
 
     issues: list[dict[str, Any]] = []
-    required_section_types = {"lesson_plan", "handout", "practice_sheet", "slide_deck", "diagram"}
+    # The slide deck is a demo-sized projection: ``compile_slide_deck`` caps a
+    # course at 12-18 pages, so a large course intentionally teaches only a
+    # subset of sections on slides. Requiring per-section slide coverage would
+    # contradict that compression, so it is reported as a warning instead.
+    required_section_types = {"lesson_plan", "handout", "practice_sheet", "diagram"}
+    compressible_section_types = {"slide_deck"}
     checked_sections = 0
     for section_id, by_type in profiles.items():
         if "lesson_plan" not in by_type:
@@ -467,6 +479,14 @@ def _validate_cross_product_consistency(
                 "code": "cross_product_section_missing",
                 "target": section_id,
                 "missing_representations": missing,
+            })
+        compressed = sorted(compressible_section_types - set(by_type))
+        if compressed:
+            issues.append({
+                "severity": "warning",
+                "code": "cross_product_section_compressed",
+                "target": section_id,
+                "missing_representations": compressed,
             })
         objective_sets = {
             tuple(sorted(profile["objectives"]))
@@ -767,34 +787,53 @@ def _handout_spec(document: CourseDocument) -> dict[str, Any]:
     blocks_by_section = _blocks_by_section(document)
     units = []
     for section in _learning_sections(document):
-        blocks = blocks_by_section.get(section.section_id, [])
-        units.append({
-            "unit_id": f"handout:{section.section_id}",
-            "section_id": section.section_id,
-            "title": section.title,
-            "learning_objective": section.learning_objective,
-            "learning_prompt": _objective_learning_prompt(
-                section.learning_objective or section.title,
-            ),
-            "source_section_ids": [section.section_id],
-            "source_block_ids": [block.block_id for block in blocks],
-            "source_keys": (
-                [f"objective:{section.objective_id}"]
-                if section.objective_id
-                else []
-            ),
-            "knowledge_refs": _knowledge_refs_for_blocks(blocks),
-            "blocks": [
-                {
+        blocks = [
+            block for block in blocks_by_section.get(section.section_id, [])
+            if block.status != "retired"
+        ]
+        for block in blocks:
+            # A single-block legacy handout used ``handout:<section_id>``. Keep
+            # that identifier so stored specs, presentation edits and API
+            # callers remain valid. Multi-block sections use the authoritative
+            # block id, which makes additions/reordering independent of text.
+            unit_id = (
+                f"handout:{section.section_id}"
+                if len(blocks) == 1
+                else f"handout:{section.section_id}:block:{block.block_id}"
+            )
+            units.append({
+                "unit_id": unit_id,
+                "section_id": section.section_id,
+                "block_id": block.block_id,
+                "title": str(block.payload.get("title") or section.title),
+                "section_title": section.title,
+                "block_role": block.role,
+                "learning_objective": section.learning_objective,
+                "learning_prompt": _objective_learning_prompt(
+                    section.learning_objective or section.title,
+                ),
+                # Do not bind the aggregate section revision here: it includes
+                # every sibling block and would turn a paragraph edit back into
+                # a whole-section rebuild. section_structure tracks title,
+                # order and objective without depending on sibling contents.
+                "source_block_ids": [block.block_id],
+                "source_keys": _unique([
+                    f"section_structure:{section.section_id}",
+                    *(
+                        [f"objective:{section.objective_id}"]
+                        if section.objective_id
+                        else []
+                    ),
+                ]),
+                "knowledge_refs": list(block.concept_refs),
+                "blocks": [{
                     "block_id": block.block_id,
                     "role": block.role,
                     "title": str(block.payload.get("title") or ""),
                     "markdown": str(block.payload.get("markdown") or block.payload.get("text") or ""),
                     "knowledge_refs": list(block.concept_refs),
-                }
-                for block in blocks if block.status != "retired"
-            ],
-        })
+                }],
+            })
     return {"title": f"{document.title} 讲义", "units": units}
 
 
@@ -879,6 +918,7 @@ def _unit_bindings_for_payload(
             block = blocks_by_id.get(str(block_id))
             bindings.append(source_binding_for_document(
                 document,
+                section_id=str(unit.get("section_id") or "") or None,
                 block_id=str(block_id),
                 knowledge_node_ids=list(block.concept_refs) if block else [],
                 learning_objective_ids=objective_ids,

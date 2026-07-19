@@ -119,6 +119,14 @@ def test_runtime_projects_progress_task_and_continuation_from_one_source_batch(m
     assert runtime["revision_vector"]["snapshot_revision"] == 4
     assert runtime["course_availability"]["mode"] == "standard"
     assert runtime["course_availability"]["capabilities"]["practice"]["status"] == "available"
+    assert "personal_course_overlay" not in runtime
+    assert "personal_course_overlay" not in runtime["course_evolution"]
+    assert runtime["course_evolution"]["legacy_overlay_migration"] == {
+        "schema_version": "legacy_overlay_migration_v1",
+        "resolution_status": "empty",
+        "requires_migration": False,
+        "conflicts": [],
+    }
 
 
 def test_mastery_checklist_reads_current_practice_attempt(monkeypatch):
@@ -343,3 +351,90 @@ def test_formal_course_evolution_block_interaction_remains_effect_evidence(monke
     assert recorded[0]["source"] == "learning_runtime.course_evolution_block"
     assert recorded[0]["entity_type"] == "course_evolution_block"
     assert recorded[0]["evidence"] == {"evidence_refs": ["e1", "e2", "e3"]}
+
+
+def _applied_personal_overlay_state(course: dict):
+    """A legacy applied `personal_overlay` change set, still resolvable."""
+    from course_evolution import (
+        CourseEvolutionOperation,
+        CourseEvolutionPlan,
+        CourseEvolutionState,
+    )
+
+    course["course_revision_vector"] = {
+        "revisions": {
+            "block:n1-block": "rev-block-1",
+            "section:n1": "rev-section-1",
+        },
+    }
+    operation = CourseEvolutionOperation(
+        operation_id="legacy-op-1",
+        operation_type="INSERT_PERSONAL_SUPPORT",
+        target_block_id="n1-block",
+        target_section_id="n1",
+        reason="legacy personalized explanation",
+        payload={"body": "legacy overlay body"},
+    )
+    plan = CourseEvolutionPlan(
+        plan_kind="personal_adaptation_plan",
+        write_target="personal_overlay",
+        change_set_id="legacy-plan-1",
+        user_id="u1",
+        course_id="c1",
+        hypothesis_id="legacy-hypothesis-1",
+        base_revision_vector={
+            "block:n1-block": "rev-block-1",
+            "section:n1": "rev-section-1",
+        },
+        operations=[operation],
+        selected_scope="current",
+        selected_operation_ids=["legacy-op-1"],
+        expected_effect="explain the difficult point",
+        status="applied",
+        created_at="2026-07-17T00:00:00+00:00",
+        updated_at="2026-07-17T00:00:00+00:00",
+    )
+    return CourseEvolutionState(
+        user_id="u1",
+        course_id="c1",
+        change_sets=[plan],
+        revision="legacy-state-1",
+        updated_at="2026-07-17T00:00:00+00:00",
+    )
+
+
+def test_runtime_never_projects_legacy_overlay_into_body_adaptive_blocks(monkeypatch):
+    """OpenSpec 5.7: applied `personal_overlay` plans are not a second body stream."""
+    course = project_learning_objective_bindings(_course())
+    state = _applied_personal_overlay_state(course)
+
+    monkeypatch.setattr(learning_runtime, "load_learning_events", lambda **_kwargs: [])
+    monkeypatch.setattr(learning_runtime, "practice_attempt_repository", _Repository([]))
+    monkeypatch.setattr(learning_runtime, "learning_snapshot_repository", _Repository(None))
+    monkeypatch.setattr(learning_runtime, "learning_record_repository", _Repository([]))
+    monkeypatch.setattr(learning_runtime, "course_evolution_repository", _Repository(state))
+    monkeypatch.setattr(
+        learning_runtime,
+        "workflow_view",
+        lambda *_args, **_kwargs: {"phase": "reading", "case": None, "session": None, "current_task": None},
+    )
+
+    runtime = learning_runtime.build_learning_runtime(course, user_id="u1", node_id="n1")
+
+    assert "personal_course_overlay" not in runtime
+    assert "personal_course_overlay" not in runtime["course_evolution"]
+    roles = {block.get("role") for block in runtime["adaptive_blocks"]}
+    assert "accepted_personal_course_growth" not in roles
+    assert "legacy-op-1" not in {
+        block.get("adaptive_block_id") for block in runtime["adaptive_blocks"]
+    }
+    # Every surviving block is an ephemeral, evidence-driven support block.
+    assert all(
+        block.get("role") in (None, "temporary_support")
+        for block in runtime["adaptive_blocks"]
+    )
+    # The legacy overlay is still visible, but only as a migration obligation.
+    migration = runtime["course_evolution"]["legacy_overlay_migration"]
+    assert migration["schema_version"] == "legacy_overlay_migration_v1"
+    assert migration["requires_migration"] is True
+    assert migration["resolution_status"] == "active"

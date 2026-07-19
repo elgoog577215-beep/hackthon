@@ -69,3 +69,7 @@ backend/data/teaching_exports/
 
 # Atomic write temp files
 *.tmp
+
+# Pytest scratch directories (basetemp / per-agent runs)
+backend/.pytest-*
+test-tmp/

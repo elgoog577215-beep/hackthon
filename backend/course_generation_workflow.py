@@ -2502,6 +2502,14 @@ def _extract_course_shape_constraints(requirements: str) -> dict[str, int]:
         r"(?<!第)([0-9一二两三四五六七八九十]+)\s*(?:个\s*)?章(?:节)?",
         text,
     )
+    total_section_match = re.search(
+        r"(?:共|总共|总计|合计)\s*([0-9一二两三四五六七八九十]+)\s*(?:个\s*)?(?:递进\s*)?(?:小节|节)",
+        text,
+    )
+    per_chapter_match = re.search(
+        r"每\s*(?:个\s*)?章\s*(?:包含|含有|有|安排|设置)?\s*([0-9一二两三四五六七八九十]+)\s*(?:个\s*)?(?:递进\s*)?(?:小节|节)",
+        text,
+    )
     section_match = re.search(
         r"(?<!第)([0-9一二两三四五六七八九十]+)\s*(?:个\s*)?(?:递进\s*)?(?:小节|节)",
         text,
@@ -2511,7 +2519,15 @@ def _extract_course_shape_constraints(requirements: str) -> dict[str, int]:
         value = _parse_count(chapter_match.group(1))
         if value:
             result["chapter_count"] = value
-    if section_match:
+    if total_section_match:
+        value = _parse_count(total_section_match.group(1))
+        if value:
+            result["section_count"] = value
+    elif per_chapter_match and result.get("chapter_count"):
+        per_chapter = _parse_count(per_chapter_match.group(1))
+        if per_chapter:
+            result["section_count"] = result["chapter_count"] * per_chapter
+    elif section_match:
         value = _parse_count(section_match.group(1))
         if value:
             result["section_count"] = value

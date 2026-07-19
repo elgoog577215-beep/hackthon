@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import http, { learnerIdentityHeaders, withApiBase } from '../utils/http'
 
-export type RepresentationType = 'outline' | 'lesson_plan' | 'handout' | 'practice_sheet' | 'slide_deck'
+export type RepresentationType = 'outline' | 'lesson_plan' | 'handout' | 'practice_sheet' | 'slide_deck' | 'diagram'
 export type SlideDeckTheme = 'qingfeng-classroom' | 'academic-bluegray'
 export type SlideDeckPreviewSource = 'draft' | 'published'
 
@@ -37,6 +37,7 @@ export interface TeachingRepresentationBuildEvent {
   build?: Record<string, any>
   registry?: Record<string, any>
   sequence?: number
+  task_id?: string
 }
 
 export async function consumeTeachingRepresentationStream(
@@ -85,6 +86,8 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     buildProgress: 0,
     buildStage: '',
     buildError: '',
+    buildTaskId: '',
+    buildPaused: false,
     loading: false,
     building: false,
     courseRequestToken: 0,
@@ -122,6 +125,8 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildProgress = 0
       this.buildStage = ''
       this.buildError = ''
+      this.buildTaskId = ''
+      this.buildPaused = false
       this.loading = false
       this.building = false
     },
@@ -170,6 +175,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildProgress = 0
       this.buildStage = 'planning'
       this.buildError = ''
+      this.buildPaused = false
       this.liveSlides = []
       this.draftSlideQuality = null
       this.slidePreviewSource = 'published'
@@ -182,6 +188,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         const completedRef: { value?: TeachingRepresentationBuildEvent } = {}
         await consumeTeachingRepresentationStream(response, event => {
           if (!isCurrentAttempt()) return
+          if (event.task_id) this.buildTaskId = event.task_id
           this.buildProgress = Math.max(this.buildProgress, Number(event.progress || 0))
           if (event.stage) this.buildStage = event.stage
           if (event.event === 'deck_plan') this.buildStage = 'slide_plan'
@@ -228,8 +235,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             this.buildError = 'quality_gate_failed'
           }
           if (event.event === 'error') this.buildError = event.message || 'Teaching representation build failed'
+          if (event.event === 'paused') this.buildPaused = true
         })
         if (!isCurrentAttempt()) return completedRef.value
+        if (this.buildPaused) return completedRef.value
         if (this.buildError) throw new Error(this.buildError)
         const completed = completedRef.value
         if (!completed?.registry) throw new Error('Teaching representation build ended without a registry')
@@ -255,6 +264,60 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       } finally {
         if (isCurrentAttempt()) this.building = false
       }
+    },
+    async pauseBuild() {
+      if (!this.buildTaskId || !this.building) return
+      await http.post(`/api/tasks/${this.buildTaskId}/pause`)
+      this.buildPaused = true
+      this.building = false
+      this.buildStage = 'paused'
+    },
+    async resumeBuild() {
+      if (!this.buildTaskId || !this.courseId) return
+      const courseId = this.courseId
+      await http.post(`/api/tasks/${this.buildTaskId}/resume`)
+      this.buildPaused = false
+      this.building = true
+      this.buildError = ''
+      this.buildStage = 'resuming'
+      try {
+        for (;;) {
+          const response = await http.get(`/api/tasks/${this.buildTaskId}`)
+          const task = response.data || {}
+          this.buildProgress = Math.max(this.buildProgress, Number(task.progress || 0))
+          this.buildStage = String(task.phase || task.current_phase || this.buildStage)
+          if (task.status === 'completed') {
+            await this.load(courseId)
+            this.buildProgress = 100
+            this.buildStage = 'complete'
+            return task
+          }
+          if (task.status === 'failed') throw new Error(task.error || 'Teaching representation build failed')
+          if (task.status === 'paused') {
+            this.buildPaused = true
+            return task
+          }
+          await new Promise(resolve => window.setTimeout(resolve, 400))
+        }
+      } catch (error) {
+        this.buildError = error instanceof Error ? error.message : String(error)
+        throw error
+      } finally {
+        this.building = false
+      }
+    },
+    async cancelBuild() {
+      if (!this.buildTaskId) return
+      // Invalidate the active SSE consumer before deleting the durable task.
+      // Otherwise its terminal "task removed" event can race with this action
+      // and overwrite the intentional cancelled state with a build error.
+      this.buildAttemptToken += 1
+      this.buildError = ''
+      await http.delete(`/api/tasks/${this.buildTaskId}`)
+      this.buildTaskId = ''
+      this.buildPaused = false
+      this.building = false
+      this.buildStage = 'cancelled'
     },
     async ensure(courseId: string) {
       const registry = await this.load(courseId)

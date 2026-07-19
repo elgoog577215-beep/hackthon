@@ -997,10 +997,18 @@ def course_evolution_view(
         plan["plan_id"] = plan["change_set_id"]
     for plan in payload["course_evolution_plans"]:
         plan["plan_id"] = plan["change_set_id"]
-    payload["personal_course_overlay"] = personal_course_overlay(
+    legacy_overlay = personal_course_overlay(
         state,
         current_revision_vector=current_revision_vector,
-    ).model_dump(mode="json")
+    )
+    # PersonalCourseOverlay is a migration reader only. Do not expose its
+    # operations as a second durable course/content projection.
+    payload["legacy_overlay_migration"] = {
+        "schema_version": "legacy_overlay_migration_v1",
+        "resolution_status": legacy_overlay.resolution_status,
+        "requires_migration": bool(legacy_overlay.active_plan_ids or legacy_overlay.conflicts),
+        "conflicts": deepcopy(legacy_overlay.conflicts),
+    }
     payload["permissions"] = {
         "write_target": "course_document",
         "can_modify_current_course": True,

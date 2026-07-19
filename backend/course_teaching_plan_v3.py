@@ -18,6 +18,104 @@ def _issue(code: str, message: str) -> dict[str, str]:
     return {"code": code, "message": message, "severity": "blocking"}
 
 
+# Deterministic shape repair for knowledge-detail entries.
+#
+# Models reliably produce the right *content* but drift on the *shape*: a bare
+# string where an object is required, or a synonym for the canonical key. Those
+# drifts are mechanical, so repairing them here removes a whole class of
+# correction round-trips.
+#
+# This repairs shape only. A field whose content is genuinely absent stays
+# absent so the validator still rejects the batch — inventing a mastery
+# criterion or a repair strategy would pass the quality gate with content no
+# teacher wrote.
+_CAPABILITY_ALIASES = {
+    "observable_behavior": "observable_behavior",
+    "behavior": "observable_behavior",
+    "observable": "observable_behavior",
+    "capability": "observable_behavior",
+    "description": "observable_behavior",
+}
+_MASTERY_ALIASES = {
+    "observable_performance": "observable_performance",
+    "performance": "observable_performance",
+    "observable": "observable_performance",
+    "criterion": "observable_performance",
+    "standard": "observable_performance",
+    "verification_method": "verification_method",
+    "verification": "verification_method",
+    "method": "verification_method",
+    "evidence": "verification_method",
+    "how_to_verify": "verification_method",
+}
+_MISCONCEPTION_ALIASES = {
+    "observable_error_pattern": "observable_error_pattern",
+    "error_pattern": "observable_error_pattern",
+    "error": "observable_error_pattern",
+    "mistake": "observable_error_pattern",
+    "symptom": "observable_error_pattern",
+    "discrimination": "discrimination",
+    "discriminator": "discrimination",
+    "diagnosis": "discrimination",
+    "why": "discrimination",
+    "root_cause": "discrimination",
+    "repair_strategy": "repair_strategy",
+    "repair": "repair_strategy",
+    "remediation": "repair_strategy",
+    "fix": "repair_strategy",
+    "correction": "repair_strategy",
+}
+
+
+def _repair_detail_entry(
+    raw: Any,
+    *,
+    aliases: dict[str, str],
+    primary_field: str,
+) -> dict[str, Any]:
+    """Coerce one capability/criterion/misconception into its canonical shape."""
+    if isinstance(raw, str):
+        text = raw.strip()
+        return {primary_field: text} if text else {}
+    if not isinstance(raw, dict):
+        return {}
+    repaired: dict[str, Any] = deepcopy(raw)
+    for key, value in raw.items():
+        canonical = aliases.get(str(key).strip().lower())
+        if canonical is None:
+            continue
+        # Never let an alias clobber a canonical field the model already filled.
+        if str(repaired.get(canonical) or "").strip():
+            continue
+        if isinstance(value, str) and value.strip():
+            repaired[canonical] = value.strip()
+        elif isinstance(value, list):
+            joined = "；".join(
+                item.strip() for item in value
+                if isinstance(item, str) and item.strip()
+            )
+            if joined:
+                repaired[canonical] = joined
+    return repaired
+
+
+def _repair_detail_list(
+    values: Any,
+    *,
+    aliases: dict[str, str],
+    primary_field: str,
+) -> list[dict[str, Any]]:
+    if isinstance(values, (str, dict)):
+        values = [values]
+    if not isinstance(values, list):
+        return []
+    repaired = [
+        _repair_detail_entry(item, aliases=aliases, primary_field=primary_field)
+        for item in values
+    ]
+    return [item for item in repaired if item]
+
+
 def normalize_teaching_plan_skeleton_v3(
     payload: dict[str, Any],
     *,
@@ -186,9 +284,21 @@ def normalize_teaching_plan_batch_v3(
                 "conditions": _unique(list(raw.get("conditions") or [])),
                 "boundaries": _unique(list(raw.get("boundaries") or [])),
                 "counterexamples": _unique(list(raw.get("counterexamples") or [])),
-                "capability_points": deepcopy(list(raw.get("capability_points") or [])),
-                "misconceptions": deepcopy(list(raw.get("misconceptions") or [])),
-                "mastery_criteria": deepcopy(list(raw.get("mastery_criteria") or [])),
+                "capability_points": _repair_detail_list(
+                    raw.get("capability_points"),
+                    aliases=_CAPABILITY_ALIASES,
+                    primary_field="observable_behavior",
+                ),
+                "misconceptions": _repair_detail_list(
+                    raw.get("misconceptions"),
+                    aliases=_MISCONCEPTION_ALIASES,
+                    primary_field="observable_error_pattern",
+                ),
+                "mastery_criteria": _repair_detail_list(
+                    raw.get("mastery_criteria"),
+                    aliases=_MASTERY_ALIASES,
+                    primary_field="observable_performance",
+                ),
                 "aliases": _unique(list(raw.get("aliases") or [])),
             })
         relations = []

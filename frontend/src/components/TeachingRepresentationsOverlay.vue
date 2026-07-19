@@ -10,7 +10,8 @@
       <header class="resource-workspace-header">
         <div class="representations-heading">
           <span>
-            <ListTree v-if="activeType === 'outline'" :size="18" />
+            <ListTree v-if="displayType === 'outline'" :size="18" />
+            <Network v-else-if="displayType === 'diagram'" :size="18" />
             <ClipboardList v-else :size="18" />
           </span>
           <div>
@@ -67,12 +68,42 @@
             <span class="representation-status" :data-status="selected.status">{{ statusLabel(selected) }}</span>
           </div>
 
+          <nav class="representation-types" :aria-label="t('teachingRepresentations.typeNav', '资源类型')">
+            <button
+              v-for="item in selectableTypes"
+              :key="item.representation_type"
+              type="button"
+              :data-representation-type="item.representation_type"
+              :aria-pressed="selected.representation_type === item.representation_type"
+              @click="selectType(item.representation_type)"
+            >
+              {{ typeLabel(item.representation_type) }}
+            </button>
+          </nav>
+
           <div v-if="selected.status === 'stale'" class="stale-notice">
             <Clock3 :size="16" />
             <span>{{ t('teachingRepresentations.staleNotice', '课程已更新，以下单元等待同步') }}：{{ selected.stale_unit_ids.length }}</span>
           </div>
 
-          <div v-if="selected.representation_type === 'outline'" class="outline-preview">
+          <div v-if="selected.representation_type === 'diagram'" class="diagram-preview">
+            <div class="diagram-quality" :data-passed="String(Boolean(content.quality_report?.passed))">
+              <strong>{{ content.quality_report?.passed ? t('teachingRepresentations.diagram.qualityPassed', '来源与结构校验通过') : t('teachingRepresentations.diagram.qualityReview', '图解需要检查') }}</strong>
+              <span>{{ t('teachingRepresentations.diagram.unitCount', '{count} 个同源图解单元').replace('{count}', String(content.quality_report?.unit_count ?? content.units?.length ?? 0)) }}</span>
+            </div>
+            <article v-for="unit in content.units || []" :key="unit.unit_id" :class="{ stale: isStale(unit.unit_id) }">
+              <header>
+                <div>
+                  <strong>{{ unit.title }}</strong>
+                  <small>{{ diagramBindingSummary(unit) }}</small>
+                </div>
+                <span>{{ unit.diagram_kind === 'learning_path' ? t('teachingRepresentations.diagram.learningPath', '学习路径') : t('teachingRepresentations.diagram.conceptMap', '概念图') }}</span>
+              </header>
+              <DiagramSpecRenderer :unit="unit" :title="unit.title" />
+            </article>
+          </div>
+
+          <div v-else-if="selected.representation_type === 'outline'" class="outline-preview">
             <article v-for="unit in content.sections || []" :key="unit.unit_id" :class="{ stale: isStale(unit.unit_id) }">
               <span>{{ String(unit.position + 1).padStart(2, '0') }}</span>
               <div>
@@ -112,7 +143,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
-import { ClipboardList, Clock3, Layers3, ListTree, LoaderCircle, RefreshCw, X } from 'lucide-vue-next'
+import { ClipboardList, Clock3, Layers3, ListTree, LoaderCircle, Network, RefreshCw, X } from 'lucide-vue-next'
 import { useTeachingRepresentationsStore, type RepresentationType, type TeachingRepresentation } from '../stores/teachingRepresentations'
 import { t } from '../shared/i18n'
 import CourseWorkspaceTabs from './CourseWorkspaceTabs.vue'
@@ -147,7 +178,35 @@ const sourceSummary = computed(() => {
 })
 
 function typeLabel(type: RepresentationType) {
-  return t(`teachingRepresentations.types.${type}`, ({ outline: '大纲', lesson_plan: '教案', handout: '讲义', practice_sheet: '练习册', slide_deck: '演示文稿' } as Record<string, string>)[type])
+  return t(`teachingRepresentations.types.${type}`, ({ outline: '大纲', lesson_plan: '教案', handout: '讲义', practice_sheet: '练习册', slide_deck: '演示文稿', diagram: '知识图解' } as Record<string, string>)[type])
+}
+
+/** 头部图标按“当前实际展示的表征类型”走，未选中时回落到入口 activeType。 */
+const displayType = computed<RepresentationType>(() => selected.value?.representation_type ?? props.activeType)
+
+/** 类型切换条：已生成（非归档）的表征，按固定顺序展示，保证渲染稳定。 */
+const TYPE_ORDER: RepresentationType[] = ['outline', 'lesson_plan', 'handout', 'practice_sheet', 'slide_deck', 'diagram']
+const selectableTypes = computed<TeachingRepresentation[]>(() => (
+  store.representations
+    .filter(item => item.status !== 'archived')
+    .slice()
+    .sort((a, b) => TYPE_ORDER.indexOf(a.representation_type) - TYPE_ORDER.indexOf(b.representation_type))
+))
+
+async function selectType(type: RepresentationType) {
+  const target = store.representations.find(item => item.representation_type === type)
+  if (target && target.representation_id !== store.selectedId) await store.select(target.representation_id)
+}
+
+/** 图解单元的同源绑定摘要，纯文本。 */
+function diagramBindingSummary(unit: Record<string, any>) {
+  const sections = Array.isArray(unit?.source_section_ids) ? unit.source_section_ids.length : 0
+  const blocks = Array.isArray(unit?.source_block_ids) ? unit.source_block_ids.length : 0
+  const knowledge = Array.isArray(unit?.knowledge_refs) ? unit.knowledge_refs.length : 0
+  return t('teachingRepresentations.diagram.bindingSummary', '{sections} 个章节 · {blocks} 个内容块 · {knowledge} 个知识点')
+    .replace('{sections}', String(sections))
+    .replace('{blocks}', String(blocks))
+    .replace('{knowledge}', String(knowledge))
 }
 
 function statusLabel(item: TeachingRepresentation) {

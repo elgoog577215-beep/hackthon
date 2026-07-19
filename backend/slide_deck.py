@@ -161,6 +161,7 @@ def compile_slide_deck(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] | None = None,
     deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
+    resume_slides: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Compile a course into a teachable page sequence instead of copied prose."""
     sections = sorted(document.sections, key=lambda item: item.position)
@@ -179,8 +180,23 @@ def compile_slide_deck(
     )
     estimated_slide_count = len(resolved_plan.slides) if resolved_plan else _estimated_slide_count(learning_sections)
     slides: list[SlideSpec] = []
+    resumed_by_unit_id: dict[str, SlideSpec] = {}
+    for raw_slide in resume_slides or []:
+        try:
+            saved_slide = SlideSpec.model_validate(raw_slide)
+        except (TypeError, ValueError):
+            continue
+        resumed_by_unit_id[saved_slide.unit_id] = saved_slide
 
     def append(slide: SlideSpec) -> None:
+        resumed = resumed_by_unit_id.get(slide.unit_id)
+        if resumed is not None:
+            # A page emitted before pause/restart is already a complete compiler
+            # unit.  Reuse it without another slide_upsert event so callers can
+            # distinguish resumed pages from newly compiled pages.
+            resumed.position = len(slides)
+            slides.append(resumed)
+            return
         slide.position = len(slides)
         slide.quality = slide_quality(slide)
         slides.append(slide)

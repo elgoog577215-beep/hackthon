@@ -11,8 +11,6 @@ from course_document import CourseDocument, document_from_legacy_course
 from course_evolution import (
     course_evolution_repository,
     course_evolution_view,
-    personal_course_overlay,
-    project_applied_adaptive_blocks,
 )
 from course_learning_availability import project_course_learning_availability
 from course_revisions import revision_vector_for_document
@@ -98,22 +96,6 @@ def build_learning_runtime(
     revision_vector["learner_model_revision_id"] = learner_model["model_revision_id"]
     evolution_state = course_evolution_repository.load(user_id, course_id)
     current_course_revision_vector = _current_course_revision_vector(course)
-    personal_overlay = personal_course_overlay(
-        evolution_state,
-        current_revision_vector=current_course_revision_vector,
-    )
-    personal_adaptive_blocks = project_applied_adaptive_blocks(
-        evolution_state,
-        node_id=node_id,
-        current_revision_vector=current_course_revision_vector,
-    )
-    for block in personal_adaptive_blocks:
-        feedback = _adaptive_feedback(events, str(block.get("adaptive_block_id") or ""))
-        block["feedback"]["value"] = feedback or "unrated"
-    personal_adaptive_blocks = [
-        block for block in personal_adaptive_blocks
-        if (block.get("feedback") or {}).get("value") != "dismissed"
-    ]
     temporary_adaptive_blocks = _adaptive_blocks(
         course,
         attempts=attempts,
@@ -145,8 +127,9 @@ def build_learning_runtime(
             evolution_state,
             current_revision_vector=current_course_revision_vector,
         ),
-        "personal_course_overlay": personal_overlay.model_dump(mode="json"),
-        "adaptive_blocks": personal_adaptive_blocks + temporary_adaptive_blocks,
+        # Durable accepted changes live only in CourseDocument.  This stream is
+        # intentionally limited to ephemeral, evidence-driven runtime support.
+        "adaptive_blocks": temporary_adaptive_blocks,
         "active_task": deepcopy((continuation.get("primary_action") or {}).get("task_ref")),
         "continuation": continuation,
     }

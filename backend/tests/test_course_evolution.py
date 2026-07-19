@@ -1368,3 +1368,138 @@ def test_unrelated_later_success_cannot_prove_personal_adaptation_effective(
     result = next(item for item in evaluated.change_sets if item.change_set_id == plan.change_set_id)
     assert result.effect_evaluation["status"] == "insufficient_evidence"
     assert result.effect_evaluation["attempt_ids"] == []
+
+
+# --- OpenSpec 5.7 / 5.5 acceptance: legacy overlay is a migration reader only ---
+
+
+def test_course_evolution_view_exposes_only_legacy_overlay_migration_summary():
+    state, document = _legacy_overlay_state(_course())
+    current_vector = revision_vector_for_document(document).revisions
+
+    view = course_evolution_view(state, current_revision_vector=current_vector)
+
+    assert "personal_course_overlay" not in view
+    assert view["legacy_overlay_migration"] == {
+        "schema_version": "legacy_overlay_migration_v1",
+        "resolution_status": "active",
+        "requires_migration": True,
+        "conflicts": [],
+    }
+    # The deprecated overlay MUST NOT ship a second durable content projection.
+    assert "operations" not in view["legacy_overlay_migration"]
+    assert "relocations" not in view["legacy_overlay_migration"]
+
+
+def test_course_evolution_view_requires_migration_when_overlay_conflicts():
+    state, document = _legacy_overlay_state(_course())
+    document.blocks[0].payload["markdown"] = "base course changed the semantic target"
+    updated = refresh_document_revision(document)
+    current_vector = revision_vector_for_document(updated).revisions
+
+    view = course_evolution_view(state, current_revision_vector=current_vector)
+    migration = view["legacy_overlay_migration"]
+
+    assert migration["requires_migration"] is True
+    assert migration["resolution_status"] == "conflicted"
+    assert [item["reason"] for item in migration["conflicts"]] == [
+        "target_block_revision_changed",
+    ]
+    assert migration["conflicts"][0]["requires_user_resolution"] is True
+    assert migration["conflicts"][0]["operation_id"] == "legacy-operation-1"
+
+
+def test_course_evolution_view_without_overlay_does_not_require_migration():
+    state, document = _legacy_overlay_state(_course())
+    state.change_sets = []
+    current_vector = revision_vector_for_document(document).revisions
+
+    view = course_evolution_view(state, current_revision_vector=current_vector)
+
+    assert view["legacy_overlay_migration"] == {
+        "schema_version": "legacy_overlay_migration_v1",
+        "resolution_status": "empty",
+        "requires_migration": False,
+        "conflicts": [],
+    }
+
+
+def test_legacy_overlay_entry_is_never_silently_dropped_when_block_disappears():
+    """OpenSpec 5.5: a relocated-away anchor MUST surface as a conflict."""
+    state, document = _legacy_overlay_state(_course())
+    target_block_id = document.blocks[0].block_id
+    document.blocks = [
+        block for block in document.blocks
+        if block.block_id != target_block_id
+    ]
+    updated = refresh_document_revision(document)
+    current_vector = revision_vector_for_document(updated).revisions
+
+    overlay = personal_course_overlay(state, current_revision_vector=current_vector)
+
+    assert overlay.resolution_status == "conflicted"
+    assert overlay.operations == []
+    # Not silently lost: the entry is still accounted for, as a conflict.
+    assert len(overlay.conflicts) == 1
+    assert overlay.conflicts[0]["reason"] == "target_block_removed"
+    assert overlay.conflicts[0]["requires_user_resolution"] is True
+    assert overlay.conflicts[0]["operation_id"] == "legacy-operation-1"
+    assert project_applied_adaptive_blocks(
+        state,
+        current_revision_vector=current_vector,
+    ) == []
+
+
+def test_legacy_overlay_partially_active_keeps_both_relocated_and_conflicted_entries():
+    """A revised base course MUST NOT silently overwrite either outcome."""
+    state, document = _legacy_overlay_state(_course())
+    intact = document.blocks[0]
+    vector = revision_vector_for_document(document).revisions
+    plan = state.change_sets[0]
+    broken_target = document.blocks[1]
+    plan.operations.append(CourseEvolutionOperation(
+        operation_id="legacy-operation-2",
+        operation_type="INSERT_PERSONAL_SUPPORT",
+        scope="current",
+        target_section_id=broken_target.section_id,
+        target_block_id=broken_target.block_id,
+        reason="second legacy personalized explanation",
+        payload={"body": "second legacy support"},
+    ))
+    plan.selected_operation_ids.append("legacy-operation-2")
+    plan.base_revision_vector[f"block:{broken_target.block_id}"] = (
+        vector[f"block:{broken_target.block_id}"]
+    )
+    plan.base_revision_vector[f"section:{broken_target.section_id}"] = (
+        vector[f"section:{broken_target.section_id}"]
+    )
+
+    # Base course revision: sibling insert (relocates op-1) + edit of op-2 target.
+    document.blocks.append(CourseBlock(
+        block_id="new-sibling-block",
+        section_id=intact.section_id,
+        position=intact.position + 1,
+        kind="callout",
+        role="summary",
+        payload={"markdown": "new base course content"},
+    ))
+    broken_target.payload["markdown"] = "rewritten by the teacher"
+    updated = refresh_document_revision(document)
+    current_vector = revision_vector_for_document(updated).revisions
+
+    overlay = personal_course_overlay(state, current_revision_vector=current_vector)
+
+    assert overlay.resolution_status == "partially_active"
+    # op-1 relocated and kept; op-2 conflicted and surfaced. Neither vanished.
+    assert [item.operation_id for item in overlay.operations] == ["legacy-operation-1"]
+    assert [item["operation_id"] for item in overlay.relocations] == ["legacy-operation-1"]
+    assert [item["operation_id"] for item in overlay.conflicts] == ["legacy-operation-2"]
+    assert overlay.conflicts[0]["reason"] == "target_block_revision_changed"
+    projected_ids = {
+        item["adaptive_block_id"]
+        for item in project_applied_adaptive_blocks(
+            state,
+            current_revision_vector=current_vector,
+        )
+    }
+    assert projected_ids == {"legacy-operation-1"}

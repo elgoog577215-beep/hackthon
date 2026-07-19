@@ -88,6 +88,7 @@ from course_generation_workflow import (
     validate_course_relation_batch,
     validate_course_teaching_plan,
     validate_section_knowledge_package,
+    _extract_course_shape_constraints,
 )
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
@@ -384,10 +385,14 @@ class CourseService(AIBase):
             "course_generation_v9",
         }
         if checkpoint_ready:
+            refreshed_brief = deepcopy(existing.get("course_generation_brief") or {})
+            refreshed_brief["course_shape_constraints"] = (
+                _extract_course_shape_constraints(requirements)
+            )
             artifacts = {
                 "pipeline_version": PIPELINE_VERSION,
                 "material_cards": existing.get("material_cards") or [],
-                "course_generation_brief": existing.get("course_generation_brief") or {},
+                "course_generation_brief": refreshed_brief,
                 "material_assets": existing.get("material_assets") or [],
                 "material_bindings": existing.get("material_bindings") or [],
                 "parsed_documents": existing.get("parsed_documents") or [],
@@ -1438,7 +1443,6 @@ class CourseService(AIBase):
                         "attempt_count": attempt_count,
                         "error": str(exc),
                     }
-                    teaching_stage["failed_batch_id"] = batch_id
                     teaching_stage["model_call_count"] = counter["calls"]
                     teaching_stage["prompt_chars"] = counter["prompt_chars"]
                     await self._notify_checkpoint(on_checkpoint, course_data)
@@ -1448,8 +1452,27 @@ class CourseService(AIBase):
             *(generate_batch(spec) for spec in pending_specs),
             return_exceptions=True,
         )
-        failures = [item for item in generated if isinstance(item, BaseException)]
+        # Batches run concurrently, so completion order is not deterministic.
+        # Report the failure that comes first in batch order and make the
+        # checkpoint name the same batch the raised error names.
+        batch_order = {
+            str(spec.get("batch_id") or ""): index
+            for index, spec in enumerate(batch_specs)
+        }
+        failures_by_batch = sorted(
+            (
+                (batch_order.get(str(spec.get("batch_id") or "")), str(spec.get("batch_id") or ""), item)
+                for spec, item in zip(pending_specs, generated)
+                if isinstance(item, BaseException)
+            ),
+            key=lambda entry: (entry[0] is None, entry[0]),
+        )
+        failures = [entry[2] for entry in failures_by_batch]
         if failures:
+            teaching_stage["failed_batch_id"] = failures_by_batch[0][1]
+            teaching_stage["failed_batch_ids"] = [
+                entry[1] for entry in failures_by_batch
+            ]
             teaching_stage.update({
                 "status": "failed",
                 "duration_ms": int((time.monotonic() - started_at) * 1000),
@@ -1543,6 +1566,7 @@ class CourseService(AIBase):
             "graph_compilation_model_call_count": 0,
         })
         teaching_stage.pop("failed_batch_id", None)
+        teaching_stage.pop("failed_batch_ids", None)
         course_data.update({
             "course_teaching_plan": course_teaching_plan,
             "course_plan": deepcopy(planned_course),
