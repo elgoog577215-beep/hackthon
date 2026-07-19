@@ -384,4 +384,69 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
+  it('生成中断时在当前课程现场解释恢复边界并直接继续原任务', async () => {
+    const course = useCourseStore()
+    course.currentCourseProjection = 'generation_preview'
+    course.nodes = []
+    course.courseTree = []
+    course.currentNode = null
+    const generation = useGenerationStore()
+    const task = generation.createTask('job-interrupted', 'c1', '量子力学')
+    task.status = 'error'
+    task.progress = 32
+    task.currentPhase = 'pedagogy_resolution'
+    task.error = 'AI provider unavailable: authentication_failed'
+    task.guidedWorkflow = {
+      schema_version: 'guided_course_generation_v2',
+      current_step: 'outline',
+      review_step: null,
+      steps: [
+        { number: 1, key: 'requirements', status: 'confirmed' },
+        { number: 2, key: 'outline', status: 'in_progress' },
+        { number: 3, key: 'content', status: 'locked' },
+        { number: 4, key: 'release', status: 'locked' },
+      ],
+    }
+    task.recovery = {
+      state: 'manual_resume',
+      can_resume: true,
+      reason_code: 'stage_restart_available',
+      reason: 'saved',
+      checkpoint: {
+        phase: 'pedagogy_resolution', completed_nodes: 0, total_nodes: 0,
+        draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [], requirements_ready: true,
+      },
+    }
+    const resume = vi.spyOn(generation, 'resumeTask').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(course, 'refreshCourseData').mockResolvedValue(undefined)
+
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningDock: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          TeachingRepresentationsOverlay: true,
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('课程生产暂时中断')
+    expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('.production-actions button').trigger('click')
+    await flushPromises()
+    expect(resume).toHaveBeenCalledWith('c1', 'job-interrupted')
+    wrapper.unmount()
+  })
+
 })

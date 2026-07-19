@@ -1,5 +1,5 @@
 <template>
-  <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt }">
+  <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview }">
     <div v-if="overlayVisible" class="surface-backdrop" @click="closeMobileSurfaces"></div>
 
     <Transition name="slide-left">
@@ -7,6 +7,8 @@
         v-if="navigatorVisible"
         class="navigator-surface"
         :active-block-id="activeCourseBlockId"
+        :production-mode="isGenerationPreview"
+        :generation-task="generationTask"
         @select="selectNode"
         @select-block="selectCourseBlock"
         @back="router.push('/courses')"
@@ -21,7 +23,7 @@
             <PanelLeftOpen :size="17" />
           </button>
           <div class="context-copy">
-            <span>{{ isGenerationPreview ? t('courseGeneration.workspace.live', '课程正在生成') : currentParentLabel }}</span>
+            <span>{{ isGenerationPreview ? generationContextLabel : currentParentLabel }}</span>
             <strong>{{ isGenerationPreview ? generationStatusText : (courseStore.currentNode?.node_name || t('learningShell.selectNode', '选择一个学习目标')) }}</strong>
           </div>
         </div>
@@ -30,6 +32,7 @@
           :practice-available="Boolean(currentPracticeNode)"
           :practice-repair-available="questionBankRepairAvailable"
           :practice-pending="isGenerationPreview"
+          :lesson-plan-pending="isGenerationPreview && !canOpenGenerationLessonPlan"
           @lesson-plan="selectWorkspace('lesson-plan')"
           @course="selectWorkspace('course')"
           @practice="selectWorkspace('practice')"
@@ -58,6 +61,16 @@
         :live="isGenerationPreview"
         @select="selectNode"
       />
+      <CourseProductionStage
+        v-else-if="showProductionStage"
+        :task="generationTask"
+        :course-name="generationContextLabel"
+        :elapsed-seconds="phaseElapsedSeconds"
+        :acting="generationActionBusy"
+        :has-draft="hasProductionDraft"
+        @resume="resumeGenerationTask"
+        @view-draft="showProductionStatus = false"
+      />
       <ContentArea
         v-else
         ref="contentAreaRef"
@@ -75,6 +88,16 @@
         :task="generationTask"
         @confirmed="handleGenerationGateConfirmed"
       />
+
+      <button
+        v-if="showProductionStatusReturn"
+        type="button"
+        class="production-status-return"
+        @click="showProductionStatus = true"
+      >
+        <TriangleAlert :size="15" />
+        {{ t('courseGeneration.production.returnToRecovery', '生产已中断 · 查看恢复现场') }}
+      </button>
 
       <LearningDock
         v-if="!isGenerationPreview"
@@ -206,10 +229,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen } from 'lucide-vue-next'
+import { ElMessage } from 'element-plus'
+import { History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, TriangleAlert } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseGenerationGate from '../components/CourseGenerationGate.vue'
 import CourseGenerationLifecycle from '../components/CourseGenerationLifecycle.vue'
+import CourseProductionStage from '../components/CourseProductionStage.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import CourseWorkspaceTabs from '../components/CourseWorkspaceTabs.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
@@ -232,7 +257,8 @@ import { isWorkspaceTaskAction, learningActionLabel } from '../utils/learning-ac
 import { isQuestionBankRepairReason } from '../utils/course-availability'
 import { isStartableLearningObjective } from '../utils/learning-scope'
 import { isResumableLearningAction } from '../utils/learning-resume'
-import { t } from '../shared/i18n'
+import { canResumeCourseProduction, courseProductionStageIndex, hasVisibleCourseDraft } from '../utils/course-production'
+import { activeLocale, t } from '../shared/i18n'
 
 const route = useRoute()
 const router = useRouter()
@@ -271,6 +297,8 @@ const autoFollowGeneration = ref(true)
 const activeWorkspaceItem = ref<'lesson-plan' | 'course' | 'practice'>('course')
 const phaseElapsedSeconds = ref(0)
 const phaseStartedAt = ref(Date.now())
+const generationActionBusy = ref(false)
+const showProductionStatus = ref(true)
 let phaseTimer: number | null = null
 const loadedLearningCourseId = ref('')
 const activeDomain = ref<'course' | 'notebook' | 'mistake-book' | 'overview' | 'knowledge-library' | 'assistant'>('course')
@@ -280,16 +308,54 @@ const activeCourseBlockId = ref('')
 const isNarrow = computed(() => windowWidth.value < 1024)
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
 const generationTask = computed(() => courseStore.currentCourseId ? generationStore.tasks.get(courseStore.currentCourseId) : undefined)
+const generationStageIndex = computed(() => courseProductionStageIndex(generationTask.value))
+const generationTerminal = computed(() => ['error', 'paused', 'conflict'].includes(String(generationTask.value?.status || '')))
+const hasProductionDraft = computed(() => hasVisibleCourseDraft(
+  generationTask.value,
+  courseStore.nodes.map(node => node.node_content),
+))
+const canOpenGenerationLessonPlan = computed(() => (
+  generationStageIndex.value >= 2 || Boolean(courseStore.currentTeachingPlan?.sections?.length)
+))
+const showProductionStage = computed(() => Boolean(
+  isGenerationPreview.value
+  && activeWorkspaceItem.value === 'course'
+  && (!hasProductionDraft.value || (generationTerminal.value && showProductionStatus.value))
+))
+const showProductionStatusReturn = computed(() => Boolean(
+  isGenerationPreview.value
+  && activeWorkspaceItem.value === 'course'
+  && hasProductionDraft.value
+  && generationTerminal.value
+  && !showProductionStatus.value
+))
 const activeGenerationNodeId = computed(() => generationTask.value?.currentNodes?.[0]?.node_id || generationStore.currentGeneratingNodeId || '')
+const generationContextLabel = computed(() => (
+  courseStore.currentCourse?.course_name
+  || generationTask.value?.courseName
+  || t('courseGeneration.production.untitled', '新课程')
+))
+const localizedGenerationStep = computed(() => {
+  const phase = String(generationTask.value?.currentPhase || '')
+  if (activeLocale.value === 'en' && phase) return t(`courseGeneration.phases.${phase}`, phase)
+  return generationTask.value?.currentStep
+    || (phase ? t(`courseGeneration.phases.${phase}`, phase) : '')
+})
 const generationStatusText = computed(() => (
-  generationTask.value?.currentStep
-  || (generationTask.value?.currentPhase
-    ? t(`courseGeneration.phases.${generationTask.value.currentPhase}`, generationTask.value.currentPhase)
-    : '')
+  generationTask.value?.status === 'error'
+    ? t('courseGeneration.workspace.interrupted', '课程生产已中断')
+    : generationTask.value?.status === 'paused'
+      ? t('courseGeneration.workspace.paused', '课程生产已暂停')
+      : generationTask.value?.status === 'conflict'
+        ? t('courseGeneration.workspace.blocked', '课程生产需要处理冲突')
+        : generationTask.value?.status === 'waiting_for_review'
+          ? t('courseGeneration.workspace.needsConfirmation', '课程生产等待你的确认')
+          : localizedGenerationStep.value
   || t('courseGeneration.workspace.preparing', '正在准备课程结构')
 ))
 const navigatorVisible = computed(() => !courseStore.isFocusMode && (isNarrow.value ? navigatorOpen.value : navigatorOpen.value))
 const phaseWorkspaceItem = computed<'lesson-plan' | 'course'>(() => {
+  if (generationTerminal.value) return 'course'
   const phase = String(generationTask.value?.currentPhase || '')
   if (/teaching|knowledge|graph/.test(phase)) return 'lesson-plan'
   return 'course'
@@ -355,6 +421,7 @@ watch(() => route.params.courseId, async value => {
   autoFollowGeneration.value = true
   activeCourseBlockId.value = ''
   activeWorkspaceItem.value = 'course'
+  showProductionStatus.value = true
   aiVisible.value = false
   activeDomain.value = 'course'
   activeTeachingResource.value = 'lesson_plan'
@@ -413,9 +480,10 @@ watch(activeGenerationNodeId, nodeId => {
   if (node) selectNode(node, false, false)
 })
 
-watch(() => generationTask.value?.currentPhase, () => {
+watch(() => [generationTask.value?.currentPhase, generationTask.value?.status], () => {
   phaseStartedAt.value = Date.now()
   phaseElapsedSeconds.value = 0
+  if (generationTerminal.value) showProductionStatus.value = true
   if (isGenerationPreview.value && autoFollowGeneration.value) {
     activeWorkspaceItem.value = phaseWorkspaceItem.value
   }
@@ -514,6 +582,7 @@ function resumeGenerationFollow() {
 function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice') {
   if (isGenerationPreview.value) {
     if (item === 'practice') return
+    if (item === 'lesson-plan' && !canOpenGenerationLessonPlan.value) return
     autoFollowGeneration.value = false
     activeWorkspaceItem.value = item
     return
@@ -537,6 +606,26 @@ function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice') {
   }
   activeWorkspaceItem.value = 'course'
   void openCourseWorkspace()
+}
+
+async function resumeGenerationTask() {
+  const task = generationTask.value
+  const courseId = courseStore.currentCourseId
+  if (!task || !courseId || generationActionBusy.value || !canResumeCourseProduction(task)) return
+  generationActionBusy.value = true
+  try {
+    await generationStore.resumeTask(courseId, task.id)
+    await generationStore.fetchGlobalTasks()
+    await courseStore.refreshCourseData(courseId)
+    showProductionStatus.value = true
+    phaseStartedAt.value = Date.now()
+    phaseElapsedSeconds.value = 0
+    ElMessage.success(t('courseGeneration.production.resumed', '已从保存点继续课程生产'))
+  } catch {
+    // generationStore 已统一转换并提示恢复失败，页面只负责结束本地提交态。
+  } finally {
+    generationActionBusy.value = false
+  }
 }
 
 function handleGenerationGateConfirmed() {
@@ -845,6 +934,8 @@ function closeMobileSurfaces() {
 .context-copy strong { margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--lz-text-strong); font-size:12px; }
 .context-actions { min-width:0; justify-self:end; display:flex; align-items:center; gap:7px; }
 .learning-content { min-height: 0; flex: 1; }
+.production-status-return { position:absolute; z-index:44; right:18px; bottom:16px; min-height:36px; display:inline-flex; align-items:center; gap:7px; padding:0 12px; border:1px solid #edb56a; border-radius:9px; color:#9a4d13; background:#fffaf0; box-shadow:0 10px 28px rgba(146,64,14,.12); font-size:10px; font-weight:800; cursor:pointer; }
+.production-status-return:hover { border-color:#d97706; background:#fff6e4; }
 .learning-tool-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
 .learning-tool-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:24px; }
 .learning-tool-modal__backdrop { position:absolute; inset:0; width:100%; height:100%; padding:0; border:0; border-radius:0; background:rgba(15,23,42,.42); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); cursor:default; }
@@ -882,6 +973,8 @@ function closeMobileSurfaces() {
   .learning-tool-overlay { position:fixed; inset:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); z-index:105; }
   .learning-tool-modal { padding:10px; }
   .learning-tool-modal__card,.learning-tool-modal__card.is-mistake-book { width:calc(100vw - 20px); max-height:calc(100dvh - 20px); border-radius:18px; }
+  .is-generation-preview { padding-bottom:0; }
+  .production-status-return { left:12px; right:12px; bottom:12px; justify-content:center; }
   .mobile-resume-prompt { position:fixed; left:10px; right:10px; bottom:calc(64px + env(safe-area-inset-bottom, 0px)); z-index:119; min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #15803d; border-radius:11px; color:#fff; background:#15803d; box-shadow:0 8px 22px rgba(21,128,61,.2); font-size:12px; font-weight:750; }
   .mobile-resume-prompt:disabled { opacity:.6; }
   .mobile-resume-prompt__spin { animation:mobile-resume-spin .8s linear infinite; }

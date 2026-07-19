@@ -62,4 +62,20 @@ describe('CourseWorkspaceTabs', () => {
     expect(practice.attributes('disabled')).toBeDefined()
     expect(practice.attributes('title')).toContain('发布后')
   })
+
+  it('目录确认前保留教案位置但不允许进入空白教案页', async () => {
+    const wrapper = mount(CourseWorkspaceTabs, {
+      props: {
+        activeItem: 'course',
+        lessonPlanPending: true,
+        practicePending: true,
+      },
+    })
+
+    const lessonPlan = wrapper.get('[data-workspace-item="lesson-plan"]')
+    expect(lessonPlan.attributes('disabled')).toBeDefined()
+    expect(lessonPlan.attributes('title')).toContain('目录确认后')
+    await lessonPlan.trigger('click')
+    expect(wrapper.emitted('lesson-plan')).toBeUndefined()
+  })
 })

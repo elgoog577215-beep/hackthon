@@ -10,7 +10,10 @@
       data-workspace-item="lesson-plan"
       :class="{ 'is-active': activeItem === 'lesson-plan' }"
       :aria-selected="activeItem === 'lesson-plan'"
-      :title="t('courseWorkspaceTabs.lessonPlanHint', '查看当前课程的教案')"
+      :disabled="lessonPlanPending"
+      :title="lessonPlanPending
+        ? t('courseWorkspaceTabs.lessonPlanPending', '课程目录确认后生成全课教案')
+        : t('courseWorkspaceTabs.lessonPlanHint', '查看当前课程的教案')"
       @click="emit('lesson-plan')"
     >
       <ClipboardList :size="16" />
@@ -62,10 +65,12 @@ const props = withDefaults(defineProps<{
   practiceAvailable?: boolean
   practiceRepairAvailable?: boolean
   practicePending?: boolean
+  lessonPlanPending?: boolean
 }>(), {
   practiceAvailable: false,
   practiceRepairAvailable: false,
   practicePending: false,
+  lessonPlanPending: false,
 })
 
 const practiceEntryAvailable = computed(() => (
