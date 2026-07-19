@@ -123,7 +123,7 @@ from representation_compiler import (
     rebuild_core_representations_safely,
     validate_compiled_representations,
 )
-from slide_deck import plan_slide_deck
+from slide_deck import SlideDeckPlanV1, plan_slide_deck
 from storage import DATA_DIR
 from teaching_representations import teaching_representation_repository
 
@@ -2711,7 +2711,40 @@ class TaskManager:
         course_view = await asyncio.to_thread(
             self._course_document_repository.load_course_view, course_id,
         )
-        deck_plan = await plan_slide_deck(document, course_view)
+        source_revision = str(document.document_revision or "")
+        saved_revision = str(task.get("representation_source_document_revision") or "")
+        deck_plan = None
+        resume_slides: list[dict[str, Any]] = []
+        if saved_revision == source_revision:
+            try:
+                saved_plan = task.get("representation_deck_plan")
+                if isinstance(saved_plan, dict):
+                    deck_plan = SlideDeckPlanV1.model_validate(saved_plan)
+            except (TypeError, ValueError):
+                deck_plan = None
+            latest_slides: dict[str, dict[str, Any]] = {}
+            for event in task.get("event_history") or []:
+                if event.get("event") != "slide_upsert" or not isinstance(event.get("slide"), dict):
+                    continue
+                slide = deepcopy(event["slide"])
+                unit_id = str(slide.get("unit_id") or "")
+                if unit_id:
+                    latest_slides[unit_id] = slide
+            resume_slides = sorted(
+                latest_slides.values(),
+                key=lambda item: int(item.get("position") or 0),
+            )
+        if deck_plan is None:
+            deck_plan = await plan_slide_deck(document, course_view)
+            resume_slides = []
+            async with self._lock:
+                current = self.tasks.get(task_id)
+                if not current or current.get("status") in {"paused", "cancelled"}:
+                    return
+                current["representation_source_document_revision"] = source_revision
+                current["representation_deck_plan"] = deck_plan.model_dump(mode="json")
+                current["updated_at"] = datetime.now().isoformat()
+                self.save_tasks()
         await self._record_representation_event(task_id, {
             "event": "deck_plan",
             "progress": 8,
@@ -2737,6 +2770,7 @@ class TaskManager:
             teaching_representation_repository,
             progress_callback=progress,
             deck_plan=deck_plan,
+            resume_slides=resume_slides,
         )
         registry = teaching_representation_repository.load(course_id)
         current_spec_ids = {item.spec_id for item in registry.representations}

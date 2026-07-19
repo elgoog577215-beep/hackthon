@@ -1195,6 +1195,79 @@ async def test_durable_representation_task_builds_and_recovers_after_restart(tmp
 
 
 @pytest.mark.asyncio
+async def test_representation_restart_reuses_persisted_plan_and_slide_savepoint(tmp_path, monkeypatch):
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = legacy_course()
+    document = document_from_legacy_course(course)
+    storage = MemoryStorage({
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_revision": document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+        "learning_assets": course_data_with_practice()["learning_assets"],
+    })
+    repository = TeachingRepresentationRepository(tmp_path / "representations")
+    tasks_file = tmp_path / "generation_jobs.json"
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tasks_file)
+    monkeypatch.setattr(task_manager_module, "teaching_representation_repository", repository)
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        "course-1", "teaching_representation_build", enqueue=False,
+    )
+    plan = await task_manager_module.plan_slide_deck(document, storage.load_course("course-1"))
+    saved_slide = {
+        "unit_id": "slide:title",
+        "position": 0,
+        "layout": "cover",
+        "slide_purpose": "orientation",
+        "title": "已保存封面",
+    }
+    manager.tasks[task_id].update({
+        "status": "running",
+        "representation_source_document_revision": document.document_revision,
+        "representation_deck_plan": plan.model_dump(mode="json"),
+        "event_history": [{"event": "slide_upsert", "sequence": 1, "slide": saved_slide}],
+        "event_sequence": 1,
+    })
+    manager.save_tasks(strict=True)
+
+    restarted = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    await restarted._reconcile_task_after_restart(task_id)
+
+    async def unexpected_plan(*_args, **_kwargs):
+        raise AssertionError("resume must not plan the deck again")
+
+    captured: dict[str, object] = {}
+
+    def successful_resume(*_args, **kwargs):
+        captured.update(kwargs)
+        return {"status": "synchronized", "quality": {"passed": True, "issues": []}}
+
+    monkeypatch.setattr(task_manager_module, "plan_slide_deck", unexpected_plan)
+    monkeypatch.setattr(task_manager_module, "rebuild_core_representations_safely", successful_resume)
+
+    await restarted._process_task(task_id)
+
+    assert captured["deck_plan"].model_dump(mode="json") == plan.model_dump(mode="json")
+    assert captured["resume_slides"] == [saved_slide]
+    assert restarted.tasks[task_id]["status"] == "completed"
+
+
+@pytest.mark.asyncio
 async def test_cancelled_build_is_not_overwritten_as_failed_by_the_late_worker(
     tmp_path, monkeypatch,
 ):

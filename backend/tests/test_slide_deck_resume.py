@@ -132,14 +132,8 @@ def test_resume_reuses_finished_pages_without_replanning_or_regenerating():
     assert resumed_content["quality_summary"]["passed"] is True
 
 
-def test_resume_currently_still_recomputes_reused_pages_before_discarding_them(monkeypatch):
-    """Document the compute cost the current resume draft does *not* save.
-
-    ``append()`` swaps in the saved page only after its replacement has already
-    been materialized, so resume today guarantees output stability (no re-emit,
-    byte-identical payload) but not planning/generation savings. If resume is
-    ever made to skip the work, this test should flip to assert no overlap.
-    """
+def test_resume_skips_materializing_finished_pages(monkeypatch):
+    """A savepoint must save compute, not merely discard duplicate output."""
     content, _, course, document = _first_build()
     resume_slides = deepcopy(content["slides"][:RESUMED_PAGE_COUNT])
     resumed_ids = {item["unit_id"] for item in resume_slides}
@@ -154,8 +148,7 @@ def test_resume_currently_still_recomputes_reused_pages_before_discarding_them(m
     monkeypatch.setattr(slide_deck, "_materialize_planned_slide", spy)
     slide_deck.compile_slide_deck(document, course, resume_slides=resume_slides)
 
-    # Resumed teaching pages are still built and then thrown away.
-    assert resumed_ids & set(materialized)
+    assert not resumed_ids & set(materialized)
 
 
 def test_resume_ignores_pages_that_no_longer_match_the_slide_contract():

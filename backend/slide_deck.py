@@ -207,6 +207,19 @@ def compile_slide_deck(
                 "slide": slide.model_dump(mode="json"),
             })
 
+    def append_resumed(unit_id: str) -> bool:
+        """Append a validated savepoint page without materializing it again."""
+        resumed = resumed_by_unit_id.get(unit_id)
+        if resumed is None:
+            return False
+        resumed.position = len(slides)
+        slides.append(resumed)
+        return True
+
+    def append_or_resume(unit_id: str, factory: Callable[[], SlideSpec]) -> None:
+        if not append_resumed(unit_id):
+            append(factory())
+
     if progress_callback:
         progress_callback({
             "event": "deck_plan",
@@ -219,7 +232,7 @@ def compile_slide_deck(
             "fallback_reason": resolved_plan.fallback_reason if resolved_plan else "",
         })
 
-    append(SlideSpec(
+    append_or_resume("slide:title", lambda: SlideSpec(
         unit_id="slide:title",
         position=0,
         layout="cover",
@@ -246,7 +259,7 @@ def compile_slide_deck(
         ]),
     ))
 
-    append(SlideSpec(
+    append_or_resume("slide:roadmap", lambda: SlideSpec(
         unit_id="slide:roadmap",
         position=0,
         layout="roadmap",
@@ -265,6 +278,8 @@ def compile_slide_deck(
 
     if resolved_plan:
         for planned_slide in resolved_plan.slides[2:-1]:
+            if append_resumed(planned_slide.slide_id):
+                continue
             section = section_by_id[planned_slide.section_id or ""]
             blocks = [
                 block for block in blocks_by_section.get(section.section_id, [])
@@ -283,26 +298,33 @@ def compile_slide_deck(
                 continue
             chapter = section_by_id.get(section.parent_section_id or "")
             if chapter and chapter.section_id != last_chapter_id:
-                append(_chapter_slide(chapter, section))
+                if not append_resumed(f"slide:chapter:{chapter.section_id}"):
+                    append(_chapter_slide(chapter, section))
                 last_chapter_id = chapter.section_id
 
             context = _merge_block_knowledge(
                 knowledge_index.for_section(section.section_id, section),
                 blocks,
             )
-            append(_objective_slide(section, blocks, context))
+            if not append_resumed(f"slide:{section.section_id}"):
+                append(_objective_slide(section, blocks, context))
             if len(blocks) <= 2:
-                append(_compact_section_slide(section, blocks, context))
+                if not append_resumed(f"slide:{section.section_id}:content:1"):
+                    append(_compact_section_slide(section, blocks, context))
             else:
                 selected = _select_instructional_blocks(blocks)
                 for selected_index, block in enumerate(selected[: SLIDES_PER_SECTION_MAX - 2]):
-                    append(_slide_for_block(section, block, context, selected_index))
+                    unit_id = f"slide:{section.section_id}:{block.role}:{selected_index + 1}"
+                    if not append_resumed(unit_id):
+                        append(_slide_for_block(section, block, context, selected_index))
 
-            assessment = _assessment_slide(section, blocks, context, course_data)
-            if assessment:
-                append(assessment)
+            if not append_resumed(f"slide:{section.section_id}:check"):
+                assessment = _assessment_slide(section, blocks, context, course_data)
+                if assessment:
+                    append(assessment)
 
-    append(_recap_slide(document, learning_sections, knowledge_index))
+    if not append_resumed("slide:recap"):
+        append(_recap_slide(document, learning_sections, knowledge_index))
 
     content = SlideDeckContent(title=document.title, slides=slides)
     if presentation_overrides:

@@ -214,10 +214,15 @@ def compile_core_representations(
             "spec_id": spec_id,
             "status": representation_status,
             "unit_count": unit_count,
-            "rebuilt_unit_ids": list(
-                existing.stale_unit_ids
-                if existing
-                else []
+            "rebuilt_unit_ids": sorted(
+                str(item.get("unit_id") or "")
+                for item in (
+                    payload.get("units")
+                    or payload.get("slides")
+                    or payload.get("sections")
+                    or []
+                )
+                if item.get("unit_id") and str(item.get("unit_id")) not in set(reused_unit_ids)
             ),
             "reused_unit_ids": reused_unit_ids,
         })
@@ -531,9 +536,10 @@ def _reuse_unchanged_units(
 ) -> tuple[dict[str, Any], list[str]]:
     """Publish changed units while preserving byte-identical unaffected units.
 
-    A full candidate is still compiled and quality-checked in isolation. Reuse
-    is allowed only when the unit topology is unchanged, so structural edits
-    fall back to the complete candidate instead of hiding additions/removals.
+    A full candidate is still compiled and quality-checked in isolation. When
+    topology changes, stable units may still be reused only if the newly
+    compiled value is exactly equal to the previous value. This preserves
+    positions and bindings while making additions observable as new units.
     """
     candidate_key = next(
         (key for key in ("units", "slides", "sections") if isinstance(candidate.get(key), list)),
@@ -553,12 +559,20 @@ def _reuse_unchanged_units(
         for item in previous_units
         if item.get("unit_id")
     }
-    if not all(candidate_ids) or set(candidate_ids) != set(previous_by_id):
+    if not all(candidate_ids):
         return candidate, []
+    topology_unchanged = set(candidate_ids) == set(previous_by_id)
     stale = set(stale_unit_ids)
-    if not reuse_all and not stale:
+    if not reuse_all and not stale and topology_unchanged:
         return candidate, []
-    reusable = set(candidate_ids) if reuse_all else set(candidate_ids) - stale
+    candidates = set(candidate_ids) & set(previous_by_id)
+    if not reuse_all:
+        candidates -= stale
+    reusable = {
+        unit_id
+        for unit_id, item in zip(candidate_ids, candidate_units, strict=True)
+        if unit_id in candidates and previous_by_id[unit_id] == item
+    }
     merged = deepcopy(candidate)
     merged[candidate_key] = [
         deepcopy(previous_by_id[unit_id]) if unit_id in reusable else item

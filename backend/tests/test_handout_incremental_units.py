@@ -207,6 +207,8 @@ def test_added_block_migrates_legacy_section_unit_id_to_block_scoped_ids(tmp_pat
     # nothing stale and the section takes the full-rebuild path. The retired
     # legacy identifier must not leak into either incremental report.
     assert handout_build["unit_count"] == 2
+    assert handout_build["rebuilt_unit_ids"] == sorted([definition_id, example_id])
+    assert handout_build["reused_unit_ids"] == []
     assert legacy_id not in handout_build["rebuilt_unit_ids"]
     assert legacy_id not in handout_build["reused_unit_ids"]
     # The unchanged paragraph text survives the identifier migration.
@@ -214,6 +216,41 @@ def test_added_block_migrates_legacy_section_unit_id_to_block_scoped_ids(tmp_pat
     assert set(after_spec.unit_bindings[definition_id][0].source_revisions) == {
         "block:block-definition",
     }
+
+
+def test_adding_block_reuses_existing_block_scoped_handout_units(tmp_path):
+    before = _document()
+    repository = TeachingRepresentationRepository(tmp_path)
+    compile_core_representations(before, _course_data(), repository)
+
+    after = before.model_copy(deep=True)
+    after.blocks.append(CourseBlock(
+        block_id="block-application",
+        section_id="section-matrix",
+        position=2,
+        role="application",
+        payload={"title": "应用", "markdown": "用矩阵描述图形的旋转与缩放。"},
+        concept_refs=["knowledge.matrix.application"],
+    ))
+    refresh_document_revision(after)
+    repository.apply_revision_event(
+        before.course_id,
+        revision_event_for_documents(before, after, command_id="add-application"),
+    )
+
+    result = compile_core_representations(after, _course_data(), repository)
+    handout_build = next(
+        item for item in result["representations"]
+        if item["representation_type"] == "handout"
+    )
+
+    assert handout_build["reused_unit_ids"] == sorted([
+        "handout:section-matrix:block:block-definition",
+        "handout:section-matrix:block:block-example",
+    ])
+    assert handout_build["rebuilt_unit_ids"] == [
+        "handout:section-matrix:block:block-application",
+    ]
 
 
 def test_retired_block_collapses_section_back_to_legacy_unit_id(tmp_path):
