@@ -413,11 +413,39 @@ class PracticeAnalysisService(AIBase):
             return unavailable_answer_diagnosis("question_not_preflighted")
         if not self.client:
             return unavailable_answer_diagnosis("analysis_model_not_configured")
-        answer = (
+        answer = deepcopy(
             attempt.get("submitted_answer_payload")
             or attempt.get("answer_payload")
             or {}
         )
+        if question.get("question_type") == "single_choice":
+            selected_option_id = str(
+                (answer or {}).get("selected_option_id") or ""
+            )
+            selected_option = next(
+                (
+                    item
+                    for item in question.get("options") or []
+                    if str(
+                        item.get("option_id")
+                        or item.get("id")
+                        or item.get("value")
+                        or ""
+                    )
+                    == selected_option_id
+                ),
+                {},
+            )
+            answer = {
+                "selected_option_id": selected_option_id,
+                "selected_option_text": str(
+                    selected_option.get("text")
+                    or selected_option.get("label")
+                    or selected_option.get("value")
+                    or ""
+                ),
+                "evidence_scope": "selected_option_only",
+            }
         try:
             free = await self._call_json(
                 {
@@ -425,6 +453,7 @@ class PracticeAnalysisService(AIBase):
                         "prompt": question.get("prompt"),
                         "question_type": question.get("question_type"),
                         "practice_level": question.get("practice_level"),
+                        "options": deepcopy(question.get("options") or []),
                         "question_understanding": preflight.get(
                             "question_understanding"
                         ),
@@ -790,6 +819,9 @@ _ANSWER_FREE_SYSTEM_PROMPT = """
 "evidence":["学生答案中的可见证据"],"confidence":0.0}],
 "next_action":"一个立即可做的检查动作","uncertainty":"证据不足之处"}。
 不得补写学生没有表达的推理，不得给完整答案或可直接复制的成品。
+若 question_type 为 single_choice，选项和 selected_option 是唯一的作答证据：
+student_approach 只能描述“学习者选择了哪一种判断”，不得声称其使用了某个计算步骤、
+概念或推理方法；无法由选项直接证明的原因必须写入 uncertainty。
 """.strip()
 
 

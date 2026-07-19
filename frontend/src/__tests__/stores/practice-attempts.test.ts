@@ -581,6 +581,17 @@ describe('formal practice attempt store', () => {
     expect(store.currentPracticeQuestion?.task_revision_id).toBe('qr-targeted')
     expect(store.currentAttempt).toBeNull()
     expect(store.taskResumeError).toBe('')
+    expect(httpMock.get).toHaveBeenNthCalledWith(
+      1,
+      '/api/courses/c1/practice',
+      {
+        params: {
+          scope: 'node',
+          node_id: 'n1',
+          task_revision_id: 'qr-targeted',
+        },
+      },
+    )
   })
 
   it('目标 Attempt 与题目修订不一致时不打开其他活动题目', async () => {
@@ -695,5 +706,60 @@ describe('formal practice attempt store', () => {
     expect(store.currentQuestionIndex).toBe(1)
     expect(store.currentAttempt).toBeNull()
     expect(store.currentDraft).toEqual({})
+  })
+
+  it('换到批次外题目时替换当前位置并保持三题上限', async () => {
+    const second = {
+      ...question,
+      asset_id: 'q2',
+      revision_id: 'qr2',
+      task_revision_id: 'qr2',
+      prompt: '第二题。',
+    }
+    const third = {
+      ...question,
+      asset_id: 'q3',
+      revision_id: 'qr3',
+      task_revision_id: 'qr3',
+      prompt: '第三题。',
+    }
+    const replacement = {
+      ...question,
+      asset_id: 'q4',
+      revision_id: 'qr4',
+      task_revision_id: 'qr4',
+      prompt: '替换题。',
+    }
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        question: replacement,
+        has_alternative: true,
+        selection_policy: 'frozen_course_question',
+      },
+    })
+    const store = useCourseWorkspaceStore()
+    store.practice = {
+      course_id: 'c1',
+      course_version_id: 'cv1',
+      scope: 'node',
+      batch_size: 3,
+      questions: [question, second, third],
+      active_attempts: [],
+      summary: {},
+    } as any
+    store.currentQuestionIndex = 1
+
+    const refreshed = await store.refreshPracticeQuestion('c1', 'n1', 'node')
+
+    expect(refreshed?.task_revision_id).toBe('qr4')
+    expect(store.practice?.questions).toHaveLength(3)
+    expect(store.practice?.questions.map(
+      item => item.task_revision_id || item.revision_id,
+    )).toEqual([
+      'qr1',
+      'qr4',
+      'qr3',
+    ])
+    expect(store.currentQuestionIndex).toBe(1)
   })
 })

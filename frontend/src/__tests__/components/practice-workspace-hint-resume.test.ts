@@ -190,4 +190,68 @@ describe('PracticeWorkspace resumed hints', () => {
     expect(wrapper.find('[data-testid="hint-loading-placeholder"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('先区分大小与方向。')
   })
+
+  it('使用后端 option_id 渲染四个完整单选项', async () => {
+    const choiceQuestion = {
+      ...question,
+      question_type: 'single_choice',
+      prompt: '下列哪个判断正确？',
+      input_contract: { mode: 'choice' },
+      options: [
+        { option_id: 'A', text: '只比较大小。' },
+        { option_id: 'B', text: '分别比较大小和方向。' },
+        { option_id: 'C', text: '只比较方向。' },
+        { option_id: 'D', text: '不需要比较。' },
+      ],
+    }
+    httpMock.get.mockImplementation((url: string) => {
+      if (url.endsWith('/practice')) {
+        return Promise.resolve({
+          data: {
+            course_id: 'c1',
+            course_version_id: 'cv1',
+            scope: 'node',
+            batch_size: 3,
+            question_count: 1,
+            available_question_count: 1,
+            batch_policy: 'fixed_three_with_requested_or_active_task_first',
+            questions: [choiceQuestion],
+            active_attempts: [{
+              ...activeAttempt,
+              revealed_hint_levels: [],
+              revealed_hints: [],
+            }],
+            summary: {},
+          },
+        })
+      }
+      if (url.endsWith('/diagnostics/active')) {
+        return Promise.resolve({
+          data: { phase: 'practice', case: null, session: null, current_task: null },
+        })
+      }
+      return Promise.resolve({ data: {} })
+    })
+    const wrapper = mount(PracticeWorkspace, {
+      props: {
+        courseId: 'c1',
+        nodeId: 'n1',
+        nodeLabel: '向量',
+        scope: 'node',
+      },
+    })
+    await flushPromises()
+
+    const options = wrapper.findAll('.choice-list label')
+    const radios = wrapper.findAll<HTMLInputElement>('input[type="radio"]')
+    expect(options).toHaveLength(4)
+    expect(radios.map(item => item.attributes('value'))).toEqual([
+      'A',
+      'B',
+      'C',
+      'D',
+    ])
+    expect(options[1]?.text()).toContain('B')
+    expect(options[1]?.text()).toContain('分别比较大小和方向。')
+  })
 })

@@ -110,7 +110,7 @@ def test_assets_have_stable_revisions_and_five_passing_gates():
     criterion = bundle["assets"]["mastery_criteria"][0]
     misconception = bundle["assets"]["misconceptions"][0]
 
-    assert question["question_type"] == "implementation_task"
+    assert question["question_type"] == "single_choice"
     assert question["revision_id"].startswith("qr_")
     assert question["assessment_intent_revision_id"].startswith("air_")
     assert question["assessment_intent"]["target_knowledge"]
@@ -269,11 +269,16 @@ def test_questions_compile_formal_practice_contracts():
     finals = assets["final_assessment"]
     final = finals[0]
     assert [item["practice_level"] for item in questions] == ["concept_check", "objective_practice", "mastery_check"]
-    assert questions[0]["question_type"] == "short_answer"
-    assert questions[0]["input_contract"]["mode"] == "rich_text"
-    assert all(item["input_contract"]["mode"] == "code_and_text" for item in questions[1:])
+    assert all(item["question_type"] == "single_choice" for item in questions)
+    assert all(item["input_contract"]["mode"] == "choice" for item in questions)
+    assert all(
+        [option["option_id"] for option in item["options"]]
+        == ["A", "B", "C", "D"]
+        for item in questions
+    )
+    assert all(len({option["text"] for option in item["options"]}) == 4 for item in questions)
     assert all([hint["level"] for hint in item["hint_contract"]["levels"]] == [1, 2, 3] for item in questions)
-    assert all(item["grading_policy"]["method"] == "rubric_ai" for item in questions)
+    assert all(item["grading_policy"]["method"] == "deterministic" for item in questions)
     assert "print" in questions[0]["answer_spec"]["criteria"][0]
     assert questions[0]["answer_spec"]["criteria"] != questions[2]["answer_spec"]["criteria"]
     assert all(marker in " ".join(questions[1]["answer_spec"]["criteria"]) for marker in ("依据", "过程", "检查"))

@@ -191,11 +191,41 @@ def test_practice_list_does_not_expose_answers_or_frozen_hint_contents(
     )
 
     assert response.status_code == 200
-    projected = response.json()["questions"][0]
+    payload = response.json()
+    projected = payload["questions"][0]
+    assert payload["batch_size"] == 3
+    assert payload["question_count"] == 1
+    assert payload["available_question_count"] == 1
+    assert payload["batch_policy"] == (
+        "fixed_three_with_requested_or_active_task_first"
+    )
     assert projected["prompt"] == question["prompt"]
     assert "answer_spec" not in projected
     assert "hint_contract" not in projected
     assert "question_spec" not in projected
+
+
+def test_practice_batch_prioritizes_requested_task_without_exceeding_three():
+    questions = [
+        {
+            "asset_id": f"q{index}",
+            "revision_id": f"qr{index}",
+            "prompt": f"题目 {index}",
+        }
+        for index in range(1, 6)
+    ]
+
+    batch = practice_router._practice_batch(
+        questions,
+        priority_task_revision_ids=["qr5", "qr2"],
+    )
+
+    assert [item["revision_id"] for item in batch] == [
+        "qr5",
+        "qr2",
+        "qr1",
+    ]
+    assert len(batch) == 3
 
 
 def test_practice_list_restores_only_hints_already_revealed_by_active_attempt(

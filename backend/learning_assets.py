@@ -225,7 +225,15 @@ def compile_learning_assets(
                 for item in course_knowledge_base.get("misconceptions") or []
                 if item.get("primary_knowledge_id") in question_point_ids
             ])
-            level_question_type = "short_answer" if practice_level == "concept_check" else question_type
+            level_question_type = (
+                str(bank_item.get("question_type") or "")
+                if bank_item
+                else (
+                    "short_answer"
+                    if practice_level == "concept_check"
+                    else question_type
+                )
+            )
             question_id = stable_hash(
                 {"course": course_id, "node": node_id, "kind": practice_level},
                 prefix="q_",
@@ -255,6 +263,11 @@ def compile_learning_assets(
                     else "focused_knowledge_check"
                 ),
                 "question_type": level_question_type,
+                "options": (
+                    deepcopy(bank_item.get("options") or [])
+                    if bank_item
+                    else []
+                ),
                 "prompt": (
                     str(bank_item.get("prompt") or "")
                     if bank_item
