@@ -75,15 +75,16 @@ class Storage:
             with open(self._annotations_file, 'w', encoding='utf-8') as f:
                 json.dump([], f)
 
-        # Git Auto-Sync only belongs to the repository's formal data store.
-        # Tests, smoke runs and isolated workspaces often pass a temporary
-        # directory; letting those instances run ``git add backend/data``
-        # would commit unrelated runtime files from the current checkout.
+        # Git Auto-Sync is an explicit deployment option, never a local default.
+        # Persisting data already happens through atomic file writes; silently
+        # committing runtime data would move whichever branch happens to host
+        # the server and make otherwise identical worktrees appear divergent.
+        # Tests, smoke runs and isolated workspaces must never start it either.
         formal_data_dir = Path(DATA_DIR).resolve()
         current_data_dir = Path(self._data_dir).resolve()
         sync_enabled = os.getenv(
             "GIT_AUTO_SYNC_ENABLED",
-            "true",
+            "false",
         ).strip().lower() in {"1", "true", "yes", "on"}
         self.dirty = False
         self.running = bool(
