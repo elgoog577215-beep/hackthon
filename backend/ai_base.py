@@ -403,9 +403,29 @@ class AIBase:
             except json.JSONDecodeError:
                 continue
 
+        # 策略5: json-repair 兜底——修复字符串内未转义引号、缺逗号、尾逗号等
+        # 模型高频语法损伤（真实案例：question_analysis 输出在字符串值里携带
+        # 未转义引号，前四种策略全部失败并导致整课生成失败）。
+        try:
+            from json_repair import repair_json
+
+            candidate = text
+            fence_match = re.search(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
+            if fence_match:
+                candidate = fence_match.group(1)
+            repaired = repair_json(candidate, return_objects=True)
+            if isinstance(repaired, (dict, list)) and repaired:
+                logger.warning(
+                    "JSON extracted via json-repair fallback (chars=%d)",
+                    len(candidate),
+                )
+                return repaired
+        except Exception as repair_error:  # pragma: no cover - defensive
+            logger.warning(f"json-repair fallback failed: {repair_error}")
+
         # 所有策略失败
         logger.warning(f"Failed to extract JSON from: {text[:500]}...")
-        
+
         return None
 
     def _clean_mermaid_syntax(self, text: str) -> str:
