@@ -71,22 +71,33 @@ const courseEvolutionPlans = computed(() => (
       || []
 ))
 const relevantPlans = computed(() => {
-  const ids = new Set<string>()
-  const collect = (node: Node) => {
-    ids.add(node.node_id)
-    for (const child of node.children || []) collect(child)
-  }
-  collect(props.node)
+  const ids = nodeIds.value
   return courseEvolutionPlans.value.filter((plan: Record<string, any>) => {
     const affected = plan.impact_summary?.affected_section_ids || []
     return affected.some((sectionId: string) => ids.has(sectionId))
       || (plan.operations || []).some((operation: Record<string, any>) => ids.has(operation.target_section_id))
   })
 })
+const nodeIds = computed(() => {
+  const ids = new Set<string>()
+  const collect = (node: Node) => {
+    ids.add(node.node_id)
+    for (const child of node.children || []) collect(child)
+  }
+  collect(props.node)
+  return ids
+})
 const adaptationCounts = computed(() => {
-  const counts = { pending: 0, active: 0, validated: 0, review: 0 }
+  const counts = { pending: 0, impacted: 0, active: 0, validated: 0, review: 0 }
   for (const plan of relevantPlans.value) {
-    if (plan.status === 'pending') counts.pending += 1
+    if (plan.status === 'pending') {
+      const hasDirectChange = (plan.operations || []).some(
+        (operation: Record<string, any>) => nodeIds.value.has(operation.target_section_id),
+      )
+      if (hasDirectChange) counts.pending += 1
+      else counts.impacted += 1
+      continue
+    }
     if (plan.status !== 'applied') continue
     const effect = String(plan.effect_evaluation?.status || 'insufficient_evidence')
     if (effect === 'effective') counts.validated += 1
@@ -102,6 +113,12 @@ const adaptationMarker = computed(() => {
     count: value.pending,
     label: t('courseEvolution.navigatorMarker', 'AI 建议'),
     title: t('courseEvolution.navigatorMarkerDetail', '该位置在待确认的课程调整范围内'),
+  }
+  if (value.impacted) return {
+    state: 'impacted',
+    count: value.impacted,
+    label: t('courseEvolution.navigatorImpacted', '受影响'),
+    title: t('courseEvolution.navigatorImpactedDetail', '待确认的课程调整会影响这里，但不会直接修改内容'),
   }
   if (value.review) return {
     state: 'review',
@@ -215,6 +232,8 @@ watch(normalizedQuery, value => { if (value) expanded.value = true })
 .node-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; letter-spacing:0; }
 .adaptation-marker { display:inline-flex; align-items:center; gap:3px; padding:2px 5px; border:1px solid #c4b5fd; border-radius:5px; color:#6d28d9; background:#f5f3ff; font-size:8px; font-weight:700; white-space:nowrap; }
 .adaptation-marker b { min-width:12px; height:12px; display:grid; place-items:center; border-radius:50%; color:#fff; background:#8b5cf6; font-size:7px; }
+.adaptation-marker[data-state="impacted"] { border-color:#fcd34d; color:#a16207; background:#fefce8; }
+.adaptation-marker[data-state="impacted"] b { background:#eab308; }
 .adaptation-marker[data-state="active"] { border-color:#bfdbfe; color:#1d4ed8; background:#eff6ff; }
 .adaptation-marker[data-state="active"] b { background:#3b82f6; }
 .adaptation-marker[data-state="validated"] { border-color:#bbf7d0; color:#15803d; background:#f0fdf4; }
