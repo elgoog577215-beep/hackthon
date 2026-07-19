@@ -6,7 +6,9 @@
       <CourseNavigator
         v-if="navigatorVisible"
         class="navigator-surface"
+        :active-block-id="activeCourseBlockId"
         @select="selectNode"
+        @select-block="selectCourseBlock"
         @back="router.push('/courses')"
         @close="navigatorOpen = false"
       />
@@ -54,6 +56,7 @@
         @quote-ask="openAi"
         @start-practice="openTask"
         @improve-block="openBlockImprovement"
+        @active-block-change="handleActiveBlockChange"
       />
 
       <LearningDock
@@ -204,7 +207,7 @@ import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { useLearningProgressStore, type NextLearningAction } from '../stores/learningProgress'
 import { useNoteStore } from '../stores/notes'
-import type { CourseBlockEditTarget, Node } from '../stores/types'
+import type { CourseBlockEditTarget, CourseBlockNavigationTarget, Node } from '../stores/types'
 import { isWorkspaceTaskAction, learningActionLabel } from '../utils/learning-action'
 import { isQuestionBankRepairReason } from '../utils/course-availability'
 import { isStartableLearningObjective } from '../utils/learning-scope'
@@ -248,6 +251,7 @@ const autoFollowGeneration = ref(true)
 const loadedLearningCourseId = ref('')
 const activeDomain = ref<'course' | 'notebook' | 'mistake-book' | 'overview' | 'knowledge-library' | 'assistant'>('course')
 const activeTeachingResource = ref<'outline' | 'lesson_plan'>('outline')
+const activeCourseBlockId = ref('')
 
 const isNarrow = computed(() => windowWidth.value < 1024)
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
@@ -321,6 +325,7 @@ watch(() => route.params.courseId, async value => {
   const courseId = String(value)
   loadedLearningCourseId.value = loadedLearningCourseId.value === courseId ? loadedLearningCourseId.value : ''
   autoFollowGeneration.value = true
+  activeCourseBlockId.value = ''
   aiVisible.value = false
   activeDomain.value = 'course'
   activeTeachingResource.value = 'outline'
@@ -431,10 +436,29 @@ function selectNode(node: Node, updateRoute = true, manualSelection = true) {
   if (isGenerationPreview.value && manualSelection && node.node_id !== activeGenerationNodeId.value) {
     autoFollowGeneration.value = false
   }
+  activeCourseBlockId.value = ''
   courseStore.selectNode(node)
   courseStore.scrollToNode(node.node_id)
   if (updateRoute) void router.replace({ name: 'learning', params: { courseId: courseStore.currentCourseId, nodeId: node.node_id } })
   if (isNarrow.value) navigatorOpen.value = false
+}
+
+async function selectCourseBlock(target: CourseBlockNavigationTarget) {
+  activeCourseBlockId.value = target.blockId
+  courseStore.selectNode(target.node)
+  if (String(route.params.nodeId || '') !== target.node.node_id) {
+    await router.replace({
+      name: 'learning',
+      params: { courseId: courseStore.currentCourseId, nodeId: target.node.node_id },
+    })
+  }
+  await nextTick()
+  await contentAreaRef.value?.scrollToCourseBlock(target.node.node_id, target.blockId)
+  if (isNarrow.value) navigatorOpen.value = false
+}
+
+function handleActiveBlockChange(payload: { nodeId: string; blockId: string }) {
+  activeCourseBlockId.value = payload.blockId
 }
 
 function resumeGenerationFollow() {

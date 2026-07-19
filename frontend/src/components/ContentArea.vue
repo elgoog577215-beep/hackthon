@@ -432,6 +432,7 @@ const emit = defineEmits<{
   (e: 'quoteAsk', payload: { text: string; nodeId: string; anchor?: Record<string, unknown> }): void
   (e: 'startPractice', node: any, taskRevisionId?: string): void
   (e: 'improveBlock', payload: CourseBlockEditTarget): void
+  (e: 'activeBlockChange', payload: { nodeId: string; blockId: string }): void
 }>()
 
 const laterMenuVisible = ref(false)
@@ -810,6 +811,14 @@ const scrollToElementInContainer = async (el: HTMLElement, container: HTMLElemen
     await smartScrollTo(container, targetTop)
 }
 
+let lastActiveBlockKey = ''
+const emitActiveCourseBlock = (nodeId: string, blockId: string) => {
+    const key = nodeId && blockId ? `${nodeId}:${blockId}` : ''
+    if (key === lastActiveBlockKey) return
+    lastActiveBlockKey = key
+    emit('activeBlockChange', { nodeId, blockId })
+}
+
 watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     if (!nodeId) return
     
@@ -874,6 +883,41 @@ watch(() => courseStore.scrollToNodeId, async (nodeId) => {
     scrollContainer.classList.remove('skip-animations')
     setTimeout(() => { isManualScrolling.value = false }, 600)
 })
+
+const scrollToCourseBlock = async (nodeId: string, blockId: string) => {
+    const scrollContainer = document.getElementById('content-scroll-container')
+    if (!scrollContainer || !nodeId || !blockId) return
+    const index = flatNodes.value.findIndex(node => node.node_id === nodeId)
+    if (index < 0) return
+
+    isManualScrolling.value = true
+    scrollContainer.classList.add('skip-animations')
+    await renderAroundIndex(index)
+
+    const roughTop = (virtualListRef.value?.offsetTop ?? 0) + nodeTop(index) - 20
+    scrollContainer.scrollTop = Math.max(0, roughTop)
+    scheduleWindowUpdate(scrollContainer)
+    await nextTick()
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+
+    let blockElement: HTMLElement | null = null
+    for (let attempt = 0; attempt < 20; attempt++) {
+        blockElement = document.getElementById(`course-block-${blockId}`)
+        if (blockElement) break
+        await new Promise(resolve => setTimeout(resolve, 60))
+    }
+
+    if (blockElement) {
+        await scrollToElementInContainer(blockElement, scrollContainer, 28)
+        const node = flatNodes.value[index]
+        if (node) courseStore.setCurrentNodeSilent(node)
+        emitActiveCourseBlock(nodeId, blockId)
+        scheduleWindowUpdate(scrollContainer)
+    }
+
+    scrollContainer.classList.remove('skip-animations')
+    setTimeout(() => { isManualScrolling.value = false }, 450)
+}
 
 // Watch for focus note requests (AI Teacher Mode)
 watch(() => courseStore.focusNoteId, (noteId) => {
@@ -2082,6 +2126,19 @@ const handleScroll = (e: Event) => {
 }
 
 let _detectRafId = 0
+const blockAtReadingAnchor = (nodeId: string, anchorTop: number) => {
+    const nodeElement = document.getElementById(`node-${nodeId}`)
+    if (!nodeElement) return ''
+    const blocks = Array.from(nodeElement.querySelectorAll<HTMLElement>('[data-content-block-id]'))
+    if (!blocks.length) return ''
+    let active = blocks[0]!
+    for (const block of blocks) {
+        if (block.getBoundingClientRect().top <= anchorTop) active = block
+        else break
+    }
+    return String(active.dataset.contentBlockId || '')
+}
+
 const detectCurrentVisibleNode = (container: HTMLElement) => {
     if (_detectRafId) return // 节流：每帧最多检测一次
     _detectRafId = requestAnimationFrame(() => {
@@ -2123,6 +2180,11 @@ const detectCurrentVisibleNode = (container: HTMLElement) => {
         
         if (bestNode && courseStore.currentNode?.node_id !== bestNode.node_id) {
             courseStore.setCurrentNodeSilent(bestNode)
+        }
+        if (bestNode) {
+            emitActiveCourseBlock(bestNode.node_id, blockAtReadingAnchor(bestNode.node_id, containerTop))
+        } else {
+            emitActiveCourseBlock('', '')
         }
     })
 }
@@ -2274,6 +2336,8 @@ watch(
     { immediate: true, flush: 'post' },
 )
 
+watch(() => courseStore.currentCourseId, () => emitActiveCourseBlock('', ''))
+
 const flushLearningSnapshot = () => { void learningSessionStore.flush() }
 const handleLearningVisibility = () => {
     if (document.visibilityState === 'hidden') flushLearningSnapshot()
@@ -2325,6 +2389,7 @@ onUnmounted(() => {
 
 defineExpose({
     startPractice: handleStartPractice,
+    scrollToCourseBlock,
 })
 </script>
 

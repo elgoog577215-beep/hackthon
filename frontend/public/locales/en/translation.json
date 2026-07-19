@@ -575,8 +575,10 @@
     "title": "Course outline",
     "back": "Back to course library",
     "close": "Collapse outline",
-    "search": "Find a chapter",
-    "records": "Learning records"
+    "search": "Find a chapter or lesson block",
+    "records": "Learning records",
+    "sectionBlocks": "Lesson blocks",
+    "blockFallback": "Content block"
   },
   "learningShell": {
     "openNavigator": "Open course outline",

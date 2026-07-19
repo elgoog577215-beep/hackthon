@@ -575,8 +575,10 @@
     "title": "课程目录",
     "back": "返回课程库",
     "close": "收起目录",
-    "search": "查找章节",
-    "records": "学习记录"
+    "search": "查找章节或内容",
+    "records": "学习记录",
+    "sectionBlocks": "本节内容",
+    "blockFallback": "内容块"
   },
   "learningShell": {
     "openNavigator": "打开课程目录",

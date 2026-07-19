@@ -180,6 +180,11 @@ export interface Node {
   generation_quality?: Record<string, unknown>
 }
 
+export interface CourseBlockNavigationTarget {
+  node: Node
+  blockId: string
+}
+
 export interface TaskProgress {
   task_id: string
   course_id: string
