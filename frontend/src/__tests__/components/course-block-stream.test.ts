@@ -290,7 +290,7 @@ describe('CourseBlockStream', () => {
     expect(wrapper.find('.inline-block-ai-stub').exists()).toBe(false)
     expect(wrapper.findAll('.block-formal-improvement')).toHaveLength(1)
     const entry = wrapper.get('.block-formal-improvement')
-    expect(entry.text()).toContain('根据我的反馈优化本段')
+    expect(entry.text()).toContain('调整这段')
     expect(desktopStyles).toMatch(/\.block-formal-improvement\s*\{[^}]*color:#1e293b;/s)
     expect(desktopStyles).toMatch(/\.block-formal-improvement\s*\{[^}]*opacity:\.68;[^}]*pointer-events:auto;/s)
     expect(desktopStyles).toMatch(/\.block-formal-improvement:hover,\s*\.block-formal-improvement:focus-visible,\s*\.course-content-block:hover > \.block-formal-improvement\s*\{[^}]*opacity:1;/s)

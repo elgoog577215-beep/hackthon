@@ -18,12 +18,12 @@
           v-if="canImproveBlock(item.block.block_id)"
           type="button"
           class="block-formal-improvement"
-          :title="t('courseWorkspace.personalization.open', '根据我的反馈优化本段')"
-          :aria-label="t('courseWorkspace.personalization.open', '根据我的反馈优化本段')"
+          :title="t('courseWorkspace.personalization.open', '调整这段')"
+          :aria-label="t('courseWorkspace.personalization.open', '调整这段')"
           @click="requestBlockImprovement(item.block.block_id)"
         >
           <PencilLine :size="13" />
-          <span>{{ t('courseWorkspace.personalization.open', '根据我的反馈优化本段') }}</span>
+          <span>{{ t('courseWorkspace.personalization.open', '调整这段') }}</span>
         </button>
         <CourseEvolutionContentBlock
           v-if="item.block.metadata?.course_evolution"

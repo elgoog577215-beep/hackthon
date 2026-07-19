@@ -19,7 +19,10 @@ from course_evolution import (
 )
 from dependencies import get_course_document_repository, get_course_or_404
 from learner_context import require_user_id
-from section_evolution import generate_section_evolution_plan
+from section_evolution import (
+    generate_course_adjustment_plan,
+    generate_section_evolution_plan,
+)
 
 router = APIRouter(prefix="/courses/{course_id}/evolution", tags=["course_evolution"])
 personal_router = APIRouter(
@@ -47,6 +50,30 @@ class GenerateSectionEvolutionRequest(BaseModel):
     request_id: str = Field(min_length=1, max_length=200)
     instruction: str = Field(min_length=1, max_length=5000)
     scope_selection: Literal["current_section", "whole_course"] = "current_section"
+    anchor_role: Literal[
+        "reasoning",
+        "application",
+        "example",
+        "checkpoint",
+        "concept",
+    ] | None = None
+
+
+class GenerateCourseAdjustmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(min_length=1, max_length=200)
+    instruction: str = Field(min_length=1, max_length=5000)
+    section_id: str = Field(min_length=1, max_length=240)
+    scope_selection: Literal[
+        "current_block",
+        "current_section",
+        "whole_course",
+    ] = "current_section"
+    block_id: str = Field(default="", max_length=240)
+    expected_document_revision: str = Field(default="", max_length=240)
+    expected_block_revision: str = Field(default="", max_length=240)
+    direction: Literal["simplify", "expand", "custom"] = "custom"
     anchor_role: Literal[
         "reasoning",
         "application",
@@ -89,6 +116,41 @@ async def get_personal_adaptation(course_id: str, request: Request) -> dict:
 @router.post("/evaluate")
 async def evaluate_course_evolution(course_id: str, request: Request) -> dict:
     return await get_course_evolution(course_id, request)
+
+
+@router.post("/plans")
+async def create_course_adjustment_plan(
+    course_id: str,
+    body: GenerateCourseAdjustmentRequest,
+    request: Request,
+) -> dict:
+    """Canonical entry for current-content, current-section and whole-course adjustments."""
+    course = await get_course_or_404(course_id)
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    try:
+        state = await generate_course_adjustment_plan(
+            course,
+            user_id=user_id,
+            section_id=body.section_id,
+            block_id=body.block_id,
+            instruction=body.instruction,
+            scope_selection=body.scope_selection,
+            expected_document_revision=body.expected_document_revision,
+            expected_block_revision=body.expected_block_revision,
+            direction=body.direction,
+            anchor_role=body.anchor_role,
+            request_id=body.request_id,
+            repository=course_evolution_repository,
+            document_repository=get_course_document_repository(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "course_adjustment_generation_failed",
+            "message": str(exc),
+        }) from exc
+    return course_evolution_view(state)
 
 
 @router.post("/sections/{section_id}/plans")
