@@ -94,6 +94,25 @@ def test_official_deepseek_base_uses_official_model_defaults(monkeypatch):
     assert service.fast_models == ["deepseek-v4-flash"]
 
 
+def test_modelscope_defaults_use_only_verified_qwen35_pool(monkeypatch):
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv(
+        "AI_API_BASE",
+        "https://api-inference.modelscope.cn/v1",
+    )
+
+    service = AIBase()
+
+    expected = [
+        "Qwen/Qwen3.5-27B",
+        "Qwen/Qwen3.5-122B-A10B",
+        "Qwen/Qwen3.5-397B-A17B",
+    ]
+    assert service.smart_models == expected
+    assert service.fast_models == expected
+
+
 def test_explicit_model_configuration_is_not_overridden_for_official_deepseek(monkeypatch):
     _clear_model_environment(monkeypatch)
     monkeypatch.setenv("AI_API_KEY", "test-key")
