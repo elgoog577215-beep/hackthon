@@ -410,11 +410,22 @@
     "strongTrigger": {
       "eyebrow": "已识别强学习证据",
       "scopeSummary": "已生成本小节与 {count} 个相关后续节点的生长方案",
+      "localSummary": "已生成本小节的生长方案",
       "reason": "系统同时识别了已会内容、持续困难、需要的讲法和明确范围；确认前课程保持不变。",
-      "ability": "已会什么",
-      "gap": "卡在哪里",
-      "method": "希望怎样讲",
-      "scope": "调整到哪里"
+      "ability": "已会内容",
+      "gap": "持续困难",
+      "method": "教学要求",
+      "scope": "影响范围",
+      "scopeNext": "本节及相关后续内容",
+      "scopeCurrent": "仅当前小节",
+      "animationExplanation": "几何动画解释",
+      "stepExplanation": "分步解释",
+      "animation": "几何动画",
+      "practice": "再进行计算",
+      "planTitle": "课程生长方案",
+      "planCount": "{count} 项课程变化，确认后一次写入",
+      "currentGroup": "当前位置",
+      "nextGroup": "相关后续"
     },
     "locateEvidence": "回到证据位置",
     "diagnosis": "AI 学习判断",
@@ -575,7 +586,7 @@
       "steps": { "request": "需求", "structure": "结构", "candidates": "候选", "sameSource": "同源", "confirm": "确认", "validate": "复验" },
       "roles": { "reasoning": "理论推导", "application": "实战应用", "example": "例子讲解", "checkpoint": "理解检查", "concept": "核心概念" }
     },
-    "effects": { "effective": "原判断获得新证据支持，继续观察后续迁移", "ineffective": "后续证据显示需要调整", "harmful": "后续证据显示有副作用，建议回退", "insufficient": "等待后续同能力正式题复验" }
+    "effects": { "effective": "原判断获得新证据支持，继续观察后续迁移", "ineffective": "后续证据显示需要调整", "harmful": "后续证据显示有副作用，建议回退", "insufficient": "等待独立复验：后续同能力正式题" }
   },
   "learningNavigator": {
     "title": "课程目录",

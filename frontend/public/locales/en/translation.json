@@ -410,11 +410,22 @@
     "strongTrigger": {
       "eyebrow": "Strong learning evidence recognized",
       "scopeSummary": "A growth plan now covers this section and {count} related later nodes",
+      "localSummary": "A growth plan is ready for this section",
       "reason": "The system recognized what the learner can do, the persistent gap, the requested teaching method, and the explicit boundary. The course stays unchanged until confirmation.",
-      "ability": "What I can do",
-      "gap": "Where I am stuck",
-      "method": "How to teach it",
-      "scope": "Where to adapt"
+      "ability": "Known content",
+      "gap": "Persistent difficulty",
+      "method": "Teaching request",
+      "scope": "Impact scope",
+      "scopeNext": "This section and related later content",
+      "scopeCurrent": "Current section only",
+      "animationExplanation": "Explain with geometric animation",
+      "stepExplanation": "Step-by-step explanation",
+      "animation": "Geometric animation",
+      "practice": "Then calculate",
+      "planTitle": "Course growth plan",
+      "planCount": "{count} course changes applied together after confirmation",
+      "currentGroup": "Current position",
+      "nextGroup": "Related later content"
     },
     "locateEvidence": "Return to evidence",
     "diagnosis": "AI learning diagnosis",
@@ -575,7 +586,7 @@
       "steps": { "request": "Request", "structure": "Structure", "candidates": "Candidates", "sameSource": "Same source", "confirm": "Confirm", "validate": "Validate" },
       "roles": { "reasoning": "Theory reasoning", "application": "Practical application", "example": "Worked example", "checkpoint": "Understanding check", "concept": "Core concept" }
     },
-    "effects": { "effective": "New evidence supports the diagnosis; transfer will keep being observed", "ineffective": "Later evidence suggests another adjustment", "harmful": "Later evidence shows side effects; rollback is recommended", "insufficient": "Waiting for a later formal task on the same ability" }
+    "effects": { "effective": "New evidence supports the diagnosis; transfer will keep being observed", "ineffective": "Later evidence suggests another adjustment", "harmful": "Later evidence shows side effects; rollback is recommended", "insufficient": "Waiting for independent validation on a later formal task" }
   },
   "learningNavigator": {
     "title": "Course outline",

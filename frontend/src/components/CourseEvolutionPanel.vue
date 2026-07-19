@@ -103,7 +103,12 @@
           <span>{{ isManualPlan(plan) ? t('courseEvolution.sectionGrowth.manualSource', '按你的要求') : t('courseEvolution.sectionGrowth.evidenceSource', '由学习证据触发') }}</span>
           <b v-if="plan.growth_direction === 'challenge'">{{ t('courseEvolution.sectionGrowth.challenge', '提高挑战') }}</b>
         </div>
-        <div v-if="isStrongScopedPlan(plan)" class="strong-evidence-trigger" role="status">
+        <div
+          v-if="isStrongScopedPlan(plan)"
+          class="strong-evidence-trigger"
+          role="status"
+          :aria-label="t('courseEvolution.strongTrigger.eyebrow', '已识别强学习证据')"
+        >
           <span><Sparkles :size="13" />{{ t('courseEvolution.strongTrigger.eyebrow', '已识别强学习证据') }}</span>
           <strong>
             {{
@@ -119,6 +124,32 @@
               <b>{{ dimension.label }}</b>
               <em v-if="dimension.value">{{ dimension.value }}</em>
             </template>
+          </div>
+        </div>
+        <div
+          v-if="isStrongScopedPlan(plan)"
+          class="strong-growth-plan"
+          :aria-label="t('courseEvolution.strongTrigger.planTitle', '课程生长方案')"
+        >
+          <div class="strong-growth-heading">
+            <span><Layers3 :size="13" />{{ t('courseEvolution.strongTrigger.planTitle', '课程生长方案') }}</span>
+            <small>
+              {{
+                t('courseEvolution.strongTrigger.planCount', '{count} 项课程变化，确认后一次写入')
+                  .replace('{count}', String(contentOperations(plan).length))
+              }}
+            </small>
+          </div>
+          <div
+            v-for="group in strongGrowthGroups(plan)"
+            :key="group.key"
+            class="strong-growth-group"
+            :data-scope="group.key"
+          >
+            <span>{{ group.label }}</span>
+            <p>
+              <b v-for="item in group.items" :key="item">{{ item }}</b>
+            </p>
           </div>
         </div>
         <div v-if="isManualPlan(plan)" class="semantic-scope-summary" :data-scope="plan.scope_selection || 'current_section'">
@@ -285,6 +316,7 @@
     :instruction="reviewInstruction"
     :generating="reviewGenerating"
     :error="reviewError"
+    :selected-scope="reviewPlan ? (selectedScope[reviewPlan.change_set_id] || 'current') : 'current'"
     :selected-operation-ids="reviewSelectionIds"
     :acting="Boolean(reviewPlan && store.actingId === reviewPlan.change_set_id)"
     @update:selected-operation-ids="reviewPlan && updateReviewSelection(reviewPlan.change_set_id, $event)"
@@ -388,6 +420,11 @@ function roleLabel(role: string) { return ({ reasoning: t('courseEvolution.secti
 function operationActionLabel(operation: any) { return operation.payload?.action === 'INSERT' ? t('courseEvolution.sectionGrowth.insert', '新增') : operation.payload?.action === 'REPLACE' ? t('courseEvolution.sectionGrowth.replace', '升级') : t('courseEvolution.sectionGrowth.adjust', '调整') }
 function contentOperations(plan: CourseEvolutionPlan) { return plan.operations.filter(item => item.operation_type !== 'ADJUST_COURSE_DIFFICULTY') }
 function requiresWorkbench(plan: CourseEvolutionPlan) {
+  // A complete strong self-report is already one learner-approved growth
+  // package. Keep its evidence, scope, course outline and confirmation visible
+  // together in the AI-teacher rail; detailed evidence remains available in
+  // the inline expansion without taking the learner out of the course.
+  if (isStrongScopedPlan(plan)) return false
   const affectedSections = new Set(
     (plan.impact_summary?.affected_section_ids || []).map(String),
   )
@@ -458,39 +495,81 @@ function requestContract(plan: CourseEvolutionPlan): Record<string, any> {
 const SUPPORT_LABELS: Record<string, string> = {
   explanation: '分步解释',
   animation: '几何动画',
-  practice: '再做计算',
+  practice: '再进行计算',
+}
+function supportSummary(contract: Record<string, any>) {
+  const supports = new Set<string>(
+    (contract.requested_supports || []).map((item: unknown) => String(item)),
+  )
+  const labels: string[] = []
+  if (supports.has('animation') && supports.has('explanation')) {
+    labels.push(t('courseEvolution.strongTrigger.animationExplanation', '几何动画解释'))
+  } else {
+    if (supports.has('explanation')) {
+      labels.push(t('courseEvolution.strongTrigger.stepExplanation', '分步解释'))
+    }
+    if (supports.has('animation')) {
+      labels.push(t('courseEvolution.strongTrigger.animation', '几何动画'))
+    }
+  }
+  if (supports.has('practice')) {
+    labels.push(t('courseEvolution.strongTrigger.practice', '再进行计算'))
+  }
+  for (const support of supports) {
+    if (!['explanation', 'animation', 'practice'].includes(support)) {
+      labels.push(SUPPORT_LABELS[support] || support)
+    }
+  }
+  return labels.join('、')
 }
 function contractDimensions(plan: CourseEvolutionPlan) {
   const contract = requestContract(plan)
-  const supports = (contract.requested_supports || [])
-    .map((item: string) => SUPPORT_LABELS[item] || item)
   const scope = String(contract.scope || evidenceAssessment(plan).explicit_scope || '')
   return [
     {
       key: 'ability',
-      label: t('courseEvolution.strongTrigger.ability', '已会什么'),
+      label: t('courseEvolution.strongTrigger.ability', '已会内容'),
       value: String(contract.capability_text || ''),
     },
     {
       key: 'gap',
-      label: t('courseEvolution.strongTrigger.gap', '卡在哪里'),
+      label: t('courseEvolution.strongTrigger.gap', '持续困难'),
       value: String(contract.gap_text || ''),
     },
     {
       key: 'method',
-      label: t('courseEvolution.strongTrigger.method', '希望怎样讲'),
-      value: supports.join('、'),
+      label: t('courseEvolution.strongTrigger.method', '教学要求'),
+      value: supportSummary(contract),
     },
     {
       key: 'scope',
-      label: t('courseEvolution.strongTrigger.scope', '调整到哪里'),
+      label: t('courseEvolution.strongTrigger.scope', '影响范围'),
       value: scope === 'current_and_next'
-        ? t('courseEvolution.strongTrigger.scopeNext', '本节及相关后续')
+        ? t('courseEvolution.strongTrigger.scopeNext', '本节及相关后续内容')
         : scope === 'current'
           ? t('courseEvolution.strongTrigger.scopeCurrent', '仅当前小节')
           : '',
     },
   ]
+}
+function strongGrowthGroups(plan: CourseEvolutionPlan) {
+  const labelsFor = (scope: 'current' | 'next') => Array.from(new Set(
+    contentOperations(plan)
+      .filter(operation => operation.scope === scope)
+      .map(operation => operationLabel(operation.operation_type, operation.payload?.desired_role)),
+  ))
+  return [
+    {
+      key: 'current',
+      label: t('courseEvolution.strongTrigger.currentGroup', '当前位置'),
+      items: labelsFor('current'),
+    },
+    {
+      key: 'next',
+      label: t('courseEvolution.strongTrigger.nextGroup', '相关后续'),
+      items: labelsFor('next'),
+    },
+  ].filter(group => group.items.length)
 }
 function setPlanElement(planId: string, element: unknown) {
   if (element instanceof HTMLElement) planElements.set(planId, element)
@@ -521,7 +600,7 @@ function effectTitle(plan: CourseEvolutionPlan) {
     ? t('courseEvolution.needsReview', '当前课程变化需要复核')
     : t('courseEvolution.applied', '课程新版本已应用')
 }
-function effectLabel(plan: CourseEvolutionPlan) { return ({ effective: t('courseEvolution.effects.effective', '原判断获得新证据支持，继续观察后续迁移'), ineffective: t('courseEvolution.effects.ineffective', '后续证据显示需要调整'), harmful: t('courseEvolution.effects.harmful', '后续证据显示有副作用，建议回退'), insufficient_evidence: t('courseEvolution.effects.insufficient', '等待后续同能力正式题复验') } as Record<string, string>)[plan.effect_evaluation?.status || ''] || t('courseEvolution.effects.insufficient', '等待后续同能力正式题复验') }
+function effectLabel(plan: CourseEvolutionPlan) { return ({ effective: t('courseEvolution.effects.effective', '原判断获得新证据支持，继续观察后续迁移'), ineffective: t('courseEvolution.effects.ineffective', '后续证据显示需要调整'), harmful: t('courseEvolution.effects.harmful', '后续证据显示有副作用，建议回退'), insufficient_evidence: t('courseEvolution.effects.insufficient', '等待独立复验：后续同能力正式题') } as Record<string, string>)[plan.effect_evaluation?.status || ''] || t('courseEvolution.effects.insufficient', '等待独立复验：后续同能力正式题') }
 function verificationFor(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.verification_summary || null }
 function attemptResultLabel(value: Record<string, any> | undefined) {
   if (!value || value.attempt_count === 0) return t('courseEvolution.verification.noEvidence', '暂无')
@@ -845,14 +924,24 @@ onUnmounted(clearProgressPoll)
 .evolution-panel article { padding:9px 10px; border:1px solid #e5e7eb; border-left:3px solid #8b5cf6; border-radius:8px; background:#fff; }
 .evolution-panel article + article { margin-top:7px; }
 .evolution-panel article.is-focus-plan { border-color:#8b5cf6; box-shadow:0 0 0 2px rgba(139,92,246,.13),0 10px 24px rgba(91,33,182,.1); animation:evolution-focus-pulse .9s ease-out; }
-.strong-evidence-trigger { display:grid; gap:5px; margin:7px 0 8px; padding:9px; border:1px solid rgba(124,58,237,.24); border-radius:8px; background:linear-gradient(125deg,rgba(237,233,254,.92),rgba(245,243,255,.72)); }
-.strong-evidence-trigger > span { display:flex; align-items:center; gap:4px; color:#6d28d9; font-size:8px; font-weight:800; letter-spacing:.04em; }
-.strong-evidence-trigger > strong { color:#3b0764; font-size:10px; line-height:1.45; }
-.strong-evidence-trigger > small { color:#6b7280; font-size:8px; line-height:1.5; }
+.strong-evidence-trigger { display:grid; gap:7px; margin:7px 0 8px; padding:10px; border:1px solid rgba(124,58,237,.28); border-radius:9px; background:linear-gradient(125deg,rgba(237,233,254,.96),rgba(250,245,255,.86)); box-shadow:0 8px 20px rgba(91,33,182,.08); }
+.strong-evidence-trigger > span { display:flex; align-items:center; gap:5px; color:#6d28d9; font-size:9px; font-weight:850; letter-spacing:.03em; }
+.strong-evidence-trigger > strong { color:#3b0764; font-size:11px; line-height:1.5; }
+.strong-evidence-trigger > small { color:#6b7280; font-size:8px; line-height:1.55; }
 .strong-evidence-trigger > div { display:flex; flex-wrap:wrap; gap:4px; }
-.strong-evidence-trigger > div b { padding:2px 5px; border:1px solid rgba(139,92,246,.18); border-radius:999px; color:#6d28d9; background:rgba(255,255,255,.72); font-size:7px; font-weight:700; }
-.strong-evidence-dimensions { display:grid !important; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:3px 6px; }
-.strong-evidence-dimensions em { overflow:hidden; color:#4c1d95; font-size:8px; font-style:normal; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+.strong-evidence-trigger > div b { padding:3px 6px; border:1px solid rgba(139,92,246,.2); border-radius:999px; color:#6d28d9; background:rgba(255,255,255,.82); font-size:8px; font-weight:750; }
+.strong-evidence-dimensions { display:grid !important; grid-template-columns:auto minmax(0,1fr); align-items:start; gap:5px 7px; padding-top:2px; }
+.strong-evidence-dimensions em { min-width:0; color:#4c1d95; font-size:9px; font-style:normal; line-height:1.5; overflow-wrap:anywhere; }
+.strong-growth-plan { display:grid; gap:6px; margin:0 0 8px; padding:9px; border:1px solid #ddd6fe; border-radius:8px; background:#fff; }
+.strong-growth-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.strong-growth-heading > span { display:inline-flex; align-items:center; gap:5px; color:#6d28d9; font-size:9px; font-weight:800; }
+.strong-growth-heading > small { color:#94a3b8; font-size:7px; text-align:right; }
+.strong-growth-group { display:grid; grid-template-columns:54px minmax(0,1fr); align-items:start; gap:6px; padding:6px 7px; border-radius:6px; background:#f8fafc; }
+.strong-growth-group[data-scope="next"] { background:#fffbeb; }
+.strong-growth-group > span { color:#475569; font-size:8px; font-weight:800; line-height:1.7; }
+.strong-growth-group > p { display:flex; flex-wrap:wrap; gap:4px; margin:0; }
+.strong-growth-group b { padding:2px 5px; border:1px solid #ddd6fe; border-radius:999px; color:#6d28d9; background:#faf5ff; font-size:8px; line-height:1.45; }
+.strong-growth-group[data-scope="next"] b { color:#a16207; border-color:#fde68a; background:#fff; }
 @keyframes evolution-focus-pulse { 0% { transform:translateY(4px); opacity:.76; box-shadow:0 0 0 7px rgba(139,92,246,.2); } 100% { transform:translateY(0); opacity:1; box-shadow:0 0 0 2px rgba(139,92,246,.13),0 10px 24px rgba(91,33,182,.1); } }
 .challenge-suggestion { display:grid; gap:6px; }
 .challenge-suggestion > span { display:flex; align-items:center; gap:5px; color:#047857; font-size:8px; font-weight:800; }

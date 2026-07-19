@@ -573,6 +573,36 @@ def test_demo_mode_relaxes_strong_contract(monkeypatch):
     assert relaxed["scope"] == "current"
 
 
+def test_current_and_next_fallback_reaches_later_sections_with_dense_current_section():
+    document = document_from_legacy_course(_course())
+    source = next(item for item in document.blocks if item.section_id == "section-1")
+    document.blocks.extend([
+        source.model_copy(update={
+            "block_id": f"{source.block_id}-local-{index}",
+            "position": source.position + index,
+        })
+        for index in range(1, 5)
+    ])
+
+    affected = course_evolution._affected_blocks(
+        document,
+        source.block_id,
+        scope="current_and_next",
+        knowledge_base=None,
+    )
+    block_sections = {
+        item.block_id: item.section_id
+        for item in document.blocks
+    }
+
+    assert affected[0] == source.block_id
+    assert len(affected) == 4
+    assert any(
+        block_sections[block_id] != source.section_id
+        for block_id in affected[1:]
+    )
+
+
 def test_strong_scoped_ai_self_report_immediately_creates_related_course_plan(
     tmp_path,
     monkeypatch,
@@ -621,8 +651,8 @@ def test_strong_scoped_ai_self_report_immediately_creates_related_course_plan(
         "has_persistence": True,
         "has_teaching_request": True,
         "requested_supports": ["explanation", "animation", "practice"],
-        "capability_text": "计算我会",
-        "gap_text": "不理解为什么复合变换要先右",
+        "capability_text": "矩阵乘法计算",
+        "gap_text": "不理解复合变换顺序",
         "scope": "current_and_next",
     }
     synonym_contract = course_evolution._strong_self_report_contract(
@@ -652,6 +682,7 @@ def test_strong_scoped_ai_self_report_immediately_creates_related_course_plan(
     assert [item.operation_type for item in plan.operations].count("ADD_TRANSITION_SUPPORT") == 1
     assert [item.operation_type for item in plan.operations].count("ADD_CHECKPOINT") == 2
     assert {item.scope for item in plan.operations} == {"current", "next"}
+    assert len(plan.impact_summary["affected_section_ids"]) > 1
 
 
 def test_resolved_strong_request_requires_new_strong_evidence_before_reproposal(

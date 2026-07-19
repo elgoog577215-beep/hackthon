@@ -64,6 +64,51 @@ const plan = {
   effect_evaluation: {},
 } as any
 
+const strongEvidence = [{
+  evidence_id: 'e-strong-scoped',
+  source_type: 'learning_event',
+  evidence_kind: 'explicit_comprehension_gap',
+  summary: '矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。',
+  strength: 0.96,
+  anchor: { section_id: 's1', block_id: 'b1', resolution_status: 'resolved' },
+}] as any
+
+const strongPlan = {
+  ...plan,
+  request_text: strongEvidence[0].summary,
+  evidence_ids: ['e-strong-scoped'],
+  generation_status: 'ready',
+  operations: [
+    ...plan.operations,
+    {
+      operation_id: 'operation-next',
+      operation_type: 'ADD_TRANSITION_SUPPORT',
+      target_block_id: 'b2',
+      target_section_id: 's2',
+      scope: 'next',
+      reason: '当前概念是后续内容的前置。',
+      payload: {},
+    },
+  ],
+  impact_summary: {
+    ...plan.impact_summary,
+    evidence_assessment: {
+      maturity: 'explicit_scoped_request',
+      explicit_scope: 'current_and_next',
+      has_strong_self_report: true,
+      has_explicit_scope: true,
+      gate_reason: '学生明确说明已会内容、持续困难、所需讲法和后续范围，可立即生成当前位置及相关后续候选',
+      explicit_request_contract: {
+        is_strong: true,
+        capability_text: '矩阵乘法计算',
+        gap_text: '不理解复合变换顺序',
+        requested_supports: ['explanation', 'animation', 'practice'],
+        scope: 'current_and_next',
+      },
+    },
+  },
+} as any
+
 describe('CourseEvolutionPanel', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
@@ -89,58 +134,113 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.find('.evolution-details-toggle').exists()).toBe(true)
   })
 
-  it('把范围明确且包含多处候选的强自述送入居中审阅', async () => {
-    const strongEvidence = [{
-      evidence_id: 'e-strong-scoped',
-      source_type: 'learning_event',
-      evidence_kind: 'explicit_comprehension_gap',
-      summary: '矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。',
-      strength: 0.96,
-      anchor: { section_id: 's1', block_id: 'b1', resolution_status: 'resolved' },
-    }] as any
-    const strongPlan = {
-      ...plan,
-      request_text: strongEvidence[0].summary,
-      evidence_ids: ['e-strong-scoped'],
-      operations: [
-        ...plan.operations,
-        {
-          operation_id: 'operation-next',
-          operation_type: 'ADD_TRANSITION_SUPPORT',
-          target_block_id: 'b2',
-          target_section_id: 's2',
-          scope: 'next',
-          reason: '当前概念是后续内容的前置。',
-          payload: {},
-        },
-      ],
-      impact_summary: {
-        ...plan.impact_summary,
-        evidence_assessment: {
-          maturity: 'explicit_scoped_request',
-          explicit_scope: 'current_and_next',
-          has_strong_self_report: true,
-          has_explicit_scope: true,
-          gate_reason: '学生明确说明已会内容、持续困难、所需讲法和后续范围，可立即生成当前位置及相关后续候选',
-        },
-      },
-    } as any
-    useCourseEvolutionStore().applyPayload('course-1', {
+  it('把范围明确的强自述留在侧栏，完整展示四类语义和课程生长方案', async () => {
+    const store = useCourseEvolutionStore()
+    store.applyPayload('course-1', {
       evidence_items: strongEvidence,
       hypotheses: [],
       course_evolution_plans: [strongPlan],
     })
+    const accept = vi.spyOn(store, 'accept').mockResolvedValue({} as any)
+    vi.spyOn(useCourseStore(), 'refreshCourseData').mockResolvedValue(undefined as any)
+    vi.spyOn(useLearningProgressStore(), 'loadRuntime').mockResolvedValue(undefined as any)
 
     const wrapper = mount(CourseEvolutionPanel, {
       props: { courseId: 'course-1', focusPlanId: 'plan-1' },
       global: { stubs: { Teleport: true } },
     })
 
-    expect(wrapper.find('article').exists()).toBe(false)
-    expect(wrapper.get('.whole-course-scan-summary').text()).toContain('逐项查看、纳入或排除 2 个节点')
-    await wrapper.get('.whole-course-scan-summary').trigger('click')
-    expect(wrapper.findAll('.review-list > li')).toHaveLength(2)
-    expect(wrapper.get('.apply-selected').text()).toContain('应用所选 2 项')
+    expect(wrapper.find('.whole-course-scan-summary').exists()).toBe(false)
+    expect(wrapper.find('.review-workbench').exists()).toBe(false)
+    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('已识别强学习证据')
+    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('已会内容矩阵乘法计算')
+    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('持续困难不理解复合变换顺序')
+    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('教学要求几何动画解释、再进行计算')
+    expect(wrapper.get('.strong-evidence-trigger').text()).toContain('影响范围本节及相关后续内容')
+    expect(wrapper.get('.strong-growth-plan').text()).toContain('课程生长方案')
+    expect(wrapper.get('.strong-growth-plan').text()).toContain('当前位置')
+    expect(wrapper.get('.strong-growth-plan').text()).toContain('分步演示')
+    expect(wrapper.get('.strong-growth-plan').text()).toContain('相关后续')
+    expect(wrapper.get('.strong-growth-plan').text()).toContain('后续承接')
+    expect(wrapper.findAll('.scope-control button')[1]?.classes()).toContain('active')
+
+    await wrapper.get('.evolution-actions .primary').trigger('click')
+    await flushPromises()
+
+    expect(accept).toHaveBeenCalledWith('plan-1', 'current_and_next')
+  })
+
+  it('英文模式完整呈现强学习语义和课程生长方案标签', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/')
+        ? enMessages
+        : zhMessages,
+    })))
+    await setLocale('en')
+
+    try {
+      useCourseEvolutionStore().applyPayload('course-1', {
+        evidence_items: strongEvidence,
+        hypotheses: [],
+        course_evolution_plans: [strongPlan],
+      })
+      const wrapper = mount(CourseEvolutionPanel, {
+        props: { courseId: 'course-1', focusPlanId: 'plan-1' },
+        global: { stubs: { Teleport: true } },
+      })
+
+      expect(wrapper.get('.strong-evidence-trigger').text()).toContain('Strong learning evidence recognized')
+      expect(wrapper.get('.strong-evidence-trigger').text()).toContain('Known content')
+      expect(wrapper.get('.strong-evidence-trigger').text()).toContain('Persistent difficulty')
+      expect(wrapper.get('.strong-evidence-trigger').text()).toContain('Teaching request')
+      expect(wrapper.get('.strong-evidence-trigger').text()).toContain('Impact scope')
+      expect(wrapper.get('.strong-evidence-trigger').text()).toContain('This section and related later content')
+      expect(wrapper.get('.strong-growth-plan').text()).toContain('Course growth plan')
+      expect(wrapper.get('.strong-growth-plan').text()).toContain('Current position')
+      expect(wrapper.get('.strong-growth-plan').text()).toContain('Related later content')
+      expect(wrapper.text()).not.toContain('courseEvolution.strongTrigger')
+    } finally {
+      await setLocale('zh')
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('强自述应用后仍在侧栏显示新版本、独立复验和撤销入口', async () => {
+    const store = useCourseEvolutionStore()
+    store.applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        generation_status: 'ready',
+        status: 'applied',
+        effect_evaluation: { status: 'insufficient_evidence' },
+        impact_summary: {
+          ...plan.impact_summary,
+          evidence_assessment: {
+            maturity: 'explicit_scoped_request',
+            explicit_scope: 'current_and_next',
+            has_strong_self_report: true,
+          },
+        },
+      }],
+    })
+    const undo = vi.spyOn(store, 'undo').mockResolvedValue({} as any)
+    vi.spyOn(useCourseStore(), 'refreshCourseData').mockResolvedValue(undefined as any)
+    vi.spyOn(useLearningProgressStore(), 'loadRuntime').mockResolvedValue(undefined as any)
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+
+    expect(wrapper.find('.whole-course-scan-summary').exists()).toBe(false)
+    expect(wrapper.get('.applied-growth').text()).toContain('课程新版本已应用')
+    expect(wrapper.get('.applied-growth').text()).toContain('等待独立复验')
+    expect(wrapper.get('.applied-growth button').text()).toContain('撤销')
+
+    await wrapper.get('.applied-growth button').trigger('click')
+    await flushPromises()
+
+    expect(undo).toHaveBeenCalledWith('plan-1')
   })
 
   it('一次独立复验通过只显示初步支持，不冒充持续确认', () => {

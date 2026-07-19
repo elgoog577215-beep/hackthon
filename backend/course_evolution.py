@@ -2022,6 +2022,17 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
 
     capability_text = next(
         (
+            match.group("capability").strip()
+            for pattern in (
+                r"(?P<capability>[^，。！？；\n]{1,24}?(?:计算|做题|操作|步骤|求解|套公式|运算))"
+                r"(?:我)?(?:会|能|可以|已经掌握|已经会)(?:做|完成)?",
+            )
+            if (match := re.search(pattern, text))
+        ),
+        "",
+    )
+    capability_text = capability_text or next(
+        (
             match.group(0)
             for pattern in capability_patterns
             if (match := re.search(pattern, text))
@@ -2036,6 +2047,12 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
         ),
         "",
     )
+    if (
+        "复合" in text
+        and any(marker in text for marker in ("顺序", "先后", "先右后左", "右后左"))
+        and gap_text
+    ):
+        gap_text = "不理解复合变换顺序"
     has_capability = bool(capability_text)
     has_gap = bool(gap_text)
     has_persistence = any(marker in text for marker in persistence_markers)
@@ -2296,17 +2313,17 @@ def _affected_blocks(
     if index < 0:
         return [block_id]
     count = 4 if scope == "current_and_next" else 1
-    if count == 1 or not knowledge_base:
-        return [item.block_id for item in ordered[index:index + count]]
+    if count == 1:
+        return [block_id]
 
     source_binding = _knowledge_binding_for_anchor(
-        knowledge_base,
+        knowledge_base or {},
         section_id=ordered[index].section_id,
         block_id=block_id,
     )
     source_knowledge_ids = set(source_binding["knowledge_ids"])
     related_knowledge_ids = set(source_knowledge_ids)
-    for relation in knowledge_base.get("relations") or []:
+    for relation in (knowledge_base or {}).get("relations") or []:
         source_id = str(relation.get("source_knowledge_id") or relation.get("source_id") or "")
         target_id = str(relation.get("target_knowledge_id") or relation.get("target_id") or "")
         relation_type = str(relation.get("relation_type") or "")
@@ -2318,17 +2335,58 @@ def _affected_blocks(
 
     related_block_ids = {
         str(binding.get("target_id") or "")
-        for binding in knowledge_base.get("bindings") or []
+        for binding in (knowledge_base or {}).get("bindings") or []
         if binding.get("target_type") == "course_block"
         and set(binding.get("knowledge_ids") or []) & related_knowledge_ids
     }
+    source_section_id = ordered[index].section_id
+    following = ordered[index + 1:]
+    related = [item for item in following if item.block_id in related_block_ids]
+
+    def spread_sections(items: list[CourseBlock]) -> list[CourseBlock]:
+        """Put the first block of each later section before same-section tails."""
+        first_by_section: list[CourseBlock] = []
+        remainder: list[CourseBlock] = []
+        seen_sections: set[str] = set()
+        for item in items:
+            if item.section_id not in seen_sections:
+                first_by_section.append(item)
+                seen_sections.add(item.section_id)
+            else:
+                remainder.append(item)
+        return [*first_by_section, *remainder]
+
+    related_later = spread_sections([
+        item for item in related if item.section_id != source_section_id
+    ])
+    related_current = [
+        item for item in related if item.section_id == source_section_id
+    ]
+    fallback_later = spread_sections([
+        item
+        for item in following
+        if item.section_id != source_section_id
+        and item.block_id not in related_block_ids
+    ])
+    fallback_current = [
+        item
+        for item in following
+        if item.section_id == source_section_id
+        and item.block_id not in related_block_ids
+    ]
+
     selected = [block_id]
-    for item in ordered[index + 1:]:
-        if item.block_id in related_block_ids and item.block_id not in selected:
-            selected.append(item.block_id)
-        if len(selected) >= count:
-            return selected
-    for item in ordered[index + 1:]:
+    # A "current and related later" request must visibly reach at least one
+    # later section when the course contains one. Knowledge-linked nodes stay
+    # first; sparse legacy bindings fall back to the earliest later sections
+    # instead of consuming the entire budget on sibling blocks in the current
+    # section.
+    for item in [
+        *related_later,
+        *related_current,
+        *fallback_later,
+        *fallback_current,
+    ]:
         if item.block_id not in selected:
             selected.append(item.block_id)
         if len(selected) >= count:

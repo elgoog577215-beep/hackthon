@@ -163,8 +163,8 @@
                   <ArrowRight :size="17" />
                   <section :class="{ pending: candidateStatus(operation) === 'generating' }">
                     <small>{{ t('courseEvolution.review.aiCandidate', 'AI 候选') }}</small>
-                    <template v-if="operation.payload?.after_preview">
-                      <p>{{ operation.payload.after_preview }}</p>
+                    <template v-if="candidatePreview(operation)">
+                      <p>{{ candidatePreview(operation) }}</p>
                     </template>
                     <div v-else class="candidate-skeleton">
                       <span /><span /><span />
@@ -232,11 +232,13 @@ const props = withDefaults(defineProps<{
   generating?: boolean
   instruction?: string
   error?: string
+  selectedScope?: 'current' | 'current_and_next'
 }>(), {
   acting: false,
   generating: false,
   instruction: '',
   error: '',
+  selectedScope: 'current',
 })
 const emit = defineEmits<{
   close: []
@@ -294,6 +296,9 @@ const matchingPolicy = computed(() => String(
   || t('courseEvolution.review.scanningPolicy', '只扫描当前课程内与语义目标匹配的合法节点，确认前不会修改课程。'),
 ))
 const scopeBoundaryLabel = computed(() => {
+  if (props.selectedScope === 'current_and_next') {
+    return t('courseEvolution.strongTrigger.scopeNext', '本节及相关后续内容')
+  }
   if (props.plan?.scope_selection === 'current_block') {
     return t('courseEvolution.scope.currentBlock', '当前内容')
   }
@@ -346,6 +351,21 @@ function candidateStatusLabel(operation: EvolutionOperation) {
   if (status === 'ready') return t('courseEvolution.review.nodeReady', '候选已通过')
   if (status === 'quality_failed') return t('courseEvolution.review.nodeFailed', '检查未通过')
   return t('courseEvolution.review.nodeGenerating', '正在生成')
+}
+function candidatePreview(operation: EvolutionOperation) {
+  const payload = operation.payload || {}
+  const proposed = payload.proposed_block || {}
+  return String(
+    payload.after_preview
+    || proposed.payload?.body
+    || proposed.payload?.markdown
+    || proposed.payload?.prompt
+    || proposed.body
+    || payload.body
+    || payload.prompt
+    || payload.objective
+    || '',
+  )
 }
 function roleLabel(role = '') {
   return ({
