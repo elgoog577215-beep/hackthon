@@ -11,27 +11,29 @@ AI 基础服务模块 - LLM 调用层
 所有 AI 子服务均继承此基类。
 """
 
-import os
-import re
+import asyncio
 import json
 import logging
+import math
+import os
+import re
 import sys
-import asyncio
 import time
-import httpx
 from pathlib import Path
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
+
+import httpx
 from dotenv import load_dotenv
 from openai import (
-    AsyncOpenAI,
     APIConnectionError,
     APITimeoutError,
-    RateLimitError,
-    InternalServerError,
+    AsyncOpenAI,
     AuthenticationError,
+    InternalServerError,
     PermissionDeniedError,
+    RateLimitError,
 )
-from typing import List, Dict, Optional
 
 # 添加项目根目录到系统路径以导入共享配置
 project_root = Path(__file__).parent.parent
@@ -79,6 +81,18 @@ class AIProviderUnavailable(RuntimeError):
 
 class AIProviderRequestError(RuntimeError):
     """A bounded provider request failed and may be retried by the caller."""
+
+    retryable = True
+
+
+class AIRequestBudgetExceeded(AIProviderRequestError):
+    """The final request payload is too large to send safely."""
+
+    retryable = False
+
+
+class AIResponseTruncated(AIProviderRequestError):
+    """The provider reached the explicit output limit."""
 
     retryable = True
 
@@ -184,6 +198,56 @@ class AIBase:
                 model for model in available if model != cached
             ]
         return available
+
+    @staticmethod
+    def estimate_request_tokens(prompt: str, system_prompt: str) -> int:
+        """Return a conservative provider-independent mixed-language estimate.
+
+        A flat ``chars / 4`` estimate is unsafe for Chinese: one CJK character
+        is commonly close to one token, while ASCII prose is usually several
+        characters per token. Keep the approximation deliberately conservative
+        so the local gate rejects an oversized request before provider-specific
+        tokenization can matter.
+        """
+        text = prompt + system_prompt
+        ascii_chars = sum(character.isascii() for character in text)
+        non_ascii_chars = len(text) - ascii_chars
+        return max(
+            1,
+            math.ceil(
+                ascii_chars / 3.2
+                + non_ascii_chars * 1.2
+            ),
+        )
+
+    @classmethod
+    def validate_request_budget(
+        cls,
+        prompt: str,
+        system_prompt: str,
+        max_input_tokens: int | None,
+        max_input_chars: int | None = None,
+    ) -> int:
+        request_chars = len(prompt) + len(system_prompt)
+        estimated_tokens = cls.estimate_request_tokens(prompt, system_prompt)
+        if (
+            (
+                max_input_chars is not None
+                and request_chars > max_input_chars
+            )
+            or (
+                max_input_tokens is not None
+                and estimated_tokens > max_input_tokens
+            )
+        ):
+            raise AIRequestBudgetExceeded(
+                "模型请求输入超过硬预算："
+                f"estimated={estimated_tokens} tokens，"
+                f"token_limit={max_input_tokens}，"
+                f"chars={request_chars}，"
+                f"char_limit={max_input_chars}"
+            )
+        return estimated_tokens
 
     def _remember_model(self, use_fast_model: bool, model_id: str) -> None:
         self._working_model_cache[self._model_cache_key(use_fast_model)] = model_id
@@ -671,6 +735,10 @@ class AIBase:
         retry_count: int = 3,
         enable_thinking: bool = False,
         max_tokens: int | None = None,
+        max_input_tokens: int | None = None,
+        max_input_chars: int | None = None,
+        max_attempts: int | None = None,
+        reject_truncated: bool = False,
         raise_on_failure: bool = False,
     ) -> Optional[str]:
         """
@@ -691,11 +759,21 @@ class AIBase:
             max_tokens: 单次调用允许的最大输出 token 数，默认取
                 `self.max_tokens`（环境变量 AI_MAX_TOKENS，默认 8192）。
                 输出型任务（如课程蓝图 JSON）应显式传入更大的值。
+            max_input_tokens: 最终 system + user prompt 的硬输入预算。
+            max_input_chars: 最终请求的独立字符数硬上限。
+            max_attempts: 跨候选模型共享的提供方总尝试次数。
+            reject_truncated: 输出达到 max_tokens 时是否直接报告截断。
             raise_on_failure: 失败时是否抛出统一的提供方异常，而不是返回 None
 
         Returns:
             LLM 完整响应文本，失败返回 None
         """
+        self.validate_request_budget(
+            prompt,
+            system_prompt,
+            max_input_tokens,
+            max_input_chars,
+        )
         if not self.api_key:
             if raise_on_failure:
                 raise AIProviderUnavailable("not_configured")
@@ -706,8 +784,14 @@ class AIBase:
             return None
 
         last_error: Exception | None = None
+        attempts = 0
         for model_id in self._models_for(use_fast_model):
+            if max_attempts is not None and attempts >= max_attempts:
+                break
             for attempt in range(retry_count):
+                if max_attempts is not None and attempts >= max_attempts:
+                    break
+                attempts += 1
                 try:
                     extra_body = self._thinking_extra_body(enable_thinking)
 
@@ -747,6 +831,12 @@ class AIBase:
                             f"chars={len(full_content)}) - downstream JSON/structure parsing "
                             "will likely fail on this output."
                         )
+                        if reject_truncated:
+                            raise AIResponseTruncated(
+                                "模型输出达到硬上限："
+                                f"max_tokens={max_tokens or self.max_tokens}，"
+                                f"chars={len(full_content)}"
+                            )
 
                     if not full_content:
                         logger.warning(f"Empty response from AI (Model: {model_id}, Attempt {attempt+1}/{retry_count})")
@@ -792,6 +882,10 @@ class AIBase:
         system_prompt: str = "You are a helpful assistant.",
         use_fast_model: bool = False,
         enable_thinking: bool = False,
+        max_tokens: int | None = None,
+        max_input_tokens: int | None = None,
+        max_input_chars: int | None = None,
+        max_attempts: int | None = None,
     ):
         """
         流式 LLM 调用 - 生成器函数
@@ -804,17 +898,31 @@ class AIBase:
             system_prompt: 系统提示词
             use_fast_model: 是否使用快速模型
             enable_thinking: 是否为高价值环节启用模型思考能力
+            max_tokens: 当前流式产物允许的最大输出 token。
+            max_input_tokens: 最终 system + user prompt 的硬输入预算。
+            max_input_chars: 最终请求的独立字符数硬上限。
+            max_attempts: 跨候选模型共享的提供方总尝试次数。
 
         Yields:
             生成的文本块
         """
+        self.validate_request_budget(
+            prompt,
+            system_prompt,
+            max_input_tokens,
+            max_input_chars,
+        )
         if not self.api_key:
             raise AIProviderUnavailable("not_configured")
         if self._provider_failure:
             raise AIProviderUnavailable(self._provider_failure)
 
         last_error: Exception | None = None
+        attempts = 0
         for model_id in self._models_for(use_fast_model):
+            if max_attempts is not None and attempts >= max_attempts:
+                break
+            attempts += 1
             yielded = False
             try:
                 extra_body = self._thinking_extra_body(enable_thinking)
@@ -826,9 +934,11 @@ class AIBase:
                         {"role": "user", "content": prompt}
                     ],
                     stream=True,
+                    max_tokens=max_tokens or self.max_tokens,
                     extra_body=extra_body
                 )
 
+                truncated = False
                 async for chunk in response:
                     if chunk.choices:
                         # 处理推理内容（用于日志/调试）
@@ -842,6 +952,13 @@ class AIBase:
                         if delta.content:
                             yielded = True
                             yield delta.content
+                        if getattr(chunk.choices[0], "finish_reason", None) == "length":
+                            truncated = True
+                if truncated:
+                    raise AIResponseTruncated(
+                        "模型流式输出达到硬上限："
+                        f"max_tokens={max_tokens or self.max_tokens}"
+                    )
                 if yielded:
                     self._remember_model(use_fast_model, model_id)
                     return
@@ -856,6 +973,8 @@ class AIBase:
                 if should_try_next:
                     self._cool_down_model(model_id, e)
                 if yielded or not should_try_next:
+                    if isinstance(e, AIProviderRequestError):
+                        raise
                     raise AIProviderRequestError(str(e)) from e
         if isinstance(last_error, AIProviderRequestError):
             raise last_error

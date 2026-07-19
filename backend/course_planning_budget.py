@@ -24,7 +24,15 @@ def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
 def estimate_json_tokens(value: Any) -> int:
     """Return a conservative provider-independent JSON token estimate."""
     serialized = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    return max(1, math.ceil(len(serialized) / 3.2))
+    ascii_chars = sum(character.isascii() for character in serialized)
+    non_ascii_chars = len(serialized) - ascii_chars
+    return max(
+        1,
+        math.ceil(
+            ascii_chars / 3.2
+            + non_ascii_chars * 1.2
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -33,13 +41,14 @@ class CoursePlanningBudget:
     compact_max_sections: int = 3
     batch_max_sections: int = 3
     batch_max_knowledge: int = 15
-    max_input_tokens: int = 8000
-    max_output_tokens: int = 10000
-    concurrency: int = 2
-    batch_timeout_seconds: int = 300
+    max_input_tokens: int = 7000
+    max_output_tokens: int = 8000
+    concurrency: int = 4
+    batch_timeout_seconds: int = 90
+    total_timeout_seconds: int = 360
 
     @classmethod
-    def from_env(cls) -> "CoursePlanningBudget":
+    def from_env(cls) -> CoursePlanningBudget:
         mode = os.getenv("COURSE_TEACHING_PLAN_MODE", "auto").strip().lower()
         if mode not in {"auto", "compact", "batched"}:
             mode = "auto"
@@ -58,20 +67,24 @@ class CoursePlanningBudget:
                 minimum=2, maximum=30,
             ),
             max_input_tokens=_env_int(
-                "COURSE_TEACHING_PLAN_MAX_INPUT_TOKENS", 8000,
-                minimum=2000, maximum=64000,
+                "COURSE_TEACHING_PLAN_MAX_INPUT_TOKENS", 7000,
+                minimum=2000, maximum=8000,
             ),
             max_output_tokens=_env_int(
-                "COURSE_TEACHING_PLAN_MAX_OUTPUT_TOKENS", 10000,
-                minimum=2000, maximum=64000,
+                "COURSE_TEACHING_PLAN_MAX_OUTPUT_TOKENS", 8000,
+                minimum=2000, maximum=12000,
             ),
             concurrency=_env_int(
-                "COURSE_TEACHING_PLAN_CONCURRENCY", 2,
+                "COURSE_TEACHING_PLAN_CONCURRENCY", 4,
                 minimum=1, maximum=4,
             ),
             batch_timeout_seconds=_env_int(
-                "COURSE_TEACHING_PLAN_BATCH_TIMEOUT_SECONDS", 300,
-                minimum=30, maximum=1800,
+                "COURSE_TEACHING_PLAN_BATCH_TIMEOUT_SECONDS", 90,
+                minimum=30, maximum=180,
+            ),
+            total_timeout_seconds=_env_int(
+                "COURSE_TEACHING_PLAN_TOTAL_TIMEOUT_SECONDS", 360,
+                minimum=120, maximum=600,
             ),
         )
 
@@ -99,13 +112,15 @@ def build_compact_planning_context(
     composition_style: str,
 ) -> dict[str, Any]:
     """Deduplicate difficulty and module contracts shared by many sections."""
-    difficulty_baseline = dict(
+    difficulty_baseline = _compact_difficulty_contract(
         (sections[0].get("difficulty_contract") or {}) if sections else {}
     )
     module_catalog: dict[str, dict[str, Any]] = {}
     compact_sections: list[dict[str, Any]] = []
     for section in sections:
-        difficulty = dict(section.get("difficulty_contract") or {})
+        difficulty = _compact_difficulty_contract(
+            section.get("difficulty_contract") or {}
+        )
         difficulty_delta = {
             key: value
             for key, value in difficulty.items()
@@ -148,6 +163,68 @@ def build_compact_planning_context(
     }
 
 
+def _compact_difficulty_contract(
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep only generation decisions, excluding repeated prose explanations."""
+    challenge = contract.get("challenge") or {}
+    support = contract.get("support") or {}
+    mastery = contract.get("mastery") or {}
+    exercise = contract.get("exercise_contract") or {}
+    compact = {
+        "target_level": contract.get("target_level"),
+        "node_role": contract.get("node_role"),
+        "new_concept_load": contract.get("new_concept_load"),
+        "challenge": {
+            key: challenge.get(key)
+            for key in (
+                "reasoning_depth",
+                "abstraction",
+                "transfer_distance",
+                "integration_scope",
+                "task_complexity",
+                "prerequisite_load",
+            )
+            if challenge.get(key) is not None
+        },
+        "support": {
+            key: support.get(key)
+            for key in (
+                "scaffold_intensity",
+                "pacing_granularity",
+                "feedback_frequency",
+            )
+            if support.get(key) is not None
+        },
+        "mastery": {
+            key: mastery.get(key)
+            for key in (
+                "accuracy",
+                "execution",
+                "explanation",
+                "independence",
+                "transfer",
+            )
+            if mastery.get(key) is not None
+        },
+        "exercise": {
+            key: exercise.get(key)
+            for key in (
+                "autonomy",
+                "reasoning_steps",
+                "transfer_distance",
+                "feedback_timing",
+            )
+            if exercise.get(key) is not None
+        },
+    }
+    return {
+        key: value
+        for key, value in compact.items()
+        if value not in (None, "", {}, [])
+    }
+
+
 def build_teaching_plan_batches(
     sections: list[dict[str, Any]],
     skeleton: dict[str, Any],
@@ -162,12 +239,28 @@ def build_teaching_plan_batches(
     batches: list[dict[str, Any]] = []
     current: list[dict[str, Any]] = []
     current_knowledge = 0
-    registry_input_tokens = estimate_json_tokens(
-        skeleton.get("knowledge_registry") or []
-    )
-    current_input_tokens = registry_input_tokens + 1200
+    current_input_tokens = 0
     current_output_tokens = 0
     current_chapter = ""
+
+    def estimate_batch_input(batch_sections: list[dict[str, Any]]) -> int:
+        section_ids = [
+            str(item.get("node_id") or "")
+            for item in batch_sections
+        ]
+        identities = [
+            skeleton_by_id.get(node_id) or {}
+            for node_id in section_ids
+        ]
+        scoped_registry = select_batch_knowledge_registry(
+            skeleton,
+            section_ids,
+        )
+        return 1400 + estimate_json_tokens({
+            "sections": batch_sections,
+            "section_identities": identities,
+            "knowledge_registry": scoped_registry,
+        })
 
     def flush() -> None:
         nonlocal current, current_knowledge, current_chapter
@@ -183,7 +276,7 @@ def build_teaching_plan_batches(
         })
         current = []
         current_knowledge = 0
-        current_input_tokens = registry_input_tokens + 1200
+        current_input_tokens = 0
         current_output_tokens = 0
         current_chapter = ""
 
@@ -192,10 +285,6 @@ def build_teaching_plan_batches(
         chapter_id = str(section.get("chapter_id") or "")
         identity = skeleton_by_id.get(node_id) or {}
         knowledge_count = len(identity.get("owned_knowledge_keys") or [])
-        section_input_tokens = estimate_json_tokens({
-            "section": section,
-            "identity": identity,
-        })
         section_output_tokens = 400 + knowledge_count * 650
         crosses_chapter = bool(
             current and current_chapter and chapter_id and chapter_id != current_chapter
@@ -205,7 +294,7 @@ def build_teaching_plan_batches(
             and (
                 len(current) >= budget.batch_max_sections
                 or current_knowledge + knowledge_count > budget.batch_max_knowledge
-                or current_input_tokens + section_input_tokens > budget.max_input_tokens
+                or estimate_batch_input([*current, section]) > budget.max_input_tokens
                 or current_output_tokens + section_output_tokens > budget.max_output_tokens
             )
         )
@@ -213,8 +302,70 @@ def build_teaching_plan_batches(
             flush()
         current.append(section)
         current_knowledge += knowledge_count
-        current_input_tokens += section_input_tokens
+        current_input_tokens = estimate_batch_input(current)
         current_output_tokens += section_output_tokens
         current_chapter = chapter_id or current_chapter
+        if (
+            current_input_tokens > budget.max_input_tokens
+            or current_output_tokens > budget.max_output_tokens
+        ):
+            raise CoursePlanningBudgetExceeded(
+                "单个小节教案已经超过模型请求预算："
+                f"node_id={node_id}，input={current_input_tokens}/"
+                f"{budget.max_input_tokens} tokens，output={current_output_tokens}/"
+                f"{budget.max_output_tokens} tokens"
+            )
     flush()
     return batches
+
+
+class CoursePlanningBudgetExceeded(RuntimeError):
+    retryable = False
+    code = "course_planning_budget_exceeded"
+
+
+def select_batch_knowledge_registry(
+    skeleton: dict[str, Any],
+    section_ids: list[str],
+) -> list[dict[str, Any]]:
+    """Return only current knowledge plus direct prerequisite/reuse references."""
+    registry = [
+        item
+        for item in skeleton.get("knowledge_registry") or []
+        if isinstance(item, dict)
+    ]
+    registry_by_key = {
+        str(item.get("knowledge_key") or ""): item
+        for item in registry
+    }
+    section_id_set = set(section_ids)
+    selected_keys: set[str] = set()
+    for identity in skeleton.get("sections") or []:
+        if (
+            not isinstance(identity, dict)
+            or str(identity.get("node_id") or "") not in section_id_set
+        ):
+            continue
+        selected_keys.update(
+            str(key)
+            for key in (
+                list(identity.get("owned_knowledge_keys") or [])
+                + list(identity.get("reused_knowledge_keys") or [])
+            )
+            if str(key)
+        )
+    direct_prerequisites = {
+        str(key)
+        for selected_key in list(selected_keys)
+        for key in (
+            registry_by_key.get(selected_key, {}).get("prerequisite_keys")
+            or []
+        )
+        if str(key)
+    }
+    selected_keys.update(direct_prerequisites)
+    return [
+        item
+        for item in registry
+        if str(item.get("knowledge_key") or "") in selected_keys
+    ]

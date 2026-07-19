@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from course_coherence import course_coherence_prompt_context
@@ -17,7 +18,7 @@ from course_knowledge_base import (
 )
 from course_pedagogy import TEMPLATES, SubjectPedagogyProfile, module_block_role
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v19"
+PROMPT_CONTRACT_VERSION = "course_prompt_v20"
 
 
 class CoursePromptComposer:
@@ -32,6 +33,7 @@ class CoursePromptComposer:
         gap_assessment: dict[str, Any],
         adaptation_decision: dict[str, Any],
         material_context: str,
+        max_sections: int = 24,
     ) -> str:
         profile_data = profile.to_dict()
         primary = TEMPLATES[profile.primary_mode]
@@ -66,7 +68,7 @@ class CoursePromptComposer:
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
 
 ## 目录要求
-1. 用户明确指定章数或小节总数时必须精确满足；未指定时才由知识和能力依赖决定。不要为了凑数重复主题，也不要用节数表示难度。
+1. 用户明确指定章数或小节总数时必须精确满足；未指定时才由知识和能力依赖决定。单门课程不得超过 {max_sections} 个小节，超过时应收敛范围而不是输出超大目录。不要为了凑数重复主题，也不要用节数表示难度。
 2. 每个小节只承担一个明确、可观察、与其他小节不同的学习责任。
 3. 每个小节给出可观察学习目标、前置小节、范围边界和验收任务。
 4. 每个小节必须给出 `node_id`，统一使用 `L2-章号-节号`，例如第 1 章第 1 节是 `L2-1-1`。
@@ -269,6 +271,9 @@ class CoursePromptComposer:
         learning_objectives: list[str],
         planning_context: dict[str, Any],
     ) -> str:
+        skeleton_context = self._compact_skeleton_planning_context(
+            planning_context
+        )
         return f"""## 全课知识职责骨架 V3
 
 你只做一次轻量的全局决策：冻结全课原子知识身份、唯一首次负责小节、合法复用、
@@ -281,7 +286,7 @@ class CoursePromptComposer:
 - 全课成果：{json.dumps(learning_objectives, ensure_ascii=False)}
 
 ## 已去重的规划上下文
-{json.dumps(planning_context, ensure_ascii=False)}
+{json.dumps(skeleton_context, ensure_ascii=False)}
 
 ## 约束
 1. `sections` 必须按输入顺序完整返回全部 `node_id`。
@@ -292,7 +297,8 @@ class CoursePromptComposer:
 4. 每个键只有一个 `owner_node_id`。复用只能发生在负责小节之后，并同时登记到注册表
    的 `reused_in_node_ids` 与对应小节的 `reused_knowledge_keys`。
 5. `prerequisite_keys` 只能引用当前知识之前已经定义的键；没有前置时留空。
-6. `module_ids` 只能从负责小节的 `allowed_module_ids` 中选择，至少选择一个。
+6. `module_ids` 只能从负责小节 `module_set_id` 指向的全局 `module_sets` 中选择，
+   至少选择一个。
 7. `difficulty_baseline` 只出现一次；各小节只叠加自己的 `difficulty_delta`。
 
 ## JSON Schema
@@ -316,6 +322,49 @@ class CoursePromptComposer:
     }}
   ]
 }}""".strip()
+
+    @staticmethod
+    def _compact_skeleton_planning_context(
+        planning_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Remove fields repeated identically across every skeleton section."""
+        sections = [
+            dict(item)
+            for item in planning_context.get("sections") or []
+            if isinstance(item, dict)
+        ]
+        module_set_ids: dict[tuple[str, ...], str] = {}
+        module_sets: dict[str, list[str]] = {}
+        compact_sections: list[dict[str, Any]] = []
+        for item in sections:
+            compact = dict(item)
+            module_signature = tuple(
+                str(value)
+                for value in compact.pop(
+                    "allowed_module_ids",
+                    [],
+                )
+            )
+            module_set_id = module_set_ids.get(module_signature)
+            if module_set_id is None:
+                module_set_id = f"M{len(module_set_ids) + 1}"
+                module_set_ids[module_signature] = module_set_id
+                module_sets[module_set_id] = list(module_signature)
+            compact["module_set_id"] = module_set_id
+            for key in (
+                "chapter_id",
+                "difficulty_delta",
+                "evidence_hints",
+                "prerequisite_node_ids",
+            ):
+                if compact.get(key) in ("", None, [], {}):
+                    compact.pop(key, None)
+            compact_sections.append(compact)
+        return {
+            **planning_context,
+            "module_sets": module_sets,
+            "sections": compact_sections,
+        }
 
     def build_teaching_plan_skeleton_v3_correction_prompt(
         self,
@@ -362,7 +411,7 @@ class CoursePromptComposer:
 ## 当前小节（已去重）
 {json.dumps(batch_sections, ensure_ascii=False)}
 
-## 全局知识注册表（只读）
+## 当前批次知识与直接依赖闭包（只读）
 {json.dumps(knowledge_registry, ensure_ascii=False)}
 
 ## 当前批次知识职责（只读）
@@ -492,9 +541,10 @@ class CoursePromptComposer:
         )
         continuation_contract = ""
         if continuation:
+            compact_draft = self._compact_continuation_draft(existing_draft)
             continuation_contract = f"""
-## 已保存草稿
-{existing_draft}
+## 已保存草稿的有界恢复上下文
+{compact_draft}
 
 只输出从草稿最后一个完整句子之后开始的续写内容。不要重复标题和已有段落，不要解释你在续写。"""
 
@@ -571,6 +621,24 @@ class CoursePromptComposer:
             else f"撰写「{node.get('node_name', '')}」完整正文，只输出 Markdown。"
         )
         return user_prompt, system_prompt
+
+    @staticmethod
+    def _compact_continuation_draft(
+        content: str,
+        *,
+        max_chars: int = 6000,
+    ) -> str:
+        if len(content) <= max_chars:
+            return content
+        headings = re.findall(r"(?m)^#{1,3}\s+(.+)$", content)
+        heading_text = "；".join(headings[-12:]) or "未识别到模块标题"
+        tail_budget = max(1200, max_chars - len(heading_text) - 120)
+        return (
+            f"- 已完成模块：{heading_text}\n"
+            f"- 已省略较早草稿 {len(content) - tail_budget} 个字符；"
+            "以下仅保留最近尾部用于无重复续写：\n"
+            f"{content[-tail_budget:]}"
+        )
 
     def _node_knowledge_context(
         self,

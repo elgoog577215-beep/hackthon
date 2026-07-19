@@ -91,6 +91,26 @@ async def test_call_llm_fails_over_to_next_model_on_transient_errors(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_shared_attempt_budget_prevents_candidate_retry_multiplication(
+    monkeypatch,
+):
+    completions = SequencedCompletions(
+        lambda: httpx.ConnectTimeout("connection timed out")
+    )
+    service = _make_service(monkeypatch, completions)
+
+    with pytest.raises(AIProviderRequestError, match="connection timed out"):
+        await service._call_llm(
+            "hi",
+            retry_count=3,
+            max_attempts=1,
+            raise_on_failure=True,
+        )
+
+    assert completions.calls == ["model-a"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "error_factory",
     [

@@ -18,15 +18,13 @@ from course_difficulty import (
     AdaptationDecision,
     DifficultyGapAssessment,
     DifficultyProfile,
-    format_difficulty_profile,
-    format_node_difficulty_contract,
 )
 from course_knowledge_map import normalize_knowledge_structure
 from course_pedagogy import SubjectPedagogyProfile
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
-PIPELINE_VERSION = "course_generation_v10"
+PIPELINE_VERSION = "course_generation_v11"
 
 COURSE_RELATION_TYPES = {
     "prerequisite",
@@ -2277,33 +2275,20 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
 
 def build_outline_generation_context(artifacts: dict[str, Any]) -> str:
     """Prompt section injected into outline generation."""
-    brief = artifacts.get("course_generation_brief", {})
     cards = artifacts.get("material_cards", [])
-    profile = artifacts.get("subject_pedagogy_profile", {})
     return "\n".join([
-        "## 资料增强课程生成 brief",
-        _format_brief(brief),
-        "",
         "## 上传资料卡",
-        _format_material_cards(cards),
+        _format_material_cards(cards, max_items=32, max_chars=4000),
         "",
         "## 可用证据目录",
-        build_evidence_catalog_summary(artifacts.get("evidence_catalog") or []),
+        build_evidence_catalog_summary(
+            artifacts.get("evidence_catalog") or [],
+            max_items=40,
+            max_chars=8000,
+        ),
         "",
         "## 证据使用策略",
         f"- {(artifacts.get('evidence_coverage_plan') or {}).get('strategy', 'material_first')}",
-        "",
-        "## 教学画像",
-        _format_pedagogy_profile(profile),
-        "",
-        "## 难度能力契约",
-        format_difficulty_profile(artifacts.get("difficulty_profile") or {}),
-        "",
-        "## 入口差距与适配决策",
-        _format_adaptation(
-            artifacts.get("difficulty_gap_assessment") or {},
-            artifacts.get("adaptation_decision") or {},
-        ),
         "",
         "## 电子课程资料硬标准",
         "- 统一产物是一本适合自学的电子课程资料，不拆考试导向或普通学习方向。",
@@ -2331,9 +2316,6 @@ def build_node_generation_context(
         f"- 生成目标：{brief.get('goal', '电子课程资料')}",
         f"- 讲法要求：{'；'.join(brief.get('style_requirements', [])) or '少废话、适合自学、讲清底层原理'}",
         f"- 避免风格：{'；'.join(brief.get('avoid_styles', [])) or '晦涩堆定义；空泛打比方'}",
-        "",
-        "## 当前节点蓝图",
-        _format_node_blueprint(node_blueprint),
     ]
     if evidence_bundle:
         parts.extend([
@@ -2345,16 +2327,6 @@ def build_node_generation_context(
         ])
     else:
         parts.extend(["", "## 当前节点资料依据", "- 当前节点没有可引用的资料证据，不得伪装引用资料。"])
-    parts.extend(["", "## 当前节点模块要求", _format_module_plan(node_blueprint.get("module_plan", []))])
-    parts.extend([
-        "",
-        "## 当前节点难度契约",
-        format_node_difficulty_contract(
-            node.get("difficulty_contract")
-            or node_blueprint.get("difficulty_contract")
-            or {}
-        ),
-    ])
     return "\n".join(parts)
 
 
@@ -2585,18 +2557,31 @@ def _format_brief(brief: dict[str, Any]) -> str:
     ])
 
 
-def _format_material_cards(cards: list[dict[str, Any]]) -> str:
+def _format_material_cards(
+    cards: list[dict[str, Any]],
+    *,
+    max_items: int = 32,
+    max_chars: int = 4000,
+) -> str:
     if not cards:
         return "- 未上传资料；本次只能按通用自学资料策略生成，并在报告中说明依据不足。"
     lines = []
-    for card in cards:
-        lines.append(
+    for card in cards[:max_items]:
+        entry = (
             f"- [{card.get('material_id')}] {card.get('filename')} "
             f"({card.get('file_type')}, {card.get('usage_label')}, {card.get('importance_label')}, {card.get('parse_status')})"
         )
         desc = card.get("user_description")
         if desc:
-            lines.append(f"  - 用户说明：{desc}")
+            entry += f"\n  - 用户说明：{_clip(str(desc), 240)}"
+        if lines and len("\n".join([*lines, entry])) > max_chars:
+            break
+        lines.append(entry)
+    if len(lines) < len(cards):
+        lines.append(
+            f"- 其余 {len(cards) - len(lines)} 份资料保留在服务端绑定中，"
+            "目录阶段不展开文件级详情。"
+        )
     return "\n".join(lines)
 
 

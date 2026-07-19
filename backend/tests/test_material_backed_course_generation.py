@@ -207,6 +207,7 @@ def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
     assert match, system_prompt
     context = json.loads(match.group(1))
     labels = labels_by_title or {}
+    module_sets = context.get("module_sets") or {}
     registry = []
     identities = []
     key_index = 1
@@ -230,7 +231,11 @@ def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
                 "owner_node_id": section["node_id"],
                 "reused_in_node_ids": [],
                 "prerequisite_keys": [previous_key] if previous_key else [],
-                "module_ids": list(section.get("allowed_module_ids") or [])[:1],
+                "module_ids": list(
+                    section.get("allowed_module_ids")
+                    or module_sets.get(section.get("module_set_id"))
+                    or []
+                )[:1],
             })
             previous_key = key
         identities.append({
@@ -246,12 +251,14 @@ def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
 
 def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
     section_match = re.search(
-        r"## 当前小节（已去重）\n(\[.*?\])\n\n## 全局知识注册表",
+        r"## 当前小节（已去重）\n(\[.*?\])\n\n"
+        r"## 当前批次知识与直接依赖闭包",
         system_prompt,
         re.S,
     )
     registry_match = re.search(
-        r"## 全局知识注册表（只读）\n(\[.*?\])\n\n## 当前批次知识职责",
+        r"## 当前批次知识与直接依赖闭包（只读）\n"
+        r"(\[.*?\])\n\n## 当前批次知识职责",
         system_prompt,
         re.S,
     )
@@ -441,7 +448,7 @@ def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
         }],
     )
 
-    assert artifacts["pipeline_version"] == "course_generation_v10"
+    assert artifacts["pipeline_version"] == "course_generation_v11"
     assert artifacts["course_generation_brief"]["course_shape_constraints"] == {}
     assert artifacts["material_cards"][0]["usage"] == "content_source"
     assert artifacts["material_cards"][0]["parse_status"] == "metadata_only"
@@ -506,7 +513,7 @@ def test_legacy_material_metadata_no_longer_broadcasts_material_refs():
     context = build_node_generation_context(course_metadata=course_data, node=node)
     assert "资料增强生成上下文" in context
     assert "不得伪装引用资料" in context
-    assert "当前节点模块要求" in context
+    assert "当前节点模块要求" not in context
 
 
 def test_plan_normalizer_converts_model_dependency_aliases_to_canonical_ids():
@@ -584,7 +591,7 @@ def test_generation_route_creates_one_persisted_job():
 
 
 @pytest.mark.asyncio
-async def test_course_service_builds_v10_blueprint_without_profile_model_call(
+async def test_course_service_builds_v11_blueprint_without_profile_model_call(
     monkeypatch,
     tmp_path,
 ):
@@ -642,9 +649,9 @@ async def test_course_service_builds_v10_blueprint_without_profile_model_call(
         }],
     )
 
-    assert data["generation_pipeline_version"] == "course_generation_v10"
-    assert data["generation_schema_version"] == "course_generation_v10"
-    assert data["prompt_contract_version"] == "course_prompt_v19"
+    assert data["generation_pipeline_version"] == "course_generation_v11"
+    assert data["generation_schema_version"] == "course_generation_v11"
+    assert data["prompt_contract_version"] == "course_prompt_v20"
     assert len(calls) == 2
     assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"
@@ -1345,7 +1352,7 @@ def test_course_knowledge_skeleton_freezes_unique_owner_and_earlier_reuse():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("section_count", [2, 12, 21])
+@pytest.mark.parametrize("section_count", [2, 3, 12, 21])
 async def test_course_teaching_plan_uses_compact_or_bounded_batches(
     monkeypatch,
     section_count,
@@ -1415,7 +1422,7 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
     assert course_data["generation_stage_artifacts"]["teaching"][
         "schema_version"
     ] == "course_teaching_plan_v3"
-    if section_count == 2:
+    if section_count <= 3:
         assert stage["strategy"] == "compact_single_call"
         assert stage["model_call_count"] == 1
         assert len(calls) == 2
@@ -1426,7 +1433,7 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
         assert stage["batch_count"] == expected_batches
         assert stage["model_call_count"] == 1 + expected_batches
         assert len(calls) == 2 + expected_batches
-        assert max_active_batches == 2
+        assert max_active_batches == 4
     assert stage["knowledge_compilation_model_call_count"] == 0
     assert stage["graph_compilation_model_call_count"] == 0
     assert stage["section_count"] == section_count

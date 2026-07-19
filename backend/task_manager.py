@@ -38,6 +38,10 @@ from course_coherence import (
 )
 from course_composition import compile_composition_profile
 from course_document import document_from_generation_draft
+from course_generation_budget import (
+    CourseGenerationBudget,
+    CourseGenerationDeadlineExceeded,
+)
 from course_generation_workflow import PIPELINE_VERSION
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
@@ -68,16 +72,30 @@ from generation_workspace import (
 )
 from guided_generation import (
     GUIDED_STEP_KEYS,
-    artifact_revision as guided_artifact_revision,
     build_source_chain_report,
     confirm_waiting_step,
     create_guided_workflow,
-    expected_input_revisions as guided_expected_input_revisions,
-    invalidate_after as invalidate_guided_steps_after,
-    is_confirmed as guided_step_confirmed,
-    mark_running as mark_guided_step_running,
-    mark_waiting as mark_guided_step_waiting,
     migrate_guided_workflow,
+)
+from guided_generation import (
+    artifact_revision as guided_artifact_revision,
+)
+from guided_generation import (
+    expected_input_revisions as guided_expected_input_revisions,
+)
+from guided_generation import (
+    invalidate_after as invalidate_guided_steps_after,
+)
+from guided_generation import (
+    is_confirmed as guided_step_confirmed,
+)
+from guided_generation import (
+    mark_running as mark_guided_step_running,
+)
+from guided_generation import (
+    mark_waiting as mark_guided_step_waiting,
+)
+from guided_generation import (
     step_state as guided_step_state,
 )
 from learning_asset_storage import LearningAssetRepository, learning_asset_repository
@@ -87,12 +105,6 @@ from learning_assets import (
     compile_learning_assets,
     evaluate_learning_asset_quality,
 )
-from question_bank import (
-    QuestionBankRepository,
-    question_bank_repository,
-    reconcile_question_bank,
-)
-from question_search import enrich_question_bank_with_web
 from material_pipeline import ingest_legacy_material_inputs
 from material_storage import material_repository
 from models import (
@@ -100,14 +112,20 @@ from models import (
     NodeStatus,
     TaskLogEntry,
 )
+from question_bank import (
+    QuestionBankRepository,
+    question_bank_repository,
+    reconcile_question_bank,
+)
+from question_search import enrich_question_bank_with_web
 from representation_compiler import (
     compile_core_representations,
     rebuild_core_representations_safely,
     validate_compiled_representations,
 )
 from slide_deck import plan_slide_deck
-from teaching_representations import teaching_representation_repository
 from storage import DATA_DIR
+from teaching_representations import teaching_representation_repository
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +133,7 @@ DEFAULT_TASKS_FILE = Path(DATA_DIR) / "generation_jobs.json"
 TASKS_FILE = DEFAULT_TASKS_FILE
 LEGACY_TASKS_FILE = Path(__file__).with_name("tasks.json")
 
-DEFAULT_MAX_CONCURRENCY = 2
+DEFAULT_MAX_CONCURRENCY = 4
 DEFAULT_MAX_COURSE_CONCURRENCY = 2
 
 # 内容完整性阈值（字符数）
@@ -124,9 +142,6 @@ CONTENT_COMPLETE_THRESHOLD = 600
 STREAM_PROGRESS_INTERVAL_SECONDS = 1.5
 DRAFT_CHECKPOINT_INTERVAL_SECONDS = 8.0
 ACTIVE_NODE_PROGRESS_CREDIT = 0.35
-
-# 重试上限
-MAX_RETRIES = 2
 
 # 指数退避参数
 BACKOFF_BASE = 2
@@ -222,7 +237,7 @@ class TaskManager:
         storage: Any,
         course_service: Any,
         ws_service: Any,
-        max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
+        max_concurrency: int | None = None,
         max_course_concurrency: int = DEFAULT_MAX_COURSE_CONCURRENCY,
         version_repository: CourseVersionRepository | None = None,
         asset_repository: LearningAssetRepository | None = None,
@@ -233,6 +248,34 @@ class TaskManager:
         self.storage = storage
         self.course_service = course_service
         self.ws_service = ws_service
+        runtime_budget = getattr(
+            course_service,
+            "_generation_budget",
+            None,
+        )
+        self._generation_budget = (
+            runtime_budget
+            if isinstance(runtime_budget, CourseGenerationBudget)
+            else CourseGenerationBudget.from_env()
+        )
+        resolved_max_concurrency = (
+            self._generation_budget.content_concurrency
+            if max_concurrency is None
+            else max_concurrency
+        )
+        resolved_max_concurrency = max(
+            1,
+            min(6, int(resolved_max_concurrency)),
+        )
+        self._content_max_retries = (
+            self._generation_budget.content_max_retries
+        )
+        self._content_node_timeout_seconds = (
+            self._generation_budget.content_node_timeout_seconds
+        )
+        self._content_stage_timeout_seconds = (
+            self._generation_budget.content_stage_timeout_seconds
+        )
         self._material_repository = getattr(course_service, "_material_repository", material_repository)
         self._version_repository = version_repository or course_version_repository
         self._learning_asset_repository = asset_repository or learning_asset_repository
@@ -241,7 +284,7 @@ class TaskManager:
         )
         self._generation_workspace_repository = workspace_repository or generation_workspace_repository
         self._course_document_repository = document_repository or CourseDocumentRepository(storage)
-        self.max_concurrency = max_concurrency
+        self.max_concurrency = resolved_max_concurrency
         self.max_course_concurrency = max_course_concurrency
 
         # Task state
@@ -253,7 +296,9 @@ class TaskManager:
         self._task_queue: asyncio.Queue[str] = asyncio.Queue()
 
         # Semaphore for concurrency control
-        self._semaphore: asyncio.Semaphore = asyncio.Semaphore(max_concurrency)
+        self._semaphore: asyncio.Semaphore = asyncio.Semaphore(
+            resolved_max_concurrency
+        )
         self._course_semaphore: asyncio.Semaphore = asyncio.Semaphore(max_course_concurrency)
 
         # Consumer loop task
@@ -2488,9 +2533,10 @@ class TaskManager:
     async def _schedule_nodes(
         self, task_id: str, nodes: list[dict]
     ) -> None:
-        """按依赖波次调度节点生成。
+        """按固定正文并发预算调度所有小节。
 
-        有前置依赖的节点等待依赖完成；无依赖或依赖已满足的节点保持并发。
+        `prerequisite_node_ids` 是学习顺序，不是正文生成依赖。正文只读取已经
+        冻结的全课教案，因此一个小节失败不会阻断其他小节。
 
         **Validates: Requirements 3.3, 3.4**
 
@@ -2502,86 +2548,32 @@ class TaskManager:
             nodes, key=lambda n: (n.get("node_level", 1), nodes.index(n))
         )
 
-        pending = list(sorted_nodes)
-        completed = {
-            n.get("node_id", "")
-            for n in sorted_nodes
-            if self._is_content_complete(n)
-        }
-        # Nodes that failed (or were skipped because a prerequisite failed) —
-        # tracked separately from `completed` so downstream nodes can tell the
-        # difference between "dependency satisfied" and "dependency gave up".
-        unusable: set[str] = set()
-        known_ids = {n.get("node_id", "") for n in sorted_nodes}
+        tasks: list[asyncio.Task[Any]] = []
+        for node in sorted_nodes:
+            if self._is_content_complete(node):
+                continue
+            node_id = node.get("node_id", "")
+            task_obj = asyncio.create_task(
+                self._process_node(task_id, node)
+            )
+            self._running_node_tasks.setdefault(task_id, {})[
+                node_id
+            ] = task_obj
+            tasks.append(task_obj)
 
-        task = self.tasks.get(task_id)
-        course_id = task.get("course_id", "") if task else ""
-
-        while pending:
-            ready = [
-                node for node in pending
-                if self._node_dependencies(node, known_ids).issubset(completed | unusable)
-            ]
-            if not ready:
-                # Invalid model-produced dependency graph: preserve progress in original order.
-                ready = [pending[0]]
-
-            # A node whose prerequisites include a failed/skipped node is blocked:
-            # generating it would silently proceed with missing prerequisite content.
-            # Mark it as errored instead of generating.
-            blocked = [
-                node for node in ready
-                if self._node_dependencies(node, known_ids) & unusable
-            ]
-            runnable = [node for node in ready if node not in blocked]
-
-            for node in blocked:
-                node_id = node.get("node_id", "")
-                await self._set_node_status(
-                    task_id, course_id, node_id, NodeStatus.ERROR,
-                    error_summary="前置节点生成失败或被跳过，已阻断本节点生成",
-                )
-                self._add_log_entry(
-                    task_id, node_id,
-                    node_name=node.get("node_name", ""),
-                    event="error",
-                    message=f"Node {node_id} blocked: prerequisite node(s) failed",
-                )
-
-            tasks: list[asyncio.Task[Any]] = []
-            for node in runnable:
-                node_id = node.get("node_id", "")
-                task_obj = asyncio.create_task(self._process_node(task_id, node))
-                self._running_node_tasks.setdefault(task_id, {})[node_id] = task_obj
-                tasks.append(task_obj)
-
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-            fresh_course = self._load_task_course(task_id)
-            fresh_by_id = {
-                n.get("node_id", ""): n
-                for n in (fresh_course.get("nodes", []) if fresh_course else [])
-            }
-            for node in ready:
-                node_id = node.get("node_id", "")
-                if node in blocked:
-                    unusable.add(node_id)
-                else:
-                    fresh_node = fresh_by_id.get(node_id, node)
-                    status = fresh_node.get("generation_status")
-                    if status in (NodeStatus.COMPLETED.value, NodeStatus.SKIPPED.value):
-                        completed.add(node_id)
-                    else:
-                        unusable.add(node_id)
-                pending.remove(node)
-
-    def _node_dependencies(self, node: dict, known_ids: set[str]) -> set[str]:
-        """返回当前待生成集合里的有效前置依赖"""
-        raw = node.get("prerequisite_node_ids") or []
-        if not isinstance(raw, list):
-            return set()
-        return {dep for dep in raw if isinstance(dep, str) and dep in known_ids}
+        if not tasks:
+            return
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=self._content_stage_timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            raise CourseGenerationDeadlineExceeded(
+                "课程正文阶段超过硬时限："
+                f"{self._content_stage_timeout_seconds} 秒；"
+                "已停止未完成小节并保留草稿，可从检查点继续"
+            ) from exc
 
     async def _prepare_subject_knowledge(
         self,
@@ -3023,6 +3015,26 @@ class TaskManager:
         if incomplete_l2:
             total = len(l2_nodes)
             completed = len(l2_nodes) - len(incomplete_l2)
+            content_started_at = time.monotonic()
+            content_stage = course_data.setdefault(
+                "generation_stage_artifacts",
+                {},
+            ).setdefault("content_generation", {})
+            content_stage.update({
+                "status": "in_progress",
+                "section_count": total,
+                "pending_section_count": len(incomplete_l2),
+                "max_concurrency": self.max_concurrency,
+                "max_retries_per_node": self._content_max_retries,
+                "node_timeout_seconds": (
+                    self._content_node_timeout_seconds
+                ),
+                "stage_timeout_seconds": (
+                    self._content_stage_timeout_seconds
+                ),
+                "generation_dependency": "frozen_teaching_plan_only",
+            })
+            await self._save_task_course(task_id, course_data)
             await self._update_task_status(
                 task_id,
                 "running",
@@ -3045,9 +3057,86 @@ class TaskManager:
                     "teaching_plan_status": "completed",
                     "knowledge_compilation": "deterministic_completed",
                     "graph_compilation": "deterministic_completed",
+                    "max_concurrency": self.max_concurrency,
+                    "max_retries_per_node": self._content_max_retries,
+                    "node_timeout_seconds": (
+                        self._content_node_timeout_seconds
+                    ),
+                    "stage_timeout_seconds": (
+                        self._content_stage_timeout_seconds
+                    ),
+                    "generation_dependency": (
+                        "frozen_teaching_plan_only"
+                    ),
                 },
             )
-            await self._schedule_nodes(task_id, incomplete_l2)
+            try:
+                await self._schedule_nodes(task_id, incomplete_l2)
+            except CourseGenerationDeadlineExceeded as exc:
+                fresh_course = self._load_task_course(task_id) or course_data
+                stage = fresh_course.setdefault(
+                    "generation_stage_artifacts",
+                    {},
+                ).setdefault("content_generation", {})
+                stage.update({
+                    "status": "failed",
+                    "deadline_exceeded": True,
+                    "duration_ms": int(
+                        (time.monotonic() - content_started_at) * 1000
+                    ),
+                    "error": str(exc),
+                })
+                await self._save_task_course(task_id, fresh_course)
+                raise
+            fresh_course = self._load_task_course(task_id) or course_data
+            generated_nodes = [
+                node
+                for node in fresh_course.get("nodes") or []
+                if int(node.get("node_level") or 1) == 2
+            ]
+            runtimes = [
+                node.get("generation_runtime") or {}
+                for node in generated_nodes
+                if isinstance(node.get("generation_runtime"), dict)
+            ]
+            stage = fresh_course.setdefault(
+                "generation_stage_artifacts",
+                {},
+            ).setdefault("content_generation", {})
+            completed_section_count = sum(
+                1
+                for node in generated_nodes
+                if self._is_content_complete(node)
+            )
+            failed_section_count = sum(
+                1
+                for node in generated_nodes
+                if node.get("generation_status") == NodeStatus.ERROR.value
+            )
+            stage.update({
+                "status": (
+                    "completed"
+                    if completed_section_count == len(generated_nodes)
+                    else "partial"
+                ),
+                "duration_ms": int(
+                    (time.monotonic() - content_started_at) * 1000
+                ),
+                "completed_section_count": completed_section_count,
+                "failed_section_count": failed_section_count,
+                "max_prompt_tokens": max(
+                    (
+                        int(item.get("estimated_input_tokens") or 0)
+                        for item in runtimes
+                    ),
+                    default=0,
+                ),
+                "total_prompt_tokens": sum(
+                    int(item.get("estimated_input_tokens") or 0)
+                    for item in runtimes
+                ),
+            })
+            await self._save_task_course(task_id, fresh_course)
 
         course_data = self._load_task_course(task_id) or course_data
         if guided and not guided_step_confirmed(guided_workflow, "content"):
@@ -3100,6 +3189,7 @@ class TaskManager:
         grounding_invalid_refs: list[str] | None = None,
         generation_quality: dict[str, Any] | None = None,
         needs_manual_review: bool = False,
+        generation_runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         def update(fresh_data: dict[str, Any]) -> dict[str, Any]:
             for node in fresh_data.get("nodes", []):
@@ -3121,13 +3211,21 @@ class TaskManager:
                     node["needs_manual_review"] = bool(
                         needs_manual_review
                     )
+                    node["generation_runtime"] = deepcopy(
+                        generation_runtime or {}
+                    )
                     break
             return fresh_data
 
         return await self._mutate_task_course(task_id, update)
 
     async def _save_node_draft(
-        self, task_id: str, course_id: str, node_id: str, content: str
+        self,
+        task_id: str,
+        course_id: str,
+        node_id: str,
+        content: str,
+        generation_runtime: dict[str, Any] | None = None,
     ) -> None:
         if not content:
             return
@@ -3136,6 +3234,10 @@ class TaskManager:
                 if item.get("node_id") == node_id:
                     item["node_content_draft"] = content
                     item["generation_status"] = NodeStatus.PENDING.value
+                    if generation_runtime:
+                        item["generation_runtime"] = deepcopy(
+                            generation_runtime
+                        )
                     break
             return fresh_data
 
@@ -3196,6 +3298,9 @@ class TaskManager:
                 return
 
             start_time = datetime.now()
+            node_deadline = (
+                time.monotonic() + self._content_node_timeout_seconds
+            )
 
             async with self._lock:
                 node_info = {
@@ -3224,11 +3329,13 @@ class TaskManager:
                     task_id, course_id, node_id, NodeStatus.GENERATING
                 )
 
-                while retry_count <= MAX_RETRIES:
+                existing_draft = ""
+                accumulated: list[str] = []
+                while retry_count <= self._content_max_retries:
                     try:
                         config = self._build_node_config(node)
 
-                        accumulated: list[str] = []
+                        accumulated = []
                         streamed_chars = 0
                         last_progress_push = time.monotonic()
                         last_checkpoint = time.monotonic()
@@ -3260,14 +3367,30 @@ class TaskManager:
                                 )
                                 last_checkpoint = now
 
-                        content = await self.course_service.generate_node_content_stream(
-                            course_id=course_id,
-                            node=node,
-                            config=config,
-                            on_chunk=on_chunk,
-                            course_data=fresh_course,
-                            existing_draft=existing_draft,
-                        )
+                        remaining_seconds = node_deadline - time.monotonic()
+                        if remaining_seconds <= 0:
+                            raise CourseGenerationDeadlineExceeded(
+                                f"小节 {node_name} 超过 "
+                                f"{self._content_node_timeout_seconds} 秒硬时限"
+                            )
+                        try:
+                            content = await asyncio.wait_for(
+                                self.course_service.generate_node_content_stream(
+                                    course_id=course_id,
+                                    node=node,
+                                    config=config,
+                                    on_chunk=on_chunk,
+                                    course_data=fresh_course,
+                                    existing_draft=existing_draft,
+                                ),
+                                timeout=remaining_seconds,
+                            )
+                        except asyncio.TimeoutError as exc:
+                            raise CourseGenerationDeadlineExceeded(
+                                f"小节 {node_name} 超过 "
+                                f"{self._content_node_timeout_seconds} 秒硬时限；"
+                                "已保留流式草稿"
+                            ) from exc
 
                         end_time = datetime.now()
                         duration_ms = (end_time - start_time).total_seconds() * 1000
@@ -3285,6 +3408,7 @@ class TaskManager:
                             grounding_invalid_refs=node.get("grounding_invalid_refs") or [],
                             generation_quality=node.get("generation_quality"),
                             needs_manual_review=bool(node.get("needs_manual_review")),
+                            generation_runtime=node.get("generation_runtime"),
                         )
 
                         self._add_log_entry(
@@ -3319,29 +3443,61 @@ class TaskManager:
 
                     except asyncio.CancelledError:
                         draft = existing_draft + "".join(accumulated)
-                        await asyncio.shield(self._save_node_draft(task_id, course_id, node_id, draft))
+                        await asyncio.shield(
+                            self._save_node_draft(
+                                task_id,
+                                course_id,
+                                node_id,
+                                draft,
+                                node.get("generation_runtime"),
+                            )
+                        )
                         logger.info("Node %s generation cancelled", node_id)
                         raise
 
                     except Exception as e:
                         non_retryable = getattr(e, "retryable", True) is False
-                        retry_count = MAX_RETRIES + 1 if non_retryable else retry_count + 1
+                        draft = existing_draft + "".join(accumulated)
+                        if draft:
+                            await self._save_node_draft(
+                                task_id,
+                                course_id,
+                                node_id,
+                                draft,
+                                node.get("generation_runtime"),
+                            )
+                        retry_count = (
+                            self._content_max_retries + 1
+                            if non_retryable
+                            else retry_count + 1
+                        )
                         retries[node_id] = retry_count
                         error_msg = str(e)
 
-                        if not non_retryable and retry_count <= MAX_RETRIES:
+                        if (
+                            not non_retryable
+                            and retry_count <= self._content_max_retries
+                        ):
                             delay = min(
                                 (2 ** retry_count) * BACKOFF_BASE, BACKOFF_MAX
                             )
                             self._add_log_entry(
                                 task_id, node_id, node_name=node_name,
                                 event="retry",
-                                message=f"Retry {retry_count}/{MAX_RETRIES}: {error_msg[:100]}",
+                                message=(
+                                    f"Retry {retry_count}/"
+                                    f"{self._content_max_retries}: "
+                                    f"{error_msg[:100]}"
+                                ),
                                 retry_count=retry_count,
                             )
                             logger.warning(
                                 "Node %s failed (retry %d/%d), backoff %.1fs: %s",
-                                node_id, retry_count, MAX_RETRIES, delay, error_msg[:100],
+                                node_id,
+                                retry_count,
+                                self._content_max_retries,
+                                delay,
+                                error_msg[:100],
                             )
                             await asyncio.sleep(delay)
                         else:
@@ -3359,7 +3515,11 @@ class TaskManager:
                                 message=(
                                     f"Non-retryable failure: {error_msg[:200]}"
                                     if non_retryable
-                                    else f"Failed after {MAX_RETRIES} retries: {error_msg[:200]}"
+                                    else (
+                                        "Failed after "
+                                        f"{self._content_max_retries} retries: "
+                                        f"{error_msg[:200]}"
+                                    )
                                 ),
                                 retry_count=retry_count,
                                 duration_ms=duration_ms,
@@ -3393,9 +3553,10 @@ class TaskManager:
                     self.save_tasks()
                 await self._update_progress(task_id)
                 await self._push_progress(task_id)
-
-        node_tasks = self._running_node_tasks.get(task_id, {})
-        node_tasks.pop(node_id, None)
+                self._running_node_tasks.get(task_id, {}).pop(
+                    node_id,
+                    None,
+                )
 
     # -------------------------------------------------------------------------
     # Command handler (for WebSocketService integration)

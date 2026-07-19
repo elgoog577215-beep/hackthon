@@ -51,6 +51,11 @@ from course_difficulty import (
     format_node_difficulty_contract,
     parse_difficulty_level,
 )
+from course_generation_budget import (
+    CourseGenerationBudget,
+    CourseGenerationBudgetExceeded,
+    CourseGenerationDeadlineExceeded,
+)
 from course_generation_strategy import (
     PERSONALIZED_NODE_EXPLANATION,
     WEAKNESS_REMEDIATION_CONTENT,
@@ -97,6 +102,7 @@ from course_planning_budget import (
     build_compact_planning_context,
     build_teaching_plan_batches,
     estimate_json_tokens,
+    select_batch_knowledge_registry,
 )
 from course_prompt_composer import (
     PROMPT_CONTRACT_VERSION,
@@ -187,6 +193,7 @@ class CourseService(AIBase):
         prompt_composer: CoursePromptComposer | None = None,
         materials: MaterialRepository | None = None,
         planning_concurrency: int | None = None,
+        generation_budget: CourseGenerationBudget | None = None,
     ) -> None:
         super().__init__()
         self._context_manager = context_manager or get_context_manager()
@@ -200,6 +207,9 @@ class CourseService(AIBase):
             self._planning_concurrency
         )
         self._teaching_plan_budget = CoursePlanningBudget.from_env()
+        self._generation_budget = (
+            generation_budget or CourseGenerationBudget.from_env()
+        )
         self._teaching_plan_semaphore = asyncio.Semaphore(
             self._teaching_plan_budget.concurrency
         )
@@ -261,6 +271,7 @@ class CourseService(AIBase):
             "evidence_coverage_plan",
             "course_blueprint",
             "generation_quality_report",
+            "generation_runtime_budget",
         ]
         metadata = {key: course_data.get(key) for key in metadata_keys if course_data.get(key) is not None}
         if metadata:
@@ -371,6 +382,7 @@ class CourseService(AIBase):
             "course_generation_v8",
             "course_generation_v9",
             "course_generation_v10",
+            "course_generation_v11",
         }
         if checkpoint_ready:
             refreshed_brief = deepcopy(existing.get("course_generation_brief") or {})
@@ -463,6 +475,30 @@ class CourseService(AIBase):
             attach_pedagogy_profile(artifacts, profile)
 
         artifacts["course_composition_profile"] = composition_profile
+        shape_constraints = (
+            artifacts.get("course_generation_brief") or {}
+        ).get("course_shape_constraints") or {}
+        self._generation_budget.ensure_section_count(
+            shape_constraints.get("section_count")
+        )
+        artifacts["generation_runtime_budget"] = {
+            **self._generation_budget.to_dict(),
+            "teaching_plan_max_input_tokens": (
+                self._teaching_plan_budget.max_input_tokens
+            ),
+            "teaching_plan_max_output_tokens": (
+                self._teaching_plan_budget.max_output_tokens
+            ),
+            "teaching_plan_concurrency": (
+                self._teaching_plan_budget.concurrency
+            ),
+            "teaching_plan_call_timeout_seconds": (
+                self._teaching_plan_budget.batch_timeout_seconds
+            ),
+            "teaching_plan_total_timeout_seconds": (
+                self._teaching_plan_budget.total_timeout_seconds
+            ),
+        }
 
         difficulty_profile = compile_difficulty_profile(
             difficulty,
@@ -494,6 +530,9 @@ class CourseService(AIBase):
             "difficulty_gap_assessment": gap_assessment.to_dict(),
             "adaptation_decision": adaptation_decision.to_dict(),
             "course_composition_profile": composition_profile,
+            "generation_runtime_budget": artifacts[
+                "generation_runtime_budget"
+            ],
             "generation_status": "difficulty_compiled",
         })
 
@@ -516,6 +555,41 @@ class CourseService(AIBase):
                 artifacts["course_generation_brief"],
             )
         )
+
+        def enforce_outline_budget(
+            report: dict[str, Any],
+        ) -> dict[str, Any]:
+            try:
+                self._generation_budget.ensure_section_count(
+                    (report.get("actual") or {}).get("section_count")
+                )
+                return report
+            except CourseGenerationBudgetExceeded as exc:
+                constrained = deepcopy(report)
+                constrained["passed"] = False
+                constrained.setdefault("issues", []).append({
+                    "code": "outline:section_budget_exceeded",
+                    "severity": "critical",
+                    "message": str(exc),
+                })
+                return constrained
+
+        plan_constraint_report = enforce_outline_budget(
+            plan_constraint_report
+        )
+        existing_outline_stage = (
+            (existing.get("generation_stage_artifacts") or {}).get("outline")
+            or {}
+        )
+        outline_model_call_count = int(
+            existing_outline_stage.get("model_call_count") or 0
+        )
+        outline_prompt_chars = int(
+            existing_outline_stage.get("prompt_chars") or 0
+        )
+        outline_prompt_tokens = int(
+            existing_outline_stage.get("max_prompt_tokens") or 0
+        )
         outline_was_generated = not plan_constraint_report.get("passed")
         if not plan_constraint_report.get("passed"):
             prompt = self._prompt_composer.build_outline_prompt(
@@ -527,6 +601,20 @@ class CourseService(AIBase):
                 gap_assessment=gap_assessment.to_dict(),
                 adaptation_decision=adaptation_decision.to_dict(),
                 material_context=build_outline_generation_context(artifacts),
+                max_sections=self._generation_budget.max_sections,
+            )
+            outline_user = (
+                f"为「{topic}」生成轻量课程目录，只输出 JSON。"
+            )
+            prompt_tokens = self.estimate_request_tokens(
+                outline_user,
+                prompt,
+            )
+            outline_model_call_count += 1
+            outline_prompt_chars += len(outline_user) + len(prompt)
+            outline_prompt_tokens = max(
+                outline_prompt_tokens,
+                prompt_tokens,
             )
             await self._notify_phase(
                 on_phase,
@@ -537,17 +625,35 @@ class CourseService(AIBase):
                 phase_detail={"artifact_type": "course_outline"},
             )
             response = await self._call_llm_with_heartbeat(
-                f"为「{topic}」生成轻量课程目录，只输出 JSON。",
+                outline_user,
                 prompt,
                 enable_thinking=True,
                 on_phase=on_phase,
                 phase="outline_generation",
                 base_progress=32,
                 heartbeat_message="仍在等待 AI 生成轻量课程目录",
+                stage_timeout_seconds=(
+                    self._generation_budget.call_timeout_seconds
+                ),
+                max_input_tokens=(
+                    self._generation_budget.max_input_tokens
+                ),
+                max_input_chars=(
+                    self._generation_budget.max_input_chars
+                ),
+                max_output_tokens=(
+                    self._generation_budget.outline_max_output_tokens
+                ),
+                max_attempts=(
+                    self._generation_budget.provider_max_attempts
+                ),
             )
             plan, plan_constraint_report = self._validated_course_outline(
                 response,
                 artifacts["course_generation_brief"],
+            )
+            plan_constraint_report = enforce_outline_budget(
+                plan_constraint_report
             )
             if not plan_constraint_report.get("passed"):
                 await self._notify_phase(
@@ -569,18 +675,52 @@ class CourseService(AIBase):
                     brief=artifacts["course_generation_brief"],
                     issues=plan_constraint_report.get("issues") or [],
                 )
+                correction_user = (
+                    f"重新生成「{topic}」轻量课程目录，"
+                    "修复上一次的验收问题。"
+                )
+                correction_tokens = self.estimate_request_tokens(
+                    correction_user,
+                    correction_prompt,
+                )
+                outline_model_call_count += 1
+                outline_prompt_chars += (
+                    len(correction_user) + len(correction_prompt)
+                )
+                outline_prompt_tokens = max(
+                    outline_prompt_tokens,
+                    correction_tokens,
+                )
                 corrected_response = await self._call_llm_with_heartbeat(
-                    f"重新生成「{topic}」轻量课程目录，修复上一次的验收问题。",
+                    correction_user,
                     correction_prompt,
                     enable_thinking=False,
                     on_phase=on_phase,
                     phase="outline_validation",
                     base_progress=34,
                     heartbeat_message="仍在等待 AI 修复轻量课程目录",
+                    stage_timeout_seconds=(
+                        self._generation_budget.call_timeout_seconds
+                    ),
+                    max_input_tokens=(
+                        self._generation_budget.max_input_tokens
+                    ),
+                    max_input_chars=(
+                        self._generation_budget.max_input_chars
+                    ),
+                    max_output_tokens=(
+                        self._generation_budget.outline_max_output_tokens
+                    ),
+                    max_attempts=(
+                        self._generation_budget.provider_max_attempts
+                    ),
                 )
                 plan, plan_constraint_report = self._validated_course_outline(
                     corrected_response,
                     artifacts["course_generation_brief"],
+                )
+                plan_constraint_report = enforce_outline_budget(
+                    plan_constraint_report
                 )
         if not plan_constraint_report.get("passed") or plan is None:
             messages = "；".join(
@@ -667,6 +807,9 @@ class CourseService(AIBase):
             "difficulty_gap_assessment": gap_assessment.to_dict(),
             "adaptation_decision": adaptation_decision.to_dict(),
             "course_composition_profile": composition_profile,
+            "generation_runtime_budget": deepcopy(
+                artifacts["generation_runtime_budget"]
+            ),
             "nodes": nodes,
             "course_plan": plan,
             "course_outline": outline_plan,
@@ -689,6 +832,24 @@ class CourseService(AIBase):
                     "status": "completed",
                     "schema_version": "course_outline_v1",
                     "actual": deepcopy(plan_constraint_report.get("actual") or {}),
+                    "prompt_chars": outline_prompt_chars,
+                    "max_prompt_tokens": outline_prompt_tokens,
+                    "max_input_tokens": (
+                        self._generation_budget.max_input_tokens
+                    ),
+                    "max_input_chars": (
+                        self._generation_budget.max_input_chars
+                    ),
+                    "max_output_tokens": (
+                        self._generation_budget.outline_max_output_tokens
+                    ),
+                    "provider_max_attempts": (
+                        self._generation_budget.provider_max_attempts
+                    ),
+                    "call_timeout_seconds": (
+                        self._generation_budget.call_timeout_seconds
+                    ),
+                    "model_call_count": outline_model_call_count,
                 },
             },
         }
@@ -749,13 +910,39 @@ class CourseService(AIBase):
             "revision_id": knowledge_scope_contract.get("revision_id"),
         }
         await self._notify_checkpoint(on_checkpoint, course_data)
-        plan = await self._prepare_course_teaching_plan(
-            course_data=course_data,
-            plan=plan,
-            artifacts=artifacts,
-            on_phase=on_phase,
-            on_checkpoint=on_checkpoint,
-        )
+        try:
+            plan = await asyncio.wait_for(
+                self._prepare_course_teaching_plan(
+                    course_data=course_data,
+                    plan=plan,
+                    artifacts=artifacts,
+                    on_phase=on_phase,
+                    on_checkpoint=on_checkpoint,
+                ),
+                timeout=(
+                    self._teaching_plan_budget.total_timeout_seconds
+                ),
+            )
+        except asyncio.TimeoutError as exc:
+            teaching_stage = course_data.setdefault(
+                "generation_stage_artifacts", {}
+            ).setdefault("course_teaching_plan", {})
+            teaching_stage.update({
+                "status": "failed",
+                "timed_out": True,
+                "total_timeout_seconds": (
+                    self._teaching_plan_budget.total_timeout_seconds
+                ),
+            })
+            course_data["generation_status"] = (
+                "course_teaching_plan_failed"
+            )
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            raise CourseGenerationDeadlineExceeded(
+                "全课教案规划超过 "
+                f"{self._teaching_plan_budget.total_timeout_seconds} 秒，"
+                "已保留骨架和完成批次，可从最近检查点继续"
+            ) from exc
         plan = normalize_course_plan_contract(plan)
         full_plan_report = validate_course_plan_constraints(
             plan,
@@ -1021,6 +1208,27 @@ class CourseService(AIBase):
             and teaching_stage.get("source_outline_revision_id") != outline_revision_id
         ):
             teaching_stage.clear()
+        teaching_stage["runtime_budget"] = {
+            "max_input_tokens": (
+                self._teaching_plan_budget.max_input_tokens
+            ),
+            "max_input_chars": (
+                self._generation_budget.max_input_chars
+            ),
+            "max_output_tokens": (
+                self._teaching_plan_budget.max_output_tokens
+            ),
+            "provider_max_attempts": (
+                self._generation_budget.provider_max_attempts
+            ),
+            "call_timeout_seconds": (
+                self._teaching_plan_budget.batch_timeout_seconds
+            ),
+            "total_timeout_seconds": (
+                self._teaching_plan_budget.total_timeout_seconds
+            ),
+            "max_concurrency": self._teaching_plan_budget.concurrency,
+        }
 
         existing_payload = (
             course_data.get("course_teaching_plan")
@@ -1112,6 +1320,12 @@ class CourseService(AIBase):
         counter = {
             "calls": int(teaching_stage.get("model_call_count") or 0),
             "prompt_chars": int(teaching_stage.get("prompt_chars") or 0),
+            "prompt_tokens": int(
+                teaching_stage.get("prompt_tokens") or 0
+            ),
+            "max_prompt_tokens": int(
+                teaching_stage.get("max_prompt_tokens") or 0
+            ),
         }
         counter_lock = asyncio.Lock()
 
@@ -1125,6 +1339,10 @@ class CourseService(AIBase):
             heartbeat_message: str,
             phase_detail: dict[str, Any],
         ) -> str:
+            input_tokens = self.estimate_request_tokens(
+                user_prompt,
+                system_prompt,
+            )
             try:
                 async with self._teaching_plan_semaphore:
                     return await self._call_llm_with_heartbeat(
@@ -1139,11 +1357,38 @@ class CourseService(AIBase):
                         ),
                         heartbeat_message=heartbeat_message,
                         phase_detail=phase_detail,
+                        max_input_tokens=(
+                            self._teaching_plan_budget.max_input_tokens
+                        ),
+                        max_input_chars=(
+                            self._generation_budget.max_input_chars
+                        ),
+                        max_output_tokens=(
+                            self._teaching_plan_budget.max_output_tokens
+                        ),
+                        max_attempts=(
+                            self._generation_budget.provider_max_attempts
+                        ),
                     )
             finally:
                 async with counter_lock:
                     counter["calls"] += 1
-                    counter["prompt_chars"] += len(system_prompt)
+                    counter["prompt_chars"] += (
+                        len(user_prompt) + len(system_prompt)
+                    )
+                    counter["prompt_tokens"] += input_tokens
+                    counter["max_prompt_tokens"] = max(
+                        counter["max_prompt_tokens"],
+                        input_tokens,
+                    )
+                    teaching_stage.update({
+                        "model_call_count": counter["calls"],
+                        "prompt_chars": counter["prompt_chars"],
+                        "prompt_tokens": counter["prompt_tokens"],
+                        "max_prompt_tokens": (
+                            counter["max_prompt_tokens"]
+                        ),
+                    })
 
         raw_skeleton = teaching_stage.get("skeleton")
         skeleton = normalize_teaching_plan_skeleton_v3(
@@ -1345,7 +1590,10 @@ class CourseService(AIBase):
                 positioning=positioning,
                 batch_spec=spec,
                 batch_sections=[compact_by_id[item] for item in section_ids],
-                knowledge_registry=list(skeleton.get("knowledge_registry") or []),
+                knowledge_registry=select_batch_knowledge_registry(
+                    skeleton,
+                    section_ids,
+                ),
                 section_identities=[identity_by_id[item] for item in section_ids],
                 module_catalog=list(planning_context.get("module_catalog") or []),
                 skeleton_revision_id=str(skeleton.get("revision_id") or ""),
@@ -1377,7 +1625,7 @@ class CourseService(AIBase):
                 response = await request_model(
                     user_prompt=f"生成详细小节教案批次 {batch_id}，只输出 JSON。",
                     system_prompt=batch_prompt,
-                    enable_thinking=True,
+                    enable_thinking=False,
                     phase="course_teaching_plan_batch",
                     progress=40,
                     heartbeat_message=f"仍在等待 AI 完成教案批次 {batch_id}",
@@ -1583,6 +1831,8 @@ class CourseService(AIBase):
             "duration_ms": duration_ms,
             "model_call_count": counter["calls"],
             "prompt_chars": counter["prompt_chars"],
+            "prompt_tokens": counter["prompt_tokens"],
+            "max_prompt_tokens": counter["max_prompt_tokens"],
             "planning_mode": planning_mode,
             "strategy": strategy,
             "section_count": len(sections),
@@ -1671,6 +1921,27 @@ class CourseService(AIBase):
         teaching_stage = stage_artifacts.setdefault(
             "course_teaching_plan", {}
         )
+        teaching_stage["runtime_budget"] = {
+            "max_input_tokens": (
+                self._teaching_plan_budget.max_input_tokens
+            ),
+            "max_input_chars": (
+                self._generation_budget.max_input_chars
+            ),
+            "max_output_tokens": (
+                self._teaching_plan_budget.max_output_tokens
+            ),
+            "provider_max_attempts": (
+                self._generation_budget.provider_max_attempts
+            ),
+            "call_timeout_seconds": (
+                self._teaching_plan_budget.batch_timeout_seconds
+            ),
+            "total_timeout_seconds": (
+                self._teaching_plan_budget.total_timeout_seconds
+            ),
+            "max_concurrency": 1,
+        }
 
         existing_payload = (
             course_data.get("course_teaching_plan")
@@ -1791,13 +2062,18 @@ class CourseService(AIBase):
                 "artifact_type": "course_teaching_plan",
                 "item_total": len(sections),
                 "strategy": "compact_single_call",
-                "model_call_budget": 1,
+                "model_call_budget": 2,
             },
         )
         started_at = time.monotonic()
+        user_prompt = "生成整门课所有小节教案，只输出 JSON。"
+        prompt_tokens = self.estimate_request_tokens(user_prompt, prompt)
+        total_prompt_chars = len(user_prompt) + len(prompt)
+        total_prompt_tokens = prompt_tokens
+        max_prompt_tokens = prompt_tokens
         async with self._planning_semaphore:
             response = await self._call_llm_with_heartbeat(
-                "生成整门课所有小节教案，只输出 JSON。",
+                user_prompt,
                 prompt,
                 enable_thinking=True,
                 on_phase=on_phase,
@@ -1809,6 +2085,21 @@ class CourseService(AIBase):
                     "item_total": len(sections),
                     "strategy": "compact_single_call",
                 },
+                stage_timeout_seconds=(
+                    self._teaching_plan_budget.batch_timeout_seconds
+                ),
+                max_input_tokens=(
+                    self._teaching_plan_budget.max_input_tokens
+                ),
+                max_input_chars=(
+                    self._generation_budget.max_input_chars
+                ),
+                max_output_tokens=(
+                    self._teaching_plan_budget.max_output_tokens
+                ),
+                max_attempts=(
+                    self._generation_budget.provider_max_attempts
+                ),
             )
         parsed = self._extract_json(response) if response else None
         payload = parsed if isinstance(parsed, dict) else {}
@@ -1851,9 +2142,19 @@ class CourseService(AIBase):
                     "strategy": "compact_single_call",
                 },
             )
+            correction_user = (
+                "只修复全课小节教案的结构和引用错误，输出完整 JSON。"
+            )
+            correction_tokens = self.estimate_request_tokens(
+                correction_user,
+                correction_prompt,
+            )
+            total_prompt_chars += len(correction_user) + len(correction_prompt)
+            total_prompt_tokens += correction_tokens
+            max_prompt_tokens = max(max_prompt_tokens, correction_tokens)
             async with self._planning_semaphore:
                 corrected = await self._call_llm_with_heartbeat(
-                    "只修复全课小节教案的结构和引用错误，输出完整 JSON。",
+                    correction_user,
                     correction_prompt,
                     enable_thinking=False,
                     on_phase=on_phase,
@@ -1864,6 +2165,21 @@ class CourseService(AIBase):
                         "artifact_type": "course_teaching_plan",
                         "item_total": len(sections),
                     },
+                    stage_timeout_seconds=(
+                        self._teaching_plan_budget.batch_timeout_seconds
+                    ),
+                    max_input_tokens=(
+                        self._teaching_plan_budget.max_input_tokens
+                    ),
+                    max_input_chars=(
+                        self._generation_budget.max_input_chars
+                    ),
+                    max_output_tokens=(
+                        self._teaching_plan_budget.max_output_tokens
+                    ),
+                    max_attempts=(
+                        self._generation_budget.provider_max_attempts
+                    ),
                 )
             parsed = self._extract_json(corrected) if corrected else None
             payload = parsed if isinstance(parsed, dict) else {}
@@ -1896,6 +2212,9 @@ class CourseService(AIBase):
                 "validation_report": deepcopy(report),
                 "duration_ms": duration_ms,
                 "model_call_count": model_call_count,
+                "prompt_chars": total_prompt_chars,
+                "prompt_tokens": total_prompt_tokens,
+                "max_prompt_tokens": max_prompt_tokens,
                 "strategy": "compact_single_call",
             })
             course_data["generation_status"] = (
@@ -1924,7 +2243,9 @@ class CourseService(AIBase):
             "source_outline_revision_id": outline_revision_id,
             "validation_report": deepcopy(report),
             "duration_ms": duration_ms,
-            "prompt_chars": len(prompt),
+            "prompt_chars": total_prompt_chars,
+            "prompt_tokens": total_prompt_tokens,
+            "max_prompt_tokens": max_prompt_tokens,
             "model_call_count": model_call_count,
             "strategy": "compact_single_call",
             "section_count": len(sections),
@@ -2072,33 +2393,37 @@ class CourseService(AIBase):
         stage_timeout_seconds: float | None = None,
         heartbeat_message: str = "仍在等待 AI 返回当前生成产物",
         phase_detail: dict[str, Any] | None = None,
+        max_input_tokens: int | None = None,
+        max_input_chars: int | None = None,
+        max_output_tokens: int | None = None,
+        max_attempts: int | None = None,
     ) -> str:
-        """Run `_call_llm` while periodically re-announcing the same phase with
-        an elapsed-time message, so a slow/degraded AI provider response
-        (this call alone can legally take tens of minutes across all model
-        candidates' retries — see `ai_base._call_llm`) shows up to the user as
-        "still working, Ns elapsed" instead of a progress bar frozen at a flat
-        percentage that looks identical to a hang.
-        """
+        """Run one bounded model unit and emit progress heartbeats."""
         timeout_seconds = max(
             1.0,
             float(
                 stage_timeout_seconds
                 if stage_timeout_seconds is not None
-                else os.getenv("AI_STAGE_TIMEOUT_SECONDS", "300")
+                else self._generation_budget.call_timeout_seconds
             ),
         )
         call = self._call_llm(
             user_prompt,
             system_prompt,
+            retry_count=1,
             enable_thinking=enable_thinking,
+            max_tokens=max_output_tokens,
+            max_input_tokens=max_input_tokens,
+            max_input_chars=max_input_chars,
+            max_attempts=max_attempts,
+            reject_truncated=True,
             raise_on_failure=True,
         )
         if not on_phase:
             try:
                 return await asyncio.wait_for(call, timeout=timeout_seconds)
             except asyncio.TimeoutError as exc:
-                raise AIProviderRequestError(
+                raise CourseGenerationDeadlineExceeded(
                     f"{phase} 阶段超过 {int(timeout_seconds)} 秒仍未返回，"
                     "已停止当前最小生成单元，可从最近检查点继续"
                 ) from exc
@@ -2142,7 +2467,7 @@ class CourseService(AIBase):
                     "timeout_seconds": timeout_seconds,
                 },
             )
-            raise AIProviderRequestError(
+            raise CourseGenerationDeadlineExceeded(
                 f"{phase} 阶段超过 {int(timeout_seconds)} 秒仍未返回，"
                 "已停止当前最小生成单元，可从最近检查点继续"
             ) from exc
@@ -2348,15 +2673,46 @@ class CourseService(AIBase):
         )
 
         continuation = ""
-        async for chunk in self._stream_llm(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-        ):
-            normalized = chunk.strip()
-            if normalized.startswith("[Error:") or normalized == "AI Service not configured.":
-                raise AIProviderRequestError(normalized)
-            continuation += chunk
-            await on_chunk(chunk)
+        input_tokens = self.estimate_request_tokens(
+            user_prompt,
+            system_prompt,
+        )
+        started_at = time.monotonic()
+        try:
+            async for chunk in self._stream_llm(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=self._generation_budget.content_max_output_tokens,
+                max_input_tokens=self._generation_budget.max_input_tokens,
+                max_input_chars=self._generation_budget.max_input_chars,
+                max_attempts=self._generation_budget.provider_max_attempts,
+            ):
+                normalized = chunk.strip()
+                if (
+                    normalized.startswith("[Error:")
+                    or normalized == "AI Service not configured."
+                ):
+                    raise AIProviderRequestError(normalized)
+                continuation += chunk
+                await on_chunk(chunk)
+        finally:
+            node["generation_runtime"] = {
+                "prompt_chars": len(user_prompt) + len(system_prompt),
+                "estimated_input_tokens": input_tokens,
+                "max_input_tokens": self._generation_budget.max_input_tokens,
+                "max_input_chars": self._generation_budget.max_input_chars,
+                "max_output_tokens": (
+                    self._generation_budget.content_max_output_tokens
+                ),
+                "provider_max_attempts": (
+                    self._generation_budget.provider_max_attempts
+                ),
+                "duration_ms": int(
+                    (time.monotonic() - started_at) * 1000
+                ),
+                "output_chars": len(continuation),
+                "continued_from_chars": len(existing_draft),
+            }
 
         full_content = existing_draft + continuation
         if not full_content:
@@ -2493,13 +2849,32 @@ class CourseService(AIBase):
         for item in course_data.get("nodes", []):
             if item.get("node_id") == node.get("node_id"):
                 break
-            content = str(item.get("node_content") or "").strip()
-            if item.get("node_level") == 2 and content:
-                preceding.append(f"- {item.get('node_name', '')}：{summarize_text(content, 260)}")
-        prior_context = "\n".join(preceding[-4:]) or "- 当前节点没有已完成前置正文。"
+            if int(item.get("node_level") or 1) != 2:
+                continue
+            key_points = [
+                str(point.get("name") if isinstance(point, dict) else point)
+                for point in item.get("key_points") or []
+            ]
+            responsibility = (
+                str(item.get("learning_objective") or "").strip()
+                or str(item.get("scope_boundary") or "").strip()
+                or "按已冻结教案完成本节独立教学责任"
+            )
+            suffix = (
+                f"；知识：{'、'.join(key_points[:4])}"
+                if key_points
+                else ""
+            )
+            preceding.append(
+                f"- {item.get('node_name', '')}：{responsibility}{suffix}"
+            )
+        prior_context = (
+            "\n".join(preceding[-4:])
+            or "- 当前节点之前没有已冻结的小节教学责任。"
+        )
         return "\n\n".join([
             material_context,
-            "## 已完成前置节点摘要\n" + prior_context,
+            "## 已冻结前序教学责任\n" + prior_context,
         ])
 
     def _course_profile(self, course_id: str) -> SubjectPedagogyProfile:
