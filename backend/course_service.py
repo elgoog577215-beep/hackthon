@@ -16,7 +16,7 @@ import logging
 import os
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from copy import deepcopy
 from typing import (
     Any,
@@ -50,6 +50,16 @@ from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
     parse_difficulty_level,
+)
+from course_generation_adaptive import (
+    PromptCandidate,
+    clip_text,
+    compile_fallback_node_content,
+    compile_fallback_teaching_batch,
+    compile_fallback_teaching_skeleton,
+    merge_teaching_skeleton_part,
+    prompt_detail_levels_for_source,
+    select_budgeted_prompt,
 )
 from course_generation_budget import (
     CourseGenerationBudget,
@@ -383,6 +393,7 @@ class CourseService(AIBase):
             "course_generation_v9",
             "course_generation_v10",
             "course_generation_v11",
+            "course_generation_v12",
         }
         if checkpoint_ready:
             refreshed_brief = deepcopy(existing.get("course_generation_brief") or {})
@@ -590,28 +601,65 @@ class CourseService(AIBase):
         outline_prompt_tokens = int(
             existing_outline_stage.get("max_prompt_tokens") or 0
         )
+        outline_detail_levels = list(
+            existing_outline_stage.get("prompt_detail_levels") or []
+        )
         outline_was_generated = not plan_constraint_report.get("passed")
         if not plan_constraint_report.get("passed"):
-            prompt = self._prompt_composer.build_outline_prompt(
-                subject=topic,
-                audience=audience,
-                brief=artifacts["course_generation_brief"],
-                profile=profile,
-                difficulty_profile=difficulty_profile.to_dict(),
-                gap_assessment=gap_assessment.to_dict(),
-                adaptation_decision=adaptation_decision.to_dict(),
-                material_context=build_outline_generation_context(artifacts),
-                max_sections=self._generation_budget.max_sections,
-            )
             outline_user = (
-                f"为「{topic}」生成轻量课程目录，只输出 JSON。"
+                f"为「{clip_text(topic, 160)}」生成轻量课程目录，只输出 JSON。"
             )
-            prompt_tokens = self.estimate_request_tokens(
-                outline_user,
-                prompt,
+            outline_levels = prompt_detail_levels_for_source(
+                {
+                    "topic": topic,
+                    "audience": audience,
+                    "brief": artifacts["course_generation_brief"],
+                    "material_cards": artifacts.get("material_cards") or [],
+                },
+                max_input_chars=self._generation_budget.max_input_chars,
             )
+            outline_prompts = {
+                detail_level: self._prompt_composer.build_outline_prompt(
+                    subject=topic,
+                    audience=audience,
+                    brief=artifacts["course_generation_brief"],
+                    profile=profile,
+                    difficulty_profile=difficulty_profile.to_dict(),
+                    gap_assessment=gap_assessment.to_dict(),
+                    adaptation_decision=adaptation_decision.to_dict(),
+                    material_context=build_outline_generation_context(
+                        artifacts,
+                        detail_level=detail_level,
+                    ),
+                    max_sections=self._generation_budget.max_sections,
+                    detail_level=detail_level,
+                )
+                for detail_level in outline_levels
+            }
+            selected_outline = select_budgeted_prompt(
+                (
+                    PromptCandidate(
+                        detail_level=detail_level,
+                        user_prompt=outline_user,
+                        system_prompt=outline_prompts[detail_level],
+                    )
+                    for detail_level in outline_levels
+                ),
+                max_input_chars=self._generation_budget.max_input_chars,
+                max_input_tokens=self._generation_budget.max_input_tokens,
+                token_estimator=self.estimate_request_tokens,
+            )
+            if selected_outline is None:
+                raise CourseGenerationBudgetExceeded(
+                    "课程目录的最小语义载荷仍超过预算；"
+                    "这是自适应编排器错误，不应作为普通用户结果"
+                )
+            prompt = selected_outline.system_prompt
+            outline_user = selected_outline.user_prompt
+            prompt_tokens = selected_outline.estimated_input_tokens
+            outline_detail_levels.append(selected_outline.detail_level)
             outline_model_call_count += 1
-            outline_prompt_chars += len(outline_user) + len(prompt)
+            outline_prompt_chars += selected_outline.prompt_chars
             outline_prompt_tokens = max(
                 outline_prompt_tokens,
                 prompt_tokens,
@@ -670,23 +718,48 @@ class CourseService(AIBase):
                         ],
                     },
                 )
-                correction_prompt = self._prompt_composer.build_outline_correction_prompt(
-                    original_prompt=prompt,
-                    brief=artifacts["course_generation_brief"],
-                    issues=plan_constraint_report.get("issues") or [],
-                )
                 correction_user = (
-                    f"重新生成「{topic}」轻量课程目录，"
+                    f"重新生成「{clip_text(topic, 160)}」轻量课程目录，"
                     "修复上一次的验收问题。"
                 )
-                correction_tokens = self.estimate_request_tokens(
-                    correction_user,
-                    correction_prompt,
+                selected_correction = select_budgeted_prompt(
+                    (
+                        PromptCandidate(
+                            detail_level=detail_level,
+                            user_prompt=correction_user,
+                            system_prompt=(
+                                self._prompt_composer
+                                .build_outline_correction_prompt(
+                                    original_prompt=outline_prompts[detail_level],
+                                    brief=artifacts["course_generation_brief"],
+                                    issues=(
+                                        plan_constraint_report.get("issues")
+                                        or []
+                                    ),
+                                )
+                            ),
+                        )
+                        for detail_level in outline_levels
+                    ),
+                    max_input_chars=self._generation_budget.max_input_chars,
+                    max_input_tokens=self._generation_budget.max_input_tokens,
+                    token_estimator=self.estimate_request_tokens,
+                )
+                if selected_correction is None:
+                    raise CourseGenerationBudgetExceeded(
+                        "课程目录纠正的最小语义载荷仍超过预算；"
+                        "这是自适应编排器错误，不应作为普通用户结果"
+                    )
+                correction_prompt = selected_correction.system_prompt
+                correction_user = selected_correction.user_prompt
+                correction_tokens = (
+                    selected_correction.estimated_input_tokens
+                )
+                outline_detail_levels.append(
+                    selected_correction.detail_level
                 )
                 outline_model_call_count += 1
-                outline_prompt_chars += (
-                    len(correction_user) + len(correction_prompt)
-                )
+                outline_prompt_chars += selected_correction.prompt_chars
                 outline_prompt_tokens = max(
                     outline_prompt_tokens,
                     correction_tokens,
@@ -834,6 +907,11 @@ class CourseService(AIBase):
                     "actual": deepcopy(plan_constraint_report.get("actual") or {}),
                     "prompt_chars": outline_prompt_chars,
                     "max_prompt_tokens": outline_prompt_tokens,
+                    "prompt_detail_levels": outline_detail_levels,
+                    "adaptive_compaction_count": sum(
+                        level != "full"
+                        for level in outline_detail_levels
+                    ),
                     "max_input_tokens": (
                         self._generation_budget.max_input_tokens
                     ),
@@ -923,26 +1001,52 @@ class CourseService(AIBase):
                     self._teaching_plan_budget.total_timeout_seconds
                 ),
             )
-        except asyncio.TimeoutError as exc:
+        except asyncio.TimeoutError:
             teaching_stage = course_data.setdefault(
                 "generation_stage_artifacts", {}
             ).setdefault("course_teaching_plan", {})
             teaching_stage.update({
-                "status": "failed",
+                "status": "degrading",
                 "timed_out": True,
                 "total_timeout_seconds": (
                     self._teaching_plan_budget.total_timeout_seconds
                 ),
             })
-            course_data["generation_status"] = (
-                "course_teaching_plan_failed"
-            )
+            course_data["generation_status"] = "course_teaching_plan_degrading"
             await self._notify_checkpoint(on_checkpoint, course_data)
-            raise CourseGenerationDeadlineExceeded(
-                "全课教案规划超过 "
-                f"{self._teaching_plan_budget.total_timeout_seconds} 秒，"
-                "已保留骨架和完成批次，可从最近检查点继续"
-            ) from exc
+            logger.warning(
+                "Course teaching plan timed out after %ss; compiling the "
+                "remaining plan locally",
+                self._teaching_plan_budget.total_timeout_seconds,
+                exc_info=True,
+            )
+            fallback_sections = [
+                section
+                for chapter in plan.get("chapters") or []
+                if isinstance(chapter, dict)
+                for section in chapter.get("sections") or []
+                if isinstance(section, dict)
+            ]
+            plan = await self._compile_fallback_course_teaching_plan(
+                course_data=course_data,
+                plan=plan,
+                sections=fallback_sections,
+                outline_revision_id=str(
+                    (course_data.get("course_knowledge_scope_contract") or {})
+                    .get("revision_id")
+                    or ""
+                ),
+                on_checkpoint=on_checkpoint,
+                reason="teaching_plan_total_timeout",
+                existing_skeleton=(
+                    course_data.get("course_teaching_plan_skeleton")
+                    if isinstance(
+                        course_data.get("course_teaching_plan_skeleton"),
+                        dict,
+                    )
+                    else None
+                ),
+            )
         plan = normalize_course_plan_contract(plan)
         full_plan_report = validate_course_plan_constraints(
             plan,
@@ -1171,6 +1275,7 @@ class CourseService(AIBase):
         artifacts: dict[str, Any] | None,
         on_phase: Callable[..., Awaitable[None] | None] | None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+        force_batched: bool = False,
     ) -> dict[str, Any]:
         """Build one official plan through a compact or 1-N-1 path."""
         sections: list[dict[str, Any]] = []
@@ -1292,14 +1397,20 @@ class CourseService(AIBase):
                 or ""
             ),
         )
-        planning_mode = self._teaching_plan_budget.choose_mode(
-            sections=planning_sections,
-            compact_input_tokens=estimate_json_tokens({
-                "course_title": course_title,
-                "positioning": positioning,
-                "learning_objectives": plan.get("learning_objectives") or [],
-                "planning_context": planning_context,
-            }),
+        planning_mode = (
+            "batched"
+            if force_batched
+            else self._teaching_plan_budget.choose_mode(
+                sections=planning_sections,
+                compact_input_tokens=estimate_json_tokens({
+                    "course_title": course_title,
+                    "positioning": positioning,
+                    "learning_objectives": (
+                        plan.get("learning_objectives") or []
+                    ),
+                    "planning_context": planning_context,
+                }),
+            )
         )
         if planning_mode == "compact":
             planned_course = await self._prepare_course_teaching_plan_compact(
@@ -1309,13 +1420,16 @@ class CourseService(AIBase):
                 on_phase=on_phase,
                 on_checkpoint=on_checkpoint,
             )
-            course_data["generation_stage_artifacts"]["course_teaching_plan"].update({
-                "planning_mode": "compact",
-                "strategy": "compact_single_call",
-            })
+            compact_stage = course_data["generation_stage_artifacts"][
+                "course_teaching_plan"
+            ]
+            if compact_stage.get("strategy") == "compact_single_call":
+                compact_stage["planning_mode"] = "compact"
+            else:
+                compact_stage["initial_planning_mode"] = "compact"
             return planned_course
 
-        strategy = "global_skeleton_bounded_batches"
+        strategy = "adaptive_skeleton_batches"
         started_at = time.monotonic()
         counter = {
             "calls": int(teaching_stage.get("model_call_count") or 0),
@@ -1327,6 +1441,12 @@ class CourseService(AIBase):
                 teaching_stage.get("max_prompt_tokens") or 0
             ),
         }
+        prompt_detail_levels: list[str] = list(
+            teaching_stage.get("prompt_detail_levels") or []
+        )
+        fallback_units: list[dict[str, Any]] = list(
+            teaching_stage.get("fallback_units") or []
+        )
         counter_lock = asyncio.Lock()
 
         async def request_model(
@@ -1390,6 +1510,360 @@ class CourseService(AIBase):
                         ),
                     })
 
+        async def generate_chunked_skeleton(
+        ) -> tuple[dict[str, Any], dict[str, Any], int]:
+            """Freeze large-course identities in bounded sequential shards."""
+            chunk_size = self._teaching_plan_budget.skeleton_max_sections
+            chunks = [
+                planning_sections[index:index + chunk_size]
+                for index in range(0, len(planning_sections), chunk_size)
+            ]
+            accumulated: dict[str, Any] = {
+                "schema_version": "course_teaching_plan_skeleton_v3",
+                "source_outline_revision_id": outline_revision_id,
+                "knowledge_registry": [],
+                "sections": [],
+            }
+            processed_sections: list[dict[str, Any]] = []
+            resumed_chunk_count = 0
+            checkpoint_chunk_count = int(
+                teaching_stage.get("completed_skeleton_chunk_count") or 0
+            )
+            checkpoint_skeleton = teaching_stage.get("skeleton")
+            if (
+                checkpoint_chunk_count > 0
+                and checkpoint_chunk_count < len(chunks)
+                and isinstance(checkpoint_skeleton, dict)
+                and checkpoint_skeleton.get("source_outline_revision_id")
+                == outline_revision_id
+            ):
+                checkpoint_section_count = sum(
+                    len(chunk)
+                    for chunk in chunks[:checkpoint_chunk_count]
+                )
+                checkpoint_sections = planning_sections[
+                    :checkpoint_section_count
+                ]
+                normalized_checkpoint = (
+                    normalize_teaching_plan_skeleton_v3(
+                        checkpoint_skeleton,
+                        outline_revision_id=outline_revision_id,
+                    )
+                )
+                checkpoint_ids = [
+                    str(item.get("node_id") or "")
+                    for item in normalized_checkpoint.get("sections") or []
+                ]
+                expected_ids = [
+                    str(item.get("node_id") or "")
+                    for item in checkpoint_sections
+                ]
+                checkpoint_report = validate_teaching_plan_skeleton_v3(
+                    normalized_checkpoint,
+                    sections=checkpoint_sections,
+                )
+                if (
+                    checkpoint_ids == expected_ids
+                    and checkpoint_report.get("passed")
+                ):
+                    accumulated = normalized_checkpoint
+                    processed_sections = list(checkpoint_sections)
+                    resumed_chunk_count = checkpoint_chunk_count
+            for chunk_index, chunk_sections in enumerate(chunks, start=1):
+                if chunk_index <= resumed_chunk_count:
+                    continue
+                chunk_context = build_compact_planning_context(
+                    chunk_sections,
+                    composition_style=str(
+                        (
+                            course_data.get("course_composition_profile")
+                            or {}
+                        ).get("style")
+                        or ""
+                    ),
+                )
+                prior_registry = list(
+                    accumulated.get("knowledge_registry") or []
+                )
+                chunk_context["new_knowledge_key_start"] = (
+                    len(prior_registry) + 1
+                )
+                if prior_registry:
+                    direct_prerequisite_nodes = {
+                        str(node_id)
+                        for item in chunk_sections
+                        for node_id in (
+                            item.get("prerequisite_node_ids") or []
+                        )
+                    }
+                    direct = [
+                        item
+                        for item in prior_registry
+                        if str(item.get("owner_node_id") or "")
+                        in direct_prerequisite_nodes
+                    ]
+                    recent = prior_registry[-32:]
+                    prior_by_key = {
+                        str(item.get("knowledge_key") or ""): item
+                        for item in [*direct, *recent]
+                    }
+                    chunk_context["prior_knowledge_registry"] = list(
+                        prior_by_key.values()
+                    )
+                chunk_levels = prompt_detail_levels_for_source(
+                    {
+                        "course_title": course_title,
+                        "positioning": positioning,
+                        "learning_objectives": (
+                            plan.get("learning_objectives") or []
+                        ),
+                        "planning_context": chunk_context,
+                    },
+                    max_input_chars=(
+                        self._generation_budget.max_input_chars
+                    ),
+                )
+                prompts = {
+                    detail_level: (
+                        self._prompt_composer
+                        .build_teaching_plan_skeleton_v3_prompt(
+                            course_title=course_title,
+                            positioning=positioning,
+                            learning_objectives=list(
+                                plan.get("learning_objectives") or []
+                            ),
+                            planning_context=chunk_context,
+                            detail_level=detail_level,
+                        )
+                    )
+                    for detail_level in chunk_levels
+                }
+                user_prompt = (
+                    "规划全课知识职责骨架 V3 分片 "
+                    f"{chunk_index}/{len(chunks)}，只输出 JSON。"
+                )
+                selected = select_budgeted_prompt(
+                    (
+                        PromptCandidate(
+                            detail_level=detail_level,
+                            user_prompt=user_prompt,
+                            system_prompt=prompts[detail_level],
+                        )
+                        for detail_level in chunk_levels
+                    ),
+                    max_input_chars=self._generation_budget.max_input_chars,
+                    max_input_tokens=self._teaching_plan_budget.max_input_tokens,
+                    token_estimator=self.estimate_request_tokens,
+                )
+                failure_reason = ""
+                part: dict[str, Any] = {}
+                if selected is not None:
+                    prompt_detail_levels.append(selected.detail_level)
+                    await self._notify_phase(
+                        on_phase,
+                        "course_teaching_plan_skeleton",
+                        35 + int(3 * (chunk_index - 1) / max(1, len(chunks))),
+                        (
+                            "正在冻结全课知识职责分片 "
+                            f"{chunk_index}/{len(chunks)}"
+                        ),
+                        phase_progress=int(
+                            100 * (chunk_index - 1) / max(1, len(chunks))
+                        ),
+                        phase_detail={
+                            "artifact_type": "course_teaching_plan_skeleton",
+                            "chunk_index": chunk_index,
+                            "chunk_count": len(chunks),
+                            "completed_sections": len(processed_sections),
+                            "total_sections": len(planning_sections),
+                        },
+                    )
+                    try:
+                        response = await request_model(
+                            user_prompt=selected.user_prompt,
+                            system_prompt=selected.system_prompt,
+                            enable_thinking=False,
+                            phase="course_teaching_plan_skeleton",
+                            progress=35,
+                            heartbeat_message=(
+                                "仍在等待 AI 冻结知识职责分片 "
+                                f"{chunk_index}/{len(chunks)}"
+                            ),
+                            phase_detail={
+                                "artifact_type": (
+                                    "course_teaching_plan_skeleton"
+                                ),
+                                "chunk_index": chunk_index,
+                                "chunk_count": len(chunks),
+                            },
+                        )
+                    except (
+                        AIProviderRequestError,
+                        CourseGenerationDeadlineExceeded,
+                    ) as exc:
+                        response = ""
+                        failure_reason = (
+                            f"provider_error:{type(exc).__name__}"
+                        )
+                    parsed = self._extract_json(response) if response else None
+                    part = normalize_teaching_plan_skeleton_v3(
+                        parsed if isinstance(parsed, dict) else {},
+                        outline_revision_id=outline_revision_id,
+                    )
+                else:
+                    failure_reason = "chunk_prompt_did_not_fit"
+
+                candidate = merge_teaching_skeleton_part(
+                    accumulated,
+                    part,
+                    outline_revision_id=outline_revision_id,
+                )
+                candidate_sections = [*processed_sections, *chunk_sections]
+                candidate_report = validate_teaching_plan_skeleton_v3(
+                    candidate,
+                    sections=candidate_sections,
+                )
+                if (
+                    not candidate_report.get("passed")
+                    and not failure_reason
+                ):
+                    correction_user = (
+                        "只修复知识职责骨架分片 "
+                        f"{chunk_index}/{len(chunks)}，输出完整 JSON。"
+                    )
+                    correction = select_budgeted_prompt(
+                        (
+                            PromptCandidate(
+                                detail_level=detail_level,
+                                user_prompt=correction_user,
+                                system_prompt=(
+                                    self._prompt_composer
+                                    .build_teaching_plan_skeleton_v3_correction_prompt(
+                                        original_prompt=prompts[detail_level],
+                                        issues=(
+                                            candidate_report.get(
+                                                "blocking_issues"
+                                            )
+                                            or []
+                                        ),
+                                    )
+                                ),
+                            )
+                            for detail_level in chunk_levels
+                        ),
+                        max_input_chars=(
+                            self._generation_budget.max_input_chars
+                        ),
+                        max_input_tokens=(
+                            self._teaching_plan_budget.max_input_tokens
+                        ),
+                        token_estimator=self.estimate_request_tokens,
+                    )
+                    if correction is not None:
+                        prompt_detail_levels.append(
+                            correction.detail_level
+                        )
+                        try:
+                            corrected = await request_model(
+                                user_prompt=correction.user_prompt,
+                                system_prompt=correction.system_prompt,
+                                enable_thinking=False,
+                                phase=(
+                                    "course_teaching_plan_skeleton_validation"
+                                ),
+                                progress=38,
+                                heartbeat_message=(
+                                    "仍在等待 AI 修复知识职责分片 "
+                                    f"{chunk_index}/{len(chunks)}"
+                                ),
+                                phase_detail={
+                                    "artifact_type": (
+                                        "course_teaching_plan_skeleton"
+                                    ),
+                                    "chunk_index": chunk_index,
+                                    "chunk_count": len(chunks),
+                                },
+                            )
+                        except (
+                            AIProviderRequestError,
+                            CourseGenerationDeadlineExceeded,
+                        ) as exc:
+                            corrected = ""
+                            failure_reason = (
+                                "correction_provider_error:"
+                                f"{type(exc).__name__}"
+                            )
+                        parsed = (
+                            self._extract_json(corrected)
+                            if corrected else None
+                        )
+                        part = normalize_teaching_plan_skeleton_v3(
+                            parsed if isinstance(parsed, dict) else {},
+                            outline_revision_id=outline_revision_id,
+                        )
+                        candidate = merge_teaching_skeleton_part(
+                            accumulated,
+                            part,
+                            outline_revision_id=outline_revision_id,
+                        )
+                        candidate_report = validate_teaching_plan_skeleton_v3(
+                            candidate,
+                            sections=candidate_sections,
+                        )
+                    else:
+                        failure_reason = "chunk_correction_did_not_fit"
+
+                if not candidate_report.get("passed"):
+                    accumulated = compile_fallback_teaching_skeleton(
+                        chunk_sections,
+                        outline_revision_id=outline_revision_id,
+                        prior_skeleton=accumulated,
+                    )
+                    fallback_units.append({
+                        "unit": f"skeleton_chunk_{chunk_index}",
+                        "reason": (
+                            failure_reason
+                            or "model_output_failed_validation"
+                        ),
+                        "section_ids": [
+                            str(item.get("node_id") or "")
+                            for item in chunk_sections
+                        ],
+                    })
+                else:
+                    accumulated = candidate
+                processed_sections.extend(chunk_sections)
+                current_report = validate_teaching_plan_skeleton_v3(
+                    accumulated,
+                    sections=processed_sections,
+                )
+                if not current_report.get("passed"):
+                    raise AIProviderRequestError(
+                        "本地知识骨架分片汇编失败；这是生成编排器错误"
+                    )
+                course_data["course_teaching_plan_skeleton"] = deepcopy(
+                    accumulated
+                )
+                teaching_stage.update({
+                    "status": "in_progress",
+                    "skeleton": deepcopy(accumulated),
+                    "skeleton_revision_id": accumulated.get("revision_id"),
+                    "skeleton_chunk_count": len(chunks),
+                    "completed_skeleton_chunk_count": chunk_index,
+                    "completed_skeleton_section_count": len(
+                        processed_sections
+                    ),
+                    "resumed_skeleton_chunk_count": resumed_chunk_count,
+                    "prompt_detail_levels": list(prompt_detail_levels),
+                    "fallback_units": deepcopy(fallback_units),
+                })
+                await self._notify_checkpoint(on_checkpoint, course_data)
+            final_report = validate_teaching_plan_skeleton_v3(
+                accumulated,
+                sections=planning_sections,
+            )
+            return accumulated, final_report, len(chunks)
+
         raw_skeleton = teaching_stage.get("skeleton")
         skeleton = normalize_teaching_plan_skeleton_v3(
             raw_skeleton if isinstance(raw_skeleton, dict) else {},
@@ -1405,111 +1879,170 @@ class CourseService(AIBase):
             and skeleton_report.get("passed")
         )
         if not skeleton_is_current:
-            skeleton_prompt = self._prompt_composer.build_teaching_plan_skeleton_v3_prompt(
-                course_title=course_title,
-                positioning=positioning,
-                learning_objectives=list(plan.get("learning_objectives") or []),
-                planning_context=planning_context,
-            )
-            await self._notify_phase(
-                on_phase,
-                "course_teaching_plan_skeleton",
-                35,
-                f"正在冻结全课知识职责（0/{len(sections)} 节）",
-                phase_progress=0,
-                phase_detail={
-                    "artifact_type": "course_teaching_plan_skeleton",
-                    "completed_sections": 0,
-                    "total_sections": len(sections),
-                    "strategy": strategy,
-                },
-            )
-            response = await request_model(
-                user_prompt="规划全课知识职责骨架 V3，只输出 JSON。",
-                system_prompt=skeleton_prompt,
-                enable_thinking=True,
-                phase="course_teaching_plan_skeleton",
-                progress=35,
-                heartbeat_message="仍在等待 AI 冻结全课知识职责",
-                phase_detail={
-                    "artifact_type": "course_teaching_plan_skeleton",
-                    "total_sections": len(sections),
-                },
-            )
-            parsed = self._extract_json(response) if response else None
-            skeleton = normalize_teaching_plan_skeleton_v3(
-                parsed if isinstance(parsed, dict) else {},
-                outline_revision_id=outline_revision_id,
-            )
-            skeleton_report = validate_teaching_plan_skeleton_v3(
+            (
                 skeleton,
-                sections=planning_sections,
+                skeleton_report,
+                skeleton_chunk_count,
+            ) = await generate_chunked_skeleton()
+            skeleton_is_current = bool(skeleton_report.get("passed"))
+            teaching_stage.update({
+                "skeleton_chunk_count": skeleton_chunk_count,
+                "completed_skeleton_chunk_count": (
+                    skeleton_chunk_count if skeleton_is_current else 0
+                ),
+                "skeleton_strategy": "bounded_sequential_chunks",
+            })
+        if not skeleton_is_current:
+            raise AIProviderRequestError(
+                "有界知识职责骨架汇编失败；这是生成编排器错误"
             )
-            if not skeleton_report.get("passed"):
-                correction_prompt = self._prompt_composer.build_teaching_plan_skeleton_v3_correction_prompt(
-                    original_prompt=skeleton_prompt,
-                    issues=skeleton_report.get("blocking_issues") or [],
-                )
-                await self._notify_phase(
-                    on_phase,
-                    "course_teaching_plan_skeleton_validation",
-                    38,
-                    "正在请求 AI 修复全课知识职责骨架",
-                    phase_progress=0,
-                    phase_detail={
-                        "artifact_type": "course_teaching_plan_skeleton",
-                        "total_sections": len(sections),
-                        "strategy": strategy,
-                    },
-                )
-                corrected = await request_model(
-                    user_prompt="只修复全课知识职责骨架 V3，输出完整 JSON。",
-                    system_prompt=correction_prompt,
-                    enable_thinking=False,
-                    phase="course_teaching_plan_skeleton_validation",
-                    progress=38,
-                    heartbeat_message="仍在等待 AI 修复知识职责骨架",
-                    phase_detail={
-                        "artifact_type": "course_teaching_plan_skeleton",
-                        "total_sections": len(sections),
-                    },
-                )
-                parsed = self._extract_json(corrected) if corrected else None
-                skeleton = normalize_teaching_plan_skeleton_v3(
-                    parsed if isinstance(parsed, dict) else {},
-                    outline_revision_id=outline_revision_id,
-                )
-                skeleton_report = validate_teaching_plan_skeleton_v3(
-                    skeleton,
-                    sections=planning_sections,
-                )
-            if not skeleton_report.get("passed"):
-                teaching_stage.update({
-                    "status": "failed",
-                    "schema_version": "course_teaching_plan_v3",
-                    "source_outline_revision_id": outline_revision_id,
-                    "planning_mode": planning_mode,
-                    "strategy": strategy,
-                    "skeleton_validation_report": deepcopy(skeleton_report),
-                    "model_call_count": counter["calls"],
-                    "prompt_chars": counter["prompt_chars"],
-                })
-                course_data["generation_status"] = "course_teaching_plan_failed"
-                await self._notify_checkpoint(on_checkpoint, course_data)
-                messages = "；".join(
-                    str(item.get("message") or "未知骨架错误")
-                    for item in skeleton_report.get("blocking_issues") or []
-                )
-                raise AIProviderRequestError(
-                    f"全课知识职责骨架未通过结构验收：{messages}"
-                )
 
         course_data["course_teaching_plan_skeleton"] = skeleton
-        batch_specs = build_teaching_plan_batches(
+        compact_by_id = {
+            str(item.get("node_id") or ""): item
+            for item in planning_context.get("sections") or []
+            if isinstance(item, dict)
+        }
+        identity_by_id = {
+            str(item.get("node_id") or ""): item
+            for item in skeleton.get("sections") or []
+            if isinstance(item, dict)
+        }
+        module_catalog = list(
+            planning_context.get("module_catalog") or []
+        )
+
+        def build_batch_prompt_options(
+            spec: dict[str, Any],
+        ) -> tuple[Any, dict[str, str]]:
+            batch_id = str(spec.get("batch_id") or "")
+            section_ids = list(spec.get("section_ids") or [])
+            user_prompt = (
+                f"生成详细小节教案批次 {batch_id}，只输出 JSON。"
+            )
+            batch_levels = prompt_detail_levels_for_source(
+                {
+                    "course_title": course_title,
+                    "positioning": positioning,
+                    "batch_spec": spec,
+                    "batch_sections": [
+                        compact_by_id[item] for item in section_ids
+                    ],
+                    "knowledge_registry": select_batch_knowledge_registry(
+                        skeleton,
+                        section_ids,
+                    ),
+                    "section_identities": [
+                        identity_by_id[item] for item in section_ids
+                    ],
+                    "module_catalog": module_catalog,
+                },
+                max_input_chars=self._generation_budget.max_input_chars,
+            )
+            prompts = {
+                detail_level: (
+                    self._prompt_composer
+                    .build_teaching_plan_batch_v3_prompt(
+                        course_title=course_title,
+                        positioning=positioning,
+                        batch_spec=spec,
+                        batch_sections=[
+                            compact_by_id[item]
+                            for item in section_ids
+                        ],
+                        knowledge_registry=(
+                            select_batch_knowledge_registry(
+                                skeleton,
+                                section_ids,
+                            )
+                        ),
+                        section_identities=[
+                            identity_by_id[item]
+                            for item in section_ids
+                        ],
+                        module_catalog=module_catalog,
+                        skeleton_revision_id=str(
+                            skeleton.get("revision_id") or ""
+                        ),
+                        detail_level=detail_level,
+                    )
+                )
+                for detail_level in batch_levels
+            }
+            selected = select_budgeted_prompt(
+                (
+                    PromptCandidate(
+                        detail_level=detail_level,
+                        user_prompt=user_prompt,
+                        system_prompt=prompts[detail_level],
+                    )
+                    for detail_level in batch_levels
+                ),
+                max_input_chars=self._generation_budget.max_input_chars,
+                max_input_tokens=self._teaching_plan_budget.max_input_tokens,
+                token_estimator=self.estimate_request_tokens,
+            )
+            return selected, prompts
+
+        initial_batch_specs = build_teaching_plan_batches(
             list(planning_context.get("sections") or []),
             skeleton,
             self._teaching_plan_budget,
         )
+        adaptive_specs: list[dict[str, Any]] = []
+
+        def add_fitted_spec(spec: dict[str, Any]) -> None:
+            section_ids = list(spec.get("section_ids") or [])
+            selected, _prompts = build_batch_prompt_options(spec)
+            if selected is None and len(section_ids) > 1:
+                midpoint = max(1, len(section_ids) // 2)
+                for split_ids in (
+                    section_ids[:midpoint],
+                    section_ids[midpoint:],
+                ):
+                    identities = [identity_by_id[item] for item in split_ids]
+                    knowledge_count = sum(
+                        len(item.get("owned_knowledge_keys") or [])
+                        for item in identities
+                    )
+                    add_fitted_spec({
+                        "batch_id": str(spec.get("batch_id") or ""),
+                        "section_ids": split_ids,
+                        "knowledge_count": knowledge_count,
+                        "estimated_input_tokens": estimate_json_tokens({
+                            "sections": [
+                                compact_by_id[item]
+                                for item in split_ids
+                            ],
+                            "section_identities": identities,
+                            "knowledge_registry": (
+                                select_batch_knowledge_registry(
+                                    skeleton,
+                                    split_ids,
+                                )
+                            ),
+                        }) + 1400,
+                        "estimated_output_tokens": (
+                            len(split_ids) * 400
+                            + knowledge_count * 650
+                        ),
+                        "split_from_final_payload": True,
+                    })
+                return
+            fitted = deepcopy(spec)
+            fitted["preflight_detail_level"] = (
+                selected.detail_level if selected is not None else "local"
+            )
+            fitted["force_local_fallback"] = selected is None
+            adaptive_specs.append(fitted)
+
+        for initial_spec in initial_batch_specs:
+            add_fitted_spec(initial_spec)
+        batch_specs = []
+        for index, spec in enumerate(adaptive_specs, start=1):
+            normalized_spec = deepcopy(spec)
+            normalized_spec["batch_id"] = f"TP-B{index:02d}"
+            batch_specs.append(normalized_spec)
         stored_batches = teaching_stage.setdefault("batches", {})
         if not isinstance(stored_batches, dict):
             stored_batches = {}
@@ -1562,6 +2095,15 @@ class CourseService(AIBase):
             "max_concurrency": self._teaching_plan_budget.concurrency,
             "model_call_count": counter["calls"],
             "prompt_chars": counter["prompt_chars"],
+            "prompt_detail_levels": list(prompt_detail_levels),
+            "adaptive_compaction_count": sum(
+                level != "full" for level in prompt_detail_levels
+            ),
+            "fallback_units": deepcopy(fallback_units),
+            "final_payload_split_count": sum(
+                bool(spec.get("split_from_final_payload"))
+                for spec in batch_specs
+            ),
         })
         await self._notify_checkpoint(on_checkpoint, course_data)
         batch_progress_detail: dict[str, Any] = {
@@ -1576,27 +2118,8 @@ class CourseService(AIBase):
         async def generate_batch(spec: dict[str, Any]) -> dict[str, Any]:
             batch_id = str(spec.get("batch_id") or "")
             section_ids = list(spec.get("section_ids") or [])
-            compact_by_id = {
-                str(item.get("node_id") or ""): item
-                for item in planning_context.get("sections") or []
-            }
-            identity_by_id = {
-                str(item.get("node_id") or ""): item
-                for item in skeleton.get("sections") or []
-                if isinstance(item, dict)
-            }
-            batch_prompt = self._prompt_composer.build_teaching_plan_batch_v3_prompt(
-                course_title=course_title,
-                positioning=positioning,
-                batch_spec=spec,
-                batch_sections=[compact_by_id[item] for item in section_ids],
-                knowledge_registry=select_batch_knowledge_registry(
-                    skeleton,
-                    section_ids,
-                ),
-                section_identities=[identity_by_id[item] for item in section_ids],
-                module_catalog=list(planning_context.get("module_catalog") or []),
-                skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+            selected_batch_prompt, batch_prompts = (
+                build_batch_prompt_options(spec)
             )
             previous = stored_batches.get(batch_id)
             attempt_count = int(
@@ -1606,70 +2129,62 @@ class CourseService(AIBase):
             try:
                 async with state_lock:
                     completed_before = len(results)
-                await self._notify_phase(
-                    on_phase,
-                    "course_teaching_plan_batch",
-                    39 + int(7 * completed_before / max(1, len(batch_specs))),
-                    f"正在生成第 {int(batch_id[-2:])} 批详细教案（已完成 {completed_before}/{len(batch_specs)} 批）",
-                    phase_progress=int(100 * completed_before / max(1, len(batch_specs))),
-                    phase_detail={
-                        "artifact_type": "course_teaching_plan_batch",
-                        "batch_id": batch_id,
-                        "completed_batches": completed_before,
-                        "total_batches": len(batch_specs),
-                        "completed_sections": teaching_stage.get("completed_section_count", 0),
-                        "total_sections": len(sections),
-                    },
-                )
-                attempt_count += 1
-                response = await request_model(
-                    user_prompt=f"生成详细小节教案批次 {batch_id}，只输出 JSON。",
-                    system_prompt=batch_prompt,
-                    enable_thinking=False,
-                    phase="course_teaching_plan_batch",
-                    progress=40,
-                    heartbeat_message=f"仍在等待 AI 完成教案批次 {batch_id}",
-                    phase_detail=batch_progress_detail,
-                )
-                parsed = self._extract_json(response) if response else None
-                batch = normalize_teaching_plan_batch_v3(
-                    parsed if isinstance(parsed, dict) else {},
-                    batch_id=batch_id,
-                    skeleton_revision_id=str(skeleton.get("revision_id") or ""),
-                )
-                batch_report = validate_teaching_plan_batch_v3(
-                    batch,
-                    batch_spec=spec,
-                    skeleton=skeleton,
-                    sections=planning_sections,
-                )
-                if not batch_report.get("passed"):
-                    correction_prompt = self._prompt_composer.build_teaching_plan_batch_v3_correction_prompt(
-                        original_prompt=batch_prompt,
-                        issues=batch_report.get("blocking_issues") or [],
+                fallback_reason = ""
+                generation_source = "model"
+                batch: dict[str, Any] = {}
+                batch_report: dict[str, Any] = {"passed": False}
+                if (
+                    selected_batch_prompt is None
+                    or spec.get("force_local_fallback")
+                ):
+                    fallback_reason = "final_prompt_did_not_fit"
+                else:
+                    prompt_detail_levels.append(
+                        selected_batch_prompt.detail_level
                     )
-                    attempt_count += 1
                     await self._notify_phase(
                         on_phase,
-                        "course_teaching_plan_batch_validation",
-                        44,
-                        f"正在请求 AI 修复教案批次 {batch_id}",
-                        phase_progress=0,
+                        "course_teaching_plan_batch",
+                        39 + int(
+                            7 * completed_before / max(1, len(batch_specs))
+                        ),
+                        f"正在生成第 {int(batch_id[-2:])} 批详细教案（已完成 {completed_before}/{len(batch_specs)} 批）",
+                        phase_progress=int(
+                            100 * completed_before / max(1, len(batch_specs))
+                        ),
                         phase_detail={
-                            **batch_progress_detail,
+                            "artifact_type": "course_teaching_plan_batch",
                             "batch_id": batch_id,
+                            "completed_batches": completed_before,
+                            "total_batches": len(batch_specs),
+                            "completed_sections": teaching_stage.get(
+                                "completed_section_count", 0
+                            ),
+                            "total_sections": len(sections),
                         },
                     )
-                    corrected = await request_model(
-                        user_prompt=f"只修复详细教案批次 {batch_id}，输出完整 JSON。",
-                        system_prompt=correction_prompt,
-                        enable_thinking=False,
-                        phase="course_teaching_plan_batch_validation",
-                        progress=44,
-                        heartbeat_message=f"仍在等待 AI 修复教案批次 {batch_id}",
-                        phase_detail=batch_progress_detail,
-                    )
-                    parsed = self._extract_json(corrected) if corrected else None
+                    attempt_count += 1
+                    try:
+                        response = await request_model(
+                            user_prompt=selected_batch_prompt.user_prompt,
+                            system_prompt=selected_batch_prompt.system_prompt,
+                            enable_thinking=False,
+                            phase="course_teaching_plan_batch",
+                            progress=40,
+                            heartbeat_message=(
+                                f"仍在等待 AI 完成教案批次 {batch_id}"
+                            ),
+                            phase_detail=batch_progress_detail,
+                        )
+                    except (
+                        AIProviderRequestError,
+                        CourseGenerationDeadlineExceeded,
+                    ) as exc:
+                        response = ""
+                        fallback_reason = (
+                            f"provider_error:{type(exc).__name__}"
+                        )
+                    parsed = self._extract_json(response) if response else None
                     batch = normalize_teaching_plan_batch_v3(
                         parsed if isinstance(parsed, dict) else {},
                         batch_id=batch_id,
@@ -1681,15 +2196,136 @@ class CourseService(AIBase):
                         skeleton=skeleton,
                         sections=planning_sections,
                     )
+                    if (
+                        not batch_report.get("passed")
+                        and not fallback_reason
+                    ):
+                        correction_user = (
+                            f"只修复详细教案批次 {batch_id}，输出完整 JSON。"
+                        )
+                        selected_correction = select_budgeted_prompt(
+                            (
+                                PromptCandidate(
+                                    detail_level=detail_level,
+                                    user_prompt=correction_user,
+                                    system_prompt=(
+                                        self._prompt_composer
+                                        .build_teaching_plan_batch_v3_correction_prompt(
+                                            original_prompt=batch_prompts[
+                                                detail_level
+                                            ],
+                                            issues=(
+                                                batch_report.get(
+                                                    "blocking_issues"
+                                                )
+                                                or []
+                                            ),
+                                        )
+                                    ),
+                                )
+                                for detail_level in batch_prompts
+                            ),
+                            max_input_chars=(
+                                self._generation_budget.max_input_chars
+                            ),
+                            max_input_tokens=(
+                                self._teaching_plan_budget.max_input_tokens
+                            ),
+                            token_estimator=self.estimate_request_tokens,
+                        )
+                        if selected_correction is None:
+                            fallback_reason = (
+                                "correction_prompt_did_not_fit"
+                            )
+                        else:
+                            prompt_detail_levels.append(
+                                selected_correction.detail_level
+                            )
+                            attempt_count += 1
+                            await self._notify_phase(
+                                on_phase,
+                                "course_teaching_plan_batch_validation",
+                                44,
+                                f"正在请求 AI 修复教案批次 {batch_id}",
+                                phase_progress=0,
+                                phase_detail={
+                                    **batch_progress_detail,
+                                    "batch_id": batch_id,
+                                },
+                            )
+                            try:
+                                corrected = await request_model(
+                                    user_prompt=(
+                                        selected_correction.user_prompt
+                                    ),
+                                    system_prompt=(
+                                        selected_correction.system_prompt
+                                    ),
+                                    enable_thinking=False,
+                                    phase=(
+                                        "course_teaching_plan_batch_validation"
+                                    ),
+                                    progress=44,
+                                    heartbeat_message=(
+                                        "仍在等待 AI 修复教案批次 "
+                                        f"{batch_id}"
+                                    ),
+                                    phase_detail=batch_progress_detail,
+                                )
+                            except (
+                                AIProviderRequestError,
+                                CourseGenerationDeadlineExceeded,
+                            ) as exc:
+                                corrected = ""
+                                fallback_reason = (
+                                    "correction_provider_error:"
+                                    f"{type(exc).__name__}"
+                                )
+                            parsed = (
+                                self._extract_json(corrected)
+                                if corrected else None
+                            )
+                            batch = normalize_teaching_plan_batch_v3(
+                                parsed if isinstance(parsed, dict) else {},
+                                batch_id=batch_id,
+                                skeleton_revision_id=str(
+                                    skeleton.get("revision_id") or ""
+                                ),
+                            )
+                            batch_report = validate_teaching_plan_batch_v3(
+                                batch,
+                                batch_spec=spec,
+                                skeleton=skeleton,
+                                sections=planning_sections,
+                            )
                 if not batch_report.get("passed"):
-                    messages = "；".join(
-                        str(item.get("message") or "未知批次错误")
-                        for item in batch_report.get("blocking_issues") or []
+                    generation_source = "deterministic_local_fallback"
+                    fallback_reason = (
+                        fallback_reason or "model_output_failed_validation"
                     )
-                    raise AIProviderRequestError(
-                        f"教案批次 {batch_id} 未通过结构验收：{messages}"
+                    batch = compile_fallback_teaching_batch(
+                        batch_spec=spec,
+                        skeleton=skeleton,
+                        sections=planning_sections,
                     )
+                    batch_report = validate_teaching_plan_batch_v3(
+                        batch,
+                        batch_spec=spec,
+                        skeleton=skeleton,
+                        sections=planning_sections,
+                    )
+                    if not batch_report.get("passed"):
+                        raise AIProviderRequestError(
+                            f"本地教案批次 {batch_id} 编译失败；"
+                            "这是生成编排器错误"
+                        )
                 async with state_lock:
+                    if generation_source != "model":
+                        fallback_units.append({
+                            "unit": batch_id,
+                            "reason": fallback_reason,
+                            "section_ids": list(section_ids),
+                        })
                     results[batch_id] = batch
                     stored_batches[batch_id] = {
                         "status": "completed",
@@ -1699,6 +2335,13 @@ class CourseService(AIBase):
                         "attempt_count": attempt_count,
                         "validation_report": deepcopy(batch_report),
                         "payload": deepcopy(batch),
+                        "generation_source": generation_source,
+                        "fallback_reason": fallback_reason or None,
+                        "prompt_detail_level": (
+                            selected_batch_prompt.detail_level
+                            if selected_batch_prompt is not None
+                            else "local"
+                        ),
                     }
                     teaching_stage["completed_batch_count"] = len(results)
                     teaching_stage["completed_section_count"] = sum(
@@ -1708,6 +2351,12 @@ class CourseService(AIBase):
                     )
                     teaching_stage["model_call_count"] = counter["calls"]
                     teaching_stage["prompt_chars"] = counter["prompt_chars"]
+                    teaching_stage["prompt_detail_levels"] = list(
+                        prompt_detail_levels
+                    )
+                    teaching_stage["fallback_units"] = deepcopy(
+                        fallback_units
+                    )
                     batch_progress_detail.update({
                         "completed_batches": teaching_stage["completed_batch_count"],
                         "completed_sections": teaching_stage["completed_section_count"],
@@ -1833,6 +2482,16 @@ class CourseService(AIBase):
             "prompt_chars": counter["prompt_chars"],
             "prompt_tokens": counter["prompt_tokens"],
             "max_prompt_tokens": counter["max_prompt_tokens"],
+            "prompt_detail_levels": list(prompt_detail_levels),
+            "adaptive_compaction_count": sum(
+                level != "full" for level in prompt_detail_levels
+            ),
+            "fallback_units": deepcopy(fallback_units),
+            "degraded": bool(fallback_units),
+            "final_payload_split_count": sum(
+                bool(spec.get("split_from_final_payload"))
+                for spec in batch_specs
+            ),
             "planning_mode": planning_mode,
             "strategy": strategy,
             "section_count": len(sections),
@@ -1893,6 +2552,235 @@ class CourseService(AIBase):
                 "graph_compilation_model_call_count": 0,
             },
         )
+        return planned_course
+
+    async def _compile_fallback_course_teaching_plan(
+        self,
+        *,
+        course_data: dict[str, Any],
+        plan: dict[str, Any],
+        sections: list[dict[str, Any]],
+        outline_revision_id: str,
+        on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+        reason: str,
+        existing_skeleton: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Complete missing units locally without replacing valid checkpoints."""
+        teaching_stage = course_data.setdefault(
+            "generation_stage_artifacts", {}
+        ).setdefault("course_teaching_plan", {})
+        section_by_id = {
+            str(item.get("node_id") or ""): item
+            for item in sections
+            if isinstance(item, dict)
+        }
+        preserved_skeleton_sections: list[dict[str, Any]] = []
+        skeleton: dict[str, Any]
+        if isinstance(existing_skeleton, dict):
+            normalized_existing = normalize_teaching_plan_skeleton_v3(
+                existing_skeleton,
+                outline_revision_id=outline_revision_id,
+            )
+            existing_ids = [
+                str(item.get("node_id") or "")
+                for item in normalized_existing.get("sections") or []
+                if str(item.get("node_id") or "") in section_by_id
+            ]
+            preserved_skeleton_sections = [
+                section_by_id[node_id] for node_id in existing_ids
+            ]
+            partial_report = validate_teaching_plan_skeleton_v3(
+                normalized_existing,
+                sections=preserved_skeleton_sections,
+            )
+            if not partial_report.get("passed"):
+                preserved_skeleton_sections = []
+                normalized_existing = {}
+        else:
+            normalized_existing = {}
+        if preserved_skeleton_sections:
+            preserved_ids = {
+                str(item.get("node_id") or "")
+                for item in preserved_skeleton_sections
+            }
+            missing_sections = [
+                item
+                for item in sections
+                if str(item.get("node_id") or "") not in preserved_ids
+            ]
+            skeleton = compile_fallback_teaching_skeleton(
+                missing_sections,
+                outline_revision_id=outline_revision_id,
+                prior_skeleton=normalized_existing,
+            )
+        else:
+            skeleton = compile_fallback_teaching_skeleton(
+                sections,
+                outline_revision_id=outline_revision_id,
+            )
+        skeleton_report = validate_teaching_plan_skeleton_v3(
+            skeleton,
+            sections=sections,
+        )
+        if not skeleton_report.get("passed"):
+            raise AIProviderRequestError(
+                "本地教案骨架编译失败；这是生成编排器错误"
+            )
+        batch_specs = build_teaching_plan_batches(
+            sections,
+            skeleton,
+            self._teaching_plan_budget,
+        )
+        stored_batches = (
+            teaching_stage.get("batches")
+            if isinstance(teaching_stage.get("batches"), dict)
+            else {}
+        )
+        fallback_units: list[dict[str, Any]] = list(
+            teaching_stage.get("fallback_units") or []
+        )
+        batches: list[dict[str, Any]] = []
+        preserved_batch_count = 0
+        finalized_batches: dict[str, dict[str, Any]] = {}
+        for spec in batch_specs:
+            batch_id = str(spec.get("batch_id") or "")
+            stored = (
+                stored_batches.get(batch_id)
+                if isinstance(stored_batches, dict)
+                else None
+            )
+            stored_payload = (
+                stored.get("payload")
+                if isinstance(stored, dict)
+                and stored.get("status") == "completed"
+                and list(stored.get("section_ids") or [])
+                == list(spec.get("section_ids") or [])
+                else {}
+            )
+            batch = normalize_teaching_plan_batch_v3(
+                stored_payload if isinstance(stored_payload, dict) else {},
+                batch_id=batch_id,
+                skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+            )
+            batch_report = validate_teaching_plan_batch_v3(
+                batch,
+                batch_spec=spec,
+                skeleton=skeleton,
+                sections=sections,
+            )
+            generation_source = str(
+                (stored or {}).get("generation_source") or "model"
+            )
+            if batch_report.get("passed"):
+                preserved_batch_count += 1
+            else:
+                generation_source = "deterministic_local_fallback"
+                batch = compile_fallback_teaching_batch(
+                    batch_spec=spec,
+                    skeleton=skeleton,
+                    sections=sections,
+                )
+                batch_report = validate_teaching_plan_batch_v3(
+                    batch,
+                    batch_spec=spec,
+                    skeleton=skeleton,
+                    sections=sections,
+                )
+                fallback_units.append({
+                    "unit": batch_id,
+                    "reason": reason,
+                    "section_ids": list(spec.get("section_ids") or []),
+                })
+            if not batch_report.get("passed"):
+                raise AIProviderRequestError(
+                    "本地详细教案编译失败；这是生成编排器错误"
+                )
+            batches.append(batch)
+            finalized_batches[batch_id] = {
+                "status": "completed",
+                "section_ids": list(spec.get("section_ids") or []),
+                "skeleton_revision_id": skeleton.get("revision_id"),
+                "revision_id": batch.get("revision_id"),
+                "validation_report": deepcopy(batch_report),
+                "payload": deepcopy(batch),
+                "generation_source": generation_source,
+                "fallback_reason": (
+                    reason
+                    if generation_source == "deterministic_local_fallback"
+                    else (stored or {}).get("fallback_reason")
+                ),
+            }
+        assembled = assemble_course_teaching_plan_v3(
+            skeleton=skeleton,
+            batches=batches,
+            outline_revision_id=outline_revision_id,
+        )
+        course_teaching_plan = compile_course_teaching_plan_modules(
+            assembled,
+            sections=sections,
+        )
+        report = validate_course_teaching_plan(
+            course_teaching_plan,
+            sections=sections,
+            expected_outline_revision_id=outline_revision_id,
+        )
+        if not report.get("passed"):
+            raise AIProviderRequestError(
+                "本地全课教案编译失败；这是生成编排器错误"
+            )
+        planned_course = apply_course_teaching_plan(
+            plan,
+            course_teaching_plan,
+        )
+        teaching_stage.update({
+            "status": "completed",
+            "schema_version": course_teaching_plan.get("schema_version"),
+            "revision_id": course_teaching_plan.get("revision_id"),
+            "source_outline_revision_id": outline_revision_id,
+            "validation_report": deepcopy(report),
+            "skeleton": deepcopy(skeleton),
+            "skeleton_revision_id": skeleton.get("revision_id"),
+            "skeleton_validation_report": deepcopy(skeleton_report),
+            "strategy": (
+                "adaptive_timeout_completion"
+                if preserved_skeleton_sections or preserved_batch_count
+                else "deterministic_local_fallback"
+            ),
+            "degraded": True,
+            "fallback_reason": reason,
+            "fallback_units": fallback_units,
+            "batches": finalized_batches,
+            "section_count": len(sections),
+            "completed_section_count": len(sections),
+            "batch_count": len(batch_specs),
+            "completed_batch_count": len(batch_specs),
+            "preserved_skeleton_section_count": len(
+                preserved_skeleton_sections
+            ),
+            "preserved_batch_count": preserved_batch_count,
+            "knowledge_point_count": (report.get("actual") or {}).get(
+                "knowledge_point_count", 0
+            ),
+            "knowledge_compilation_model_call_count": 0,
+            "graph_compilation_model_call_count": 0,
+        })
+        course_data.update({
+            "course_teaching_plan_skeleton": skeleton,
+            "course_teaching_plan": course_teaching_plan,
+            "course_plan": deepcopy(planned_course),
+            "knowledge_relations": deepcopy(
+                planned_course.get("knowledge_relations") or []
+            ),
+            "nodes": self._merge_generation_nodes(
+                self._convert_plan_to_nodes(
+                    planned_course,
+                    str(course_data.get("course_id") or ""),
+                ),
+                course_data.get("nodes") or [],
+            ),
+            "generation_status": "course_teaching_plan_compiled",
+        })
+        await self._notify_checkpoint(on_checkpoint, course_data)
         return planned_course
 
     async def _prepare_course_teaching_plan_compact(
@@ -1995,6 +2883,41 @@ class CourseService(AIBase):
             })
             return planned_course
 
+        async def fallback_to_batched(
+            reason: str,
+            *,
+            model_call_count: int = 0,
+            prompt_chars: int = 0,
+            prompt_tokens: int = 0,
+            max_prompt_tokens: int = 0,
+            prompt_detail_levels: list[str] | None = None,
+        ) -> dict[str, Any]:
+            """Treat the compact call as an optimization, never a failure gate."""
+            teaching_stage.update({
+                "status": "switching_strategy",
+                "strategy": "adaptive_skeleton_batches",
+                "compact_fallback_reason": reason,
+                "model_call_count": model_call_count,
+                "prompt_chars": prompt_chars,
+                "prompt_tokens": prompt_tokens,
+                "max_prompt_tokens": max_prompt_tokens,
+                "prompt_detail_levels": list(
+                    prompt_detail_levels or []
+                ),
+            })
+            course_data["generation_status"] = (
+                "course_teaching_plan_in_progress"
+            )
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            return await self._prepare_course_teaching_plan(
+                course_data=course_data,
+                plan=plan,
+                artifacts=artifacts,
+                on_phase=on_phase,
+                on_checkpoint=on_checkpoint,
+                force_batched=True,
+            )
+
         compact_sections: list[dict[str, Any]] = []
         for section in sections:
             compact_section = {
@@ -2040,18 +2963,34 @@ class CourseService(AIBase):
             )
             compact_sections.append(compact_section)
 
-        prompt = self._prompt_composer.build_course_teaching_plan_prompt(
-            course_title=str(
-                plan.get("course_title")
-                or course_data.get("course_name")
-                or ""
-            ),
-            positioning=str(plan.get("positioning") or ""),
-            learning_objectives=list(
-                plan.get("learning_objectives") or []
-            ),
-            sections=compact_sections,
+        course_title = str(
+            plan.get("course_title")
+            or course_data.get("course_name")
+            or ""
         )
+        compact_levels = prompt_detail_levels_for_source(
+            {
+                "course_title": course_title,
+                "positioning": plan.get("positioning") or "",
+                "learning_objectives": plan.get("learning_objectives") or [],
+                "sections": compact_sections,
+            },
+            max_input_chars=self._generation_budget.max_input_chars,
+        )
+        compact_prompts = {
+            detail_level: (
+                self._prompt_composer.build_course_teaching_plan_prompt(
+                    course_title=course_title,
+                    positioning=str(plan.get("positioning") or ""),
+                    learning_objectives=list(
+                        plan.get("learning_objectives") or []
+                    ),
+                    sections=compact_sections,
+                    detail_level=detail_level,
+                )
+            )
+            for detail_level in compact_levels
+        }
         await self._notify_phase(
             on_phase,
             "course_teaching_plan",
@@ -2067,39 +3006,72 @@ class CourseService(AIBase):
         )
         started_at = time.monotonic()
         user_prompt = "生成整门课所有小节教案，只输出 JSON。"
-        prompt_tokens = self.estimate_request_tokens(user_prompt, prompt)
-        total_prompt_chars = len(user_prompt) + len(prompt)
+        selected_prompt = select_budgeted_prompt(
+            (
+                PromptCandidate(
+                    detail_level=detail_level,
+                    user_prompt=user_prompt,
+                    system_prompt=compact_prompts[detail_level],
+                )
+                for detail_level in compact_levels
+            ),
+            max_input_chars=self._generation_budget.max_input_chars,
+            max_input_tokens=self._teaching_plan_budget.max_input_tokens,
+            token_estimator=self.estimate_request_tokens,
+        )
+        if selected_prompt is None:
+            return await fallback_to_batched(
+                reason="compact_prompt_did_not_fit",
+            )
+        prompt = selected_prompt.system_prompt
+        user_prompt = selected_prompt.user_prompt
+        prompt_tokens = selected_prompt.estimated_input_tokens
+        prompt_detail_levels = [selected_prompt.detail_level]
+        total_prompt_chars = selected_prompt.prompt_chars
         total_prompt_tokens = prompt_tokens
         max_prompt_tokens = prompt_tokens
-        async with self._planning_semaphore:
-            response = await self._call_llm_with_heartbeat(
-                user_prompt,
-                prompt,
-                enable_thinking=True,
-                on_phase=on_phase,
-                phase="course_teaching_plan",
-                base_progress=35,
-                heartbeat_message="仍在等待 AI 完成全课小节教案",
-                phase_detail={
-                    "artifact_type": "course_teaching_plan",
-                    "item_total": len(sections),
-                    "strategy": "compact_single_call",
-                },
-                stage_timeout_seconds=(
-                    self._teaching_plan_budget.batch_timeout_seconds
-                ),
-                max_input_tokens=(
-                    self._teaching_plan_budget.max_input_tokens
-                ),
-                max_input_chars=(
-                    self._generation_budget.max_input_chars
-                ),
-                max_output_tokens=(
-                    self._teaching_plan_budget.max_output_tokens
-                ),
-                max_attempts=(
-                    self._generation_budget.provider_max_attempts
-                ),
+        try:
+            async with self._planning_semaphore:
+                response = await self._call_llm_with_heartbeat(
+                    user_prompt,
+                    prompt,
+                    enable_thinking=True,
+                    on_phase=on_phase,
+                    phase="course_teaching_plan",
+                    base_progress=35,
+                    heartbeat_message="仍在等待 AI 完成全课小节教案",
+                    phase_detail={
+                        "artifact_type": "course_teaching_plan",
+                        "item_total": len(sections),
+                        "strategy": "compact_single_call",
+                    },
+                    stage_timeout_seconds=(
+                        self._teaching_plan_budget.batch_timeout_seconds
+                    ),
+                    max_input_tokens=(
+                        self._teaching_plan_budget.max_input_tokens
+                    ),
+                    max_input_chars=(
+                        self._generation_budget.max_input_chars
+                    ),
+                    max_output_tokens=(
+                        self._teaching_plan_budget.max_output_tokens
+                    ),
+                    max_attempts=(
+                        self._generation_budget.provider_max_attempts
+                    ),
+                )
+        except (
+            AIProviderRequestError,
+            CourseGenerationDeadlineExceeded,
+        ) as exc:
+            return await fallback_to_batched(
+                f"compact_provider_error:{type(exc).__name__}",
+                model_call_count=1,
+                prompt_chars=total_prompt_chars,
+                prompt_tokens=total_prompt_tokens,
+                max_prompt_tokens=max_prompt_tokens,
+                prompt_detail_levels=prompt_detail_levels,
             )
         parsed = self._extract_json(response) if response else None
         payload = parsed if isinstance(parsed, dict) else {}
@@ -2123,13 +3095,6 @@ class CourseService(AIBase):
         )
         model_call_count = 1
         if not report.get("passed"):
-            correction_prompt = (
-                self._prompt_composer
-                .build_course_teaching_plan_correction_prompt(
-                    original_prompt=prompt,
-                    issues=report.get("blocking_issues") or [],
-                )
-            )
             await self._notify_phase(
                 on_phase,
                 "course_teaching_plan_validation",
@@ -2145,41 +3110,84 @@ class CourseService(AIBase):
             correction_user = (
                 "只修复全课小节教案的结构和引用错误，输出完整 JSON。"
             )
-            correction_tokens = self.estimate_request_tokens(
-                correction_user,
-                correction_prompt,
+            selected_correction = select_budgeted_prompt(
+                (
+                    PromptCandidate(
+                        detail_level=detail_level,
+                        user_prompt=correction_user,
+                        system_prompt=(
+                            self._prompt_composer
+                            .build_course_teaching_plan_correction_prompt(
+                                original_prompt=compact_prompts[detail_level],
+                                issues=report.get("blocking_issues") or [],
+                            )
+                        ),
+                    )
+                    for detail_level in compact_levels
+                ),
+                max_input_chars=self._generation_budget.max_input_chars,
+                max_input_tokens=self._teaching_plan_budget.max_input_tokens,
+                token_estimator=self.estimate_request_tokens,
             )
-            total_prompt_chars += len(correction_user) + len(correction_prompt)
+            if selected_correction is None:
+                return await fallback_to_batched(
+                    reason="compact_correction_prompt_did_not_fit",
+                    model_call_count=model_call_count,
+                    prompt_chars=total_prompt_chars,
+                    prompt_tokens=total_prompt_tokens,
+                    max_prompt_tokens=max_prompt_tokens,
+                    prompt_detail_levels=prompt_detail_levels,
+                )
+            correction_prompt = selected_correction.system_prompt
+            correction_user = selected_correction.user_prompt
+            correction_tokens = selected_correction.estimated_input_tokens
+            prompt_detail_levels.append(selected_correction.detail_level)
+            total_prompt_chars += selected_correction.prompt_chars
             total_prompt_tokens += correction_tokens
             max_prompt_tokens = max(max_prompt_tokens, correction_tokens)
-            async with self._planning_semaphore:
-                corrected = await self._call_llm_with_heartbeat(
-                    correction_user,
-                    correction_prompt,
-                    enable_thinking=False,
-                    on_phase=on_phase,
-                    phase="course_teaching_plan_validation",
-                    base_progress=43,
-                    heartbeat_message="仍在等待 AI 修复全课小节教案结构",
-                    phase_detail={
-                        "artifact_type": "course_teaching_plan",
-                        "item_total": len(sections),
-                    },
-                    stage_timeout_seconds=(
-                        self._teaching_plan_budget.batch_timeout_seconds
-                    ),
-                    max_input_tokens=(
-                        self._teaching_plan_budget.max_input_tokens
-                    ),
-                    max_input_chars=(
-                        self._generation_budget.max_input_chars
-                    ),
-                    max_output_tokens=(
-                        self._teaching_plan_budget.max_output_tokens
-                    ),
-                    max_attempts=(
-                        self._generation_budget.provider_max_attempts
-                    ),
+            try:
+                async with self._planning_semaphore:
+                    corrected = await self._call_llm_with_heartbeat(
+                        correction_user,
+                        correction_prompt,
+                        enable_thinking=False,
+                        on_phase=on_phase,
+                        phase="course_teaching_plan_validation",
+                        base_progress=43,
+                        heartbeat_message=(
+                            "仍在等待 AI 修复全课小节教案结构"
+                        ),
+                        phase_detail={
+                            "artifact_type": "course_teaching_plan",
+                            "item_total": len(sections),
+                        },
+                        stage_timeout_seconds=(
+                            self._teaching_plan_budget.batch_timeout_seconds
+                        ),
+                        max_input_tokens=(
+                            self._teaching_plan_budget.max_input_tokens
+                        ),
+                        max_input_chars=(
+                            self._generation_budget.max_input_chars
+                        ),
+                        max_output_tokens=(
+                            self._teaching_plan_budget.max_output_tokens
+                        ),
+                        max_attempts=(
+                            self._generation_budget.provider_max_attempts
+                        ),
+                    )
+            except (
+                AIProviderRequestError,
+                CourseGenerationDeadlineExceeded,
+            ) as exc:
+                return await fallback_to_batched(
+                    f"compact_correction_provider_error:{type(exc).__name__}",
+                    model_call_count=model_call_count + 1,
+                    prompt_chars=total_prompt_chars,
+                    prompt_tokens=total_prompt_tokens,
+                    max_prompt_tokens=max_prompt_tokens,
+                    prompt_detail_levels=prompt_detail_levels,
                 )
             parsed = self._extract_json(corrected) if corrected else None
             payload = parsed if isinstance(parsed, dict) else {}
@@ -2205,29 +3213,13 @@ class CourseService(AIBase):
 
         duration_ms = int((time.monotonic() - started_at) * 1000)
         if not report.get("passed"):
-            teaching_stage.update({
-                "status": "failed",
-                "schema_version": "course_teaching_plan_v3",
-                "source_outline_revision_id": outline_revision_id,
-                "validation_report": deepcopy(report),
-                "duration_ms": duration_ms,
-                "model_call_count": model_call_count,
-                "prompt_chars": total_prompt_chars,
-                "prompt_tokens": total_prompt_tokens,
-                "max_prompt_tokens": max_prompt_tokens,
-                "strategy": "compact_single_call",
-            })
-            course_data["generation_status"] = (
-                "course_teaching_plan_failed"
-            )
-            await self._notify_checkpoint(on_checkpoint, course_data)
-            messages = "；".join(
-                str(item.get("message") or "未知教案错误")
-                for item in report.get("blocking_issues") or []
-            )
-            raise AIProviderRequestError(
-                "全课小节教案未通过结构验收："
-                f"{messages or '无法解析完整教案 JSON'}"
+            return await fallback_to_batched(
+                "compact_output_failed_validation",
+                model_call_count=model_call_count,
+                prompt_chars=total_prompt_chars,
+                prompt_tokens=total_prompt_tokens,
+                max_prompt_tokens=max_prompt_tokens,
+                prompt_detail_levels=prompt_detail_levels,
             )
 
         planned_course = apply_course_teaching_plan(
@@ -2246,6 +3238,10 @@ class CourseService(AIBase):
             "prompt_chars": total_prompt_chars,
             "prompt_tokens": total_prompt_tokens,
             "max_prompt_tokens": max_prompt_tokens,
+            "prompt_detail_levels": prompt_detail_levels,
+            "adaptive_compaction_count": sum(
+                level != "full" for level in prompt_detail_levels
+            ),
             "model_call_count": model_call_count,
             "strategy": "compact_single_call",
             "section_count": len(sections),
@@ -2665,40 +3661,113 @@ class CourseService(AIBase):
         context = self._build_persisted_generation_context(persisted, node)
         if config.custom_instruction:
             context += f"\n\n## 用户自定义指令\n{config.custom_instruction}"
-        user_prompt, system_prompt = self._prompt_composer.build_content_prompt(
-            course_data=persisted,
-            node=node,
-            context=context,
-            existing_draft=existing_draft,
+        content_levels = prompt_detail_levels_for_source(
+            {
+                "course_name": persisted.get("course_name") or "",
+                "target_audience": persisted.get("target_audience") or "",
+                "subject_pedagogy_profile": (
+                    persisted.get("subject_pedagogy_profile") or {}
+                ),
+                "difficulty_profile": persisted.get("difficulty_profile") or {},
+                "course_composition_profile": (
+                    persisted.get("course_composition_profile") or {}
+                ),
+                "node": node,
+                "context": context,
+                "existing_draft": existing_draft,
+            },
+            max_input_chars=self._generation_budget.max_input_chars,
+        )
+        selected_content_prompt = select_budgeted_prompt(
+            (
+                PromptCandidate(
+                    detail_level=detail_level,
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                )
+                for detail_level in content_levels
+                for user_prompt, system_prompt in [
+                    self._prompt_composer.build_content_prompt(
+                        course_data=persisted,
+                        node=node,
+                        context=context,
+                        existing_draft=existing_draft,
+                        detail_level=detail_level,
+                    )
+                ]
+            ),
+            max_input_chars=self._generation_budget.max_input_chars,
+            max_input_tokens=self._generation_budget.max_input_tokens,
+            token_estimator=self.estimate_request_tokens,
         )
 
         continuation = ""
-        input_tokens = self.estimate_request_tokens(
-            user_prompt,
-            system_prompt,
-        )
+        generation_source = "model"
+        fallback_reason = ""
         started_at = time.monotonic()
+        if selected_content_prompt is None:
+            user_prompt = ""
+            system_prompt = ""
+            input_tokens = 0
+            generation_source = "deterministic_local_fallback"
+            fallback_reason = "minimal_content_prompt_did_not_fit"
+            continuation = compile_fallback_node_content(node)
+            await on_chunk(continuation)
+        else:
+            user_prompt = selected_content_prompt.user_prompt
+            system_prompt = selected_content_prompt.system_prompt
+            input_tokens = selected_content_prompt.estimated_input_tokens
         try:
-            async for chunk in self._stream_llm(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                max_tokens=self._generation_budget.content_max_output_tokens,
-                max_input_tokens=self._generation_budget.max_input_tokens,
-                max_input_chars=self._generation_budget.max_input_chars,
-                max_attempts=self._generation_budget.provider_max_attempts,
-            ):
-                normalized = chunk.strip()
-                if (
-                    normalized.startswith("[Error:")
-                    or normalized == "AI Service not configured."
-                ):
-                    raise AIProviderRequestError(normalized)
-                continuation += chunk
-                await on_chunk(chunk)
+            if selected_content_prompt is not None:
+                try:
+                    async for chunk in self._stream_llm(
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        max_tokens=(
+                            self._generation_budget.content_max_output_tokens
+                        ),
+                        max_input_tokens=(
+                            self._generation_budget.max_input_tokens
+                        ),
+                        max_input_chars=(
+                            self._generation_budget.max_input_chars
+                        ),
+                        max_attempts=(
+                            self._generation_budget.provider_max_attempts
+                        ),
+                    ):
+                        normalized = chunk.strip()
+                        if (
+                            normalized.startswith("[Error:")
+                            or normalized == "AI Service not configured."
+                        ):
+                            raise AIProviderRequestError(normalized)
+                        continuation += chunk
+                        await on_chunk(chunk)
+                except AIProviderRequestError as exc:
+                    # A provider failure before any streamed content is a local
+                    # unit failure, not a reason to discard the whole course.
+                    if continuation or existing_draft:
+                        raise
+                    generation_source = "deterministic_local_fallback"
+                    fallback_reason = f"provider_error:{type(exc).__name__}"
+                    continuation = compile_fallback_node_content(node)
+                    await on_chunk(continuation)
         finally:
             node["generation_runtime"] = {
                 "prompt_chars": len(user_prompt) + len(system_prompt),
                 "estimated_input_tokens": input_tokens,
+                "prompt_detail_level": (
+                    selected_content_prompt.detail_level
+                    if selected_content_prompt is not None
+                    else "local"
+                ),
+                "adaptive_compaction": bool(
+                    selected_content_prompt is not None
+                    and selected_content_prompt.detail_level != "full"
+                ),
+                "generation_source": generation_source,
+                "fallback_reason": fallback_reason or None,
                 "max_input_tokens": self._generation_budget.max_input_tokens,
                 "max_input_chars": self._generation_budget.max_input_chars,
                 "max_output_tokens": (
@@ -2731,9 +3800,12 @@ class CourseService(AIBase):
         node["grounding_invalid_refs"] = invalid_refs
         quality = evaluate_node_content(full_content, node)
         node["generation_quality"] = quality
-        node["needs_manual_review"] = any(
-            item.get("severity") == "critical"
-            for item in quality.get("issues") or []
+        node["needs_manual_review"] = (
+            generation_source != "model"
+            or any(
+                item.get("severity") == "critical"
+                for item in quality.get("issues") or []
+            )
         )
 
         self._record_generation_quality(
@@ -3533,7 +4605,7 @@ class CourseService(AIBase):
         difficulty: Any = None,
         style: Any = None,
         user_id: str = DEFAULT_USER_ID,
-    ):
+    ) -> AsyncIterator[str]:
         """Stream a full-node rewrite while using the same prompt as non-stream."""
         prompt = self._build_redefine_prompt(
             course_id=course_id,

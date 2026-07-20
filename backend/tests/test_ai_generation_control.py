@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from course_context import CourseContextManager
-from course_generation_budget import CourseGenerationDeadlineExceeded
 from course_pedagogy import PedagogyMode
 from course_repository import CourseDocumentRepository
 from course_versions import CourseVersionRepository
@@ -467,7 +466,7 @@ async def test_schedule_nodes_treats_prerequisites_as_learning_order_only():
 
 
 @pytest.mark.asyncio
-async def test_content_stage_deadline_cancels_unfinished_nodes():
+async def test_content_stage_deadline_preserves_partial_course_and_cancels_nodes():
     manager = TaskManager(
         storage=None,
         course_service=None,
@@ -475,6 +474,13 @@ async def test_content_stage_deadline_cancels_unfinished_nodes():
         max_concurrency=2,
     )
     manager._content_stage_timeout_seconds = 0.01
+    manager.save_tasks = lambda: None
+    manager.tasks["t1"] = {
+        "id": "t1",
+        "course_id": "c1",
+        "status": "running",
+        "phase": "content_generation",
+    }
     cancelled = asyncio.Event()
 
     async def fake_process(_task_id, _node):
@@ -487,16 +493,16 @@ async def test_content_stage_deadline_cancels_unfinished_nodes():
     manager._process_node = fake_process
     manager._is_content_complete = lambda _node: False
 
-    with pytest.raises(
-        CourseGenerationDeadlineExceeded,
-        match="课程正文阶段超过硬时限",
-    ):
-        await manager._schedule_nodes(
-            "t1",
-            [{"node_id": "L2-1-1", "node_level": 2}],
-        )
+    completed = await manager._schedule_nodes(
+        "t1",
+        [{"node_id": "L2-1-1", "node_level": 2}],
+    )
 
+    assert completed is False
     assert cancelled.is_set()
+    assert manager.tasks["t1"]["status"] == "paused"
+    assert manager.tasks["t1"]["phase"] == "content_partial"
+    assert "可以从未完成小节继续" in manager.tasks["t1"]["message"]
 
 
 @pytest.mark.asyncio

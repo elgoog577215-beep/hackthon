@@ -180,6 +180,7 @@
       "blueprintValidation": "Validating the course blueprint",
       "blueprintReady": "Waiting for blueprint review",
       "contentGeneration": "Generating course content",
+      "contentPartial": "Content is partially complete and can resume from the checkpoint",
       "contentAndCourseGraphGeneration": "Restoring a legacy content-and-graph checkpoint",
       "learningAssets": "Compiling practice and mastery criteria",
       "questionAnalysis": "Compiling question targets and answer contracts",
@@ -235,6 +236,7 @@
       "teachingHelp": "Confirm how each lesson explains, demonstrates, and practices the material before full content is generated.",
       "contentTitle": "Review course content",
       "contentHelp": "Lesson plans, the knowledge base, and graph were compiled from one plan. Review the section content in the learning workspace before confirming.",
+      "teachingPlanFallback": "Some lesson-plan units used the local fallback. Review the teaching semantics of the marked sections.",
       "releaseTitle": "Confirm and publish",
       "releaseHelp": "Publish after structure, references, and the source chain are complete. This step does not call AI scoring or rewriting.",
       "conceptGroups": "Concept groups",
@@ -429,6 +431,11 @@
       "planCount": "{count} course changes applied together after confirmation",
       "currentGroup": "Current position",
       "nextGroup": "Related later content"
+    },
+    "applicationVisual": {
+      "courseEyebrow": "AI-personalized course",
+      "newVersion": "New version applied",
+      "blockBadge": "AI-personalized addition"
     },
     "locateEvidence": "Return to evidence",
     "diagnosis": "AI learning diagnosis",
@@ -1119,6 +1126,7 @@
       "recoveryOutline": "Course requirements and processed sources are saved. Continuing regenerates the course outline.",
       "recoveryTeaching": "Completed global skeleton and detailed-plan batches are reused; only the unfinished batch runs again.",
       "recoveryContent": "{count} lesson sections are saved. Continuing resumes from the unfinished sections.",
+      "contentPartial": "This content run reached its total time budget. Completed sections and drafts are saved, and production can resume from the unfinished sections.",
       "recoveryRelease": "Course content and formal references are saved. Continuing only reruns pre-publication checks.",
       "recoveryPaused": "Course production stopped at a complete checkpoint and will not create a duplicate course when resumed.",
       "recoveryQuality": "Publication checks found a blocking issue. Fix it and continue from the current workspace.",
@@ -1462,6 +1470,7 @@
       "blueprint_validation": "Validating course blueprint",
       "blueprint_ready": "Awaiting blueprint confirmation",
       "content_generation": "Generating course content",
+      "content_partial": "Content is partially complete and can resume from the checkpoint",
       "content_and_course_graph_generation": "Restoring a legacy content-and-graph checkpoint",
       "learning_assets": "Compiling learning assets",
       "content_validation": "Validating structure, references, and asset integrity",

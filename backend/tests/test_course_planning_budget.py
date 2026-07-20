@@ -1,6 +1,8 @@
 import json
+import math
 
 from ai_base import AIBase
+from course_generation_adaptive import merge_teaching_skeleton_part
 from course_planning_budget import (
     CoursePlanningBudget,
     build_compact_planning_context,
@@ -56,6 +58,24 @@ def test_planning_context_deduplicates_shared_contracts():
     assert len(compact) < len(naive) * 0.8
 
 
+def test_default_planning_waves_fit_inside_total_deadline():
+    budget = CoursePlanningBudget()
+    section_count = 24
+    skeleton_waves = math.ceil(
+        section_count / budget.skeleton_max_sections
+    )
+    detail_batches = math.ceil(
+        section_count / budget.batch_max_sections
+    )
+    detail_waves = math.ceil(detail_batches / budget.concurrency)
+
+    assert (
+        (skeleton_waves + detail_waves)
+        * budget.batch_timeout_seconds
+        <= budget.total_timeout_seconds
+    )
+
+
 def test_compact_plan_is_promoted_to_one_stable_v3_contract():
     compact = {
         "schema_version": "course_teaching_plan_v2",
@@ -94,6 +114,59 @@ def test_compact_plan_is_promoted_to_one_stable_v3_contract():
     assert resumed == first
 
 
+def test_skeleton_shards_rekey_and_reconcile_cross_shard_reuse():
+    prior = {
+        "knowledge_registry": [{
+            "knowledge_key": "K001",
+            "name": "基础条件",
+            "statement": "基础条件先于后续应用",
+            "owner_node_id": "L2-1-1",
+            "reused_in_node_ids": [],
+            "prerequisite_keys": [],
+            "module_ids": ["core_explanation"],
+        }],
+        "sections": [{
+            "node_id": "L2-1-1",
+            "owned_knowledge_keys": ["K001"],
+            "reused_knowledge_keys": [],
+        }],
+    }
+    part = {
+        "knowledge_registry": [{
+            "knowledge_key": "K001",
+            "name": "后续应用",
+            "statement": "后续应用建立在基础条件上",
+            "owner_node_id": "L2-1-2",
+            "reused_in_node_ids": [],
+            "prerequisite_keys": ["K001"],
+            "module_ids": ["core_explanation"],
+        }],
+        "sections": [{
+            "node_id": "L2-1-2",
+            "owned_knowledge_keys": ["K001"],
+            "reused_knowledge_keys": ["K001"],
+        }],
+    }
+
+    merged = merge_teaching_skeleton_part(
+        prior,
+        part,
+        outline_revision_id="outline-1",
+    )
+
+    assert [
+        item["knowledge_key"] for item in merged["knowledge_registry"]
+    ] == ["K001", "K002"]
+    assert merged["sections"][1]["owned_knowledge_keys"] == ["K002"]
+    assert merged["sections"][1]["reused_knowledge_keys"] == ["K001"]
+    assert merged["knowledge_registry"][0]["reused_in_node_ids"] == [
+        "L2-1-2"
+    ]
+    assert merged["knowledge_registry"][1]["prerequisite_keys"] == [
+        "K001"
+    ]
+
+
 def test_batch_planner_prefers_chapter_boundaries_and_enforces_budgets():
     sections = [
         *[_section(index, "chapter-1") for index in range(1, 5)],
@@ -121,6 +194,28 @@ def test_batch_planner_prefers_chapter_boundaries_and_enforces_budgets():
     assert all(item["knowledge_count"] <= 5 for item in batches)
     assert all(item["estimated_input_tokens"] <= 7000 for item in batches)
     assert all(item["estimated_output_tokens"] <= 8000 for item in batches)
+
+
+def test_single_oversized_section_becomes_adaptive_unit_instead_of_exception():
+    section = _section(1)
+    section["title"] = "超长标题" * 3_000
+    skeleton = {
+        "sections": [{
+            "node_id": section["node_id"],
+            "owned_knowledge_keys": [f"K{index:02d}" for index in range(20)],
+            "reused_knowledge_keys": [],
+        }],
+    }
+
+    batches = build_teaching_plan_batches(
+        [section],
+        skeleton,
+        CoursePlanningBudget(),
+    )
+
+    assert len(batches) == 1
+    assert batches[0]["section_ids"] == ["L2-1-1"]
+    assert batches[0]["requires_adaptive_compaction"] is True
 
 
 def test_twenty_one_section_plan_uses_scoped_bounded_batch_prompts():

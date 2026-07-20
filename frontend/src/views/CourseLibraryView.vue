@@ -122,6 +122,7 @@ import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { t } from '../shared/i18n'
+import { courseProductionTaskDetail } from '../utils/course-production'
 import { latestResumableCourse, resumeKindLabel } from '../utils/learning-resume'
 
 const router = useRouter()
@@ -173,7 +174,7 @@ function courseStatus(courseId: string) {
     label: publishedWarning
       ? t('courseLibrary.status.readyWithSuggestions', '可以学习，有优化建议')
       : labels[task?.status || 'completed'] || t('courseLibrary.status.ready', '可以学习'),
-    detail: task?.currentStep
+    detail: courseProductionTaskDetail(task)
       || (task?.currentPhase ? t(`courseGeneration.phases.${task.currentPhase}`, task.currentPhase) : '')
       || t('courseLibrary.status.preparing', '正在准备课程'),
     progress: Math.max(0, Math.min(100, task?.progress || 0)),

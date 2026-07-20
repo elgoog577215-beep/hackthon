@@ -24,7 +24,7 @@ from course_pedagogy import SubjectPedagogyProfile
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
-PIPELINE_VERSION = "course_generation_v11"
+PIPELINE_VERSION = "course_generation_v12"
 
 COURSE_RELATION_TYPES = {
     "prerequisite",
@@ -2273,18 +2273,35 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
     }
 
 
-def build_outline_generation_context(artifacts: dict[str, Any]) -> str:
+def build_outline_generation_context(
+    artifacts: dict[str, Any],
+    *,
+    detail_level: str = "full",
+) -> str:
     """Prompt section injected into outline generation."""
     cards = artifacts.get("material_cards", [])
+    if detail_level == "minimal":
+        card_items, card_chars = 6, 700
+        evidence_items, evidence_chars = 10, 1200
+    elif detail_level == "compact":
+        card_items, card_chars = 12, 1800
+        evidence_items, evidence_chars = 20, 3200
+    else:
+        card_items, card_chars = 32, 4000
+        evidence_items, evidence_chars = 40, 8000
     return "\n".join([
         "## 上传资料卡",
-        _format_material_cards(cards, max_items=32, max_chars=4000),
+        _format_material_cards(
+            cards,
+            max_items=card_items,
+            max_chars=card_chars,
+        ),
         "",
         "## 可用证据目录",
         build_evidence_catalog_summary(
             artifacts.get("evidence_catalog") or [],
-            max_items=40,
-            max_chars=8000,
+            max_items=evidence_items,
+            max_chars=evidence_chars,
         ),
         "",
         "## 证据使用策略",

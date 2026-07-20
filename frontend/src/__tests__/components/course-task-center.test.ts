@@ -112,6 +112,34 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('Planning and assembling all section lesson plans')
   })
 
+  it('正文总时限到达后用阶段码显示可恢复状态，不泄漏后端中文', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-partial', course_id: 'course-1', course_name: '线性代数', status: 'paused',
+      progress: 72, current_phase: 'content_partial',
+      message: '正文阶段达到总时限，已保留完成内容与草稿；可以从未完成小节继续',
+      recovery: {
+        state: 'manual_resume', can_resume: true, reason_code: 'stage_deadline',
+        checkpoint: {
+          phase: 'content_partial', completed_nodes: 3, total_nodes: 5,
+          draft_node_ids: ['n4'], failed_node_ids: [], interrupted_node_ids: ['n4', 'n5'],
+        },
+      },
+    }]
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.find('.task-summary').text()).toContain('已完成内容和草稿均已保存')
+    expect(wrapper.find('.task-summary').text()).toContain('正文已部分完成')
+
+    await setLocale('en')
+    await flushPromises()
+    const summary = wrapper.find('.task-summary').text()
+    expect(summary).toContain('Completed sections and drafts are saved')
+    expect(summary).toContain('Content is partially complete')
+    expect(summary).not.toContain('正文阶段达到总时限')
+  })
+
   it('同一课程的多次生成分别成行，并按所选任务 ID 执行控制', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [
@@ -328,10 +356,14 @@ describe('CourseTaskCenter', () => {
       can_confirm: true,
       guided_workflow: workflow,
       artifact: {
-        quality_status: 'passed',
+        quality_status: 'completed_with_warnings',
         asset_quality_passed: true,
         manual_review_count: 0,
         asset_counts: {},
+        warnings: [{
+          code: 'teaching_plan:local_fallback',
+          message: '部分教案单元使用了本地确定性保底，需要人工复核教学语义',
+        }],
         question_review: { total: 0, passed: 0, blocked: 0, samples: [] },
         sections: [],
       },
@@ -346,6 +378,8 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('Review course content')
     expect(wrapper.text()).toContain('Course generation')
     expect(wrapper.text()).toContain('Confirm publication')
+    expect(wrapper.text()).toContain('Some lesson-plan units used the local fallback')
+    expect(wrapper.text()).not.toContain('本地确定性保底')
     expect(wrapper.text()).not.toContain('courseTasks.')
     expect(wrapper.text()).not.toContain('确认课程内容')
   })

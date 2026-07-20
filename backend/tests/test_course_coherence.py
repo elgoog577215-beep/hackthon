@@ -235,6 +235,38 @@ def test_short_prerequisite_recap_is_allowed_and_not_treated_as_duplication():
     assert report["missing_bridge_count"] == 0
 
 
+def test_teaching_plan_fallback_is_visible_in_final_review():
+    course = _course()
+    baseline = build_final_course_quality_report(
+        course,
+        job_id="teaching-fallback-baseline",
+    )
+    course["generation_stage_artifacts"] = {
+        "course_teaching_plan": {
+            "status": "completed",
+            "degraded": True,
+            "fallback_units": [{
+                "unit": "TP-B01",
+                "reason": "provider_error",
+                "section_ids": ["L2-1-1"],
+            }],
+        },
+    }
+
+    report = build_final_course_quality_report(
+        course,
+        job_id="teaching-fallback-test",
+    )
+
+    assert report["final_status"] == "completed_with_warnings"
+    assert report["publication_allowed"] == baseline["publication_allowed"]
+    assert report["manual_review_required_nodes"] == ["L2-1-1"]
+    assert any(
+        item["code"] == "teaching_plan:local_fallback"
+        for item in report["warnings"]
+    )
+
+
 def test_explicit_previous_section_recap_counts_as_a_valid_bridge():
     course = _course()
     course["nodes"][1]["knowledge_structure"] = _knowledge(

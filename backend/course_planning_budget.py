@@ -39,12 +39,13 @@ def estimate_json_tokens(value: Any) -> int:
 class CoursePlanningBudget:
     mode: str = "auto"
     compact_max_sections: int = 3
+    skeleton_max_sections: int = 6
     batch_max_sections: int = 3
     batch_max_knowledge: int = 15
     max_input_tokens: int = 7000
     max_output_tokens: int = 8000
     concurrency: int = 4
-    batch_timeout_seconds: int = 90
+    batch_timeout_seconds: int = 60
     total_timeout_seconds: int = 360
 
     @classmethod
@@ -57,6 +58,10 @@ class CoursePlanningBudget:
             compact_max_sections=_env_int(
                 "COURSE_TEACHING_PLAN_COMPACT_MAX_SECTIONS", 3,
                 minimum=1, maximum=8,
+            ),
+            skeleton_max_sections=_env_int(
+                "COURSE_TEACHING_PLAN_SKELETON_MAX_SECTIONS", 6,
+                minimum=2, maximum=8,
             ),
             batch_max_sections=_env_int(
                 "COURSE_TEACHING_PLAN_BATCH_MAX_SECTIONS", 3,
@@ -79,7 +84,7 @@ class CoursePlanningBudget:
                 minimum=1, maximum=4,
             ),
             batch_timeout_seconds=_env_int(
-                "COURSE_TEACHING_PLAN_BATCH_TIMEOUT_SECONDS", 90,
+                "COURSE_TEACHING_PLAN_BATCH_TIMEOUT_SECONDS", 60,
                 minimum=30, maximum=180,
             ),
             total_timeout_seconds=_env_int(
@@ -305,21 +310,23 @@ def build_teaching_plan_batches(
         current_input_tokens = estimate_batch_input(current)
         current_output_tokens += section_output_tokens
         current_chapter = chapter_id or current_chapter
+        # A single logical section cannot be split by this coarse estimator.
+        # Keep it as a one-section unit and let the final-payload assembler
+        # compact its optional context (or locally compile that unit) instead
+        # of turning a budget estimate into a whole-course failure.
         if (
             current_input_tokens > budget.max_input_tokens
             or current_output_tokens > budget.max_output_tokens
         ):
-            raise CoursePlanningBudgetExceeded(
-                "单个小节教案已经超过模型请求预算："
-                f"node_id={node_id}，input={current_input_tokens}/"
-                f"{budget.max_input_tokens} tokens，output={current_output_tokens}/"
-                f"{budget.max_output_tokens} tokens"
-            )
+            flush()
+            batches[-1]["requires_adaptive_compaction"] = True
     flush()
     return batches
 
 
 class CoursePlanningBudgetExceeded(RuntimeError):
+    """Legacy compatibility error; normal batching no longer raises it."""
+
     retryable = False
     code = "course_planning_budget_exceeded"
 

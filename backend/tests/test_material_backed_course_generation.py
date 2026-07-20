@@ -7,6 +7,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from ai_base import AIProviderRequestError, AIProviderUnavailable
+from course_generation_adaptive import (
+    compile_fallback_teaching_batch,
+    compile_fallback_teaching_skeleton,
+)
 from course_generation_workflow import (
     attach_generation_artifacts_to_plan,
     build_course_blueprint_from_plan,
@@ -32,7 +36,9 @@ from course_pedagogy import (
     attach_module_plans_to_plan,
     resolve_pedagogy_profile,
 )
+from course_planning_budget import build_teaching_plan_batches
 from course_service import CourseService
+from course_teaching_plan_v3 import normalize_teaching_plan_skeleton_v3
 
 
 def _knowledge_structure(label):
@@ -200,7 +206,8 @@ def _teaching_plan_response(system_prompt, labels_by_title=None):
 
 def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
     match = re.search(
-        r"## 已去重的规划上下文\n(\{.*?\})\n\n## 约束",
+        r"## 已去重的规划上下文\n(\{.*?\})\n\n"
+        r"(?:## 分片边界\n.*?\n\n)?## 约束",
         system_prompt,
         re.S,
     )
@@ -448,7 +455,7 @@ def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
         }],
     )
 
-    assert artifacts["pipeline_version"] == "course_generation_v11"
+    assert artifacts["pipeline_version"] == "course_generation_v12"
     assert artifacts["course_generation_brief"]["course_shape_constraints"] == {}
     assert artifacts["material_cards"][0]["usage"] == "content_source"
     assert artifacts["material_cards"][0]["parse_status"] == "metadata_only"
@@ -591,7 +598,7 @@ def test_generation_route_creates_one_persisted_job():
 
 
 @pytest.mark.asyncio
-async def test_course_service_builds_v11_blueprint_without_profile_model_call(
+async def test_course_service_builds_v12_blueprint_without_profile_model_call(
     monkeypatch,
     tmp_path,
 ):
@@ -649,9 +656,9 @@ async def test_course_service_builds_v11_blueprint_without_profile_model_call(
         }],
     )
 
-    assert data["generation_pipeline_version"] == "course_generation_v11"
-    assert data["generation_schema_version"] == "course_generation_v11"
-    assert data["prompt_contract_version"] == "course_prompt_v20"
+    assert data["generation_pipeline_version"] == "course_generation_v12"
+    assert data["generation_schema_version"] == "course_generation_v12"
+    assert data["prompt_contract_version"] == "course_prompt_v21"
     assert len(calls) == 2
     assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"
@@ -1428,11 +1435,21 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
         assert len(calls) == 2
     else:
         expected_batches = (section_count + 2) // 3
-        assert stage["strategy"] == "global_skeleton_bounded_batches"
+        expected_skeleton_chunks = (
+            section_count
+            + service._teaching_plan_budget.skeleton_max_sections
+            - 1
+        ) // service._teaching_plan_budget.skeleton_max_sections
+        assert stage["strategy"] == "adaptive_skeleton_batches"
         assert stage["schema_version"] == "course_teaching_plan_v3"
         assert stage["batch_count"] == expected_batches
-        assert stage["model_call_count"] == 1 + expected_batches
-        assert len(calls) == 2 + expected_batches
+        assert stage["skeleton_chunk_count"] == expected_skeleton_chunks
+        assert stage["model_call_count"] == (
+            expected_skeleton_chunks + expected_batches
+        )
+        assert len(calls) == (
+            1 + expected_skeleton_chunks + expected_batches
+        )
         assert max_active_batches == 4
     assert stage["knowledge_compilation_model_call_count"] == 0
     assert stage["graph_compilation_model_call_count"] == 0
@@ -1462,7 +1479,271 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
 
 
 @pytest.mark.asyncio
-async def test_teaching_plan_resume_preserves_successful_batches(monkeypatch):
+async def test_compact_provider_failure_switches_to_adaptive_batches(
+    monkeypatch,
+):
+    labels = ["紧凑入口", "有界恢复"]
+    plan = _multi_section_outline(labels)
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(
+            chapter["sections"],
+            labels,
+            strict=True,
+        )
+    }
+    service = CourseService()
+    calls: list[str] = []
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        calls.append(prompt)
+        if prompt.startswith("生成整门课所有小节教案"):
+            raise AIProviderRequestError("compact provider failed")
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(
+                system_prompt,
+                title_to_label,
+            )
+        if prompt.startswith("生成详细小节教案批次"):
+            return _teaching_batch_v3_response(
+                system_prompt,
+                title_to_label,
+            )
+        return json.dumps(plan, ensure_ascii=False)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+
+    course_data = await service.build_course_draft(
+        course_id="course-compact-adaptive-fallback",
+        topic="紧凑链路恢复",
+        target_audience="大学生",
+        depth="intermediate",
+        style="academic",
+        pedagogy_mode="general",
+    )
+
+    stage = course_data["generation_stage_artifacts"][
+        "course_teaching_plan"
+    ]
+    assert stage["status"] == "completed"
+    assert stage["strategy"] == "adaptive_skeleton_batches"
+    assert stage["compact_fallback_reason"].startswith(
+        "compact_provider_error:"
+    )
+    assert stage["model_call_count"] == 3
+    assert stage["degraded"] is False
+    assert len(calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_total_timeout_fallback_preserves_completed_skeleton_and_batch():
+    labels = [f"超时恢复{index}" for index in range(1, 7)]
+    plan = attach_module_plans_to_plan(
+        _multi_section_outline(labels),
+        resolve_pedagogy_profile(subject="超时恢复课程", requirements=""),
+    )
+    sections = [
+        section
+        for chapter in plan["chapters"]
+        for section in chapter["sections"]
+    ]
+    outline_revision_id = str(
+        build_course_knowledge_scope_contract(plan)["revision_id"]
+    )
+    partial_skeleton = compile_fallback_teaching_skeleton(
+        sections[:3],
+        outline_revision_id=outline_revision_id,
+    )
+    first_spec = build_teaching_plan_batches(
+        sections[:3],
+        partial_skeleton,
+        CourseService()._teaching_plan_budget,
+    )[0]
+    completed_batch = compile_fallback_teaching_batch(
+        batch_spec=first_spec,
+        skeleton=partial_skeleton,
+        sections=sections,
+    )
+    completed_batch["sections"][0]["knowledge_details"][0][
+        "group_description"
+    ] = "MODEL_BATCH_MUST_SURVIVE_TIMEOUT"
+    course_data = {
+        "course_id": "course-timeout-preserve",
+        "course_name": "超时恢复课程",
+        "nodes": [],
+        "generation_stage_artifacts": {
+            "course_teaching_plan": {
+                "status": "in_progress",
+                "skeleton": partial_skeleton,
+                "fallback_units": [],
+                "batches": {
+                    "TP-B01": {
+                        "status": "completed",
+                        "section_ids": list(first_spec["section_ids"]),
+                        "skeleton_revision_id": partial_skeleton["revision_id"],
+                        "payload": completed_batch,
+                        "generation_source": "model",
+                    },
+                },
+            },
+        },
+    }
+    service = CourseService()
+
+    await service._compile_fallback_course_teaching_plan(
+        course_data=course_data,
+        plan=plan,
+        sections=sections,
+        outline_revision_id=outline_revision_id,
+        on_checkpoint=None,
+        reason="teaching_plan_total_timeout",
+        existing_skeleton=partial_skeleton,
+    )
+
+    stage = course_data["generation_stage_artifacts"][
+        "course_teaching_plan"
+    ]
+    assert stage["status"] == "completed"
+    assert stage["degraded"] is True
+    assert stage["strategy"] == "adaptive_timeout_completion"
+    assert stage["preserved_skeleton_section_count"] == 3
+    assert stage["preserved_batch_count"] == 1
+    assert stage["batches"]["TP-B01"]["generation_source"] == "model"
+    assert (
+        stage["batches"]["TP-B01"]["payload"]["sections"][0][
+            "knowledge_details"
+        ][0]["group_description"]
+        == "MODEL_BATCH_MUST_SURVIVE_TIMEOUT"
+    )
+    assert stage["batches"]["TP-B02"]["generation_source"] == (
+        "deterministic_local_fallback"
+    )
+    assert [item["unit"] for item in stage["fallback_units"]] == [
+        "TP-B02"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_teaching_skeleton_restart_resumes_after_completed_chunk(
+    monkeypatch,
+):
+    labels = [f"骨架续跑{index}" for index in range(1, 13)]
+    plan = attach_module_plans_to_plan(
+        _multi_section_outline(labels),
+        resolve_pedagogy_profile(subject="骨架续跑课程", requirements=""),
+    )
+    sections = [
+        section
+        for chapter in plan["chapters"]
+        for section in chapter["sections"]
+    ]
+    title_to_label = {
+        section["title"]: label
+        for section, label in zip(sections, labels, strict=True)
+    }
+    outline_revision_id = str(
+        build_course_knowledge_scope_contract(plan)["revision_id"]
+    )
+    service = CourseService()
+    first_chunk_size = service._teaching_plan_budget.skeleton_max_sections
+    partial_registry = []
+    partial_identities = []
+    knowledge_index = 1
+    for section, label in zip(
+        sections[:first_chunk_size],
+        labels[:first_chunk_size],
+        strict=True,
+    ):
+        owned_keys = []
+        previous_key = ""
+        module_id = str(
+            (section.get("module_plan") or [{}])[0].get("module_id")
+            or "core_explanation"
+        )
+        for point in [
+            item
+            for group in _knowledge_structure(label)
+            for item in group["knowledge_points"]
+        ]:
+            key = f"K{knowledge_index:03d}"
+            knowledge_index += 1
+            owned_keys.append(key)
+            partial_registry.append({
+                "knowledge_key": key,
+                "name": point["name"],
+                "statement": point["statement"],
+                "owner_node_id": section["node_id"],
+                "reused_in_node_ids": [],
+                "prerequisite_keys": [previous_key] if previous_key else [],
+                "module_ids": [module_id],
+            })
+            previous_key = key
+        partial_identities.append({
+            "node_id": section["node_id"],
+            "owned_knowledge_keys": owned_keys,
+            "reused_knowledge_keys": [],
+        })
+    partial_skeleton = normalize_teaching_plan_skeleton_v3(
+        {
+            "knowledge_registry": partial_registry,
+            "sections": partial_identities,
+        },
+        outline_revision_id=outline_revision_id,
+    )
+    course_data = {
+        "course_id": "course-skeleton-resume",
+        "course_name": "骨架续跑课程",
+        "nodes": [],
+        "generation_stage_artifacts": {
+            "course_teaching_plan": {
+                "status": "in_progress",
+                "source_outline_revision_id": outline_revision_id,
+                "skeleton": partial_skeleton,
+                "completed_skeleton_chunk_count": 1,
+                "completed_skeleton_section_count": first_chunk_size,
+                "batches": {},
+            },
+        },
+    }
+    skeleton_calls: list[str] = []
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            skeleton_calls.append(prompt)
+            return _teaching_skeleton_v3_response(
+                system_prompt,
+                title_to_label,
+            )
+        if prompt.startswith("生成详细小节教案批次"):
+            return _teaching_batch_v3_response(
+                system_prompt,
+                title_to_label,
+            )
+        raise AssertionError(prompt)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+    await service._prepare_course_teaching_plan(
+        course_data=course_data,
+        plan=plan,
+        artifacts=None,
+        on_phase=None,
+        on_checkpoint=None,
+    )
+
+    stage = course_data["generation_stage_artifacts"][
+        "course_teaching_plan"
+    ]
+    assert skeleton_calls == [
+        "规划全课知识职责骨架 V3 分片 2/2，只输出 JSON。"
+    ]
+    assert stage["resumed_skeleton_chunk_count"] == 1
+    assert stage["completed_skeleton_chunk_count"] == 2
+    assert stage["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_teaching_plan_local_fallback_preserves_successful_batches(monkeypatch):
     labels = [f"恢复能力{index}" for index in range(1, 7)]
     plan = _multi_section_outline(labels)
     plan = attach_module_plans_to_plan(
@@ -1498,24 +1779,6 @@ async def test_teaching_plan_resume_preserves_successful_batches(monkeypatch):
         raise AssertionError(prompt)
 
     monkeypatch.setattr(service, "_call_llm", fake_call_llm)
-    with pytest.raises(AIProviderRequestError):
-        await service._prepare_course_teaching_plan(
-            course_data=course_data,
-            plan=plan,
-            artifacts=None,
-            on_phase=None,
-            on_checkpoint=None,
-        )
-
-    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
-    assert stage["status"] == "failed"
-    assert stage["completed_batch_count"] == 1
-    assert stage["completed_section_count"] == 3
-    assert stage["batches"]["TP-B01"]["status"] == "completed"
-    first_batch_revision = stage["batches"]["TP-B01"]["revision_id"]
-
-    fail_second_batch = False
-    calls_before_resume = len(calls)
     result = await service._prepare_course_teaching_plan(
         course_data=course_data,
         plan=plan,
@@ -1524,15 +1787,40 @@ async def test_teaching_plan_resume_preserves_successful_batches(monkeypatch):
         on_checkpoint=None,
     )
 
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    assert stage["status"] == "completed"
+    assert stage["degraded"] is True
+    assert stage["completed_batch_count"] == 2
+    assert stage["completed_section_count"] == 6
+    assert stage["batches"]["TP-B01"]["status"] == "completed"
+    assert stage["batches"]["TP-B01"]["generation_source"] == "model"
+    assert stage["batches"]["TP-B02"]["status"] == "completed"
+    assert stage["batches"]["TP-B02"]["generation_source"] == (
+        "deterministic_local_fallback"
+    )
+    first_batch_revision = stage["batches"]["TP-B01"]["revision_id"]
+    assert len([
+        section for chapter in result["chapters"] for section in chapter["sections"]
+    ]) == 6
+
+    fail_second_batch = False
+    calls_before_resume = len(calls)
+    resumed = await service._prepare_course_teaching_plan(
+        course_data=course_data,
+        plan=plan,
+        artifacts=None,
+        on_phase=None,
+        on_checkpoint=None,
+    )
+
     resumed_calls = calls[calls_before_resume:]
-    assert len(resumed_calls) == 1
-    assert resumed_calls[0].startswith("生成详细小节教案批次 TP-B02")
+    assert resumed_calls == []
     assert stage["batches"]["TP-B01"]["revision_id"] == first_batch_revision
     assert stage["status"] == "completed"
     assert stage["completed_batch_count"] == 2
     assert course_data["course_teaching_plan"]["schema_version"] == "course_teaching_plan_v3"
     assert len([
-        section for chapter in result["chapters"] for section in chapter["sections"]
+        section for chapter in resumed["chapters"] for section in chapter["sections"]
     ]) == 6
 
 
@@ -1617,13 +1905,8 @@ def test_course_planning_concurrency_has_a_production_hard_cap(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_batch_failures_report_one_consistent_batch_id(monkeypatch):
-    """The raised error and the checkpoint must name the same failed batch.
-
-    Batches run concurrently, so whichever one lost the race used to overwrite
-    ``failed_batch_id`` while the raised error described the first batch in
-    plan order. Resuming then pointed at the wrong place.
-    """
+async def test_concurrent_batch_failures_degrade_only_failed_batches(monkeypatch):
+    """Independent bad batches must not turn the whole plan into a failure."""
     labels = [f"并发失败能力{index}" for index in range(1, 13)]
     plan = _multi_section_outline(labels)
     plan = attach_module_plans_to_plan(
@@ -1657,22 +1940,28 @@ async def test_concurrent_batch_failures_report_one_consistent_batch_id(monkeypa
         raise AssertionError(prompt)
 
     monkeypatch.setattr(service, "_call_llm", fake_call_llm)
-    with pytest.raises(AIProviderRequestError) as excinfo:
-        await service._prepare_course_teaching_plan(
-            course_data=course_data,
-            plan=plan,
-            artifacts=None,
-            on_phase=None,
-            on_checkpoint=None,
-        )
+    await service._prepare_course_teaching_plan(
+        course_data=course_data,
+        plan=plan,
+        artifacts=None,
+        on_phase=None,
+        on_checkpoint=None,
+    )
 
     stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
-    assert stage["status"] == "failed"
-    assert stage["failed_batch_id"] == "TP-B02"
-    assert stage["failed_batch_ids"] == ["TP-B02", "TP-B04"]
-    assert stage["failed_batch_id"] in str(excinfo.value)
-    assert "TP-B04" not in str(excinfo.value)
-    assert stage["batches"]["TP-B02"]["status"] == "failed"
-    assert stage["batches"]["TP-B04"]["status"] == "failed"
+    assert stage["status"] == "completed"
+    assert stage["degraded"] is True
+    assert {item["unit"] for item in stage["fallback_units"]} == {
+        "TP-B02",
+        "TP-B04",
+    }
+    assert stage["batches"]["TP-B02"]["status"] == "completed"
+    assert stage["batches"]["TP-B04"]["status"] == "completed"
+    assert stage["batches"]["TP-B02"]["generation_source"] == (
+        "deterministic_local_fallback"
+    )
+    assert stage["batches"]["TP-B04"]["generation_source"] == (
+        "deterministic_local_fallback"
+    )
     assert stage["batches"]["TP-B01"]["status"] == "completed"
     assert stage["batches"]["TP-B03"]["status"] == "completed"

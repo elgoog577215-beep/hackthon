@@ -639,6 +639,32 @@ def build_final_course_quality_report(
     manual_review_nodes = [
         report.get("node_id") for report in node_reports if report.get("needs_manual_review")
     ]
+    teaching_stage = (
+        course_data.get("generation_stage_artifacts") or {}
+    ).get("course_teaching_plan") or {}
+    teaching_fallback_units = [
+        item
+        for item in teaching_stage.get("fallback_units") or []
+        if isinstance(item, dict)
+    ]
+    teaching_review_nodes = [
+        str(node_id)
+        for item in teaching_fallback_units
+        for node_id in item.get("section_ids") or []
+        if str(node_id)
+    ]
+    manual_review_nodes = list(dict.fromkeys([
+        *manual_review_nodes,
+        *teaching_review_nodes,
+    ]))
+    quality_warnings: list[dict[str, Any]] = []
+    if teaching_stage.get("degraded"):
+        quality_warnings.append(_issue(
+            "teaching_plan:local_fallback",
+            "major",
+            "部分教案单元使用了本地确定性保底，需要人工复核教学语义",
+            "重点复核标记小节的知识陈述、边界、易错和教学模块",
+        ))
     profile = coerce_persisted_profile(course_data)
     blueprint_report = course_data.get("blueprint_validation_report") or validate_blueprint(course_data.get("course_blueprint") or {})
     difficulty_alignment = build_difficulty_alignment_report(course_data)
@@ -715,6 +741,7 @@ def build_final_course_quality_report(
         if blueprint_report.get("passed") and difficulty_alignment.get("passed")
         and grounding_quality.get("passed") and knowledge_quality.get("strict_passed")
         and coherence_quality.get("strict_passed") and not weak_nodes
+        and not quality_warnings
         else "completed_with_warnings"
     )
     return {
@@ -745,6 +772,7 @@ def build_final_course_quality_report(
         "manual_review_required_nodes": manual_review_nodes,
         "publication_allowed": not blocking_issues,
         "blocking_issues": blocking_issues,
+        "warnings": quality_warnings,
         "material_coverage": grounding_quality["material_coverage"],
         "brief_satisfaction": {
             "subject": (course_data.get("course_generation_brief") or {}).get("subject"),

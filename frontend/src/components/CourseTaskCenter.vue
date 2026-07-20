@@ -53,7 +53,7 @@
                 <div>
                   <span class="status-chip" :data-status="selectedTask.status">{{ statusLabel(selectedTask.status, selectedTask.recovery) }}</span>
                   <h3>{{ selectedTask.courseName }}</h3>
-                  <p>{{ selectedTask.currentStep || phaseLabel(selectedTask.currentPhase, selectedTask.status) }}</p>
+                  <p>{{ taskStepLabel(selectedTask) }}</p>
                 </div>
                 <strong>{{ Math.round(selectedTask.progress) }}%</strong>
               </div>
@@ -189,7 +189,7 @@
                   </div>
                 </section>
                 <ul v-if="contentReviewIssues.length" class="release-issues">
-                  <li v-for="(issue, index) in contentReviewIssues" :key="`${issue.code || 'content-issue'}-${index}`">{{ issue.message || issue }}</li>
+                  <li v-for="(issue, index) in contentReviewIssues" :key="`${issue.code || 'content-issue'}-${index}`">{{ reviewIssueMessage(issue) }}</li>
                 </ul>
                 <div class="review-cards review-cards--compact">
                   <article v-for="(section, index) in reviewArtifact.sections || []" :key="section.node_id || index">
@@ -213,7 +213,7 @@
                   </div>
                 </div>
                 <ul v-if="releaseIssues.length" class="release-issues">
-                  <li v-for="(issue, index) in releaseIssues" :key="`${issue.code || 'issue'}-${index}`">{{ issue.message || issue }}</li>
+                  <li v-for="(issue, index) in releaseIssues" :key="`${issue.code || 'issue'}-${index}`">{{ reviewIssueMessage(issue) }}</li>
                 </ul>
               </template>
               <p v-else-if="reviewError" class="blueprint-error">{{ reviewError }}</p>
@@ -280,6 +280,7 @@ import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import { useGenerationStore } from '@/stores/generation'
 import type { GuidedGenerationStepKey, Task } from '@/stores/types'
 import { activeLocale, t } from '@/shared/i18n'
+import { courseProductionTaskDetail } from '@/utils/course-production'
 
 type TaskView = Task & { updatedAt?: string }
 
@@ -667,6 +668,18 @@ function learningAssetLabel(type: string) {
     chapter_progression_contracts: '章节进阶规则',
   }[type] || type)
 }
+function reviewIssueMessage(issue: any) {
+  if (String(issue?.code || '') === 'teaching_plan:local_fallback') {
+    return t(
+      'courseTasks.review.teachingPlanFallback',
+      '部分教案单元使用本地保底生成，请重点复核标记小节的教学语义。',
+    )
+  }
+  return String(issue?.message || issue || '')
+}
+function taskStepLabel(task: TaskView) {
+  return courseProductionTaskDetail(task) || phaseLabel(task.currentPhase, task.status)
+}
 function phaseLabel(phase: string | undefined, status: Task['status']) {
   const labels: Record<string, string> = {
     requirement_analysis: t('courseTasks.phases.requirementAnalysis', '整理课程需求'),
@@ -703,6 +716,7 @@ function phaseLabel(phase: string | undefined, status: Task['status']) {
     blueprint_validation: t('courseTasks.phases.blueprintValidation', '检查课程蓝图'),
     blueprint_ready: t('courseTasks.phases.blueprintReady', '等待确认课程蓝图'),
     content_generation: t('courseTasks.phases.contentGeneration', '生成课程内容'),
+    content_partial: t('courseTasks.phases.contentPartial', '正文已部分完成，可从保存点继续'),
     content_and_course_graph_generation: t('courseTasks.phases.contentAndCourseGraphGeneration', '恢复旧版正文与图谱并行检查点'),
     learning_assets: t('courseTasks.phases.learningAssets', '生成练习与综合测评'),
     question_bank: t('courseTasks.phases.questionBank', '整理题库、联网补充与风险审核'),

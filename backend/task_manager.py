@@ -187,7 +187,7 @@ def fix_latex_content(content: str) -> str:
     if not content:
         return content
     
-    def fix_aligned_env(match):
+    def fix_aligned_env(match: re.Match[str]) -> str:
         env_name = match.group(1)
         inner = match.group(2) if match.lastindex and match.lastindex >= 2 else ''
         
@@ -2532,7 +2532,7 @@ class TaskManager:
 
     async def _schedule_nodes(
         self, task_id: str, nodes: list[dict]
-    ) -> None:
+    ) -> bool:
         """按固定正文并发预算调度所有小节。
 
         `prerequisite_node_ids` 是学习顺序，不是正文生成依赖。正文只读取已经
@@ -2562,18 +2562,36 @@ class TaskManager:
             tasks.append(task_obj)
 
         if not tasks:
-            return
+            return True
         try:
             await asyncio.wait_for(
                 asyncio.gather(*tasks, return_exceptions=True),
                 timeout=self._content_stage_timeout_seconds,
             )
-        except asyncio.TimeoutError as exc:
-            raise CourseGenerationDeadlineExceeded(
-                "课程正文阶段超过硬时限："
-                f"{self._content_stage_timeout_seconds} 秒；"
-                "已停止未完成小节并保留草稿，可从检查点继续"
-            ) from exc
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Course content stage reached %ss; unfinished nodes were "
+                "cancelled with drafts preserved",
+                self._content_stage_timeout_seconds,
+            )
+            async with self._lock:
+                task = self.tasks.get(task_id)
+                if task:
+                    task["status"] = "paused"
+                    task["phase"] = "content_partial"
+                    task["current_phase"] = "content_partial"
+                    task["message"] = (
+                        "正文阶段达到总时限，已保留完成内容与草稿；"
+                        "可以从未完成小节继续"
+                    )
+                    task["error"] = None
+                    task["current_nodes"] = []
+                    task["current_node_name"] = ""
+                    task["updated_at"] = datetime.now().isoformat()
+                    self.save_tasks()
+            await self._push_progress(task_id)
+            return False
 
     async def _prepare_subject_knowledge(
         self,
@@ -3104,24 +3122,10 @@ class TaskManager:
                     ),
                 },
             )
-            try:
-                await self._schedule_nodes(task_id, incomplete_l2)
-            except CourseGenerationDeadlineExceeded as exc:
-                fresh_course = self._load_task_course(task_id) or course_data
-                stage = fresh_course.setdefault(
-                    "generation_stage_artifacts",
-                    {},
-                ).setdefault("content_generation", {})
-                stage.update({
-                    "status": "failed",
-                    "deadline_exceeded": True,
-                    "duration_ms": int(
-                        (time.monotonic() - content_started_at) * 1000
-                    ),
-                    "error": str(exc),
-                })
-                await self._save_task_course(task_id, fresh_course)
-                raise
+            completed_within_deadline = await self._schedule_nodes(
+                task_id,
+                incomplete_l2,
+            )
             fresh_course = self._load_task_course(task_id) or course_data
             generated_nodes = [
                 node
@@ -3158,6 +3162,11 @@ class TaskManager:
                 ),
                 "completed_section_count": completed_section_count,
                 "failed_section_count": failed_section_count,
+                "deadline_exceeded": completed_within_deadline is False,
+                "resume_available": (
+                    completed_within_deadline is False
+                    or completed_section_count < len(generated_nodes)
+                ),
                 "max_prompt_tokens": max(
                     (
                         int(item.get("estimated_input_tokens") or 0)
@@ -3171,6 +3180,11 @@ class TaskManager:
                 ),
             })
             await self._save_task_course(task_id, fresh_course)
+            if completed_within_deadline is False:
+                # Stay at a resumable checkpoint. A partial course must not
+                # advance into content confirmation or release preparation.
+                await self._push_progress(task_id)
+                return
 
         course_data = self._load_task_course(task_id) or course_data
         if guided and not guided_step_confirmed(guided_workflow, "content"):

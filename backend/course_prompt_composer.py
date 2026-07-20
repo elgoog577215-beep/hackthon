@@ -12,13 +12,19 @@ from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
 )
+from course_generation_adaptive import (
+    clip_text,
+    compact_batch_inputs,
+    compact_planning_context,
+    compact_value,
+)
 from course_knowledge_base import (
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
 )
 from course_pedagogy import TEMPLATES, SubjectPedagogyProfile, module_block_role
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v20"
+PROMPT_CONTRACT_VERSION = "course_prompt_v21"
 
 
 class CoursePromptComposer:
@@ -34,10 +40,50 @@ class CoursePromptComposer:
         adaptation_decision: dict[str, Any],
         material_context: str,
         max_sections: int = 24,
+        detail_level: str = "full",
     ) -> str:
         profile_data = profile.to_dict()
         primary = TEMPLATES[profile.primary_mode]
         guardrails = "\n".join(f"- {item}" for item in primary.quality_guardrails)
+        if detail_level != "full":
+            compact_chars = 240 if detail_level == "compact" else 120
+            compact_items = 10 if detail_level == "compact" else 5
+            subject = clip_text(subject, 240 if detail_level == "compact" else 120)
+            audience = clip_text(audience, 160 if detail_level == "compact" else 80)
+            brief = compact_value(
+                brief,
+                max_string_chars=compact_chars,
+                max_list_items=compact_items,
+                max_depth=4 if detail_level == "compact" else 3,
+            )
+            difficulty_profile = compact_value(
+                difficulty_profile,
+                max_string_chars=160 if detail_level == "compact" else 80,
+                max_list_items=8 if detail_level == "compact" else 4,
+                max_depth=3,
+            )
+            gap_assessment = compact_value(
+                gap_assessment,
+                max_string_chars=160 if detail_level == "compact" else 80,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
+            )
+            adaptation_decision = compact_value(
+                adaptation_decision,
+                max_string_chars=160 if detail_level == "compact" else 80,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
+            )
+            profile_data = compact_value(
+                profile_data,
+                max_string_chars=160 if detail_level == "compact" else 80,
+                max_list_items=8 if detail_level == "compact" else 4,
+                max_depth=3,
+            )
+            material_context = clip_text(
+                material_context,
+                5000 if detail_level == "compact" else 2200,
+            )
         return f"""## 输出契约
 你只负责生成供用户审阅的轻量课程目录，不生成知识点、知识关系、正文或练习。
 只输出有效 JSON，不输出寒暄、计划或 Markdown 代码围栏。
@@ -111,9 +157,10 @@ class CoursePromptComposer:
         issues: list[dict[str, Any]],
     ) -> str:
         issue_text = "\n".join(
-            f"- {item.get('message')}" for item in issues
+            f"- {clip_text(item.get('message'), 280)}" for item in issues[:12]
         ) or "- 上一次输出不是完整有效的 JSON"
         shape = brief.get("course_shape_constraints") or {}
+        original_prompt = clip_text(original_prompt, 9000)
         return f"""
 ## 轻量目录纠正任务
 
@@ -137,7 +184,25 @@ class CoursePromptComposer:
         positioning: str,
         learning_objectives: list[str],
         sections: list[dict[str, Any]],
+        detail_level: str = "full",
     ) -> str:
+        if detail_level != "full":
+            course_title = clip_text(
+                course_title, 180 if detail_level == "compact" else 96
+            )
+            positioning = clip_text(
+                positioning, 240 if detail_level == "compact" else 120
+            )
+            learning_objectives = [
+                clip_text(item, 180 if detail_level == "compact" else 96)
+                for item in learning_objectives[:8 if detail_level == "compact" else 4]
+            ]
+            sections = compact_value(
+                sections,
+                max_string_chars=180 if detail_level == "compact" else 96,
+                max_list_items=12 if detail_level == "compact" else 8,
+                max_depth=5 if detail_level == "compact" else 4,
+            )
         return f"""## 输出契约
 你一次性规划整门课所有小节的教案。目录已经冻结，不得修改章节、小节、顺序、
 目标或范围。教案确定本节知识、能力、掌握标准和需要额外强调的课程块职责；系统会
@@ -250,8 +315,9 @@ class CoursePromptComposer:
         issues: list[dict[str, Any]],
     ) -> str:
         issue_text = "\n".join(
-            f"- {item.get('message')}" for item in issues
+            f"- {clip_text(item.get('message'), 280)}" for item in issues[:12]
         ) or "- 上一次输出不是完整有效的 JSON"
+        original_prompt = clip_text(original_prompt, 9000)
         return f"""## 全课小节教案结构纠正
 
 上一次整课教案存在以下结构或引用错误：
@@ -270,14 +336,51 @@ class CoursePromptComposer:
         positioning: str,
         learning_objectives: list[str],
         planning_context: dict[str, Any],
+        detail_level: str = "full",
     ) -> str:
+        planning_context = compact_planning_context(
+            planning_context,
+            detail_level=detail_level,
+        )
         skeleton_context = self._compact_skeleton_planning_context(
             planning_context
         )
+        prior_registry = list(
+            skeleton_context.get("prior_knowledge_registry") or []
+        )
+        new_key_start = max(
+            1,
+            int(skeleton_context.get("new_knowledge_key_start") or 1),
+        )
+        new_key_example = f"K{new_key_start:03d}"
+        shard_contract = (
+            "这是全课骨架的后续分片。`prior_knowledge_registry` 是已经冻结的只读前序"
+            "知识：可以在 `prerequisite_keys` 或 `reused_knowledge_keys` 中引用，但不得"
+            "把它们重复放进本次 `knowledge_registry`。本次只返回输入中的当前小节和"
+            f"新知识；新知识键从 `{new_key_example}` 开始顺序编号，不得复用已有键。"
+            "系统会按目录顺序本地合并并校验稳定键。"
+            if prior_registry
+            else (
+                "这是首个或唯一骨架分片，只返回当前输入中的小节与新知识；"
+                f"新知识键从 `{new_key_example}` 开始顺序编号。"
+            )
+        )
+        if detail_level != "full":
+            course_title = clip_text(
+                course_title, 180 if detail_level == "compact" else 96
+            )
+            positioning = clip_text(
+                positioning, 260 if detail_level == "compact" else 120
+            )
+            learning_objectives = [
+                clip_text(item, 180 if detail_level == "compact" else 96)
+                for item in learning_objectives[:8 if detail_level == "compact" else 4]
+            ]
         return f"""## 全课知识职责骨架 V3
 
-你只做一次轻量的全局决策：冻结全课原子知识身份、唯一首次负责小节、合法复用、
-前置知识键和允许承担职责的课程块。不要展开能力、易错、掌握标准、正文或题目。
+你只做当前有界分片的全局身份决策：冻结原子知识身份、唯一首次负责小节、合法复用、
+前置知识键和允许承担职责的课程块；前序分片已经冻结的身份保持只读。不要展开能力、
+易错、掌握标准、正文或题目。
 目录已经冻结，不得增删、改名或调序。只输出有效 JSON。
 
 ## 课程
@@ -288,12 +391,16 @@ class CoursePromptComposer:
 ## 已去重的规划上下文
 {json.dumps(skeleton_context, ensure_ascii=False)}
 
+## 分片边界
+{shard_contract}
+
 ## 约束
-1. `sections` 必须按输入顺序完整返回全部 `node_id`。
-2. 每个知识点使用稳定、简短且全课唯一的 `knowledge_key`，如 `K001`；规范名称与
-   一句话陈述全课唯一，后续批次不得改名或改写。
-3. 每节通常首次负责 2-5 个可单独解释、练习和诊断的原子知识点；知识名不得复制
-   小节标题，也不得写成教学动作。
+1. `sections` 必须按输入顺序完整返回当前输入中的全部 `node_id`，不得返回输入之外的小节。
+2. 每个知识点使用稳定、简短且全课唯一的 `knowledge_key`，当前分片从
+   `{new_key_example}` 开始连续编号；规范名称与一句话陈述全课唯一，后续批次不得
+   改名或改写。
+3. 每节通常首次负责 2-4 个可单独解释、练习和诊断的原子知识点；名称和陈述必须
+   简洁，知识名不得复制小节标题，也不得写成教学动作。
 4. 每个键只有一个 `owner_node_id`。复用只能发生在负责小节之后，并同时登记到注册表
    的 `reused_in_node_ids` 与对应小节的 `reused_knowledge_keys`。
 5. `prerequisite_keys` 只能引用当前知识之前已经定义的键；没有前置时留空。
@@ -373,8 +480,9 @@ class CoursePromptComposer:
         issues: list[dict[str, Any]],
     ) -> str:
         issue_text = "\n".join(
-            f"- {item.get('message')}" for item in issues
+            f"- {clip_text(item.get('message'), 280)}" for item in issues[:12]
         ) or "- 上一次输出不是完整有效的骨架 JSON"
+        original_prompt = clip_text(original_prompt, 8500)
         return f"""## 全课知识职责骨架 V3 纠正
 
 上一次骨架存在以下结构或引用错误：
@@ -396,7 +504,32 @@ class CoursePromptComposer:
         section_identities: list[dict[str, Any]],
         module_catalog: list[dict[str, Any]],
         skeleton_revision_id: str,
+        detail_level: str = "full",
     ) -> str:
+        bounded = compact_batch_inputs(
+            batch_sections=batch_sections,
+            knowledge_registry=knowledge_registry,
+            section_identities=section_identities,
+            module_catalog=module_catalog,
+            detail_level=detail_level,
+        )
+        batch_sections = bounded["batch_sections"]
+        knowledge_registry = bounded["knowledge_registry"]
+        section_identities = bounded["section_identities"]
+        module_catalog = bounded["module_catalog"]
+        if detail_level != "full":
+            course_title = clip_text(
+                course_title, 180 if detail_level == "compact" else 96
+            )
+            positioning = clip_text(
+                positioning, 240 if detail_level == "compact" else 120
+            )
+            batch_spec = compact_value(
+                batch_spec,
+                max_string_chars=96,
+                max_list_items=8,
+                max_depth=2,
+            )
         return f"""## 详细小节教案批次 V3
 
 全课知识身份已经冻结。你只展开当前批次，不得新增、删除、改名或迁移知识键；不得
@@ -490,8 +623,9 @@ class CoursePromptComposer:
         issues: list[dict[str, Any]],
     ) -> str:
         issue_text = "\n".join(
-            f"- {item.get('message')}" for item in issues
+            f"- {clip_text(item.get('message'), 280)}" for item in issues[:12]
         ) or "- 上一次输出不是完整有效的批次 JSON"
+        original_prompt = clip_text(original_prompt, 8500)
         return f"""## 详细教案批次 V3 纠正
 
 当前批次存在以下结构或引用错误：
@@ -509,23 +643,64 @@ class CoursePromptComposer:
         node: dict[str, Any],
         context: str,
         existing_draft: str = "",
+        detail_level: str = "full",
     ) -> tuple[str, str]:
         profile = course_data.get("subject_pedagogy_profile") or {}
         difficulty_profile = course_data.get("difficulty_profile") or {}
         difficulty_contract = node.get("difficulty_contract") or {}
         modules = node.get("module_plan") or []
-        module_contract = "\n".join(
-            (
-                f"- {'必需' if item.get('required', True) else '可选'}模块 "
-                f"`## {item.get('label')}` "
-                f"[角色={item.get('block_role') or module_block_role(item.get('module_id'))}] "
-                f"[来源={item.get('composition_source') or 'subject_required'}；"
-                f"实例={item.get('module_instance_id') or item.get('module_id')}；"
-                f"难度={format_block_difficulty(item.get('block_difficulty_contract') or {})}]："
-                f"{item.get('output_contract')}；{item.get('prompt_instruction')}"
+        composition_profile = course_data.get("course_composition_profile") or {}
+        if detail_level != "full":
+            max_text = 180 if detail_level == "compact" else 96
+            profile = compact_value(
+                profile,
+                max_string_chars=max_text,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
             )
-            for item in modules
-        )
+            difficulty_profile = compact_value(
+                difficulty_profile,
+                max_string_chars=max_text,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
+            )
+            difficulty_contract = compact_value(
+                difficulty_contract,
+                max_string_chars=max_text,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
+            )
+            composition_profile = compact_value(
+                composition_profile,
+                max_string_chars=max_text,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
+            )
+            context = clip_text(
+                context,
+                4200 if detail_level == "compact" else 700,
+            )
+        if detail_level == "minimal":
+            module_contract = "\n".join(
+                f"- `## {clip_text(item.get('label') or item.get('module_id'), 48)}`："
+                f"{clip_text(item.get('output_contract') or item.get('prompt_instruction'), 80)}"
+                for item in modules[:12]
+                if isinstance(item, dict)
+            )
+        else:
+            module_contract = "\n".join(
+                (
+                    f"- {'必需' if item.get('required', True) else '可选'}模块 "
+                    f"`## {clip_text(item.get('label'), 80) if detail_level == 'compact' else item.get('label')}` "
+                    f"[角色={item.get('block_role') or module_block_role(item.get('module_id'))}] "
+                    f"[来源={item.get('composition_source') or 'subject_required'}；"
+                    f"实例={item.get('module_instance_id') or item.get('module_id')}；"
+                    f"难度={format_block_difficulty(item.get('block_difficulty_contract') or {})}]："
+                    f"{clip_text(item.get('output_contract'), 180) if detail_level == 'compact' else item.get('output_contract')}；"
+                    f"{clip_text(item.get('prompt_instruction'), 180) if detail_level == 'compact' else item.get('prompt_instruction')}"
+                )
+                for item in modules
+            )
         continuation = bool(existing_draft.strip())
         grounding_contract = node.get("grounding_contract") or {}
         allowed_evidence = list(dict.fromkeys(
@@ -539,14 +714,123 @@ class CoursePromptComposer:
             course_data,
             str(node.get("node_id") or ""),
         )
+        if detail_level == "compact":
+            course_knowledge_context = clip_text(course_knowledge_context, 3200)
+            coherence_context = clip_text(coherence_context, 1800)
+        elif detail_level == "minimal":
+            course_knowledge_context = clip_text(course_knowledge_context, 900)
+            coherence_context = clip_text(coherence_context, 420)
         continuation_contract = ""
         if continuation:
-            compact_draft = self._compact_continuation_draft(existing_draft)
+            compact_draft = self._compact_continuation_draft(
+                existing_draft,
+                max_chars=(
+                    6000
+                    if detail_level == "full"
+                    else 2600
+                    if detail_level == "compact"
+                    else 700
+                ),
+            )
             continuation_contract = f"""
 ## 已保存草稿的有界恢复上下文
 {compact_draft}
 
 只输出从草稿最后一个完整句子之后开始的续写内容。不要重复标题和已有段落，不要解释你在续写。"""
+
+        if detail_level == "minimal":
+            node_name = clip_text(node.get("node_name"), 96)
+            objective = clip_text(node.get("learning_objective"), 160)
+            scope = clip_text(node.get("scope_boundary"), 160)
+            key_points = "；".join(
+                clip_text(item, 72) for item in (node.get("key_points") or [])[:8]
+            )
+            assessments = "；".join(
+                clip_text(item, 80) for item in (node.get("assessment") or [])[:4]
+            )
+            evidence_ids = "；".join(allowed_evidence[:12]) or "无"
+            system_prompt = f"""## 有界正文生成契约
+只输出当前小节可保存的 Markdown 正文，不输出解释、计划或任务复述。
+按下列顺序和原始标签完整输出每个 `##` 教学模块；不得重写课程目录或提前讲后续小节。
+每个模块首段必须明确写出负责的知识规范名称。例子、练习与检查必须共享同一知识口径。
+不得编造来源；使用资料事实时追加 `[[evidence:证据ID]]`，且只能用允许列表中的 ID。
+数学使用 `$...$` 或 `$$...$$`；列表使用真实 Markdown 语法。
+
+## 当前小节
+- 课程：{clip_text(course_data.get('course_name'), 96)}
+- 节点：{node_name}
+- 目标：{objective}
+- 知识：{key_points or '按当前知识库契约'}
+- 范围：{scope or '只完成当前小节责任'}
+- 验收：{assessments or '给出可检查的学习任务'}
+
+## 当前课程知识库（当前节点切片）
+{course_knowledge_context}
+
+## 教学模块
+{module_contract or '- `## 核心教学`：解释、示例、行动与检查。'}
+
+## 允许证据
+{evidence_ids}
+
+## 持久化上下文（已压缩）
+{context or '无额外资料或前序摘要。'}
+{continuation_contract}
+"""
+            user_prompt = (
+                f"续写「{node_name}」，只输出追加正文。"
+                if continuation
+                else f"撰写「{node_name}」正文，只输出 Markdown。"
+            )
+            return user_prompt, system_prompt
+
+        course_name = (
+            clip_text(course_data.get("course_name"), 180)
+            if detail_level == "compact"
+            else course_data.get("course_name", "")
+        )
+        audience = (
+            clip_text(course_data.get("target_audience", "大学生"), 120)
+            if detail_level == "compact"
+            else course_data.get("target_audience", "大学生")
+        )
+        node_name = (
+            clip_text(node.get("node_name"), 160)
+            if detail_level == "compact"
+            else node.get("node_name", "")
+        )
+        learning_objective = (
+            clip_text(node.get("learning_objective"), 260)
+            if detail_level == "compact"
+            else node.get("learning_objective", "")
+        )
+        key_points = [
+            clip_text(item, 120)
+            for item in (node.get("key_points") or [])[:12]
+        ] if detail_level == "compact" else list(node.get("key_points") or [])
+        knowledge_structure = (
+            compact_value(
+                node.get("knowledge_structure") or [],
+                max_string_chars=180,
+                max_list_items=8,
+                max_depth=4,
+            )
+            if detail_level == "compact"
+            else node.get("knowledge_structure", [])
+        )
+        misconceptions = [
+            clip_text(item, 120)
+            for item in (node.get("misconceptions") or [])[:8]
+        ] if detail_level == "compact" else list(node.get("misconceptions") or [])
+        assessment = [
+            clip_text(item, 140)
+            for item in (node.get("assessment") or [])[:6]
+        ] if detail_level == "compact" else list(node.get("assessment") or [])
+        scope_boundary = (
+            clip_text(node.get("scope_boundary"), 260)
+            if detail_level == "compact"
+            else node.get("scope_boundary", "")
+        )
 
         system_prompt = f"""## 输出契约
 1. 只输出可直接保存的 Markdown 正文或续写，不输出寒暄、身份、计划、边界确认或任务复述。
@@ -558,32 +842,32 @@ class CoursePromptComposer:
 7. 证据标记不是参考文献装饰，不能把讲法参考或弱背景伪装成事实来源。
 8. 输出前完成内部一致性检查；正文不得保留“我的计算有误”“等待，更正”“请重新检查任务”等模型自我纠错痕迹，也不得让题干、答案和量规互相矛盾。
 9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和掌握标准，不得各写各的。
-10. 当前节点名称已经由页面显示，正文不得再次把“{node.get('node_name', '')}”写成二级标题，也不得输出只有标题没有正文的空模块。
+10. 当前节点名称已经由页面显示，正文不得再次把“{node_name}”写成二级标题，也不得输出只有标题没有正文的空模块。
 11. 每个 `##` 教学块必须在首段明确写出它实际讲解、练习或检查的一个或多个知识点规范名称；不得只用“本概念”“上述方法”等代词。规范名称来自下方“当前课程知识库契约”，用于建立正文块到知识点的精确绑定。
 12. `## 检查与反馈` 是静态检查参考，不得声称已经评价当前学生。对应多个学习任务时，每个任务必须使用 `### 任务 N：名称` 作为内部边界，并在任务内清楚区分核对标准、参考结论、推导依据和典型错误；不得把所有答案压成一个长段落。
 13. Markdown 列表必须使用真实的 `1.` 或 `-` 列表语法并保留必要空行。任务级标题使用 `###`，不要用单独一行加粗文字伪装标题。
 14. 数学表达必须使用 `$...$` 或 `$$...$$`，反引号只用于代码标识、命令或程序片段；不得用反引号书写幂、上下标、分式、复杂度或数学关系。
 
 ## 课程
-- 名称：{course_data.get('course_name', '')}
-- 学习对象：{course_data.get('target_audience', '大学生')}
+- 名称：{course_name}
+- 学习对象：{audience}
 - 教学画像：{json.dumps(profile, ensure_ascii=False)}
 
 ## 课程块编排画像
-{format_composition_profile(course_data.get('course_composition_profile') or {})}
+{format_composition_profile(composition_profile)}
 
 ## 全课难度能力契约
 {format_difficulty_profile(difficulty_profile)}
 
 ## 当前节点契约
-- 节点：{node.get('node_name', '')}
-- 学习目标：{node.get('learning_objective', '')}
-- 知识点：{'；'.join(node.get('key_points', []))}
-- 细知识结构：{json.dumps(node.get('knowledge_structure', []), ensure_ascii=False)}
+- 节点：{node_name}
+- 学习目标：{learning_objective}
+- 知识点：{'；'.join(key_points)}
+- 细知识结构：{json.dumps(knowledge_structure, ensure_ascii=False)}
 - 前置节点：{'；'.join(node.get('prerequisite_node_ids', []))}
-- 常见误区：{'；'.join(node.get('misconceptions', []))}
-- 验收标准：{'；'.join(node.get('assessment', []))}
-- 范围边界：{node.get('scope_boundary', '')}
+- 常见误区：{'；'.join(misconceptions)}
+- 验收标准：{'；'.join(assessment)}
+- 范围边界：{scope_boundary}
 
 ## 当前课程知识身份边界
 {knowledge_context}
@@ -616,9 +900,9 @@ class CoursePromptComposer:
 {continuation_contract}
 """
         user_prompt = (
-            f"继续撰写「{node.get('node_name', '')}」，只输出追加正文。"
+            f"继续撰写「{node_name}」，只输出追加正文。"
             if continuation
-            else f"撰写「{node.get('node_name', '')}」完整正文，只输出 Markdown。"
+            else f"撰写「{node_name}」完整正文，只输出 Markdown。"
         )
         return user_prompt, system_prompt
 
@@ -631,8 +915,11 @@ class CoursePromptComposer:
         if len(content) <= max_chars:
             return content
         headings = re.findall(r"(?m)^#{1,3}\s+(.+)$", content)
-        heading_text = "；".join(headings[-12:]) or "未识别到模块标题"
-        tail_budget = max(1200, max_chars - len(heading_text) - 120)
+        heading_text = clip_text(
+            "；".join(headings[-12:]) or "未识别到模块标题",
+            min(900, max(100, max_chars // 3)),
+        )
+        tail_budget = max(120, max_chars - len(heading_text) - 120)
         return (
             f"- 已完成模块：{heading_text}\n"
             f"- 已省略较早草稿 {len(content) - tail_budget} 个字符；"

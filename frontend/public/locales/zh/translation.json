@@ -180,6 +180,7 @@
       "blueprintValidation": "检查课程蓝图",
       "blueprintReady": "等待确认课程蓝图",
       "contentGeneration": "生成课程内容",
+      "contentPartial": "正文已部分完成，可从保存点继续",
       "contentAndCourseGraphGeneration": "恢复旧版正文与图谱并行检查点",
       "learningAssets": "编译课程练习与掌握标准",
       "questionAnalysis": "编译题目考查与答案合同",
@@ -235,6 +236,7 @@
       "teachingHelp": "确认每节的讲法、例子和练习安排；确认后才会生成完整内容。",
       "contentTitle": "审阅课程内容",
       "contentHelp": "小节教案、知识库与关系图已由同一计划编译；进入学习现场检查正文后确认。",
+      "teachingPlanFallback": "部分教案单元使用本地保底生成，请重点复核标记小节的教学语义。",
       "releaseTitle": "确认并发布",
       "releaseHelp": "确认结构、引用和同源版本链完整后发布；这里不再调用 AI 评分或重写。",
       "conceptGroups": "概念组",
@@ -429,6 +431,11 @@
       "planCount": "{count} 项课程变化，确认后一次写入",
       "currentGroup": "当前位置",
       "nextGroup": "相关后续"
+    },
+    "applicationVisual": {
+      "courseEyebrow": "AI 个体化课程",
+      "newVersion": "新版本已应用",
+      "blockBadge": "AI 个体化补充"
     },
     "locateEvidence": "回到证据位置",
     "diagnosis": "AI 学习判断",
@@ -1119,6 +1126,7 @@
       "recoveryOutline": "课程需求与资料处理结果已保留；继续后会重新生成课程目录。",
       "recoveryTeaching": "已完成的全局骨架与详细教案批次会被复用，只重做当前未完成批次。",
       "recoveryContent": "已保存 {count} 节正文；继续后从未完成小节恢复。",
+      "contentPartial": "正文生成达到本轮总时限；已完成内容和草稿均已保存，可以从未完成小节继续。",
       "recoveryRelease": "课程正文与正式引用已经保存；继续后只重新执行发布前检查。",
       "recoveryPaused": "课程生产已停在完整检查点，继续时不会新建重复课程。",
       "recoveryQuality": "发布检查发现阻断项；修复后可从当前现场继续。",
@@ -1462,6 +1470,7 @@
       "blueprint_validation": "检查课程蓝图",
       "blueprint_ready": "等待蓝图确认",
       "content_generation": "生成课程正文",
+      "content_partial": "正文已部分完成，可从保存点继续",
       "content_and_course_graph_generation": "恢复旧版正文与图谱并行检查点",
       "learning_assets": "编译学习资产",
       "content_validation": "检查结构、引用与资产完整性",

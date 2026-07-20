@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,7 @@ from course_generation_budget import (
 )
 from course_prompt_composer import CoursePromptComposer
 from course_service import CourseService
+from models import NodeGenerationConfig
 
 
 class _CountingCompletions:
@@ -93,6 +95,16 @@ def test_environment_cannot_disable_course_generation_hard_caps(
     assert budget.content_stage_timeout_seconds == 900
 
 
+def test_default_content_waves_fit_inside_stage_deadline():
+    budget = CourseGenerationBudget()
+    worst_case_seconds = (
+        math.ceil(budget.max_sections / budget.content_concurrency)
+        * budget.content_node_timeout_seconds
+    )
+
+    assert worst_case_seconds <= budget.content_stage_timeout_seconds
+
+
 def test_oversized_course_scope_fails_before_outline_generation():
     budget = CourseGenerationBudget(max_sections=24)
 
@@ -125,6 +137,242 @@ def test_token_estimate_treats_chinese_as_near_token_per_character():
     )
 
     assert estimated >= 4_000
+
+
+@pytest.mark.asyncio
+async def test_outline_compacts_forty_thousand_character_requirement_before_api(
+    monkeypatch,
+):
+    service = CourseService()
+    payloads = []
+
+    async def fake_call(prompt, system_prompt, **kwargs):
+        payloads.append((prompt, system_prompt, kwargs))
+        return """{
+          "course_title": "结构化课程",
+          "positioning": "完成一个可检查成果",
+          "learning_objectives": ["解释并应用核心方法"],
+          "prerequisites": [],
+          "chapters": [{
+            "chapter_number": 1,
+            "title": "基础",
+            "learning_focus": "建立核心能力",
+            "sections": [{
+              "node_id": "L2-1-1",
+              "section_number": "1.1",
+              "title": "核心方法",
+              "learning_objective": "能解释并应用核心方法",
+              "prerequisite_node_ids": [],
+              "assessment": ["完成一次应用任务"],
+              "scope_boundary": "只覆盖当前方法"
+            }]
+          }]
+        }"""
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    result = await service.build_course_draft(
+        course_id="course-long-requirement",
+        topic="课程生成结构",
+        requirements="掌握课程生成结构；" * 4_000,
+        stop_after_outline=True,
+    )
+
+    assert len(payloads) == 1
+    user_prompt, system_prompt, kwargs = payloads[0]
+    assert len(user_prompt) + len(system_prompt) <= 20_000
+    assert AIBase.estimate_request_tokens(
+        user_prompt,
+        system_prompt,
+    ) <= 7_000
+    assert kwargs["max_input_chars"] == 20_000
+    assert kwargs["max_input_tokens"] == 7_000
+    outline_stage = result["generation_stage_artifacts"]["outline"]
+    assert outline_stage["adaptive_compaction_count"] == 1
+    assert outline_stage["prompt_detail_levels"][-1] in {
+        "compact",
+        "minimal",
+    }
+
+
+@pytest.mark.asyncio
+async def test_node_content_uses_minimal_semantic_prompt_instead_of_failing(
+    monkeypatch,
+):
+    service = CourseService()
+    captured = {}
+    node = {
+        "node_id": "L2-1-1",
+        "node_level": 2,
+        "node_name": "超长小节",
+        "learning_objective": "理解核心机制",
+        "scope_boundary": "只覆盖当前机制",
+        "key_points": ["稳定知识"],
+        "knowledge_structure": [{
+            "concept_group": "核心",
+            "knowledge_points": [{
+                "name": "稳定知识",
+                "statement": "稳定知识具有明确条件与边界",
+            }],
+        }],
+        "assessment": ["完成一次应用任务"],
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心讲解",
+            "required": True,
+            "output_contract": "解释稳定知识并给出边界",
+        }],
+        "difficulty_contract": {},
+        "grounding_contract": {},
+    }
+    course = {
+        "course_id": "course-long-node",
+        "course_name": "长上下文课程",
+        "course_generation_brief": {
+            "style_requirements": ["少废话"],
+            "raw_requirement": "要求" * 40_000,
+        },
+        "subject_pedagogy_profile": {"notes": "画像" * 40_000},
+        "difficulty_profile": {"notes": "难度" * 40_000},
+        "course_composition_profile": {"notes": "编排" * 40_000},
+        "nodes": [node],
+    }
+
+    async def fake_stream(**kwargs):
+        captured.update(kwargs)
+        yield "## 核心讲解\n\n稳定知识具有明确条件与边界，并可用于应用任务。"
+
+    monkeypatch.setattr(service, "_stream_llm", fake_stream)
+    chunks = []
+
+    async def on_chunk(chunk):
+        chunks.append(chunk)
+
+    content = await service.generate_node_content_stream(
+        course_id=course["course_id"],
+        node=node,
+        config=NodeGenerationConfig(custom_instruction="指令" * 40_000),
+        on_chunk=on_chunk,
+        course_data=course,
+    )
+
+    assert "稳定知识" in content
+    assert len(captured["prompt"]) + len(captured["system_prompt"]) <= 20_000
+    assert AIBase.estimate_request_tokens(
+        captured["prompt"],
+        captured["system_prompt"],
+    ) <= 7_000
+    runtime = node["generation_runtime"]
+    assert runtime["prompt_detail_level"] == "minimal"
+    assert runtime["adaptive_compaction"] is True
+    assert runtime["generation_source"] == "model"
+
+
+@pytest.mark.asyncio
+async def test_node_provider_failure_degrades_only_that_node(monkeypatch):
+    service = CourseService()
+    node = {
+        "node_id": "L2-1-1",
+        "node_level": 2,
+        "node_name": "稳定性",
+        "learning_objective": "能解释稳定性",
+        "scope_boundary": "只覆盖当前小节",
+        "key_points": ["故障隔离"],
+        "assessment": ["说明一次局部降级"],
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心讲解",
+            "required": True,
+            "output_contract": "解释故障隔离",
+        }],
+        "difficulty_contract": {},
+        "grounding_contract": {},
+    }
+    course = {
+        "course_id": "course-provider-fallback",
+        "course_name": "稳定性课程",
+        "course_generation_brief": {},
+        "nodes": [node],
+    }
+
+    async def failed_stream(**_kwargs):
+        if False:
+            yield ""
+        raise AIRequestBudgetExceeded("模拟提供方前置失败")
+
+    monkeypatch.setattr(service, "_stream_llm", failed_stream)
+    chunks = []
+
+    async def on_chunk(chunk):
+        chunks.append(chunk)
+
+    content = await service.generate_node_content_stream(
+        course_id=course["course_id"],
+        node=node,
+        config=NodeGenerationConfig(),
+        on_chunk=on_chunk,
+        course_data=course,
+    )
+
+    assert "## 核心讲解" in content
+    assert node["generation_runtime"]["generation_source"] == (
+        "deterministic_local_fallback"
+    )
+    assert node["needs_manual_review"] is True
+
+
+@pytest.mark.asyncio
+async def test_node_provider_failure_preserves_existing_draft_for_resume(
+    monkeypatch,
+):
+    service = CourseService()
+    node = {
+        "node_id": "L2-1-1",
+        "node_level": 2,
+        "node_name": "草稿恢复",
+        "learning_objective": "完成当前小节",
+        "scope_boundary": "只覆盖当前小节",
+        "key_points": ["恢复边界"],
+        "assessment": ["说明恢复边界"],
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心讲解",
+            "required": True,
+            "output_contract": "解释恢复边界",
+        }],
+        "difficulty_contract": {},
+        "grounding_contract": {},
+    }
+    course = {
+        "course_id": "course-draft-resume",
+        "course_name": "草稿恢复课程",
+        "course_generation_brief": {},
+        "nodes": [node],
+    }
+
+    async def failed_stream(**_kwargs):
+        if False:
+            yield ""
+        raise AIRequestBudgetExceeded("模拟续写失败")
+
+    monkeypatch.setattr(service, "_stream_llm", failed_stream)
+    chunks = []
+
+    async def on_chunk(chunk):
+        chunks.append(chunk)
+
+    with pytest.raises(AIRequestBudgetExceeded, match="模拟续写失败"):
+        await service.generate_node_content_stream(
+            course_id=course["course_id"],
+            node=node,
+            config=NodeGenerationConfig(),
+            on_chunk=on_chunk,
+            course_data=course,
+            existing_draft="## 已生成草稿\n\n保留这段真实内容。",
+        )
+
+    assert chunks == []
+    assert node["generation_runtime"]["continued_from_chars"] > 0
+    assert node["generation_runtime"]["generation_source"] == "model"
 
 
 def test_parallel_node_context_never_depends_on_generated_predecessor_body():

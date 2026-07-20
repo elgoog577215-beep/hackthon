@@ -61,6 +61,17 @@ export function canResumeCourseProduction(task?: Task): boolean {
   return task.status === 'paused' || task.status === 'error'
 }
 
+export function courseProductionTaskDetail(task?: Task): string {
+  if (!task) return ''
+  if (task.currentPhase === 'content_partial') {
+    return t(
+      'courseGeneration.production.contentPartial',
+      '正文生成达到本轮总时限；已完成内容和草稿均已保存，可以从未完成小节继续。',
+    )
+  }
+  return task.currentStep || ''
+}
+
 export function courseProductionRecoveryDetail(task?: Task): string {
   const checkpoint = task?.recovery?.checkpoint
   const stage = courseProductionStageKey(task)
