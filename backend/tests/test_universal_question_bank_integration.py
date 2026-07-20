@@ -134,15 +134,33 @@ def test_question_bank_builds_v2_candidates_for_every_subject_family(
         item["question_spec"]["schema_version"]
         for item in generated
     } == {"question_spec_v2"}
-    assert {
+    slots = {
+        slot["practice_level"]: slot
+        for slot in bundle["assessment_blueprint"]["nodes"][0][
+            "slots"
+        ]
+    }
+    assert archetype_id in {
         item["archetype_id"]
         for item in generated
-    } == {archetype_id}
-    assert {
-        item["question_type"]
+    }
+    assert len({
+        item["input_contract"]["mode"]
         for item in generated
-    } == {"single_choice"}
-    assert all(len(item["options"]) == 4 for item in generated)
+    }) >= 2
+    for item in generated:
+        slot = slots[item["practice_levels"][0]]
+        assert item["archetype_id"] == slot["archetype_id"]
+        assert item["question_type"] == slot["question_type"]
+        assert item["input_contract"]["mode"] == slot["input_mode"]
+        assert (
+            item["compiled_contract_validation"]["passed"]
+            is True
+        )
+        if slot["input_mode"] == "choice":
+            assert len(item["options"]) >= 2
+        else:
+            assert item["options"] == []
     assert all(item["generation_status"] for item in generated)
     assert all(
         item["lifecycle_status"] in {"approved", "needs_review"}
@@ -225,7 +243,7 @@ def test_question_bank_filters_v2_generation_metadata():
     )
 
 
-def test_low_risk_deterministic_questions_auto_publish():
+def test_only_independently_validated_fallback_questions_auto_publish():
     course = _course(
         course_id="course-programming-diagnostics",
         mode="programming_engineering",
@@ -246,18 +264,27 @@ def test_low_risk_deterministic_questions_auto_publish():
     ]
 
     assert len(practice) == 3
-    assert {
-        item["review_tier"] for item in practice
-    } == {"auto_publish"}
-    assert all(
-        item["lifecycle_status"] == "approved"
-        and item["generation_status"] == "published"
-        and not item["review_required"]
+    concept = next(
+        item
         for item in practice
+        if item["practice_levels"] == ["concept_check"]
+    )
+    assert concept["review_tier"] == "auto_publish"
+    assert concept["lifecycle_status"] == "approved"
+    open_tasks = [
+        item
+        for item in practice
+        if item["practice_levels"] != ["concept_check"]
+    ]
+    assert all(
+        item["review_tier"] == "mandatory_review"
+        and item["lifecycle_status"] == "needs_review"
+        and item["generation_status"] == "waiting_review"
+        for item in open_tasks
     )
 
 
-def test_valid_question_families_do_not_create_teacher_tasks():
+def test_fallback_open_questions_require_independent_review():
     course = _course(
         course_id="course-family-sample",
         mode="programming_engineering",
@@ -277,13 +304,16 @@ def test_valid_question_families_do_not_create_teacher_tasks():
         if item.get("assessment_role") == "practice"
     ]
     assert len(practice) == 3
-    assert all(
+    assert sum(
         item["review_tier"] == "auto_publish"
         and item["lifecycle_status"] == "approved"
-        and item["review_status"] == "approved"
-        and item["generation_status"] == "published"
         for item in practice
-    )
+    ) == 1
+    assert sum(
+        item["review_tier"] == "mandatory_review"
+        and item["lifecycle_status"] == "needs_review"
+        for item in practice
+    ) == 2
     assert bundle["review_queue"]["sample_count"] == 0
     assert bundle["review_queue"]["sample_items"] == []
     assert bundle["review_policy"][

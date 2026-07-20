@@ -288,6 +288,27 @@ def compile_learning_assets(
                 "answer_spec": deepcopy(
                     contract_source.get("answer_spec") or {}
                 ),
+                "input_contract": deepcopy(
+                    contract_source.get("input_contract") or {}
+                ),
+                "grading_policy": deepcopy(
+                    contract_source.get("grading_policy") or {}
+                ),
+                "validation_policy": deepcopy(
+                    contract_source.get("validation_policy") or {}
+                ),
+                "validation_mode": contract_source.get(
+                    "validation_mode"
+                ),
+                "compiled_contract_hash": contract_source.get(
+                    "compiled_contract_hash"
+                ),
+                "compiled_contract_validation": deepcopy(
+                    contract_source.get(
+                        "compiled_contract_validation"
+                    )
+                    or {}
+                ),
                 "difficulty_contract": deepcopy(node.get("difficulty_contract") or {}),
                 "evidence_ids": evidence_ids,
                 "source_status": "grounded" if evidence_ids else "course_structure",

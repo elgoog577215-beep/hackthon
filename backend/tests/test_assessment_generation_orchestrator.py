@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+import pytest
 
 from ai_base import AIProviderRequestError
 from assessment_orchestrator import (
@@ -355,6 +356,8 @@ async def test_orchestrator_uses_bounded_repair_and_isolates_solver():
     assert audit["repair_calls"] == 1
     assert audit["max_repairs_per_question"] == 3
     assert audit["schema_version"] == "question_generation_audit_v2"
+    assert audit["first_pass_pass_count"] == 2
+    assert audit["first_pass_pass_rate"] == pytest.approx(2 / 3, abs=0.001)
 
 
 async def test_three_disagreements_discard_only_failed_slot():
@@ -407,6 +410,13 @@ async def test_prepared_contracts_drive_diverse_question_bank_items():
     assert bundle["solution_envelopes"][
         numeric["solution_revision_id"]
     ]["canonical_answer"] == {"value": 12, "unit": "kJ"}
+    assert numeric["design_brief_summary"][
+        "schema_version"
+    ] == "question_design_brief_v1"
+    assert numeric["semantic_preflight"]["passed"] is True
+    assert numeric["material_bindings"]
+    assert "content_coverage" in bundle["reference_package"]
+    assert "method_coverage" in bundle["reference_package"]
     assert bundle["assessment_blueprint"][
         "schema_version"
     ] == "course_assessment_blueprint_v2"

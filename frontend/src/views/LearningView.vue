@@ -310,6 +310,8 @@ const phaseElapsedSeconds = ref(0)
 const phaseStartedAt = ref(Date.now())
 const generationActionBusy = ref(false)
 const showProductionStatus = ref(true)
+const practiceApiNodeId = ref('')
+let practiceAvailabilityRequest = 0
 let phaseTimer: number | null = null
 const loadedLearningCourseId = ref('')
 const activeDomain = ref<'course' | 'notebook' | 'mistake-book' | 'overview' | 'knowledge-library' | 'assistant'>('course')
@@ -383,7 +385,10 @@ const currentPracticeNode = computed(() => {
   )
   const visitedNodeIds = new Set<string>()
   while (candidate && !visitedNodeIds.has(candidate.node_id)) {
-    if (questionNodeIds.has(candidate.node_id)) return candidate
+    if (
+      questionNodeIds.has(candidate.node_id)
+      || practiceApiNodeId.value === candidate.node_id
+    ) return candidate
     visitedNodeIds.add(candidate.node_id)
     candidate = courseStore.nodes.find(node => node.node_id === candidate?.parent_node_id) || null
   }
@@ -411,6 +416,17 @@ const showMobileResumePrompt = computed(() => Boolean(
   && !courseStore.isFocusMode
   && !isGenerationPreview.value,
 ))
+
+watch(
+  () => [
+    courseStore.currentCourseId,
+    courseStore.currentNode?.node_id,
+    workspaceStore.assets?.bundle_revision_id,
+    workspaceStore.assets?.assets?.questions?.length,
+  ],
+  () => { void refreshCurrentPracticeAvailability() },
+  { immediate: true },
+)
 
 watch(() => route.params.courseId, async value => {
   if (!value) return
@@ -502,6 +518,50 @@ watch(() => courseStore.currentNode, async node => {
     await learningProgressStore.loadRuntime(courseStore.currentCourseId, node.node_id)
   }
 })
+
+async function refreshCurrentPracticeAvailability() {
+  const request = ++practiceAvailabilityRequest
+  practiceApiNodeId.value = ''
+  if (
+    isGenerationPreview.value
+    || !courseStore.currentCourseId
+    || !courseStore.currentNode
+    || questionBankRepairAvailable.value
+  ) return
+
+  const questionNodeIds = new Set(
+    (workspaceStore.assets?.assets?.questions || [])
+      .map(question => String(question.node_id || ''))
+      .filter(Boolean),
+  )
+  const candidates: Node[] = []
+  const visitedNodeIds = new Set<string>()
+  let candidate: Node | null = courseStore.currentNode
+  while (candidate && !visitedNodeIds.has(candidate.node_id)) {
+    if (questionNodeIds.has(candidate.node_id)) return
+    candidates.push(candidate)
+    visitedNodeIds.add(candidate.node_id)
+    candidate = courseStore.nodes.find(
+      node => node.node_id === candidate?.parent_node_id,
+    ) || null
+  }
+
+  for (const node of candidates) {
+    try {
+      const available = await workspaceStore.checkPracticeAvailability(
+        courseStore.currentCourseId,
+        node.node_id,
+      )
+      if (request !== practiceAvailabilityRequest) return
+      if (available) {
+        practiceApiNodeId.value = node.node_id
+        return
+      }
+    } catch {
+      if (request !== practiceAvailabilityRequest) return
+    }
+  }
+}
 
 onMounted(() => {
   generationStore.restoreGenerationState()

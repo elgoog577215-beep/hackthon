@@ -62,6 +62,7 @@ class DeterministicAssessmentOrchestrator:
 
     def __init__(self, *, fail_node_id: str = ""):
         self.fail_node_id = fail_node_id
+        self.requested_node_ids = []
 
     async def prepare_course(
         self,
@@ -72,6 +73,9 @@ class DeterministicAssessmentOrchestrator:
         on_chapter_complete=None,
         reference_package=None,
     ):
+        self.requested_node_ids.append(
+            None if node_ids is None else list(node_ids)
+        )
         prepared = deepcopy(course_data)
         profile = compile_course_assessment_profile(prepared)
         objectives = compile_assessment_objectives(prepared, profile)
@@ -123,6 +127,39 @@ class DeterministicAssessmentOrchestrator:
                     slot=slot,
                     references=[],
                 )
+                contract["review_required"] = False
+                contract["risk_flags"] = []
+                contract["question_spec"]["risk_contract"] = {
+                    **(
+                        contract["question_spec"].get(
+                            "risk_contract"
+                        )
+                        or {}
+                    ),
+                    "risk_level": "low",
+                    "requires_teacher_review": False,
+                }
+                contract["solution_validation"] = {
+                    **(
+                        contract.get("solution_validation")
+                        or {}
+                    ),
+                    "passed": True,
+                    "status": "passed",
+                    "auto_publish_eligible": True,
+                    "issues": [],
+                }
+                contract["quality_report"] = {
+                    "schema_version": (
+                        "question_quality_report_v2"
+                    ),
+                    "passed": True,
+                    "status": "passed",
+                    "score": 95,
+                    "hard_gates": {},
+                    "issues": [],
+                    "decision": "publish",
+                }
                 if (
                     node_id == self.fail_node_id
                     and practice_level == "mastery_check"
@@ -488,6 +525,159 @@ def test_full_rebuild_publishes_each_chapter_atomically(
     )
 
 
+def test_node_rebuild_publishes_each_selected_chapter_atomically(
+    monkeypatch,
+    tmp_path,
+):
+    course = _two_chapter_course()
+    client, repository = _client(
+        monkeypatch,
+        tmp_path,
+        course=course,
+    )
+    repository.save_bundle(
+        "course-api",
+        build_question_bank(course),
+    )
+
+    created = client.post(
+        "/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-node-publication",
+            "scope": "nodes",
+            "node_ids": ["node-1"],
+            "mode": "incremental",
+            "resume_existing": False,
+        },
+    )
+    assert created.status_code == 202
+    status = client.get(
+        created.json()["status_url"],
+        headers={"X-User-Id": "teacher-1"},
+    )
+    assert status.status_code == 200
+    rebuilt = status.json()
+    assert rebuilt["status"] == "completed"
+    assert rebuilt["result"]["review_queue"][
+        "blocking_count"
+    ] == 0
+
+    active = repository.load_bundle("course-api")
+    assert active is not None
+    assert active["generation_audit"]["campaign_id"] == (
+        "request-node-publication"
+    )
+    assert active["generation_audit"]["planned_item_count"] == 3
+    assert active["generation_audit"]["published_item_count"] == 3
+    assert "question_bank_chapter_rebuild" not in (
+        repository.course_storage.course
+    )
+    assert repository.course_storage.save_count == 1
+
+
+def test_partial_v2_bank_is_detected_and_rebuild_continues_remaining_chapters(
+    monkeypatch,
+    tmp_path,
+):
+    orchestrator = DeterministicAssessmentOrchestrator()
+    client, repository = _client(
+        monkeypatch,
+        tmp_path,
+        course=_two_chapter_course(),
+        orchestrator=orchestrator,
+    )
+    partial = build_question_bank(_two_chapter_course())
+    for item in partial.get("items") or []:
+        if (
+            item.get("node_id") == "node-1"
+            and item.get("assessment_role") == "practice"
+        ):
+            item["quality_report"] = {
+                "schema_version": "question_quality_report_v2",
+                "passed": True,
+                "status": "passed",
+                "score": 92,
+            }
+            item["lifecycle_status"] = "approved"
+            item["review_status"] = "approved"
+            item["generation_status"] = "published"
+    repository.save_bundle("course-api", partial)
+
+    listed = client.get(
+        "/api/courses/course-api/question-bank",
+        headers={"X-User-Id": "teacher-1"},
+    )
+    assert listed.status_code == 200
+    progress = listed.json()["chapter_rebuild"]
+    assert progress["status"] == "partial"
+    assert progress["completed_chapters"] == 1
+    assert progress["remaining_chapters"] == 1
+    assert progress["can_resume"] is True
+    assert progress["published_node_ids"] == ["node-1"]
+
+    _, rebuilt = _rebuild(
+        client,
+        "request-continue-v2-migration",
+        mode="full",
+    )
+
+    assert rebuilt["result"]["bundle_revision_id"]
+    assert orchestrator.requested_node_ids == [["node-2"]]
+    checkpoint = repository.course_storage.course[
+        "question_bank_chapter_rebuild"
+    ]
+    assert checkpoint["status"] == "completed"
+    assert checkpoint["published_node_ids"] == [
+        "node-1",
+        "node-2",
+    ]
+
+
+def test_full_rebuild_can_explicitly_ignore_partial_v2_progress(
+    monkeypatch,
+    tmp_path,
+):
+    orchestrator = DeterministicAssessmentOrchestrator()
+    client, repository = _client(
+        monkeypatch,
+        tmp_path,
+        course=_two_chapter_course(),
+        orchestrator=orchestrator,
+    )
+    partial = build_question_bank(_two_chapter_course())
+    for item in partial.get("items") or []:
+        if (
+            item.get("node_id") == "node-1"
+            and item.get("assessment_role") == "practice"
+        ):
+            item["quality_report"] = {
+                "schema_version": "question_quality_report_v2",
+                "passed": True,
+                "status": "passed",
+                "score": 92,
+            }
+            item["lifecycle_status"] = "approved"
+            item["generation_status"] = "published"
+    repository.save_bundle("course-api", partial)
+
+    created = client.post(
+        "/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-force-full-v2-rebuild",
+            "mode": "full",
+            "resume_existing": False,
+        },
+    )
+
+    assert created.status_code == 202
+    assert orchestrator.requested_node_ids == [[
+        "node-1",
+        "node-2",
+    ]]
+
+
 def test_failed_chapter_keeps_old_questions_and_retry_resumes_remaining(
     monkeypatch,
     tmp_path,
@@ -651,12 +841,12 @@ def test_rebuild_overlays_bank_on_passing_legacy_assets_when_full_recompile_fail
     result = response["result"]
 
     assert result["publication_mode"] == (
-        "question_bank_waiting_review_overlay"
+        "question_bank_partial_overlay"
     )
     active = repository.asset_repository.load_bundle("course-api")
     assert active["quality_report"]["passed"] is True
     assert active["publication_mode"] == (
-        "question_bank_waiting_review_overlay"
+        "question_bank_partial_overlay"
     )
     binding = active["assets"]["question_bank_publications"][0]
     assert (
@@ -743,3 +933,82 @@ def test_safe_approved_subset_builds_explicit_partial_overlay():
         "coverage_complete"
     ] is False
     assert selected["assets"]["questions"] == [formal_task]
+
+
+def test_partial_overlay_merges_new_chapter_questions_and_replaces_same_slot():
+    previous_questions = [
+        {
+            "revision_id": "task-node-1-old",
+            "node_id": "node-1",
+            "assessment_role": "practice",
+            "practice_level": "concept_check",
+            "prompt": "旧题",
+        },
+        {
+            "revision_id": "task-node-legacy",
+            "node_id": "node-legacy",
+            "assessment_role": "practice",
+            "practice_level": "concept_check",
+            "prompt": "应保留的旧章节题目",
+        },
+    ]
+    approved_tasks = [
+        {
+            "revision_id": "task-node-1-new",
+            "node_id": "node-1",
+            "assessment_role": "practice",
+            "practice_level": "concept_check",
+            "prompt": "更新后的题目",
+        },
+        {
+            "revision_id": "task-node-2",
+            "node_id": "node-2",
+            "assessment_role": "practice",
+            "practice_level": "concept_check",
+            "prompt": "新章节题目",
+        },
+    ]
+    previous_assets = {
+        "schema_version": "learning_assets_v2",
+        "plan": {"enabled_asset_types": ["questions"]},
+        "assets": {
+            "questions": previous_questions,
+            "final_assessment": [{"revision_id": "final-1"}],
+        },
+        "quality_report": {"passed": True},
+    }
+    compiled_assets = {
+        "quality_report": {"passed": False},
+        "assets": {"questions": []},
+    }
+    partial_bank = {
+        "course_id": "course-api",
+        "bundle_revision_id": "qbb-partial-overlay",
+        "coverage": {"coverage_ratio": 0.5},
+        "items": [
+            {
+                "assessment_role": "practice",
+                "lifecycle_status": "approved",
+                "quality_report": {"passed": True},
+                "formal_task_revision_id": task["revision_id"],
+                "formal_task": task,
+            }
+            for task in approved_tasks
+        ],
+    }
+
+    selected = question_bank._select_publishable_asset_bundle(
+        previous_assets,
+        compiled_assets,
+        partial_bank,
+    )
+
+    assert selected["publication_mode"] == "question_bank_partial_overlay"
+    assert selected["assets"]["questions"] == [
+        approved_tasks[0],
+        previous_questions[1],
+        approved_tasks[1],
+    ]
+    assert selected["assets"]["final_assessment"] == [
+        {"revision_id": "final-1"}
+    ]

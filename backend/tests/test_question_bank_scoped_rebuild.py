@@ -116,6 +116,117 @@ def test_scoped_rebuild_preserves_unselected_nodes_and_private_solutions():
     }
 
 
+def test_scoped_rebuild_preserves_untouched_rag_coverage_metadata():
+    previous = _bundle([
+        _item("old-a", "node-a"),
+        _item("old-b", "node-b"),
+    ])
+    rebuilt = _bundle([
+        _item("new-a", "node-a", status="needs_review"),
+    ])
+    previous["reference_package"] = {
+        "schema_version": "question_reference_package_v2",
+        "package_revision_id": "qrp:old",
+        "content_coverage": [
+            {
+                "objective_id": "objective:node-a",
+                "node_id": "node-a",
+                "covered": True,
+                "reference_count": 1,
+            },
+            {
+                "objective_id": "objective:node-b",
+                "node_id": "node-b",
+                "covered": True,
+                "reference_count": 2,
+            },
+        ],
+        "method_coverage": [
+            {
+                "objective_id": "objective:node-a",
+                "node_id": "node-a",
+                "question_type": "selected_response",
+                "covered": True,
+                "reference_count": 1,
+            },
+            {
+                "objective_id": "objective:node-b",
+                "node_id": "node-b",
+                "question_type": "debugging_trace",
+                "covered": True,
+                "reference_count": 2,
+            },
+        ],
+        "objective_coverage": [
+            {
+                "objective_id": "objective:node-a",
+                "node_id": "node-a",
+                "covered": True,
+            },
+            {
+                "objective_id": "objective:node-b",
+                "node_id": "node-b",
+                "covered": True,
+            },
+        ],
+        "source_count": 3,
+        "source_distribution": {"course_materials": 3},
+    }
+    rebuilt["reference_package"] = {
+        "schema_version": "question_reference_package_v2",
+        "package_revision_id": "qrp:fresh",
+        "content_coverage": [{
+            "objective_id": "objective:node-a",
+            "node_id": "node-a",
+            "covered": True,
+            "reference_count": 4,
+        }],
+        "method_coverage": [{
+            "objective_id": "objective:node-a",
+            "node_id": "node-a",
+            "question_type": "selected_response",
+            "covered": True,
+            "reference_count": 4,
+        }],
+        "objective_coverage": [{
+            "objective_id": "objective:node-a",
+            "node_id": "node-a",
+            "covered": True,
+        }],
+        "source_count": 4,
+        "source_distribution": {"teacher_question_bank": 4},
+    }
+
+    merged = reconcile_scoped_question_bank(
+        previous,
+        rebuilt,
+        node_ids=["node-a"],
+        preserve_reviewed=False,
+    )
+
+    content_by_node = {
+        item["node_id"]: item
+        for item in merged["reference_package"][
+            "content_coverage"
+        ]
+    }
+    methods_by_node = {
+        item["node_id"]: item
+        for item in merged["reference_package"][
+            "method_coverage"
+        ]
+    }
+    assert content_by_node["node-a"]["reference_count"] == 4
+    assert content_by_node["node-b"]["reference_count"] == 2
+    assert methods_by_node["node-b"]["question_type"] == (
+        "debugging_trace"
+    )
+    assert (
+        merged["reference_package"]["package_revision_id"]
+        not in {"qrp:old", "qrp:fresh"}
+    )
+
+
 def test_incremental_scoped_rebuild_keeps_reviewed_selected_revision():
     old_a = _item("stable-a", "node-a")
     old_a["review_history"] = [{"decision": "approved"}]
@@ -137,6 +248,35 @@ def test_incremental_scoped_rebuild_keeps_reviewed_selected_revision():
     assert by_id["stable-a"]["lifecycle_status"] == "approved"
     assert by_id["old-b"]["lifecycle_status"] == "approved"
     assert "new-b" not in by_id
+
+
+def test_incremental_scoped_rebuild_replaces_auto_published_revision():
+    previous = _bundle([
+        _item("stable-a", "node-a"),
+        _item("old-b", "node-b"),
+    ])
+    fresh_a = _item(
+        "stable-a",
+        "node-a",
+        status="needs_review",
+    )
+    fresh_a["revision_id"] = "revision:stable-a:fresh"
+    rebuilt = _bundle([fresh_a])
+
+    merged = reconcile_scoped_question_bank(
+        previous,
+        rebuilt,
+        node_ids=["node-a"],
+        preserve_reviewed=True,
+    )
+
+    by_id = {item["item_id"]: item for item in merged["items"]}
+    assert (
+        by_id["stable-a"]["revision_id"]
+        == "revision:stable-a:fresh"
+    )
+    assert by_id["stable-a"]["lifecycle_status"] == "needs_review"
+    assert by_id["old-b"]["lifecycle_status"] == "approved"
 
 
 def test_item_rebuild_replaces_only_rejected_revision():

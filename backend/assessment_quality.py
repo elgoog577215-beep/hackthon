@@ -39,6 +39,14 @@ _REPAIRABLE_HARD_CODES = {
     "SOURCE_DUMP",
     "REFERENCE_SIMILARITY_HIGH",
     "VALIDATION_FAILED",
+    "SEMANTIC_PREFLIGHT_FAILED",
+    "QUESTION_TYPE_SEMANTIC_MISMATCH",
+    "MATERIAL_NOT_REQUIRED",
+    "FALSE_ERROR_PREMISE",
+    "PROMPT_SOLUTION_CONTRADICTION",
+    "OBSERVABLE_RESULT_MISSING",
+    "DISTRACTOR_NOT_SAME_QUESTION",
+    "MATERIAL_BINDING_INVALID",
 }
 
 
@@ -62,6 +70,13 @@ def evaluate_question_contract_quality(
         or contract.get("input_contract")
         or {}
     )
+    semantic_preflight = deepcopy(
+        contract.get("semantic_preflight") or {}
+    )
+    semantic_preflight_required = bool(
+        contract.get("design_brief")
+        or semantic_preflight
+    )
     issues: list[dict[str, Any]] = []
     hard_checks = {
         "schema": spec.get("schema_version") == "question_spec_v2",
@@ -72,7 +87,7 @@ def evaluate_question_contract_quality(
         ),
         "validation": bool(validation.get("passed")),
         "markdown": _markdown_valid(prompt),
-        "code_rendering": _code_rendering_valid(spec),
+        "code_rendering": _code_rendering_valid(contract),
         "prompt_budget": _prompt_within_budget(spec, prompt),
         "task_budget": len(task_text) <= 300,
         "source_isolation": not _looks_like_source_dump(
@@ -102,6 +117,9 @@ def evaluate_question_contract_quality(
         "blueprint_contract": not bool(
             contract.get("contract_violations")
         ),
+        "semantic_preflight": bool(
+            semantic_preflight.get("passed")
+        ) if semantic_preflight_required else True,
     }
     hard_issue_map = {
         "schema": ("SCHEMA_INVALID", "题目结构不符合question_spec_v2"),
@@ -135,12 +153,21 @@ def evaluate_question_contract_quality(
             "BLUEPRINT_CONTRACT_CHANGED",
             "候选题擅自修改了蓝图锁定的验证器",
         ),
+        "semantic_preflight": (
+            "SEMANTIC_PREFLIGHT_FAILED",
+            "题型、材料、题面前提与答案之间的语义硬门未通过",
+        ),
     }
     for check, passed in hard_checks.items():
         if passed:
             continue
         code, message = hard_issue_map[check]
         issues.append(_issue(code, "critical", message))
+    issues.extend([
+        deepcopy(issue)
+        for issue in semantic_preflight.get("issues") or []
+        if isinstance(issue, dict) and issue.get("code")
+    ])
 
     reference_similarity = _maximum_similarity(prompt, references)
     hard_checks["reference_similarity"] = (
@@ -223,6 +250,11 @@ def evaluate_question_contract_quality(
             (
                 validation.get("deterministic")
                 and validation.get("passed")
+                and (
+                    semantic_preflight.get("passed")
+                    if semantic_preflight_required
+                    else True
+                )
             )
             or (
                 semantic_passed
@@ -430,18 +462,38 @@ def _markdown_valid(value: str) -> bool:
     )
 
 
-def _code_rendering_valid(spec: dict[str, Any]) -> bool:
+def _code_rendering_valid(
+    contract: dict[str, Any],
+) -> bool:
+    spec = contract.get("question_spec") or {}
     stimulus = str(
         (spec.get("stimulus") or {}).get("rendered_text") or ""
     )
     task = str((spec.get("task") or {}).get("rendered_text") or "")
-    combined = f"{stimulus}\n{task}"
+    prompt = str(contract.get("prompt") or "")
+    materials = "\n".join(
+        str(value)
+        for value in contract.get("input_materials") or []
+    )
+    combined = "\n".join(
+        (stimulus, task, prompt, materials)
+    )
     has_fenced_code = bool(
         re.search(
             r"```(?:python|javascript|js|typescript|ts|java|cpp|c)\s*\n",
             combined,
             flags=re.IGNORECASE,
         )
+    )
+    fenced_blocks = re.findall(
+        r"```(?:python|javascript|js|typescript|ts|java|cpp|c)"
+        r"\s*\n([\s\S]*?)```",
+        combined,
+        flags=re.IGNORECASE,
+    )
+    has_substantive_fenced_code = any(
+        _has_substantive_code(block)
+        for block in fenced_blocks
     )
     references_visible_code = any(
         marker in task.casefold()
@@ -451,6 +503,17 @@ def _code_rendering_valid(spec: dict[str, Any]) -> bool:
             "下列代码",
             "following code",
             "code above",
+        )
+    )
+    references_visible_code = bool(
+        references_visible_code
+        or any(
+            marker in combined.casefold()
+            for marker in (
+                "\u4ee3\u7801",
+                "\u7a0b\u5e8f",
+                "given code",
+            )
         )
     )
     raw_code_lines = sum(
@@ -463,9 +526,44 @@ def _code_rendering_valid(spec: dict[str, Any]) -> bool:
         )
         or re.match(r"^\s*[A-Za-z_]\w*\s*=(?!=)", line)
     )
-    if references_visible_code or raw_code_lines >= 2:
-        return has_fenced_code
+    requires_visible_code = bool(
+        str(contract.get("question_type") or "")
+        in {
+            "output_prediction",
+            "debugging_trace",
+            "state_trace_transfer",
+        }
+        or references_visible_code
+        or raw_code_lines >= 2
+    )
+    if requires_visible_code:
+        return (
+            has_fenced_code
+            and has_substantive_fenced_code
+        )
     return True
+
+
+def _has_substantive_code(value: str) -> bool:
+    lines = [
+        line
+        for line in str(value or "").splitlines()
+        if line.strip()
+    ]
+    if len(lines) < 2:
+        return False
+    return bool(
+        re.search(
+            r"\b(?:class|def|async\s+def|from|import|const|let|var|"
+            r"function|return|print|console\.log|if|for|while)\b",
+            value,
+        )
+        or re.search(
+            r"^\s*[A-Za-z_]\w*\s*=(?!=)",
+            value,
+            flags=re.MULTILINE,
+        )
+    )
 
 
 def _looks_like_source_dump(

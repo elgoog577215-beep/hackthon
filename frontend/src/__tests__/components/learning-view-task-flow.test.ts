@@ -74,6 +74,7 @@ describe('LearningView 正文任务覆盖层', () => {
       assets: { questions: [{ asset_id: 'q1', revision_id: 'qr1', node_id: 'n1' }] },
     }
     vi.spyOn(workspace, 'loadAssets').mockResolvedValue(workspace.assets)
+    vi.spyOn(workspace, 'checkPracticeAvailability').mockResolvedValue(false)
     vi.spyOn(workspace, 'migrateLegacyPracticeData').mockResolvedValue(undefined)
     vi.spyOn(workspace, 'loadMistakeBook').mockResolvedValue({ attempts: [] } as any)
 
@@ -259,6 +260,51 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     expect(wrapper.get('.task-overlay-stub').text()).toContain(node.node_name)
+    wrapper.unmount()
+  })
+
+  it('学习资源尚未同步时根据正式练习接口解锁当前章节', async () => {
+    const workspace = useCourseWorkspaceStore()
+    workspace.assets = {
+      course_id: 'c1',
+      plan: {},
+      quality_report: {},
+      course_availability: {
+        schema_version: 'course_learning_availability_v1',
+        mode: 'standard',
+        reason_code: 'ready',
+        capabilities: {},
+      },
+      assets: { questions: [] },
+    }
+    vi.mocked(workspace.checkPracticeAvailability).mockResolvedValue(true)
+
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningDock: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          TeachingRepresentationsOverlay: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    const practiceTab = wrapper.get(
+      '.learning-context-bar [data-workspace-item="practice"]',
+    )
+    expect(workspace.checkPracticeAvailability).toHaveBeenCalledWith('c1', 'n1')
+    expect(practiceTab.attributes('disabled')).toBeUndefined()
+    await practiceTab.trigger('click')
+    expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     wrapper.unmount()
   })
 

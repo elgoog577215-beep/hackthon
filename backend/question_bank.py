@@ -12,6 +12,14 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterable
 
+from assessment_blueprint import (
+    compile_course_assessment_blueprint,
+    slot_for,
+)
+from assessment_compiler import (
+    compile_formal_task_contract,
+    normalize_public_options,
+)
 from assessment_contracts import (
     compile_assessment_objectives,
     compile_course_assessment_profile,
@@ -19,7 +27,6 @@ from assessment_contracts import (
 from assessment_generation import generate_universal_question_contract
 from course_versioning import stable_hash
 from practice_contracts import (
-    DEFAULT_PRACTICE_QUESTION_TYPE,
     project_default_single_choice,
 )
 from question_generation import (
@@ -105,12 +112,24 @@ def build_question_bank(
         course_data,
         assessment_profile,
     )
+    assessment_blueprint = deepcopy(
+        course_data.get("_course_assessment_blueprint") or {}
+    )
+    if assessment_blueprint.get("schema_version") != (
+        "course_assessment_blueprint_v2"
+    ):
+        assessment_blueprint = compile_course_assessment_blueprint(
+            course_data,
+            profile=assessment_profile,
+            objectives=assessment_objectives,
+        )
     generated, solution_envelopes = _generated_course_items(
         course_data,
         nodes,
         imported,
         profile=assessment_profile,
         objectives=assessment_objectives,
+        blueprint=assessment_blueprint,
     )
     finals, final_solutions = _comprehensive_items(
         course_data,
@@ -119,6 +138,26 @@ def build_question_bank(
         profile=assessment_profile,
         objectives=assessment_objectives,
     )
+    legacy_blueprint_summary = _assessment_blueprint(
+        course_data,
+        finals,
+        imported,
+    )
+    for key in (
+        "purpose",
+        "basis",
+        "distribution_inferred",
+        "focus",
+        "task_count",
+        "question_type_distribution",
+        "difficulty_distribution",
+        "score_distribution",
+    ):
+        if key in legacy_blueprint_summary:
+            assessment_blueprint.setdefault(
+                key,
+                deepcopy(legacy_blueprint_summary[key]),
+            )
     solution_envelopes.update(final_solutions)
     legacy = [_legacy_item(course_data, item) for item in legacy_tasks]
     items = [*imported, *generated, *finals, *legacy]
@@ -126,11 +165,6 @@ def build_question_bank(
     _apply_tiered_review_policy(items, assessment_profile)
 
     coverage = _coverage_report(course_data, nodes, items, imported)
-    assessment_blueprint = _assessment_blueprint(
-        course_data,
-        finals,
-        imported,
-    )
     reference_package = deepcopy(
         course_data.get("_question_reference_package") or {}
     )
@@ -328,6 +362,10 @@ def revise_question_bank_item(
     item["review_required"] = True
     item["hint_contract"] = _hint_contract(item)
     item["quality_report"] = evaluate_question_item_quality(item)
+    _apply_compiled_contract_quality(
+        item,
+        item.get("_solution_envelope") or None,
+    )
     item["revision_id"] = _item_revision_id(item)
     item["formal_task"] = _stored_formal_task_from_item(item)
     item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
@@ -414,6 +452,19 @@ def approved_formal_tasks(
         if solution:
             hydrated["_solution_envelope"] = deepcopy(solution)
         projected = _formal_task_from_item(hydrated)
+        if (
+            (item.get("question_spec") or {}).get(
+                "schema_version"
+            )
+            == "question_spec_v2"
+            and not (
+                projected.get(
+                    "compiled_contract_validation"
+                )
+                or {}
+            ).get("passed")
+        ):
+            continue
         projected["review_status"] = "approved"
         projected["source_type"] = item.get("source_type")
         projected["question_bank_item_revision_id"] = item.get(
@@ -439,6 +490,7 @@ def finalize_v2_question_bank_item(
     )
     result["hint_contract"] = _hint_contract(result)
     result["quality_report"] = evaluate_question_item_quality(result)
+    _apply_compiled_contract_quality(result, solution_envelope)
     result["lifecycle_status"] = _initial_status(result)
     result["review_status"] = result["lifecycle_status"]
     result["revision_id"] = _item_revision_id(result)
@@ -587,11 +639,10 @@ def reconcile_question_bank(
         item_id = str(fresh_item.get("item_id") or "")
         present_ids.add(item_id)
         old_item = old_by_item.get(item_id)
-        if preserve_reviewed and old_item and (
-            old_item.get("review_history")
-            or old_item.get("edited_by")
-            or old_item.get("lifecycle_status")
-            in {"approved", "rejected"}
+        if (
+            preserve_reviewed
+            and old_item
+            and _should_preserve_reviewed_item(old_item)
         ):
             merged.append(deepcopy(old_item))
         else:
@@ -614,8 +665,7 @@ def reconcile_question_bank(
         }
         if (
             preserve_reviewed
-            and old_item.get("lifecycle_status")
-            in {"approved", "rejected"}
+            and _should_preserve_reviewed_item(old_item)
             and bool(old_node_ids & active_node_ids)
         ):
             merged.append(deepcopy(old_item))
@@ -752,6 +802,16 @@ def reconcile_scoped_question_bank(
         **deepcopy(rebuilt),
         "items": merged_items,
         "assessment_objectives": merged_objectives,
+        "assessment_blueprint": _merge_scoped_assessment_blueprint(
+            previous.get("assessment_blueprint") or {},
+            rebuilt.get("assessment_blueprint") or {},
+            selected,
+        ),
+        "reference_package": _merge_scoped_reference_package(
+            previous.get("reference_package") or {},
+            rebuilt.get("reference_package") or {},
+            selected,
+        ),
         "solution_envelopes": {
             solution_id: deepcopy(
                 rebuilt_solutions.get(solution_id)
@@ -765,6 +825,196 @@ def reconcile_scoped_question_bank(
         },
     }
     return refresh_question_bank_bundle(result)
+
+
+def _should_preserve_reviewed_item(
+    item: dict[str, Any],
+) -> bool:
+    """Keep human decisions and teacher sources, not auto-published output."""
+    return bool(
+        item.get("review_history")
+        or item.get("edited_by")
+        or item.get("lifecycle_status") == "rejected"
+        or item.get("source_type") == "imported"
+    )
+
+
+def _merge_scoped_assessment_blueprint(
+    previous: dict[str, Any],
+    rebuilt: dict[str, Any],
+    selected_node_ids: set[str],
+) -> dict[str, Any]:
+    """Keep each untouched chapter bound to the blueprint that made its items."""
+    if (
+        rebuilt.get("schema_version")
+        != "course_assessment_blueprint_v2"
+    ):
+        return deepcopy(rebuilt or previous)
+    if (
+        previous.get("schema_version")
+        != "course_assessment_blueprint_v2"
+    ):
+        return deepcopy(rebuilt)
+    fresh_nodes = {
+        str(node.get("node_id") or ""): deepcopy(node)
+        for node in rebuilt.get("nodes") or []
+        if node.get("node_id")
+    }
+    old_nodes = {
+        str(node.get("node_id") or ""): deepcopy(node)
+        for node in previous.get("nodes") or []
+        if node.get("node_id")
+    }
+    node_order = [
+        *[
+            str(node.get("node_id") or "")
+            for node in rebuilt.get("nodes") or []
+            if node.get("node_id")
+        ],
+        *[
+            str(node.get("node_id") or "")
+            for node in previous.get("nodes") or []
+            if (
+                node.get("node_id")
+                and str(node.get("node_id")) not in fresh_nodes
+            )
+        ],
+    ]
+    merged_nodes = [
+        deepcopy(
+            fresh_nodes.get(node_id)
+            if node_id in selected_node_ids
+            else old_nodes.get(node_id)
+            or fresh_nodes.get(node_id)
+        )
+        for node_id in node_order
+        if (
+            (
+                fresh_nodes.get(node_id)
+                if node_id in selected_node_ids
+                else old_nodes.get(node_id)
+                or fresh_nodes.get(node_id)
+            )
+            is not None
+        )
+    ]
+    if merged_nodes == list(rebuilt.get("nodes") or []):
+        return deepcopy(rebuilt)
+    result = {
+        **deepcopy(rebuilt),
+        "nodes": merged_nodes,
+    }
+    result["blueprint_revision_id"] = stable_hash(
+        {
+            key: value
+            for key, value in result.items()
+            if key != "blueprint_revision_id"
+        },
+        prefix="abp_",
+    )
+    return result
+
+
+def _merge_scoped_reference_package(
+    previous: dict[str, Any],
+    rebuilt: dict[str, Any],
+    selected_node_ids: set[str],
+) -> dict[str, Any]:
+    """Merge node-scoped RAG coverage without erasing untouched chapters."""
+    if (
+        rebuilt.get("schema_version")
+        != "question_reference_package_v2"
+    ):
+        return deepcopy(rebuilt or previous)
+    if (
+        previous.get("schema_version")
+        != "question_reference_package_v2"
+    ):
+        return deepcopy(rebuilt)
+
+    result = deepcopy(rebuilt)
+    coverage_keys = {
+        "content_coverage": lambda item: (
+            str(item.get("objective_id") or ""),
+        ),
+        "method_coverage": lambda item: (
+            str(item.get("objective_id") or ""),
+            str(item.get("question_type") or ""),
+        ),
+        "objective_coverage": lambda item: (
+            str(item.get("objective_id") or ""),
+        ),
+    }
+    for field, identity in coverage_keys.items():
+        old_values = [
+            deepcopy(item)
+            for item in previous.get(field) or []
+            if isinstance(item, dict)
+        ]
+        fresh_values = [
+            deepcopy(item)
+            for item in rebuilt.get(field) or []
+            if isinstance(item, dict)
+        ]
+        fresh_by_key = {
+            identity(item): item
+            for item in fresh_values
+        }
+        old_by_key = {
+            identity(item): item
+            for item in old_values
+        }
+        order = list(dict.fromkeys([
+            *[identity(item) for item in fresh_values],
+            *[identity(item) for item in old_values],
+        ]))
+        merged: list[dict[str, Any]] = []
+        for key in order:
+            fresh = fresh_by_key.get(key)
+            old = old_by_key.get(key)
+            node_id = str(
+                (fresh or old or {}).get("node_id") or ""
+            )
+            value = (
+                fresh
+                if node_id in selected_node_ids
+                else old or fresh
+            )
+            if value is not None:
+                merged.append(deepcopy(value))
+        result[field] = merged
+
+    result["content_reference_count"] = max(
+        int(previous.get("content_reference_count") or 0),
+        int(rebuilt.get("content_reference_count") or 0),
+    )
+    result["authoring_pattern_count"] = max(
+        int(previous.get("authoring_pattern_count") or 0),
+        int(rebuilt.get("authoring_pattern_count") or 0),
+    )
+    old_distribution = previous.get("source_distribution") or {}
+    fresh_distribution = rebuilt.get("source_distribution") or {}
+    result["source_distribution"] = {
+        source_type: max(
+            int(old_distribution.get(source_type) or 0),
+            int(fresh_distribution.get(source_type) or 0),
+        )
+        for source_type in {
+            *old_distribution,
+            *fresh_distribution,
+        }
+    }
+    result["source_count"] = max(
+        int(previous.get("source_count") or 0),
+        int(rebuilt.get("source_count") or 0),
+        sum(result["source_distribution"].values()),
+    )
+    result.pop("package_revision_id", None)
+    result["package_revision_id"] = stable_hash(
+        result,
+        prefix="qrp_",
+    )
+    return result
 
 
 def reconcile_item_question_bank(
@@ -1052,6 +1302,44 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
             ),
         },
     }
+
+
+def _apply_compiled_contract_quality(
+    item: dict[str, Any],
+    solution_envelope: dict[str, Any] | None,
+) -> None:
+    """Bind quality approval to the exact student-visible contract."""
+    if (
+        (item.get("question_spec") or {}).get("schema_version")
+        != "question_spec_v2"
+    ):
+        return
+    compiled = compile_formal_task_contract(
+        item,
+        solution_envelope,
+    )
+    validation = deepcopy(compiled["contract_validation"])
+    item["compiled_contract_hash"] = compiled[
+        "compiled_contract_hash"
+    ]
+    item["compiled_contract_validation"] = validation
+    report = deepcopy(item.get("quality_report") or {})
+    report.setdefault("hard_gates", {})
+    report["hard_gates"]["final_contract"] = bool(
+        validation.get("passed")
+    )
+    report["compiled_contract_hash"] = compiled[
+        "compiled_contract_hash"
+    ]
+    if not validation.get("passed"):
+        report["passed"] = False
+        report["status"] = "failed"
+        report["decision"] = "discard"
+        report["issues"] = _deduplicate_quality_issues([
+            *deepcopy(report.get("issues") or []),
+            *deepcopy(validation.get("issues") or []),
+        ])
+    item["quality_report"] = report
 
 
 def is_generic_generated_prompt(prompt: str) -> bool:
@@ -1346,6 +1634,7 @@ def _generated_course_items(
     *,
     profile: dict[str, Any],
     objectives: list[dict[str, Any]],
+    blueprint: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     result: list[dict[str, Any]] = []
     solutions: dict[str, dict[str, Any]] = {}
@@ -1372,6 +1661,13 @@ def _generated_course_items(
         if not objective:
             continue
         for index, (level, label) in enumerate(level_specs):
+            assessment_slot = slot_for(
+                blueprint,
+                node_id=node_id,
+                practice_level=level,
+            )
+            if not assessment_slot:
+                continue
             prepared_contract = (
                 (
                     course_data.get(
@@ -1395,6 +1691,7 @@ def _generated_course_items(
                     objective=objective,
                     practice_level=level,
                     variant_index=index,
+                    slot=assessment_slot,
                 )
                 validation_plugin_contract = generate_question_contract(
                     course_data,
@@ -1406,8 +1703,9 @@ def _generated_course_items(
                     universal_contract,
                     validation_plugin_contract,
                 )
-            generated_contract = project_default_single_choice(
+            generated_contract = _align_generated_contract_to_slot(
                 generated_contract,
+                assessment_slot,
                 misconception_labels=[
                     str(value)
                     for value in objective.get("misconceptions") or []
@@ -1494,6 +1792,7 @@ def _generated_course_items(
                 "review_status": "candidate",
                 "review_history": [],
                 "formal_task_revision_id": None,
+                "assessment_slot": deepcopy(assessment_slot),
                 "deliverable": generated_contract["deliverable"],
                 "input_materials": deepcopy(
                     generated_contract["input_materials"]
@@ -1541,6 +1840,49 @@ def _generated_course_items(
                     generated_contract.get("generation_status")
                     or "generated"
                 ),
+                "design_brief_summary": _public_design_brief_summary(
+                    generated_contract.get("design_brief") or {}
+                ),
+                "question_type_semantics": {
+                    "registry_id": (
+                        (
+                            generated_contract.get("design_brief")
+                            or {}
+                        ).get("question_type_semantics")
+                        or {}
+                    ).get("registry_id"),
+                    "passed": bool(
+                        (
+                            generated_contract.get(
+                                "semantic_preflight"
+                            )
+                            or {}
+                        ).get("passed")
+                    ),
+                },
+                "semantic_preflight": deepcopy(
+                    generated_contract.get("semantic_preflight")
+                    or {}
+                ),
+                "semantic_reviewer_trigger": bool(
+                    generated_contract.get(
+                        "semantic_reviewer_trigger"
+                    )
+                ),
+                "material_bindings": deepcopy(
+                    generated_contract.get("material_bindings")
+                    or []
+                ),
+                "retrieval_summary": deepcopy(
+                    generated_contract.get("retrieval_summary")
+                    or {}
+                ),
+                "generation_audit_summary": deepcopy(
+                    generated_contract.get(
+                        "generation_audit_summary"
+                    )
+                    or {}
+                ),
                 "domain_validation": deepcopy(
                     generated_contract["solution_validation"]
                 ),
@@ -1570,6 +1912,10 @@ def _generated_course_items(
                     item["quality_report"]["status"] = "failed"
             else:
                 item["quality_report"] = item_quality
+            _apply_compiled_contract_quality(
+                item,
+                solution_envelope,
+            )
             item["lifecycle_status"] = _initial_status(item)
             item["review_status"] = item["lifecycle_status"]
             item["generation_status"] = (
@@ -1590,6 +1936,128 @@ def _generated_course_items(
             )
             result.append(item)
     return result, solutions
+
+
+def _align_generated_contract_to_slot(
+    contract: dict[str, Any],
+    assessment_slot: dict[str, Any],
+    *,
+    misconception_labels: list[str],
+    variant_index: int,
+) -> dict[str, Any]:
+    """Preserve the blueprint contract and only synthesize missing choice data."""
+    result = deepcopy(contract)
+    slot_input = deepcopy(
+        assessment_slot.get("input_contract") or {}
+    )
+    input_mode = str(
+        assessment_slot.get("input_mode")
+        or slot_input.get("mode")
+        or ""
+    )
+    question_spec = result.setdefault("question_spec", {})
+    solution = result.setdefault("solution_envelope", {})
+    original_minutes = int(result.get("estimated_minutes") or 1)
+    public_options = normalize_public_options(
+        question_spec.get("options")
+        if isinstance(question_spec.get("options"), list)
+        else result.get("options")
+    )
+    if not public_options:
+        public_options = normalize_public_options(
+            result.get("options")
+        )
+
+    if input_mode == "choice":
+        option_ids = {
+            str(option.get("id") or "")
+            for option in public_options
+            if str(option.get("id") or "")
+        }
+        canonical = solution.get("canonical_answer")
+        canonical_option_id = (
+            str(
+                canonical.get("selected_option_id")
+                or canonical.get("option_id")
+                or ""
+            ).strip()
+            if isinstance(canonical, dict)
+            else str(canonical or "").strip()
+        )
+        legacy_correct = str(
+            (
+                solution.get("choice_answer_spec")
+                or solution.get("legacy_answer_spec")
+                or {}
+            ).get("correct_option_id")
+            or ""
+        ).strip()
+        correct_option_id = legacy_correct or canonical_option_id
+        if (
+            len(public_options) < 2
+            or not correct_option_id
+            or correct_option_id not in option_ids
+        ):
+            result = project_default_single_choice(
+                result,
+                misconception_labels=misconception_labels,
+                variant_index=variant_index,
+            )
+            question_spec = result.setdefault(
+                "question_spec",
+                {},
+            )
+            solution = result.setdefault(
+                "solution_envelope",
+                {},
+            )
+            public_options = normalize_public_options(
+                result.get("options")
+            )
+        question_spec["options"] = deepcopy(public_options)
+        question_spec["presentation_contract"] = {
+            "mode": "single_choice",
+            "option_count": len(public_options),
+            "selection_limit": 1,
+        }
+        question_spec["response_contract"] = {
+            "format": "single_choice",
+            "required_parts": ["selected_option_id"],
+            "option_count": len(public_options),
+            "selection_limit": 1,
+        }
+        choice_answer = solution.get("choice_answer_spec")
+        if isinstance(choice_answer, dict):
+            choice_answer["options"] = deepcopy(public_options)
+        result["options"] = deepcopy(public_options)
+    else:
+        result["options"] = []
+        question_spec.pop("options", None)
+        question_spec.pop("presentation_contract", None)
+        solution.pop("choice_answer_spec", None)
+
+    result["question_type"] = str(
+        assessment_slot.get("question_type")
+        or result.get("question_type")
+        or ""
+    )
+    result["input_contract"] = slot_input
+    result["estimated_minutes"] = original_minutes
+    question_spec["input_contract"] = deepcopy(slot_input)
+    question_spec["assessment_slot_id"] = assessment_slot.get(
+        "slot_id"
+    )
+    validation_mode = str(
+        assessment_slot.get("validation_mode")
+        or solution.get("validation_mode")
+        or ""
+    )
+    solution["validation_mode"] = validation_mode
+    if isinstance(result.get("solution_validation"), dict):
+        result["solution_validation"]["validation_mode"] = (
+            validation_mode
+        )
+    return result
 
 
 def _apply_validation_plugin(
@@ -2942,48 +3410,12 @@ def _solution_graph_hint_contract(
 
 def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
     private_solution = item.get("_solution_envelope") or {}
-    answer_spec = deepcopy(item.get("answer_spec") or {})
-    if private_solution:
-        answer_spec = _answer_spec_from_solution(private_solution)
-    input_contract = deepcopy(
-        item.get("input_contract")
-        or (item.get("question_spec") or {}).get("input_contract")
-        or {}
+    compiled = compile_formal_task_contract(
+        item,
+        private_solution,
     )
-    is_choice = bool(
-        item.get("question_type")
-        in {
-            DEFAULT_PRACTICE_QUESTION_TYPE,
-            "single_choice",
-            "multiple_choice",
-        }
-        or answer_spec.get("correct_option_id") is not None
-        or answer_spec.get("correct_option_ids")
-    )
-    if is_choice:
-        input_contract.update(
-            {
-                "schema_version": (
-                    input_contract.get("schema_version")
-                    or "input_contract_v2"
-                ),
-                "mode": "choice",
-                "required": True,
-                "multiple": bool(answer_spec.get("correct_option_ids")),
-                "supports_attachments": False,
-            }
-        )
-    elif not input_contract:
-        input_contract = {
-            "schema_version": "input_contract_v1",
-            "mode": "structured_text",
-            "required": True,
-            "supports_attachments": item.get("question_type")
-            in {
-                "implementation_task",
-                "scenario_deliverable",
-            },
-        }
+    answer_spec = deepcopy(compiled["answer_spec"])
+    input_contract = deepcopy(compiled["input_contract"])
     task = {
         "asset_id": stable_hash(
             {"course": item.get("course_id"), "question_bank_item": item.get("item_id")},
@@ -3012,54 +3444,19 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "difficulty_contract": {"target_level": item.get("difficulty")},
         "prompt": item.get("prompt"),
         "subquestions": deepcopy(item.get("subquestions") or []),
-        "options": deepcopy(item.get("options") or []),
+        "options": deepcopy(compiled["options"]),
         "answer_spec": answer_spec,
         "solution_revision_id": (
             item.get("solution_revision_id")
             or private_solution.get("solution_revision_id")
         ),
-        "practice_level": next(iter(item.get("practice_levels") or []), "objective_practice"),
+        "practice_level": compiled["practice_level"],
         "hint_contract": deepcopy(item.get("hint_contract") or {}),
         "input_contract": input_contract,
-        "grading_policy": {
-            "method": (
-                "runner"
-                if item.get("validation_mode") == "code_validator"
-                else (
-                    "typed_validator"
-                    if item.get("validation_mode") in {
-                        "exact_validator",
-                        "numeric_unit_validator",
-                        "symbolic_validator",
-                        "state_trace_validator",
-                    }
-                    else (
-                        "deterministic"
-                        if (
-                            answer_spec.get("correct_option_id") is not None
-                            or answer_spec.get("correct_answer") is not None
-                        )
-                        else (
-                            "rubric_ai_with_reference"
-                            if answer_spec.get("canonical_answer")
-                            is not None
-                            else "rubric_ai"
-                        )
-                    )
-                )
-            ),
-            "pass_score": int(answer_spec.get("pass_score") or 70),
-            "confidence_threshold": 0.72,
-            "near_threshold_review_margin": 3,
-        },
-        "validation_policy": {
-            "mastery_eligible": next(iter(item.get("practice_levels") or []), "") in {
-                "mastery_check",
-                "final_assessment",
-            },
-            "max_support_level_for_mastery": 1,
-            "requires_unseen_validation_after_solution": True,
-        },
+        "grading_policy": deepcopy(compiled["grading_policy"]),
+        "validation_policy": deepcopy(
+            compiled["validation_policy"]
+        ),
         "source_status": item.get("source_type"),
         "source_records": deepcopy(item.get("source_records") or []),
         "quality_status": (item.get("quality_report") or {}).get("status"),
@@ -3074,6 +3471,12 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "question_spec": deepcopy(item.get("question_spec") or {}),
         "domain_validation": deepcopy(item.get("domain_validation") or {}),
         "validation_mode": item.get("validation_mode"),
+        "compiled_contract_hash": compiled[
+            "compiled_contract_hash"
+        ],
+        "compiled_contract_validation": deepcopy(
+            compiled["contract_validation"]
+        ),
         "question_bank_item_revision_id": item.get("revision_id"),
     }
     task["practice_contract_revision_id"] = stable_hash(
@@ -3644,7 +4047,12 @@ def _public_reference_package_summary(
 ) -> dict[str, Any]:
     if not package:
         return {}
-    references = package.get("references") or []
+    references = (
+        package.get("authoring_patterns")
+        or package.get("references")
+        or []
+    )
+    content_evidence = package.get("content_evidence") or []
     source_distribution: dict[str, int] = {}
     for reference in references:
         source_type = str(
@@ -3661,11 +4069,53 @@ def _public_reference_package_summary(
             package.get("source_priority") or []
         ),
         "source_count": len(references),
+        "content_reference_count": len(content_evidence),
+        "authoring_pattern_count": len(references),
         "source_distribution": source_distribution,
+        "content_coverage": deepcopy(
+            package.get("content_coverage") or []
+        ),
+        "method_coverage": deepcopy(
+            package.get("method_coverage") or []
+        ),
         "objective_coverage": deepcopy(
             package.get("objective_coverage") or []
         ),
         "web": deepcopy(package.get("web") or {}),
+    }
+
+
+def _public_design_brief_summary(
+    brief: dict[str, Any],
+) -> dict[str, Any]:
+    if not brief:
+        return {}
+    semantics = brief.get("question_type_semantics") or {}
+    retrieval = brief.get("retrieval_contract") or {}
+    return {
+        "schema_version": brief.get("schema_version"),
+        "design_brief_revision_id": brief.get(
+            "design_brief_revision_id"
+        ),
+        "question_type": brief.get("question_type"),
+        "semantics_registry_id": semantics.get("registry_id"),
+        "primary_knowledge": brief.get("primary_knowledge"),
+        "primary_skill": brief.get("primary_skill"),
+        "primary_misconception": brief.get(
+            "primary_misconception"
+        ),
+        "content_coverage": bool(
+            retrieval.get("content_coverage")
+        ),
+        "method_coverage": bool(
+            retrieval.get("method_coverage")
+        ),
+        "content_reference_count": int(
+            retrieval.get("content_reference_count") or 0
+        ),
+        "authoring_pattern_count": int(
+            retrieval.get("authoring_pattern_count") or 0
+        ),
     }
 
 

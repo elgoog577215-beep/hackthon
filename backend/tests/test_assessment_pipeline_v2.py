@@ -15,6 +15,7 @@ from assessment_quality import evaluate_question_contract_quality
 from assessment_retrieval import (
     compile_local_reference_package,
     enrich_reference_package_with_web,
+    references_for_objective,
 )
 from routers.question_bank import _require_complete_generation
 
@@ -207,6 +208,130 @@ async def test_web_retrieval_runs_before_generation_with_minimal_query():
     assert enriched["references"][0]["reuse_policy"] == (
         "reference_only"
     )
+    assert enriched["schema_version"] == (
+        "question_reference_package_v2"
+    )
+    assert enriched["content_coverage"][0]["covered"] is True
+    assert enriched["method_coverage"]
+
+
+def test_teacher_question_bank_has_highest_authoring_priority():
+    course = _course("general")
+    course["evidence_catalog"] = [{
+        "kind": "question",
+        "purpose": "question_source",
+        "source_text": (
+            f"{course['nodes'][0]['learning_objective']} "
+            "A. valid boundary B. invalid boundary"
+        ),
+        "rights_basis": "teacher_asserted",
+    }]
+    profile = compile_course_assessment_profile(course)
+    objectives = compile_assessment_objectives(course, profile)
+    blueprint = compile_course_assessment_blueprint(
+        course,
+        profile=profile,
+        objectives=objectives,
+    )
+
+    package = compile_local_reference_package(
+        course,
+        objectives=objectives,
+        blueprint=blueprint,
+    )
+    references = references_for_objective(
+        package,
+        str(objectives[0]["objective_id"]),
+        limit=10,
+    )
+
+    assert references
+    assert references[0]["source_type"] == "teacher_question_bank"
+
+
+async def test_method_gap_triggers_web_even_when_content_is_covered():
+    course = _course("programming_engineering")
+    profile = compile_course_assessment_profile(course)
+    objectives = compile_assessment_objectives(course, profile)
+    blueprint = compile_course_assessment_blueprint(
+        course,
+        profile=profile,
+        objectives=objectives,
+    )
+    package = compile_local_reference_package(
+        course,
+        objectives=objectives,
+        blueprint=blueprint,
+    )
+    assert package["content_coverage"][0]["covered"] is True
+    assert any(
+        not item["covered"]
+        for item in package["method_coverage"]
+    )
+    calls = 0
+
+    async def search(query: str, *, num_results: int):
+        nonlocal calls
+        calls += 1
+        return [{
+            "url": f"https://example.edu/pattern-{calls}",
+            "title": "Open authoring pattern",
+            "text": (
+                "```python\nprint(1 + 1)\n``` "
+                "Predict the exact output. A. 2 B. 1"
+            ),
+            "open_license": True,
+        }]
+
+    enriched = await enrich_reference_package_with_web(
+        course,
+        package,
+        objectives=objectives,
+        search=search,
+    )
+
+    assert calls > 0
+    assert enriched["web"]["status"] == "completed"
+    assert any(
+        item["source_type"] == "trusted_web_reference"
+        for item in enriched["authoring_patterns"]
+    )
+
+
+async def test_web_failure_uses_builtin_authoring_templates():
+    course = _course("programming_engineering")
+    profile = compile_course_assessment_profile(course)
+    objectives = compile_assessment_objectives(course, profile)
+    blueprint = compile_course_assessment_blueprint(
+        course,
+        profile=profile,
+        objectives=objectives,
+    )
+    package = compile_local_reference_package(
+        course,
+        objectives=objectives,
+        blueprint=blueprint,
+    )
+
+    async def failing_search(query: str, *, num_results: int):
+        raise RuntimeError("search unavailable")
+
+    enriched = await enrich_reference_package_with_web(
+        course,
+        package,
+        objectives=objectives,
+        search=failing_search,
+    )
+
+    assert enriched["web"]["status"] == "failed_fallback_local"
+    assert any(
+        item["source_type"] == "builtin_subject_template"
+        for item in enriched["authoring_patterns"]
+    )
+    assert all(
+        item["covered"]
+        for item in enriched["method_coverage"]
+    )
 
 
 def _quality_contract() -> tuple[dict, dict, dict]:
@@ -372,6 +497,50 @@ def test_question_that_references_code_requires_a_visible_fenced_block():
     )
 
     assert report["passed"] is False
+    assert "CODE_MATERIAL_NOT_RENDERABLE" in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_debugging_trace_cannot_publish_with_only_a_code_placeholder():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    contract["question_type"] = "debugging_trace"
+    contract["question_spec"]["stimulus"]["rendered_text"] = (
+        "\u4e0b\u9762\u662f\u4e00\u6bb5 Python \u4ee3\u7801\u53ca\u5176"
+        "\u6267\u884c\u8f68\u8ff9\uff0c\u8bf7\u6839\u636e\u4ee3\u7801"
+        "\u5206\u6790\u95ee\u9898\u3002"
+    )
+    contract["question_spec"]["task"]["rendered_text"] = (
+        "\u5206\u6790\u7ed9\u5b9a\u4ee3\u7801\u548c\u6267\u884c"
+        "\u8f68\u8ff9\uff0c\u5e76\u63d0\u4f9b\u89e3\u51b3\u65b9\u6848\u3002"
+    )
+    contract["prompt"] = "\n".join([
+        contract["question_spec"]["stimulus"]["rendered_text"],
+        contract["question_spec"]["task"]["rendered_text"],
+    ])
+    contract["input_materials"] = [
+        contract["question_spec"]["stimulus"]["rendered_text"],
+    ]
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    assert report["passed"] is False
+    assert report["hard_gates"]["code_rendering"] is False
     assert "CODE_MATERIAL_NOT_RENDERABLE" in {
         issue["code"] for issue in report["issues"]
     }

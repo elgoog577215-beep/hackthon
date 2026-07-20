@@ -7,6 +7,7 @@ import atexit
 from concurrent.futures import Future
 from copy import deepcopy
 import logging
+import os
 from threading import Event, Thread
 from typing import Any, Literal
 from uuid import uuid4
@@ -21,7 +22,9 @@ from assessment_contracts import (
 )
 from assessment_blueprint import (
     compile_course_assessment_blueprint,
+    slot_for,
 )
+from assessment_compiler import compile_formal_task_contract
 from assessment_retrieval import (
     compile_local_reference_package,
     enrich_reference_package_with_web,
@@ -70,6 +73,7 @@ class QuestionBankRebuildRequest(BaseModel):
         max_length=200,
     )
     mode: Literal["incremental", "full"] = "incremental"
+    resume_existing: bool = True
 
     @model_validator(mode="after")
     def validate_scope(self):
@@ -189,7 +193,19 @@ class QuestionBankRebuildExecutor:
         self._thread.join(timeout=max(0.0, timeout))
 
 
-question_bank_rebuild_executor = QuestionBankRebuildExecutor()
+def _configured_rebuild_worker_count() -> int:
+    try:
+        value = int(
+            os.getenv("QUESTION_BANK_REBUILD_MAX_WORKERS", "1")
+        )
+    except ValueError:
+        value = 1
+    return max(1, min(4, value))
+
+
+question_bank_rebuild_executor = QuestionBankRebuildExecutor(
+    max_workers=_configured_rebuild_worker_count(),
+)
 atexit.register(question_bank_rebuild_executor.shutdown)
 assessment_generation_orchestrator = AssessmentGenerationOrchestrator()
 
@@ -266,12 +282,168 @@ async def get_question_bank(
         ),
         "review_queue": bundle.get("review_queue") or {},
         "web_enrichment": bundle.get("web_enrichment") or {},
-        "chapter_rebuild": deepcopy(
-            course.get("question_bank_chapter_rebuild") or {}
-        ),
+        "chapter_rebuild": _chapter_rebuild_progress(course, bundle),
         "items": items,
         "total": len(items),
         "access_scope": "teacher_authenticated_course_management",
+    }
+
+
+_PRACTICE_LEVELS = {
+    "concept_check",
+    "objective_practice",
+    "mastery_check",
+}
+
+
+def _modern_published_chapter_node_ids(
+    course: dict[str, Any],
+    bundle: dict[str, Any] | None,
+) -> set[str]:
+    """Infer chapters already replaced by a complete v2 question set.
+
+    Some courses started their migration before chapter checkpoints were
+    introduced.  The active bundle is authoritative in that case: a chapter
+    counts only when all three practice slots are published and have passed
+    the v2 quality gate.
+    """
+
+    course_node_ids = {
+        str(node.get("node_id") or "")
+        for node in course.get("nodes") or []
+        if (
+            int(node.get("node_level") or 1) == 2
+            and node.get("node_id")
+        )
+    }
+    blueprint = (bundle or {}).get("assessment_blueprint") or {}
+    solutions = (bundle or {}).get("solution_envelopes") or {}
+    levels_by_node: dict[str, set[str]] = {}
+    for item in (bundle or {}).get("items") or []:
+        node_id = str(item.get("node_id") or "")
+        quality = item.get("quality_report") or {}
+        if (
+            node_id not in course_node_ids
+            or item.get("assessment_role") != "practice"
+            or item.get("lifecycle_status") != "approved"
+            or item.get("generation_status") != "published"
+            or quality.get("schema_version")
+            != "question_quality_report_v2"
+            or quality.get("passed") is not True
+        ):
+            continue
+        hydrated = deepcopy(item)
+        level = str(
+            next(
+                iter(item.get("practice_levels") or []),
+                item.get("practice_level") or "",
+            )
+        )
+        assessment_slot = slot_for(
+            blueprint,
+            node_id=node_id,
+            practice_level=level,
+        )
+        if assessment_slot:
+            hydrated["assessment_slot"] = assessment_slot
+        solution = solutions.get(
+            str(item.get("solution_revision_id") or "")
+        )
+        compiled = compile_formal_task_contract(
+            hydrated,
+            solution,
+        )
+        validation = compiled.get("contract_validation") or {}
+        quality_hash = str(
+            quality.get("compiled_contract_hash") or ""
+        )
+        if (
+            validation.get("passed") is not True
+            or (
+                quality_hash
+                and quality_hash
+                != compiled.get("compiled_contract_hash")
+            )
+        ):
+            continue
+        levels = {
+            str(value)
+            for value in (
+                item.get("practice_levels")
+                or [item.get("practice_level")]
+            )
+            if str(value) in _PRACTICE_LEVELS
+        }
+        levels_by_node.setdefault(node_id, set()).update(levels)
+    return {
+        node_id
+        for node_id, levels in levels_by_node.items()
+        if levels == _PRACTICE_LEVELS
+    }
+
+
+def _chapter_rebuild_progress(
+    course: dict[str, Any],
+    bundle: dict[str, Any] | None,
+) -> dict[str, Any]:
+    checkpoint = deepcopy(
+        course.get("question_bank_chapter_rebuild") or {}
+    )
+    course_node_ids = [
+        str(node.get("node_id") or "")
+        for node in course.get("nodes") or []
+        if (
+            int(node.get("node_level") or 1) == 2
+            and node.get("node_id")
+        )
+    ]
+    known = set(course_node_ids)
+    checkpoint_published = {
+        str(node_id)
+        for node_id in checkpoint.get("published_node_ids") or []
+        if str(node_id) in known
+    }
+    inferred = _modern_published_chapter_node_ids(course, bundle)
+    published = (
+        checkpoint_published & inferred
+        if checkpoint_published
+        else set(inferred)
+    )
+    total = len(course_node_ids)
+    completed = len(published)
+    status_value = str(checkpoint.get("status") or "")
+    if total and completed == total:
+        progress_status = "completed"
+    elif completed:
+        progress_status = (
+            status_value
+            if status_value in {"running", "failed"}
+            else "partial"
+        )
+    else:
+        progress_status = (
+            status_value
+            if status_value in {"running", "failed"}
+            else "not_started"
+        )
+    return {
+        "schema_version": "question_bank_chapter_rebuild_v1",
+        **checkpoint,
+        "status": progress_status,
+        "published_node_ids": [
+            node_id
+            for node_id in course_node_ids
+            if node_id in published
+        ],
+        "inferred_node_ids": [
+            node_id
+            for node_id in course_node_ids
+            if node_id in inferred
+        ],
+        "total_chapters": total,
+        "completed_chapters": completed,
+        "remaining_chapters": max(0, total - completed),
+        "can_resume": bool(0 < completed < total),
     }
 
 
@@ -720,7 +892,10 @@ async def _execute_question_bank_rebuild(
         reference_package,
         objectives=assessment_objectives,
     )
-    chapter_publication_enabled = payload.scope == "course"
+    chapter_publication_enabled = payload.scope in {
+        "course",
+        "nodes",
+    }
     course_node_ids = [
         str(node.get("node_id") or "")
         for node in course_for_bank.get("nodes") or []
@@ -729,16 +904,26 @@ async def _execute_question_bank_rebuild(
             and node.get("node_id")
         )
     ]
+    campaign_node_ids = (
+        course_node_ids
+        if payload.scope == "course"
+        else [
+            node_id
+            for node_id in payload.node_ids
+            if node_id in set(course_node_ids)
+        ]
+    )
     checkpoint = deepcopy(
         course.get("question_bank_chapter_rebuild") or {}
     )
     resumable_checkpoint = bool(
-        chapter_publication_enabled
+        payload.scope == "course"
+        and payload.resume_existing
         and checkpoint.get("status") in {"running", "failed"}
         and checkpoint.get("blueprint_revision_id")
         == assessment_blueprint.get("blueprint_revision_id")
     )
-    published_node_ids = {
+    checkpoint_node_ids = {
         str(node_id)
         for node_id in (
             checkpoint.get("published_node_ids") or []
@@ -746,6 +931,27 @@ async def _execute_question_bank_rebuild(
             else []
         )
         if str(node_id) in set(course_node_ids)
+    }
+    checkpoint_node_ids &= _modern_published_chapter_node_ids(
+        course,
+        previous,
+    )
+    inferred_node_ids = (
+        _modern_published_chapter_node_ids(course, previous)
+        if (
+            payload.scope == "course"
+            and payload.resume_existing
+            and not resumable_checkpoint
+        )
+        else set()
+    )
+    # A fully migrated bank should still allow an intentional full rebuild.
+    # Inference is only a bootstrap for interrupted/partial migrations.
+    if len(inferred_node_ids) == len(course_node_ids):
+        inferred_node_ids = set()
+    published_node_ids = {
+        *checkpoint_node_ids,
+        *inferred_node_ids,
     }
     resumed_chapter_count = len(published_node_ids)
     campaign_id = (
@@ -756,7 +962,7 @@ async def _execute_question_bank_rebuild(
     target_node_ids = (
         [
             node_id
-            for node_id in course_node_ids
+            for node_id in campaign_node_ids
             if node_id not in published_node_ids
         ]
         if chapter_publication_enabled
@@ -771,7 +977,7 @@ async def _execute_question_bank_rebuild(
     rolling_course = deepcopy(course)
     failed_chapters: list[dict[str, Any]] = []
     processed_chapter_count = 0
-    total_chapters = len(course_node_ids)
+    total_chapters = len(campaign_node_ids)
 
     async def publish_completed_chapter(
         event: dict[str, Any],
@@ -940,28 +1146,33 @@ async def _execute_question_bank_rebuild(
             == len(target_node_ids or [])
         )
         publication_base = deepcopy(rolling_course)
-        publication_base["question_bank_chapter_rebuild"] = {
-            "schema_version": (
-                "question_bank_chapter_rebuild_v1"
-            ),
-            "campaign_id": campaign_id,
-            "job_id": job_id,
-            "blueprint_revision_id": (
-                assessment_blueprint.get(
-                    "blueprint_revision_id"
-                )
-            ),
-            "status": (
-                "completed"
-                if all_chapters_published
-                else "running"
-            ),
-            "published_node_ids": sorted(
-                next_published_node_ids
-            ),
-            "failed_chapters": deepcopy(failed_chapters),
-            "total_chapters": total_chapters,
-        }
+        if payload.scope == "course":
+            publication_base[
+                "question_bank_chapter_rebuild"
+            ] = {
+                "schema_version": (
+                    "question_bank_chapter_rebuild_v1"
+                ),
+                "campaign_id": campaign_id,
+                "job_id": job_id,
+                "blueprint_revision_id": (
+                    assessment_blueprint.get(
+                        "blueprint_revision_id"
+                    )
+                ),
+                "status": (
+                    "completed"
+                    if all_chapters_published
+                    else "running"
+                ),
+                "published_node_ids": sorted(
+                    next_published_node_ids
+                ),
+                "failed_chapters": deepcopy(
+                    failed_chapters
+                ),
+                "total_chapters": total_chapters,
+            }
         published_course = await _publish_rebuilt_course(
             course_id,
             publication_base,
@@ -1099,6 +1310,12 @@ async def _execute_question_bank_rebuild(
             rolling_course,
             deduplicated=False,
         )
+        if payload.scope == "nodes":
+            response["review_queue"] = _scope_review_queue(
+                response.get("review_queue") or {},
+                node_ids=set(campaign_node_ids),
+                assessment_roles={"practice"},
+            )
         if not (response.get("review_queue") or {}).get(
             "blocking_count"
         ):
@@ -1330,6 +1547,44 @@ def _rebuild_response(
     }
 
 
+def _scope_review_queue(
+    queue: dict[str, Any],
+    *,
+    node_ids: set[str],
+    assessment_roles: set[str],
+) -> dict[str, Any]:
+    """Report only review work introduced by a scoped rebuild."""
+    result = deepcopy(queue)
+    blocking_items = [
+        deepcopy(item)
+        for item in queue.get("items") or []
+        if (
+            str(item.get("node_id") or "") in node_ids
+            and str(item.get("assessment_role") or "")
+            in assessment_roles
+        )
+    ]
+    sample_items = [
+        deepcopy(item)
+        for item in queue.get("sample_items") or []
+        if (
+            str(item.get("node_id") or "") in node_ids
+            and str(item.get("assessment_role") or "")
+            in assessment_roles
+        )
+    ]
+    result["items"] = blocking_items
+    result["sample_items"] = sample_items
+    result["blocking_count"] = len(blocking_items)
+    result["sample_count"] = len(sample_items)
+    result["tier_counts"] = {
+        "auto_publish": 0,
+        "mandatory_review": len(blocking_items),
+        "sample_review": len(sample_items),
+    }
+    return result
+
+
 def _select_publishable_asset_bundle(
     previous_assets: dict[str, Any] | None,
     compiled_assets: dict[str, Any],
@@ -1510,10 +1765,73 @@ def _overlay_question_bank_publication(
     selected = deepcopy(previous_assets)
     selected.pop("bundle_revision_id", None)
     selected["assets"] = deepcopy(selected.get("assets") or {})
+    selected["assets"]["questions"] = _merge_approved_question_assets(
+        selected["assets"].get("questions") or [],
+        approved_items,
+    )
     selected["assets"]["question_bank_publications"] = [binding]
     selected["publication_mode"] = publication_mode
     selected["question_bank_publication_quality"] = publication_quality
     return selected
+
+
+def _merge_approved_question_assets(
+    previous_questions: list[dict[str, Any]],
+    approved_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Overlay approved formal tasks without dropping unrelated assets."""
+
+    approved_questions = [
+        deepcopy(item["formal_task"])
+        for item in approved_items
+        if isinstance(item.get("formal_task"), dict)
+    ]
+    if not approved_questions:
+        return deepcopy(previous_questions)
+    approved_by_slot = {
+        _question_asset_slot(question): question
+        for question in approved_questions
+    }
+    merged: list[dict[str, Any]] = []
+    emitted_slots: set[tuple[str, str, str] | tuple[str, str]] = set()
+
+    for previous in previous_questions:
+        question = deepcopy(previous)
+        slot = _question_asset_slot(question)
+        if slot in emitted_slots:
+            continue
+        merged.append(deepcopy(approved_by_slot.get(slot, question)))
+        emitted_slots.add(slot)
+
+    for question in approved_questions:
+        slot = _question_asset_slot(question)
+        if slot in emitted_slots:
+            continue
+        merged.append(deepcopy(approved_by_slot[slot]))
+        emitted_slots.add(slot)
+
+    return merged
+
+
+def _question_asset_slot(
+    question: dict[str, Any],
+) -> tuple[str, str, str] | tuple[str, str]:
+    node_id = str(question.get("node_id") or "")
+    practice_level = str(question.get("practice_level") or "")
+    if node_id and practice_level:
+        return (
+            node_id,
+            str(question.get("assessment_role") or "practice"),
+            practice_level,
+        )
+    return (
+        "revision",
+        str(
+            question.get("revision_id")
+            or question.get("formal_task_revision_id")
+            or stable_hash(question, prefix="question_")
+        ),
+    )
 
 
 def _question_bank_publication_binding(

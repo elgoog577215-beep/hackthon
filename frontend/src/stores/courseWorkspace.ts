@@ -172,6 +172,17 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         this.loading = false
       }
     },
+    async checkPracticeAvailability(courseId: string, nodeId: string) {
+      const res = await http.get(`/api/courses/${courseId}/practice`, {
+        params: { scope: 'node', node_id: nodeId },
+      })
+      return Number(
+        res.data?.question_count
+        ?? res.data?.questions?.length
+        ?? res.data?.available_question_count
+        ?? 0,
+      ) > 0
+    },
     async loadPractice(courseId: string, nodeId?: string, scope: 'node' | 'final' | 'all' = 'node') {
       this.loading = true
       this.practiceLoading = true

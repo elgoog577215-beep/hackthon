@@ -50,6 +50,31 @@ class PracticeGrader(AIBase):
         allows_mastery = validation_policy.get("mastery_eligible")
         if allows_mastery is None:
             allows_mastery = question.get("practice_level") in {None, "mastery_check", "final_assessment"}
+        compiled_validation = (
+            question.get("compiled_contract_validation") or {}
+        )
+        compiled_hash = str(
+            question.get("compiled_contract_hash") or ""
+        )
+        policy_hash = str(
+            validation_policy.get("compiled_contract_hash")
+            or ""
+        )
+        if (
+            (
+                (question.get("question_spec") or {}).get(
+                    "schema_version"
+                )
+                == "question_spec_v2"
+                and compiled_validation.get("passed") is not True
+            )
+            or (
+                compiled_hash
+                and policy_hash
+                and compiled_hash != policy_hash
+            )
+        ):
+            allows_mastery = False
         max_support = int(validation_policy.get("max_support_level_for_mastery", 1))
         if not allows_mastery or result["support_level"] > max_support or strength in {"scaffolded", "invalid"}:
             result["mastery_eligible"] = False

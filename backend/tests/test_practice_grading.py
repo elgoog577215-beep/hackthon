@@ -44,6 +44,48 @@ def test_answer_zero_string_matches_expected_zero_int():
     assert result["passed"] is True
 
 
+@pytest.mark.asyncio
+async def test_invalid_v2_compiled_contract_cannot_create_mastery():
+    grader = PracticeGrader()
+    question = {
+        "question_type": "state_trace_transfer",
+        "practice_level": "mastery_check",
+        "question_spec": {
+            "schema_version": "question_spec_v2",
+        },
+        "answer_spec": {
+            "correct_option_id": "A",
+            "pass_score": 70,
+        },
+        "grading_policy": {
+            "method": "deterministic",
+        },
+        "validation_policy": {
+            "mastery_eligible": True,
+            "max_support_level_for_mastery": 1,
+            "compiled_contract_hash": "qcc-valid",
+        },
+        "compiled_contract_hash": "qcc-valid",
+        "compiled_contract_validation": {
+            "passed": False,
+            "issues": [{
+                "code": "BLUEPRINT_INPUT_MODE_MISMATCH",
+            }],
+        },
+    }
+
+    result = await grader.grade(question, {
+        "status": "submitted",
+        "submitted_answer_payload": {
+            "selected_option_id": "A",
+        },
+        "revealed_hint_levels": [],
+    })
+
+    assert result["passed"] is True
+    assert result["mastery_eligible"] is False
+
+
 def test_answer_false_matches_expected_false():
     result = _deterministic(expected=False, actual=False)
     assert result["passed"] is True

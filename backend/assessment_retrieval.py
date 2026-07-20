@@ -41,13 +41,13 @@ def compile_local_reference_package(
             or item.get("purpose") == "question_source"
         )
     ]
-    references: list[dict[str, Any]] = []
+    authoring_patterns: list[dict[str, Any]] = []
     for source in evidence[:MAX_REFERENCE_PATTERNS]:
         text = _source_text(source)
         if not text:
             continue
         objective = _best_objective(text, objectives)
-        references.append(
+        authoring_patterns.append(
             _reference_record(
                 text=text,
                 source_type="teacher_question_bank",
@@ -63,6 +63,36 @@ def compile_local_reference_package(
                 ),
             )
         )
+    content_evidence: list[dict[str, Any]] = []
+    for objective in objectives:
+        source_text = str(objective.get("source_excerpt") or "").strip()
+        if not source_text:
+            continue
+        content_evidence.append(
+            _reference_record(
+                text=source_text,
+                source_type="course_materials",
+                objective=objective,
+                source_record={
+                    "asset_id": next(
+                        iter(objective.get("source_refs") or []),
+                        None,
+                    ),
+                    "title": "course objective source",
+                },
+                rights_basis="course_owned",
+                reuse_policy="reference_only",
+                evidence_role="content_evidence",
+            )
+        )
+    content_coverage = _objective_coverage(
+        objectives,
+        content_evidence,
+    )
+    method_coverage = _method_coverage(
+        blueprint,
+        authoring_patterns,
+    )
     package = {
         "schema_version": REFERENCE_PACKAGE_SCHEMA,
         "course_id": str(course_data.get("course_id") or ""),
@@ -73,6 +103,7 @@ def compile_local_reference_package(
             "teacher_question_bank",
             "course_materials",
             "trusted_web_reference",
+            "builtin_subject_template",
             "general_model_knowledge",
         ],
         "retrieval_mode": _retrieval_mode(course_data),
@@ -91,10 +122,15 @@ def compile_local_reference_package(
             }
             for node in blueprint.get("nodes") or []
         ],
-        "references": references,
-        "objective_coverage": _objective_coverage(
-            objectives,
-            references,
+        "content_evidence": content_evidence,
+        "authoring_patterns": authoring_patterns,
+        # Compatibility alias consumed by older generators and summaries.
+        "references": deepcopy(authoring_patterns),
+        "content_coverage": content_coverage,
+        "method_coverage": method_coverage,
+        "objective_coverage": _combined_coverage(
+            content_coverage,
+            method_coverage,
         ),
         "web": {
             "status": "not_started",
@@ -102,6 +138,13 @@ def compile_local_reference_package(
             "source_count": 0,
         },
     }
+    if package["retrieval_mode"] == "off":
+        package["web"] = {
+            "status": "disabled",
+            "query_count": 0,
+            "source_count": 0,
+        }
+        return _finalize(package, objectives)
     package["package_revision_id"] = stable_hash(
         package,
         prefix="qrp_",
@@ -126,11 +169,7 @@ async def enrich_reference_package_with_web(
             "source_count": 0,
         }
         return _finalize(result, objectives)
-    gaps = [
-        item
-        for item in result.get("objective_coverage") or []
-        if not item.get("covered")
-    ]
+    gaps = _coverage_gaps(result)
     if mode != "always" and not gaps:
         result["web"] = {
             "status": "not_needed",
@@ -170,7 +209,7 @@ async def enrich_reference_package_with_web(
     errors = 0
     source_count = 0
     for query, objective in queries:
-        if len(result.get("references") or []) >= MAX_REFERENCE_PATTERNS:
+        if len(result.get("authoring_patterns") or []) >= MAX_REFERENCE_PATTERNS:
             break
         try:
             raw_results = await search_fn(query, num_results=2)
@@ -184,22 +223,28 @@ async def enrich_reference_package_with_web(
             if not url or not text or url in seen_urls:
                 continue
             seen_urls.add(url)
-            result.setdefault("references", []).append(
-                _reference_record(
-                    text=text,
-                    source_type="trusted_web_reference",
-                    objective=objective,
-                    source_record=sanitized,
-                    rights_basis=(
-                        "open_license"
-                        if sanitized.get("open_license")
-                        else "license_unknown"
-                    ),
-                    reuse_policy="reference_only",
-                )
+            reference = _reference_record(
+                text=text,
+                source_type="trusted_web_reference",
+                objective=objective,
+                source_record=sanitized,
+                rights_basis=(
+                    "open_license"
+                    if sanitized.get("open_license")
+                    else "license_unknown"
+                ),
+                reuse_policy="reference_only",
+                evidence_role="authoring_pattern",
             )
+            result.setdefault("authoring_patterns", []).append(
+                deepcopy(reference)
+            )
+            result.setdefault("content_evidence", []).append({
+                **deepcopy(reference),
+                "evidence_role": "content_evidence",
+            })
             source_count += 1
-            if len(result["references"]) >= MAX_REFERENCE_PATTERNS:
+            if len(result["authoring_patterns"]) >= MAX_REFERENCE_PATTERNS:
                 break
     result["web"] = {
         "status": (
@@ -222,7 +267,38 @@ def references_for_objective(
 ) -> list[dict[str, Any]]:
     matched = [
         deepcopy(item)
-        for item in package.get("references") or []
+        for item in (
+            package.get("authoring_patterns")
+            or package.get("references")
+            or []
+        )
+        if str(item.get("objective_id") or "") == str(objective_id)
+    ]
+    priority = {
+        "teacher_question_bank": 0,
+        "course_materials": 1,
+        "trusted_web_reference": 2,
+        "builtin_subject_template": 3,
+        "general_model_knowledge": 4,
+    }
+    matched.sort(
+        key=lambda item: priority.get(
+            str(item.get("source_type") or ""),
+            9,
+        )
+    )
+    return matched[: max(0, limit)]
+
+
+def content_evidence_for_objective(
+    package: dict[str, Any],
+    objective_id: str,
+    *,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    matched = [
+        deepcopy(item)
+        for item in package.get("content_evidence") or []
         if str(item.get("objective_id") or "") == str(objective_id)
     ]
     priority = {
@@ -240,14 +316,87 @@ def references_for_objective(
     return matched[: max(0, limit)]
 
 
+def reference_summary_for_slot(
+    package: dict[str, Any],
+    *,
+    objective_id: str,
+    question_type: str,
+) -> dict[str, Any]:
+    content_coverage = next(
+        (
+            item
+            for item in package.get("content_coverage") or []
+            if str(item.get("objective_id") or "")
+            == str(objective_id)
+        ),
+        {},
+    )
+    method_coverage = next(
+        (
+            item
+            for item in package.get("method_coverage") or []
+            if (
+                str(item.get("objective_id") or "")
+                == str(objective_id)
+                and str(item.get("question_type") or "")
+                == str(question_type)
+            )
+        ),
+        {},
+    )
+    content = content_evidence_for_objective(
+        package,
+        objective_id,
+        limit=3,
+    )
+    patterns = references_for_objective(
+        package,
+        objective_id,
+        limit=5,
+    )
+    return {
+        "content_covered": bool(content_coverage.get("covered")),
+        "method_covered": bool(method_coverage.get("covered")),
+        "content_reference_count": int(
+            content_coverage.get("reference_count") or len(content)
+        ),
+        "authoring_pattern_count": int(
+            method_coverage.get("reference_count") or len(patterns)
+        ),
+        "content_fact_basis": [
+            str(item.get("reference_excerpt") or "")[:300]
+            for item in content[:3]
+        ],
+        "source_priority": deepcopy(
+            package.get("source_priority") or []
+        ),
+    }
+
+
 def _finalize(
     package: dict[str, Any],
     objectives: list[dict[str, Any]],
 ) -> dict[str, Any]:
     result = deepcopy(package)
-    result["objective_coverage"] = _objective_coverage(
+    result.setdefault(
+        "authoring_patterns",
+        deepcopy(result.get("references") or []),
+    )
+    _add_builtin_authoring_fallbacks(result, objectives)
+    result["references"] = deepcopy(
+        result.get("authoring_patterns") or []
+    )
+    result["content_coverage"] = _objective_coverage(
         objectives,
-        result.get("references") or [],
+        result.get("content_evidence") or [],
+    )
+    result["method_coverage"] = _method_coverage_from_requests(
+        result.get("retrieval_requests") or [],
+        result.get("authoring_patterns") or [],
+    )
+    result["objective_coverage"] = _combined_coverage(
+        result["content_coverage"],
+        result["method_coverage"],
     )
     result.pop("package_revision_id", None)
     result["package_revision_id"] = stable_hash(
@@ -300,6 +449,180 @@ def _objective_coverage(
     ]
 
 
+def _method_coverage(
+    blueprint: dict[str, Any],
+    references: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    requests = [
+        {
+            "objective_id": node.get("objective_id"),
+            "node_id": node.get("node_id"),
+            "question_types": [
+                slot.get("question_type")
+                for slot in node.get("slots") or []
+            ],
+        }
+        for node in blueprint.get("nodes") or []
+    ]
+    return _method_coverage_from_requests(requests, references)
+
+
+def _method_coverage_from_requests(
+    requests: list[dict[str, Any]],
+    references: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for request in requests:
+        objective_id = request.get("objective_id")
+        objective_references = [
+            reference
+            for reference in references
+            if reference.get("objective_id") == objective_id
+        ]
+        for question_type in request.get("question_types") or []:
+            matched = [
+                reference
+                for reference in objective_references
+                if _pattern_matches_question_type(
+                    reference.get("pattern") or {},
+                    str(question_type or ""),
+                )
+            ]
+            result.append({
+                "objective_id": objective_id,
+                "node_id": request.get("node_id"),
+                "question_type": question_type,
+                "covered": bool(matched),
+                "reference_count": len(matched),
+            })
+    return result
+
+
+def _combined_coverage(
+    content_coverage: list[dict[str, Any]],
+    method_coverage: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for content in content_coverage:
+        objective_id = content.get("objective_id")
+        methods = [
+            item
+            for item in method_coverage
+            if item.get("objective_id") == objective_id
+        ]
+        result.append({
+            "objective_id": objective_id,
+            "node_id": content.get("node_id"),
+            "covered": bool(
+                content.get("covered")
+                and methods
+                and all(item.get("covered") for item in methods)
+            ),
+            "content_covered": bool(content.get("covered")),
+            "method_covered": bool(
+                methods and all(item.get("covered") for item in methods)
+            ),
+            "content_reference_count": int(
+                content.get("reference_count") or 0
+            ),
+            "authoring_pattern_count": sum(
+                int(item.get("reference_count") or 0)
+                for item in methods
+            ),
+        })
+    return result
+
+
+def _coverage_gaps(
+    package: dict[str, Any],
+) -> list[dict[str, Any]]:
+    gaps = [
+        {
+            **deepcopy(item),
+            "coverage_kind": "content",
+        }
+        for item in package.get("content_coverage") or []
+        if not item.get("covered")
+    ]
+    gaps.extend([
+        {
+            **deepcopy(item),
+            "coverage_kind": "method",
+        }
+        for item in package.get("method_coverage") or []
+        if not item.get("covered")
+    ])
+    return gaps
+
+
+def _add_builtin_authoring_fallbacks(
+    package: dict[str, Any],
+    objectives: list[dict[str, Any]],
+) -> None:
+    patterns = package.setdefault("authoring_patterns", [])
+    requests = package.get("retrieval_requests") or []
+    existing = {
+        (
+            str(item.get("objective_id") or ""),
+            str((item.get("pattern") or {}).get("question_type") or ""),
+        )
+        for item in patterns
+    }
+    objective_lookup = {
+        str(item.get("objective_id") or ""): item
+        for item in objectives
+    }
+    for request in requests:
+        objective_id = str(request.get("objective_id") or "")
+        objective = objective_lookup.get(objective_id)
+        for question_type in request.get("question_types") or []:
+            key = (objective_id, str(question_type or ""))
+            if key in existing:
+                continue
+            template_text = (
+                f"Built-in authoring template for {question_type}: "
+                "lock the answer fact and validator first; select only "
+                "material used by an answer step; write one observable task; "
+                "derive distractors from a named misconception."
+            )
+            record = _reference_record(
+                text=template_text,
+                source_type="builtin_subject_template",
+                objective=objective,
+                source_record={
+                    "title": f"builtin:{question_type}",
+                },
+                rights_basis="system_template",
+                reuse_policy="structure_only",
+                evidence_role="authoring_pattern",
+            )
+            record["pattern"]["question_type"] = question_type
+            patterns.append(record)
+            existing.add(key)
+
+
+def _pattern_matches_question_type(
+    pattern: dict[str, Any],
+    question_type: str,
+) -> bool:
+    explicit = str(pattern.get("question_type") or "")
+    if explicit:
+        return explicit == question_type
+    shape = str(pattern.get("question_shape") or "")
+    selected_types = {
+        "selected_response",
+        "output_prediction",
+        "source_identification",
+        "language_comprehension",
+        "data_judgement",
+    }
+    return (
+        shape == "selected_response"
+        if question_type in selected_types
+        else shape == "constructed_response"
+    )
+
+
 def _reference_record(
     *,
     text: str,
@@ -308,6 +631,7 @@ def _reference_record(
     source_record: dict[str, Any],
     rights_basis: str,
     reuse_policy: str,
+    evidence_role: str = "authoring_pattern",
 ) -> dict[str, Any]:
     excerpt = " ".join(text.split())[:MAX_REFERENCE_EXCERPT]
     pattern = _extract_pattern(excerpt)
@@ -341,6 +665,7 @@ def _reference_record(
         "source_record": public_source,
         "rights_basis": rights_basis,
         "reuse_policy": reuse_policy,
+        "evidence_role": evidence_role,
         "pattern": pattern,
         "reference_excerpt": excerpt,
         "untrusted_source_isolated": source_type
@@ -514,6 +839,8 @@ def _tokens(value: str) -> list[str]:
 __all__ = [
     "MAX_REFERENCE_PATTERNS",
     "compile_local_reference_package",
+    "content_evidence_for_objective",
     "enrich_reference_package_with_web",
+    "reference_summary_for_slot",
     "references_for_objective",
 ]

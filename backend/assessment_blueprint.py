@@ -17,10 +17,11 @@ from assessment_contracts import (
     compile_course_assessment_profile,
 )
 from course_versioning import stable_hash
+from assessment_semantics import semantics_for_question_type
 
 
 ASSESSMENT_BLUEPRINT_SCHEMA = "course_assessment_blueprint_v2"
-REFERENCE_PACKAGE_SCHEMA = "question_reference_package_v1"
+REFERENCE_PACKAGE_SCHEMA = "question_reference_package_v2"
 INPUT_CONTRACT_SCHEMA = "input_contract_v2"
 
 PRACTICE_LEVELS = (
@@ -318,6 +319,11 @@ def compile_course_assessment_blueprint(
                     else "course_grounding"
                 ),
                 "risk_level": objective.get("risk_level") or "teacher_review",
+                "question_type_semantics_id": (
+                    semantics_for_question_type(
+                        str(recipe.get("question_type") or "")
+                    ).get("registry_id")
+                ),
                 "input_contract": input_contract_for_slot(
                     recipe,
                     family=family,

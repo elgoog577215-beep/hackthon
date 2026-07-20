@@ -51,6 +51,179 @@ final result: passed
 
 ---
 
+# 2026-07-20 题库目标覆盖矩阵精简与分页 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-ddf46fd3-d76a-4ec9-aa98-e47cf05ac02b.png`
+- selected design target path: `C:\Users\Lenovo\AppData\Local\Temp\figma-default-state.png`
+- implementation screenshot path: `D:\lingzhi\hackthon\artifacts\design-qa\objective-matrix-collapsed.png`
+- expanded pagination screenshot path: `D:\lingzhi\hackthon\artifacts\design-qa\objective-matrix-pagination.png`
+- narrow viewport screenshot path: `D:\lingzhi\hackthon\artifacts\design-qa\objective-matrix-narrow.png`
+- full-view comparison evidence: `D:\lingzhi\hackthon\artifacts\design-qa\original-vs-implementation.png`
+- focused design comparison evidence: `D:\lingzhi\hackthon\artifacts\design-qa\design-target-vs-implementation.png`
+- desktop viewport: `1280 × 720`
+- narrow viewport: `900 × 700`
+- state: Python 高级编程课程题库；真实数据为 63/63 已覆盖
+
+**Findings**
+
+- 无可执行的 P0/P1/P2 差异。原先连续渲染全部已覆盖目标的长列表已改成异常优先结构；健康项默认只保留一条汇总入口。
+- 默认状态仅渲染异常项和“63 项已覆盖”摘要；真实页面中已覆盖明细与分页均未创建，消除了无意义的初始长滚动。
+- 展开后每页严格显示 10 条；第二页范围为 11–20，最后一页范围为 61–63。
+- 页码区支持上一页、下一页、离散页码和直接输入页码跳转。
+- 窄内容区首次检查发现分页被右侧裁切；修复为三段自适应换行后，页码与跳转控件均保持在容器内。
+- 已覆盖行使用紧凑布局，重建操作收进更多菜单；异常行仍保留状态、验证器信息和直接重建按钮。
+- 真实课程当前没有异常目标，因此异常置顶视觉由设计目标与组件夹具覆盖；实际浏览器验证了全覆盖分支。
+
+**Comparison History**
+
+1. 初始问题：全部目标逐行常驻，63 个健康项会形成超长滚动，并重复暴露低频重建按钮。
+2. 第一版：健康项默认合并为摘要，展开后每页 10 条，并加入底部分页和页码跳转。
+3. 窄屏检查：`900 × 700` 下分页三列总宽度超过内容区。
+4. 修复：分页改为可换行的弹性布局，范围信息、页码组和跳转表单按可用宽度分行。
+5. 最终复查：桌面与窄屏均无分页裁切；默认收起、第二页和末页跳转均通过。
+
+**Primary Interactions Tested**
+
+- 打开 Python 高级编程课程的题库管理。
+- 默认收起已覆盖目标；确认已覆盖行数量为 0、分页数量为 0。
+- 点击“查看全部已覆盖项”；确认仅渲染 10 条。
+- 点击第 2 页；确认显示第 11–20 条。
+- 输入页码 7 并跳转；确认显示第 61–63 条，共 3 条。
+- 再次收起；确认返回摘要状态。
+- `900 × 700` 视口重复展开与翻页；确认分页控件完整可见。
+- Console errors checked: `0`。
+
+**Automated Verification**
+
+- 聚焦组件测试：1 个文件，11 个测试通过。
+- 前端完整测试：74 个文件，518 个测试通过。
+- 前端生产构建与 Vue TypeScript 检查：通过。
+
+**Open Questions**
+
+- 无。
+
+final result: passed
+
+---
+
+# 2026-07-20 题目浏览列表卡片级折叠复验 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-9bc6be6b-333b-4bc7-baf3-db58eccb3a58.png`
+- implementation screenshot path: `D:\lingzhi\hackthon\artifacts\design-qa\question-list-accordion-collapsed.png`
+- expanded state screenshot path: `D:\lingzhi\hackthon\artifacts\design-qa\question-list-accordion-expanded.png`
+- narrow viewport screenshot path: `D:\lingzhi\hackthon\artifacts\design-qa\question-list-accordion-narrow.png`
+- full-view comparison evidence: `D:\lingzhi\hackthon\artifacts\design-qa\question-list-accordion-comparison.png`
+- focused region comparison evidence: 未额外裁切；并排对照图中的首题卡片、十条摘要和底部分页均可清晰辨认，另用 DOM 几何数据核对卡片高度与分页位置
+- desktop viewport: `1221 × 845`
+- narrow viewport: `900 × 700`
+- state: Python 高级编程课程题库；真实数据为 197 道题，第 1 页
+
+**Findings**
+
+- 无剩余可执行 P0/P1/P2 差异。最新来源截图证明上一版只折叠题干、未折叠审核表单，单题仍占据大面积纵向空间；现在整张题目卡默认收起为摘要行。
+- 桌面摘要行实测高度为 `54px`。同一滚动视口内，第 1–10 条与底部分页同时可见：首条顶部 `133px`、第十条底部 `722px`、分页底部 `793px`、滚动容器底部 `825px`。
+- 摘要保留题型、单行题干、来源、验证器、发布状态和“展开审核”入口；答案验证、审核意见和返工/批准操作仅在展开后出现。
+- 手风琴行为一次只允许展开一道题。展开第二题会自动收起第一题；翻页、搜索和状态筛选都会清除当前展开状态。
+- 每页最多 10 条的分页保持不变，支持上一页、下一页、离散页码和直接页码跳转；末页实测为第 191–197 条，共 7 条。
+- 字体与排版：沿用现有字族、字重和层级；摘要题干使用单行省略，展开后恢复完整预格式化题干。
+- 间距与布局：列表间距收紧为 `5px`，桌面摘要行保持大于 44px 的可点击高度；`900 × 700` 下改为两行信息布局且无页面级横向溢出。
+- 色彩与视觉令牌：沿用现有品牌紫、成功绿、中性边框和白色卡片，展开态仅增加现有品牌色边框与轻阴影。
+- 图片与资源：该区域无内容图片；继续使用项目现有图标库，没有引入占位资产。
+- 文案与内容：题目和审核业务文案保持不变，仅将“展开全文”调整为更准确的“展开审核 / 收起审核”。
+
+**Comparison History**
+
+1. 来源截图 P1：虽然题干被截为 6 行，但答案入口、意见框和返工按钮仍常驻；前两题就占满可视区，滚动长度没有实质改善。
+2. 第一轮修复：将整张卡片改为默认摘要、按需展开详情，并限制同一时间只展开一道题。
+3. 密度复查 P2：初始摘要行 `73px`，底部分页仍超出同一滚动视口约 `36px`。
+4. 第二轮修复：将摘要行压缩到 `54px`、列表间距压缩到 `5px`，在来源截图对应桌面比例下让 10 条摘要与分页同时进入同一滚动视口。
+5. 最终复查：桌面折叠态、单题展开态、第二页、末页跳转和窄宽度布局均通过。
+
+**Primary Interactions Tested**
+
+- 打开 Python 高级编程课程题库，确认默认渲染 10 条紧凑摘要且详情数量为 0。
+- 展开第一题，确认完整题干、答案验证、意见框和返工操作出现。
+- 展开第二题，确认第一题自动收起，页面仍只有 1 个详情区域。
+- 切换第 2 页，确认范围为第 11–20 条且详情自动收起。
+- 直接跳转第 20 页，确认范围为第 191–197 条，共 7 条。
+- `900 × 700` 下确认 10 条摘要无横向溢出。
+- Console errors checked: `0`。
+
+**Automated Verification**
+
+- 聚焦组件测试：1 个文件，12 个测试通过。
+- 前端完整测试：74 个文件，519 个测试通过。
+- 前端生产构建与 Vue TypeScript 检查：通过。
+
+**Open Questions**
+
+- 无。
+
+final result: passed
+
+---
+
+# 2026-07-20 题目浏览列表精简与分页 Design QA
+
+- source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-a007eaea-0867-47d9-8929-bb8920c11723.png`
+- implementation screenshot path: `D:\lingzhi\hackthon\artifacts\design-qa\question-list-compact.png`
+- pagination screenshot path: `D:\lingzhi\hackthon\artifacts\design-qa\question-list-pagination.png`
+- narrow viewport screenshot path: `D:\lingzhi\hackthon\artifacts\design-qa\question-list-narrow.png`
+- full-view comparison evidence: `D:\lingzhi\hackthon\artifacts\design-qa\question-list-original-vs-implementation.png`
+- focused region comparison evidence: `D:\lingzhi\hackthon\artifacts\design-qa\question-list-focused-comparison.png`
+- desktop viewport: `1280 × 720`
+- narrow viewport: `900 × 700`
+- state: Python 高级编程课程题库；真实数据为 197 道已发布题目
+
+**Findings**
+
+- 无剩余可执行 P0/P1/P2 差异。题目列表由一次渲染 197 道改为每页最多 10 道，末页显示 191–197，共 7 道。
+- 长题干默认压缩为 6 行摘要，并提供“展开全文 / 收起全文”；真实页面首屏从单题占满多屏缩短到同屏可辨认两道题。
+- 搜索与状态筛选继续作用于全部 197 道题；条件变化时自动回到第 1 页，结果不足两页时隐藏分页但不误显示空状态。
+- 页码区支持上一页、下一页、离散页码和直接输入页码跳转；`900 × 700` 窄内容区会自适应换行，无右侧裁切。
+- 字体与排版：沿用现有字族、字号、字重与行高，只对长题干增加 6 行摘要，不改变题目内容本身。
+- 间距与布局：保留题目卡片、筛选栏、审核操作的原有层级；分页作为独立底部卡片，不覆盖题目或操作按钮。
+- 色彩与令牌：继续使用现有品牌紫、成功绿、中性边框和白色卡片，没有引入新视觉语言。
+- 图片与资源：该区域无内容图片；展开/收起使用已有图标库，不存在占位图或低清资源。
+- 文案与内容：保留题目、质量、来源、验证器、答案验证、备注和打回重做文案；仅新增分页和全文展开文案。
+
+**Comparison History**
+
+1. 初始 P1：197 道题全部常驻，单个题干还可能包含整段课程材料，滚动长度不可控。
+2. 第一版：加入每页 10 道、页码和直接跳转；真实页面验证每页只渲染 10 个题目卡片。
+3. 第二次 P1：真实数据中的单题仍可能占满数屏，仅分页不足以解决阅读密度。
+4. 修复：超过 420 字或 8 行的题干默认压缩为 6 行，按题独立展开和收起。
+5. 第三次 P2：筛选结果不足两页时，分页的 `v-else` 错误显示空状态。
+6. 修复：空状态改为仅在筛选结果确实为 0 时出现，并补充组件回归断言。
+7. 最终复查：桌面、窄屏、搜索、状态筛选、第二页与末页跳转均通过。
+
+**Primary Interactions Tested**
+
+- 打开 Python 高级编程课程的题库管理。
+- 确认第 1 页仅渲染 10 道题，范围为 1–10 / 197。
+- 展开并收起第一道长题干；`aria-expanded` 从 false 变为 true，再恢复 false。
+- 点击第 2 页；确认范围为 11–20 / 197。
+- 输入页码 20 并跳转；确认末页范围为 191–197，渲染 7 道题。
+- 搜索“工业级 AI 应用中的 Python 服务部署模式”；确认筛选为 3 道且分页隐藏。
+- 切换“已发布”状态；确认列表存在且不显示错误空状态。
+- `900 × 700` 视口检查末页分页；控件完整可见并自适应换行。
+- Console errors checked: `0`。
+
+**Automated Verification**
+
+- 聚焦组件测试：1 个文件，12 个测试通过。
+- 前端完整测试：74 个文件，519 个测试通过。
+- 前端生产构建与 Vue TypeScript 检查：通过。
+
+**Open Questions**
+
+- 无。
+
+final result: passed
+
+---
+
 # 2026-07-17 当前练习与学习记录统一 Design QA
 
 - source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-b993a736-f715-4cf6-a612-db54568adf65.png`

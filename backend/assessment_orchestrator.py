@@ -28,7 +28,14 @@ from assessment_generation import generate_universal_question_contract
 from assessment_quality import evaluate_question_contract_quality
 from assessment_retrieval import (
     compile_local_reference_package,
+    content_evidence_for_objective,
+    reference_summary_for_slot,
     references_for_objective,
+)
+from assessment_semantics import (
+    compile_question_design_brief,
+    evaluate_question_semantic_preflight,
+    should_run_semantic_review,
 )
 from assessment_validators import validate_candidate_answer
 from course_versioning import stable_hash
@@ -51,6 +58,19 @@ AssessmentChapterCallback = Callable[
     [dict[str, Any]],
     Awaitable[None] | None,
 ]
+
+
+class SemanticPreflightFailure(AIProviderRequestError):
+    """A repairable semantic failure found before independent solving."""
+
+    def __init__(
+        self,
+        report: dict[str, Any],
+        contract: dict[str, Any],
+    ) -> None:
+        super().__init__("invalid_semantic_preflight")
+        self.report = deepcopy(report)
+        self.contract = deepcopy(contract)
 
 
 class AssessmentModel(Protocol):
@@ -300,8 +320,17 @@ class UniversalAssessmentModel(AIBase):
             "evidence": ["Short evidence without code quotations"],
             "issues": [],
         }
+        semantic_review_directive = (
+            "Independently verify question-type semantics, whether material is "
+            "necessary for the answer, whether the prompt presupposes a "
+            "nonexistent error, consistency between prompt facts and the "
+            "independent answer, and whether all options answer one question. "
+            "Use the defined semantic issue codes for failures. "
+        )
         response = await self._call_llm(
             (
+                semantic_review_directive
+                +
                 "严格按以下JSON结构输出，所有字符串必须正确转义。"
                 "evidence只写短句，不复制代码，不在字符串中使用引号。\n"
                 f"{json.dumps(evaluation_schema, ensure_ascii=False)}\n"
@@ -612,7 +641,7 @@ class AssessmentGenerationOrchestrator:
             1,
             min(
                 3,
-                int(os.getenv("ASSESSMENT_SLOT_CONCURRENCY", "2")),
+                int(os.getenv("ASSESSMENT_SLOT_CONCURRENCY", "1")),
             ),
         )
         self.generation_batch_size = max(
@@ -667,6 +696,7 @@ class AssessmentGenerationOrchestrator:
             "independent_solution_calls": 0,
             "independent_solution_retry_count": 0,
             "repair_calls": 0,
+            "semantic_preflight_calls": 0,
             "semantic_evaluation_calls": 0,
             "batch_semantic_evaluation_calls": 0,
             "batch_semantic_fallback_count": 0,
@@ -700,7 +730,17 @@ class AssessmentGenerationOrchestrator:
         total_items = len(target_nodes) * len(PRACTICE_LEVELS)
         audit["planned_item_count"] = total_items
         completed_items = 0
-        if self.slot_concurrency > 1 or on_chapter_complete is not None:
+        if (
+            self.slot_concurrency > 1
+            or on_chapter_complete is not None
+            or callable(
+                getattr(
+                    self.model,
+                    "generate_candidate_batch",
+                    None,
+                )
+            )
+        ):
             contracts = await self._generate_targets_concurrently(
                 prepared=prepared,
                 target_nodes=target_nodes,
@@ -739,6 +779,28 @@ class AssessmentGenerationOrchestrator:
                         objective.get("objective_id") or ""
                     ),
                 )
+                content_evidence = content_evidence_for_objective(
+                    resolved_reference_package,
+                    objective_id=str(
+                        objective.get("objective_id") or ""
+                    ),
+                )
+                reference_summary = reference_summary_for_slot(
+                    resolved_reference_package,
+                    objective_id=str(
+                        objective.get("objective_id") or ""
+                    ),
+                    question_type=str(
+                        slot.get("question_type") or ""
+                    ),
+                )
+                design_brief = compile_question_design_brief(
+                    objective=objective,
+                    slot=slot,
+                    reference_summary=reference_summary,
+                    practice_level=practice_level,
+                    variant_index=variant_index,
+                )
                 base = generate_universal_question_contract(
                     prepared,
                     node,
@@ -749,11 +811,16 @@ class AssessmentGenerationOrchestrator:
                     slot=slot,
                     references=references,
                 )
+                base["design_brief"] = deepcopy(design_brief)
+                base["retrieval_summary"] = deepcopy(reference_summary)
                 context = _generation_context(
                     profile=profile,
                     objective=objective,
                     slot=slot,
                     references=references,
+                    content_evidence=content_evidence,
+                    reference_summary=reference_summary,
+                    design_brief=design_brief,
                     practice_level=practice_level,
                     variant_index=variant_index,
                 )
@@ -764,6 +831,19 @@ class AssessmentGenerationOrchestrator:
                     "attempts": [],
                     "repair_count": 0,
                     "final_decision": "discard",
+                    "first_pass_passed": False,
+                    "design_brief_revision_id": design_brief.get(
+                        "design_brief_revision_id"
+                    ),
+                    "content_reference_count": reference_summary.get(
+                        "content_reference_count",
+                        0,
+                    ),
+                    "authoring_pattern_count": reference_summary.get(
+                        "authoring_pattern_count",
+                        0,
+                    ),
+                    "semantic_reviewer_trigger": False,
                 }
                 try:
                     existing_prompts = [
@@ -831,6 +911,42 @@ class AssessmentGenerationOrchestrator:
                                 slot=slot,
                                 audit=audit,
                             )
+                        except SemanticPreflightFailure as exc:
+                            issue_codes = [
+                                str(issue.get("code") or "")
+                                for issue in exc.report.get("issues") or []
+                                if issue.get("code")
+                            ]
+                            last_contract = deepcopy(exc.contract)
+                            last_quality = {
+                                "schema_version": "question_quality_report_v2",
+                                "passed": False,
+                                "score": 0,
+                                "decision": "repair",
+                                "issues": deepcopy(
+                                    exc.report.get("issues") or []
+                                ),
+                            }
+                            item_audit["semantic_preflight"] = deepcopy(
+                                exc.report
+                            )
+                            attempt = {
+                                "attempt": attempt_index + 1,
+                                "score": 0,
+                                "passed": False,
+                                "decision": "repair",
+                                "issue_codes": issue_codes,
+                                "repair_action": _repair_action_for_issues(
+                                    issue_codes
+                                ),
+                            }
+                            item_audit["attempts"].append(attempt)
+                            if attempt_index >= 3:
+                                break
+                            item_audit["repair_count"] += 1
+                            attempt["next_action"] = "repair"
+                            next_action = "repair"
+                            continue
                         except AIProviderRequestError as exc:
                             if not str(exc).startswith("invalid_"):
                                 raise
@@ -877,6 +993,13 @@ class AssessmentGenerationOrchestrator:
                             semantic_report=semantic_report,
                         )
                         contract["quality_report"] = deepcopy(quality)
+                        item_audit["semantic_preflight"] = deepcopy(
+                            contract.get("semantic_preflight") or {}
+                        )
+                        item_audit["semantic_reviewer_trigger"] = bool(
+                            item_audit.get("semantic_reviewer_trigger")
+                            or semantic_report.get("reviewer_triggered")
+                        )
                         _apply_quality_decision(
                             contract,
                             quality,
@@ -893,8 +1016,15 @@ class AssessmentGenerationOrchestrator:
                                 str(issue.get("code"))
                                 for issue in quality.get("issues") or []
                             ],
+                            "repair_action": _repair_action_for_issues([
+                                str(issue.get("code"))
+                                for issue in quality.get("issues") or []
+                            ]),
                         })
                         if quality.get("passed"):
+                            item_audit["first_pass_passed"] = (
+                                attempt_index == 0
+                            )
                             final_contract = contract
                             item_audit["final_decision"] = (
                                 "teacher_review"
@@ -927,6 +1057,10 @@ class AssessmentGenerationOrchestrator:
                         )
                         item_audit["final_decision"] = "discard"
                         audit["failure_count"] += 1
+                    _attach_generation_audit_summary(
+                        resolved,
+                        item_audit,
+                    )
                     contracts[node_id][practice_level] = resolved
                     audit["items"].append(item_audit)
                 except (
@@ -985,6 +1119,20 @@ class AssessmentGenerationOrchestrator:
                 )
         prepared["_assessment_generated_contracts"] = contracts
         prepared["_assessment_generation_audit"] = audit
+        audited_items = list(audit.get("items") or [])
+        first_pass_count = sum(
+            bool(item.get("first_pass_passed"))
+            for item in audited_items
+        )
+        audit["first_pass_pass_count"] = first_pass_count
+        audit["first_pass_pass_rate"] = round(
+            first_pass_count / max(1, len(audited_items)),
+            4,
+        )
+        audit["semantic_reviewer_trigger_count"] = sum(
+            bool(item.get("semantic_reviewer_trigger"))
+            for item in audited_items
+        )
         audit["model_call_count"] = sum(
             int(audit.get(field) or 0)
             for field in (
@@ -1017,7 +1165,19 @@ class AssessmentGenerationOrchestrator:
         contracts: dict[str, dict[str, dict[str, Any]]] = {}
         accepted_prompts: list[str] = []
         quality_lock = asyncio.Lock()
-        semaphore = asyncio.Semaphore(self.slot_concurrency)
+        slot_parallelism = self.slot_concurrency
+        if callable(
+            getattr(
+                self.model,
+                "generate_candidate_batch",
+                None,
+            )
+        ):
+            slot_parallelism = max(
+                slot_parallelism,
+                len(PRACTICE_LEVELS),
+            )
+        semaphore = asyncio.Semaphore(slot_parallelism)
         completed_items = 0
 
         for node in target_nodes:
@@ -1043,11 +1203,12 @@ class AssessmentGenerationOrchestrator:
                     float(
                         os.getenv(
                             "ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS",
-                            "12",
+                            "1",
                         )
                     )
-                    if _semantic_slot_count(
+                    if _semantic_review_candidate_count(
                         blueprint,
+                        reference_package,
                         node_id=node_id,
                     ) >= 2
                     else 0.0
@@ -1158,6 +1319,10 @@ class AssessmentGenerationOrchestrator:
             reference_package,
             objective_id=str(objective.get("objective_id") or ""),
         )
+        content_evidence = content_evidence_for_objective(
+            reference_package,
+            objective_id=str(objective.get("objective_id") or ""),
+        )
         contexts: list[dict[str, Any]] = []
         levels_by_slot: dict[str, str] = {}
         for variant_index, practice_level in enumerate(
@@ -1171,6 +1336,18 @@ class AssessmentGenerationOrchestrator:
             if slot is None:
                 continue
             slot_id = str(slot.get("slot_id") or "")
+            reference_summary = reference_summary_for_slot(
+                reference_package,
+                objective_id=str(objective.get("objective_id") or ""),
+                question_type=str(slot.get("question_type") or ""),
+            )
+            design_brief = compile_question_design_brief(
+                objective=objective,
+                slot=slot,
+                reference_summary=reference_summary,
+                practice_level=practice_level,
+                variant_index=variant_index,
+            )
             contexts.append(
                 _compact_batch_generation_context(
                     _generation_context(
@@ -1178,6 +1355,9 @@ class AssessmentGenerationOrchestrator:
                         objective=objective,
                         slot=slot,
                         references=references,
+                        content_evidence=content_evidence,
+                        reference_summary=reference_summary,
+                        design_brief=design_brief,
                         practice_level=practice_level,
                         variant_index=variant_index,
                     )
@@ -1254,6 +1434,22 @@ class AssessmentGenerationOrchestrator:
             reference_package,
             objective_id=str(objective.get("objective_id") or ""),
         )
+        content_evidence = content_evidence_for_objective(
+            reference_package,
+            objective_id=str(objective.get("objective_id") or ""),
+        )
+        reference_summary = reference_summary_for_slot(
+            reference_package,
+            objective_id=str(objective.get("objective_id") or ""),
+            question_type=str(slot.get("question_type") or ""),
+        )
+        design_brief = compile_question_design_brief(
+            objective=objective,
+            slot=slot,
+            reference_summary=reference_summary,
+            practice_level=practice_level,
+            variant_index=variant_index,
+        )
         base = generate_universal_question_contract(
             prepared,
             node,
@@ -1264,11 +1460,16 @@ class AssessmentGenerationOrchestrator:
             slot=slot,
             references=references,
         )
+        base["design_brief"] = deepcopy(design_brief)
+        base["retrieval_summary"] = deepcopy(reference_summary)
         context = _generation_context(
             profile=profile,
             objective=objective,
             slot=slot,
             references=references,
+            content_evidence=content_evidence,
+            reference_summary=reference_summary,
+            design_brief=design_brief,
             practice_level=practice_level,
             variant_index=variant_index,
         )
@@ -1279,6 +1480,19 @@ class AssessmentGenerationOrchestrator:
             "attempts": [],
             "repair_count": 0,
             "final_decision": "discard",
+            "first_pass_passed": False,
+            "design_brief_revision_id": design_brief.get(
+                "design_brief_revision_id"
+            ),
+            "content_reference_count": reference_summary.get(
+                "content_reference_count",
+                0,
+            ),
+            "authoring_pattern_count": reference_summary.get(
+                "authoring_pattern_count",
+                0,
+            ),
+            "semantic_reviewer_trigger": False,
         }
         try:
             final_contract: dict[str, Any] | None = None
@@ -1344,6 +1558,42 @@ class AssessmentGenerationOrchestrator:
                         audit=audit,
                         semantic_batcher=semantic_batcher,
                     )
+                except SemanticPreflightFailure as exc:
+                    issue_codes = [
+                        str(issue.get("code") or "")
+                        for issue in exc.report.get("issues") or []
+                        if issue.get("code")
+                    ]
+                    last_contract = deepcopy(exc.contract)
+                    last_quality = {
+                        "schema_version": "question_quality_report_v2",
+                        "passed": False,
+                        "score": 0,
+                        "decision": "repair",
+                        "issues": deepcopy(
+                            exc.report.get("issues") or []
+                        ),
+                    }
+                    item_audit["semantic_preflight"] = deepcopy(
+                        exc.report
+                    )
+                    attempt = {
+                        "attempt": attempt_index + 1,
+                        "score": 0,
+                        "passed": False,
+                        "decision": "repair",
+                        "issue_codes": issue_codes,
+                        "repair_action": _repair_action_for_issues(
+                            issue_codes
+                        ),
+                    }
+                    item_audit["attempts"].append(attempt)
+                    if attempt_index >= 3:
+                        break
+                    item_audit["repair_count"] += 1
+                    attempt["next_action"] = "repair"
+                    next_action = "repair"
+                    continue
                 except AIProviderRequestError as exc:
                     if not str(exc).startswith("invalid_"):
                         raise
@@ -1396,6 +1646,13 @@ class AssessmentGenerationOrchestrator:
                             str(contract.get("prompt") or "")
                         )
                 contract["quality_report"] = deepcopy(quality)
+                item_audit["semantic_preflight"] = deepcopy(
+                    contract.get("semantic_preflight") or {}
+                )
+                item_audit["semantic_reviewer_trigger"] = bool(
+                    item_audit.get("semantic_reviewer_trigger")
+                    or semantic_report.get("reviewer_triggered")
+                )
                 _apply_quality_decision(
                     contract,
                     quality,
@@ -1412,8 +1669,15 @@ class AssessmentGenerationOrchestrator:
                         str(issue.get("code"))
                         for issue in quality.get("issues") or []
                     ],
+                    "repair_action": _repair_action_for_issues([
+                        str(issue.get("code"))
+                        for issue in quality.get("issues") or []
+                    ]),
                 })
                 if quality.get("passed"):
+                    item_audit["first_pass_passed"] = (
+                        attempt_index == 0
+                    )
                     final_contract = contract
                     item_audit["final_decision"] = (
                         "teacher_review"
@@ -1444,6 +1708,10 @@ class AssessmentGenerationOrchestrator:
                 _mark_discarded(resolved, last_quality or {})
                 item_audit["final_decision"] = "discard"
                 audit["failure_count"] += 1
+            _attach_generation_audit_summary(
+                resolved,
+                item_audit,
+            )
             return practice_level, resolved, item_audit, None
         except (
             AIProviderRequestError,
@@ -1500,6 +1768,24 @@ class AssessmentGenerationOrchestrator:
     ]:
         contract = _contract_from_candidate(base, candidate)
         _preflight_public_contract(contract)
+        semantic_preflight = evaluate_question_semantic_preflight(
+            contract,
+            design_brief=contract.get("design_brief"),
+        )
+        contract["semantic_preflight"] = deepcopy(
+            semantic_preflight
+        )
+        contract["material_bindings"] = deepcopy(
+            semantic_preflight.get("material_bindings") or []
+        )
+        audit["semantic_preflight_calls"] = int(
+            audit.get("semantic_preflight_calls") or 0
+        ) + 1
+        if not semantic_preflight.get("passed"):
+            raise SemanticPreflightFailure(
+                semantic_preflight,
+                contract,
+            )
         public_spec = deepcopy(contract["question_spec"])
         independent: dict[str, Any] | None = None
         for solve_attempt in range(2):
@@ -1601,7 +1887,13 @@ class AssessmentGenerationOrchestrator:
         semantic_batcher: _SemanticEvaluationBatcher | None = None,
     ) -> dict[str, Any]:
         validation = contract.get("solution_validation") or {}
-        if validation.get("deterministic"):
+        preflight = contract.get("semantic_preflight") or {}
+        reviewer_triggered = should_run_semantic_review(
+            contract,
+            preflight,
+        )
+        contract["semantic_reviewer_trigger"] = reviewer_triggered
+        if not reviewer_triggered:
             passed = bool(validation.get("passed"))
             return {
                 "passed": passed,
@@ -1610,7 +1902,7 @@ class AssessmentGenerationOrchestrator:
                 "dimensions": {},
                 "evidence": [
                     (
-                        "deterministic_validation_passed"
+                        "semantic_preflight_and_deterministic_validation_passed"
                         if passed
                         else "deterministic_validation_failed"
                     )
@@ -1619,22 +1911,28 @@ class AssessmentGenerationOrchestrator:
                     []
                     if passed
                     else [{
-                        "code": "VALIDATION_FAILED",
+                        "code": "PROMPT_SOLUTION_CONTRADICTION",
                         "severity": "critical",
                         "message": str(
                             validation.get("issue_code")
-                            or "deterministic validation failed"
+                            or (
+                                "independent solution disagrees with "
+                                "the locked canonical answer"
+                            )
                         ),
                     }]
                 ),
+                "reviewer_triggered": False,
             }
         if semantic_batcher is not None:
-            return await semantic_batcher.evaluate(
+            report = await semantic_batcher.evaluate(
                 contract=contract,
                 independent=independent,
                 objective=objective,
                 slot=slot,
             )
+            report["reviewer_triggered"] = True
+            return report
         evaluator = getattr(self.model, "evaluate_candidate", None)
         if evaluator is None:
             return {
@@ -1643,6 +1941,7 @@ class AssessmentGenerationOrchestrator:
                 "solution_consistent": False,
                 "dimensions": {},
                 "evidence": [],
+                "reviewer_triggered": True,
                 "issues": [{
                     "code": "SEMANTIC_REVIEW_UNAVAILABLE",
                     "severity": "major",
@@ -1669,7 +1968,9 @@ class AssessmentGenerationOrchestrator:
                 deepcopy(slot),
             ),
         )
-        return _normalize_semantic_report(report)
+        normalized = _normalize_semantic_report(report)
+        normalized["reviewer_triggered"] = True
+        return normalized
 
 
 async def _notify_progress(
@@ -1775,6 +2076,65 @@ def _preflight_issue_code(error: Exception) -> str:
         "invalid_candidate_task_too_long": "TASK_TOO_LONG",
         "invalid_candidate_prompt_too_long": "PROMPT_TOO_LONG",
     }.get(str(error), "")
+
+
+def _repair_action_for_issues(
+    issue_codes: Iterable[str],
+) -> str:
+    codes = {str(code or "") for code in issue_codes}
+    if "QUESTION_TYPE_SEMANTIC_MISMATCH" in codes:
+        return "regenerate_task_and_answer_within_design_brief"
+    if "MATERIAL_NOT_REQUIRED" in codes:
+        return "trim_or_replace_material_and_rebind_answer_steps"
+    if "FALSE_ERROR_PREMISE" in codes:
+        return "plant_verified_defect_or_change_to_trace_verification"
+    if "PROMPT_SOLUTION_CONTRADICTION" in codes:
+        return "align_prompt_premise_and_canonical_answer"
+    if "OBSERVABLE_RESULT_MISSING" in codes:
+        return "add_deterministic_observable_result"
+    if "DISTRACTOR_NOT_SAME_QUESTION" in codes:
+        return "rewrite_distractors_from_locked_misconceptions"
+    if "MATERIAL_BINDING_INVALID" in codes:
+        return "rebind_minimum_material_to_solution_steps"
+    if codes:
+        return "targeted_repair"
+    return "none"
+
+
+def _attach_generation_audit_summary(
+    contract: dict[str, Any],
+    item_audit: dict[str, Any],
+) -> None:
+    attempts = [
+        attempt
+        for attempt in item_audit.get("attempts") or []
+        if isinstance(attempt, dict)
+    ]
+    contract["generation_audit_summary"] = {
+        "first_pass_passed": bool(
+            item_audit.get("first_pass_passed")
+        ),
+        "repair_count": int(item_audit.get("repair_count") or 0),
+        "final_decision": item_audit.get("final_decision"),
+        "issue_codes": list(dict.fromkeys([
+            str(code)
+            for attempt in attempts
+            for code in attempt.get("issue_codes") or []
+            if str(code)
+        ])),
+        "semantic_reviewer_trigger": bool(
+            item_audit.get("semantic_reviewer_trigger")
+        ),
+        "repair_action": next(
+            (
+                str(attempt.get("repair_action") or "")
+                for attempt in reversed(attempts)
+                if str(attempt.get("repair_action") or "")
+                not in {"", "none"}
+            ),
+            "none",
+        ),
+    }
 
 
 def _contract_from_candidate(
@@ -2270,6 +2630,9 @@ def _generation_context(
     objective: dict[str, Any],
     slot: dict[str, Any],
     references: list[dict[str, Any]],
+    content_evidence: list[dict[str, Any]] | None = None,
+    reference_summary: dict[str, Any] | None = None,
+    design_brief: dict[str, Any] | None = None,
     practice_level: str,
     variant_index: int,
 ) -> dict[str, Any]:
@@ -2297,6 +2660,7 @@ def _generation_context(
             )
         },
         "assessment_slot": deepcopy(slot),
+        "question_design_brief": deepcopy(design_brief or {}),
         "practice_level": practice_level,
         "variant_index": variant_index,
         "reference_patterns": [
@@ -2310,6 +2674,18 @@ def _generation_context(
             }
             for reference in references[:5]
         ],
+        "content_evidence": [
+            {
+                "reference_id": reference.get("reference_id"),
+                "source_type": reference.get("source_type"),
+                "fact_excerpt": str(
+                    reference.get("reference_excerpt") or ""
+                )[:800],
+                "reuse_policy": reference.get("reuse_policy"),
+            }
+            for reference in (content_evidence or [])[:3]
+        ],
+        "reference_coverage": deepcopy(reference_summary or {}),
         "untrusted_source_package": {
             "source_refs": deepcopy(objective.get("source_refs") or []),
             "source_excerpt": str(
@@ -2339,6 +2715,18 @@ def _compact_batch_generation_context(
                 )[:500],
             }
             for reference in references[:3]
+            if isinstance(reference, dict)
+        ]
+    content_evidence = compact.get("content_evidence")
+    if isinstance(content_evidence, list):
+        compact["content_evidence"] = [
+            {
+                **reference,
+                "fact_excerpt": str(
+                    reference.get("fact_excerpt") or ""
+                )[:500],
+            }
+            for reference in content_evidence[:2]
             if isinstance(reference, dict)
         ]
     return compact
@@ -2430,7 +2818,59 @@ def _generation_prompt_v2(context: dict[str, Any]) -> str:
             },
         },
     }
+    answer_first_directive = (
+        "Treat question_design_brief as immutable. First lock one verifiable "
+        "answer fact, canonical answer and validator; then select the smallest "
+        "material used by a solution step, derive distractors from named "
+        "misconceptions, and write the public wording last. Never change the "
+        "question type, answer fact, validator, or input mode. "
+        "output_prediction must ask for a concrete output, exception, state, "
+        "identity, or call order. debugging_trace must contain a real "
+        "reproducible defect and an answer with location, cause, repair and "
+        "retest evidence. Every material block must be needed for the answer, "
+        "and ordinary code material must not exceed 20 effective lines. "
+    )
+
+
+def _semantic_review_candidate_count(
+    blueprint: dict[str, Any],
+    reference_package: dict[str, Any],
+    *,
+    node_id: str,
+) -> int:
+    deterministic_modes = {
+        "exact_validator",
+        "numeric_unit_validator",
+        "symbolic_validator",
+        "code_validator",
+        "state_trace_validator",
+    }
+    count = 0
+    for practice_level in PRACTICE_LEVELS:
+        slot = slot_for(
+            blueprint,
+            node_id=node_id,
+            practice_level=practice_level,
+        )
+        if slot is None:
+            continue
+        summary = reference_summary_for_slot(
+            reference_package,
+            objective_id=str(slot.get("objective_id") or ""),
+            question_type=str(slot.get("question_type") or ""),
+        )
+        if (
+            str(slot.get("validation_mode") or "")
+            not in deterministic_modes
+            or str(slot.get("risk_level") or "low") != "low"
+            or not summary.get("content_covered")
+            or not summary.get("method_covered")
+        ):
+            count += 1
+    return count
     return (
+        answer_first_directive
+        +
         "输出必须严格使用 REQUIRED_OUTPUT_SCHEMA 中的键名和嵌套结构，"
         "不得改名或省略必填字段。stimulus.rendered_text 与 "
         "task.rendered_text 必须是具体完整题面；solution.validation_mode "
@@ -2483,6 +2923,49 @@ def _repair_prompt_v2(
             "Reduce the public prompt to its configured length budget while "
             "preserving every condition required to solve the question. "
         )
+    if "CODE_MATERIAL_NOT_RENDERABLE" in issue_codes:
+        targeted_directive += (
+            "The public question refers to code but does not contain a "
+            "complete, substantive code sample. Add the exact learner-visible "
+            "program to question_spec.stimulus.rendered_text inside a complete "
+            "Markdown fence with an explicit language tag such as ```python. "
+            "Do not merely say that code is shown. Ensure the task can be "
+            "solved using only the public stimulus. "
+        )
+    semantic_repair_directives = {
+        "QUESTION_TYPE_SEMANTIC_MISMATCH": (
+            "Regenerate the task and canonical answer within the immutable "
+            "design brief so the learner action satisfies the registered "
+            "question-type semantics. "
+        ),
+        "MATERIAL_NOT_REQUIRED": (
+            "Remove irrelevant material or rewrite the task so every retained "
+            "material block is required by a named solution step. "
+        ),
+        "FALSE_ERROR_PREMISE": (
+            "Plant and verify a real reproducible defect with location, cause, "
+            "repair and retest evidence; never claim a correct trace is wrong. "
+        ),
+        "PROMPT_SOLUTION_CONTRADICTION": (
+            "Align the public premise, material facts, canonical answer and "
+            "rubric. "
+        ),
+        "OBSERVABLE_RESULT_MISSING": (
+            "Add deterministic visible inputs and ask for a concrete output, "
+            "exception, state, identity, or call order. "
+        ),
+        "DISTRACTOR_NOT_SAME_QUESTION": (
+            "Rewrite every option to answer the exact same question and derive "
+            "wrong options from named misconceptions. "
+        ),
+        "MATERIAL_BINDING_INVALID": (
+            "Use the minimum sufficient material, bind it to solution_graph "
+            "steps, and remove unrelated imports, functions and background. "
+        ),
+    }
+    for issue_code, directive in semantic_repair_directives.items():
+        if issue_code in issue_codes:
+            targeted_directive += directive
     return (
         f"{targeted_directive}\n"
         "根据质量报告中的问题代码执行一次定向修复。保持蓝图槽位锁定的"

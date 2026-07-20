@@ -30,6 +30,21 @@ class CapturingExecutor:
         })
 
 
+def test_rebuild_worker_count_defaults_to_serial(monkeypatch):
+    monkeypatch.delenv(
+        "QUESTION_BANK_REBUILD_MAX_WORKERS",
+        raising=False,
+    )
+    assert question_bank._configured_rebuild_worker_count() == 1
+
+
+def test_rebuild_worker_count_is_bounded(monkeypatch):
+    monkeypatch.setenv("QUESTION_BANK_REBUILD_MAX_WORKERS", "99")
+    assert question_bank._configured_rebuild_worker_count() == 4
+    monkeypatch.setenv("QUESTION_BANK_REBUILD_MAX_WORKERS", "invalid")
+    assert question_bank._configured_rebuild_worker_count() == 1
+
+
 def _client(monkeypatch, tmp_path):
     course = {
         "course_id": "course-jobs",

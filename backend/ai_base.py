@@ -1029,10 +1029,19 @@ class AIBase:
                             )
 
                     if not full_content:
-                        logger.warning(f"Empty response from AI (Model: {model_id}, Attempt {attempt+1}/{retry_count})")
+                        empty_error = AIProviderRequestError(
+                            f"empty_response:{model_id}"
+                        )
+                        last_error = empty_error
+                        logger.warning(
+                            "Empty response from AI "
+                            f"(Model: {model_id}, "
+                            f"Attempt {attempt+1}/{retry_count})"
+                        )
                         if attempt < retry_count - 1:
                             await asyncio.sleep(1)
                             continue
+                        self._cool_down_model(model_id, empty_error)
                         break
 
                     self._remember_model(

@@ -54,6 +54,19 @@ class SequencedCompletions:
         return _success_stream()
 
 
+class EmptyThenSuccessCompletions:
+    def __init__(self, empty_model="model-a"):
+        self.empty_model = empty_model
+        self.calls = []
+
+    async def create(self, **kwargs):
+        model = kwargs["model"]
+        self.calls.append(model)
+        if model == self.empty_model:
+            return FakeStream([])
+        return _success_stream()
+
+
 def _make_service(monkeypatch, completions, models=("model-a", "model-b")):
     monkeypatch.setenv("AI_API_KEY", "test-key")
     service = AIBase()
@@ -88,6 +101,25 @@ async def test_call_llm_fails_over_to_next_model_on_transient_errors(monkeypatch
 
     assert result == "ok-answer"
     assert completions.calls == ["model-a", "model-b"]
+
+
+@pytest.mark.asyncio
+async def test_call_llm_cools_down_empty_model_and_fails_over(monkeypatch):
+    completions = EmptyThenSuccessCompletions()
+    service = _make_service(monkeypatch, completions)
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert completions.calls == ["model-a", "model-b"]
+    assert (
+        service.api_base,
+        "model-a",
+    ) in service._model_failure_cache
 
 
 @pytest.mark.asyncio

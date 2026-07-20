@@ -13,6 +13,7 @@ export interface QuestionBankRebuildRequest {
   node_ids: string[]
   revision_ids?: string[]
   mode: 'incremental' | 'full'
+  resume_existing?: boolean
 }
 
 export interface QuestionBankRebuildJob {

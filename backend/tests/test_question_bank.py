@@ -170,28 +170,33 @@ def test_question_bank_generates_specific_candidates_for_coverage_gaps():
         for item in generated
     )
     assert len(standard_practice) == 3
-    assert all(
-        item["question_type"] == "single_choice"
+    blueprint_slots = {
+        slot["practice_level"]: slot
+        for slot in bundle["assessment_blueprint"]["nodes"][1]["slots"]
+    }
+    assert len({
+        item["input_contract"]["mode"]
         for item in standard_practice
-    )
-    assert all(
-        [option["option_id"] for option in item["options"]]
-        == ["A", "B", "C", "D"]
-        for item in standard_practice
-    )
-    assert all(
-        len({option["text"] for option in item["options"]}) == 4
-        for item in standard_practice
-    )
-    assert all(
-        _internal_task(bundle, item)["input_contract"]["mode"] == "choice"
-        for item in standard_practice
-    )
-    assert all(
-        _internal_task(bundle, item)["answer_spec"]["correct_option_id"]
-        in {"A", "B", "C", "D"}
-        for item in standard_practice
-    )
+    }) >= 2
+    for item in standard_practice:
+        level = item["practice_levels"][0]
+        slot = blueprint_slots[level]
+        formal_task = _internal_task(bundle, item)
+        assert item["question_type"] == slot["question_type"]
+        assert item["input_contract"]["mode"] == slot["input_mode"]
+        assert formal_task["input_contract"]["mode"] == slot["input_mode"]
+        if slot["input_mode"] == "choice":
+            option_ids = {
+                str(option.get("id") or option.get("option_id") or "")
+                for option in item["options"]
+            }
+            assert len(option_ids) >= 2
+            assert (
+                formal_task["answer_spec"]["correct_option_id"]
+                in option_ids
+            )
+        else:
+            assert item["options"] == []
     assert all(
         _internal_task(bundle, item)["learning_objective"]
         == "能用消元法求解并检查线性方程组"
@@ -333,7 +338,13 @@ def test_imported_multiple_choice_question_preserves_options_and_correct_choice(
     assert item["question_type"] == "single_choice"
     assert [option["option_id"] for option in item["options"]] == ["A", "B", "C", "D"]
     assert item["answer_spec"]["correct_option_id"] == "A"
-    assert item["formal_task"]["options"] == item["options"]
+    assert item["formal_task"]["options"] == [
+        {
+            "id": option["option_id"],
+            "text": option["text"],
+        }
+        for option in item["options"]
+    ]
 
 
 def test_comprehensive_tasks_are_multi_item_specific_and_require_teacher_review():
