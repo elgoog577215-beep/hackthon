@@ -51,6 +51,17 @@
                 </button>
               </div>
             </div>
+            <div>
+              <span>{{ t('app.language', '语言') }}</span>
+              <div class="segmented-control language-control">
+                <button type="button" :class="{ active: activeLocale === 'zh' }" :aria-pressed="activeLocale === 'zh'" @click="changeLocale('zh')">
+                  {{ t('app.languageChinese', '中文') }}
+                </button>
+                <button type="button" :class="{ active: activeLocale === 'en' }" :aria-pressed="activeLocale === 'en'" @click="changeLocale('en')">
+                  {{ t('app.languageEnglish', 'English') }}
+                </button>
+              </div>
+            </div>
           </div>
         </el-popover>
 
@@ -88,7 +99,7 @@ import qizhiLogoUrl from './assets/qizhi-logo.svg'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
-import { t } from './shared/i18n'
+import { activeLocale, setLocale, t } from './shared/i18n'
 
 const router = useRouter()
 const route = useRoute()
@@ -144,6 +155,10 @@ function openPptWorkspace() {
 function updateFontSize(event: Event) {
   const fontSize = Number((event.target as HTMLInputElement).value)
   courseStore.setUiSettings({ fontSize })
+}
+
+function changeLocale(locale: 'zh' | 'en') {
+  void setLocale(locale)
 }
 </script>
 
@@ -264,6 +279,7 @@ function updateFontSize(event: Event) {
 .segmented-control { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 6px; padding: 3px; border-radius: 7px; background: var(--lz-surface-muted); }
 .segmented-control button { min-height: 28px; border-radius: 5px; color: var(--lz-text-secondary); background: transparent; font-size: 11px; }
 .segmented-control button.active { color: var(--lz-brand-strong); background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
+.language-control { grid-template-columns: repeat(2, 1fr); }
 
 @media (max-width: 900px) {
   .app-header { grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 0 10px; }

@@ -43,10 +43,11 @@ const renderMathContent = (content: string, displayMode: boolean) => {
         cleanedContent = cleanedContent.replace(/\\_/g, '_');
         // JSON/prompt pipelines sometimes double-escape a command (`\\vec`,
         // `\\mathbf`) even though the surrounding `$...$` delimiters survive.
-        // KaTeX reads that as a line break followed by plain letters. Collapse
-        // exactly two slashes before a command, but leave matrix row separators
-        // and triple-slash `\\\\text{...}` rows untouched.
-        cleanedContent = cleanedContent.replace(/(?<!\\)\\\\(?=[A-Za-z])/g, '\\');
+        // Restrict normalization to known commands: a generic "two slashes
+        // before a letter" rule also matches a matrix row break followed by a
+        // value (for example `a \\\\ b`) and corrupts valid environments.
+        const doubledCommandRe = /(?<!\\)\\\\(?=(?:vec|mathbf|mathrm|mathit|mathbb|mathcal|mathsf|mathtt|text|frac|dfrac|tfrac|sqrt|left|right|begin|end|operatorname|overline|underline|hat|bar|dot|ddot|sum|prod|int|lim|log|ln|sin|cos|tan|exp|partial|nabla|infty|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|rho|sigma|tau|phi|psi|omega|Gamma|Delta|Theta|Lambda|Pi|Sigma|Phi|Psi|Omega)\b)/g;
+        cleanedContent = cleanedContent.replace(doubledCommandRe, '\\');
         cleanedContent = cleanedContent.replace(/\\text\{([^{}]*)\}/g, (_match, text) => {
             return `\\text{${String(text).replace(/(^|[^\\])_/g, '$1\\_')}}`;
         });
@@ -263,6 +264,43 @@ const normalizeBalancedDisplayEnvironments = (content: string) => {
     return content.replace(environmentRe, (_match, environment) => `\n$$\n${String(environment).trim()}\n$$\n`);
 };
 
+// Some generated legacy lessons wrap an otherwise valid `$$ environment $$`
+// block with lines containing a single `$`.  That creates nested delimiters
+// which Markdown parses as code, headings, or leaked dollar signs.  Remove
+// only this exact invalid shell, then merge an immediately preceding display
+// prefix such as `\vec{v} =` into the same formula.
+const normalizeLegacyDisplayShells = (content: string) => {
+    const prefixedShellRe = new RegExp(
+        `(^|\\n)[\\t ]*\\$\\$[\\t ]*\\n([^\\n$]+(?:\\n[^\\n$]+){0,2})\\n[\\t ]*\\$[\\t ]*\\n[\\t ]*\\$\\$[\\t ]*\\n(\\\\begin\\{(${DISPLAY_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{\\4\\})[\\t ]*\\n[\\t ]*\\$\\$[\\t ]*\\n[\\t ]*\\$(?=\\n|$)`,
+        'g'
+    );
+    let normalized = content.replace(prefixedShellRe, (_match, boundary, prefix, environment) => (
+        `${boundary}\n$$\n${String(prefix).trim()}\n${String(environment).trim()}\n$$`
+    ));
+    const shellRe = new RegExp(
+        `(^|\\n)[\\t ]*\\$[\\t ]*\\n[\\t ]*\\$\\$[\\t ]*\\n(\\\\begin\\{(${DISPLAY_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{\\3\\})[\\t ]*\\n[\\t ]*\\$\\$[\\t ]*\\n[\\t ]*\\$(?=\\n|$)`,
+        'g'
+    );
+    normalized = normalized.replace(shellRe, (_match, boundary, environment) => (
+        `${boundary}\n$$\n${String(environment).trim()}\n$$`
+    ));
+    const prefixedEnvironmentRe = new RegExp(
+        `\\$\\$[\\t ]*\\n([^\\n$]*(?:\\n[^\\n$]*){0,2})\\n[\\t ]*\\$\\$[\\t ]*\\n(\\\\begin\\{(${DISPLAY_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{\\3\\})[\\t ]*\\n[\\t ]*\\$\\$`,
+        'g'
+    );
+    normalized = normalized.replace(prefixedEnvironmentRe, (_match, prefix, environment) => (
+        `$$\n${String(prefix).trim()}\n${String(environment).trim()}\n$$`
+    ));
+    const adjacentEnvironmentRe = new RegExp(
+        `\\$\\$[\\t ]*\\n(\\\\begin\\{(${DISPLAY_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{\\2\\})[\\t ]*\\n[\\t ]*\\$\\$[\\t ]*\\n[\\t ]*([+\\-=])?[\\t ]*\\n[\\t ]*\\$\\$[\\t ]*\\n(\\\\begin\\{(${DISPLAY_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{\\5\\})[\\t ]*\\n[\\t ]*\\$\\$`,
+        'g'
+    );
+    normalized = normalized.replace(adjacentEnvironmentRe, (_match, left, _leftName, operator, right) => (
+        `$$\n${String(left).trim()}\n${String(operator || '').trim()}\n${String(right).trim()}\n$$`
+    ));
+    return normalized;
+};
+
 // Historical lessons sometimes put `$$ matrix $$` blocks inside a surrounding
 // `$\text{span}\left(...\right)$` formula. Nested dollar delimiters are not a
 // valid math grammar and can make placeholder recovery swallow the rest of the
@@ -343,7 +381,11 @@ const fallbackResidualMathMarkup = (html: string) => {
     let current: Node | null;
     while ((current = walker.nextNode())) {
         const parent = current.parentElement;
-        if (!parent || parent.closest('code, pre, .math-fallback, .mermaid')) continue;
+        // KaTeX keeps the original TeX inside an annotation node. It is
+        // expected to contain commands such as `\begin`; treating that hidden
+        // source as leaked markup replaces a successfully rendered formula
+        // with a fallback block.
+        if (!parent || parent.closest('code, pre, annotation, .math-fallback, .mermaid, .katex, .katex-display')) continue;
         if (/MATHDISPLAYPLACEHOLDER\d+|\\(?:begin|end|frac|left|right|mathbf|mathbb)\b|\$\$/.test(current.textContent || '')) {
             leakedNodes.push(current as Text);
         }
@@ -747,6 +789,7 @@ export const renderMarkdown = (content: string) => {
 
     // --- Pre-processing for Robustness ---
     let normalized = content;
+    normalized = normalizeLegacyDisplayShells(normalized);
     normalized = normalizeNestedDisplayEnvironments(normalized);
     normalized = normalized.replace(/\$\$\s*([=+\-])\s*\$\$/g, (_match, op) => `$$\n${op}\n$$`);
     // Recover the common model output `$A =$$$\begin{...}` as one inline
@@ -936,6 +979,10 @@ export const renderMarkdown = (content: string) => {
     normalized = normalizeBalancedDisplayEnvironments(normalized)
     const protectedDisplayMath = protectBalancedDisplayEnvironments(normalized)
     normalized = protectedDisplayMath.normalized
+    normalized = normalized.replace(
+        /(MATHDISPLAYPLACEHOLDER\d+)\s*\n\s*([+\-=])\s*\n\s*(MATHDISPLAYPLACEHOLDER\d+)/g,
+        (_match, left, operator, right) => `${left}\n\n$${operator}$\n\n${right}`
+    )
 
 
     // NOTE: Do not run additional auto-wrapping heuristics after restoring valid

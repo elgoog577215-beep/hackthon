@@ -58,6 +58,13 @@ describe('resource workspace shell', () => {
     expect(pptWorkspace).toContain('<SideAIPanel')
   })
 
+  it('registers the structured diagram renderer used by the teaching workspace', () => {
+    const teachingResources = readSource('../../components/TeachingRepresentationsOverlay.vue')
+
+    expect(teachingResources).toContain("import DiagramSpecRenderer from './DiagramSpecRenderer.vue'")
+    expect(teachingResources).toContain('<DiagramSpecRenderer')
+  })
+
   it('keeps the knowledge library independent from the course workspace tabs', () => {
     const knowledgeLibrary = readSource('../../components/KnowledgeLibrary.vue')
     const learningDock = readSource('../../components/LearningDock.vue')

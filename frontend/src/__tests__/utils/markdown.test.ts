@@ -199,6 +199,29 @@ describe('renderMarkdown – 数学公式', () => {
     const result = renderMarkdown('$\\mathbf{W} =$$\\begin{bmatrix}0.8 & -1.5\\\\-2.0 & 0.1\\end{bmatrix}$$$')
     expect(result).not.toContain('__MATH_BLOCK')
   })
+
+  it('合并真实课程中单美元外壳包裹的矩阵公式', () => {
+    const input = '$$\n\\vec{v} =\n$\n$$\n\\begin{bmatrix}\n a \\\\ b\n\\end{bmatrix}\n$$\n$\n\n下一段正文'
+    const result = renderMarkdown(input)
+
+    expect(result).toContain('katex-display')
+    expect(result).toContain('vec')
+    expect(result).not.toContain('<code>')
+    expect(result).not.toContain('math-fallback')
+    expect(result).toContain('<p>下一段正文</p>')
+    expect(result).not.toContain('<h1>$</h1>')
+    expect(result).not.toMatch(/(^|>)\\s*\\$\\s*(<|$)/)
+  })
+
+  it('移除向量运算中每个矩阵周围的非法单美元行', () => {
+    const input = '$\n$$\n\\begin{bmatrix}a \\\\ b\\end{bmatrix}\n$$\n$\n+\n$\n$$\n\\begin{bmatrix}c \\\\ d\\end{bmatrix}\n$$\n$'
+    const result = renderMarkdown(input)
+
+    expect(result.match(/katex-display/g)?.length).toBeGreaterThanOrEqual(2)
+    expect(result).not.toContain('math-fallback')
+    expect(result).not.toContain('<h1>$</h1>')
+    expect(result).not.toMatch(/(^|>)\\s*\\$\\s*(<|$)/)
+  })
 })
 
 // ---------------------------------------------------------------------------
