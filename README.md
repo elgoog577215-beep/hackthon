@@ -11,6 +11,28 @@ app_port: 7860
 
 灵知是一个面向课程生成、连续学习和学习证据管理的 AI 学习系统。
 
+## 本地开发（macOS / Linux）
+
+在项目根目录执行：
+
+```bash
+# 第一次安装
+python3 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -r backend/requirements.txt
+
+cd frontend
+npm install
+cd ..
+
+# 仅首次：创建自己的配置；不会覆盖已有 .env
+cp -n .env.example .env
+
+# 每次启动
+./dev.sh
+```
+
+`dev.sh` 会检查 `.env`、Python 与前端依赖、端口和健康状态，但不会在启动时自动安装依赖。
+
 ## 本地开发（Windows PowerShell）
 
 以下命令不需要激活虚拟环境，也不依赖全局 `pip` 或 `uvicorn`。在项目根目录执行：
@@ -91,5 +113,3 @@ ModelScope 路径默认只使用按稳定性排序的 Qwen3.5 候选模型，并
 - 前端：Vue 3、Vite、TailwindCSS、Mermaid.js
 - 后端：FastAPI、Python 3.10
 - AI：官方 DeepSeek OpenAI 兼容接口或 ModelScope 兼容接口
-
-更多开发说明见 [DEVELOPMENT.md](./.kiro/docs/DEVELOPMENT.md)。
