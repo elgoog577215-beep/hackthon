@@ -15,7 +15,11 @@
         <div><dt>{{ t('courseGeneration.lessonPlan.knowledge', '知识点') }}</dt><dd>{{ plan?.knowledge_point_count || knowledgeCount }}</dd></div>
         <div><dt>{{ t('courseGeneration.lessonPlan.modules', '教学块') }}</dt><dd>{{ plan?.teaching_module_count || moduleCount }}</dd></div>
       </dl>
-      <span v-else-if="live" class="generation-lesson-plan__working"><LoaderCircle :size="14" />{{ t('courseGeneration.lessonPlan.generating', '正在规划') }}</span>
+      <span v-else-if="live" class="generation-lesson-plan__working">
+        <LoaderCircle :size="14" />
+        {{ t('courseGeneration.lessonPlan.generating', '正在规划') }}
+        <b>{{ taskProgress }}%</b>
+      </span>
     </header>
 
     <div class="generation-lesson-plan__sections">
@@ -72,7 +76,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { LoaderCircle } from 'lucide-vue-next'
-import type { CourseTeachingPlanProjection, Node } from '../stores/types'
+import type { CourseTeachingPlanProjection, Node, Task } from '../stores/types'
 import { t } from '../shared/i18n'
 
 const props = withDefaults(defineProps<{
@@ -80,11 +84,13 @@ const props = withDefaults(defineProps<{
   nodes?: Node[]
   activeNodeId?: string
   live?: boolean
+  task?: Task
 }>(), {
   plan: null,
   nodes: () => [],
   activeNodeId: '',
   live: false,
+  task: undefined,
 })
 
 const emit = defineEmits<{
@@ -100,6 +106,7 @@ const sections = computed(() => lessonNodes.value.map(node => ({
   plan: planByNode.value.get(node.node_id),
 })))
 const planReady = computed(() => props.plan?.status === 'completed' && Boolean(props.plan.sections?.length))
+const taskProgress = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0)))))
 const moduleCount = computed(() => (props.plan?.sections || []).reduce(
   (sum, section) => sum + (section.teaching_modules?.length || 0),
   0,
@@ -121,6 +128,7 @@ const knowledgeCount = computed(() => (props.plan?.sections || []).reduce(
 .generation-lesson-plan__header dt { color:#8992a3; font-size:8px; }
 .generation-lesson-plan__header dd { margin:2px 0 0; color:#263247; font:750 15px/1 ui-monospace,SFMono-Regular,monospace; }
 .generation-lesson-plan__working { display:inline-flex; align-items:center; gap:6px; color:#5b61cf; font-size:10px; font-weight:750; }
+.generation-lesson-plan__working b { padding-left:3px; color:#71798a; font:700 9px/1 ui-monospace,SFMono-Regular,monospace; }
 .generation-lesson-plan__working svg,.generation-lesson-plan__empty svg { animation:lesson-plan-spin .9s linear infinite; }
 .generation-lesson-plan__sections { width:min(980px,100%); display:grid; gap:11px; margin:0 auto; }
 .generation-lesson-plan__sections > article { display:grid; grid-template-columns:46px minmax(0,1fr); border:1px solid #e0e4ec; border-radius:12px; background:#fff; box-shadow:0 5px 16px rgba(40,48,70,.04); cursor:pointer; transition:border-color .16s,box-shadow .16s,transform .16s; }

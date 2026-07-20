@@ -369,7 +369,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it('生成现场按真实阶段在教案与正文之间跟随，手动切换后保持当前视图', async () => {
+  it('生成现场稳定保持用户选定工作区，后台阶段不会抢走当前视图', async () => {
     const course = useCourseStore()
     course.currentCourseProjection = 'generation_preview'
     course.currentTeachingPlan = {
@@ -409,9 +409,11 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['教案', '课程', '练习'])
-    expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-workspace-item="lesson-plan"]').classes()).toContain('is-building')
+    expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('title')).toContain('后台')
     expect(wrapper.get('[data-workspace-item="practice"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.findComponent({ name: 'GenerationLessonPlan' }).exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'GenerationLessonPlan' }).exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'CourseGenerationLifecycle' }).exists()).toBe(true)
 
     generation.tasks.get('c1')!.currentPhase = 'content_generation'
@@ -419,6 +421,7 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.get('[data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
 
     await wrapper.get('[data-workspace-item="lesson-plan"]').trigger('click')
+    expect(wrapper.findComponent({ name: 'GenerationLessonPlan' }).exists()).toBe(true)
     generation.tasks.get('c1')!.currentPhase = 'course_teaching_plan'
     await flushPromises()
     generation.tasks.get('c1')!.currentPhase = 'content_generation'
@@ -488,10 +491,10 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('课程生产暂时中断')
-    expect(wrapper.find('course-navigator-stub').exists()).toBe(false)
-    expect(wrapper.get('.context-leading button').attributes('title')).toBe('返回课程库')
+    expect(wrapper.find('course-navigator-stub').exists()).toBe(true)
+    expect(wrapper.find('.context-leading button').exists()).toBe(false)
     expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('disabled')).toBeDefined()
-    await wrapper.get('.production-actions button').trigger('click')
+    await wrapper.get('.formation-recovery > button').trigger('click')
     await flushPromises()
     expect(resume).toHaveBeenCalledWith('c1', 'job-interrupted')
     wrapper.unmount()

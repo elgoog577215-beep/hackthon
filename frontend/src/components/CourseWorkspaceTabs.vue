@@ -8,15 +8,18 @@
       type="button"
       role="tab"
       data-workspace-item="lesson-plan"
-      :class="{ 'is-active': activeItem === 'lesson-plan' }"
+      :class="{ 'is-active': activeItem === 'lesson-plan', 'is-building': lessonPlanBuilding }"
       :aria-selected="activeItem === 'lesson-plan'"
       :disabled="lessonPlanPending"
       :title="lessonPlanPending
         ? t('courseWorkspaceTabs.lessonPlanPending', '课程目录确认后生成全课教案')
+        : lessonPlanBuilding
+          ? t('courseWorkspaceTabs.lessonPlanBuilding', '教案正在后台形成，可随时查看')
         : t('courseWorkspaceTabs.lessonPlanHint', '查看当前课程的教案')"
       @click="emit('lesson-plan')"
     >
-      <ClipboardList :size="16" />
+      <LoaderCircle v-if="lessonPlanBuilding" :size="16" />
+      <ClipboardList v-else :size="16" />
       <span>{{ t('courseWorkspaceTabs.lessonPlan', '教案') }}</span>
     </button>
     <button
@@ -55,7 +58,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BookOpenText, ClipboardCheck, ClipboardList } from 'lucide-vue-next'
+import { BookOpenText, ClipboardCheck, ClipboardList, LoaderCircle } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 
 export type CourseWorkspaceItem = 'lesson-plan' | 'course' | 'practice'
@@ -66,11 +69,13 @@ const props = withDefaults(defineProps<{
   practiceRepairAvailable?: boolean
   practicePending?: boolean
   lessonPlanPending?: boolean
+  lessonPlanBuilding?: boolean
 }>(), {
   practiceAvailable: false,
   practiceRepairAvailable: false,
   practicePending: false,
   lessonPlanPending: false,
+  lessonPlanBuilding: false,
 })
 
 const practiceEntryAvailable = computed(() => (
@@ -132,6 +137,11 @@ const emit = defineEmits<{
   color:#b4bdcc;
   cursor:not-allowed;
 }
+.course-workspace-tabs button.is-building:not(:disabled) svg {
+  color:#5b61cf;
+  animation:workspace-tab-spin .9s linear infinite;
+}
+@keyframes workspace-tab-spin { to { transform:rotate(360deg); } }
 @media (max-width:767px) {
   .course-workspace-tabs {
     width:100%;
@@ -153,5 +163,6 @@ const emit = defineEmits<{
 }
 @media (prefers-reduced-motion:reduce) {
   .course-workspace-tabs button { transition:none; }
+  .course-workspace-tabs button svg { animation:none!important; }
 }
 </style>

@@ -146,7 +146,7 @@ import { ClipboardList, Clock3, Layers3, ListTree, LoaderCircle, Network, Refres
 import { useTeachingRepresentationsStore, type RepresentationType, type TeachingRepresentation } from '../stores/teachingRepresentations'
 import { t } from '../shared/i18n'
 import CourseWorkspaceTabs from './CourseWorkspaceTabs.vue'
-
+import DiagramSpecRenderer from './DiagramSpecRenderer.vue'
 const props = withDefaults(defineProps<{
   visible: boolean
   courseId: string

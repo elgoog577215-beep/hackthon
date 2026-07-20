@@ -1,24 +1,45 @@
 <template>
   <nav class="generation-lifecycle" :aria-label="t('courseGeneration.lifecycle.label', '课程生产进度')">
-    <ol>
-      <li
-        v-for="(stage, index) in stages"
-        :key="stage.key"
-        :data-status="stageStatus(index)"
-        :aria-current="index === activeIndex ? 'step' : undefined"
-        :aria-label="`${stage.label}：${stageStatusLabel(index)}`"
-      >
-        <span class="generation-lifecycle__marker">
-          <Check v-if="stageStatus(index) === 'completed'" :size="12" />
-          <TriangleAlert v-else-if="stageStatus(index) === 'error' || stageStatus(index) === 'blocked'" :size="12" />
-          <CirclePause v-else-if="stageStatus(index) === 'paused'" :size="12" />
-          <Clock3 v-else-if="stageStatus(index) === 'review'" :size="12" />
-          <LoaderCircle v-else-if="stageStatus(index) === 'active'" :size="12" />
-          <span v-else>{{ index + 1 }}</span>
+    <div class="generation-lifecycle__inner">
+      <div class="generation-lifecycle__summary" :data-status="currentStatus">
+        <span>
+          <TriangleAlert v-if="currentStatus === 'error' || currentStatus === 'blocked'" :size="14" />
+          <CirclePause v-else-if="currentStatus === 'paused'" :size="14" />
+          <Clock3 v-else-if="currentStatus === 'review'" :size="14" />
+          <LoaderCircle v-else-if="currentStatus === 'active'" :size="14" />
+          <Check v-else :size="14" />
         </span>
-        <strong>{{ stage.label }}</strong>
-      </li>
-    </ol>
+        <div>
+          <small>{{ t('courseGeneration.lifecycle.now', '当前') }}</small>
+          <strong>{{ currentStage.label }}</strong>
+        </div>
+      </div>
+
+      <ol>
+        <li
+          v-for="(stage, index) in stages"
+          :key="stage.key"
+          :data-status="stageStatus(index)"
+          :aria-current="index === activeIndex ? 'step' : undefined"
+          :aria-label="`${stage.label}：${stageStatusLabel(index)}`"
+        >
+          <span class="generation-lifecycle__marker">
+            <Check v-if="stageStatus(index) === 'completed'" :size="11" />
+            <TriangleAlert v-else-if="stageStatus(index) === 'error' || stageStatus(index) === 'blocked'" :size="11" />
+            <CirclePause v-else-if="stageStatus(index) === 'paused'" :size="11" />
+            <Clock3 v-else-if="stageStatus(index) === 'review'" :size="11" />
+            <LoaderCircle v-else-if="stageStatus(index) === 'active'" :size="11" />
+            <span v-else>{{ index + 1 }}</span>
+          </span>
+          <strong>{{ stage.label }}</strong>
+        </li>
+      </ol>
+
+      <span class="generation-lifecycle__value" :data-status="currentStatus">{{ currentValue }}</span>
+    </div>
+    <div class="generation-lifecycle__track" aria-hidden="true">
+      <i :style="{ width: `${progressValue}%` }"></i>
+    </div>
   </nav>
 </template>
 
@@ -43,6 +64,14 @@ const stages = computed(() => [
   { key: 'release', label: t('courseGeneration.lifecycle.release', '确认发布') },
 ])
 const activeIndex = computed(() => courseProductionStageIndex(props.task))
+const currentStage = computed(() => stages.value[activeIndex.value] || stages.value[0]!)
+const currentStatus = computed(() => stageStatus(activeIndex.value))
+const progressValue = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0)))))
+const currentValue = computed(() => (
+  currentStatus.value === 'active' || currentStatus.value === 'completed'
+    ? `${progressValue.value}%`
+    : stageStatusLabel(activeIndex.value)
+))
 
 function stageStatus(index: number) {
   return courseProductionStageStatus(props.task, index)
@@ -63,16 +92,78 @@ function stageStatusLabel(index: number) {
 <style scoped>
 .generation-lifecycle {
   flex:0 0 auto;
-  padding:11px clamp(18px,5vw,64px) 12px;
+  padding:9px clamp(14px,3vw,38px) 0;
   border-bottom:1px solid #e7eaf0;
   background:#fff;
 }
+.generation-lifecycle__inner {
+  display:grid;
+  grid-template-columns:minmax(122px,.55fr) minmax(460px,2.2fr) 48px;
+  align-items:center;
+  gap:18px;
+}
+.generation-lifecycle__summary {
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.generation-lifecycle__summary > span {
+  width:28px;
+  height:28px;
+  flex:0 0 28px;
+  display:grid;
+  place-items:center;
+  border:1px solid #d7dce5;
+  border-radius:8px;
+  color:#596579;
+  background:#f8f9fb;
+}
+.generation-lifecycle__summary > div {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+}
+.generation-lifecycle__summary small {
+  color:#9aa1ae;
+  font-size:7px;
+  font-weight:800;
+  letter-spacing:.08em;
+}
+.generation-lifecycle__summary strong {
+  overflow:hidden;
+  color:#354052;
+  font-size:9px;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.generation-lifecycle__summary[data-status="active"] > span {
+  border-color:#caccef;
+  color:#4f55b5;
+  background:#f3f3ff;
+}
+.generation-lifecycle__summary[data-status="review"] > span,
+.generation-lifecycle__summary[data-status="completed"] > span {
+  border-color:#b9dccc;
+  color:#087a5b;
+  background:#eff9f5;
+}
+.generation-lifecycle__summary[data-status="error"] > span,
+.generation-lifecycle__summary[data-status="blocked"] > span {
+  border-color:#e8c38d;
+  color:#b05a18;
+  background:#fff8ed;
+}
+.generation-lifecycle__summary[data-status="paused"] > span {
+  border-color:#d0d5dd;
+  color:#667085;
+  background:#f2f4f7;
+}
 .generation-lifecycle ol {
   width:100%;
-  max-width:760px;
   display:grid;
   grid-template-columns:repeat(5,minmax(0,1fr));
-  margin:0 auto;
+  margin:0;
   padding:0;
   list-style:none;
 }
@@ -80,16 +171,16 @@ function stageStatusLabel(index: number) {
   position:relative;
   min-width:0;
   display:grid;
-  grid-template-columns:24px minmax(0,1fr);
+  grid-template-columns:20px minmax(0,1fr);
   align-items:center;
-  gap:7px;
+  gap:5px;
 }
 .generation-lifecycle li:not(:last-child)::after {
   content:"";
   position:absolute;
   z-index:0;
-  top:11px;
-  left:23px;
+  top:9px;
+  left:19px;
   right:1px;
   height:1px;
   background:#dfe3eb;
@@ -100,15 +191,15 @@ function stageStatusLabel(index: number) {
 .generation-lifecycle__marker {
   position:relative;
   z-index:1;
-  width:24px;
-  height:24px;
+  width:20px;
+  height:20px;
   display:grid;
   place-items:center;
   border:1px solid #d5dbe5;
   border-radius:50%;
   color:#98a2b3;
   background:#fff;
-  font-size:8px;
+  font-size:7px;
   font-weight:800;
 }
 .generation-lifecycle strong {
@@ -153,6 +244,9 @@ li[data-status="paused"] .generation-lifecycle__marker {
 li[data-status="active"] .generation-lifecycle__marker svg {
   animation:lifecycle-spin .9s linear infinite;
 }
+.generation-lifecycle__summary[data-status="active"] > span svg {
+  animation:lifecycle-spin .9s linear infinite;
+}
 li[data-status="active"] strong,
 li[data-status="review"] strong {
   color:#344054;
@@ -161,12 +255,62 @@ li[data-status="error"] strong,
 li[data-status="blocked"] strong {
   color:#9a4d13;
 }
+.generation-lifecycle__value {
+  justify-self:end;
+  color:#4f55b5;
+  font:750 10px/1 ui-monospace,SFMono-Regular,monospace;
+  white-space:nowrap;
+}
+.generation-lifecycle__value[data-status="review"],
+.generation-lifecycle__value[data-status="completed"] { color:#087a5b; }
+.generation-lifecycle__value[data-status="error"],
+.generation-lifecycle__value[data-status="blocked"] { color:#b05a18; }
+.generation-lifecycle__value[data-status="paused"] { color:#667085; }
+.generation-lifecycle__track {
+  height:2px;
+  margin:8px calc(-1 * clamp(14px,3vw,38px)) 0;
+  overflow:hidden;
+  background:#edf0f4;
+}
+.generation-lifecycle__track i {
+  display:block;
+  height:100%;
+  background:#666bd0;
+  transition:width .3s ease;
+}
 @keyframes lifecycle-spin {
   to { transform:rotate(360deg); }
 }
+@media (max-width:1050px) {
+  .generation-lifecycle__inner {
+    grid-template-columns:110px minmax(410px,1fr) 42px;
+    gap:10px;
+  }
+  .generation-lifecycle strong { font-size:8px; }
+}
 @media (max-width:767px) {
   .generation-lifecycle {
-    padding:9px 10px 10px;
+    padding:8px 9px 0;
+  }
+  .generation-lifecycle__inner {
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:8px;
+  }
+  .generation-lifecycle__summary {
+    order:0;
+  }
+  .generation-lifecycle__summary > span {
+    width:25px;
+    height:25px;
+    flex-basis:25px;
+  }
+  .generation-lifecycle__value {
+    order:1;
+  }
+  .generation-lifecycle ol {
+    grid-column:1/-1;
+    order:2;
+    margin-top:2px;
   }
   .generation-lifecycle li {
     grid-template-columns:1fr;
@@ -175,20 +319,20 @@ li[data-status="blocked"] strong {
     text-align:center;
   }
   .generation-lifecycle li:not(:last-child)::after {
-    top:10px;
+    top:9px;
     left:50%;
     right:-50%;
   }
   .generation-lifecycle__marker {
-    width:22px;
-    height:22px;
+    width:20px;
+    height:20px;
   }
   .generation-lifecycle strong {
-    max-width:64px;
+    max-width:58px;
     width:auto;
     overflow:visible;
     background:transparent;
-    font-size:8px;
+    font-size:7px;
     line-height:1.15;
     text-overflow:clip;
     white-space:normal;
@@ -197,6 +341,11 @@ li[data-status="blocked"] strong {
 @media (prefers-reduced-motion:reduce) {
   li[data-status="active"] .generation-lifecycle__marker svg {
     animation:none;
+  }
+  .generation-lifecycle__summary > span svg,
+  .generation-lifecycle__track i {
+    animation:none;
+    transition:none;
   }
 }
 </style>

@@ -14,11 +14,19 @@
       <span v-else class="node-spacer"></span>
       <span v-if="isChapter" class="node-kind chapter-kind"><BookOpenText :size="14" /></span>
       <span v-else class="node-kind leaf-kind" :class="[{ active: activeId === node.node_id, learned: isLearned }, generationState]"></span>
-      <span class="node-label">{{ node.node_name }}</span>
+      <span class="node-label" :title="node.node_name">{{ node.node_name }}</span>
       <span v-if="adaptationMarker" class="adaptation-marker" :data-state="adaptationMarker.state" :title="adaptationMarker.title">
         {{ adaptationMarker.label }}<b>{{ adaptationMarker.count }}</b>
       </span>
-      <component v-if="isGenerationPreview && generationIcon" :is="generationIcon" :size="13" class="status generation" :class="[generationState, { spinning: generationState === 'generating' }]" />
+      <component
+        v-if="isGenerationPreview && generationIcon"
+        :is="generationIcon"
+        :size="13"
+        class="status generation"
+        :class="[generationState, { spinning: generationState === 'generating' }]"
+        :title="generationStateLabel"
+        :aria-label="generationStateLabel"
+      />
       <CheckCircle2 v-else-if="progress?.mastery_status === 'mastered'" :size="13" class="status mastered" />
       <CircleDot v-else-if="activeId === node.node_id" :size="13" class="status current" />
       <span v-else-if="progress?.reading_status === 'learned'" class="read-dot"></span>
@@ -232,6 +240,13 @@ const generationIcon = computed(() => {
   if (generationState.value === 'finalized') return CheckCircle2
   if (generationState.value === 'failed') return TriangleAlert
   return null
+})
+const generationStateLabel = computed(() => {
+  if (generationState.value === 'generating') return t('courseGeneration.workspace.generating', '正在生成')
+  if (generationState.value === 'finalized') return t('courseGeneration.workspace.finalized', '已定稿')
+  if (generationState.value === 'failed') return t('courseGeneration.workspace.failed', '生成失败')
+  if (generationState.value === 'draft') return t('courseGeneration.workspace.draft', 'AI 草稿')
+  return t('courseGeneration.workspace.waiting', '等待生成')
 })
 const normalizedQuery = computed(() => props.query.trim().toLocaleLowerCase())
 const blockRoleLabel = (role: CourseDocumentBlock['role']) => t(`courseBlocks.${role}`, ({

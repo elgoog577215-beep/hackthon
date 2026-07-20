@@ -1,7 +1,7 @@
 <template>
   <div class="h-full flex flex-col relative">
     <!-- Reading Progress Bar - Positioned below header -->
-    <div class="absolute top-0 left-0 right-0 h-1 bg-slate-100/50 z-10" v-if="scrollProgress > 0">
+    <div v-if="scrollProgress > 0 && !isGenerationPreview" class="absolute top-0 left-0 right-0 h-1 bg-slate-100/50 z-10">
         <div class="h-full bg-gradient-to-r from-primary-400 to-primary-600 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(99,102,241,0.5)]" :style="{ width: scrollProgress + '%' }"></div>
     </div>
 

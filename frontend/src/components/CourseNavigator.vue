@@ -32,17 +32,26 @@
       </ul>
     </nav>
     <section v-else-if="productionMode" class="navigator-production-empty" :data-state="generationTask?.status || 'pending'">
-      <span class="navigator-production-empty__icon">
-        <TriangleAlert v-if="generationTask?.status === 'error' || generationTask?.status === 'conflict'" :size="18" />
-        <CirclePause v-else-if="generationTask?.status === 'paused'" :size="18" />
-        <LoaderCircle v-else :size="18" />
-      </span>
-      <strong>{{ navigatorTitle }}</strong>
-      <p>{{ navigatorHelp }}</p>
-      <div class="navigator-production-empty__progress" aria-hidden="true">
-        <i :style="{ width: `${generationProgress}%` }"></i>
-      </div>
-      <small>{{ generationProgress }}%</small>
+      <header>
+        <strong>{{ t('courseGeneration.production.navigatorLabel', '课程结构') }}</strong>
+        <span>{{ generationProgress }}%</span>
+      </header>
+      <ol class="navigator-production-skeleton" aria-hidden="true">
+        <li v-for="row in skeletonRows" :key="row" :data-level="row === 1 || row === 4 ? 1 : 2">
+          <i></i>
+          <span></span>
+          <b></b>
+        </li>
+      </ol>
+      <footer>
+        <TriangleAlert v-if="generationTask?.status === 'error' || generationTask?.status === 'conflict'" :size="14" />
+        <CirclePause v-else-if="generationTask?.status === 'paused'" :size="14" />
+        <LoaderCircle v-else :size="14" />
+        <div>
+          <strong>{{ navigatorTitle }}</strong>
+          <p>{{ navigatorHelp }}</p>
+        </div>
+      </footer>
     </section>
   </aside>
 </template>
@@ -71,6 +80,7 @@ const emit = defineEmits<{
 }>()
 const courseStore = useCourseStore()
 const query = ref('')
+const skeletonRows = [1, 2, 3, 4, 5, 6]
 const generationProgress = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.generationTask?.progress || 0)))))
 const navigatorTitle = computed(() => {
   if (props.generationTask?.status === 'error') return t('courseGeneration.production.navigatorInterrupted', '课程结构生成中断')
@@ -97,17 +107,25 @@ const navigatorHelp = computed(() => {
 .navigator-production-label { height:34px; min-width:0; display:flex; align-items:center; gap:7px; padding:0 10px; border:1px solid rgba(226,232,240,.82); border-radius:10px; color:#5552c9; background:#f7f7ff; font-size:10px; font-weight:750; }
 .course-navigator nav { min-height:0; overflow-y:auto; padding:6px 8px 18px; scrollbar-width:thin; scrollbar-color:#dbe4f2 transparent; }
 .course-navigator nav > ul { margin: 0; padding: 0; }
-.navigator-production-empty { min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px 28px 48px; text-align:center; }
-.navigator-production-empty__icon { width:42px; height:42px; display:grid; place-items:center; margin-bottom:13px; border:1px solid #dedfff; border-radius:13px; color:#5a57dd; background:#f3f2ff; box-shadow:0 8px 22px rgba(79,70,229,.08); }
-.navigator-production-empty[data-state="running"] .navigator-production-empty__icon svg,.navigator-production-empty[data-state="pending"] .navigator-production-empty__icon svg { animation:navigator-production-spin .9s linear infinite; }
-.navigator-production-empty[data-state="error"] .navigator-production-empty__icon,.navigator-production-empty[data-state="conflict"] .navigator-production-empty__icon { border-color:#f1ce96; color:#b54708; background:#fff7e8; }
-.navigator-production-empty[data-state="paused"] .navigator-production-empty__icon { border-color:#d0d5dd; color:#667085; background:#f2f4f7; }
-.navigator-production-empty strong { color:#344054; font-size:12px; }
-.navigator-production-empty p { margin:6px 0 16px; color:#8a93a4; font-size:9px; line-height:1.65; }
-.navigator-production-empty__progress { width:100%; height:4px; overflow:hidden; border-radius:999px; background:#e9ebf4; }
-.navigator-production-empty__progress i { display:block; height:100%; min-width:3px; border-radius:inherit; background:linear-gradient(90deg,#5a57dd,#938bf7); }
-.navigator-production-empty[data-state="error"] .navigator-production-empty__progress i,.navigator-production-empty[data-state="conflict"] .navigator-production-empty__progress i { background:#d97706; }
-.navigator-production-empty small { align-self:flex-end; margin-top:5px; color:#8a93a4; font:700 8px ui-monospace,SFMono-Regular,monospace; }
+.navigator-production-empty { min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; padding:10px 14px 15px; text-align:left; }
+.navigator-production-empty > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:7px 2px 11px; border-bottom:1px solid #e8ebf0; }
+.navigator-production-empty > header strong { color:#4b5567; font-size:9px; }
+.navigator-production-empty > header span { color:#777f8f; font:700 8px/1 ui-monospace,SFMono-Regular,monospace; }
+.navigator-production-skeleton { display:grid; align-content:start; margin:0; padding:7px 0; list-style:none; }
+.navigator-production-skeleton li { display:grid; grid-template-columns:16px 10px minmax(0,1fr); align-items:center; gap:7px; min-height:38px; padding:5px 3px; border-bottom:1px solid #f1f2f5; }
+.navigator-production-skeleton li > i { width:12px; height:5px; border-radius:2px; background:#e9ecf1; }
+.navigator-production-skeleton li > span { width:8px; height:8px; border:1px solid #d6dbe3; border-radius:50%; background:#fff; }
+.navigator-production-skeleton li[data-level="1"] > span { width:10px; height:10px; border:0; border-radius:3px; background:#d4d9e1; }
+.navigator-production-skeleton li > b { width:72%; height:8px; border-radius:3px; background:linear-gradient(90deg,#e9ecf1 20%,#f7f8fa 45%,#e9ecf1 70%); background-size:220% 100%; animation:navigator-production-shimmer 1.5s ease infinite; }
+.navigator-production-skeleton li:nth-child(2) > b,.navigator-production-skeleton li:nth-child(5) > b { width:88%; }
+.navigator-production-empty > footer { display:grid; grid-template-columns:22px minmax(0,1fr); align-items:start; gap:7px; padding:10px 9px; border:1px solid #e1e4eb; border-radius:8px; color:#5a61bf; background:#f8f8fd; }
+.navigator-production-empty > footer > svg { margin-top:1px; }
+.navigator-production-empty[data-state="running"] > footer > svg,.navigator-production-empty[data-state="pending"] > footer > svg { animation:navigator-production-spin .9s linear infinite; }
+.navigator-production-empty[data-state="error"] > footer,.navigator-production-empty[data-state="conflict"] > footer { border-color:#efd4aa; color:#b54708; background:#fff9ef; }
+.navigator-production-empty[data-state="paused"] > footer { border-color:#d9dde4; color:#667085; background:#f5f6f8; }
+.navigator-production-empty > footer strong { display:block; color:currentColor; font-size:9px; }
+.navigator-production-empty > footer p { margin:2px 0 0; color:#838b99; font-size:8px; line-height:1.45; }
 @keyframes navigator-production-spin { to { transform:rotate(360deg); } }
-@media (prefers-reduced-motion:reduce) { .navigator-production-empty__icon svg { animation:none!important; } }
+@keyframes navigator-production-shimmer { to { background-position:-220% 0; } }
+@media (prefers-reduced-motion:reduce) { .navigator-production-empty svg,.navigator-production-skeleton b { animation:none!important; } }
 </style>

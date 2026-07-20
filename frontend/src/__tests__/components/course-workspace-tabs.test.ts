@@ -78,4 +78,23 @@ describe('CourseWorkspaceTabs', () => {
     await lessonPlan.trigger('click')
     expect(wrapper.emitted('lesson-plan')).toBeUndefined()
   })
+
+  it('教案在后台生成时保留课程视图并显示轻量进行中状态', async () => {
+    const wrapper = mount(CourseWorkspaceTabs, {
+      props: {
+        activeItem: 'course',
+        lessonPlanBuilding: true,
+        practicePending: true,
+      },
+    })
+
+    const lessonPlan = wrapper.get('[data-workspace-item="lesson-plan"]')
+    const course = wrapper.get('[data-workspace-item="course"]')
+    expect(course.attributes('aria-selected')).toBe('true')
+    expect(lessonPlan.classes()).toContain('is-building')
+    expect(lessonPlan.attributes('disabled')).toBeUndefined()
+    expect(lessonPlan.attributes('title')).toContain('后台')
+    await lessonPlan.trigger('click')
+    expect(wrapper.emitted('lesson-plan')).toHaveLength(1)
+  })
 })
