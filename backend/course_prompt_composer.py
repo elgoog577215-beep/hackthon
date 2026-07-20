@@ -24,7 +24,7 @@ from course_knowledge_base import (
 )
 from course_pedagogy import TEMPLATES, SubjectPedagogyProfile, module_block_role
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v21"
+PROMPT_CONTRACT_VERSION = "course_prompt_v22"
 
 
 class CoursePromptComposer:
@@ -39,8 +39,8 @@ class CoursePromptComposer:
         gap_assessment: dict[str, Any],
         adaptation_decision: dict[str, Any],
         material_context: str,
-        max_sections: int = 24,
         detail_level: str = "full",
+        compact_max_sections: int = 6,
     ) -> str:
         profile_data = profile.to_dict()
         primary = TEMPLATES[profile.primary_mode]
@@ -114,7 +114,7 @@ class CoursePromptComposer:
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
 
 ## 目录要求
-1. 用户明确指定章数或小节总数时必须精确满足；未指定时才由知识和能力依赖决定。单门课程不得超过 {max_sections} 个小节，超过时应收敛范围而不是输出超大目录。不要为了凑数重复主题，也不要用节数表示难度。
+1. 这是小课紧凑快速路径。用户明确指定章数或小节总数时必须精确满足；未指定小节总数时，本次最多生成 {compact_max_sections} 节。课程总规模没有固定产品上限，更大的课程由系统切换到章节骨架和分片链，不能在本次调用中压缩、截断或展开为大目录。
 2. 每个小节只承担一个明确、可观察、与其他小节不同的学习责任。
 3. 每个小节给出可观察学习目标、前置小节、范围边界和验收任务。
 4. 每个小节必须给出 `node_id`，统一使用 `L2-章号-节号`，例如第 1 章第 1 节是 `L2-1-1`。
@@ -175,6 +175,247 @@ class CoursePromptComposer:
 围栏、占位目录或解释。所有原始要求、学科模式和难度契约仍以下面的原始契约为准。
 
 {original_prompt}
+""".strip()
+
+    def build_outline_skeleton_v2_prompt(
+        self,
+        *,
+        subject: str,
+        audience: str,
+        brief: dict[str, Any],
+        profile: SubjectPedagogyProfile,
+        difficulty_profile: dict[str, Any],
+        gap_assessment: dict[str, Any],
+        adaptation_decision: dict[str, Any],
+        material_context: str,
+        detail_level: str = "full",
+    ) -> str:
+        """Build the small global decision used before parallel chapter expansion."""
+        profile_data = profile.to_dict()
+        if detail_level != "full":
+            compact_chars = 220 if detail_level == "compact" else 100
+            compact_items = 8 if detail_level == "compact" else 4
+            subject = clip_text(subject, 200 if detail_level == "compact" else 100)
+            audience = clip_text(audience, 120 if detail_level == "compact" else 72)
+            brief = compact_value(
+                brief,
+                max_string_chars=compact_chars,
+                max_list_items=compact_items,
+                max_depth=4 if detail_level == "compact" else 3,
+            )
+            profile_data = compact_value(
+                profile_data,
+                max_string_chars=140 if detail_level == "compact" else 72,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
+            )
+            difficulty_profile = compact_value(
+                difficulty_profile,
+                max_string_chars=140 if detail_level == "compact" else 72,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
+            )
+            gap_assessment = compact_value(
+                gap_assessment,
+                max_string_chars=120 if detail_level == "compact" else 64,
+                max_list_items=4 if detail_level == "compact" else 2,
+                max_depth=2,
+            )
+            adaptation_decision = compact_value(
+                adaptation_decision,
+                max_string_chars=120 if detail_level == "compact" else 64,
+                max_list_items=4 if detail_level == "compact" else 2,
+                max_depth=2,
+            )
+            material_context = clip_text(
+                material_context,
+                4200 if detail_level == "compact" else 1600,
+            )
+        shape = brief.get("course_shape_constraints") or {}
+        return f"""## 全课章节骨架 V2
+
+你只做一次轻量的全局课程决策：确定课程定位、全课成果、章节顺序、每章唯一学习
+焦点，以及每章需要展开的小节数量。不要生成任何小节、知识点、教案、正文或题目。
+后续系统会按章节并行生成小节目录并在本地汇编。只输出有效 JSON。
+
+## 课程输入
+- 主题：{subject}
+- 学习对象：{audience}
+- 结构化 brief：{json.dumps(brief, ensure_ascii=False)}
+- 用户指定章数：{shape.get('chapter_count') or '未指定'}
+- 用户指定小节总数：{shape.get('section_count') or '未指定'}
+
+## 难度与适配
+- 难度：{json.dumps(difficulty_profile, ensure_ascii=False)}
+- 就绪差距：{json.dumps(gap_assessment, ensure_ascii=False)}
+- 适配决策：{json.dumps(adaptation_decision, ensure_ascii=False)}
+
+## 教学画像
+{json.dumps(profile_data, ensure_ascii=False)}
+
+## 资料摘要
+{material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
+
+## 约束
+1. 用户指定章数或小节总数时必须精确满足；所有 `section_count` 之和必须等于指定总数。
+2. 未指定数量时按知识与能力依赖决定合理规模。课程总量没有固定产品上限。
+3. 每章只定义一个清晰、互不重复的学习推进范围，不能把小节详情塞进章节焦点。
+4. 章节按学习先后排列，后续章节不得重复承担前面已经完成的核心责任。
+5. 只返回章节骨架，不返回 `sections`、知识点、关系、正文或题目。
+
+## JSON Schema
+{{
+  "course_title": "课程名",
+  "positioning": "课程定位与最终成果",
+  "learning_objectives": ["可观察的全课成果"],
+  "prerequisites": ["必要前置"],
+  "chapters": [
+    {{
+      "chapter_number": 1,
+      "title": "章节名",
+      "learning_focus": "本章独有的能力推进范围",
+      "section_count": 3
+    }}
+  ]
+}}""".strip()
+
+    def build_outline_skeleton_v2_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {clip_text(item.get('message'), 240)}"
+            for item in issues[:10]
+        ) or "- 上一次输出不是完整有效的章节骨架 JSON"
+        return f"""## 全课章节骨架 V2 定点修复
+
+上一次章节骨架存在以下问题：
+{issue_text}
+
+只修复章节骨架并重新输出完整 JSON。不得生成小节、知识点、教案、正文、题目或解释。
+
+{clip_text(original_prompt, 8500)}
+""".strip()
+
+    def build_outline_batch_v2_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        learning_objectives: list[str],
+        chapter: dict[str, Any],
+        neighbor_chapters: list[dict[str, Any]],
+        batch_spec: dict[str, Any],
+        previous_sections: list[dict[str, Any]],
+        evidence_hints: list[dict[str, Any]],
+        skeleton_revision_id: str,
+        detail_level: str = "full",
+    ) -> str:
+        """Expand one bounded chapter slice without rebroadcasting the course."""
+        if detail_level != "full":
+            max_text = 180 if detail_level == "compact" else 88
+            course_title = clip_text(course_title, 140 if detail_level == "compact" else 80)
+            positioning = clip_text(positioning, 220 if detail_level == "compact" else 100)
+            learning_objectives = [
+                clip_text(item, max_text)
+                for item in learning_objectives[:8 if detail_level == "compact" else 4]
+            ]
+            chapter = compact_value(
+                chapter,
+                max_string_chars=max_text,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
+            )
+            neighbor_chapters = compact_value(
+                neighbor_chapters,
+                max_string_chars=140 if detail_level == "compact" else 72,
+                max_list_items=3,
+                max_depth=3,
+            )
+            previous_sections = compact_value(
+                previous_sections[-6 if detail_level == "compact" else -3:],
+                max_string_chars=140 if detail_level == "compact" else 72,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
+            )
+            evidence_hints = compact_value(
+                evidence_hints,
+                max_string_chars=160 if detail_level == "compact" else 80,
+                max_list_items=4 if detail_level == "compact" else 2,
+                max_depth=3,
+            )
+        start = int(batch_spec.get("start_section_index") or 1)
+        end = int(batch_spec.get("end_section_index") or start)
+        return f"""## 章节小节目录批次 V2
+
+全课章节骨架已经冻结。你只展开当前章节的第 {start}-{end} 个小节；不得修改课程
+定位、章节边界、其他章节或已经完成的当前章小节。只输出有效 JSON。
+
+## 课程
+- 名称：{course_title}
+- 定位：{positioning}
+- 全课成果：{json.dumps(learning_objectives, ensure_ascii=False)}
+- 章节骨架修订：{skeleton_revision_id}
+
+## 当前章节
+{json.dumps(chapter, ensure_ascii=False)}
+
+## 相邻章节边界
+{json.dumps(neighbor_chapters, ensure_ascii=False)}
+
+## 当前批次
+{json.dumps(batch_spec, ensure_ascii=False)}
+
+## 当前章已完成的前序小节
+{json.dumps(previous_sections, ensure_ascii=False)}
+
+## 当前章限量证据提示
+{json.dumps(evidence_hints, ensure_ascii=False)}
+
+## 约束
+1. 必须严格返回 {end - start + 1} 个小节，并按 `expected_node_ids` 的顺序逐一对应。
+2. 每节只承担一个可观察且互不重复的责任，给出目标、范围和可检查验收任务。
+3. 当前章内部只能引用编号更早的小节。第一节只有确需承接时才可引用
+   `previous_chapter_anchor_id`；不得引用其他章节或未来小节。
+4. 当前批次不得重新解释整个章节，不得提前承担下一批次或相邻章节的核心责任。
+5. 不输出知识点、知识关系、教案、正文、题目答案或 Markdown 围栏。
+
+## JSON Schema
+{{
+  "sections": [
+    {{
+      "node_id": "L2-章号-节号",
+      "section_number": "章号.节号",
+      "title": "小节名",
+      "learning_objective": "学完后能完成的任务",
+      "prerequisite_node_ids": [],
+      "assessment": ["验收标准或任务"],
+      "scope_boundary": "本节负责什么，以及明确不提前展开什么"
+    }}
+  ]
+}}""".strip()
+
+    def build_outline_batch_v2_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {clip_text(item.get('message'), 240)}"
+            for item in issues[:10]
+        ) or "- 上一次输出不是完整有效的目录批次 JSON"
+        return f"""## 章节小节目录批次 V2 定点修复
+
+当前最小目录批次存在以下问题：
+{issue_text}
+
+只重新输出当前批次的完整 JSON。章节骨架、批次范围、节点顺序和其他已完成批次
+不得改变；不要输出解释或 Markdown 围栏。
+
+{clip_text(original_prompt, 8500)}
 """.strip()
 
     def build_course_teaching_plan_prompt(

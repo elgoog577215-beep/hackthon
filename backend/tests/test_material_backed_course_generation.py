@@ -455,7 +455,7 @@ def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
         }],
     )
 
-    assert artifacts["pipeline_version"] == "course_generation_v12"
+    assert artifacts["pipeline_version"] == "course_generation_v13"
     assert artifacts["course_generation_brief"]["course_shape_constraints"] == {}
     assert artifacts["material_cards"][0]["usage"] == "content_source"
     assert artifacts["material_cards"][0]["parse_status"] == "metadata_only"
@@ -656,9 +656,9 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
         }],
     )
 
-    assert data["generation_pipeline_version"] == "course_generation_v12"
-    assert data["generation_schema_version"] == "course_generation_v12"
-    assert data["prompt_contract_version"] == "course_prompt_v21"
+    assert data["generation_pipeline_version"] == "course_generation_v13"
+    assert data["generation_schema_version"] == "course_generation_v13"
+    assert data["prompt_contract_version"] == "course_prompt_v22"
     assert len(calls) == 2
     assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"
@@ -786,7 +786,10 @@ async def test_invalid_model_json_never_falls_back_to_placeholder_course(monkeyp
             pedagogy_mode="general",
         )
 
-    assert len(calls) == 2
+    # Compact outline gets one correction, then the bounded chapter-skeleton
+    # path gets one correction. Invalid semantics still never become a fake
+    # placeholder course.
+    assert len(calls) == 4
     assert not (tmp_path / "debug_failed_json.txt").exists()
 
 
@@ -839,7 +842,7 @@ async def test_outline_phase_is_persisted_before_immediate_provider_failure(
 
     assert phases[-1] == (
         "outline_generation",
-        "正在请求 AI 生成轻量课程目录",
+        "正在生成轻量章节骨架",
     )
 
 
@@ -1383,6 +1386,40 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
     async def fake_call_llm(prompt, system_prompt, **_kwargs):
         nonlocal active_batches, max_active_batches
         calls.append(prompt)
+        if "全课章节骨架 V2" in system_prompt:
+                return json.dumps({
+                    "course_title": plan["course_title"],
+                    "positioning": plan["positioning"],
+                    "learning_objectives": (
+                        plan.get("learning_objectives")
+                        or ["完成全部递进能力"]
+                    ),
+                    "prerequisites": plan.get("prerequisites") or [],
+                "chapters": [{
+                    "chapter_number": 1,
+                    "title": plan["chapters"][0]["title"],
+                    "learning_focus": "完成全部递进能力",
+                    "section_count": section_count,
+                }],
+            }, ensure_ascii=False)
+        if "章节小节目录批次 V2" in system_prompt:
+            match = re.search(
+                r"## 当前批次\n(\{.*?\})\n\n## 当前章已完成",
+                system_prompt,
+                re.S,
+            )
+            assert match, system_prompt
+            spec = json.loads(match.group(1))
+            section_by_id = {
+                item["node_id"]: item
+                for item in plan["chapters"][0]["sections"]
+            }
+            return json.dumps({
+                "sections": [
+                    section_by_id[node_id]
+                    for node_id in spec["expected_node_ids"]
+                ],
+            }, ensure_ascii=False)
         if prompt.startswith("生成整门课所有小节教案"):
             response = json.loads(_teaching_plan_response(
                 system_prompt, title_to_label,
@@ -1416,6 +1453,7 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
         depth="intermediate",
         style="academic",
         pedagogy_mode="general",
+        requirements=f"生成 1 章，共 {section_count} 个小节",
     )
 
     stage = course_data["generation_stage_artifacts"][
@@ -1434,6 +1472,11 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
         assert stage["model_call_count"] == 1
         assert len(calls) == 2
     else:
+        expected_outline_calls = 1 + (
+            section_count
+            + service._outline_budget.batch_max_sections
+            - 1
+        ) // service._outline_budget.batch_max_sections
         expected_batches = (section_count + 2) // 3
         expected_skeleton_chunks = (
             section_count
@@ -1448,7 +1491,9 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
             expected_skeleton_chunks + expected_batches
         )
         assert len(calls) == (
-            1 + expected_skeleton_chunks + expected_batches
+            expected_outline_calls
+            + expected_skeleton_chunks
+            + expected_batches
         )
         assert max_active_batches == 4
     assert stage["knowledge_compilation_model_call_count"] == 0

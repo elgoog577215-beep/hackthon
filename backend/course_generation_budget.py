@@ -1,15 +1,14 @@
-"""Hard runtime budgets for the first-course generation pipeline.
+"""Per-request and resumable-work-window budgets for course generation.
 
-The limits in this module are product safety boundaries, not performance hints.
-Environment variables may tune them only inside the code-level caps below, so a
-deployment cannot accidentally restore hour-long waits or oversized requests.
+These settings never cap total course size.  They bound one provider request or
+one resumable execution window so a large course is split, checkpointed and
+continued instead of rejected or sent as one oversized payload.
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import asdict, dataclass
-from typing import Any
 
 from ai_base import AIProviderRequestError
 
@@ -38,7 +37,6 @@ class CourseGenerationDeadlineExceeded(AIProviderRequestError):
 
 @dataclass(frozen=True)
 class CourseGenerationBudget:
-    max_sections: int = 24
     max_input_chars: int = 20_000
     max_input_tokens: int = 7000
     outline_max_output_tokens: int = 4096
@@ -53,12 +51,6 @@ class CourseGenerationBudget:
     @classmethod
     def from_env(cls) -> CourseGenerationBudget:
         return cls(
-            max_sections=_env_int(
-                "COURSE_GENERATION_MAX_SECTIONS",
-                24,
-                minimum=1,
-                maximum=32,
-            ),
             max_input_chars=_env_int(
                 "COURSE_GENERATION_MAX_INPUT_CHARS",
                 20_000,
@@ -120,17 +112,6 @@ class CourseGenerationBudget:
                 maximum=2,
             ),
         )
-
-    def ensure_section_count(self, section_count: Any) -> None:
-        try:
-            actual = int(section_count or 0)
-        except (TypeError, ValueError):
-            return
-        if actual > self.max_sections:
-            raise CourseGenerationBudgetExceeded(
-                f"单门课程最多支持 {self.max_sections} 个小节，当前请求为 "
-                f"{actual} 个；请拆分为多门课程后再生成"
-            )
 
     def to_dict(self) -> dict[str, int]:
         return asdict(self)

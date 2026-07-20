@@ -101,6 +101,19 @@ from course_knowledge_map import (
     compile_course_knowledge_map,
     normalize_knowledge_structure,
 )
+from course_outline_planning import (
+    CourseOutlinePlanningBudget,
+    assemble_course_outline,
+    build_outline_batch_specs,
+    compile_fallback_outline_batch,
+    normalize_outline_batch,
+    normalize_outline_skeleton,
+    outline_neighbor_chapters,
+    outline_request_fingerprint,
+    select_chapter_evidence_hints,
+    validate_outline_batch,
+    validate_outline_skeleton,
+)
 from course_pedagogy import (
     SubjectPedagogyProfile,
     attach_module_plans_to_plan,
@@ -220,6 +233,7 @@ class CourseService(AIBase):
         self._generation_budget = (
             generation_budget or CourseGenerationBudget.from_env()
         )
+        self._outline_budget = CourseOutlinePlanningBudget.from_env()
         self._teaching_plan_semaphore = asyncio.Semaphore(
             self._teaching_plan_budget.concurrency
         )
@@ -394,6 +408,7 @@ class CourseService(AIBase):
             "course_generation_v10",
             "course_generation_v11",
             "course_generation_v12",
+            "course_generation_v13",
         }
         if checkpoint_ready:
             refreshed_brief = deepcopy(existing.get("course_generation_brief") or {})
@@ -486,14 +501,21 @@ class CourseService(AIBase):
             attach_pedagogy_profile(artifacts, profile)
 
         artifacts["course_composition_profile"] = composition_profile
-        shape_constraints = (
-            artifacts.get("course_generation_brief") or {}
-        ).get("course_shape_constraints") or {}
-        self._generation_budget.ensure_section_count(
-            shape_constraints.get("section_count")
-        )
         artifacts["generation_runtime_budget"] = {
             **self._generation_budget.to_dict(),
+            "outline_compact_max_sections": (
+                self._outline_budget.compact_max_sections
+            ),
+            "outline_batch_max_sections": (
+                self._outline_budget.batch_max_sections
+            ),
+            "outline_batch_timeout_seconds": (
+                self._outline_budget.batch_timeout_seconds
+            ),
+            "outline_total_timeout_seconds": (
+                self._outline_budget.total_timeout_seconds
+            ),
+            "outline_concurrency": self._planning_concurrency,
             "teaching_plan_max_input_tokens": (
                 self._teaching_plan_budget.max_input_tokens
             ),
@@ -567,27 +589,6 @@ class CourseService(AIBase):
             )
         )
 
-        def enforce_outline_budget(
-            report: dict[str, Any],
-        ) -> dict[str, Any]:
-            try:
-                self._generation_budget.ensure_section_count(
-                    (report.get("actual") or {}).get("section_count")
-                )
-                return report
-            except CourseGenerationBudgetExceeded as exc:
-                constrained = deepcopy(report)
-                constrained["passed"] = False
-                constrained.setdefault("issues", []).append({
-                    "code": "outline:section_budget_exceeded",
-                    "severity": "critical",
-                    "message": str(exc),
-                })
-                return constrained
-
-        plan_constraint_report = enforce_outline_budget(
-            plan_constraint_report
-        )
         existing_outline_stage = (
             (existing.get("generation_stage_artifacts") or {}).get("outline")
             or {}
@@ -605,6 +606,45 @@ class CourseService(AIBase):
             existing_outline_stage.get("prompt_detail_levels") or []
         )
         outline_was_generated = not plan_constraint_report.get("passed")
+        shape_constraints = (
+            artifacts.get("course_generation_brief") or {}
+        ).get("course_shape_constraints") or {}
+        if (
+            not plan_constraint_report.get("passed")
+            and self._outline_budget.choose_mode(shape_constraints)
+            == "hierarchical"
+        ):
+            (
+                plan,
+                plan_constraint_report,
+                existing_outline_stage,
+            ) = await self._generate_hierarchical_course_outline(
+                topic=topic,
+                audience=audience,
+                artifacts=artifacts,
+                profile=profile,
+                difficulty_profile=difficulty_profile.to_dict(),
+                gap_assessment=gap_assessment.to_dict(),
+                adaptation_decision=adaptation_decision.to_dict(),
+                existing_stage=existing_outline_stage,
+                existing_generation_stages=(
+                    existing.get("generation_stage_artifacts") or {}
+                ),
+                on_phase=on_phase,
+                on_checkpoint=on_checkpoint,
+            )
+            outline_model_call_count = int(
+                existing_outline_stage.get("model_call_count") or 0
+            )
+            outline_prompt_chars = int(
+                existing_outline_stage.get("prompt_chars") or 0
+            )
+            outline_prompt_tokens = int(
+                existing_outline_stage.get("max_prompt_tokens") or 0
+            )
+            outline_detail_levels = list(
+                existing_outline_stage.get("prompt_detail_levels") or []
+            )
         if not plan_constraint_report.get("passed"):
             outline_user = (
                 f"为「{clip_text(topic, 160)}」生成轻量课程目录，只输出 JSON。"
@@ -631,8 +671,10 @@ class CourseService(AIBase):
                         artifacts,
                         detail_level=detail_level,
                     ),
-                    max_sections=self._generation_budget.max_sections,
                     detail_level=detail_level,
+                    compact_max_sections=(
+                        self._outline_budget.compact_max_sections
+                    ),
                 )
                 for detail_level in outline_levels
             }
@@ -672,36 +714,41 @@ class CourseService(AIBase):
                 phase_progress=0,
                 phase_detail={"artifact_type": "course_outline"},
             )
-            response = await self._call_llm_with_heartbeat(
-                outline_user,
-                prompt,
-                enable_thinking=True,
-                on_phase=on_phase,
-                phase="outline_generation",
-                base_progress=32,
-                heartbeat_message="仍在等待 AI 生成轻量课程目录",
-                stage_timeout_seconds=(
-                    self._generation_budget.call_timeout_seconds
-                ),
-                max_input_tokens=(
-                    self._generation_budget.max_input_tokens
-                ),
-                max_input_chars=(
-                    self._generation_budget.max_input_chars
-                ),
-                max_output_tokens=(
-                    self._generation_budget.outline_max_output_tokens
-                ),
-                max_attempts=(
-                    self._generation_budget.provider_max_attempts
-                ),
-            )
-            plan, plan_constraint_report = self._validated_course_outline(
-                response,
-                artifacts["course_generation_brief"],
-            )
-            plan_constraint_report = enforce_outline_budget(
-                plan_constraint_report
+            try:
+                response = await self._call_llm_with_heartbeat(
+                    outline_user,
+                    prompt,
+                    enable_thinking=True,
+                    on_phase=on_phase,
+                    phase="outline_generation",
+                    base_progress=32,
+                    heartbeat_message="仍在等待 AI 生成轻量课程目录",
+                    stage_timeout_seconds=(
+                        self._generation_budget.call_timeout_seconds
+                    ),
+                    max_input_tokens=(
+                        self._generation_budget.max_input_tokens
+                    ),
+                    max_input_chars=(
+                        self._generation_budget.max_input_chars
+                    ),
+                    max_output_tokens=(
+                        self._generation_budget.outline_max_output_tokens
+                    ),
+                    max_attempts=(
+                        self._generation_budget.provider_max_attempts
+                    ),
+                )
+            except (
+                AIProviderRequestError,
+                CourseGenerationDeadlineExceeded,
+            ):
+                response = ""
+            plan, plan_constraint_report = (
+                self._validated_compact_course_outline(
+                    response,
+                    artifacts["course_generation_brief"],
+                )
             )
             if not plan_constraint_report.get("passed"):
                 await self._notify_phase(
@@ -764,37 +811,75 @@ class CourseService(AIBase):
                     outline_prompt_tokens,
                     correction_tokens,
                 )
-                corrected_response = await self._call_llm_with_heartbeat(
-                    correction_user,
-                    correction_prompt,
-                    enable_thinking=False,
-                    on_phase=on_phase,
-                    phase="outline_validation",
-                    base_progress=34,
-                    heartbeat_message="仍在等待 AI 修复轻量课程目录",
-                    stage_timeout_seconds=(
-                        self._generation_budget.call_timeout_seconds
-                    ),
-                    max_input_tokens=(
-                        self._generation_budget.max_input_tokens
-                    ),
-                    max_input_chars=(
-                        self._generation_budget.max_input_chars
-                    ),
-                    max_output_tokens=(
-                        self._generation_budget.outline_max_output_tokens
-                    ),
-                    max_attempts=(
-                        self._generation_budget.provider_max_attempts
-                    ),
+                try:
+                    corrected_response = await self._call_llm_with_heartbeat(
+                        correction_user,
+                        correction_prompt,
+                        enable_thinking=False,
+                        on_phase=on_phase,
+                        phase="outline_validation",
+                        base_progress=34,
+                        heartbeat_message="仍在等待 AI 修复轻量课程目录",
+                        stage_timeout_seconds=(
+                            self._generation_budget.call_timeout_seconds
+                        ),
+                        max_input_tokens=(
+                            self._generation_budget.max_input_tokens
+                        ),
+                        max_input_chars=(
+                            self._generation_budget.max_input_chars
+                        ),
+                        max_output_tokens=(
+                            self._generation_budget.outline_max_output_tokens
+                        ),
+                        max_attempts=(
+                            self._generation_budget.provider_max_attempts
+                        ),
+                    )
+                except (
+                    AIProviderRequestError,
+                    CourseGenerationDeadlineExceeded,
+                ):
+                    corrected_response = ""
+                plan, plan_constraint_report = (
+                    self._validated_compact_course_outline(
+                        corrected_response,
+                        artifacts["course_generation_brief"],
+                    )
                 )
-                plan, plan_constraint_report = self._validated_course_outline(
-                    corrected_response,
-                    artifacts["course_generation_brief"],
-                )
-                plan_constraint_report = enforce_outline_budget(
-                    plan_constraint_report
-                )
+        if not plan_constraint_report.get("passed") or plan is None:
+            (
+                plan,
+                plan_constraint_report,
+                existing_outline_stage,
+            ) = await self._generate_hierarchical_course_outline(
+                topic=topic,
+                audience=audience,
+                artifacts=artifacts,
+                profile=profile,
+                difficulty_profile=difficulty_profile.to_dict(),
+                gap_assessment=gap_assessment.to_dict(),
+                adaptation_decision=adaptation_decision.to_dict(),
+                existing_stage=existing_outline_stage,
+                existing_generation_stages=(
+                    existing.get("generation_stage_artifacts") or {}
+                ),
+                on_phase=on_phase,
+                on_checkpoint=on_checkpoint,
+                compact_failure_reason="compact_outline_failed",
+            )
+            outline_model_call_count = int(
+                existing_outline_stage.get("model_call_count") or 0
+            )
+            outline_prompt_chars = int(
+                existing_outline_stage.get("prompt_chars") or 0
+            )
+            outline_prompt_tokens = int(
+                existing_outline_stage.get("max_prompt_tokens") or 0
+            )
+            outline_detail_levels = list(
+                existing_outline_stage.get("prompt_detail_levels") or []
+            )
         if not plan_constraint_report.get("passed") or plan is None:
             messages = "；".join(
                 str(item.get("message") or "未知目录错误")
@@ -902,7 +987,12 @@ class CourseService(AIBase):
             "generation_stage_artifacts": {
                 **deepcopy(existing.get("generation_stage_artifacts") or {}),
                 "outline": {
-                    "status": "completed",
+                    **deepcopy(existing_outline_stage),
+                    "status": (
+                        "completed_with_warnings"
+                        if existing_outline_stage.get("fallback_units")
+                        else "completed"
+                    ),
                     "schema_version": "course_outline_v1",
                     "actual": deepcopy(plan_constraint_report.get("actual") or {}),
                     "prompt_chars": outline_prompt_chars,
@@ -3560,6 +3650,935 @@ class CourseService(AIBase):
             return None, raw_report
         plan = normalize_course_outline_contract(parsed)
         return plan, validate_course_outline_constraints(plan, brief)
+
+    def _validated_compact_course_outline(
+        self,
+        response: str | None,
+        brief: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        """Validate the fast-path unit and route oversized results to shards."""
+        plan, report = self._validated_course_outline(response, brief)
+        section_count = int(
+            (report.get("actual") or {}).get("section_count", 0)
+        )
+        if (
+            plan is not None
+            and report.get("passed")
+            and section_count > self._outline_budget.compact_max_sections
+        ):
+            report = deepcopy(report)
+            report["passed"] = False
+            report.setdefault("issues", []).append({
+                "code": "outline:compact_unit_exceeded",
+                "message": (
+                    "紧凑目录返回的小节数超过单次工作单元，"
+                    "正在切换章节骨架与分片链"
+                ),
+                "blocking": True,
+                "severity": "critical",
+            })
+        return plan, report
+
+    async def _generate_hierarchical_course_outline(
+        self,
+        *,
+        topic: str,
+        audience: str,
+        artifacts: dict[str, Any],
+        profile: SubjectPedagogyProfile,
+        difficulty_profile: dict[str, Any],
+        gap_assessment: dict[str, Any],
+        adaptation_decision: dict[str, Any],
+        existing_stage: dict[str, Any],
+        existing_generation_stages: dict[str, Any],
+        on_phase: Callable[..., Awaitable[None] | None] | None,
+        on_checkpoint: (
+            Callable[[dict[str, Any]], Awaitable[None] | None] | None
+        ),
+        compact_failure_reason: str = "",
+    ) -> tuple[
+        dict[str, Any] | None,
+        dict[str, Any],
+        dict[str, Any],
+    ]:
+        """Build a large outline as chapter skeleton -> chapter batches -> local assembly."""
+        brief = artifacts.get("course_generation_brief") or {}
+        shape_constraints = brief.get("course_shape_constraints") or {}
+        request_fingerprint = outline_request_fingerprint(
+            topic=topic,
+            audience=audience,
+            brief=brief,
+            difficulty_profile=difficulty_profile,
+        )
+        stage = (
+            deepcopy(existing_stage)
+            if existing_stage.get("request_fingerprint")
+            == request_fingerprint
+            else {}
+        )
+        started_at = time.monotonic()
+        counter = {
+            "calls": int(stage.get("model_call_count") or 0),
+            "prompt_chars": int(stage.get("prompt_chars") or 0),
+            "prompt_tokens": int(stage.get("prompt_tokens") or 0),
+            "max_prompt_tokens": int(stage.get("max_prompt_tokens") or 0),
+        }
+        prompt_detail_levels = list(stage.get("prompt_detail_levels") or [])
+        fallback_units = [
+            deepcopy(item)
+            for item in stage.get("fallback_units") or []
+            if isinstance(item, dict)
+        ]
+        counter_lock = asyncio.Lock()
+        state_lock = asyncio.Lock()
+        stage.update({
+            "status": "in_progress",
+            "schema_version": "course_outline_execution_v2",
+            "strategy": "hierarchical_chapter_batches",
+            "request_fingerprint": request_fingerprint,
+            "compact_failure_reason": compact_failure_reason or None,
+            "batch_max_sections": self._outline_budget.batch_max_sections,
+            "max_concurrency": self._planning_concurrency,
+            "batch_timeout_seconds": (
+                self._outline_budget.batch_timeout_seconds
+            ),
+            "total_timeout_seconds": (
+                self._outline_budget.total_timeout_seconds
+            ),
+        })
+
+        def add_fallback(
+            *,
+            unit: str,
+            reason: str,
+            section_ids: list[str] | None = None,
+        ) -> None:
+            if any(
+                str(item.get("unit") or "") == unit
+                for item in fallback_units
+            ):
+                return
+            fallback_units.append({
+                "unit": unit,
+                "reason": reason,
+                "section_ids": list(section_ids or []),
+            })
+
+        async def persist_stage() -> None:
+            stage.update({
+                "model_call_count": counter["calls"],
+                "prompt_chars": counter["prompt_chars"],
+                "prompt_tokens": counter["prompt_tokens"],
+                "max_prompt_tokens": counter["max_prompt_tokens"],
+                "prompt_detail_levels": list(prompt_detail_levels),
+                "adaptive_compaction_count": sum(
+                    level != "full"
+                    for level in prompt_detail_levels
+                ),
+                "fallback_units": deepcopy(fallback_units),
+            })
+            await self._notify_checkpoint(on_checkpoint, {
+                "generation_pipeline_version": PIPELINE_VERSION,
+                "generation_schema_version": PIPELINE_VERSION,
+                "prompt_contract_version": PROMPT_CONTRACT_VERSION,
+                "generation_status": "outline_generation",
+                "generation_stage_artifacts": {
+                    **deepcopy(existing_generation_stages),
+                    "outline": deepcopy(stage),
+                },
+            })
+
+        async def request_model(
+            *,
+            user_prompt: str,
+            system_prompt: str,
+            phase: str,
+            message: str,
+            phase_detail: dict[str, Any],
+            enable_thinking: bool = False,
+        ) -> str:
+            input_tokens = self.estimate_request_tokens(
+                user_prompt,
+                system_prompt,
+            )
+            try:
+                async with self._planning_semaphore:
+                    return await self._call_llm_with_heartbeat(
+                        user_prompt,
+                        system_prompt,
+                        enable_thinking=enable_thinking,
+                        on_phase=on_phase,
+                        phase=phase,
+                        base_progress=33,
+                        stage_timeout_seconds=(
+                            self._outline_budget.batch_timeout_seconds
+                        ),
+                        heartbeat_message=message,
+                        phase_detail=phase_detail,
+                        max_input_tokens=(
+                            self._generation_budget.max_input_tokens
+                        ),
+                        max_input_chars=(
+                            self._generation_budget.max_input_chars
+                        ),
+                        max_output_tokens=(
+                            self._generation_budget.outline_max_output_tokens
+                        ),
+                        max_attempts=(
+                            self._generation_budget.provider_max_attempts
+                        ),
+                    )
+            finally:
+                async with counter_lock:
+                    counter["calls"] += 1
+                    counter["prompt_chars"] += (
+                        len(user_prompt) + len(system_prompt)
+                    )
+                    counter["prompt_tokens"] += input_tokens
+                    counter["max_prompt_tokens"] = max(
+                        counter["max_prompt_tokens"],
+                        input_tokens,
+                    )
+
+        raw_skeleton = stage.get("skeleton")
+        skeleton = normalize_outline_skeleton(
+            raw_skeleton if isinstance(raw_skeleton, dict) else {},
+            topic=topic,
+            request_fingerprint=request_fingerprint,
+        )
+        skeleton_report = validate_outline_skeleton(
+            skeleton,
+            shape_constraints=shape_constraints,
+            request_fingerprint=request_fingerprint,
+        )
+        skeleton_is_current = bool(
+            isinstance(raw_skeleton, dict)
+            and skeleton_report.get("passed")
+        )
+        skeleton_error: Exception | None = None
+        skeleton_failure_reason = ""
+        if not skeleton_is_current:
+            skeleton_levels = prompt_detail_levels_for_source(
+                {
+                    "topic": topic,
+                    "audience": audience,
+                    "brief": brief,
+                    "difficulty_profile": difficulty_profile,
+                    "material_cards": artifacts.get("material_cards") or [],
+                },
+                max_input_chars=self._generation_budget.max_input_chars,
+            )
+            skeleton_prompts = {
+                detail_level: (
+                    self._prompt_composer.build_outline_skeleton_v2_prompt(
+                        subject=topic,
+                        audience=audience,
+                        brief=brief,
+                        profile=profile,
+                        difficulty_profile=difficulty_profile,
+                        gap_assessment=gap_assessment,
+                        adaptation_decision=adaptation_decision,
+                        material_context=build_outline_generation_context(
+                            artifacts,
+                            detail_level=detail_level,
+                        ),
+                        detail_level=detail_level,
+                    )
+                )
+                for detail_level in skeleton_levels
+            }
+            skeleton_user = (
+                f"为「{clip_text(topic, 160)}」规划全课章节骨架，只输出 JSON。"
+            )
+            selected_skeleton = select_budgeted_prompt(
+                (
+                    PromptCandidate(
+                        detail_level=detail_level,
+                        user_prompt=skeleton_user,
+                        system_prompt=skeleton_prompts[detail_level],
+                    )
+                    for detail_level in skeleton_levels
+                ),
+                max_input_chars=self._generation_budget.max_input_chars,
+                max_input_tokens=self._generation_budget.max_input_tokens,
+                token_estimator=self.estimate_request_tokens,
+            )
+            failure_reason = ""
+            parsed: dict[str, Any] | None = None
+            if selected_skeleton is None:
+                failure_reason = "skeleton_prompt_did_not_fit"
+            else:
+                prompt_detail_levels.append(
+                    selected_skeleton.detail_level
+                )
+                await self._notify_phase(
+                    on_phase,
+                    "outline_generation",
+                    32,
+                    "正在生成轻量章节骨架",
+                    phase_progress=0,
+                    phase_detail={
+                        "artifact_type": "course_outline_skeleton",
+                    },
+                )
+                try:
+                    response = await request_model(
+                        user_prompt=selected_skeleton.user_prompt,
+                        system_prompt=selected_skeleton.system_prompt,
+                        phase="outline_generation",
+                        message="仍在等待 AI 生成轻量章节骨架",
+                        phase_detail={
+                            "artifact_type": "course_outline_skeleton",
+                        },
+                        enable_thinking=True,
+                    )
+                except (
+                    AIProviderRequestError,
+                    CourseGenerationDeadlineExceeded,
+                ) as exc:
+                    response = ""
+                    skeleton_error = exc
+                    failure_reason = (
+                        f"provider_error:{type(exc).__name__}"
+                    )
+                candidate = (
+                    self._extract_json(response)
+                    if response
+                    else None
+                )
+                parsed = candidate if isinstance(candidate, dict) else None
+            skeleton = normalize_outline_skeleton(
+                parsed or {},
+                topic=topic,
+                request_fingerprint=request_fingerprint,
+            )
+            skeleton_report = validate_outline_skeleton(
+                skeleton,
+                shape_constraints=shape_constraints,
+                request_fingerprint=request_fingerprint,
+            )
+            if (
+                not skeleton_report.get("passed")
+                and not failure_reason
+                and selected_skeleton is not None
+            ):
+                correction_user = (
+                    "只修复全课章节骨架，重新输出完整 JSON。"
+                )
+                correction_prompt = (
+                    self._prompt_composer
+                    .build_outline_skeleton_v2_correction_prompt(
+                        original_prompt=(
+                            selected_skeleton.system_prompt
+                        ),
+                        issues=skeleton_report.get("issues") or [],
+                    )
+                )
+                selected_correction = select_budgeted_prompt(
+                    [
+                        PromptCandidate(
+                            detail_level=(
+                                selected_skeleton.detail_level
+                            ),
+                            user_prompt=correction_user,
+                            system_prompt=correction_prompt,
+                        ),
+                    ],
+                    max_input_chars=(
+                        self._generation_budget.max_input_chars
+                    ),
+                    max_input_tokens=(
+                        self._generation_budget.max_input_tokens
+                    ),
+                    token_estimator=self.estimate_request_tokens,
+                )
+                if selected_correction is None:
+                    failure_reason = (
+                        "skeleton_correction_prompt_did_not_fit"
+                    )
+                else:
+                    prompt_detail_levels.append(
+                        selected_correction.detail_level
+                    )
+                    try:
+                        corrected = await request_model(
+                            user_prompt=(
+                                selected_correction.user_prompt
+                            ),
+                            system_prompt=(
+                                selected_correction.system_prompt
+                            ),
+                            phase="outline_validation",
+                            message=(
+                                "仍在等待 AI 修复轻量章节骨架"
+                            ),
+                            phase_detail={
+                                "artifact_type": (
+                                    "course_outline_skeleton"
+                                ),
+                            },
+                        )
+                    except (
+                        AIProviderRequestError,
+                        CourseGenerationDeadlineExceeded,
+                    ) as exc:
+                        corrected = ""
+                        skeleton_error = exc
+                        failure_reason = (
+                            "correction_provider_error:"
+                            f"{type(exc).__name__}"
+                        )
+                    candidate = (
+                        self._extract_json(corrected)
+                        if corrected
+                        else None
+                    )
+                    skeleton = normalize_outline_skeleton(
+                        candidate if isinstance(candidate, dict) else {},
+                        topic=topic,
+                        request_fingerprint=request_fingerprint,
+                    )
+                    skeleton_report = validate_outline_skeleton(
+                        skeleton,
+                        shape_constraints=shape_constraints,
+                        request_fingerprint=request_fingerprint,
+                    )
+            skeleton_failure_reason = (
+                failure_reason
+                or "model_output_failed_validation"
+            )
+        stage.update({
+            "skeleton": deepcopy(skeleton),
+            "skeleton_revision_id": skeleton.get("revision_id"),
+            "skeleton_validation_report": deepcopy(skeleton_report),
+            "chapter_count": len(skeleton.get("chapters") or []),
+            "section_count": sum(
+                int(item.get("section_count") or 0)
+                for item in skeleton.get("chapters") or []
+                if isinstance(item, dict)
+            ),
+        })
+        await persist_stage()
+        if not skeleton_report.get("passed"):
+            failed_report = validate_course_outline_constraints({}, brief)
+            failed_report.setdefault("issues", []).extend(
+                deepcopy(skeleton_report.get("issues") or [])
+            )
+            failed_report["passed"] = False
+            stage["status"] = "failed"
+            stage["failure_reason"] = skeleton_failure_reason
+            await persist_stage()
+            if skeleton_error is not None:
+                raise skeleton_error
+            return None, failed_report, stage
+
+        batch_specs = build_outline_batch_specs(
+            skeleton,
+            self._outline_budget,
+        )
+        chapter_by_number = {
+            int(item.get("chapter_number") or 0): item
+            for item in skeleton.get("chapters") or []
+            if isinstance(item, dict)
+        }
+        stored_batches = stage.get("batches")
+        if not isinstance(stored_batches, dict):
+            stored_batches = {}
+            stage["batches"] = stored_batches
+        results: dict[str, dict[str, Any]] = {}
+        for spec in batch_specs:
+            batch_id = str(spec.get("batch_id") or "")
+            stored = stored_batches.get(batch_id)
+            payload = (
+                stored.get("payload")
+                if isinstance(stored, dict)
+                else {}
+            )
+            candidate = normalize_outline_batch(
+                payload if isinstance(payload, dict) else {},
+                spec=spec,
+                skeleton_revision_id=str(
+                    skeleton.get("revision_id") or ""
+                ),
+            )
+            report = validate_outline_batch(
+                candidate,
+                spec=spec,
+                skeleton_revision_id=str(
+                    skeleton.get("revision_id") or ""
+                ),
+            )
+            if (
+                isinstance(stored, dict)
+                and stored.get("status") == "completed"
+                and stored.get("skeleton_revision_id")
+                == skeleton.get("revision_id")
+                and report.get("passed")
+            ):
+                results[batch_id] = candidate
+
+        specs_by_chapter: dict[int, list[dict[str, Any]]] = {}
+        for spec in batch_specs:
+            specs_by_chapter.setdefault(
+                int(spec.get("chapter_number") or 0),
+                [],
+            ).append(spec)
+        for specs in specs_by_chapter.values():
+            specs.sort(
+                key=lambda item: int(
+                    item.get("start_section_index") or 0
+                ),
+            )
+
+        def previous_chapter_sections(
+            spec: dict[str, Any],
+        ) -> list[dict[str, Any]]:
+            chapter_number = int(spec.get("chapter_number") or 0)
+            start = int(spec.get("start_section_index") or 0)
+            previous: list[dict[str, Any]] = []
+            for item in specs_by_chapter.get(chapter_number, []):
+                if int(item.get("end_section_index") or 0) >= start:
+                    continue
+                payload = results.get(str(item.get("batch_id") or "")) or {}
+                previous.extend(
+                    deepcopy(section)
+                    for section in payload.get("sections") or []
+                    if isinstance(section, dict)
+                )
+            return previous
+
+        def build_batch_prompt_options(
+            spec: dict[str, Any],
+        ) -> tuple[
+            Any,
+            dict[str, str],
+        ]:
+            chapter_number = int(spec.get("chapter_number") or 0)
+            chapter = chapter_by_number.get(chapter_number) or {}
+            previous = previous_chapter_sections(spec)
+            evidence_hints = select_chapter_evidence_hints(
+                artifacts,
+                chapter,
+            )
+            levels = prompt_detail_levels_for_source(
+                {
+                    "course_title": skeleton.get("course_title"),
+                    "positioning": skeleton.get("positioning"),
+                    "learning_objectives": (
+                        skeleton.get("learning_objectives") or []
+                    ),
+                    "chapter": chapter,
+                    "neighbor_chapters": outline_neighbor_chapters(
+                        skeleton,
+                        chapter_number,
+                    ),
+                    "batch_spec": spec,
+                    "previous_sections": previous,
+                    "evidence_hints": evidence_hints,
+                },
+                max_input_chars=self._generation_budget.max_input_chars,
+            )
+            prompts = {
+                detail_level: (
+                    self._prompt_composer
+                    .build_outline_batch_v2_prompt(
+                        course_title=str(
+                            skeleton.get("course_title") or topic
+                        ),
+                        positioning=str(
+                            skeleton.get("positioning") or ""
+                        ),
+                        learning_objectives=list(
+                            skeleton.get("learning_objectives") or []
+                        ),
+                        chapter=chapter,
+                        neighbor_chapters=outline_neighbor_chapters(
+                            skeleton,
+                            chapter_number,
+                        ),
+                        batch_spec=spec,
+                        previous_sections=previous,
+                        evidence_hints=evidence_hints,
+                        skeleton_revision_id=str(
+                            skeleton.get("revision_id") or ""
+                        ),
+                        detail_level=detail_level,
+                    )
+                )
+                for detail_level in levels
+            }
+            user_prompt = (
+                f"生成目录批次 {spec.get('batch_id')}，只输出 JSON。"
+            )
+            selected = select_budgeted_prompt(
+                (
+                    PromptCandidate(
+                        detail_level=detail_level,
+                        user_prompt=user_prompt,
+                        system_prompt=prompts[detail_level],
+                    )
+                    for detail_level in levels
+                ),
+                max_input_chars=self._generation_budget.max_input_chars,
+                max_input_tokens=self._generation_budget.max_input_tokens,
+                token_estimator=self.estimate_request_tokens,
+            )
+            return selected, prompts
+
+        async def generate_batch(
+            spec: dict[str, Any],
+        ) -> dict[str, Any]:
+            batch_id = str(spec.get("batch_id") or "")
+            chapter_number = int(spec.get("chapter_number") or 0)
+            chapter = chapter_by_number.get(chapter_number) or {}
+            selected, prompts = build_batch_prompt_options(spec)
+            failure_reason = ""
+            parsed: dict[str, Any] | None = None
+            if selected is None:
+                failure_reason = "batch_prompt_did_not_fit"
+            else:
+                prompt_detail_levels.append(selected.detail_level)
+                await self._notify_phase(
+                    on_phase,
+                    "outline_generation",
+                    33,
+                    (
+                        f"正在生成第 {chapter_number} 章小节目录"
+                        f"（批次 {spec.get('chapter_batch_index')}/"
+                        f"{spec.get('chapter_batch_count')}）"
+                    ),
+                    phase_progress=int(
+                        100 * len(results) / max(1, len(batch_specs))
+                    ),
+                    phase_detail={
+                        "artifact_type": "course_outline_batch",
+                        "batch_id": batch_id,
+                        "completed_batches": len(results),
+                        "total_batches": len(batch_specs),
+                    },
+                )
+                try:
+                    response = await request_model(
+                        user_prompt=selected.user_prompt,
+                        system_prompt=selected.system_prompt,
+                        phase="outline_generation",
+                        message=(
+                            f"仍在等待 AI 生成目录批次 {batch_id}"
+                        ),
+                        phase_detail={
+                            "artifact_type": "course_outline_batch",
+                            "batch_id": batch_id,
+                        },
+                    )
+                except (
+                    AIProviderRequestError,
+                    CourseGenerationDeadlineExceeded,
+                ) as exc:
+                    response = ""
+                    failure_reason = (
+                        f"provider_error:{type(exc).__name__}"
+                    )
+                candidate = (
+                    self._extract_json(response)
+                    if response
+                    else None
+                )
+                parsed = candidate if isinstance(candidate, dict) else None
+            batch = normalize_outline_batch(
+                parsed or {},
+                spec=spec,
+                skeleton_revision_id=str(
+                    skeleton.get("revision_id") or ""
+                ),
+            )
+            report = validate_outline_batch(
+                batch,
+                spec=spec,
+                skeleton_revision_id=str(
+                    skeleton.get("revision_id") or ""
+                ),
+            )
+            if (
+                not report.get("passed")
+                and not failure_reason
+                and selected is not None
+            ):
+                correction_prompt = (
+                    self._prompt_composer
+                    .build_outline_batch_v2_correction_prompt(
+                        original_prompt=prompts[selected.detail_level],
+                        issues=report.get("issues") or [],
+                    )
+                )
+                selected_correction = select_budgeted_prompt(
+                    [
+                        PromptCandidate(
+                            detail_level=selected.detail_level,
+                            user_prompt=(
+                                f"修复目录批次 {batch_id}，"
+                                "只输出完整 JSON。"
+                            ),
+                            system_prompt=correction_prompt,
+                        ),
+                    ],
+                    max_input_chars=(
+                        self._generation_budget.max_input_chars
+                    ),
+                    max_input_tokens=(
+                        self._generation_budget.max_input_tokens
+                    ),
+                    token_estimator=self.estimate_request_tokens,
+                )
+                if selected_correction is None:
+                    failure_reason = (
+                        "batch_correction_prompt_did_not_fit"
+                    )
+                else:
+                    prompt_detail_levels.append(
+                        selected_correction.detail_level
+                    )
+                    try:
+                        corrected = await request_model(
+                            user_prompt=(
+                                selected_correction.user_prompt
+                            ),
+                            system_prompt=(
+                                selected_correction.system_prompt
+                            ),
+                            phase="outline_validation",
+                            message=(
+                                f"仍在等待 AI 修复目录批次 {batch_id}"
+                            ),
+                            phase_detail={
+                                "artifact_type": (
+                                    "course_outline_batch"
+                                ),
+                                "batch_id": batch_id,
+                            },
+                        )
+                    except (
+                        AIProviderRequestError,
+                        CourseGenerationDeadlineExceeded,
+                    ) as exc:
+                        corrected = ""
+                        failure_reason = (
+                            "correction_provider_error:"
+                            f"{type(exc).__name__}"
+                        )
+                    candidate = (
+                        self._extract_json(corrected)
+                        if corrected
+                        else None
+                    )
+                    batch = normalize_outline_batch(
+                        (
+                            candidate
+                            if isinstance(candidate, dict)
+                            else {}
+                        ),
+                        spec=spec,
+                        skeleton_revision_id=str(
+                            skeleton.get("revision_id") or ""
+                        ),
+                    )
+                    report = validate_outline_batch(
+                        batch,
+                        spec=spec,
+                        skeleton_revision_id=str(
+                            skeleton.get("revision_id") or ""
+                        ),
+                    )
+            generation_source = "model"
+            if not report.get("passed"):
+                generation_source = "deterministic_local_fallback"
+                failure_reason = (
+                    failure_reason
+                    or "model_output_failed_validation"
+                )
+                batch = compile_fallback_outline_batch(
+                    spec=spec,
+                    chapter=chapter,
+                    skeleton_revision_id=str(
+                        skeleton.get("revision_id") or ""
+                    ),
+                )
+                report = validate_outline_batch(
+                    batch,
+                    spec=spec,
+                    skeleton_revision_id=str(
+                        skeleton.get("revision_id") or ""
+                    ),
+                )
+                if not report.get("passed"):
+                    raise AIProviderRequestError(
+                        f"本地目录批次 {batch_id} 汇编失败；"
+                        "这是生成编排器错误"
+                    )
+            async with state_lock:
+                results[batch_id] = batch
+                if generation_source != "model":
+                    add_fallback(
+                        unit=batch_id,
+                        reason=failure_reason,
+                        section_ids=list(
+                            spec.get("expected_node_ids") or []
+                        ),
+                    )
+                stored_batches[batch_id] = {
+                    "status": "completed",
+                    "skeleton_revision_id": (
+                        skeleton.get("revision_id")
+                    ),
+                    "section_ids": list(
+                        spec.get("expected_node_ids") or []
+                    ),
+                    "payload": deepcopy(batch),
+                    "validation_report": deepcopy(report),
+                    "generation_source": generation_source,
+                    "fallback_reason": failure_reason or None,
+                    "prompt_detail_level": (
+                        selected.detail_level
+                        if selected is not None
+                        else "local"
+                    ),
+                }
+                stage.update({
+                    "batch_count": len(batch_specs),
+                    "completed_batch_count": len(results),
+                    "completed_section_count": sum(
+                        len(item.get("sections") or [])
+                        for item in results.values()
+                    ),
+                    "batches": stored_batches,
+                })
+                await persist_stage()
+            return batch
+
+        async def generate_chapter(
+            specs: list[dict[str, Any]],
+        ) -> None:
+            for spec in specs:
+                if str(spec.get("batch_id") or "") in results:
+                    continue
+                await generate_batch(spec)
+
+        chapter_tasks = [
+            asyncio.create_task(generate_chapter(specs))
+            for _chapter_number, specs in sorted(
+                specs_by_chapter.items(),
+            )
+            if any(
+                str(spec.get("batch_id") or "") not in results
+                for spec in specs
+            )
+        ]
+        timed_out = False
+        if chapter_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        *chapter_tasks,
+                        return_exceptions=False,
+                    ),
+                    timeout=self._outline_budget.total_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                timed_out = True
+                logger.warning(
+                    "Course outline expansion reached %ss; compiling "
+                    "unfinished outline batches locally",
+                    self._outline_budget.total_timeout_seconds,
+                )
+
+        for spec in batch_specs:
+            batch_id = str(spec.get("batch_id") or "")
+            if batch_id in results:
+                continue
+            chapter = chapter_by_number.get(
+                int(spec.get("chapter_number") or 0),
+            ) or {}
+            batch = compile_fallback_outline_batch(
+                spec=spec,
+                chapter=chapter,
+                skeleton_revision_id=str(
+                    skeleton.get("revision_id") or ""
+                ),
+            )
+            report = validate_outline_batch(
+                batch,
+                spec=spec,
+                skeleton_revision_id=str(
+                    skeleton.get("revision_id") or ""
+                ),
+            )
+            if not report.get("passed"):
+                raise AIProviderRequestError(
+                    f"本地目录批次 {batch_id} 汇编失败；"
+                    "这是生成编排器错误"
+                )
+            results[batch_id] = batch
+            add_fallback(
+                unit=batch_id,
+                reason=(
+                    "outline_total_timeout"
+                    if timed_out
+                    else "unfinished_batch"
+                ),
+                section_ids=list(
+                    spec.get("expected_node_ids") or []
+                ),
+            )
+            stored_batches[batch_id] = {
+                "status": "completed",
+                "skeleton_revision_id": skeleton.get("revision_id"),
+                "section_ids": list(
+                    spec.get("expected_node_ids") or []
+                ),
+                "payload": deepcopy(batch),
+                "validation_report": deepcopy(report),
+                "generation_source": "deterministic_local_fallback",
+                "fallback_reason": (
+                    "outline_total_timeout"
+                    if timed_out
+                    else "unfinished_batch"
+                ),
+                "prompt_detail_level": "local",
+            }
+
+        plan = assemble_course_outline(
+            skeleton=skeleton,
+            batch_specs=batch_specs,
+            batches=results,
+        )
+        plan = normalize_course_outline_contract(plan)
+        plan_report = validate_course_outline_constraints(plan, brief)
+        stage.update({
+            "status": (
+                "completed_with_warnings"
+                if fallback_units
+                else "completed"
+            ),
+            "timed_out": timed_out,
+            "skeleton": deepcopy(skeleton),
+            "skeleton_revision_id": skeleton.get("revision_id"),
+            "batches": stored_batches,
+            "batch_count": len(batch_specs),
+            "completed_batch_count": len(results),
+            "chapter_count": len(plan.get("chapters") or []),
+            "section_count": (
+                plan_report.get("actual") or {}
+            ).get("section_count", 0),
+            "completed_section_count": (
+                plan_report.get("actual") or {}
+            ).get("section_count", 0),
+            "duration_ms": int(
+                (time.monotonic() - started_at) * 1000
+            ),
+            "needs_manual_review": bool(fallback_units),
+        })
+        await persist_stage()
+        return plan, plan_report, stage
+
     def _convert_plan_to_nodes(self, plan: dict, course_id: str) -> list[dict]:
         """将课程规划转换为节点列表。
 

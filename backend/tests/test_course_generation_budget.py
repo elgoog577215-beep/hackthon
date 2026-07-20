@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import math
 from types import SimpleNamespace
 
 import pytest
 
 from ai_base import AIBase, AIRequestBudgetExceeded
-from course_generation_budget import (
-    CourseGenerationBudget,
-    CourseGenerationBudgetExceeded,
-)
+from course_generation_budget import CourseGenerationBudget
 from course_prompt_composer import CoursePromptComposer
 from course_service import CourseService
 from models import NodeGenerationConfig
@@ -71,9 +67,10 @@ async def test_character_gate_blocks_payload_even_below_token_estimate_limit(
     assert completions.calls == 0
 
 
-def test_environment_cannot_disable_course_generation_hard_caps(
+def test_environment_cannot_disable_per_request_safety_fuses(
     monkeypatch,
 ):
+    # The legacy total-section setting is deliberately ignored.
     monkeypatch.setenv("COURSE_GENERATION_MAX_SECTIONS", "999")
     monkeypatch.setenv("COURSE_GENERATION_MAX_INPUT_TOKENS", "999999")
     monkeypatch.setenv("COURSE_GENERATION_MAX_INPUT_CHARS", "999999")
@@ -88,32 +85,27 @@ def test_environment_cannot_disable_course_generation_hard_caps(
 
     budget = CourseGenerationBudget.from_env()
 
-    assert budget.max_sections == 32
+    assert "max_sections" not in budget.to_dict()
     assert budget.max_input_chars == 24_000
     assert budget.max_input_tokens == 8000
     assert budget.provider_max_attempts == 2
     assert budget.content_stage_timeout_seconds == 900
 
 
-def test_default_content_waves_fit_inside_stage_deadline():
+def test_content_budget_is_a_resumable_window_not_a_course_size_cap():
     budget = CourseGenerationBudget()
-    worst_case_seconds = (
-        math.ceil(budget.max_sections / budget.content_concurrency)
-        * budget.content_node_timeout_seconds
-    )
 
-    assert worst_case_seconds <= budget.content_stage_timeout_seconds
+    assert budget.content_concurrency == 4
+    assert budget.content_node_timeout_seconds == 75
+    assert budget.content_stage_timeout_seconds == 480
+    assert "max_sections" not in budget.to_dict()
 
 
-def test_oversized_course_scope_fails_before_outline_generation():
-    budget = CourseGenerationBudget(max_sections=24)
+def test_course_budget_has_no_total_section_rejection():
+    budget = CourseGenerationBudget()
 
-    budget.ensure_section_count(24)
-    with pytest.raises(
-        CourseGenerationBudgetExceeded,
-        match="最多支持 24 个小节",
-    ):
-        budget.ensure_section_count(25)
+    assert not hasattr(budget, "ensure_section_count")
+    assert not hasattr(budget, "max_sections")
 
 
 def test_continuation_context_is_bounded_and_keeps_recent_tail():

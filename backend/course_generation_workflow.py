@@ -24,7 +24,7 @@ from course_pedagogy import SubjectPedagogyProfile
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
-PIPELINE_VERSION = "course_generation_v12"
+PIPELINE_VERSION = "course_generation_v13"
 
 COURSE_RELATION_TYPES = {
     "prerequisite",
@@ -204,25 +204,35 @@ def build_course_knowledge_scope_contract(plan: dict[str, Any]) -> dict[str, Any
     ]
     responsibilities = []
     for index, section in enumerate(sections):
+        previous = sections[index - 1] if index else None
+        next_section = (
+            sections[index + 1]
+            if index + 1 < len(sections)
+            else None
+        )
         responsibilities.append(
             {
                 **deepcopy(section),
-                "earlier_section_ids": [
-                    item["node_id"] for item in sections[:index] if item["node_id"]
-                ],
-                "later_reserved_sections": [
+                "order": index,
+                "previous_section_id": (
+                    previous.get("node_id") if previous else None
+                ),
+                "next_reserved_section": (
                     {
-                        "node_id": item["node_id"],
-                        "title": item["title"],
-                        "learning_objective": item["learning_objective"],
-                        "scope_boundary": item["scope_boundary"],
+                        "node_id": next_section.get("node_id"),
+                        "title": next_section.get("title"),
+                        "learning_objective": next_section.get(
+                            "learning_objective"
+                        ),
+                        "scope_boundary": next_section.get("scope_boundary"),
                     }
-                    for item in sections[index + 1 :]
-                ],
+                    if next_section
+                    else None
+                ),
             }
         )
     payload = {
-        "schema_version": "course_knowledge_scope_v1",
+        "schema_version": "course_knowledge_scope_v2",
         "course_title": str(plan.get("course_title") or ""),
         "positioning": str(plan.get("positioning") or ""),
         "learning_objectives": list(plan.get("learning_objectives") or []),
@@ -237,7 +247,7 @@ def build_section_knowledge_scope_slice(
     contract: dict[str, Any],
     section_id: str,
 ) -> dict[str, Any]:
-    """Return the O(n) context one section needs instead of the O(n²) contract."""
+    """Return only the direct neighborhood needed by one local generation unit."""
     responsibilities = [
         item
         for item in contract.get("section_responsibilities") or []
@@ -251,27 +261,37 @@ def build_section_knowledge_scope_slice(
         ),
         {},
     )
-    course_path = [
+    by_id = {
+        str(item.get("node_id") or ""): item
+        for item in responsibilities
+    }
+    direct_ids = list(current.get("prerequisite_node_ids") or [])
+    previous_id = str(current.get("previous_section_id") or "")
+    if previous_id:
+        direct_ids.append(previous_id)
+    next_section = current.get("next_reserved_section")
+    local_course_path = [
         {
             "node_id": str(item.get("node_id") or ""),
             "title": str(item.get("title") or ""),
             "learning_objective": str(item.get("learning_objective") or ""),
             "scope_boundary": str(item.get("scope_boundary") or ""),
-            "prerequisite_node_ids": list(
-                item.get("prerequisite_node_ids") or []
-            ),
         }
-        for item in responsibilities
+        for item_id in dict.fromkeys(str(value) for value in direct_ids)
+        for item in [by_id.get(item_id)]
+        if isinstance(item, dict)
     ]
+    if isinstance(next_section, dict):
+        local_course_path.append(deepcopy(next_section))
     payload = {
-        "schema_version": "section_knowledge_scope_slice_v1",
+        "schema_version": "section_knowledge_scope_slice_v2",
         "course_title": str(contract.get("course_title") or ""),
         "positioning": str(contract.get("positioning") or ""),
         "learning_objectives": list(
             contract.get("learning_objectives") or []
         ),
         "current_section_responsibility": current,
-        "course_path": course_path,
+        "local_course_path": local_course_path,
         "source_contract_revision_id": str(
             contract.get("revision_id") or ""
         ),
@@ -2526,7 +2546,10 @@ def _extract_course_shape_constraints(requirements: str) -> dict[str, int]:
 def _parse_count(value: str) -> int | None:
     if value.isdigit():
         number = int(value)
-        return number if 0 < number <= 100 else None
+        # This is a product shape, not one model request.  Large explicit
+        # counts are split by the outline/teaching/content schedulers and must
+        # not silently fall back to the compact path.
+        return number if number > 0 else None
     digits = {
         "一": 1,
         "二": 2,
