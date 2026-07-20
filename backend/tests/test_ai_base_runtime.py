@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from types import SimpleNamespace
 
@@ -125,6 +126,20 @@ def test_extract_json_array_entries_recovers_truncated_envelope():
         },
         {"slot_id": "two", "report": {"passed": True}},
     ]
+
+
+def test_latex_cleanup_uses_standard_display_delimiters(monkeypatch):
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    service = AIBase()
+
+    cleaned = service._clean_latex_syntax(
+        "before\n\\[x^2 + y^2\\]\n"
+        "$\n$$\n\\begin{bmatrix}a \\\\ b\\end{bmatrix}\n$$\n$\nafter"
+    )
+
+    assert "\n$$\nx^2 + y^2\n$$\n" in cleaned
+    assert "\n$$\n\\begin{bmatrix}a \\\\ b\\end{bmatrix}\n$$\n" in cleaned
+    assert not re.search(r"(?m)^[ \t]*\$[ \t]*$", cleaned)
 
 
 def test_official_deepseek_base_uses_official_model_defaults(monkeypatch):

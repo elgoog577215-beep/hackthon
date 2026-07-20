@@ -814,20 +814,37 @@ class AIBase:
             规范化后的文本
         """
         # 1. 转换块级公式标记
-        text = re.sub(r'\\\[(.*?)\\\]', r'\n$\n\1\n$\n', text, flags=re.DOTALL)
+        text = re.sub(r'\\\[(.*?)\\\]', r'\n$$\n\1\n$$\n', text, flags=re.DOTALL)
         
         # 2. 转换行内公式标记
         text = re.sub(r'\\\((.*?)\\\)', r'$\1$', text, flags=re.DOTALL)
         
-        # 3. 确保复杂环境被 $ 包裹
+        # 3. 确保复杂环境被 $$ 包裹
         envs = r"matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|align|align\*|equation|equation\*|cases|gather|gather\*|alignat|alignat\*"
-        pattern = fr'(\$\$)?\s*(\\begin{{({envs})}}.*?\\end{{\3}})\s*(\$\$)?'
+        # Display environments must use display delimiters. Consume legacy
+        # dollar runs around the environment so malformed nested shells do not
+        # survive into persisted course content.
+        pattern = fr'(?:\$+)?\s*(\\begin{{({envs})}}.*?\\end{{\2}})\s*(?:\$+)?'
         
         def fix_latex_block(match):
-            content = match.group(2)
-            return f"\n$\n{content.strip()}\n$\n"
+            content = match.group(1)
+            return f"\n$$\n{content.strip()}\n$$\n"
 
         text = re.sub(pattern, fix_latex_block, text, flags=re.DOTALL)
+
+        # Remove the obsolete single-dollar shell only when it directly wraps
+        # a normalized display block. Standalone inline `$...$` formulas are
+        # left untouched.
+        text = re.sub(
+            r'(?m)^[ \t]*\$[ \t]*\n(?=(?:[ \t]*\n)*[ \t]*\$\$[ \t]*\n)',
+            '',
+            text,
+        )
+        text = re.sub(
+            r'(?m)(?<=\n\$\$)\n(?:[ \t]*\n)*[ \t]*\$[ \t]*(?=\n|$)',
+            '\n',
+            text,
+        )
         
         # 4. 清理多余空行（最多保留2个）
         text = re.sub(r'\n{3,}', '\n\n', text)

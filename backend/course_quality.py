@@ -120,6 +120,22 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
         issues.append(_issue("meta_preamble", "major", "正文包含模型寒暄或任务复述", "直接从课程正文开始", node_id))
     if text.count("```") % 2:
         issues.append(_issue("unclosed_code_fence", "critical", "代码块没有闭合", "闭合 Markdown 代码块", node_id))
+    if re.search(r"(?m)^[ \t]*\$[ \t]*$", text):
+        issues.append(_issue(
+            "legacy_math_delimiter",
+            "critical",
+            "正文使用了单美元独占行的旧版块级公式分隔符",
+            "将块级公式统一改为 $$...$$，并移除外层重复分隔符",
+            node_id,
+        ))
+    if text.count("$$") % 2:
+        issues.append(_issue(
+            "unclosed_math_fence",
+            "critical",
+            "块级公式 $$ 分隔符没有闭合",
+            "闭合 Markdown 块级公式分隔符",
+            node_id,
+        ))
     if "生成中..." in text or "[待补充" in text:
         issues.append(_issue("placeholder_content", "critical", "正文包含兜底或待补充占位符", "生成完整正文", node_id))
     if re.search(

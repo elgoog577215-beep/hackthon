@@ -92,6 +92,23 @@ def test_latex_cleanup_preserves_markdown_boundaries_after_closing_delimiter():
     assert "$x=1$\n\n* 检查结果" in cleaned
 
 
+def test_legacy_single_dollar_display_delimiter_blocks_release():
+    report = evaluate_node_content(
+        _content("\n\n$\n\\begin{bmatrix}a \\\\ b\\end{bmatrix}\n$"),
+        _node(),
+    )
+
+    assert any(item["code"] == "legacy_math_delimiter" for item in report["issues"])
+    assert report["passed"] is False
+
+
+def test_unclosed_display_math_fence_blocks_release():
+    report = evaluate_node_content(_content("\n\n$$\nx^2 + y^2"), _node())
+
+    assert any(item["code"] == "unclosed_math_fence" for item in report["issues"])
+    assert report["passed"] is False
+
+
 def test_duplicate_node_heading_is_rejected_before_it_becomes_an_empty_intro_block():
     report = evaluate_node_content(
         "## 二叉搜索树\n\n## 本节任务\n\n请分析树高。\n\n## 检查与反馈\n\n检查退化条件。",
