@@ -20,7 +20,11 @@ from change_proposals import change_proposal_repository, create_authoring_change
 from ai_base import AIBase
 from course_document import stable_hash
 from course_revisions import revision_vector_for_document
-from dependencies import get_course_document_repository, get_course_or_404
+from dependencies import (
+    get_course_document_repository,
+    get_course_or_404,
+    get_task_manager_optional,
+)
 from learner_context import require_user_id
 from representation_compiler import (
     export_slide_deck_pptx,
@@ -219,6 +223,57 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
     require_user_id(request.headers.get("X-User-Id"))
     await get_course_or_404(course_id)
 
+    task_manager = get_task_manager_optional()
+    if task_manager is not None:
+        task_id = await task_manager.create_task(
+            course_id,
+            "teaching_representation_build",
+            request_snapshot={"operation": "build_teaching_representations"},
+        )
+
+        async def durable_event_stream():
+            cursor = 0
+            started = {
+                "event": "planner_started", "progress": 1,
+                "sequence": 0, "task_id": task_id,
+            }
+            yield f"id: 0\nevent: planner_started\ndata: {json.dumps(started, ensure_ascii=False)}\n\n"
+            while True:
+                task = task_manager.get_task(task_id)
+                if not task:
+                    payload = {"event": "error", "message": "Build task was removed", "task_id": task_id}
+                    yield f"event: error\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    return
+                history = task.get("event_history") or []
+                for payload in history:
+                    sequence = int(payload.get("sequence") or 0)
+                    if sequence <= cursor:
+                        continue
+                    cursor = sequence
+                    body = {**payload, "task_id": task_id}
+                    name = str(payload.get("event") or "message")
+                    yield f"id: {sequence}\nevent: {name}\ndata: {json.dumps(body, ensure_ascii=False)}\n\n"
+                status = str(task.get("status") or "")
+                if status in {"completed", "failed", "cancelled", "paused"}:
+                    if status != "completed" and not any(
+                        str(item.get("event") or "") == "error" for item in history
+                    ):
+                        payload = {
+                            "event": "error" if status == "failed" else status,
+                            "progress": int(task.get("progress") or 0),
+                            "message": str(task.get("error") or task.get("message") or status),
+                            "task_id": task_id,
+                        }
+                        yield f"event: {payload['event']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    return
+                await asyncio.sleep(0.12)
+
+        return StreamingResponse(
+            durable_event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     async def event_stream():
         sequence = 1
         planning = {
@@ -253,7 +308,18 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
                     progress_callback=publish,
                     deck_plan=deck_plan,
                 )
-                publish({"event": "build_complete", "progress": 100, **result})
+                # A blocked quality gate leaves the previous registry in place.
+                # Reporting build_complete would tell the caller a new build was
+                # published when nothing changed, so surface build_blocked.
+                blocked = (
+                    str((result.get("build") or {}).get("status") or "") != "synchronized"
+                    or not (result.get("quality") or {}).get("passed", False)
+                )
+                publish({
+                    "event": "build_blocked" if blocked else "build_complete",
+                    "progress": 100,
+                    **result,
+                })
             except Exception as exc:
                 publish({
                     "event": "error",

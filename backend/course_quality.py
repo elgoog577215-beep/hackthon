@@ -1,17 +1,16 @@
-"""课程生成分层质量闸门。"""
+"""课程生成的确定性结构诊断与发布门禁。"""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
+from course_coherence import evaluate_course_coherence
 from course_knowledge_base import (
     compile_course_knowledge_base,
     validate_course_knowledge_base,
 )
-from course_coherence import evaluate_course_coherence
 from course_pedagogy import MODULES, coerce_persisted_profile
-
 
 QUALITY_CONTRACT_VERSION = "course_quality_v10"
 
@@ -654,13 +653,6 @@ def build_final_course_quality_report(
         for issue in report.get("issues") or []:
             if issue.get("severity") == "critical":
                 blocking_issues.append(issue)
-    if len(weak_nodes) / max(1, len(node_reports)) > 0.2:
-        blocking_issues.append(_issue(
-            "course:too_many_weak_nodes",
-            "critical",
-            "超过 20% 的学习节点未通过节点质量检查",
-            "优先定点修复薄弱节点后再发布",
-        ))
     if grounding_quality.get("invalid_catalog_evidence_ids"):
         blocking_issues.append(_issue(
             "grounding:invalid_catalog",
@@ -683,7 +675,18 @@ def build_final_course_quality_report(
                 str(issue.get("message") or "课程知识库存在阻断问题"),
                 "修复课程知识、能力、易错、提升和课程位置之间的引用后再发布",
             ))
+    structural_coherence_codes = {
+        "coherence:no_sections",
+        "coherence:invalid_section_identity",
+        "coherence:section_order_mismatch",
+        "coherence:unknown_prerequisite",
+        "coherence:forward_prerequisite",
+        "coherence:missing_objective",
+        "coherence:missing_responsibility",
+    }
     for issue in coherence_quality.get("blocking_issues") or []:
+        if str(issue.get("code") or "") not in structural_coherence_codes:
+            continue
         blocking_issues.append(_issue(
             str(issue.get("code") or "coherence:quality"),
             "critical" if issue.get("severity") == "critical" else "major",

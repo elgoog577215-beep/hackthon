@@ -7,22 +7,13 @@
     <button
       type="button"
       role="tab"
-      data-workspace-item="outline"
-      :class="{ 'is-active': activeItem === 'outline' }"
-      :aria-selected="activeItem === 'outline'"
-      :title="t('courseWorkspaceTabs.outlineHint', '查看当前课程的大纲')"
-      @click="emit('outline')"
-    >
-      <ListTree :size="16" />
-      <span>{{ t('courseWorkspaceTabs.outline', '大纲') }}</span>
-    </button>
-    <button
-      type="button"
-      role="tab"
       data-workspace-item="lesson-plan"
       :class="{ 'is-active': activeItem === 'lesson-plan' }"
       :aria-selected="activeItem === 'lesson-plan'"
-      :title="t('courseWorkspaceTabs.lessonPlanHint', '查看当前课程的教案')"
+      :disabled="lessonPlanPending"
+      :title="lessonPlanPending
+        ? t('courseWorkspaceTabs.lessonPlanPending', '课程目录确认后生成全课教案')
+        : t('courseWorkspaceTabs.lessonPlanHint', '查看当前课程的教案')"
       @click="emit('lesson-plan')"
     >
       <ClipboardList :size="16" />
@@ -51,7 +42,9 @@
         ? t('courseWorkspaceTabs.practiceRepairHint', '打开练习并重新生成旧版题目')
         : practiceAvailable
           ? t('courseWorkspaceTabs.practiceHint', '打开当前章节的正式练习')
-          : t('courseWorkspaceTabs.practiceUnavailable', '当前章节暂时没有正式练习')"
+          : practicePending
+            ? t('courseWorkspaceTabs.practicePending', '课程发布后开放正式练习')
+            : t('courseWorkspaceTabs.practiceUnavailable', '当前章节暂时没有正式练习')"
       @click="emit('practice')"
     >
       <ClipboardCheck :size="16" />
@@ -62,18 +55,22 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BookOpenText, ClipboardCheck, ClipboardList, ListTree } from 'lucide-vue-next'
+import { BookOpenText, ClipboardCheck, ClipboardList } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 
-export type CourseWorkspaceItem = 'outline' | 'lesson-plan' | 'course' | 'practice'
+export type CourseWorkspaceItem = 'lesson-plan' | 'course' | 'practice'
 
 const props = withDefaults(defineProps<{
   activeItem: CourseWorkspaceItem
   practiceAvailable?: boolean
   practiceRepairAvailable?: boolean
+  practicePending?: boolean
+  lessonPlanPending?: boolean
 }>(), {
   practiceAvailable: false,
   practiceRepairAvailable: false,
+  practicePending: false,
+  lessonPlanPending: false,
 })
 
 const practiceEntryAvailable = computed(() => (
@@ -81,7 +78,7 @@ const practiceEntryAvailable = computed(() => (
 ))
 
 const emit = defineEmits<{
-  (event: 'outline' | 'lesson-plan' | 'course' | 'practice'): void
+  (event: 'lesson-plan' | 'course' | 'practice'): void
 }>()
 </script>
 

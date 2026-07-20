@@ -244,6 +244,38 @@ def test_personalization_proposal_selects_only_same_section_and_objective_and_re
 
 
 @pytest.mark.asyncio
+async def test_current_block_scope_never_expands_to_related_course_blocks(tmp_path):
+    service_type = getattr(block_regeneration, "PersonalizationProposalService", None)
+    _storage, courses, candidates, proposals, document = canonical_repositories(tmp_path)
+    generator = FakePersonalizationGenerator()
+    service = service_type(
+        courses,
+        candidates,
+        proposals,
+        generator=generator,
+        event_recorder=lambda **kwargs: kwargs,
+    )
+    target = next(item for item in document.blocks if item.block_id == "target")
+
+    proposal = await service.create_proposal(
+        "course-1",
+        "target",
+        request_id="personalize-current-block",
+        expected_document_revision=document.document_revision,
+        expected_block_revision=target.internal_revision,
+        direction="expand",
+        feedback="只把当前推导讲得更深入",
+        scope_selection="current_block",
+        user_id="student-1",
+    )
+
+    assert proposal["scope"] == "block"
+    assert proposal["target_block_ids"] == ["target"]
+    assert proposal["generation_meta"]["scope_selection"] == "current_block"
+    assert [call["target_block"]["block_id"] for call in generator.calls] == ["target"]
+
+
+@pytest.mark.asyncio
 async def test_concurrent_identical_personalization_requests_share_one_proposal(tmp_path):
     class BlockingTargetGenerator(FakePersonalizationGenerator):
         def __init__(self) -> None:

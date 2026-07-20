@@ -21,6 +21,30 @@ export interface EvolutionOperation {
   payload: Record<string, any>
 }
 
+export type CourseEvolutionAnchorRole =
+  | 'reasoning'
+  | 'application'
+  | 'example'
+  | 'checkpoint'
+  | 'concept'
+
+export type CourseAdjustmentScope =
+  | 'current_block'
+  | 'current_section'
+  | 'whole_course'
+
+export interface CreateCourseAdjustmentInput {
+  sectionId: string
+  instruction: string
+  scopeSelection?: CourseAdjustmentScope
+  blockId?: string
+  expectedDocumentRevision?: string
+  expectedBlockRevision?: string
+  direction?: 'simplify' | 'expand' | 'custom'
+  anchorRole?: CourseEvolutionAnchorRole
+  requestId?: string
+}
+
 export interface AdaptationHypothesis {
   hypothesis_id: string
   claim: string
@@ -37,7 +61,7 @@ export interface CourseEvolutionPlan {
   write_target?: 'course_document'
   change_set_id: string
   hypothesis_id: string
-  source_kind?: 'learning_evidence' | 'manual_section_request'
+  source_kind?: 'learning_evidence' | 'manual_section_request' | 'manual_request'
   target_section_id?: string
   request_text?: string
   growth_direction?: 'remediation' | 'challenge' | 'author_directed'
@@ -45,7 +69,7 @@ export interface CourseEvolutionPlan {
   requested_roles?: string[]
   evidence_ids: string[]
   operations: EvolutionOperation[]
-  scope_selection?: 'current_section' | 'whole_course'
+  scope_selection?: CourseAdjustmentScope
   allowed_scopes: Array<'current' | 'current_and_next'>
   selected_scope?: 'current' | 'current_and_next'
   selected_operation_ids?: string[]
@@ -97,6 +121,16 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         this.loading = false
       }
     },
+    async refreshProgress(courseId?: string) {
+      const targetCourseId = courseId || this.courseId
+      if (!targetCourseId) return null
+      const response = await http.get(
+        `/api/courses/${targetCourseId}/evolution/progress`,
+        { silentError: true },
+      )
+      this.applyPayload(targetCourseId, response.data)
+      return response.data
+    },
     async evaluate(courseId: string) {
       this.loading = true
       try {
@@ -107,20 +141,24 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         this.loading = false
       }
     },
-    async createSectionPlan(
-      sectionId: string,
-      instruction: string,
-      scopeSelection: 'current_section' | 'whole_course' = 'current_section',
-    ) {
+    async createPlan(input: CreateCourseAdjustmentInput) {
       this.generating = true
       this.generationError = ''
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/evolution/sections/${sectionId}/plans`,
+          `/api/courses/${this.courseId}/evolution/plans`,
           {
-            request_id: globalThis.crypto?.randomUUID?.() || `section-${Date.now()}`,
-            instruction,
-            scope_selection: scopeSelection,
+            request_id: input.requestId
+              || globalThis.crypto?.randomUUID?.()
+              || `course-adjustment-${Date.now()}`,
+            instruction: input.instruction,
+            section_id: input.sectionId,
+            scope_selection: input.scopeSelection || 'current_section',
+            block_id: input.blockId || '',
+            expected_document_revision: input.expectedDocumentRevision || '',
+            expected_block_revision: input.expectedBlockRevision || '',
+            direction: input.direction || 'custom',
+            anchor_role: input.anchorRole,
           },
         )
         this.applyPayload(this.courseId, response.data)
@@ -130,12 +168,25 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
           error?.response?.data?.detail?.message
           || error?.response?.data?.detail
           || error?.message
-          || 'section_evolution_generation_failed',
+          || 'course_adjustment_generation_failed',
         )
         throw error
       } finally {
         this.generating = false
       }
+    },
+    async createSectionPlan(
+      sectionId: string,
+      instruction: string,
+      scopeSelection: 'current_section' | 'whole_course' = 'current_section',
+      anchorRole?: CourseEvolutionAnchorRole,
+    ) {
+      return this.createPlan({
+        sectionId,
+        instruction,
+        scopeSelection,
+        anchorRole,
+      })
     },
     async generateSuggested(planId: string) {
       this.actingId = planId

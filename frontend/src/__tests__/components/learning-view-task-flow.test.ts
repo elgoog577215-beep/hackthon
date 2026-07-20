@@ -131,7 +131,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it('正文页用顶栏切换大纲、教案、课程和练习，并从底栏直达知识库', async () => {
+  it('正文页用顶栏切换教案、课程和练习，并从底栏直达知识库', async () => {
     const wrapper = mount(LearningView, {
       attachTo: document.body,
       global: {
@@ -152,7 +152,7 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['大纲', '教案', '课程', '练习'])
+    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['教案', '课程', '练习'])
     expect(wrapper.get('.learning-context-bar [data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
     expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '错题本', '学习概况', '知识库', '智能助教'])
 
@@ -181,12 +181,10 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(courseStore.showKnowledgeLibrary).toBe(true)
 
     courseStore.showKnowledgeLibrary = false
-    await wrapper.get('.learning-context-bar [data-workspace-item="outline"]').trigger('click')
+    await wrapper.get('.learning-context-bar [data-workspace-item="lesson-plan"]').trigger('click')
     await flushPromises()
-    expect(wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' }).props('visible')).toBe(true)
-    expect(wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' }).props('activeType')).toBe('outline')
-    expect(wrapper.get('.learning-context-bar').attributes('inert')).toBeDefined()
-    expect(wrapper.get('.learning-context-bar').attributes('aria-hidden')).toBe('true')
+    expect(wrapper.findComponent({ name: 'GenerationLessonPlan' }).exists()).toBe(true)
+    expect(wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' }).props('visible')).toBe(false)
 
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.find('.ai-panel-stub').exists()).toBe(true)
@@ -322,6 +320,134 @@ describe('LearningView 正文任务覆盖层', () => {
     await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
     expect(wrapper.get('.task-overlay-stub').attributes('data-node-id')).toBe(parentNode.node_id)
     expect(wrapper.get('.task-overlay-stub').text()).toContain(parentNode.node_name)
+    wrapper.unmount()
+  })
+
+  it('生成现场按真实阶段在教案与正文之间跟随，手动切换后保持当前视图', async () => {
+    const course = useCourseStore()
+    course.currentCourseProjection = 'generation_preview'
+    course.currentTeachingPlan = {
+      schema_version: 'course_teaching_plan_projection_v1',
+      status: 'pending',
+      revision_id: '',
+      strategy: 'single_whole_course_call',
+      section_count: 1,
+      knowledge_point_count: 0,
+      teaching_module_count: 0,
+      sections: [],
+    }
+    const generation = useGenerationStore()
+    const task = generation.createTask('job-live', 'c1', '线性代数')
+    task.status = 'running'
+    task.currentPhase = 'course_teaching_plan'
+    task.totalNodes = 1
+
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningDock: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          TeachingRepresentationsOverlay: true,
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['教案', '课程', '练习'])
+    expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-workspace-item="practice"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findComponent({ name: 'GenerationLessonPlan' }).exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'CourseGenerationLifecycle' }).exists()).toBe(true)
+
+    generation.tasks.get('c1')!.currentPhase = 'content_generation'
+    await flushPromises()
+    expect(wrapper.get('[data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
+
+    await wrapper.get('[data-workspace-item="lesson-plan"]').trigger('click')
+    generation.tasks.get('c1')!.currentPhase = 'course_teaching_plan'
+    await flushPromises()
+    generation.tasks.get('c1')!.currentPhase = 'content_generation'
+    await flushPromises()
+    expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('aria-selected')).toBe('true')
+
+    await wrapper.get('.context-actions button').trigger('click')
+    expect(wrapper.get('[data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it('生成中断时在当前课程现场解释恢复边界并直接继续原任务', async () => {
+    const course = useCourseStore()
+    course.currentCourseProjection = 'generation_preview'
+    course.nodes = []
+    course.courseTree = []
+    course.currentNode = null
+    const generation = useGenerationStore()
+    const task = generation.createTask('job-interrupted', 'c1', '量子力学')
+    task.status = 'error'
+    task.progress = 32
+    task.currentPhase = 'pedagogy_resolution'
+    task.error = 'AI provider unavailable: authentication_failed'
+    task.guidedWorkflow = {
+      schema_version: 'guided_course_generation_v2',
+      current_step: 'outline',
+      review_step: null,
+      steps: [
+        { number: 1, key: 'requirements', status: 'confirmed' },
+        { number: 2, key: 'outline', status: 'in_progress' },
+        { number: 3, key: 'content', status: 'locked' },
+        { number: 4, key: 'release', status: 'locked' },
+      ],
+    }
+    task.recovery = {
+      state: 'manual_resume',
+      can_resume: true,
+      reason_code: 'stage_restart_available',
+      reason: 'saved',
+      checkpoint: {
+        phase: 'pedagogy_resolution', completed_nodes: 0, total_nodes: 0,
+        draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [], requirements_ready: true,
+      },
+    }
+    const resume = vi.spyOn(generation, 'resumeTask').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(course, 'refreshCourseData').mockResolvedValue(undefined)
+
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningDock: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          TeachingRepresentationsOverlay: true,
+          Teleport: true,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('课程生产暂时中断')
+    expect(wrapper.find('course-navigator-stub').exists()).toBe(false)
+    expect(wrapper.get('.context-leading button').attributes('title')).toBe('返回课程库')
+    expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('.production-actions button').trigger('click')
+    await flushPromises()
+    expect(resume).toHaveBeenCalledWith('c1', 'job-interrupted')
     wrapper.unmount()
   })
 

@@ -20,6 +20,7 @@ from course_document import (
 )
 from course_feedback import project_feedback_structures
 from course_revisions import revision_event_for_documents, revision_vector_for_document
+from course_teaching_plan_projection import project_course_teaching_plan
 
 _GENERATED_METADATA_EXCLUDES = {
     "nodes",
@@ -32,6 +33,29 @@ _GENERATED_METADATA_EXCLUDES = {
 }
 _COMMAND_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 _COMMAND_LOCKS_GUARD = threading.Lock()
+_COURSE_REVISION_LISTENERS: set[Callable[[str, dict[str, Any]], None]] = set()
+
+
+def register_course_revision_listener(
+    listener: Callable[[str, dict[str, Any]], None],
+) -> None:
+    """Register a non-blocking derived-state consumer for committed revisions."""
+    _COURSE_REVISION_LISTENERS.add(listener)
+
+
+def unregister_course_revision_listener(
+    listener: Callable[[str, dict[str, Any]], None],
+) -> None:
+    _COURSE_REVISION_LISTENERS.discard(listener)
+
+
+def _publish_course_revision(course_id: str, receipt: dict[str, Any]) -> None:
+    for listener in tuple(_COURSE_REVISION_LISTENERS):
+        try:
+            listener(course_id, deepcopy(receipt))
+        except Exception:
+            # Derived-state availability must never roll back the course commit.
+            continue
 
 
 class CourseDocumentNotFound(KeyError):
@@ -267,6 +291,7 @@ class CourseDocumentRepository:
         }
         published.pop("nodes", None)
         await self._save_raw(course_id, published)
+        _publish_course_revision(course_id, receipt)
         return receipt
 
     def receipt_for_command(self, course_id: str, command_id: str) -> dict[str, Any] | None:
@@ -298,6 +323,7 @@ class CourseDocumentRepository:
             "current_course_version_id": str(raw.get("current_course_version_id") or ""),
             "subject_pedagogy_profile": deepcopy(raw.get("subject_pedagogy_profile")),
             "generation_quality_report": deepcopy(raw.get("generation_quality_report")),
+            "teaching_plan": project_course_teaching_plan(raw),
             "source_format": "canonical" if canonical else "legacy_projection",
             "migration": {
                 "required": not canonical,
@@ -442,6 +468,7 @@ class CourseDocumentRepository:
         raw["current_course_version_id"] = updated.document_revision
         raw.pop("nodes", None)
         await self._save_raw(course_id, raw)
+        _publish_course_revision(course_id, receipt)
         return receipt
 
     def _command_lock(self, course_id: str) -> asyncio.Lock:

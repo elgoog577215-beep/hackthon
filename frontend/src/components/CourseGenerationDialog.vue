@@ -137,8 +137,8 @@
 
           <section class="form-section guided-intro">
             <div class="guided-intro__heading">
-              <strong>{{ t('courseGeneration.guided.title', '分六步完成课程') }}</strong>
-              <span>{{ t('courseGeneration.guided.help', '系统每完成一步都会停下来给你看，确认后才继续。') }}</span>
+              <strong>{{ t('courseGeneration.guided.title', '四步完成课程') }}</strong>
+              <span>{{ t('courseGeneration.guided.help', '确认目录后，系统先冻结全课知识职责，再按预算生成详细教案与各节正文。') }}</span>
             </div>
             <ol class="guided-intro__steps">
               <li v-for="(label, index) in guidedStepLabels" :key="label">
@@ -301,10 +301,8 @@ const purposeOptions = computed(() => ([
 const guidedStepLabels = computed(() => [
   t('courseGeneration.guided.requirements', '需求'),
   t('courseGeneration.guided.outline', '目录'),
-  t('courseGeneration.guided.knowledge', '知识蓝图'),
-  t('courseGeneration.guided.teaching', '教学方案'),
-  t('courseGeneration.guided.content', '课程内容'),
-  t('courseGeneration.guided.release', '质量与发布'),
+  t('courseGeneration.guided.content', '课程生成'),
+  t('courseGeneration.guided.release', '确认发布'),
 ])
 
 watch(() => props.modelValue, async open => {

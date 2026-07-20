@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from block_regeneration import evaluate_block_candidate
+from block_regeneration import (
+    BlockRegenerationCandidateRepository,
+    BlockRegenerationService,
+    block_regeneration_candidate_repository,
+    evaluate_block_candidate,
+)
 from course_document import CourseBlock, CourseDocument, stable_hash
 from course_evolution import (
     AdaptationHypothesis,
@@ -55,20 +61,34 @@ DIFFICULTY_KEYS = {
     "task_complexity",
     "learner_support",
 }
+COURSE_ADJUSTMENT_DIRECTIONS = {"simplify", "expand", "custom"}
 
 
-def analyze_section_request(instruction: str) -> dict[str, Any]:
-    """Deterministic fallback when semantic scene analysis is unavailable."""
+def _explicit_roles(instruction: str) -> list[str]:
     text = str(instruction or "").strip()
     roles = [
         role
         for role, pattern in ROLE_PATTERNS.items()
         if pattern.search(text)
     ]
-    # “实战案例” is an application request, not a request to duplicate another
-    # generic example block.
     if "application" in roles and "案例" in text and "举例" not in text:
         roles = [role for role in roles if role != "example"]
+    return list(dict.fromkeys(roles))
+
+
+def _difficulty_delta(direction: str, roles: list[str]) -> dict[str, int]:
+    return {
+        "reasoning_depth": 2 if direction == "challenge" or "reasoning" in roles else 1,
+        "transfer_distance": 2 if "application" in roles else 0,
+        "task_complexity": 1 if "checkpoint" in roles or direction == "challenge" else 0,
+        "learner_support": -1 if direction == "challenge" else 1 if direction == "remediation" else 0,
+    }
+
+
+def analyze_section_request(instruction: str) -> dict[str, Any]:
+    """Deterministic fallback when semantic scene analysis is unavailable."""
+    text = str(instruction or "").strip()
+    roles = _explicit_roles(text)
     direction = (
         "challenge"
         if CHALLENGE_PATTERN.search(text)
@@ -78,13 +98,8 @@ def analyze_section_request(instruction: str) -> dict[str, Any]:
     )
     if not roles:
         roles = ["reasoning", "application"] if direction == "challenge" else ["concept", "example"]
-    difficulty_delta = {
-        "reasoning_depth": 2 if direction == "challenge" or "reasoning" in roles else 1,
-        "transfer_distance": 2 if "application" in roles else 0,
-        "task_complexity": 1 if "checkpoint" in roles or direction == "challenge" else 0,
-        "learner_support": -1 if direction == "challenge" else 1 if direction == "remediation" else 0,
-    }
     normalized_roles = list(dict.fromkeys(roles))
+    difficulty_delta = _difficulty_delta(direction, normalized_roles)
     source_requirement = (
         "verified_current_sources"
         if CURRENT_SOURCE_PATTERN.search(text)
@@ -211,6 +226,489 @@ async def _resolve_scene_analysis(
     return _normalize_scene_analysis(candidate, fallback)
 
 
+async def generate_course_adjustment_plan(
+    course_data: dict[str, Any],
+    *,
+    user_id: str,
+    section_id: str,
+    instruction: str,
+    request_id: str,
+    scope_selection: Literal[
+        "current_block",
+        "current_section",
+        "whole_course",
+    ] = "current_section",
+    block_id: str = "",
+    expected_document_revision: str = "",
+    expected_block_revision: str = "",
+    direction: Literal["simplify", "expand", "custom"] = "custom",
+    anchor_role: str | None = None,
+    repository: CourseEvolutionRepository,
+    document_repository: CourseDocumentRepository,
+    candidate_repository: BlockRegenerationCandidateRepository | None = None,
+    generator: Any | None = None,
+    existing_change_set_id: str = "",
+) -> CourseEvolutionState:
+    """Create every learner-requested course adjustment in one plan model."""
+    if scope_selection == "current_block":
+        if existing_change_set_id:
+            raise ValueError("A current-content adjustment must be regenerated as a new request")
+        return await generate_block_evolution_plan(
+            course_data,
+            user_id=user_id,
+            section_id=section_id,
+            block_id=block_id,
+            instruction=instruction,
+            request_id=request_id,
+            expected_document_revision=expected_document_revision,
+            expected_block_revision=expected_block_revision,
+            direction=direction,
+            repository=repository,
+            document_repository=document_repository,
+            candidate_repository=candidate_repository,
+            generator=generator,
+        )
+    return await generate_section_evolution_plan(
+        course_data,
+        user_id=user_id,
+        section_id=section_id,
+        instruction=instruction,
+        request_id=request_id,
+        scope_selection=scope_selection,
+        anchor_role=anchor_role,
+        repository=repository,
+        document_repository=document_repository,
+        generator=generator,
+        existing_change_set_id=existing_change_set_id,
+    )
+
+
+async def generate_block_evolution_plan(
+    course_data: dict[str, Any],
+    *,
+    user_id: str,
+    section_id: str,
+    block_id: str,
+    instruction: str,
+    request_id: str,
+    expected_document_revision: str,
+    expected_block_revision: str,
+    direction: Literal["simplify", "expand", "custom"],
+    repository: CourseEvolutionRepository,
+    document_repository: CourseDocumentRepository,
+    candidate_repository: BlockRegenerationCandidateRepository | None = None,
+    generator: Any | None = None,
+) -> CourseEvolutionState:
+    """Wrap the mature block generator in the canonical course-plan workflow."""
+    if direction not in COURSE_ADJUSTMENT_DIRECTIONS:
+        raise ValueError("Unsupported course adjustment direction")
+    if not block_id or not expected_document_revision or not expected_block_revision:
+        raise ValueError("Current-content adjustment requires its block and revision")
+    course_id = str(course_data.get("course_id") or "")
+    document, canonical = document_repository.load_document(course_id)
+    if not canonical:
+        raise ValueError("Course must be migrated before course adjustment can be generated")
+    if document.document_revision != expected_document_revision:
+        raise ValueError("Course changed before this adjustment could be generated")
+    target = next(
+        (
+            block for block in document.blocks
+            if block.block_id == block_id and block.status != "retired"
+        ),
+        None,
+    )
+    if target is None:
+        raise ValueError("Course content was not found")
+    if target.section_id != section_id:
+        raise ValueError("Current-content adjustment crossed its section boundary")
+    if target.internal_revision != expected_block_revision:
+        raise ValueError("Course content changed before this adjustment could be generated")
+    section = next(
+        (item for item in document.sections if item.section_id == section_id),
+        None,
+    )
+    if section is None:
+        raise ValueError("Course section not found")
+
+    request_text = instruction.strip()
+    if not request_text:
+        raise ValueError("Describe how the course should be adjusted")
+    change_set_id = stable_hash(
+        {
+            "course_id": course_id,
+            "user_id": user_id,
+            "request_id": request_id,
+            "scope_selection": "current_block",
+        },
+        prefix="ces_",
+    )
+    request_fingerprint = stable_hash(
+        {
+            "course_id": course_id,
+            "user_id": user_id,
+            "section_id": section_id,
+            "block_id": block_id,
+            "expected_document_revision": expected_document_revision,
+            "expected_block_revision": expected_block_revision,
+            "direction": direction,
+            "instruction": request_text,
+        },
+        prefix="caf_",
+    )
+    hypothesis_id = stable_hash(
+        {
+            "change_set_id": change_set_id,
+            "kind": "manual_course_adjustment",
+        },
+        prefix="ahp_",
+    )
+    now = _now()
+    created = False
+
+    def claim(current: CourseEvolutionState) -> CourseEvolutionState:
+        nonlocal created
+        existing = next(
+            (
+                item for item in current.change_sets
+                if item.change_set_id == change_set_id
+            ),
+            None,
+        )
+        if existing is not None:
+            existing_fingerprint = str(
+                existing.impact_summary.get("request_fingerprint") or ""
+            )
+            if existing_fingerprint != request_fingerprint:
+                raise ValueError("Course adjustment request was reused with different inputs")
+            return current
+        hypothesis = AdaptationHypothesis(
+            hypothesis_id=hypothesis_id,
+            user_id=user_id,
+            course_id=course_id,
+            problem_type="manual_course_adjustment",
+            claim=f"学习者希望调整当前内容：{request_text}",
+            target_block_id=block_id,
+            confidence=1.0,
+            confidence_reasons=["用户主动指定当前内容和调整要求"],
+            evidence_assessment={
+                "actionable": True,
+                "maturity": "explicit_scoped_request",
+                "explicit_scope": "current",
+                "gate_reason": "用户明确选择当前内容；生成候选后仍需用户确认。",
+            },
+            recommended_scope="current",
+            affected_block_ids=[block_id],
+            temporary_support="正式课程在确认前保持不变。",
+            validation_plan="应用后使用同知识点的新任务或后续反馈验证调整效果。",
+            status="candidate_created",
+            created_at=now,
+            updated_at=now,
+        )
+        plan = CourseEvolutionPlan(
+            change_set_id=change_set_id,
+            user_id=user_id,
+            course_id=course_id,
+            hypothesis_id=hypothesis_id,
+            source_kind="manual_request",
+            target_section_id=section_id,
+            request_text=request_text,
+            growth_direction=(
+                "remediation"
+                if direction == "simplify"
+                else "challenge"
+                if direction == "expand"
+                else "author_directed"
+            ),
+            generation_status="generating",
+            requested_roles=[target.role] if target.role else [],
+            base_revision_vector=_block_revision_vector(document, target),
+            scope_selection="current_block",
+            allowed_scopes=["current"],
+            impact_summary={
+                "diagnosis": f"根据你的要求调整“{str(target.payload.get('title') or section.title)}”。",
+                "scope_selection": "current_block",
+                "request_id": request_id,
+                "request_fingerprint": request_fingerprint,
+                "anchor_block_id": block_id,
+                "anchor_role": target.role,
+                "target_roles": [target.role] if target.role else [],
+                "target_role_labels": [
+                    ROLE_TITLES.get(target.role, target.role)
+                ] if target.role else [],
+                "matched_block_count": 1,
+                "matched_targets": [{
+                    "section_id": section_id,
+                    "section_title": section.title,
+                    "block_id": block_id,
+                    "block_title": str(target.payload.get("title") or ""),
+                    "role": target.role,
+                    "action": "REPLACE",
+                }],
+                "affected_section_ids": [section_id],
+                "direct_block_ids": [block_id],
+                "dependent_block_ids": [],
+                "protected": [
+                    "当前内容之外的全部课程内容",
+                    "其他课程",
+                    "历史作答与掌握记录",
+                    "笔记原文",
+                    "课程知识定义",
+                ],
+                "matching_policy": "只生成当前正文块的一项替换候选，不扩展到相邻内容。",
+                "scene_analysis": {
+                    "analysis_source": "direct_block_request",
+                    "direction": direction,
+                    "scene_summary": request_text,
+                    "rationale": "用户明确指定当前内容，因此系统不允许 AI 扩大范围。",
+                },
+                "validation_plan": "应用后使用后续反馈或同知识点独立任务验证效果。",
+            },
+            expected_effect=_block_expected_effect(direction),
+            created_at=now,
+            updated_at=now,
+        )
+        current.hypotheses.append(hypothesis)
+        current.change_sets.append(plan)
+        created = True
+        return current
+
+    state = repository.update(user_id, course_id, claim)
+    if not created:
+        return state
+
+    candidate_repository = (
+        candidate_repository or block_regeneration_candidate_repository
+    )
+    service = BlockRegenerationService(
+        document_repository,
+        candidate_repository,
+        generator=generator,
+    )
+    candidate_id = candidate_repository.candidate_id_for(
+        course_id,
+        block_id,
+        f"{request_id}-{block_id}",
+    )
+    _update_block_plan(
+        repository,
+        user_id=user_id,
+        course_id=course_id,
+        change_set_id=change_set_id,
+        update=lambda plan: plan.impact_summary.update({
+            "candidate_id": candidate_id,
+        }),
+    )
+    try:
+        candidate = await service.create_candidate(
+            course_id,
+            block_id,
+            request_id=f"{request_id}-{block_id}",
+            expected_document_revision=expected_document_revision,
+            expected_block_revision=expected_block_revision,
+            instruction=_block_generation_instruction(direction, request_text),
+            action_type=direction if direction in {"simplify", "expand"} else "rewrite",
+            user_id=user_id,
+        )
+        candidate_status = str(candidate.get("status") or "")
+        if candidate_status != "ready":
+            message = str(
+                candidate.get("failure_reason")
+                or (candidate.get("quality_report") or {}).get("issues")
+                or "Current-content candidate did not pass generation checks"
+            )
+            _fail_block_plan(
+                repository,
+                user_id=user_id,
+                course_id=course_id,
+                change_set_id=change_set_id,
+                message=message,
+                candidate_status=candidate_status,
+            )
+            raise ValueError(message)
+
+        proposed_block = _redact_exact_text(
+            candidate.get("proposed_block") or {},
+            request_text,
+        )
+        before_block = target.model_dump(mode="json")
+        operation = CourseEvolutionOperation(
+            operation_id=stable_hash(
+                {
+                    "change_set_id": change_set_id,
+                    "block_id": block_id,
+                    "kind": "replace",
+                },
+                prefix="ceo_",
+            ),
+            operation_type="REPLACE_COURSE_BLOCK",
+            target_block_id=block_id,
+            target_section_id=section_id,
+            reason="直接响应你对当前内容提出的调整要求。",
+            payload={
+                "action": "REPLACE",
+                "role": target.role,
+                "target_section_title": section.title,
+                "before_block": before_block,
+                "before_preview": summarize_text(
+                    str(target.payload.get("markdown") or target.payload.get("text") or ""),
+                    limit=900,
+                ),
+                "proposed_block": proposed_block,
+                "after_preview": summarize_text(
+                    str(
+                        (proposed_block.get("payload") or {}).get("markdown")
+                        or (proposed_block.get("payload") or {}).get("text")
+                        or ""
+                    ),
+                    limit=900,
+                ),
+                "expected_block_revision": expected_block_revision,
+                "candidate_id": candidate_id,
+                "candidate_status": "ready",
+                "quality_report": deepcopy(candidate.get("quality_report") or {}),
+            },
+        )
+
+        def finalize(plan: CourseEvolutionPlan) -> None:
+            plan.operations = [operation]
+            plan.generation_status = "ready"
+            plan.updated_at = _now()
+            plan.impact_summary = {
+                **deepcopy(plan.impact_summary),
+                "quality_report": deepcopy(candidate.get("quality_report") or {}),
+            }
+
+        return _update_block_plan(
+            repository,
+            user_id=user_id,
+            course_id=course_id,
+            change_set_id=change_set_id,
+            update=finalize,
+        )
+    except asyncio.CancelledError:
+        _fail_block_plan(
+            repository,
+            user_id=user_id,
+            course_id=course_id,
+            change_set_id=change_set_id,
+            message="Course adjustment generation was interrupted",
+            candidate_status="generation_failed",
+        )
+        raise
+    except ValueError:
+        raise
+    except Exception as exc:
+        _fail_block_plan(
+            repository,
+            user_id=user_id,
+            course_id=course_id,
+            change_set_id=change_set_id,
+            message=str(exc),
+            candidate_status="generation_failed",
+        )
+        raise ValueError(str(exc)) from exc
+
+
+def _update_block_plan(
+    repository: CourseEvolutionRepository,
+    *,
+    user_id: str,
+    course_id: str,
+    change_set_id: str,
+    update: Any,
+) -> CourseEvolutionState:
+    def apply(current: CourseEvolutionState) -> CourseEvolutionState:
+        plan = next(
+            (
+                item for item in current.change_sets
+                if item.change_set_id == change_set_id
+            ),
+            None,
+        )
+        if plan is None:
+            raise KeyError(change_set_id)
+        update(plan)
+        return current
+
+    return repository.update(user_id, course_id, apply)
+
+
+def _fail_block_plan(
+    repository: CourseEvolutionRepository,
+    *,
+    user_id: str,
+    course_id: str,
+    change_set_id: str,
+    message: str,
+    candidate_status: str,
+) -> CourseEvolutionState:
+    def fail(plan: CourseEvolutionPlan) -> None:
+        plan.generation_status = "failed"
+        plan.updated_at = _now()
+        plan.impact_summary = {
+            **deepcopy(plan.impact_summary),
+            "generation_error": message,
+            "candidate_status": candidate_status,
+        }
+
+    return _update_block_plan(
+        repository,
+        user_id=user_id,
+        course_id=course_id,
+        change_set_id=change_set_id,
+        update=fail,
+    )
+
+
+def _block_revision_vector(
+    document: CourseDocument,
+    target: CourseBlock,
+) -> dict[str, str]:
+    vector = revision_vector_for_document(document).revisions
+    allowed = {
+        f"section:{target.section_id}",
+        f"block:{target.block_id}",
+    }
+    return {key: value for key, value in vector.items() if key in allowed}
+
+
+def _block_generation_instruction(direction: str, request_text: str) -> str:
+    direction_text = {
+        "simplify": "降低理解门槛，用更直观、清楚的表达解释关键概念。",
+        "expand": "补充必要的推理、例子或应用，让解释更完整。",
+        "custom": "严格根据学生的具体要求调整正文。",
+    }[direction]
+    return (
+        f"{direction_text}\n"
+        "这是学生明确指定的当前正文块，不得扩展到其他内容。\n"
+        f"学生调整要求：{request_text}"
+    )
+
+
+def _block_expected_effect(direction: str) -> str:
+    return {
+        "simplify": "当前内容更容易理解，同时保持原知识边界不变。",
+        "expand": "当前内容的推理、例子或应用更完整。",
+        "custom": "当前内容按学生的明确要求完成调整。",
+    }[direction]
+
+
+def _redact_exact_text(value: Any, text: str) -> Any:
+    needle = text.strip()
+    if not needle:
+        return deepcopy(value)
+    if isinstance(value, str):
+        return value.replace(needle, "（学生调整要求原文已省略）")
+    if isinstance(value, list):
+        return [_redact_exact_text(item, needle) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _redact_exact_text(item, needle)
+            for key, item in value.items()
+        }
+    return deepcopy(value)
+
+
 async def generate_section_evolution_plan(
     course_data: dict[str, Any],
     *,
@@ -219,6 +717,7 @@ async def generate_section_evolution_plan(
     instruction: str,
     request_id: str,
     scope_selection: Literal["current_section", "whole_course"] = "current_section",
+    anchor_role: str | None = None,
     repository: CourseEvolutionRepository,
     document_repository: CourseDocumentRepository,
     generator: Any | None = None,
@@ -227,6 +726,8 @@ async def generate_section_evolution_plan(
     """Generate and checkpoint a reviewable section change without mutating the course."""
     if scope_selection not in {"current_section", "whole_course"}:
         raise ValueError("Unsupported course evolution scope")
+    if anchor_role is not None and anchor_role not in ROLE_TITLES:
+        raise ValueError("Unsupported course evolution anchor role")
     course_id = str(course_data.get("course_id") or "")
     document, canonical = document_repository.load_document(course_id)
     if not canonical:
@@ -271,8 +772,24 @@ async def generate_section_evolution_plan(
             raise ValueError("Course section plan cannot be generated from its current status")
         effective_instruction = plan.request_text or instruction
         scope_selection = plan.scope_selection
+        stored_anchor_role = str(plan.impact_summary.get("anchor_role") or "")
+        if anchor_role is None and stored_anchor_role in ROLE_TITLES:
+            anchor_role = stored_anchor_role
 
     fallback = analyze_section_request(effective_instruction)
+    if (
+        scope_selection == "whole_course"
+        and anchor_role is not None
+    ):
+        fallback["roles"] = [anchor_role]
+        fallback["difficulty_delta"] = _difficulty_delta(
+            fallback["growth_direction"],
+            fallback["roles"],
+        )
+        fallback["rationale"] = (
+            f"本次请求从正文块发起，系统沿用当前内容的"
+            f"“{ROLE_TITLES[anchor_role]}”定位匹配全课程同类内容。"
+        )
     evidence_context = [
         {
             "evidence_kind": item.evidence_kind,
@@ -326,6 +843,21 @@ async def generate_section_evolution_plan(
         available_sources,
     )
     analysis["available_source_count"] = len(available_sources)
+    if (
+        scope_selection == "whole_course"
+        and anchor_role is not None
+    ):
+        analysis["roles"] = [anchor_role]
+        analysis["difficulty_delta"] = _difficulty_delta(
+            analysis["growth_direction"],
+            analysis["roles"],
+        )
+        analysis["rationale"] = (
+            f"本次请求从正文块发起，系统沿用当前内容的"
+            f"“{ROLE_TITLES[anchor_role]}”定位，匹配全课程同类内容。"
+        )
+        analysis["role_resolution"] = "current_block_anchor"
+    analysis["anchor_role"] = anchor_role
 
     sections_by_id = {
         item.section_id: item
@@ -445,6 +977,7 @@ async def generate_section_evolution_plan(
                 "section_id": section_id,
                 "request_id": request_id,
                 "scope_selection": scope_selection,
+                "anchor_role": anchor_role,
             },
             prefix="ces_",
         )
@@ -463,6 +996,7 @@ async def generate_section_evolution_plan(
                 "request_id": request_id,
                 "kind": "manual_section_growth",
                 "scope_selection": scope_selection,
+                "anchor_role": anchor_role,
             },
             prefix="ahp_",
         )
@@ -574,6 +1108,7 @@ async def generate_section_evolution_plan(
             matched_count=len(generation_targets),
         ),
         "scope_selection": scope_selection,
+        "anchor_role": anchor_role,
         "search_domain": "current_course" if scope_selection == "whole_course" else "current_section",
         "target_roles": list(analysis["roles"]),
         "target_role_labels": [
@@ -1281,5 +1816,7 @@ def _now() -> str:
 __all__ = [
     "analyze_section_request",
     "ensure_challenge_suggestions",
+    "generate_block_evolution_plan",
+    "generate_course_adjustment_plan",
     "generate_section_evolution_plan",
 ]

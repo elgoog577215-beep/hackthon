@@ -176,6 +176,73 @@ def test_answer_diagnosis_preserves_real_issue_and_maps_only_allowed_ids():
     assert result["student_feedback"]["next_action"].startswith("补充检查")
 
 
+def test_single_choice_diagnosis_receives_only_selected_option_evidence():
+    question = _question()
+    question.update({
+        "prompt": "下列哪个判断同时比较了向量的大小和方向？",
+        "question_type": "single_choice",
+        "options": [
+            {"option_id": "A", "text": "只比较大小"},
+            {"option_id": "B", "text": "分别比较大小和方向"},
+            {"option_id": "C", "text": "只比较方向"},
+            {"option_id": "D", "text": "不比较任何属性"},
+        ],
+        "question_analysis": {
+            "status": "passed",
+            "question_understanding": {
+                "task_goal": "选择完整的向量比较判断",
+            },
+        },
+    })
+    service = PracticeAnalysisService()
+    service.client = object()
+    calls = []
+
+    async def fake_call_json(payload, *, system_prompt):
+        calls.append((payload, system_prompt))
+        if len(calls) == 1:
+            assert payload["student_answer"] == {
+                "selected_option_id": "A",
+                "selected_option_text": "只比较大小",
+                "evidence_scope": "selected_option_only",
+            }
+            assert payload["question"]["options"] == question["options"]
+            assert "不得声称其使用了某个计算步骤" in system_prompt
+            return {
+                "task_goal": "选择完整的向量比较判断",
+                "required_actions": ["比较所选命题与两个必要条件"],
+                "student_approach": "学习者选择了只比较大小的命题",
+                "correct_parts": ["识别到大小是比较条件之一"],
+                "behavior_gap": "所选命题遗漏方向条件",
+                "issues": [],
+                "uncertainty": "未提供推理过程，无法判断选择原因",
+            }
+        return {
+            "mapping": {
+                "knowledge_ids": ["kp-1"],
+                "skill_ids": ["skill-1"],
+                "misconception_ids": ["mistake-1"],
+            },
+            "issue_mappings": [],
+            "student_feedback": {
+                "summary": "所选命题遗漏方向条件。",
+                "next_action": "逐项检查命题是否同时覆盖大小和方向。",
+            },
+        }
+
+    service._call_json = fake_call_json
+    result = asyncio.run(service.diagnose_answer(
+        question,
+        {"submitted_answer_payload": {"selected_option_id": "A"}},
+    ))
+
+    assert result["status"] == "completed"
+    assert result["student_response"]["approach"] == (
+        "学习者选择了只比较大小的命题"
+    )
+    assert len(calls) == 2
+
+
 def test_blocked_question_is_repaired_in_place_without_changing_intent():
     question = _question()
     question["prompt"] = "比较两个向量。"

@@ -175,6 +175,56 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
             yield _qa_event("done", {"conversation_id": conversation_id, "message_id": assistant_message_id})
             return
 
+        if _assistant_demo_mode(req.course_id):
+            answer = _demo_teacher_answer(req.question)
+            await run_in_threadpool(
+                ai_teacher_repository.append_message,
+                user_id,
+                req.course_id,
+                conversation_id,
+                {
+                    "message_id": assistant_message_id,
+                    "role": "assistant",
+                    "content": answer,
+                    "context_ref": public_context.get("scene") or {},
+                    "task_ref": req.task_ref,
+                    "sources": public_context.get("sources") or [],
+                },
+            )
+            record_learning_event(
+                event_type="assistant_answer_completed",
+                actor="assistant",
+                source="ai_teacher.ask_events",
+                user_id=user_id,
+                course_id=req.course_id,
+                course_version_id=course.get("current_course_version_id"),
+                node_id=req.node_id,
+                node_name=req.node_name,
+                evidence={
+                    "question": summarize_text(req.question),
+                    "conversation_id": conversation_id,
+                    "source_ids": [
+                        item.get("source_id")
+                        for item in public_context.get("sources") or []
+                    ],
+                },
+                result={
+                    "answer_summary": summarize_text(answer),
+                    "output_chars": len(answer),
+                    "metadata_emitted": True,
+                    "response_mode": "local_demo",
+                },
+            )
+            yield _qa_event("final_answer", {
+                "answer": answer,
+                "message_id": assistant_message_id,
+            })
+            yield _qa_event("done", {
+                "conversation_id": conversation_id,
+                "message_id": assistant_message_id,
+            })
+            return
+
         full_text = ""
         try:
             async for chunk in ai_service.answer_question_events(
@@ -304,3 +354,33 @@ def _extract_sse_answer(text: str) -> str:
         elif event_name == "final_answer":
             final_answer = str(payload.get("answer") or "")
     return final_answer or "".join(chunks)
+
+
+def _assistant_demo_mode(course_id: str) -> bool:
+    """录屏模式使用本地定稿回答，避免外部模型状态影响演示。"""
+    return (
+        str(course_id or "") == "demo-matrix-growth-v2"
+        and os.getenv("EVOLUTION_DEMO_MODE", "").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+
+
+def _demo_teacher_answer(question: str) -> str:
+    """返回可预测的演示回答；课程生长仍由正式证据链独立完成。"""
+    text = "".join(str(question or "").split())
+    is_composition_request = (
+        "矩阵乘法" in text
+        and "复合变换" in text
+        and any(marker in text for marker in ("动画", "几何", "图形"))
+        and any(marker in text for marker in ("后面", "后续"))
+    )
+    if is_composition_request:
+        return (
+            "我已经理解你的学习边界：矩阵乘法计算已经掌握，持续困难是"
+            "复合变换的先后顺序；你希望先看几何动画，再进行计算，并让调整"
+            "覆盖本节及相关后续。课程生长方案已生成，确认前不会修改正式课程。"
+        )
+    return (
+        "这次学习请求已在本地演示模式中记录。系统会先展示理解到的学习证据"
+        "与影响范围，只有在你确认后才会更新正式课程。"
+    )

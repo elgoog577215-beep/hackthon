@@ -149,6 +149,11 @@ def test_question_bank_generates_specific_candidates_for_coverage_gaps():
         if item["source_type"] in {"generated", "variant"}
         and item["node_id"] == "L2-2-1"
     ]
+    standard_practice = [
+        item
+        for item in generated
+        if item["assessment_role"] == "practice"
+    ]
 
     assert generated
     assert all(
@@ -163,6 +168,41 @@ def test_question_bank_generates_specific_candidates_for_coverage_gaps():
     assert all(
         _internal_task(bundle, item)["answer_spec"]["criteria"]
         for item in generated
+    )
+    assert len(standard_practice) == 3
+    assert all(
+        item["question_type"] == "single_choice"
+        for item in standard_practice
+    )
+    assert all(
+        [option["option_id"] for option in item["options"]]
+        == ["A", "B", "C", "D"]
+        for item in standard_practice
+    )
+    assert all(
+        len({option["text"] for option in item["options"]}) == 4
+        for item in standard_practice
+    )
+    assert all(
+        _internal_task(bundle, item)["input_contract"]["mode"] == "choice"
+        for item in standard_practice
+    )
+    assert all(
+        _internal_task(bundle, item)["answer_spec"]["correct_option_id"]
+        in {"A", "B", "C", "D"}
+        for item in standard_practice
+    )
+    assert all(
+        _internal_task(bundle, item)["learning_objective"]
+        == "能用消元法求解并检查线性方程组"
+        for item in standard_practice
+    )
+    assert all(
+        not _internal_task(
+            bundle,
+            item,
+        )["learning_objective"].startswith("obj_")
+        for item in standard_practice
     )
     assert all("answer_spec" not in item for item in generated)
     assert all(item["course_knowledge_refs"] for item in generated)

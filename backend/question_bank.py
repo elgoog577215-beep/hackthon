@@ -18,6 +18,10 @@ from assessment_contracts import (
 )
 from assessment_generation import generate_universal_question_contract
 from course_versioning import stable_hash
+from practice_contracts import (
+    DEFAULT_PRACTICE_QUESTION_TYPE,
+    project_default_single_choice,
+)
 from question_generation import (
     generate_cross_chapter_contract,
     generate_question_contract,
@@ -1402,6 +1406,15 @@ def _generated_course_items(
                     universal_contract,
                     validation_plugin_contract,
                 )
+            generated_contract = project_default_single_choice(
+                generated_contract,
+                misconception_labels=[
+                    str(value)
+                    for value in objective.get("misconceptions") or []
+                    if str(value).strip()
+                ],
+                variant_index=index,
+            )
             source_type = "variant" if source_item else "generated"
             item_id = stable_hash(
                 {
@@ -1448,6 +1461,7 @@ def _generated_course_items(
                         generated_contract.get("question_spec")
                         or {}
                     ).get("options")
+                    or generated_contract.get("options")
                     or []
                 ),
                 "explanation": "",
@@ -1458,6 +1472,12 @@ def _generated_course_items(
                 "practice_levels": [level],
                 "assessment_role": "practice",
                 "course_objective_refs": [_objective_ref(course_data, node)],
+                "learning_objective": str(
+                    objective.get("objective")
+                    or node.get("learning_objective")
+                    or node.get("node_name")
+                    or ""
+                ),
                 "objective_id": objective.get("objective_id"),
                 "course_knowledge_refs": _node_knowledge_refs(course_data, node),
                 "course_skill_refs": _node_refs(node, "course_skill_refs"),
@@ -2925,6 +2945,45 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
     answer_spec = deepcopy(item.get("answer_spec") or {})
     if private_solution:
         answer_spec = _answer_spec_from_solution(private_solution)
+    input_contract = deepcopy(
+        item.get("input_contract")
+        or (item.get("question_spec") or {}).get("input_contract")
+        or {}
+    )
+    is_choice = bool(
+        item.get("question_type")
+        in {
+            DEFAULT_PRACTICE_QUESTION_TYPE,
+            "single_choice",
+            "multiple_choice",
+        }
+        or answer_spec.get("correct_option_id") is not None
+        or answer_spec.get("correct_option_ids")
+    )
+    if is_choice:
+        input_contract.update(
+            {
+                "schema_version": (
+                    input_contract.get("schema_version")
+                    or "input_contract_v2"
+                ),
+                "mode": "choice",
+                "required": True,
+                "multiple": bool(answer_spec.get("correct_option_ids")),
+                "supports_attachments": False,
+            }
+        )
+    elif not input_contract:
+        input_contract = {
+            "schema_version": "input_contract_v1",
+            "mode": "structured_text",
+            "required": True,
+            "supports_attachments": item.get("question_type")
+            in {
+                "implementation_task",
+                "scenario_deliverable",
+            },
+        }
     task = {
         "asset_id": stable_hash(
             {"course": item.get("course_id"), "question_bank_item": item.get("item_id")},
@@ -2933,7 +2992,13 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "question_id": item.get("item_id"),
         "node_id": item.get("node_id"),
         "node_ids": deepcopy(item.get("node_ids") or []),
-        "learning_objective": next(iter(item.get("course_objective_refs") or []), ""),
+        "learning_objective": (
+            item.get("learning_objective")
+            or next(
+                iter(item.get("course_objective_refs") or []),
+                "",
+            )
+        ),
         "objective_id": next(iter(item.get("course_objective_refs") or []), ""),
         "course_objective_refs": deepcopy(item.get("course_objective_refs") or []),
         "concept_ids": deepcopy(item.get("course_knowledge_refs") or []),
@@ -2955,23 +3020,7 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         ),
         "practice_level": next(iter(item.get("practice_levels") or []), "objective_practice"),
         "hint_contract": deepcopy(item.get("hint_contract") or {}),
-        "input_contract": deepcopy(
-            item.get("input_contract")
-            or (item.get("question_spec") or {}).get(
-                "input_contract"
-            )
-            or {
-                "schema_version": "input_contract_v1",
-                "mode": "structured_text",
-                "required": True,
-                "supports_attachments": item.get(
-                    "question_type"
-                ) in {
-                    "implementation_task",
-                    "scenario_deliverable",
-                },
-            }
-        ),
+        "input_contract": input_contract,
         "grading_policy": {
             "method": (
                 "runner"
@@ -2986,7 +3035,10 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
                     }
                     else (
                         "deterministic"
-                        if answer_spec.get("correct_answer") is not None
+                        if (
+                            answer_spec.get("correct_option_id") is not None
+                            or answer_spec.get("correct_answer") is not None
+                        )
                         else (
                             "rubric_ai_with_reference"
                             if answer_spec.get("canonical_answer")
@@ -3053,6 +3105,11 @@ def _stored_formal_task_from_item(
 def _answer_spec_from_solution(
     solution_envelope: dict[str, Any],
 ) -> dict[str, Any]:
+    choice = deepcopy(
+        solution_envelope.get("choice_answer_spec") or {}
+    )
+    if choice:
+        return choice
     legacy = deepcopy(
         solution_envelope.get("legacy_answer_spec") or {}
     )

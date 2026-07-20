@@ -16,7 +16,7 @@ import threading
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
@@ -133,7 +133,11 @@ class CourseEvolutionPlan(BaseModel):
     user_id: str
     course_id: str
     hypothesis_id: str
-    source_kind: Literal["learning_evidence", "manual_section_request"] = "learning_evidence"
+    source_kind: Literal[
+        "learning_evidence",
+        "manual_section_request",
+        "manual_request",
+    ] = "learning_evidence"
     target_section_id: str = ""
     request_text: str = ""
     growth_direction: Literal["remediation", "challenge", "author_directed"] = "remediation"
@@ -143,7 +147,11 @@ class CourseEvolutionPlan(BaseModel):
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
     evidence_ids: list[str] = Field(default_factory=list)
     operations: list[CourseEvolutionOperation] = Field(default_factory=list)
-    scope_selection: Literal["current_section", "whole_course"] = "current_section"
+    scope_selection: Literal[
+        "current_block",
+        "current_section",
+        "whole_course",
+    ] = "current_section"
     allowed_scopes: list[Literal["current", "current_and_next"]] = Field(default_factory=list)
     selected_scope: Literal["current", "current_and_next"] | None = None
     selected_operation_ids: list[str] = Field(default_factory=list)
@@ -173,13 +181,25 @@ class CourseEvolutionState(BaseModel):
 
 
 class PersonalCourseOverlay(BaseModel):
-    schema_version: Literal["personal_course_overlay_v1"] = "personal_course_overlay_v1"
+    schema_version: Literal[
+        "personal_course_overlay_v1",
+        "personal_course_overlay_v2",
+    ] = "personal_course_overlay_v2"
     overlay_id: str
     user_id: str
     course_id: str
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
+    current_revision_vector: dict[str, str] = Field(default_factory=dict)
     active_plan_ids: list[str] = Field(default_factory=list)
     operations: list[CourseEvolutionOperation] = Field(default_factory=list)
+    resolution_status: Literal[
+        "empty",
+        "active",
+        "partially_active",
+        "conflicted",
+    ] = "empty"
+    relocations: list[dict[str, Any]] = Field(default_factory=list)
+    conflicts: list[dict[str, Any]] = Field(default_factory=list)
     revision: str
     updated_at: str
     deprecated: bool = True
@@ -204,36 +224,74 @@ class CourseEvolutionRepository:
 
     def load(self, user_id: str, course_id: str) -> CourseEvolutionState:
         key = self._key(user_id, course_id)
-        path = self.root / f"{key}.json"
         with self._lock(key):
-            if not path.exists():
-                return self._refresh(CourseEvolutionState(
-                    user_id=user_id,
-                    course_id=course_id,
-                    updated_at=_now(),
-                ))
-            with path.open(encoding="utf-8") as handle:
-                state = CourseEvolutionState.model_validate(json.load(handle))
-            if state.user_id != user_id or state.course_id != course_id:
-                raise ValueError("Course evolution state belongs to another learner or course")
-            return state
+            return self._load_unlocked(user_id, course_id, key)
 
     def save(self, state: CourseEvolutionState) -> CourseEvolutionState:
         key = self._key(state.user_id, state.course_id)
-        path = self.root / f"{key}.json"
         with self._lock(key):
-            value = self._refresh(state)
-            temp = path.with_suffix(f".{threading.get_ident()}.tmp")
-            try:
-                with temp.open("w", encoding="utf-8") as handle:
-                    json.dump(value.model_dump(mode="json"), handle, ensure_ascii=False, indent=2)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temp, path)
-            finally:
-                if temp.exists():
-                    temp.unlink()
-            return value
+            return self._save_unlocked(state, key)
+
+    def update(
+        self,
+        user_id: str,
+        course_id: str,
+        updater: Callable[[CourseEvolutionState], CourseEvolutionState | None],
+    ) -> CourseEvolutionState:
+        """Read, mutate and persist one learner-course state under one lock.
+
+        Generation routes use this to claim a stable request before any model
+        call. Two identical requests therefore share one persisted plan instead
+        of both appending parallel candidates.
+        """
+        key = self._key(user_id, course_id)
+        with self._lock(key):
+            current = self._load_unlocked(user_id, course_id, key)
+            updated = updater(current)
+            value = current if updated is None else updated
+            if not isinstance(value, CourseEvolutionState):
+                value = CourseEvolutionState.model_validate(value)
+            if value.user_id != user_id or value.course_id != course_id:
+                raise ValueError("Course evolution updater changed learner or course ownership")
+            return self._save_unlocked(value, key)
+
+    def _load_unlocked(
+        self,
+        user_id: str,
+        course_id: str,
+        key: str,
+    ) -> CourseEvolutionState:
+        path = self.root / f"{key}.json"
+        if not path.exists():
+            return self._refresh(CourseEvolutionState(
+                user_id=user_id,
+                course_id=course_id,
+                updated_at=_now(),
+            ))
+        with path.open(encoding="utf-8") as handle:
+            state = CourseEvolutionState.model_validate(json.load(handle))
+        if state.user_id != user_id or state.course_id != course_id:
+            raise ValueError("Course evolution state belongs to another learner or course")
+        return state
+
+    def _save_unlocked(
+        self,
+        state: CourseEvolutionState,
+        key: str,
+    ) -> CourseEvolutionState:
+        path = self.root / f"{key}.json"
+        value = self._refresh(state)
+        temp = path.with_suffix(f".{threading.get_ident()}.tmp")
+        try:
+            with temp.open("w", encoding="utf-8") as handle:
+                json.dump(value.model_dump(mode="json"), handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp, path)
+        finally:
+            if temp.exists():
+                temp.unlink()
+        return value
 
     @staticmethod
     def _key(user_id: str, course_id: str) -> str:
@@ -673,73 +731,38 @@ def undo_change_set(
     return repository.save(state)
 
 
-def project_applied_adaptive_blocks(
+def personal_course_overlay(
     state: CourseEvolutionState,
     *,
-    node_id: str | None = None,
-) -> list[dict[str, Any]]:
-    blocks: list[dict[str, Any]] = []
-    for change_set in state.change_sets:
-        if change_set.status != "applied" or change_set.write_target != "personal_overlay":
-            continue
-        for operation in change_set.operations:
-            if change_set.selected_scope == "current" and operation.scope == "next":
-                continue
-            target_node_id = operation.target_section_id or operation.target_block_id
-            if node_id and target_node_id != node_id:
-                continue
-            kind = {
-                "INSERT_COURSE_SUPPORT": "explanation",
-                "INSERT_PERSONAL_SUPPORT": "explanation",
-                "ADD_TRANSITION_SUPPORT": "transition",
-                "ADD_CHECKPOINT": "understanding_check",
-                "ADD_TARGETED_PRACTICE": "understanding_check",
-                "ADD_ANIMATION": "animation",
-            }[operation.operation_type]
-            blocks.append({
-                "adaptive_block_id": operation.operation_id,
-                "change_set_id": change_set.change_set_id,
-                "anchor": {
-                    "node_id": target_node_id,
-                    "content_block_id": operation.target_block_id,
-                    "placement": "after_block",
-                },
-                "kind": kind,
-                "role": "accepted_personal_course_growth",
-                "payload": {
-                    "body": str(operation.payload.get("body") or ""),
-                    "contrast": str(operation.payload.get("contrast") or ""),
-                    "prompt": str(operation.payload.get("prompt") or ""),
-                    "objective": str(operation.payload.get("objective") or ""),
-                    "steps": operation.payload.get("steps") or [],
-                    "animation_spec": deepcopy(operation.payload.get("animation_spec") or {}),
-                    "knowledge_refs": list(operation.payload.get("knowledge_refs") or []),
-                    "ability_refs": list(operation.payload.get("ability_refs") or []),
-                    "misconception_refs": list(operation.payload.get("misconception_refs") or []),
-                    "practice_task_id": str(operation.payload.get("practice_task_id") or ""),
-                    "practice_intent": str(operation.payload.get("practice_intent") or ""),
-                    "expected_effect": str(operation.payload.get("expected_effect") or ""),
-                },
-                "reason_code": "accepted_evidence_driven_growth",
-                "evidence_refs": change_set.evidence_ids,
-                "status": "active",
-                "expires_at": "",
-                "feedback": {"value": "unrated", "options": ["helpful", "not_helpful", "dismissed"]},
-            })
-    return blocks
-
-
-def personal_course_overlay(state: CourseEvolutionState) -> PersonalCourseOverlay:
+    current_revision_vector: dict[str, str] | None = None,
+) -> PersonalCourseOverlay:
     active_plans = [
         item for item in state.change_sets
         if item.status == "applied" and item.write_target == "personal_overlay"
     ]
-    operations = [
-        operation.model_copy(deep=True)
-        for plan in active_plans
-        for operation in plan.operations
-        if plan.selected_scope != "current" or operation.scope != "next"
-    ]
+    operations: list[CourseEvolutionOperation] = []
+    active_plan_ids: list[str] = []
+    relocations: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    for plan in active_plans:
+        plan_has_active_operation = False
+        for operation in plan.operations:
+            if plan.selected_scope == "current" and operation.scope == "next":
+                continue
+            resolution = _resolve_personal_overlay_operation(
+                plan,
+                operation,
+                current_revision_vector=current_revision_vector,
+            )
+            if resolution["status"] == "conflict":
+                conflicts.append(resolution)
+                continue
+            operations.append(operation.model_copy(deep=True))
+            plan_has_active_operation = True
+            if resolution["status"] == "relocated":
+                relocations.append(resolution)
+        if plan_has_active_operation:
+            active_plan_ids.append(plan.change_set_id)
     base_revision_vector: dict[str, str] = {}
     for plan in active_plans:
         base_revision_vector.update(plan.base_revision_vector)
@@ -750,9 +773,26 @@ def personal_course_overlay(state: CourseEvolutionState) -> PersonalCourseOverla
         "user_id": state.user_id,
         "course_id": state.course_id,
         "base_revision_vector": base_revision_vector,
-        "active_plan_ids": [item.change_set_id for item in active_plans],
+        "current_revision_vector": current_revision_vector or {},
+        "active_plan_ids": active_plan_ids,
         "operations": [item.model_dump(mode="json") for item in operations],
+        "relocations": relocations,
+        "conflicts": conflicts,
     }
+    resolution_status: Literal[
+        "empty",
+        "active",
+        "partially_active",
+        "conflicted",
+    ]
+    if not active_plans:
+        resolution_status = "empty"
+    elif conflicts and operations:
+        resolution_status = "partially_active"
+    elif conflicts:
+        resolution_status = "conflicted"
+    else:
+        resolution_status = "active"
     return PersonalCourseOverlay(
         overlay_id=stable_hash(
             {"user_id": state.user_id, "course_id": state.course_id},
@@ -761,14 +801,127 @@ def personal_course_overlay(state: CourseEvolutionState) -> PersonalCourseOverla
         user_id=state.user_id,
         course_id=state.course_id,
         base_revision_vector=base_revision_vector,
-        active_plan_ids=payload["active_plan_ids"],
+        current_revision_vector=current_revision_vector or {},
+        active_plan_ids=active_plan_ids,
         operations=operations,
+        resolution_status=resolution_status,
+        relocations=relocations,
+        conflicts=conflicts,
         revision=stable_hash(payload, prefix="pcr_"),
         updated_at=updated_at,
     )
 
 
-def course_evolution_view(state: CourseEvolutionState) -> dict[str, Any]:
+def _resolve_personal_overlay_operation(
+    plan: CourseEvolutionPlan,
+    operation: CourseEvolutionOperation,
+    *,
+    current_revision_vector: dict[str, str] | None,
+) -> dict[str, Any]:
+    """Rebase a deprecated overlay operation only when its semantic anchor is intact."""
+    result = {
+        "plan_id": plan.change_set_id,
+        "operation_id": operation.operation_id,
+        "target_block_id": operation.target_block_id,
+        "target_section_id": operation.target_section_id,
+    }
+    if current_revision_vector is None:
+        return {**result, "status": "active", "reason": "revision_context_unavailable"}
+
+    block_key = f"block:{operation.target_block_id}" if operation.target_block_id else ""
+    section_key = f"section:{operation.target_section_id}" if operation.target_section_id else ""
+    expected_block_revision = plan.base_revision_vector.get(block_key) if block_key else None
+    expected_section_revision = plan.base_revision_vector.get(section_key) if section_key else None
+    current_block_revision = current_revision_vector.get(block_key) if block_key else None
+    current_section_revision = current_revision_vector.get(section_key) if section_key else None
+    revisions = {
+        "expected": {
+            key: value
+            for key, value in (
+                (block_key, expected_block_revision),
+                (section_key, expected_section_revision),
+            )
+            if key and value is not None
+        },
+        "current": {
+            key: value
+            for key, value in (
+                (block_key, current_block_revision),
+                (section_key, current_section_revision),
+            )
+            if key and value is not None
+        },
+    }
+
+    if expected_block_revision is not None:
+        if current_block_revision is None:
+            return {
+                **result,
+                **revisions,
+                "status": "conflict",
+                "reason": "target_block_removed",
+                "requires_user_resolution": True,
+            }
+        if current_block_revision != expected_block_revision:
+            return {
+                **result,
+                **revisions,
+                "status": "conflict",
+                "reason": "target_block_revision_changed",
+                "requires_user_resolution": True,
+            }
+        if (
+            expected_section_revision is not None
+            and current_section_revision != expected_section_revision
+        ):
+            return {
+                **result,
+                **revisions,
+                "status": "relocated",
+                "reason": "section_rebased_target_block_unchanged",
+                "requires_user_resolution": False,
+            }
+        return {
+            **result,
+            **revisions,
+            "status": "active",
+            "reason": "target_revision_unchanged",
+        }
+
+    if expected_section_revision is not None:
+        if current_section_revision is None:
+            reason = "target_section_removed"
+        elif current_section_revision != expected_section_revision:
+            reason = "target_section_revision_changed"
+        else:
+            return {
+                **result,
+                **revisions,
+                "status": "active",
+                "reason": "target_revision_unchanged",
+            }
+        return {
+            **result,
+            **revisions,
+            "status": "conflict",
+            "reason": reason,
+            "requires_user_resolution": True,
+        }
+
+    return {
+        **result,
+        **revisions,
+        "status": "conflict",
+        "reason": "missing_base_revision_binding",
+        "requires_user_resolution": True,
+    }
+
+
+def course_evolution_view(
+    state: CourseEvolutionState,
+    *,
+    current_revision_vector: dict[str, str] | None = None,
+) -> dict[str, Any]:
     payload = state.model_dump(mode="json")
     payload["view_schema_version"] = "course_evolution_v2"
     payload["course_evolution_plans"] = deepcopy(payload["change_sets"])
@@ -777,7 +930,18 @@ def course_evolution_view(state: CourseEvolutionState) -> dict[str, Any]:
         plan["plan_id"] = plan["change_set_id"]
     for plan in payload["course_evolution_plans"]:
         plan["plan_id"] = plan["change_set_id"]
-    payload["personal_course_overlay"] = personal_course_overlay(state).model_dump(mode="json")
+    legacy_overlay = personal_course_overlay(
+        state,
+        current_revision_vector=current_revision_vector,
+    )
+    # PersonalCourseOverlay is a migration reader only. Do not expose its
+    # operations as a second durable course/content projection.
+    payload["legacy_overlay_migration"] = {
+        "schema_version": "legacy_overlay_migration_v1",
+        "resolution_status": legacy_overlay.resolution_status,
+        "requires_migration": bool(legacy_overlay.active_plan_ids or legacy_overlay.conflicts),
+        "conflicts": deepcopy(legacy_overlay.conflicts),
+    }
     payload["permissions"] = {
         "write_target": "course_document",
         "can_modify_current_course": True,
@@ -1925,6 +2089,13 @@ def _attempt_score(attempt: dict[str, Any] | None) -> float | None:
     return None
 
 
+def _evolution_demo_mode() -> bool:
+    """Demo recordings may relax the strong-evidence contract via env flag."""
+    return os.getenv("EVOLUTION_DEMO_MODE", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def _strong_self_report_contract(statement: str) -> dict[str, Any]:
     """Recognize a complete, actionable learner request without matching one script.
 
@@ -1967,8 +2138,41 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
         ),
     }
 
-    has_capability = any(re.search(pattern, text) for pattern in capability_patterns)
-    has_gap = any(re.search(pattern, text) for pattern in gap_patterns)
+    capability_text = next(
+        (
+            match.group("capability").strip()
+            for pattern in (
+                r"(?P<capability>[^，。！？；\n]{1,24}?(?:计算|做题|操作|步骤|求解|套公式|运算))"
+                r"(?:我)?(?:会|能|可以|已经掌握|已经会)(?:做|完成)?",
+            )
+            if (match := re.search(pattern, text))
+        ),
+        "",
+    )
+    capability_text = capability_text or next(
+        (
+            match.group(0)
+            for pattern in capability_patterns
+            if (match := re.search(pattern, text))
+        ),
+        "",
+    )
+    gap_text = next(
+        (
+            match.group(0)
+            for pattern in gap_patterns
+            if (match := re.search(pattern, text))
+        ),
+        "",
+    )
+    if (
+        "复合" in text
+        and any(marker in text for marker in ("顺序", "先后", "先右后左", "右后左"))
+        and gap_text
+    ):
+        gap_text = "不理解复合变换顺序"
+    has_capability = bool(capability_text)
+    has_gap = bool(gap_text)
     has_persistence = any(marker in text for marker in persistence_markers)
     requested_supports = [
         support
@@ -1989,6 +2193,13 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
         and requested_supports
         and scope
     )
+    if _evolution_demo_mode() and not complete_contract:
+        # Demo mode (EVOLUTION_DEMO_MODE=1): a clear gap plus a concrete
+        # teaching request is enough to trigger growth, so a recording can
+        # rely on one scripted sentence instead of a full evidence trail.
+        complete_contract = bool(has_gap and requested_supports)
+        if complete_contract and not scope:
+            scope = "current"
     precise_local_request = bool(
         has_gap
         and scope == "current"
@@ -2003,6 +2214,8 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
         "has_persistence": has_persistence,
         "has_teaching_request": bool(requested_supports),
         "requested_supports": requested_supports,
+        "capability_text": capability_text,
+        "gap_text": gap_text,
         "scope": scope,
     }
 
@@ -2218,17 +2431,17 @@ def _affected_blocks(
     if index < 0:
         return [block_id]
     count = 4 if scope == "current_and_next" else 1
-    if count == 1 or not knowledge_base:
-        return [item.block_id for item in ordered[index:index + count]]
+    if count == 1:
+        return [block_id]
 
     source_binding = _knowledge_binding_for_anchor(
-        knowledge_base,
+        knowledge_base or {},
         section_id=ordered[index].section_id,
         block_id=block_id,
     )
     source_knowledge_ids = set(source_binding["knowledge_ids"])
     related_knowledge_ids = set(source_knowledge_ids)
-    for relation in knowledge_base.get("relations") or []:
+    for relation in (knowledge_base or {}).get("relations") or []:
         source_id = str(relation.get("source_knowledge_id") or relation.get("source_id") or "")
         target_id = str(relation.get("target_knowledge_id") or relation.get("target_id") or "")
         relation_type = str(relation.get("relation_type") or "")
@@ -2240,17 +2453,58 @@ def _affected_blocks(
 
     related_block_ids = {
         str(binding.get("target_id") or "")
-        for binding in knowledge_base.get("bindings") or []
+        for binding in (knowledge_base or {}).get("bindings") or []
         if binding.get("target_type") == "course_block"
         and set(binding.get("knowledge_ids") or []) & related_knowledge_ids
     }
+    source_section_id = ordered[index].section_id
+    following = ordered[index + 1:]
+    related = [item for item in following if item.block_id in related_block_ids]
+
+    def spread_sections(items: list[CourseBlock]) -> list[CourseBlock]:
+        """Put the first block of each later section before same-section tails."""
+        first_by_section: list[CourseBlock] = []
+        remainder: list[CourseBlock] = []
+        seen_sections: set[str] = set()
+        for item in items:
+            if item.section_id not in seen_sections:
+                first_by_section.append(item)
+                seen_sections.add(item.section_id)
+            else:
+                remainder.append(item)
+        return [*first_by_section, *remainder]
+
+    related_later = spread_sections([
+        item for item in related if item.section_id != source_section_id
+    ])
+    related_current = [
+        item for item in related if item.section_id == source_section_id
+    ]
+    fallback_later = spread_sections([
+        item
+        for item in following
+        if item.section_id != source_section_id
+        and item.block_id not in related_block_ids
+    ])
+    fallback_current = [
+        item
+        for item in following
+        if item.section_id == source_section_id
+        and item.block_id not in related_block_ids
+    ]
+
     selected = [block_id]
-    for item in ordered[index + 1:]:
-        if item.block_id in related_block_ids and item.block_id not in selected:
-            selected.append(item.block_id)
-        if len(selected) >= count:
-            return selected
-    for item in ordered[index + 1:]:
+    # A "current and related later" request must visibly reach at least one
+    # later section when the course contains one. Knowledge-linked nodes stay
+    # first; sparse legacy bindings fall back to the earliest later sections
+    # instead of consuming the entire budget on sibling blocks in the current
+    # section.
+    for item in [
+        *related_later,
+        *related_current,
+        *fallback_later,
+        *fallback_current,
+    ]:
         if item.block_id not in selected:
             selected.append(item.block_id)
         if len(selected) >= count:
@@ -2581,7 +2835,14 @@ def _course_document(course_data: dict[str, Any]) -> CourseDocument:
 
 
 def _block_text(payload: dict[str, Any]) -> str:
-    return _compact(payload.get("markdown") or payload.get("text") or payload.get("content"), limit=240)
+    value = str(payload.get("markdown") or payload.get("text") or payload.get("content") or "")
+    # Course evidence should quote the readable teaching text, not implementation
+    # syntax from embedded diagrams or HTML layouts. Besides looking noisy, a
+    # truncated fenced block can be reparsed as malformed Markdown after the
+    # excerpt is inserted into a new course block.
+    value = re.sub(r"```[\s\S]*?```", " ", value)
+    value = re.sub(r"<[^>]+>", " ", value)
+    return _compact(value, limit=240)
 
 
 def _compact(value: Any, *, limit: int = 180) -> str:
@@ -2631,7 +2892,6 @@ __all__ = [
     "accept_change_set",
     "course_evolution_repository",
     "course_evolution_view",
-    "project_applied_adaptive_blocks",
     "personal_course_overlay",
     "reject_change_set",
     "reject_adaptation_plan",

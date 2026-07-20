@@ -92,6 +92,10 @@ def _match_rate_limit(
         and QUESTION_BANK_REBUILD_STATUS_RE.fullmatch(path)
     ):
         return 120, 60
+    # 实时审阅工作台只读取已经落盘的生成检查点。它需要短间隔轮询，
+    # 但不会触发 AI 生成或写入正式课程，因此与课程 CRUD 分开限流。
+    if path.startswith("/api/courses/") and path.endswith("/evolution/progress"):
+        return 120, 60
     for prefix, limits in RATE_LIMITS.items():
         if prefix.startswith("/") and path.startswith(prefix):
             return limits

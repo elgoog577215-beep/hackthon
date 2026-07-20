@@ -347,6 +347,57 @@ def test_legacy_linear_algebra_course_without_profile_infers_math_adapter():
     assert bundle["coverage"]["coverage_ratio"] == 0
 
 
+def test_linear_function_slope_uses_a_concrete_same_subject_contract():
+    course = _course_for(
+        mode="math_formal",
+        topic="1.1 一次函数斜率与变化率",
+        objective="根据两点计算斜率并解释斜率的实际含义",
+        key_points=["斜率的定义", "纵坐标变化量除以横坐标变化量"],
+        assessment="给定两个点，计算斜率、解释单位并诊断倒数错误",
+    )
+
+    generated = _practice_items(course)
+
+    assert generated
+    assert all(
+        item["question_spec"]["stimulus"]["data"]["case_kind"]
+        == "linear_function_slope"
+        for item in generated
+    )
+    assert all("方程组" not in item["prompt"] for item in generated)
+    assert all(
+        item["domain_validation"]["passed"]
+        and item["question_spec"]["target"]["assessment_actions"]
+        and item["question_spec"]["task"]["deliverable"]
+        for item in generated
+    )
+    for item in generated:
+        data = item["question_spec"]["stimulus"]["data"]
+        expected_slope = (
+            data["point_2"][1] - data["point_1"][1]
+        ) / (
+            data["point_2"][0] - data["point_1"][0]
+        )
+        assert (
+            item["answer_spec"]["canonical_answer"]["slope"]
+            == expected_slope
+        )
+    node = course["nodes"][0]
+    all_contracts = [
+        generate_question_contract(
+            course,
+            node,
+            "mastery_check",
+            variant_index,
+        )
+        for variant_index in (1, 2, 3, 11, 12)
+    ]
+    assert len({
+        item["question_spec"]["stimulus"]["rendered_text"]
+        for item in all_contracts
+    }) == len(all_contracts)
+
+
 def test_basis_coordinate_hints_are_derived_from_the_actual_reasoning_path():
     course = _course_for(
         mode="math_formal",

@@ -4,19 +4,27 @@ from copy import deepcopy
 
 import course_evolution
 import pytest
-from course_document import document_from_legacy_course
+from rate_limiter import _match_rate_limit
+from course_document import (
+    CourseBlock,
+    document_from_legacy_course,
+    refresh_document_revision,
+)
 from course_repository import CourseDocumentRepository
 from course_evolution import (
+    CourseEvolutionOperation,
+    CourseEvolutionPlan,
     CourseEvolutionRepository,
+    CourseEvolutionState,
     accept_change_set,
     course_evolution_view,
     create_adjustment_plan,
     personal_course_overlay,
-    project_applied_adaptive_blocks,
     reject_change_set,
     synchronize_and_evaluate_course_evolution,
     undo_change_set,
 )
+from course_revisions import revision_vector_for_document
 
 
 class _MemoryCourseStorage:
@@ -69,6 +77,91 @@ def _course() -> dict:
 
 def _document_repository(course: dict) -> CourseDocumentRepository:
     return CourseDocumentRepository(_MemoryCourseStorage(course))
+
+
+def _legacy_overlay_state(course: dict) -> tuple[CourseEvolutionState, object]:
+    document = document_from_legacy_course(course)
+    target = next(block for block in document.blocks if block.status != "retired")
+    vector = revision_vector_for_document(document).revisions
+    operation = CourseEvolutionOperation(
+        operation_id="legacy-operation-1",
+        operation_type="INSERT_PERSONAL_SUPPORT",
+        target_block_id=target.block_id,
+        target_section_id=target.section_id,
+        reason="legacy personalized explanation",
+        payload={"body": "legacy support"},
+    )
+    plan = CourseEvolutionPlan(
+        plan_kind="personal_adaptation_plan",
+        write_target="personal_overlay",
+        change_set_id="legacy-plan-1",
+        user_id="student-a",
+        course_id=document.course_id,
+        hypothesis_id="legacy-hypothesis-1",
+        base_revision_vector={
+            f"block:{target.block_id}": vector[f"block:{target.block_id}"],
+            f"section:{target.section_id}": vector[f"section:{target.section_id}"],
+        },
+        operations=[operation],
+        selected_scope="current",
+        selected_operation_ids=[operation.operation_id],
+        expected_effect="explain the difficult point",
+        status="applied",
+        created_at="2026-07-17T00:00:00+00:00",
+        updated_at="2026-07-17T00:00:00+00:00",
+    )
+    state = CourseEvolutionState(
+        user_id="student-a",
+        course_id=document.course_id,
+        change_sets=[plan],
+        revision="legacy-state-1",
+        updated_at="2026-07-17T00:00:00+00:00",
+    )
+    return state, document
+
+
+def test_legacy_personal_overlay_rebases_when_block_anchor_is_unchanged():
+    state, document = _legacy_overlay_state(_course())
+    target = document.blocks[0]
+    document.blocks.append(CourseBlock(
+        block_id="new-sibling-block",
+        section_id=target.section_id,
+        position=target.position + 1,
+        kind="callout",
+        role="summary",
+        payload={"markdown": "new base course content"},
+    ))
+    updated = refresh_document_revision(document)
+    current_vector = revision_vector_for_document(updated).revisions
+
+    overlay = personal_course_overlay(
+        state,
+        current_revision_vector=current_vector,
+    )
+
+    assert overlay.resolution_status == "active"
+    assert overlay.active_plan_ids == ["legacy-plan-1"]
+    assert [item.operation_id for item in overlay.operations] == ["legacy-operation-1"]
+    assert overlay.conflicts == []
+    assert overlay.relocations[0]["reason"] == "section_rebased_target_block_unchanged"
+
+
+def test_legacy_personal_overlay_conflict_is_reported_and_not_projected():
+    state, document = _legacy_overlay_state(_course())
+    document.blocks[0].payload["markdown"] = "base course changed the semantic target"
+    updated = refresh_document_revision(document)
+    current_vector = revision_vector_for_document(updated).revisions
+
+    overlay = personal_course_overlay(
+        state,
+        current_revision_vector=current_vector,
+    )
+
+    assert overlay.resolution_status == "conflicted"
+    assert overlay.active_plan_ids == []
+    assert overlay.operations == []
+    assert overlay.conflicts[0]["reason"] == "target_block_revision_changed"
+    assert overlay.conflicts[0]["requires_user_resolution"] is True
 
 
 def _course_with_knowledge() -> dict:
@@ -531,7 +624,6 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
     assert independent_practice.payload["validation_task_ids"] == [
         "question-revision-targeted",
     ]
-    assert project_applied_adaptive_blocks(applied) == []
     assert overlay.active_plan_ids == []
     assert overlay.operations == []
     assert view["course_evolution_plans"][0]["plan_kind"] == "course_evolution_plan"
@@ -550,12 +642,74 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
         document_repository=document_repository,
     )
     undone_document, _ = document_repository.load_document(course["course_id"])
-    assert project_applied_adaptive_blocks(undone) == []
     assert undone_document.document_revision != applied_document.document_revision
     assert all(
         block.status == "retired"
         for block in undone_document.blocks
         if block.block_id in plan.applied_block_ids
+    )
+
+
+def test_demo_mode_relaxes_strong_contract(monkeypatch):
+    weak = "不理解为什么复合变换要先右后左，请用动画解释一下。"
+    contract = course_evolution._strong_self_report_contract(weak)
+    assert contract["is_strong"] is False
+
+    monkeypatch.setenv("EVOLUTION_DEMO_MODE", "1")
+    relaxed = course_evolution._strong_self_report_contract(weak)
+    assert relaxed["is_strong"] is True
+    assert relaxed["is_complete_contract"] is True
+    assert relaxed["scope"] == "current"
+
+
+def test_block_text_excludes_embedded_diagram_and_html_syntax():
+    excerpt = course_evolution._block_text({
+        "markdown": """
+先解释输入对象，再追踪每一步的变化。
+
+```mermaid
+flowchart LR
+    A --> B
+```
+
+<div style="display:grid"><strong>静态流程卡</strong></div>
+最后回到原结论。
+        """,
+    })
+
+    assert excerpt == "先解释输入对象，再追踪每一步的变化。 静态流程卡 最后回到原结论。"
+    assert "mermaid" not in excerpt
+    assert "flowchart" not in excerpt
+    assert "style=" not in excerpt
+
+
+def test_current_and_next_fallback_reaches_later_sections_with_dense_current_section():
+    document = document_from_legacy_course(_course())
+    source = next(item for item in document.blocks if item.section_id == "section-1")
+    document.blocks.extend([
+        source.model_copy(update={
+            "block_id": f"{source.block_id}-local-{index}",
+            "position": source.position + index,
+        })
+        for index in range(1, 5)
+    ])
+
+    affected = course_evolution._affected_blocks(
+        document,
+        source.block_id,
+        scope="current_and_next",
+        knowledge_base=None,
+    )
+    block_sections = {
+        item.block_id: item.section_id
+        for item in document.blocks
+    }
+
+    assert affected[0] == source.block_id
+    assert len(affected) == 4
+    assert any(
+        block_sections[block_id] != source.section_id
+        for block_id in affected[1:]
     )
 
 
@@ -607,6 +761,8 @@ def test_strong_scoped_ai_self_report_immediately_creates_related_course_plan(
         "has_persistence": True,
         "has_teaching_request": True,
         "requested_supports": ["explanation", "animation", "practice"],
+        "capability_text": "矩阵乘法计算",
+        "gap_text": "不理解复合变换顺序",
         "scope": "current_and_next",
     }
     synonym_contract = course_evolution._strong_self_report_contract(
@@ -636,6 +792,7 @@ def test_strong_scoped_ai_self_report_immediately_creates_related_course_plan(
     assert [item.operation_type for item in plan.operations].count("ADD_TRANSITION_SUPPORT") == 1
     assert [item.operation_type for item in plan.operations].count("ADD_CHECKPOINT") == 2
     assert {item.scope for item in plan.operations} == {"current", "next"}
+    assert len(plan.impact_summary["affected_section_ids"]) > 1
 
 
 def test_resolved_strong_request_requires_new_strong_evidence_before_reproposal(
@@ -914,6 +1071,62 @@ def test_course_evolution_api_commits_the_reviewed_course_revision(
     assert payload["permissions"]["can_modify_other_courses"] is False
 
 
+def test_course_evolution_progress_returns_generation_checkpoint_without_re_evaluation(
+    tmp_path,
+    monkeypatch,
+):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers import course_evolution as evolution_router
+
+    repository = CourseEvolutionRepository(tmp_path)
+    state = repository.load("student-a", "course-growth")
+    state.change_sets.append(CourseEvolutionPlan(
+        change_set_id="plan-live",
+        user_id="student-a",
+        course_id="course-growth",
+        hypothesis_id="hypothesis-live",
+        source_kind="manual_section_request",
+        target_section_id="section-1",
+        request_text="全课程例子都讲详细一点",
+        generation_status="generating",
+        scope_selection="whole_course",
+        impact_summary={"matched_block_count": 3},
+        expected_effect="让全课程例子更完整",
+        created_at="2026-07-19T09:00:00+00:00",
+        updated_at="2026-07-19T09:00:00+00:00",
+    ))
+    repository.save(state)
+    monkeypatch.setattr(evolution_router, "course_evolution_repository", repository)
+
+    async def existing_course(_course_id: str):
+        return _course()
+
+    monkeypatch.setattr(evolution_router, "get_course_or_404", existing_course)
+    app = FastAPI()
+    app.include_router(evolution_router.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/courses/course-growth/evolution/progress",
+        headers={"X-User-Id": "student-a"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["course_evolution_plans"][0]["generation_status"] == "generating"
+    assert payload["course_evolution_plans"][0]["impact_summary"]["matched_block_count"] == 3
+
+
+def test_course_evolution_progress_has_read_only_polling_rate_limit():
+    assert _match_rate_limit(
+        "/api/courses/course-growth/evolution/progress"
+    ) == (120, 60)
+    assert _match_rate_limit(
+        "/api/courses/course-growth/evolution"
+    ) == (30, 60)
+
+
 def test_ineffective_adaptation_creates_reviewable_replacement_and_replaces_atomically(
     tmp_path,
     monkeypatch,
@@ -1164,3 +1377,126 @@ def test_unrelated_later_success_cannot_prove_personal_adaptation_effective(
     result = next(item for item in evaluated.change_sets if item.change_set_id == plan.change_set_id)
     assert result.effect_evaluation["status"] == "insufficient_evidence"
     assert result.effect_evaluation["attempt_ids"] == []
+
+
+# --- OpenSpec 5.7 / 5.5 acceptance: legacy overlay is a migration reader only ---
+
+
+def test_course_evolution_view_exposes_only_legacy_overlay_migration_summary():
+    state, document = _legacy_overlay_state(_course())
+    current_vector = revision_vector_for_document(document).revisions
+
+    view = course_evolution_view(state, current_revision_vector=current_vector)
+
+    assert "personal_course_overlay" not in view
+    assert view["legacy_overlay_migration"] == {
+        "schema_version": "legacy_overlay_migration_v1",
+        "resolution_status": "active",
+        "requires_migration": True,
+        "conflicts": [],
+    }
+    # The deprecated overlay MUST NOT ship a second durable content projection.
+    assert "operations" not in view["legacy_overlay_migration"]
+    assert "relocations" not in view["legacy_overlay_migration"]
+
+
+def test_course_evolution_view_requires_migration_when_overlay_conflicts():
+    state, document = _legacy_overlay_state(_course())
+    document.blocks[0].payload["markdown"] = "base course changed the semantic target"
+    updated = refresh_document_revision(document)
+    current_vector = revision_vector_for_document(updated).revisions
+
+    view = course_evolution_view(state, current_revision_vector=current_vector)
+    migration = view["legacy_overlay_migration"]
+
+    assert migration["requires_migration"] is True
+    assert migration["resolution_status"] == "conflicted"
+    assert [item["reason"] for item in migration["conflicts"]] == [
+        "target_block_revision_changed",
+    ]
+    assert migration["conflicts"][0]["requires_user_resolution"] is True
+    assert migration["conflicts"][0]["operation_id"] == "legacy-operation-1"
+
+
+def test_course_evolution_view_without_overlay_does_not_require_migration():
+    state, document = _legacy_overlay_state(_course())
+    state.change_sets = []
+    current_vector = revision_vector_for_document(document).revisions
+
+    view = course_evolution_view(state, current_revision_vector=current_vector)
+
+    assert view["legacy_overlay_migration"] == {
+        "schema_version": "legacy_overlay_migration_v1",
+        "resolution_status": "empty",
+        "requires_migration": False,
+        "conflicts": [],
+    }
+
+
+def test_legacy_overlay_entry_is_never_silently_dropped_when_block_disappears():
+    """OpenSpec 5.5: a relocated-away anchor MUST surface as a conflict."""
+    state, document = _legacy_overlay_state(_course())
+    target_block_id = document.blocks[0].block_id
+    document.blocks = [
+        block for block in document.blocks
+        if block.block_id != target_block_id
+    ]
+    updated = refresh_document_revision(document)
+    current_vector = revision_vector_for_document(updated).revisions
+
+    overlay = personal_course_overlay(state, current_revision_vector=current_vector)
+
+    assert overlay.resolution_status == "conflicted"
+    assert overlay.operations == []
+    # Not silently lost: the entry is still accounted for, as a conflict.
+    assert len(overlay.conflicts) == 1
+    assert overlay.conflicts[0]["reason"] == "target_block_removed"
+    assert overlay.conflicts[0]["requires_user_resolution"] is True
+    assert overlay.conflicts[0]["operation_id"] == "legacy-operation-1"
+
+
+def test_legacy_overlay_partially_active_keeps_both_relocated_and_conflicted_entries():
+    """A revised base course MUST NOT silently overwrite either outcome."""
+    state, document = _legacy_overlay_state(_course())
+    intact = document.blocks[0]
+    vector = revision_vector_for_document(document).revisions
+    plan = state.change_sets[0]
+    broken_target = document.blocks[1]
+    plan.operations.append(CourseEvolutionOperation(
+        operation_id="legacy-operation-2",
+        operation_type="INSERT_PERSONAL_SUPPORT",
+        scope="current",
+        target_section_id=broken_target.section_id,
+        target_block_id=broken_target.block_id,
+        reason="second legacy personalized explanation",
+        payload={"body": "second legacy support"},
+    ))
+    plan.selected_operation_ids.append("legacy-operation-2")
+    plan.base_revision_vector[f"block:{broken_target.block_id}"] = (
+        vector[f"block:{broken_target.block_id}"]
+    )
+    plan.base_revision_vector[f"section:{broken_target.section_id}"] = (
+        vector[f"section:{broken_target.section_id}"]
+    )
+
+    # Base course revision: sibling insert (relocates op-1) + edit of op-2 target.
+    document.blocks.append(CourseBlock(
+        block_id="new-sibling-block",
+        section_id=intact.section_id,
+        position=intact.position + 1,
+        kind="callout",
+        role="summary",
+        payload={"markdown": "new base course content"},
+    ))
+    broken_target.payload["markdown"] = "rewritten by the teacher"
+    updated = refresh_document_revision(document)
+    current_vector = revision_vector_for_document(updated).revisions
+
+    overlay = personal_course_overlay(state, current_revision_vector=current_vector)
+
+    assert overlay.resolution_status == "partially_active"
+    # op-1 relocated and kept; op-2 conflicted and surfaced. Neither vanished.
+    assert [item.operation_id for item in overlay.operations] == ["legacy-operation-1"]
+    assert [item["operation_id"] for item in overlay.relocations] == ["legacy-operation-1"]
+    assert [item["operation_id"] for item in overlay.conflicts] == ["legacy-operation-2"]
+    assert overlay.conflicts[0]["reason"] == "target_block_revision_changed"

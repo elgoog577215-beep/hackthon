@@ -1,13 +1,8 @@
-"""Regression tests for the grounding re-check bug in course_service.py.
+"""Regression tests for deterministic post-generation diagnostics.
 
-Bug: after a single repair retry for a node that fails the grounding /
-quality contract, the fixed content was accepted unconditionally — the
-same check was never re-run, so a model that simply stripped the
-``[[evidence:...]]`` markers (while keeping fabricated prose) would appear
-to "pass". The fix re-runs the same quality/grounding check after the
-repair attempt; if it still fails, the node is flagged via the existing
-weak-node mechanism (`generation_quality["passed"] is False` plus an
-explicit `needs_manual_review` flag) instead of being silently accepted.
+Content is generated once. Heuristic findings are recorded without starting
+another model scoring/repair chain; only critical structural findings request
+manual review.
 """
 from __future__ import annotations
 
@@ -40,14 +35,11 @@ async def _fake_stream_llm(*args, **kwargs):
 
 
 @pytest.mark.asyncio
-async def test_node_flagged_for_manual_review_when_repair_still_fails(monkeypatch):
+async def test_nonblocking_diagnostic_does_not_start_ai_repair(monkeypatch):
     service = _make_service()
     service._stream_llm = _fake_stream_llm
     service._call_llm = AsyncMock(return_value="repaired content, still not grounded properly.")
 
-    # Force both the pre-repair and post-repair quality checks to fail,
-    # simulating a model that only strips the evidence marker but keeps
-    # fabricated content.
     call_count = {"n": 0}
 
     def fake_evaluate_node_content(content, node):
@@ -82,28 +74,28 @@ async def test_node_flagged_for_manual_review_when_repair_still_fails(monkeypatc
     )
 
     assert result  # content was still produced
-    # Quality/grounding was re-checked after the repair attempt, not just once.
-    assert call_count["n"] >= 2
-    # The repair path was invoked exactly once (bounded retry, no loop).
-    assert service._call_llm.await_count == 1
-    # Still-failing content must not be silently accepted.
+    assert call_count["n"] == 1
+    assert service._call_llm.await_count == 0
     assert node["generation_quality"]["passed"] is False
-    assert node["needs_manual_review"] is True
+    assert node["needs_manual_review"] is False
 
 
 @pytest.mark.asyncio
-async def test_node_not_flagged_when_repair_succeeds(monkeypatch):
+async def test_critical_structural_diagnostic_requests_manual_review_without_ai(monkeypatch):
     service = _make_service()
     service._stream_llm = _fake_stream_llm
     service._call_llm = AsyncMock(return_value="properly repaired content [[evidence:ev-001]].")
 
-    results = [
-        {"passed": False, "score": 0.2, "issues": [{"code": "x", "severity": "major"}], "node_id": "n1"},
-        {"passed": True, "score": 0.9, "issues": [], "node_id": "n1"},
-    ]
-
     def fake_evaluate_node_content(content, node):
-        return results.pop(0) if results else {"passed": True, "score": 0.9, "issues": [], "node_id": "n1"}
+        return {
+            "passed": False,
+            "score": 0.2,
+            "issues": [{
+                "code": "unclosed_code_fence",
+                "severity": "critical",
+            }],
+            "node_id": "n1",
+        }
 
     monkeypatch.setattr(course_service_module, "evaluate_node_content", fake_evaluate_node_content)
 
@@ -125,6 +117,6 @@ async def test_node_not_flagged_when_repair_succeeds(monkeypatch):
         course_data={"course_id": "course-1", "nodes": []},
     )
 
-    assert service._call_llm.await_count == 1
-    assert node["generation_quality"]["passed"] is True
-    assert node["needs_manual_review"] is False
+    assert service._call_llm.await_count == 0
+    assert node["generation_quality"]["passed"] is False
+    assert node["needs_manual_review"] is True

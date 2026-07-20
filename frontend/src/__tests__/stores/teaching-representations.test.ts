@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
+const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }))
 
 vi.mock('@/utils/http', () => ({
   default: httpMock,
@@ -50,6 +50,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   httpMock.get.mockReset()
   httpMock.post.mockReset()
+  httpMock.delete.mockReset()
   vi.unstubAllGlobals()
 })
 
@@ -302,6 +303,54 @@ describe('teaching representation progressive build', () => {
     ]), event => received.push(event.event))
 
     expect(received).toEqual(['deck_plan', 'slide_upsert', 'build_complete'])
+  })
+
+  it('keeps the durable task id and exposes pause and cancel controls', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      { event: 'planner_started', progress: 1, task_id: 'representation-job-1' },
+      { event: 'paused', progress: 36, task_id: 'representation-job-1' },
+    ])))
+    httpMock.delete.mockResolvedValue({ data: { status: 'deleted' } })
+    const store = useTeachingRepresentationsStore()
+
+    await store.buildProgressive('course-1')
+
+    expect(store.buildTaskId).toBe('representation-job-1')
+    expect(store.buildPaused).toBe(true)
+    expect(store.building).toBe(false)
+    await store.cancelBuild()
+    expect(httpMock.delete).toHaveBeenCalledWith('/api/tasks/representation-job-1')
+    expect(store.buildTaskId).toBe('')
+    expect(store.buildStage).toBe('cancelled')
+  })
+
+  it('keeps an in-flight cancellation from being overwritten by the old SSE stream', async () => {
+    const encoder = new TextEncoder()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(nextController) {
+        controller = nextController
+        controller.enqueue(encoder.encode(
+          'event: planner_started\ndata: {"event":"planner_started","progress":1,"task_id":"representation-job-1"}\n\n',
+        ))
+      },
+    }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    httpMock.delete.mockResolvedValue({ data: { status: 'deleted' } })
+    const store = useTeachingRepresentationsStore()
+
+    const building = store.buildProgressive('course-1')
+    await vi.waitFor(() => expect(store.buildTaskId).toBe('representation-job-1'))
+    await store.cancelBuild()
+    controller.enqueue(encoder.encode(
+      'event: error\ndata: {"event":"error","message":"task removed"}\n\n',
+    ))
+    controller.close()
+    await building
+
+    expect(store.buildStage).toBe('cancelled')
+    expect(store.buildError).toBe('')
+    expect(store.building).toBe(false)
   })
 
   it('shows generated slides before publishing the final registry', async () => {

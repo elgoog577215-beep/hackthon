@@ -31,6 +31,7 @@ from practice_attempts import (
     InvalidAttemptTransition,
     practice_attempt_repository,
 )
+from practice_contracts import DEFAULT_PRACTICE_BATCH_SIZE
 from practice_analysis import (
     practice_analysis_service,
     unavailable_answer_diagnosis,
@@ -99,11 +100,36 @@ async def get_practice(
     request: Request,
     node_id: str | None = None,
     scope: Literal["node", "final", "all"] = "node",
+    task_revision_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=200,
+    ),
 ):
     course = project_learning_objective_bindings(await get_course_or_404(course_id))
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    questions = _questions(course, node_id=node_id, scope=scope)
+    available_questions = _questions(
+        course,
+        node_id=node_id,
+        scope=scope,
+    )
     attempts = await run_in_threadpool(practice_attempt_repository.list, user_id, course_id)
+    active_task_revision_ids = [
+        str(
+            item.get("task_revision_id")
+            or item.get("question_revision_id")
+            or ""
+        )
+        for item in attempts
+        if item.get("status") == "in_progress"
+    ]
+    questions = _practice_batch(
+        available_questions,
+        priority_task_revision_ids=[
+            str(task_revision_id or ""),
+            *active_task_revision_ids,
+        ],
+    )
     question_bank_state = {
         "bundle": await run_in_threadpool(
             _active_question_bank,
@@ -125,10 +151,14 @@ async def get_practice(
             course,
             scope=scope,
             node_id=node_id,
-            scoped_question_count=len(questions),
+            scoped_question_count=len(available_questions),
             question_bank_state=question_bank_state,
         ),
         "questions": [_student_question_payload(item) for item in questions],
+        "batch_size": DEFAULT_PRACTICE_BATCH_SIZE,
+        "question_count": len(questions),
+        "available_question_count": len(available_questions),
+        "batch_policy": "fixed_three_with_requested_or_active_task_first",
         "active_attempts": [
             _student_attempt_payload(course, user_id, item)
             for item in attempts
@@ -742,6 +772,42 @@ def _questions(course: dict[str, Any], *, node_id: str | None, scope: str) -> li
     if scope == "node" and node_id:
         questions = [item for item in questions if item.get("node_id") == node_id]
     return questions
+
+
+def _practice_batch(
+    questions: list[dict[str, Any]],
+    *,
+    priority_task_revision_ids: list[str] | None = None,
+    size: int = DEFAULT_PRACTICE_BATCH_SIZE,
+) -> list[dict[str, Any]]:
+    """Return one stable practice run while preserving explicit/resumed tasks."""
+
+    available = _unique_revision_items(questions)
+    by_revision_id = {
+        _task_revision_id(item): item
+        for item in available
+        if _task_revision_id(item)
+    }
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for revision_id in priority_task_revision_ids or []:
+        normalized = str(revision_id or "").strip()
+        item = by_revision_id.get(normalized)
+        if not item or normalized in seen:
+            continue
+        result.append(item)
+        seen.add(normalized)
+        if len(result) == size:
+            return result
+    for item in available:
+        revision_id = _task_revision_id(item)
+        if not revision_id or revision_id in seen:
+            continue
+        result.append(item)
+        seen.add(revision_id)
+        if len(result) == size:
+            break
+    return result
 
 
 def _student_question_payload(question: dict[str, Any]) -> dict[str, Any]:

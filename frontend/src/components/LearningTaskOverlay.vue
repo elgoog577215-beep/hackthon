@@ -18,7 +18,6 @@
     <CourseWorkspaceTabs
       active-item="practice"
       :practice-available="true"
-      @outline="emit('outline')"
       @lesson-plan="emit('lesson-plan')"
       @course="emit('course')"
     />

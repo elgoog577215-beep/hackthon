@@ -229,7 +229,6 @@ export interface LearningRuntimeProjection {
   diagnostic: Record<string, any>
   learner_model: LearnerModelSummary
   course_evolution?: Record<string, any>
-  personal_course_overlay?: Record<string, any>
   adaptive_blocks: AdaptiveLearningBlock[]
   active_task: LearningTaskRef | null
   continuation: LearningContinuationProjection

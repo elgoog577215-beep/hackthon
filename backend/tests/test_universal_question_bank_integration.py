@@ -138,6 +138,11 @@ def test_question_bank_builds_v2_candidates_for_every_subject_family(
         item["archetype_id"]
         for item in generated
     } == {archetype_id}
+    assert {
+        item["question_type"]
+        for item in generated
+    } == {"single_choice"}
+    assert all(len(item["options"]) == 4 for item in generated)
     assert all(item["generation_status"] for item in generated)
     assert all(
         item["lifecycle_status"] in {"approved", "needs_review"}

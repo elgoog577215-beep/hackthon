@@ -7,13 +7,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from content_blocks import resolve_content_anchor
+from course_document import CourseDocument, document_from_legacy_course
 from course_evolution import (
     course_evolution_repository,
     course_evolution_view,
-    personal_course_overlay,
-    project_applied_adaptive_blocks,
 )
 from course_learning_availability import project_course_learning_availability
+from course_revisions import revision_vector_for_document
 from course_versioning import stable_hash
 from diagnostic_service import workflow_view
 from learning_continuation import build_learning_continuation
@@ -95,18 +95,7 @@ def build_learning_runtime(
     )
     revision_vector["learner_model_revision_id"] = learner_model["model_revision_id"]
     evolution_state = course_evolution_repository.load(user_id, course_id)
-    personal_overlay = personal_course_overlay(evolution_state)
-    personal_adaptive_blocks = project_applied_adaptive_blocks(
-        evolution_state,
-        node_id=node_id,
-    )
-    for block in personal_adaptive_blocks:
-        feedback = _adaptive_feedback(events, str(block.get("adaptive_block_id") or ""))
-        block["feedback"]["value"] = feedback or "unrated"
-    personal_adaptive_blocks = [
-        block for block in personal_adaptive_blocks
-        if (block.get("feedback") or {}).get("value") != "dismissed"
-    ]
+    current_course_revision_vector = _current_course_revision_vector(course)
     temporary_adaptive_blocks = _adaptive_blocks(
         course,
         attempts=attempts,
@@ -134,12 +123,41 @@ def build_learning_runtime(
             learner_model,
             node_id=str(current_objective.get("node_id") or node_id or "") or None,
         ),
-        "course_evolution": course_evolution_view(evolution_state),
-        "personal_course_overlay": personal_overlay.model_dump(mode="json"),
-        "adaptive_blocks": personal_adaptive_blocks + temporary_adaptive_blocks,
+        "course_evolution": course_evolution_view(
+            evolution_state,
+            current_revision_vector=current_course_revision_vector,
+        ),
+        # Durable accepted changes live only in CourseDocument.  This stream is
+        # intentionally limited to ephemeral, evidence-driven runtime support.
+        "adaptive_blocks": temporary_adaptive_blocks,
         "active_task": deepcopy((continuation.get("primary_action") or {}).get("task_ref")),
         "continuation": continuation,
     }
+
+
+def _current_course_revision_vector(course: dict[str, Any]) -> dict[str, str]:
+    persisted = course.get("course_revision_vector")
+    if isinstance(persisted, dict):
+        revisions = persisted.get("revisions")
+        if isinstance(revisions, dict):
+            return {
+                str(key): str(value)
+                for key, value in revisions.items()
+                if key and value
+            }
+
+    canonical = course.get("course_document")
+    try:
+        document = (
+            canonical
+            if isinstance(canonical, (dict, CourseDocument))
+            else document_from_legacy_course(course)
+        )
+        return revision_vector_for_document(document).revisions
+    except (TypeError, ValueError):
+        # A malformed legacy payload must not make the entire learning runtime unavailable.
+        # Passing an empty vector still fails closed for every revision-bound old overlay.
+        return {}
 
 
 def _adaptive_blocks(

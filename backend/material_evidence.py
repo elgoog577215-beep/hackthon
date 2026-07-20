@@ -54,7 +54,12 @@ def build_evidence_units(
     return units
 
 
-def build_evidence_catalog_summary(evidence: list[dict[str, Any]], max_items: int = 80) -> str:
+def build_evidence_catalog_summary(
+    evidence: list[dict[str, Any]],
+    max_items: int = 80,
+    *,
+    max_chars: int | None = None,
+) -> str:
     if not evidence:
         return "- 没有可用资料证据。"
     lines: list[str] = []
@@ -67,8 +72,21 @@ def build_evidence_catalog_summary(evidence: list[dict[str, Any]], max_items: in
             location = f"slide {locator['slide']}"
         elif locator.get("section_path"):
             location = " / ".join(locator["section_path"][-2:])
+        line = (
+            f"- [{item.get('evidence_id')}] {item.get('kind')} {location}："
+            f"{_clip(str(item.get('summary') or ''), 180)}"
+        )
+        if (
+            max_chars is not None
+            and lines
+            and len("\n".join([*lines, line])) > max_chars
+        ):
+            break
+        lines.append(line)
+    if len(lines) < min(len(evidence), max_items):
         lines.append(
-            f"- [{item.get('evidence_id')}] {item.get('kind')} {location}：{_clip(str(item.get('summary') or ''), 180)}"
+            f"- 其余证据保留在服务端索引中，目录阶段未展开 "
+            f"{len(evidence) - len(lines)} 条。"
         )
     return "\n".join(lines)
 

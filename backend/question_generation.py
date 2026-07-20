@@ -2247,6 +2247,48 @@ def _linear_algebra_semantic_case(
     seed: int,
 ) -> dict[str, Any] | None:
     if any(marker in topic for marker in (
+        "斜率", "变化率", "slope",
+    )):
+        slope = seed + 1
+        if seed % 2:
+            slope *= -1
+        x1 = 1
+        x2 = 3
+        y1 = 12
+        y2 = y1 + slope * (x2 - x1)
+        direction = "升高" if slope > 0 else "降低"
+        return {
+            "data": {
+                "case_kind": "linear_function_slope",
+                "independent_variable": "时间",
+                "dependent_variable": "温度",
+                "independent_unit": "小时",
+                "dependent_unit": "摄氏度",
+                "point_1": [x1, y1],
+                "point_2": [x2, y2],
+            },
+            "canonical": {
+                "delta_x": x2 - x1,
+                "delta_y": y2 - y1,
+                "slope": slope,
+                "direction": direction,
+                "unit": "摄氏度/小时",
+            },
+            "input_text": (
+                "某地温度 T（摄氏度）随时间 t（小时）在这一时段按一次函数"
+                f"变化。图线上两点为 P₁({x1}, {y1})、P₂({x2}, {y2})。"
+                "一名同学把斜率写成 (t₂-t₁)/(T₂-T₁)。"
+            ),
+            "task_text": (
+                "用“纵坐标变化量÷横坐标变化量”计算正确斜率，"
+                "写出单位，解释温度每小时怎样变化，并指出该同学错误在哪里。"
+            ),
+            "archetype": "linear_function_slope_from_two_points",
+            "deliverable": (
+                "ΔT、Δt、斜率、实际含义、单位和错误诊断"
+            ),
+        }
+    if any(marker in topic for marker in (
         "条件概率", "conditional probability", "贝叶斯",
     )):
         return {
@@ -3733,6 +3775,27 @@ def _expected_linear_algebra_answer(
     data: dict[str, Any],
 ) -> dict[str, Any] | None:
     case_kind = str(data.get("case_kind") or "")
+    if case_kind == "linear_function_slope":
+        point_1 = data.get("point_1") or []
+        point_2 = data.get("point_2") or []
+        if (
+            len(point_1) != 2
+            or len(point_2) != 2
+            or point_2[0] == point_1[0]
+        ):
+            return {}
+        delta_x = point_2[0] - point_1[0]
+        delta_y = point_2[1] - point_1[1]
+        slope = delta_y / delta_x
+        if isinstance(slope, float) and slope.is_integer():
+            slope = int(slope)
+        return {
+            "delta_x": delta_x,
+            "delta_y": delta_y,
+            "slope": slope,
+            "direction": "升高" if slope > 0 else "降低",
+            "unit": "摄氏度/小时",
+        }
     if case_kind == "conditional_probability":
         denominator = data.get("condition_event_count")
         numerator = data.get("intersection_count")

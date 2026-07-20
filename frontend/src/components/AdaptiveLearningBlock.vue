@@ -3,7 +3,7 @@
     <header>
       <span class="adaptive-block__icon"><component :is="kindIcon" :size="17" /></span>
       <div>
-        <small>{{ acceptedGrowth ? t('adaptiveBlocks.acceptedEyebrow', '个人课程已生长') : t('adaptiveBlocks.eyebrow', 'AI 临时支持') }}</small>
+        <small>{{ t('adaptiveBlocks.eyebrow', 'AI 临时支持') }}</small>
         <strong>{{ kindLabel }}</strong>
       </div>
       <div class="adaptive-block__actions">
@@ -97,7 +97,6 @@ const feedback = ref<AdaptiveBlockFeedback>(props.block.feedback.value)
 const activeFrame = ref(0)
 const isPlaying = ref(false)
 let animationTimer: number | undefined
-const acceptedGrowth = computed(() => props.block.role === 'accepted_personal_course_growth')
 const structuredAnimation = computed(() => (
   props.block.kind === 'animation'
   && props.block.payload.animation_spec?.schema_version === 'animation_spec_v1'

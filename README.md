@@ -77,12 +77,14 @@ AI_API_BASE=https://api-inference.modelscope.cn/v1
 AI_THINKING_ENABLED=true
 AI_SLIDE_PLANNER_ENABLED=true
 
-# 可选：不设置时保持项目内置的 ModelScope 候选模型列表
-# AI_MODEL_CANDIDATES=deepseek-ai/DeepSeek-V4-Pro,deepseek-ai/DeepSeek-V4-Flash
-# AI_MODEL_FAST_CANDIDATES=deepseek-ai/DeepSeek-V4-Flash
+# 可选：不设置时使用项目内置的 Qwen3.5 候选模型列表
+# AI_MODEL_CANDIDATES=Qwen/Qwen3.5-27B,Qwen/Qwen3.5-122B-A10B,Qwen/Qwen3.5-397B-A17B
+# AI_MODEL_FAST_CANDIDATES=Qwen/Qwen3.5-27B,Qwen/Qwen3.5-122B-A10B,Qwen/Qwen3.5-397B-A17B
 ```
 
-ModelScope 路径会继续使用原有候选模型和 `enable_thinking` 兼容字段。`AI_SLIDE_PLANNER_ENABLED=true` 用于启用 AI 幻灯片规划功能。
+ModelScope 路径默认只使用按稳定性排序的 Qwen3.5 候选模型，并继续发送
+`enable_thinking` 兼容字段。`AI_SLIDE_PLANNER_ENABLED=true` 用于启用 AI
+幻灯片规划功能。
 
 ## 技术栈
 

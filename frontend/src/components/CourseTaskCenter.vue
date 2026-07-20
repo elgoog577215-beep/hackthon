@@ -69,7 +69,7 @@
               </dl>
             </section>
 
-            <section v-if="workflowSteps.length" class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成六步流程')">
+            <section v-if="workflowSteps.length" class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成四步流程')">
               <ol>
                 <li v-for="step in workflowSteps" :key="step.key" :data-status="step.displayStatus">
                   <button
@@ -118,89 +118,6 @@
                 </div>
                 <p v-if="blueprintNodes.length === 0" class="blueprint-empty">{{ t('courseTasks.blueprint.noNodes', '蓝图暂未返回可编辑节点，请刷新后重试。') }}</p>
               </template>
-              <template v-else-if="reviewArtifact && currentReviewStep === 'knowledge'">
-                <div class="review-metrics">
-                  <div><strong>{{ reviewArtifact.concept_group_count || 0 }}</strong><span>{{ t('courseTasks.review.conceptGroups', '概念组') }}</span></div>
-                  <div><strong>{{ reviewArtifact.knowledge_point_count || 0 }}</strong><span>{{ t('courseTasks.review.knowledgePoints', '知识点') }}</span></div>
-                  <div><strong>{{ reviewArtifact.relation_count || 0 }}</strong><span>{{ t('courseTasks.review.relations', '知识关系') }}</span></div>
-                </div>
-                <section v-if="reviewArtifact.section_responsibilities?.length" class="knowledge-scope">
-                  <header>
-                    <strong>{{ t('courseTasks.review.sectionResponsibilities', '每节负责教什么') }}</strong>
-                    <span>{{ t('courseTasks.review.sectionResponsibilitiesHelp', '先划清全课边界，再分别生成每节知识，避免前面讲完后面的内容。') }}</span>
-                  </header>
-                  <div>
-                    <article v-for="(section, index) in reviewArtifact.section_responsibilities" :key="section.node_id || index">
-                      <span>{{ section.section_number || String(index + 1).padStart(2, '0') }}</span>
-                      <div>
-                        <strong>{{ section.title }}</strong>
-                        <p>{{ section.learning_objective }}</p>
-                        <small v-if="section.scope_boundary">{{ t('courseTasks.review.scopeBoundary', '本节边界') }}：{{ section.scope_boundary }}</small>
-                      </div>
-                    </article>
-                  </div>
-                </section>
-                <div class="review-cards">
-                  <article v-for="(group, index) in reviewArtifact.concept_groups || []" :key="`${group.name}-${index}`">
-                    <span>{{ String(index + 1).padStart(2, '0') }}</span>
-                    <div><strong>{{ group.name }}</strong><p v-if="group.summary">{{ group.summary }}</p></div>
-                  </article>
-                </div>
-                <section v-if="reviewArtifact.relations?.length" class="knowledge-relations">
-                  <strong>{{ t('courseTasks.review.relationPath', '知识先后关系') }}</strong>
-                  <ul>
-                    <li v-for="(relation, index) in reviewArtifact.relations" :key="`${relation.source_name}-${relation.target_name}-${index}`">
-                      <span>{{ relation.source_name }}</span>
-                      <b>→</b>
-                      <span>{{ relation.target_name }}</span>
-                      <small v-if="relation.reason">{{ relation.reason }}</small>
-                    </li>
-                  </ul>
-                </section>
-              </template>
-              <template v-else-if="reviewArtifact && currentReviewStep === 'teaching'">
-                <div class="composition-review">
-                  <div class="composition-review__heading">
-                    <span>{{ t('courseTasks.review.compositionProfile', '课程编排偏好') }}</span>
-                    <strong>{{ compositionProfileLabel }}</strong>
-                    <p>{{ compositionProfileSummary }}</p>
-                  </div>
-                  <div v-if="compositionRhythm" class="composition-review__rhythm">
-                    <span>{{ t('courseTasks.review.rhythm', '主要节奏') }}</span>
-                    <p>{{ compositionRhythm }}</p>
-                  </div>
-                  <dl v-if="teachingRoleDistribution.length" class="role-distribution">
-                    <div v-for="entry in teachingRoleDistribution" :key="entry.role">
-                      <dt>{{ blockRoleLabel(entry.role) }}</dt>
-                      <dd>{{ entry.count }}</dd>
-                    </div>
-                  </dl>
-                </div>
-                <div class="review-cards review-cards--teaching">
-                  <article v-for="(section, index) in reviewArtifact.sections || []" :key="section.node_id || index">
-                    <span>{{ String(index + 1).padStart(2, '0') }}</span>
-                    <div>
-                      <strong>{{ section.name }}</strong>
-                      <p>{{ section.learning_objective || t('courseTasks.review.noObjective', '本节学习目标待补充') }}</p>
-                      <small>{{ teachingPlanSummary(section) }}</small>
-                      <div v-if="Array.isArray(section.module_plan)" class="module-sequence">
-                        <span
-                          v-for="module in section.module_plan"
-                          :key="module.module_instance_id || module.module_id"
-                          class="module-sequence__item"
-                          :data-added="moduleSelectedBy(module, 'composition_style') || moduleSelectedBy(module, 'difficulty_level')"
-                          :data-source="module.composition_source"
-                        >
-                          <b>{{ moduleDisplayLabel(module) }}</b>
-                          <em>{{ blockRoleLabel(module.block_role) }} · {{ blockDifficultySummary(module.block_difficulty_contract) }}</em>
-                          <i v-if="moduleSelectedBy(module, 'composition_style')">{{ t('courseTasks.review.preferenceAdded', '偏好新增') }}</i>
-                          <i v-if="moduleSelectedBy(module, 'difficulty_level')">{{ t('courseTasks.review.difficultyAdded', '难度新增') }}</i>
-                        </span>
-                      </div>
-                    </div>
-                  </article>
-                </div>
-              </template>
               <template v-else-if="reviewArtifact && currentReviewStep === 'content'">
                 <div class="review-callout">
                   <BookOpenText :size="18" />
@@ -229,8 +146,8 @@
                 <section v-if="reviewArtifact.question_review?.total" class="question-review">
                   <header>
                     <div>
-                      <strong>{{ t('courseTasks.review.questionReview', '逐题解析与评判检查') }}</strong>
-                      <p>{{ t('courseTasks.review.questionReviewHelp', '系统先独立判断每道题实际在考什么，再核对是否真的命中本课知识、能力和易错点。') }}</p>
+                      <strong>{{ t('courseTasks.review.questionReview', '题目合同与可判定性') }}</strong>
+                      <p>{{ t('courseTasks.review.questionReviewHelp', '题目直接继承知识、能力、易错与答案合同，并通过确定性引用和可判定性检查。') }}</p>
                     </div>
                     <span :data-blocked="Boolean(reviewArtifact.question_review.blocked)">
                       {{ reviewArtifact.question_review.passed }} / {{ reviewArtifact.question_review.total }}
@@ -292,7 +209,7 @@
                   <TriangleAlert v-else :size="20" />
                   <div>
                     <strong>{{ canConfirmCurrentStep ? t('courseTasks.review.releaseReady', '检查通过，可以发布') : t('courseTasks.review.releaseBlocked', '还有问题，暂时不能发布') }}</strong>
-                    <p>{{ t('courseTasks.review.sourceChain', '目录、知识蓝图、教学方案和课程内容已按确认版本逐项核对。') }}</p>
+                    <p>{{ t('courseTasks.review.sourceChain', '目录、全课小节教案、知识库和课程内容已按同一版本链核对。') }}</p>
                   </div>
                 </div>
                 <ul v-if="releaseIssues.length" class="release-issues">
@@ -426,9 +343,14 @@ const phaseItemProgress = computed(() => {
   const detail = selectedTask.value?.phaseDetail || {}
   const total = Number(detail.total_items || 0)
   if (!total) return null
-  const label = String(detail.artifact_type || '') === 'course_outline'
+  const artifactType = String(detail.artifact_type || '')
+  const label = artifactType === 'course_outline'
     ? t('courseTasks.outlineItems', '目录小节')
-    : t('courseTasks.knowledgePackages', '知识包进度')
+    : artifactType === 'course_teaching_plan'
+      ? t('courseTasks.teachingPlanItems', '小节教案进度')
+      : artifactType === 'section_knowledge_package'
+        ? t('courseTasks.knowledgePackages', '旧版知识检查点')
+      : t('courseTasks.nodes', '内容进度')
   return {
     completed: Math.max(0, Number(detail.completed_items || 0)),
     total,
@@ -464,18 +386,14 @@ const currentReviewNumber = computed(() => {
 })
 const currentReviewTitle = computed(() => ({
   outline: t('courseTasks.blueprint.title', '确认课程目录'),
-  knowledge: t('courseTasks.review.knowledgeTitle', '确认知识蓝图'),
-  teaching: t('courseTasks.review.teachingTitle', '确认教学方案'),
-  content: t('courseTasks.review.contentTitle', '确认课程内容'),
-  release: t('courseTasks.review.releaseTitle', '确认质量并发布'),
+  content: t('courseTasks.review.contentTitle', '审阅课程内容'),
+  release: t('courseTasks.review.releaseTitle', '确认并发布'),
   requirements: t('courseTasks.review.requirementsTitle', '确认课程需求'),
 }[currentReviewStep.value]))
 const currentReviewHelp = computed(() => ({
-  outline: t('courseTasks.blueprint.help', '确认章节、顺序和学习目标；确认后才会生成知识蓝图。'),
-  knowledge: t('courseTasks.review.knowledgeHelp', '确认这门课要教哪些概念、能力和关系；确认后才会设计每节怎样讲。'),
-  teaching: t('courseTasks.review.teachingHelp', '确认每节的讲法、例子和练习安排；确认后才会生成完整内容。'),
-  content: t('courseTasks.review.contentHelp', '进入学习现场检查完整内容；确认后才会执行最终发布检查。'),
-  release: t('courseTasks.review.releaseHelp', '检查质量结果和同源版本链；只有全部通过后才能正式发布。'),
+  outline: t('courseTasks.blueprint.help', '确认章节、顺序和学习目标；确认后会冻结全课知识职责，按预算生成详细教案与各节正文。'),
+  content: t('courseTasks.review.contentHelp', '小节教案、知识库与关系图已由同一计划编译；进入学习现场检查正文后确认。'),
+  release: t('courseTasks.review.releaseHelp', '确认结构、引用和同源版本链完整后发布；这里不再调用 AI 评分或重写。'),
   requirements: t('courseTasks.review.requirementsHelp', '确认本次课程生成需求。'),
 }[currentReviewStep.value]))
 const canConfirmCurrentStep = computed(() => {
@@ -492,33 +410,6 @@ const releaseIssues = computed<any[]>(() => [
   ...(reviewArtifact.value?.blocking_issues || []),
   ...(reviewArtifact.value?.source_chain?.issues || []),
 ])
-const compositionI18nKey = computed(() => ({
-  balanced: 'balanced',
-  theory_driven: 'theoryDriven',
-  example_driven: 'exampleDriven',
-  project_driven: 'projectDriven',
-  inquiry_driven: 'inquiryDriven',
-}[String(reviewArtifact.value?.composition_profile?.style || 'balanced')] || 'balanced'))
-const compositionProfileLabel = computed(() => t(
-  `courseGeneration.compositionStyles.${compositionI18nKey.value}.label`,
-  String(reviewArtifact.value?.composition_profile?.label || '智能均衡'),
-))
-const compositionProfileSummary = computed(() => t(
-  `courseGeneration.compositionStyles.${compositionI18nKey.value}.detail`,
-  String(
-    reviewArtifact.value?.composition_profile?.summary
-    || '讲解、示例、行动与反馈均衡推进'
-  ),
-))
-const compositionRhythm = computed(() => t(
-  `courseGeneration.compositionStyles.${compositionI18nKey.value}.rhythm`,
-  (reviewArtifact.value?.composition_profile?.rhythm || []).join(' → '),
-))
-const teachingRoleDistribution = computed(() => (
-  Object.entries(reviewArtifact.value?.block_distribution?.role_counts || {})
-    .map(([role, count]) => ({ role, count: Number(count || 0) }))
-    .sort((a, b) => b.count - a.count || a.role.localeCompare(b.role))
-))
 const assetCountEntries = computed(() => (
   Object.entries(reviewArtifact.value?.asset_counts || {})
     .map(([type, count]) => ({ type, count: Number(count || 0) }))
@@ -647,7 +538,7 @@ async function reopenWorkflowStep(step: any) {
     await ElMessageBox.confirm(
       t(
         'courseTasks.workflow.reopenConfirm',
-        '返回修改目录后，知识蓝图、教学方案、课程内容和发布检查都会失效，并按照新目录重新生成。',
+        '返回修改目录后，全课小节教案、知识库、课程内容和发布确认都会失效，并按照新目录重新生成。',
       ),
       t('courseTasks.workflow.reopenTitle', '返回修改课程目录'),
       {
@@ -744,10 +635,8 @@ function guidedStepLabel(step: GuidedGenerationStepKey) {
   return {
     requirements: t('courseTasks.workflow.requirements', '需求'),
     outline: t('courseTasks.workflow.outline', '目录'),
-    knowledge: t('courseTasks.workflow.knowledge', '知识蓝图'),
-    teaching: t('courseTasks.workflow.teaching', '教学方案'),
-    content: t('courseTasks.workflow.content', '课程内容'),
-    release: t('courseTasks.workflow.release', '质量与发布'),
+    content: t('courseTasks.workflow.content', '课程生成'),
+    release: t('courseTasks.workflow.release', '确认发布'),
   }[step]
 }
 function workflowStatusLabel(status: string) {
@@ -778,64 +667,6 @@ function learningAssetLabel(type: string) {
     chapter_progression_contracts: '章节进阶规则',
   }[type] || type)
 }
-function teachingPlanSummary(section: any) {
-  const modules = Array.isArray(section?.module_plan) ? section.module_plan : []
-  const preference = modules.filter((item: any) => moduleSelectedBy(item, 'composition_style')).length
-  const difficulty = modules.filter((item: any) => moduleSelectedBy(item, 'difficulty_level')).length
-  return t('courseTasks.review.blockPlanSummary', '{blocks} 个课程块 · 偏好新增 {preference} 个 · 难度新增 {difficulty} 个')
-    .replace('{blocks}', String(modules.length))
-    .replace('{preference}', String(preference))
-    .replace('{difficulty}', String(difficulty))
-}
-function moduleSelectedBy(module: any, reason: string) {
-  const reasons = Array.isArray(module?.selection_reasons) ? module.selection_reasons : []
-  return reasons.includes(reason) || module?.composition_source === reason
-}
-function blockRoleLabel(role: string) {
-  const labels: Record<string, string> = {
-    orientation: t('courseTasks.review.roles.orientation', '引入'),
-    prerequisite: t('courseTasks.review.roles.prerequisite', '前置'),
-    objective: t('courseTasks.review.roles.objective', '目标'),
-    concept: t('courseTasks.review.roles.concept', '讲解'),
-    reasoning: t('courseTasks.review.roles.reasoning', '推演'),
-    example: t('courseTasks.review.roles.example', '案例'),
-    counterexample: t('courseTasks.review.roles.counterexample', '边界反例'),
-    application: t('courseTasks.review.roles.application', '应用'),
-    activity: t('courseTasks.review.roles.activity', '实战行动'),
-    feedback: t('courseTasks.review.roles.feedback', '反馈'),
-    misconception: t('courseTasks.review.roles.misconception', '易错分析'),
-    checkpoint: t('courseTasks.review.roles.checkpoint', '检查'),
-    remediation: t('courseTasks.review.roles.remediation', '补救'),
-    summary: t('courseTasks.review.roles.summary', '总结'),
-    transfer: t('courseTasks.review.roles.transfer', '迁移'),
-  }
-  return labels[role] || role || t('courseTasks.review.roles.custom', '教学块')
-}
-function moduleDisplayLabel(module: any) {
-  if (activeLocale.value === 'zh') {
-    return String(module?.label || blockRoleLabel(String(module?.block_role || '')))
-  }
-  return blockRoleLabel(String(module?.block_role || ''))
-}
-function blockDifficultySummary(contract: any) {
-  if (!contract) return t('courseTasks.review.difficulty.default', '沿用本节难度')
-  const target = {
-    beginner: t('courseTasks.review.difficulty.beginner', '入门'),
-    intermediate: t('courseTasks.review.difficulty.intermediate', '进阶'),
-    advanced: t('courseTasks.review.difficulty.advanced', '高阶'),
-  }[contract.target_level as 'beginner' | 'intermediate' | 'advanced'] || contract.target_level
-  const autonomy = {
-    guided: t('courseTasks.review.difficulty.guided', '引导完成'),
-    shared: t('courseTasks.review.difficulty.shared', '半独立'),
-    independent: t('courseTasks.review.difficulty.independent', '独立完成'),
-  }[contract.learner_autonomy as 'guided' | 'shared' | 'independent'] || contract.learner_autonomy
-  const scaffold = {
-    high: t('courseTasks.review.difficulty.highScaffold', '高支架'),
-    medium: t('courseTasks.review.difficulty.mediumScaffold', '中支架'),
-    low: t('courseTasks.review.difficulty.lowScaffold', '低支架'),
-  }[contract.scaffold_intensity as 'high' | 'medium' | 'low'] || contract.scaffold_intensity
-  return [target, autonomy, scaffold].filter(Boolean).join(' · ')
-}
 function phaseLabel(phase: string | undefined, status: Task['status']) {
   const labels: Record<string, string> = {
     requirement_analysis: t('courseTasks.phases.requirementAnalysis', '整理课程需求'),
@@ -845,33 +676,45 @@ function phaseLabel(phase: string | undefined, status: Task['status']) {
     outline_validation: t('courseTasks.phases.outlineValidation', '检查课程目录'),
     outline_ready: t('courseTasks.phases.outlineReady', '等待确认课程目录'),
     outline_confirmed: t('courseTasks.phases.outlineConfirmed', '目录已确认'),
-    course_knowledge_skeleton: t('courseTasks.phases.knowledgeSkeleton', '规划全课知识身份'),
-    course_knowledge_skeleton_validation: t('courseTasks.phases.knowledgeSkeletonValidation', '检查全课知识身份'),
-    section_knowledge_generation: t('courseTasks.phases.sectionKnowledgeGeneration', '逐节生成知识包'),
-    section_knowledge_validation: t('courseTasks.phases.sectionKnowledgeValidation', '检查当前小节知识包'),
-    course_relation_generation: t('courseTasks.phases.courseRelationGeneration', '并行生成知识关系邻域'),
-    course_relation_validation: t('courseTasks.phases.courseRelationValidation', '检查知识关系邻域'),
+    course_teaching_plan: t('courseTasks.phases.courseTeachingPlan', '规划并汇编全课小节教案'),
+    course_teaching_plan_skeleton: t('courseTasks.phases.courseTeachingPlanSkeleton', '冻结全课知识职责'),
+    course_teaching_plan_skeleton_validation: t('courseTasks.phases.courseTeachingPlanSkeletonValidation', '检查全课知识职责'),
+    course_teaching_plan_batch: t('courseTasks.phases.courseTeachingPlanBatch', '并行生成详细教案批次'),
+    course_teaching_plan_batch_validation: t('courseTasks.phases.courseTeachingPlanBatchValidation', '检查当前详细教案批次'),
+    course_teaching_plan_assembly: t('courseTasks.phases.courseTeachingPlanAssembly', '汇编唯一的全课教案'),
+    course_teaching_plan_validation: t('courseTasks.phases.courseTeachingPlanValidation', '检查教案结构、知识与课程块绑定'),
+    course_knowledge_index: t('courseTasks.phases.courseKnowledgeIndex', '迁移旧版整课知识索引'),
+    course_knowledge_index_validation: t('courseTasks.phases.courseKnowledgeIndexValidation', '检查旧版知识索引'),
+    course_knowledge_skeleton: t('courseTasks.phases.knowledgeSkeleton', '恢复旧版知识身份检查点'),
+    course_knowledge_skeleton_validation: t('courseTasks.phases.knowledgeSkeletonValidation', '检查旧版知识身份检查点'),
+    section_knowledge_generation: t('courseTasks.phases.sectionKnowledgeGeneration', '恢复旧版知识检查点'),
+    section_knowledge_validation: t('courseTasks.phases.sectionKnowledgeValidation', '检查旧版知识检查点'),
+    course_relation_generation: t('courseTasks.phases.courseRelationGeneration', '恢复旧版关系检查点'),
+    course_relation_validation: t('courseTasks.phases.courseRelationValidation', '检查旧版关系检查点'),
+    course_graph_generation: t('courseTasks.phases.courseGraphGeneration', '迁移旧版知识关系图'),
+    course_graph_validation: t('courseTasks.phases.courseGraphValidation', '检查旧版关系图结构'),
     knowledge_mapping: t('courseTasks.phases.knowledgeMapping', '编译全课知识关系'),
     course_knowledge_blueprint: t('courseTasks.phases.knowledgeMapping', '编译全课知识关系'),
-    knowledge_ready: t('courseTasks.phases.knowledgeReady', '等待确认知识蓝图'),
-    knowledge_confirmed: t('courseTasks.phases.knowledgeConfirmed', '知识蓝图已确认'),
-    teaching_ready: t('courseTasks.phases.teachingReady', '等待确认教学方案'),
-    teaching_confirmed: t('courseTasks.phases.teachingConfirmed', '教学方案已确认'),
+    knowledge_ready: t('courseTasks.phases.knowledgeReady', '迁移旧版知识确认点'),
+    knowledge_confirmed: t('courseTasks.phases.knowledgeConfirmed', '旧版知识确认点已迁移'),
+    teaching_ready: t('courseTasks.phases.teachingReady', '迁移旧版教案确认点'),
+    teaching_confirmed: t('courseTasks.phases.teachingConfirmed', '旧版教案确认点已迁移'),
     blueprint_generation: t('courseTasks.phases.blueprintGeneration', '生成课程蓝图'),
     blueprint_validation: t('courseTasks.phases.blueprintValidation', '检查课程蓝图'),
     blueprint_ready: t('courseTasks.phases.blueprintReady', '等待确认课程蓝图'),
     content_generation: t('courseTasks.phases.contentGeneration', '生成课程内容'),
+    content_and_course_graph_generation: t('courseTasks.phases.contentAndCourseGraphGeneration', '恢复旧版正文与图谱并行检查点'),
     learning_assets: t('courseTasks.phases.learningAssets', '生成练习与综合测评'),
     question_bank: t('courseTasks.phases.questionBank', '整理题库、联网补充与风险审核'),
-    content_validation: t('courseTasks.phases.contentValidation', '验证题目答案、量规与覆盖'),
-    question_analysis: t('courseTasks.phases.questionAnalysis', '逐题解析实际考查目标'),
+    content_validation: t('courseTasks.phases.contentValidation', '检查结构、引用、答案合同与覆盖'),
+    question_analysis: t('courseTasks.phases.questionAnalysis', '编译题目考查与答案合同'),
     content_ready: t('courseTasks.phases.contentReady', '等待确认课程内容'),
     content_confirmed: t('courseTasks.phases.contentConfirmed', '课程内容已确认'),
-    release_ready: t('courseTasks.phases.releaseReady', '等待确认质量与发布'),
+    release_ready: t('courseTasks.phases.releaseReady', '等待确认发布'),
     release_confirmed: t('courseTasks.phases.releaseConfirmed', '正在发布课程'),
     resuming: t('courseTasks.phases.resuming', '从保存点恢复'),
     recovery_unavailable: t('courseTasks.phases.recoveryUnavailable', '无法恢复原任务'),
-    quality_failed: t('courseTasks.phases.qualityFailed', '质量检查未通过'),
+    quality_failed: t('courseTasks.phases.qualityFailed', '结构检查未通过'),
     conflict: t('courseTasks.phases.conflict', '等待处理版本冲突'),
     completed: t('courseTasks.phases.completed', '课程生成完成'),
   }
@@ -903,7 +746,7 @@ function problemTitle(task: TaskView) {
   if (task.status === 'completed_with_warnings' && task.recovery?.state === 'completed') {
     return t('courseTasks.problem.publishedWarning', '课程已经发布，仍有优化建议')
   }
-  if (task.recovery?.state === 'quality_blocked') return t('courseTasks.problem.qualityBlocked', '内容已生成，但质量检查未通过')
+  if (task.recovery?.state === 'quality_blocked') return t('courseTasks.problem.qualityBlocked', '内容已生成，但结构或引用检查未通过')
   if (task.recovery?.state === 'unavailable') return t('courseTasks.problem.unavailable', '原任务没有可用的恢复点')
   if (task.status === 'error' && restartsCurrentStage(task)) {
     return t('courseTasks.problem.restartStage', '生成中断，可以重试当前阶段')
@@ -916,7 +759,7 @@ function problemHelp(task: TaskView) {
   if (task.status === 'completed_with_warnings' && task.recovery?.state === 'completed') {
     return t('courseTasks.problem.publishedWarningHelp', '课程可以正常学习；这些建议用于后续局部优化，不需要重新生成整门课程。')
   }
-  if (task.recovery?.state === 'quality_blocked') return t('courseTasks.problem.qualityBlockedHelp', '重复生成不会自动修复同一质量问题；请先查看质量结果，再决定局部优化。')
+  if (task.recovery?.state === 'quality_blocked') return t('courseTasks.problem.qualityBlockedHelp', '重复生成不会绕过同一结构错误；请先查看引用、绑定和版本链，再决定局部处理。')
   if (task.recovery?.state === 'unavailable') return t('courseTasks.problem.unavailableHelp', '为避免覆盖现有内容，系统不会盲目重跑这个旧任务。')
   if (task.status === 'error' && restartsCurrentStage(task)) {
     return t('courseTasks.problem.restartStageHelp', '继续后会复用已保存的课程需求和资料处理结果，重新生成课程目录，不会新建重复课程。')
@@ -946,15 +789,34 @@ function resumeActionLabel(task: TaskView) {
 function recoveryCheckpointLabel(task: TaskView) {
   const checkpoint = task.recovery?.checkpoint
   if (!checkpoint) return ''
+  const teachingBatchCompleted = Number(checkpoint.completed_teaching_plan_batches || 0)
+  const teachingBatchTotal = Number(checkpoint.total_teaching_plan_batches || 0)
+  const teachingSectionCompleted = Number(checkpoint.completed_teaching_plan_sections || 0)
+  const teachingSectionTotal = Number(checkpoint.total_teaching_plan_sections || 0)
+  const nextTeachingBatch = Number(checkpoint.next_teaching_plan_batch_index || 0)
   const knowledgeCompleted = Number(checkpoint.completed_knowledge_packages || 0)
   const knowledgeTotal = Number(checkpoint.total_knowledge_packages || 0)
-  if (knowledgeTotal && (knowledgeCompleted || checkpoint.outline_ready) && !checkpoint.completed_nodes) {
-    return t('courseTasks.recovery.knowledgeCheckpoint', '目录已保留，知识包已完成 {completed}/{total}')
+  if (checkpoint.teaching_plan_ready && !checkpoint.completed_nodes) {
+    return t('courseTasks.recovery.teachingPlanCheckpoint', '全课小节教案、知识库与关系图已保留，可直接继续生成正文')
+  }
+  if (teachingBatchTotal && teachingBatchCompleted < teachingBatchTotal) {
+    return t('courseTasks.recovery.teachingPlanBatchCheckpoint', '已保留 {sections}/{totalSections} 个小节教案，可从第 {batch} 批继续；正文尚未开始')
+      .replace('{sections}', String(teachingSectionCompleted))
+      .replace('{totalSections}', String(teachingSectionTotal))
+      .replace('{batch}', String(nextTeachingBatch || teachingBatchCompleted + 1))
+  }
+  if (knowledgeTotal && knowledgeCompleted === knowledgeTotal && !checkpoint.completed_nodes) {
+    return t('courseTasks.recovery.knowledgeCheckpoint', '旧版知识检查点已迁移，覆盖 {completed}/{total} 个小节')
+      .replace('{completed}', String(knowledgeCompleted))
+      .replace('{total}', String(knowledgeTotal))
+  }
+  if (knowledgeTotal && knowledgeCompleted && !checkpoint.completed_nodes) {
+    return t('courseTasks.recovery.legacyKnowledgeCheckpoint', '目录与旧版知识检查点已保留，完成 {completed}/{total}')
       .replace('{completed}', String(knowledgeCompleted))
       .replace('{total}', String(knowledgeTotal))
   }
   if (checkpoint.outline_ready && !checkpoint.total_nodes) {
-    return t('courseTasks.recovery.outlineCheckpoint', '课程目录已保留，可从逐节知识包阶段继续')
+    return t('courseTasks.recovery.outlineCheckpoint', '课程目录已保留，可从全课知识职责阶段继续')
   }
   if (!checkpoint.outline_ready && !checkpoint.total_nodes) {
     return checkpoint.requirements_ready

@@ -12,6 +12,7 @@ from typing import Any
 
 from course_document import CourseBlock, CourseDocument, stable_hash
 from course_revisions import revision_vector_for_document
+from diagram_spec import DIAGRAM_COMPILER_VERSION, compile_diagram_spec, validate_diagram_spec
 from slide_deck import (
     SLIDE_DECK_COMPILER_VERSION,
     SlideDeckPlanV1,
@@ -28,8 +29,9 @@ from teaching_representations import (
     source_binding_for_document,
 )
 
-REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v3"
-CORE_TYPES = ("outline", "lesson_plan", "handout", "practice_sheet", "slide_deck")
+REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v4"
+HANDOUT_COMPILER_VERSION = "block_units_v1"
+CORE_TYPES = ("outline", "lesson_plan", "handout", "practice_sheet", "slide_deck", "diagram")
 
 
 def compile_core_representations(
@@ -41,6 +43,7 @@ def compile_core_representations(
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] | None = None,
     baseline_registry: Any | None = None,
     deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
+    resume_slides: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     vector = revision_vector_for_document(document).revisions
@@ -92,7 +95,9 @@ def compile_core_representations(
             progress_callback=progress_callback,
             presentation_overrides=presentation_overrides,
             deck_plan=deck_plan,
+            resume_slides=resume_slides,
         ),
+        "diagram": compile_diagram_spec(document),
     }
     built: list[dict[str, Any]] = []
     for representation_type, payload in payloads.items():
@@ -124,9 +129,11 @@ def compile_core_representations(
         payload_quality = (
             validate_slide_deck(payload, course_data=course_data)
             if representation_type == "slide_deck"
+            else validate_diagram_spec(payload)
+            if representation_type == "diagram"
             else {"passed": bool(unit_count), "issues": []}
         )
-        if representation_type == "slide_deck":
+        if representation_type in {"slide_deck", "diagram"}:
             payload["quality_report"] = deepcopy(payload_quality)
         spec_payload = {
             "compiler_version": compiler_version,
@@ -134,7 +141,7 @@ def compile_core_representations(
             "content": payload,
             **(
                 {"quality_report": deepcopy(payload_quality)}
-                if representation_type == "slide_deck"
+                if representation_type in {"slide_deck", "diagram"}
                 else {}
             ),
         }
@@ -207,10 +214,15 @@ def compile_core_representations(
             "spec_id": spec_id,
             "status": representation_status,
             "unit_count": unit_count,
-            "rebuilt_unit_ids": list(
-                existing.stale_unit_ids
-                if existing
-                else []
+            "rebuilt_unit_ids": sorted(
+                str(item.get("unit_id") or "")
+                for item in (
+                    payload.get("units")
+                    or payload.get("slides")
+                    or payload.get("sections")
+                    or []
+                )
+                if item.get("unit_id") and str(item.get("unit_id")) not in set(reused_unit_ids)
             ),
             "reused_unit_ids": reused_unit_ids,
         })
@@ -226,6 +238,10 @@ def compile_core_representations(
 def _compiler_version_for(representation_type: str) -> str:
     if representation_type == "slide_deck":
         return f"{REPRESENTATION_COMPILER_VERSION}:{SLIDE_DECK_COMPILER_VERSION}"
+    if representation_type == "diagram":
+        return f"{REPRESENTATION_COMPILER_VERSION}:{DIAGRAM_COMPILER_VERSION}"
+    if representation_type == "handout":
+        return f"{REPRESENTATION_COMPILER_VERSION}:{HANDOUT_COMPILER_VERSION}"
     return REPRESENTATION_COMPILER_VERSION
 
 
@@ -236,6 +252,7 @@ def rebuild_core_representations_safely(
     *,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
+    resume_slides: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Compile in isolation and publish only a complete, quality-passing set.
 
@@ -268,6 +285,7 @@ def rebuild_core_representations_safely(
                 presentation_overrides=presentation_overrides,
                 baseline_registry=previous,
                 deck_plan=deck_plan,
+                resume_slides=resume_slides,
             )
             candidate = shadow.load(document.course_id)
             current_spec_ids = {item.spec_id for item in candidate.representations}
@@ -408,10 +426,104 @@ def validate_compiled_representations(specs: list[TeachingRepresentationSpec]) -
         if spec.representation_type == "slide_deck":
             slide_report = validate_slide_deck(content)
             issues.extend({**issue, "representation_type": "slide_deck"} for issue in slide_report["issues"])
+        if spec.representation_type == "diagram":
+            diagram_report = validate_diagram_spec(content)
+            issues.extend({**issue, "representation_type": "diagram"} for issue in diagram_report["issues"])
+    cross_product = _validate_cross_product_consistency(specs)
+    issues.extend(cross_product["issues"])
     return {
         "passed": not any(issue["severity"] == "critical" for issue in issues),
         "issues": issues,
         "representation_count": len(specs),
+        "cross_product": cross_product,
+    }
+
+
+def _validate_cross_product_consistency(
+    specs: list[TeachingRepresentationSpec],
+) -> dict[str, Any]:
+    """Verify every section keeps one objective and compatible knowledge refs."""
+    profiles: dict[str, dict[str, dict[str, set[str]]]] = {}
+    for spec in specs:
+        content = spec.payload.get("content") or {}
+        units = content.get("units") or content.get("slides") or content.get("sections") or []
+        for unit in units:
+            unit_id = str(unit.get("unit_id") or "")
+            bindings = spec.unit_bindings.get(unit_id) or []
+            section_id = str(unit.get("section_id") or "")
+            if not section_id:
+                continue
+            profile = profiles.setdefault(section_id, {}).setdefault(
+                spec.representation_type,
+                {"objectives": set(), "knowledge": set(), "practices": set()},
+            )
+            profile["knowledge"].update(str(value) for value in unit.get("knowledge_refs") or [] if value)
+            for binding in bindings:
+                profile["objectives"].update(
+                    key for key in binding.source_revisions if key.startswith("objective:")
+                )
+                profile["knowledge"].update(binding.knowledge_node_ids)
+                profile["practices"].update(binding.practice_task_ids)
+
+    issues: list[dict[str, Any]] = []
+    # The slide deck is a demo-sized projection: ``compile_slide_deck`` caps a
+    # course at 12-18 pages, so a large course intentionally teaches only a
+    # subset of sections on slides. Requiring per-section slide coverage would
+    # contradict that compression, so it is reported as a warning instead.
+    required_section_types = {"lesson_plan", "handout", "practice_sheet", "diagram"}
+    compressible_section_types = {"slide_deck"}
+    checked_sections = 0
+    for section_id, by_type in profiles.items():
+        if "lesson_plan" not in by_type:
+            continue
+        checked_sections += 1
+        missing = sorted(required_section_types - set(by_type))
+        if missing:
+            issues.append({
+                "severity": "critical",
+                "code": "cross_product_section_missing",
+                "target": section_id,
+                "missing_representations": missing,
+            })
+        compressed = sorted(compressible_section_types - set(by_type))
+        if compressed:
+            issues.append({
+                "severity": "warning",
+                "code": "cross_product_section_compressed",
+                "target": section_id,
+                "missing_representations": compressed,
+            })
+        objective_sets = {
+            tuple(sorted(profile["objectives"]))
+            for profile in by_type.values()
+            if profile["objectives"]
+        }
+        if len(objective_sets) > 1:
+            issues.append({
+                "severity": "critical",
+                "code": "cross_product_objective_mismatch",
+                "target": section_id,
+                "objective_sets": [list(value) for value in sorted(objective_sets)],
+            })
+        knowledge_sets = {
+            representation_type: profile["knowledge"]
+            for representation_type, profile in by_type.items()
+            if profile["knowledge"]
+        }
+        if knowledge_sets:
+            canonical = set().union(*knowledge_sets.values())
+            for representation_type, values in knowledge_sets.items():
+                if values != canonical:
+                    issues.append({
+                        "severity": "warning",
+                        "code": "cross_product_partial_knowledge",
+                        "target": f"{section_id}:{representation_type}",
+                        "missing_knowledge_refs": sorted(canonical - values),
+                    })
+    return {
+        "passed": not any(item["severity"] == "critical" for item in issues),
+        "issues": issues,
+        "checked_section_count": checked_sections,
     }
 
 
@@ -424,9 +536,10 @@ def _reuse_unchanged_units(
 ) -> tuple[dict[str, Any], list[str]]:
     """Publish changed units while preserving byte-identical unaffected units.
 
-    A full candidate is still compiled and quality-checked in isolation. Reuse
-    is allowed only when the unit topology is unchanged, so structural edits
-    fall back to the complete candidate instead of hiding additions/removals.
+    A full candidate is still compiled and quality-checked in isolation. When
+    topology changes, stable units may still be reused only if the newly
+    compiled value is exactly equal to the previous value. This preserves
+    positions and bindings while making additions observable as new units.
     """
     candidate_key = next(
         (key for key in ("units", "slides", "sections") if isinstance(candidate.get(key), list)),
@@ -446,12 +559,20 @@ def _reuse_unchanged_units(
         for item in previous_units
         if item.get("unit_id")
     }
-    if not all(candidate_ids) or set(candidate_ids) != set(previous_by_id):
+    if not all(candidate_ids):
         return candidate, []
+    topology_unchanged = set(candidate_ids) == set(previous_by_id)
     stale = set(stale_unit_ids)
-    if not reuse_all and not stale:
+    if not reuse_all and not stale and topology_unchanged:
         return candidate, []
-    reusable = set(candidate_ids) if reuse_all else set(candidate_ids) - stale
+    candidates = set(candidate_ids) & set(previous_by_id)
+    if not reuse_all:
+        candidates -= stale
+    reusable = {
+        unit_id
+        for unit_id, item in zip(candidate_ids, candidate_units, strict=True)
+        if unit_id in candidates and previous_by_id[unit_id] == item
+    }
     merged = deepcopy(candidate)
     merged[candidate_key] = [
         deepcopy(previous_by_id[unit_id]) if unit_id in reusable else item
@@ -533,6 +654,7 @@ def _first_visible_unit_change(
         "lesson_plan": ("teaching_focus", "learning_objective", "activities"),
         "handout": ("learning_prompt", "learning_objective"),
         "practice_sheet": ("prompt",),
+        "diagram": ("nodes", "mermaid", "title"),
         "slide_deck": ("key_message", "speaker_notes", "blocks"),
     }
     for field in fields_by_type.get(representation_type, ("title", "content")):
@@ -584,6 +706,7 @@ def _change_unit_label(
         "lesson_plan": "教案重点",
         "handout": "讲义解释",
         "practice_sheet": "理解检查",
+        "diagram": "知识图解",
         "slide_deck": {
             "learning_objective": "PPT 学习目标",
             "concept_and_reasoning": "PPT 核心讲解",
@@ -678,34 +801,53 @@ def _handout_spec(document: CourseDocument) -> dict[str, Any]:
     blocks_by_section = _blocks_by_section(document)
     units = []
     for section in _learning_sections(document):
-        blocks = blocks_by_section.get(section.section_id, [])
-        units.append({
-            "unit_id": f"handout:{section.section_id}",
-            "section_id": section.section_id,
-            "title": section.title,
-            "learning_objective": section.learning_objective,
-            "learning_prompt": _objective_learning_prompt(
-                section.learning_objective or section.title,
-            ),
-            "source_section_ids": [section.section_id],
-            "source_block_ids": [block.block_id for block in blocks],
-            "source_keys": (
-                [f"objective:{section.objective_id}"]
-                if section.objective_id
-                else []
-            ),
-            "knowledge_refs": _knowledge_refs_for_blocks(blocks),
-            "blocks": [
-                {
+        blocks = [
+            block for block in blocks_by_section.get(section.section_id, [])
+            if block.status != "retired"
+        ]
+        for block in blocks:
+            # A single-block legacy handout used ``handout:<section_id>``. Keep
+            # that identifier so stored specs, presentation edits and API
+            # callers remain valid. Multi-block sections use the authoritative
+            # block id, which makes additions/reordering independent of text.
+            unit_id = (
+                f"handout:{section.section_id}"
+                if len(blocks) == 1
+                else f"handout:{section.section_id}:block:{block.block_id}"
+            )
+            units.append({
+                "unit_id": unit_id,
+                "section_id": section.section_id,
+                "block_id": block.block_id,
+                "title": str(block.payload.get("title") or section.title),
+                "section_title": section.title,
+                "block_role": block.role,
+                "learning_objective": section.learning_objective,
+                "learning_prompt": _objective_learning_prompt(
+                    section.learning_objective or section.title,
+                ),
+                # Do not bind the aggregate section revision here: it includes
+                # every sibling block and would turn a paragraph edit back into
+                # a whole-section rebuild. section_structure tracks title,
+                # order and objective without depending on sibling contents.
+                "source_block_ids": [block.block_id],
+                "source_keys": _unique([
+                    f"section_structure:{section.section_id}",
+                    *(
+                        [f"objective:{section.objective_id}"]
+                        if section.objective_id
+                        else []
+                    ),
+                ]),
+                "knowledge_refs": list(block.concept_refs),
+                "blocks": [{
                     "block_id": block.block_id,
                     "role": block.role,
                     "title": str(block.payload.get("title") or ""),
                     "markdown": str(block.payload.get("markdown") or block.payload.get("text") or ""),
                     "knowledge_refs": list(block.concept_refs),
-                }
-                for block in blocks if block.status != "retired"
-            ],
-        })
+                }],
+            })
     return {"title": f"{document.title} 讲义", "units": units}
 
 
@@ -790,6 +932,7 @@ def _unit_bindings_for_payload(
             block = blocks_by_id.get(str(block_id))
             bindings.append(source_binding_for_document(
                 document,
+                section_id=str(unit.get("section_id") or "") or None,
                 block_id=str(block_id),
                 knowledge_node_ids=list(block.concept_refs) if block else [],
                 learning_objective_ids=objective_ids,

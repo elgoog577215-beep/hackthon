@@ -20,7 +20,10 @@ from course_knowledge_map import (
 from course_pedagogy import coerce_persisted_profile
 from course_versioning import stable_hash
 from learning_progress import learning_objective_identity
-from practice_analysis import build_assessment_intent
+from practice_analysis import (
+    build_assessment_intent,
+    compile_question_analysis_from_contract,
+)
 from practice_contracts import enrich_question_contract
 from question_bank import (
     approved_formal_tasks,
@@ -192,7 +195,6 @@ def compile_learning_assets(
 
     for node in nodes:
         node_id = str(node.get("node_id") or "")
-        node_name = str(node.get("node_name") or node_id)
         objective = learning_objective_identity(course_id, node)
         local_binding = knowledge_binding_for_section(course_knowledge_base, node_id)
         local_point_ids = local_binding["course_knowledge_refs"]
@@ -207,7 +209,10 @@ def compile_learning_assets(
         candidate_mistake_ids = list(local_binding["course_misconception_refs"])
         improvement_point_ids: list[str] = []
         node_questions: list[dict[str, Any]] = []
-        for practice_level in ("concept_check", "objective_practice", "mastery_check"):
+        for level_index, practice_level in enumerate(
+            ("concept_check", "objective_practice", "mastery_check"),
+            start=1,
+        ):
             bank_item = bank_practice_items.get((node_id, practice_level))
             question_point_ids = _question_knowledge_scope(local_point_ids, practice_level)
             question_point_names = [
@@ -225,7 +230,30 @@ def compile_learning_assets(
                 for item in course_knowledge_base.get("misconceptions") or []
                 if item.get("primary_knowledge_id") in question_point_ids
             ])
-            level_question_type = "short_answer" if practice_level == "concept_check" else question_type
+            generated_contract: dict[str, Any] | None = None
+            if not bank_item:
+                scoped_node = {
+                    **deepcopy(node),
+                    "key_points": (
+                        question_point_names
+                        or deepcopy(node.get("key_points") or [])
+                    ),
+                }
+                generated_contract = generate_question_contract(
+                    course_data,
+                    scoped_node,
+                    practice_level,
+                    level_index,
+                )
+            contract_source = bank_item or generated_contract or {}
+            level_question_type = (
+                str(contract_source.get("question_type") or "")
+                or (
+                    "short_answer"
+                    if practice_level == "concept_check"
+                    else question_type
+                )
+            )
             question_id = stable_hash(
                 {"course": course_id, "node": node_id, "kind": practice_level},
                 prefix="q_",
@@ -255,26 +283,10 @@ def compile_learning_assets(
                     else "focused_knowledge_check"
                 ),
                 "question_type": level_question_type,
-                "prompt": (
-                    str(bank_item.get("prompt") or "")
-                    if bank_item
-                    else _practice_prompt(
-                        practice_level,
-                        level_question_type,
-                        node_name,
-                        node,
-                        question_point_names,
-                    )
-                ),
-                "answer_spec": (
-                    deepcopy(bank_item.get("answer_spec") or {})
-                    if bank_item
-                    else _practice_answer_spec(
-                        practice_level,
-                        node_name,
-                        node,
-                        question_point_names,
-                    )
+                "options": deepcopy(contract_source.get("options") or []),
+                "prompt": str(contract_source.get("prompt") or ""),
+                "answer_spec": deepcopy(
+                    contract_source.get("answer_spec") or {}
                 ),
                 "difficulty_contract": deepcopy(node.get("difficulty_contract") or {}),
                 "evidence_ids": evidence_ids,
@@ -291,17 +303,39 @@ def compile_learning_assets(
                     else None
                 ),
                 "source_type": bank_item.get("source_type") if bank_item else "generated",
-                "source_records": deepcopy(bank_item.get("source_records") or []) if bank_item else [],
+                "source_records": deepcopy(
+                    contract_source.get("source_records") or []
+                ),
             }
+            question["hint_contract"] = deepcopy(
+                contract_source.get("hint_contract") or {}
+            )
+            question.update({
+                "deliverable": str(contract_source.get("deliverable") or ""),
+                "input_materials": deepcopy(
+                    contract_source.get("input_materials") or []
+                ),
+                "constraints": deepcopy(
+                    contract_source.get("constraints") or []
+                ),
+                "result_checks": deepcopy(
+                    contract_source.get("result_checks") or []
+                ),
+                "question_spec": deepcopy(
+                    contract_source.get("question_spec") or {}
+                ),
+                "domain_validation": deepcopy(
+                    contract_source.get("domain_validation") or {}
+                ),
+                "risk_flags": deepcopy(
+                    contract_source.get("risk_flags") or []
+                ),
+                "review_required": bool(
+                    contract_source.get("review_required")
+                ),
+            })
             if bank_item:
-                question["hint_contract"] = deepcopy(bank_item.get("hint_contract") or {})
                 question.update({
-                    "deliverable": str(bank_item.get("deliverable") or ""),
-                    "input_materials": deepcopy(bank_item.get("input_materials") or []),
-                    "constraints": deepcopy(bank_item.get("constraints") or []),
-                    "result_checks": deepcopy(bank_item.get("result_checks") or []),
-                    "question_spec": deepcopy(bank_item.get("question_spec") or {}),
-                    "domain_validation": deepcopy(bank_item.get("domain_validation") or {}),
                     "quality_report": deepcopy(bank_item.get("quality_report") or {}),
                     "quality_status": str(
                         (bank_item.get("quality_report") or {}).get("status")
@@ -311,6 +345,13 @@ def compile_learning_assets(
                 })
             question = enrich_question_contract(question, practice_level=practice_level)
             _attach_assessment_intent(question, course_knowledge_base)
+            if not bank_item:
+                question["quality_report"] = (
+                    _evaluate_generated_task_quality(question)
+                )
+                question["quality_status"] = question[
+                    "quality_report"
+                ]["status"]
             question["revision_id"] = _revision_id(question, "qr_")
             node_questions.append(question)
         if "questions" in enabled:
@@ -325,14 +366,23 @@ def compile_learning_assets(
             course_data, course_id, node, objective, key_points, concept_ids, skill_unit_ids,
             candidate_mistake_ids, improvement_point_ids, course_knowledge_base,
         ))
-        validation_questions.extend([
-            _build_validation_question(
+        reserved_prompts = {
+            _question_prompt_identity(question)
+            for question in node_questions
+        }
+        for index in (1, 2):
+            validation_question = _build_validation_question(
                 course_data, course_id, node, objective, key_points, concept_ids, skill_unit_ids,
                 candidate_mistake_ids, question_type, variant=index,
                 course_knowledge_base=course_knowledge_base,
+                reserved_prompts=reserved_prompts,
             )
-            for index in (1, 2)
-        ])
+            if validation_question is None:
+                continue
+            validation_questions.append(validation_question)
+            reserved_prompts.add(
+                _question_prompt_identity(validation_question)
+            )
 
         criterion_id = stable_hash({"course": course_id, "node": node_id, "criterion": 1}, prefix="mc_")
         criterion = {
@@ -462,8 +512,10 @@ def compile_learning_assets(
     _attach_course_knowledge_refs_to_blocks(course_data, course_knowledge_base)
     _attach_course_knowledge_refs(assets, course_knowledge_base)
     for _, assessment_item in assessment_assets(assets):
-        if not assessment_item.get("assessment_intent"):
-            _attach_assessment_intent(assessment_item, course_knowledge_base)
+        _attach_assessment_intent(
+            assessment_item,
+            course_knowledge_base,
+        )
     if "course_knowledge_base" in enabled:
         assets["course_knowledge_base"] = [course_knowledge_base]
     knowledge_view = build_course_knowledge_library_view(
@@ -629,7 +681,7 @@ def evaluate_learning_asset_quality(
                     "semantic",
                     "critical",
                     asset_type,
-                    "题目尚未通过独立解析、同源映射与可评判性检查",
+                    "题目合同尚未通过同源映射与可判定性检查",
                     question,
                 ))
 
@@ -748,7 +800,7 @@ def evaluate_learning_asset_quality(
                 "semantic",
                 "critical",
                 "final_assessment",
-                "综合测评任务未通过与普通题一致的质量检查",
+                "综合测评任务未通过与普通题一致的结构和答案合同检查",
                 task,
             ))
         if task.get("review_status") != "approved":
@@ -876,56 +928,6 @@ def evaluate_learning_asset_quality(
     return report
 
 
-def _practice_prompt(
-    practice_level: str,
-    question_type: str,
-    node_name: str,
-    node: dict[str, Any],
-    knowledge_names: list[str] | None = None,
-) -> str:
-    knowledge_names = knowledge_names or []
-    if practice_level == "concept_check":
-        key_point = next(iter(knowledge_names), node_name)
-        return f"用自己的话说明“{key_point}”的含义，并指出它在“{node_name}”中成立或适用的关键条件。"
-    if practice_level == "objective_practice":
-        focus = "、".join(knowledge_names) or node_name
-        return f"在一个不同于正文示例的新情境中应用“{focus}”，说明选择方法的依据、执行过程和结果检查。"
-    return _question_prompt(question_type, node_name, node)
-
-
-def _practice_answer_spec(
-    practice_level: str,
-    node_name: str,
-    node: dict[str, Any],
-    key_points: list[str],
-) -> dict[str, Any]:
-    focus = key_points[0] if key_points else node_name
-    if practice_level == "concept_check":
-        criteria = [
-            f"准确说明“{focus}”的核心含义",
-            "指出成立条件、适用边界或关键前提",
-            "表达清楚且不混淆相近概念",
-        ]
-        expected = [focus, *key_points[1:3]]
-    elif practice_level == "objective_practice":
-        criteria = [
-            f"在新情境中正确应用“{node_name}”并说明方法依据",
-            "给出可检查的执行过程或推理过程",
-            "检查结果并说明条件或局限",
-        ]
-        expected = key_points[:6]
-    else:
-        criteria = _assessment_items(node)
-        expected = key_points[:6]
-    return {
-        "type": "rubric",
-        "expected_keywords": list(dict.fromkeys(expected)),
-        "criteria": criteria,
-        "max_score": 100,
-        "pass_score": 70,
-    }
-
-
 def assessment_assets(
     assets: dict[str, list[dict[str, Any]]],
 ) -> list[tuple[str, dict[str, Any]]]:
@@ -993,6 +995,9 @@ def _attach_assessment_intent(
     question["assessment_intent_revision_id"] = question[
         "assessment_intent"
     ]["revision_id"]
+    question["question_analysis"] = (
+        compile_question_analysis_from_contract(question)
+    )
 
 
 def _question_knowledge_scope(
@@ -1005,24 +1010,6 @@ def _question_knowledge_scope(
     if practice_level == "objective_practice":
         return point_ids[:2]
     return list(point_ids)
-
-
-def _question_prompt(question_type: str, node_name: str, node: dict[str, Any]) -> str:
-    tasks = _assessment_items(node)
-    task = tasks[0] if len(tasks) == 1 else "；".join(
-        f"（{index}）{item}" for index, item in enumerate(tasks, start=1)
-    )
-    templates = {
-        "worked_solution": f"围绕“{node_name}”完成推导或求解，并逐步说明依据、条件和结果检查。任务：{task}",
-        "implementation_task": f"围绕“{node_name}”完成一个可运行实现，说明输入、输出、关键机制和验证方法。任务：{task}",
-        "evidence_analysis": f"围绕“{node_name}”区分观察、模型与结论，并用证据说明适用边界。任务：{task}",
-        "mechanism_explanation": f"围绕“{node_name}”按结构、功能和机制解释过程，并指出正常边界。任务：{task}",
-        "source_argument": f"围绕“{node_name}”形成一个有材料依据的论证，说明观点、证据和可能异议。任务：{task}",
-        "language_production": f"在“{node_name}”对应的真实语境中完成表达，确保意义准确、用法得体。任务：{task}",
-        "scenario_deliverable": f"在“{node_name}”对应的工作场景中提交可检查成果，说明约束、取舍和指标。任务：{task}",
-        "short_answer": f"解释“{node_name}”的核心概念，并用一个新情境说明如何判断或应用。任务：{task}",
-    }
-    return templates[question_type]
 
 
 def _assessment_items(node: dict[str, Any]) -> list[str]:
@@ -1219,13 +1206,29 @@ def _build_validation_question(
     *,
     variant: int,
     course_knowledge_base: dict[str, Any],
-) -> dict[str, Any]:
-    contract = generate_question_contract(
-        course_data,
-        node,
-        "mastery_check",
-        10 + variant,
-    )
+    reserved_prompts: set[str] | None = None,
+) -> dict[str, Any] | None:
+    reserved = set(reserved_prompts or set())
+    contract: dict[str, Any] | None = None
+    generator_variant_index = 0
+    for offset in range(64):
+        generator_variant_index = (
+            10 + (variant - 1) * 64 + offset
+        )
+        candidate = generate_question_contract(
+            course_data,
+            node,
+            "mastery_check",
+            generator_variant_index,
+        )
+        if _question_prompt_identity(candidate) not in reserved:
+            contract = candidate
+            break
+    if contract is None:
+        # An unsupported or finite adapter must not fake an unseen mastery
+        # check by relabeling a shown question. Keep the optional held-out
+        # asset absent; the formal question remains review-gated.
+        return None
     item = {
         "asset_id": stable_hash({"course": course_id, "node": node.get("node_id"), "kind": "validation", "variant": variant}, prefix="rvq_"),
         "node_id": node.get("node_id"),
@@ -1240,6 +1243,7 @@ def _build_validation_question(
         "answer_spec": deepcopy(contract["answer_spec"]),
         "practice_level": "remediation_validation",
         "validation_variant": variant,
+        "generator_variant_index": generator_variant_index,
         "source_status": "course_structure",
         "source_type": "generated",
         "source_records": deepcopy(contract.get("source_records") or []),
@@ -1257,10 +1261,17 @@ def _build_validation_question(
     }
     item = enrich_question_contract(item, practice_level="remediation_validation")
     _attach_assessment_intent(item, course_knowledge_base)
-    item["quality_report"] = _evaluate_generated_task_quality(item)
+    item["quality_report"] = _evaluate_generated_task_quality(
+        item,
+        previously_shown_prompts=reserved,
+    )
     item["quality_status"] = item["quality_report"]["status"]
     item["revision_id"] = _revision_id(item, "rvtr_")
     return item
+
+
+def _question_prompt_identity(task: dict[str, Any]) -> str:
+    return " ".join(str(task.get("prompt") or "").split())
 
 
 def _build_chapter_progression_contracts(

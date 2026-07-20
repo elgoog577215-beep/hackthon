@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent } from 'vue'
 import CourseLibraryView from '@/views/CourseLibraryView.vue'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
@@ -12,6 +13,12 @@ const router = createRouter({
     { path: '/courses', name: 'course-library', component: CourseLibraryView },
     { path: '/course/:courseId/learn', name: 'learning', component: { template: '<div />' } },
   ],
+})
+
+const GenerationDialogStub = defineComponent({
+  props: { modelValue: Boolean, busy: Boolean },
+  emits: ['generate', 'update:modelValue'],
+  template: '<button v-if="modelValue" class="generate-now" @click="$emit(\'generate\', { subject: \'微积分\', options: {} })">generate</button>',
 })
 
 describe('CourseLibraryView generation lifecycle', () => {
@@ -89,5 +96,40 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(reviewCenter.props('courseId')).toBe('course-review')
     const taskCenter = wrapper.getComponent({ name: 'CourseTaskCenter' })
     expect(taskCenter.props('modelValue')).toBe(false)
+  })
+
+  it('新建课程后直接进入同一门课程的生成现场', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(courses, 'generateCourse').mockResolvedValue({
+      jobId: 'job-live',
+      courseId: 'course-live',
+      courseName: '微积分',
+    })
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: GenerationDialogStub,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('.library-actions .primary-button').trigger('click')
+    await wrapper.get('.generate-now').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('learning')
+    expect(router.currentRoute.value.params.courseId).toBe('course-live')
+    expect(wrapper.findComponent({ name: 'CourseTaskCenter' }).props('modelValue')).toBe(false)
   })
 })

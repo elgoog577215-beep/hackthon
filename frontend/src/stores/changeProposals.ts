@@ -143,6 +143,7 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
             expected_block_revision: input.expectedBlockRevision,
             direction: input.direction,
             feedback: input.feedback,
+            scope_selection: input.scopeSelection || 'current_block',
           },
         )
         const proposal = response.data as ChangeProposal

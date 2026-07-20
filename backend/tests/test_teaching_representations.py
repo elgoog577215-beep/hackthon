@@ -352,7 +352,7 @@ def test_compiler_builds_five_bound_representations_and_exports_pptx(tmp_path):
     specs = [item for item in registry.specs if item.spec_id in current_spec_ids]
 
     assert {item.representation_type for item in registry.representations} == set(CORE_TYPES)
-    assert len(result["representations"]) == 5
+    assert len(result["representations"]) == len(CORE_TYPES)
     assert all(spec.unit_bindings for spec in specs)
     assert validate_compiled_representations(specs)["passed"] is True
     assert set(registry.plans[0].knowledge_refs) == {
@@ -376,6 +376,13 @@ def test_compiler_builds_five_bound_representations_and_exports_pptx(tmp_path):
         )
     practice = next(spec for spec in specs if spec.representation_type == "practice_sheet")
     assert practice.payload["content"]["units"][0]["practice_task_id"] == "question-a"
+
+    diagram = next(spec for spec in specs if spec.representation_type == "diagram")
+    diagram_content = diagram.payload["content"]
+    assert diagram_content["schema_version"] == "diagram_spec_v1"
+    assert diagram_content["quality_report"]["passed"] is True
+    assert all(unit["mermaid"].startswith("flowchart LR") for unit in diagram_content["units"])
+    assert all(unit["nodes"] and unit["source_block_ids"] for unit in diagram_content["units"])
 
     slides = next(spec for spec in specs if spec.representation_type == "slide_deck")
     slide_content = slides.payload["content"]
@@ -442,6 +449,29 @@ def test_slide_quality_gate_rejects_raw_course_copy_and_markdown(tmp_path):
     assert {"raw_markdown_leaked", "raw_latex_leaked", "paragraph_copy_detected"} <= codes
 
 
+def test_cross_product_quality_rejects_objective_drift(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    compile_core_representations(document, course_data_with_practice(), repository)
+    registry = repository.load(document.course_id)
+    current_ids = {item.spec_id for item in registry.representations}
+    specs = [deepcopy(item) for item in registry.specs if item.spec_id in current_ids]
+    handout = next(item for item in specs if item.representation_type == "handout")
+    binding = next(
+        item for item in handout.unit_bindings["handout:section-a"]
+        if "objective:objective-a" in item.source_revisions
+    )
+    objective_revision = binding.source_revisions.pop("objective:objective-a")
+    binding.source_revisions["objective:objective-drifted"] = objective_revision
+
+    report = validate_compiled_representations(specs)
+
+    assert report["passed"] is False
+    assert any(
+        issue["code"] == "cross_product_objective_mismatch"
+        and issue["target"] == "section-a"
+        for issue in report["issues"]
+    )
 def test_plain_text_converts_common_latex_into_classroom_readable_math():
     converted = _plain_text(
         r"$3 \times 3$；$\mathbf{x} \in \mathbb{R}^3$；"
@@ -825,7 +855,7 @@ def test_objective_edit_updates_course_truth_and_reuses_unaffected_representatio
         for item in receipt["changes"]
         if any(unit["change_kind"] == "content_changed" for unit in item["units"])
     }
-    assert {"outline", "lesson_plan", "handout", "practice_sheet", "slide_deck"} <= changed_types
+    assert {"outline", "lesson_plan", "handout", "practice_sheet", "slide_deck", "diagram"} <= changed_types
     lesson_change = next(
         unit
         for item in receipt["changes"]
@@ -1098,3 +1128,256 @@ async def test_compile_registry_reconciles_before_reusing_units(tmp_path, monkey
     handout_spec = next(item for item in registry.specs if item.spec_id == handout.spec_id)
     assert marker in str(handout_spec.payload)
     assert handout.status == "ready"
+
+
+@pytest.mark.asyncio
+async def test_durable_representation_task_builds_and_recovers_after_restart(tmp_path, monkeypatch):
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = legacy_course()
+    document = document_from_legacy_course(course)
+    storage = MemoryStorage({
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_revision": document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+        "learning_assets": course_data_with_practice()["learning_assets"],
+    })
+    document_repository = CourseDocumentRepository(storage)
+    representation_repository = TeachingRepresentationRepository(tmp_path / "representations")
+    tasks_file = tmp_path / "generation_jobs.json"
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tasks_file)
+    monkeypatch.setattr(
+        task_manager_module,
+        "teaching_representation_repository",
+        representation_repository,
+    )
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=document_repository,
+    )
+    task_id = await manager.create_task(
+        "course-1", "teaching_representation_build", enqueue=False,
+    )
+
+    await manager._process_task(task_id)
+
+    completed = manager.get_task(task_id)
+    assert completed["status"] == "completed"
+    assert set(completed["completed_representation_types"]) == set(CORE_TYPES)
+    assert completed["recovery"]["state"] == "completed"
+    assert any(item["event"] == "slide_upsert" for item in completed["event_history"])
+
+    interrupted_id = await manager.create_task(
+        "course-1", "teaching_representation_build", enqueue=False,
+    )
+    manager.tasks[interrupted_id]["status"] = "running"
+    manager.tasks[interrupted_id]["progress"] = 42
+    manager.save_tasks(strict=True)
+    restarted = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=document_repository,
+    )
+    assert await restarted._reconcile_task_after_restart(interrupted_id) is True
+    assert restarted.tasks[interrupted_id]["status"] == "pending"
+    assert restarted.tasks[interrupted_id]["restart_recovery_count"] == 1
+    await restarted.pause_task(interrupted_id)
+    resumed = await restarted.resume_task(interrupted_id)
+    assert resumed["status"] == "resumed"
+    assert restarted.tasks[interrupted_id]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_representation_restart_reuses_persisted_plan_and_slide_savepoint(tmp_path, monkeypatch):
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = legacy_course()
+    document = document_from_legacy_course(course)
+    storage = MemoryStorage({
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_revision": document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+        "learning_assets": course_data_with_practice()["learning_assets"],
+    })
+    repository = TeachingRepresentationRepository(tmp_path / "representations")
+    tasks_file = tmp_path / "generation_jobs.json"
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tasks_file)
+    monkeypatch.setattr(task_manager_module, "teaching_representation_repository", repository)
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        "course-1", "teaching_representation_build", enqueue=False,
+    )
+    plan = await task_manager_module.plan_slide_deck(document, storage.load_course("course-1"))
+    saved_slide = {
+        "unit_id": "slide:title",
+        "position": 0,
+        "layout": "cover",
+        "slide_purpose": "orientation",
+        "title": "已保存封面",
+    }
+    manager.tasks[task_id].update({
+        "status": "running",
+        "representation_source_document_revision": document.document_revision,
+        "representation_deck_plan": plan.model_dump(mode="json"),
+        "event_history": [{"event": "slide_upsert", "sequence": 1, "slide": saved_slide}],
+        "event_sequence": 1,
+    })
+    manager.save_tasks(strict=True)
+
+    restarted = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    await restarted._reconcile_task_after_restart(task_id)
+
+    async def unexpected_plan(*_args, **_kwargs):
+        raise AssertionError("resume must not plan the deck again")
+
+    captured: dict[str, object] = {}
+
+    def successful_resume(*_args, **kwargs):
+        captured.update(kwargs)
+        return {"status": "synchronized", "quality": {"passed": True, "issues": []}}
+
+    monkeypatch.setattr(task_manager_module, "plan_slide_deck", unexpected_plan)
+    monkeypatch.setattr(task_manager_module, "rebuild_core_representations_safely", successful_resume)
+
+    await restarted._process_task(task_id)
+
+    assert captured["deck_plan"].model_dump(mode="json") == plan.model_dump(mode="json")
+    assert captured["resume_slides"] == [saved_slide]
+    assert restarted.tasks[task_id]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_build_is_not_overwritten_as_failed_by_the_late_worker(
+    tmp_path, monkeypatch,
+):
+    """Cancelling a running build must survive the worker's own late exception.
+
+    Cancellation makes the in-flight progress callback raise an ordinary
+    ``RuntimeError``. ``_run_job``'s generic exception handler used to write
+    ``failed`` unconditionally, so a user's deliberate cancel was reported back
+    to them as a build error.
+    """
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = legacy_course()
+    document = document_from_legacy_course(course)
+    storage = MemoryStorage({
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_revision": document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+        "learning_assets": course_data_with_practice()["learning_assets"],
+    })
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "generation_jobs.json")
+    monkeypatch.setattr(
+        task_manager_module,
+        "teaching_representation_repository",
+        TeachingRepresentationRepository(tmp_path / "representations"),
+    )
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        "course-1", "teaching_representation_build", enqueue=False,
+    )
+
+    # Cancel the task the moment the first page is emitted, exactly as a user
+    # pressing cancel mid-build would.
+    original_record = manager._record_representation_event
+    cancelled_at: list[str] = []
+
+    async def cancel_on_first_slide(inner_task_id: str, payload: dict) -> None:
+        await original_record(inner_task_id, payload)
+        if payload.get("event") == "slide_upsert" and not cancelled_at:
+            cancelled_at.append(str(payload.get("event")))
+            manager.tasks[inner_task_id]["status"] = "cancelled"
+            manager.tasks[inner_task_id]["message"] = "任务已取消，正在清理生成状态"
+
+    monkeypatch.setattr(manager, "_record_representation_event", cancel_on_first_slide)
+
+    await manager._run_job(task_id)
+
+    task = manager.get_task(task_id)
+    assert cancelled_at, "the build never reached a slide_upsert event"
+    assert task["status"] == "cancelled"
+    assert task["status"] != "failed"
+    assert not task.get("error")
+    # The cancelled build must not have published a completion event either.
+    assert not any(
+        item["event"] == "build_complete"
+        for item in task.get("event_history") or []
+    )
+
+
+@pytest.mark.asyncio
+async def test_revision_listener_asynchronously_reconciles_stale_units(tmp_path):
+    from course_repository import (
+        register_course_revision_listener,
+        unregister_course_revision_listener,
+    )
+    from representation_reconciliation import RepresentationReconciliationService
+
+    course = legacy_course()
+    document = document_from_legacy_course(course)
+    storage = MemoryStorage({
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_revision": document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+    })
+    course_repository = CourseDocumentRepository(storage)
+    representation_repository = TeachingRepresentationRepository(tmp_path / "representations")
+    compile_core_representations(document, course_data_with_practice(), representation_repository)
+    service = RepresentationReconciliationService(course_repository, representation_repository)
+    register_course_revision_listener(service.enqueue)
+    await service.start()
+    try:
+        target = document.blocks[0]
+        await CourseCommandService(course_repository).replace_block(
+            "course-1",
+            command_id="async-reconcile-1",
+            expected_document_revision=document.document_revision,
+            expected_block_revision=target.internal_revision,
+            block_id=target.block_id,
+            payload={**target.payload, "markdown": "异步消费者应标记这一段的派生产物。"},
+        )
+        await service._queue.join()
+        registry = representation_repository.load("course-1")
+        handout = next(
+            item for item in registry.representations
+            if item.representation_type == "handout"
+        )
+        assert handout.status == "stale"
+        assert handout.stale_unit_ids == ["handout:section-a"]
+    finally:
+        unregister_course_revision_listener(service.enqueue)
+        await service.shutdown()

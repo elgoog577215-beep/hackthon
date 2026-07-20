@@ -13,6 +13,7 @@ import type {
     BlockRegenerationCandidate,
     CourseBlockEditTarget,
     CourseDocumentEnvelope,
+    CourseTeachingPlanProjection,
     Node,
     Annotation,
     Note,
@@ -51,7 +52,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
 type CourseProjection = 'published' | 'generation_preview'
 
 type GenerationPreviewEnvelope = {
-    schema_version: 'generation_preview_v1'
+    schema_version: 'generation_preview_v1' | 'generation_preview_v2'
     projection: 'generation_workspace'
     course_id: string
     course_name: string
@@ -59,6 +60,7 @@ type GenerationPreviewEnvelope = {
     workspace_status: string
     updated_at?: string
     task: Record<string, any>
+    teaching_plan?: CourseTeachingPlanProjection
     nodes: Array<Partial<Node> & Pick<Node, 'node_id' | 'node_name' | 'node_level'>>
 }
 
@@ -99,6 +101,7 @@ export const useCourseStore = defineStore('course', {
         rationale?: string
     },
     currentGenerationQualityReport: null as Record<string, unknown> | null,
+    currentTeachingPlan: null as CourseTeachingPlanProjection | null,
     loading: false,
 
     // --- Annotations（fetchCourseAnnotations 桥接 Notes 系统） ---
@@ -213,6 +216,7 @@ export const useCourseStore = defineStore('course', {
         this.currentDocumentRevision = ''
         this.currentCourseSourceFormat = ''
         this.currentNode = null
+        this.currentTeachingPlan = null
         this.nodes = []
         this.courseTree = []
         const noteStore = this._noteStore()
@@ -291,6 +295,7 @@ export const useCourseStore = defineStore('course', {
             this.currentGenerationPreviewUpdatedAt = ''
             this.currentPedagogyProfile = null
             this.currentGenerationQualityReport = null
+            this.currentTeachingPlan = null
             this.nodes = []
             this.courseTree = []
             genStore.isGenerating = false
@@ -312,6 +317,7 @@ export const useCourseStore = defineStore('course', {
                 this.currentCourseProjection = 'published'; this.currentGenerationPreviewUpdatedAt = ''
                 this.currentPedagogyProfile = null
                 this.currentGenerationQualityReport = null
+                this.currentTeachingPlan = null
             }
             genStore.persistGenerationState()
         } catch (error) {
@@ -347,6 +353,7 @@ export const useCourseStore = defineStore('course', {
         this.currentNode = currentNodeId ? this.nodes.find(node => node.node_id === currentNodeId) || null : null
         this.currentPedagogyProfile = envelope.subject_pedagogy_profile || null
         this.currentGenerationQualityReport = envelope.generation_quality_report || null
+        this.currentTeachingPlan = envelope.teaching_plan || null
         this.currentCourseVersionId = envelope.current_course_version_id || ''
         this.currentDocumentRevision = envelope.document.document_revision || ''
         this.currentCourseSourceFormat = envelope.source_format || ''
@@ -404,6 +411,7 @@ export const useCourseStore = defineStore('course', {
             this.currentCourseProjection = 'generation_preview'
             this.currentCourseSourceFormat = 'canonical'
             this.currentGenerationPreviewUpdatedAt = String(preview.updated_at || '')
+            this.currentTeachingPlan = preview.teaching_plan || null
 
             const genStore = this._genStore()
             const task = preview.task || {}
@@ -419,6 +427,7 @@ export const useCourseStore = defineStore('course', {
             localTask.error = task.error ? String(task.error) : undefined
             localTask.phaseProgress = Number(task.phase_progress || 0)
             localTask.currentNodes = (task.current_nodes || []) as Task['currentNodes']
+            localTask.guidedWorkflow = task.guided_workflow || undefined
             localTask.completedNodes = Number(task.completed_nodes || 0)
             localTask.totalNodes = Number(task.total_nodes || 0)
             localTask.recovery = task.recovery || undefined

@@ -37,24 +37,20 @@ LearningEvent + 正式领域仓库
 ```text
 /api/course-generation/generate
   -> routers/courses.py
-  -> CourseService.generate_course()
-  -> 学科教学法模块计划
-  -> course_composition 编译课程编排画像、块分布与块级难度
-  -> 轻量目录与小节责任合同
-  -> 一次全课知识身份骨架
-  -> 有界并行生成逐节知识详情
-  -> CourseKnowledgeBase 编译稳定课程内 ID
-  -> 有界并行生成关系邻域并按课程顺序合并
-  -> GenerationJob + 隔离生成工作区
-  -> 生成质量门
-  -> CourseDocumentRepository 幂等发布 CourseDocument
-
-/api/courses/{course_id}/auto_generate
-  -> TaskManager
-  -> CourseService.generate_sub_nodes()
-  -> CourseService.generate_node_content_stream()
-  -> CourseContextManager.update_node()
-  -> WebSocketService 推送草稿和最终稿
+  -> TaskManager.create_generation_job()
+  -> 一个 GenerationJob + 一个隔离生成工作区 + 空 CourseDocument 外壳
+  -> 确定性编译教学画像、难度与课程块硬骨架
+  -> CourseService.build_course_draft()
+  -> AI 生成轻量目录
+  -> 用户确认目录
+  -> 小课：一次紧凑教案调用 -> 本地封装 CourseTeachingPlanV3
+     大课：一次全局骨架 -> 有界并行详细批次 -> 本地汇编 CourseTeachingPlanV3
+  -> 本地编译 CourseKnowledgeBase、稳定 ID、关系图与逐节绑定
+  -> TaskManager 只读取冻结教案，以固定并发生成互不等待的正文
+  -> 确定性发布预检
+  -> 用户确认发布
+  -> CourseDocumentRepository 幂等发布唯一 CourseDocument
+  -> WebSocketService 投影同一任务的阶段、检查点、草稿和终态
 
 /api/courses/{course_id}/nodes/{node_id}/...
   -> routers/nodes.py
@@ -75,12 +71,22 @@ LearningEvent + 正式领域仓库
 关键约束：
 
 - `CourseService` 是课程 AI 能力的唯一生产入口。
-- 目录确认后的知识规划采用“全课身份先冻结、局部详情后并行、稳定 ID 后并行建网”：
-  全课骨架决定每个规范知识名称的唯一首次负责小节和前序复用；逐节调用只读取当前
-  职责切片、身份合同和本节证据。知识详情与关系邻域共用服务级并发预算，默认 4、
-  硬上限 8，并按有限公平波次提交；乱序返回只能改变完成时刻，不能改变课程顺序、
-  知识身份、稳定 ID、质量门或检查点。单元失败保留同批已通过产物，恢复时只重做
-  未通过的最小单元。
+- 首次生成只有一条 AI 主链：轻量目录、正式全课教案和逐节正文。自动教学画像、
+  难度、模板、稳定 ID、知识库、关系图、校验、恢复和发布均为本地确定性步骤，不得
+  新增辅助模型判断、AI 评分或独立知识/关系生成。
+- 目录确认后的正式教案按预算选择执行策略。最多 3 节且输入输出预算安全时使用一次
+  紧凑调用，并由本地编译器生成稳定知识身份修订、统一封装为
+  `CourseTeachingPlanV3`；大课使用“全局骨架串行 → 详细批次有界并行 → 本地汇编
+  串行”的 `1 → N → 1`。两条路径只在执行预算上不同，不允许形成两套产品 schema。
+- 大课骨架决定每个知识键的唯一负责、复用、前置和模块边界；每批默认最多 3 节、
+  15 个知识点，同一课程默认并发 4。每批只携带当前知识与直接依赖闭包，不再重复
+  发送全课知识注册表。完成一批立即持久化，单批失败最多定点纠正一次，
+  其他成功批次不丢失；乱序完成不能改变目录顺序、知识身份或最终修订。
+- `prerequisite_node_ids` 只表达学生学习顺序，不是正文生产依赖。正文只消费已经冻结的
+  全课教案、当前节点合同和有界证据，因此所有待生成小节可直接进入同一并发队列；某节
+  失败只影响该节，不得阻断后续小节。
+- 每次必要模型请求发出前先持久化准确阶段。提供方立即失败时必须显示目录、骨架、
+  教案批次或正文的真实故障位置，不能继续沿用教学画像等上一阶段名称。
 - 新建课程的“课程编排偏好”是课程结构控制量，不是 AI 助手人格、文字语气或页面排版主题。正式输入使用 `composition_style`；旧 `style` 只作为历史客户端和节点级能力的兼容字段。
 - 课程块计划按以下顺序确定，后层不得反向删除前层的必需模块：
 
@@ -114,6 +120,27 @@ LearningEvent + 正式领域仓库
 - 课程输出质量属于课程生产过程，只进入生成日志、质量报告或课程质量对象，不得写入学习者事件账本。
 - 选区改写请求会记录 `markdown_selection_rewrite_requested` 事件，用于后续分析用户更常修改哪些知识点、哪些表达需要简化、补例子或练习。
 - `AIService` 不应暴露 `generate_course`、`generate_node_content`、`redefine_content`、`extend_content`、`locate_node` 等课程方法。
+
+### 2.1 性能与稳定性硬预算
+
+`course_generation_v11 / course_prompt_v20` 把性能约束作为产品安全边界，而不是日志
+告警或运维建议。默认值如下：
+
+| 边界 | 默认值 | 作用 |
+|---|---:|---|
+| 单门课程小节数 | 24 | 超出时在目录调用前拒绝并要求拆课 |
+| 最终单次模型输入 | 20,000 字符且 7,000 mixed-language estimated tokens | `system + user` 合并后同时通过两道硬门；约 4 万字符的请求不会触达提供方 |
+| 候选模型总尝试 | 2 | 所有候选共享总次数，不再形成“候选数 × 每模型重试数” |
+| 目录 / 教案单元调用时限 | 90 秒 | 超时停止当前最小单元并保留检查点 |
+| 全课教案阶段时限 | 360 秒 | 骨架与成功批次可恢复，不允许无限等待 |
+| 单节正文 / 全部正文时限 | 150 秒 / 480 秒 | 流式草稿定期保存；阶段超时取消未完成小节 |
+| 教案批次 / 正文并发 | 4 / 4 | 并发可下调，代码级上限防止误配 |
+| 正文应用层重试 | 1 | 复用已保存草稿续写，且仍受单节点总时限约束 |
+
+环境变量只能在代码允许的上下界内调节，不能关闭输入、尝试次数、课程规模或总时限
+保护。每个正式阶段和节点只保存数字型运行指标，包括调用数、累计与最大输入估算、
+耗时、并发、时限和输出字符数；不保存 prompt、密钥或模型推理。恢复时只重做失败或
+未完成单元，不重复已经通过的目录、骨架和教案批次。
 
 ## 3. 学习者模型链路
 

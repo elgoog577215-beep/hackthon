@@ -1,4 +1,7 @@
-from practice_contracts import enrich_question_contract
+from practice_contracts import (
+    enrich_question_contract,
+    project_default_single_choice,
+)
 
 
 def test_legacy_question_uses_reasoning_path_instead_of_generic_hint_fallback():
@@ -61,3 +64,126 @@ def test_frozen_reasoning_path_hint_contract_is_not_replaced():
     assert [
         level["content"] for level in enriched["hint_contract"]["levels"]
     ] == ["冻结提示1", "冻结提示2", "冻结提示3"]
+
+
+def test_generated_practice_contract_projects_to_private_single_choice_answer():
+    projected = project_default_single_choice({
+        "prompt": "根据矩阵计算结果并完成判断。",
+        "deliverable": "矩阵乘积与行列式",
+        "estimated_minutes": 8,
+        "question_spec": {
+            "task": {
+                "rendered_text": "计算矩阵乘积，并判断结果是否可逆。",
+                "deliverable": "矩阵乘积与判断",
+            },
+            "stimulus": {
+                "rendered_text": "给定 A=[[1,1],[0,1]]，B=[[2,0],[1,1]]。"
+            },
+            "response_contract": {"format": "worked_solution"},
+            "solution_revision_id": "sol-original",
+        },
+        "solution_envelope": {
+            "solution_revision_id": "sol-original",
+            "canonical_answer": {
+                "product": [[3, 1], [1, 1]],
+                "determinant": 2,
+                "invertible": True,
+            },
+            "rubric": ["乘积正确", "可逆性判断正确"],
+            "validator_config": {"pass_score": 70},
+            "legacy_answer_spec": {
+                "criteria": ["乘积正确", "可逆性判断正确"],
+                "pass_score": 70,
+                "solution_spec": {
+                    "schema_version": "solution_spec_v1",
+                    "final_answer": {
+                        "product": [[3, 1], [1, 1]],
+                        "determinant": 2,
+                        "invertible": True,
+                    },
+                },
+            },
+        },
+    }, misconception_labels=["把矩阵乘法误当成逐元素相乘"])
+
+    assert projected["question_type"] == "single_choice"
+    assert projected["deliverable"] == "一个唯一选项"
+    assert projected["estimated_minutes"] == 5
+    assert projected["question_spec"]["response_contract"] == {
+        "format": "single_choice",
+        "required_parts": ["selected_option_id"],
+        "option_count": 4,
+        "selection_limit": 1,
+    }
+    assert [item["option_id"] for item in projected["options"]] == [
+        "A",
+        "B",
+        "C",
+        "D",
+    ]
+    assert len({item["text"] for item in projected["options"]}) == 4
+    private_answer = projected["solution_envelope"]["choice_answer_spec"]
+    assert private_answer["correct_option_id"] in {"A", "B", "C", "D"}
+    assert private_answer["canonical_answer"]["determinant"] == 2
+    assert projected["question_spec"]["solution_revision_id"].startswith("sol_")
+    assert projected["question_spec"]["solution_revision_id"] != "sol-original"
+    assert "correct_option_id" not in projected
+    assert "answer_spec" not in projected
+
+
+def test_rubric_task_without_unique_model_answer_becomes_best_response_choice():
+    projected = project_default_single_choice({
+        "prompt": "根据两则史料形成有限结论。",
+        "deliverable": "论点、两条证据、推理连接和局限说明",
+        "estimated_minutes": 8,
+        "question_spec": {
+            "task": {
+                "rendered_text": "引用两则材料论证社会结构变化。",
+                "deliverable": "完整史料论证",
+            },
+            "stimulus": {
+                "rendered_text": "材料 A 记录就业增长；材料 B 记录地区差异。"
+            },
+            "response_contract": {"format": "evidence_argument"},
+            "solution_revision_id": "sol-rubric",
+        },
+        "solution_envelope": {
+            "solution_revision_id": "sol-rubric",
+            "canonical_answer": None,
+            "rubric": [
+                "论点范围适当",
+                "准确引用两则材料",
+                "证据与结论有明确推理",
+                "说明至少一项材料局限",
+            ],
+            "legacy_answer_spec": {
+                "criteria": [
+                    "论点范围适当",
+                    "准确引用两则材料",
+                    "证据与结论有明确推理",
+                    "说明至少一项材料局限",
+                ],
+                "expected_keywords": ["史料证据"],
+                "pass_score": 70,
+                "solution_spec": {
+                    "schema_version": "solution_spec_v1",
+                    "response_requirements": ["论点、证据、推理、局限"],
+                },
+            },
+        },
+    })
+
+    private_answer = projected["solution_envelope"]["choice_answer_spec"]
+    assert projected["question_type"] == "single_choice"
+    assert len(projected["options"]) == 4
+    assert len({item["text"] for item in projected["options"]}) == 4
+    assert "比较下列四份作答方案" in projected["prompt"]
+    assert private_answer["canonical_answer"]["selection_basis"] == (
+        "rubric_complete_response"
+    )
+    assert len(
+        private_answer["canonical_answer"]["required_criteria"]
+    ) == 4
+    assert private_answer["solution_spec"]["final_answer"] == (
+        private_answer["canonical_answer"]
+    )

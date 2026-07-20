@@ -67,6 +67,34 @@ describe('course navigator personal adaptation markers', () => {
     expect(wrapper.find('.growth-trail').attributes('data-state')).toBe('pending')
   })
 
+  it('仅在影响范围内、无直接修改的小节显示黄色受影响标记', () => {
+    const sibling: Node = { ...section, node_id: 'section-2', node_name: '1.2 受影响小节', children: [] }
+    const chapter: Node = { ...node, children: [section, sibling] }
+    useLearningProgressStore().runtime = {
+      course_evolution: {
+        course_evolution_plans: [{
+          change_set_id: 'plan-1',
+          status: 'pending',
+          impact_summary: { affected_section_ids: ['section-1', 'section-2'] },
+          operations: [{ operation_type: 'ADD_ANIMATION', target_section_id: 'section-1', scope: 'current' }],
+        }],
+      },
+    } as any
+
+    const wrapper = mount(CourseNavigatorNode, {
+      props: { node: chapter, depth: 0 },
+    })
+
+    const markers = wrapper.findAll('.adaptation-marker')
+    const states = markers.map(marker => marker.attributes('data-state'))
+    // Chapter and directly-changed section stay紫 pending; the merely
+    // affected sibling gets the yellow "受影响" marker.
+    expect(states).toContain('pending')
+    expect(states).toContain('impacted')
+    const impacted = markers.find(marker => marker.attributes('data-state') === 'impacted')
+    expect(impacted?.text()).toContain('受影响')
+  })
+
   it('已应用但未复验的方案显示蓝色应用状态', () => {
     useLearningProgressStore().runtime = {
       course_evolution: {

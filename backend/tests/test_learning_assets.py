@@ -110,7 +110,7 @@ def test_assets_have_stable_revisions_and_five_passing_gates():
     criterion = bundle["assets"]["mastery_criteria"][0]
     misconception = bundle["assets"]["misconceptions"][0]
 
-    assert question["question_type"] == "implementation_task"
+    assert question["question_type"] == "single_choice"
     assert question["revision_id"].startswith("qr_")
     assert question["assessment_intent_revision_id"].startswith("air_")
     assert question["assessment_intent"]["target_knowledge"]
@@ -221,11 +221,24 @@ def test_quality_gate_rejects_missing_required_questions():
     assert any(item["asset_type"] == "questions" for item in report["blocking_issues"])
 
 
-def test_quality_gate_blocks_unanalyzed_question_when_analysis_is_required():
+def test_question_analysis_is_compiled_without_ai_and_missing_contract_is_blocked():
     course = _course()
     bundle = compile_learning_assets(course)
     course["question_analysis_required"] = True
 
+    questions = [
+        item
+        for items in bundle["assets"].values()
+        for item in items
+        if isinstance(item, dict) and item.get("question_analysis")
+    ]
+    assert questions
+    assert all(
+        item["question_analysis"]["analysis_source"]
+        == "compiled_contract"
+        for item in questions
+    )
+    questions[0].pop("question_analysis")
     report = evaluate_learning_asset_quality(
         course,
         bundle["plan"],
@@ -234,7 +247,7 @@ def test_quality_gate_blocks_unanalyzed_question_when_analysis_is_required():
 
     assert report["passed"] is False
     assert any(
-        "独立解析" in item["message"]
+        "题目合同" in item["message"]
         for item in report["blocking_issues"]
     )
 
@@ -269,11 +282,16 @@ def test_questions_compile_formal_practice_contracts():
     finals = assets["final_assessment"]
     final = finals[0]
     assert [item["practice_level"] for item in questions] == ["concept_check", "objective_practice", "mastery_check"]
-    assert questions[0]["question_type"] == "short_answer"
-    assert questions[0]["input_contract"]["mode"] == "rich_text"
-    assert all(item["input_contract"]["mode"] == "code_and_text" for item in questions[1:])
+    assert all(item["question_type"] == "single_choice" for item in questions)
+    assert all(item["input_contract"]["mode"] == "choice" for item in questions)
+    assert all(
+        [option["option_id"] for option in item["options"]]
+        == ["A", "B", "C", "D"]
+        for item in questions
+    )
+    assert all(len({option["text"] for option in item["options"]}) == 4 for item in questions)
     assert all([hint["level"] for hint in item["hint_contract"]["levels"]] == [1, 2, 3] for item in questions)
-    assert all(item["grading_policy"]["method"] == "rubric_ai" for item in questions)
+    assert all(item["grading_policy"]["method"] == "deterministic" for item in questions)
     assert "print" in questions[0]["answer_spec"]["criteria"][0]
     assert questions[0]["answer_spec"]["criteria"] != questions[2]["answer_spec"]["criteria"]
     assert all(marker in " ".join(questions[1]["answer_spec"]["criteria"]) for marker in ("依据", "过程", "检查"))
@@ -337,6 +355,37 @@ def test_all_generated_learning_tasks_preserve_valid_subject_contracts():
     }
     assert len(validation_stimuli) == 2
     assert validation_stimuli.isdisjoint(shown_stimuli)
+
+
+def test_missing_approved_bank_item_uses_concrete_question_contract():
+    course = _course()
+    empty_bank = {
+        "course_id": course["course_id"],
+        "items": [],
+    }
+
+    questions = compile_learning_assets(
+        course,
+        question_bank_bundle=empty_bank,
+    )["assets"]["questions"]
+
+    assert len(questions) == 3
+    assert all(
+        item["question_spec"]["schema_version"] == "question_spec_v1"
+        and item["domain_validation"]["passed"]
+        and item["input_materials"]
+        and item["deliverable"]
+        and item["constraints"]
+        and item["result_checks"]
+        for item in questions
+    )
+    mastery = next(
+        item
+        for item in questions
+        if item["practice_level"] == "mastery_check"
+    )
+    assert mastery["question_spec"]["target"]["assessment_actions"]
+    assert mastery["question_spec"]["task"]["deliverable"]
 
 
 def test_compilation_uses_the_reviewed_question_bank_revision_as_source_of_truth():

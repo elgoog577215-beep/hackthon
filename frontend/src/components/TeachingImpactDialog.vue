@@ -54,7 +54,7 @@
               <article
                 v-for="(item, index) in visibleImpactItems"
                 :key="`${item.representation_type}:${item.unit_id}`"
-                :class="{ 'is-complete': receipt, 'is-verifying': syncing }"
+                :class="{ 'is-complete': receipt, 'is-verifying': syncing, 'is-pending': !receipt && !syncing }"
                 :style="{ '--delay': `${index * 80}ms` }"
               >
                 <span>
@@ -357,6 +357,10 @@ function impactPriority(left: Record<string, any>, right: Record<string, any>) {
   animation-delay:var(--delay);
 }
 .impact-network__targets article > span { width:28px; height:28px; display:grid; place-items:center; border-radius:8px; color:#2556d8; background:#edf3ff; }
+/* Preview (not yet confirmed): affected items read as yellow, matching the
+   course-wide color language — yellow = position impacted by a pending change. */
+.impact-network__targets article.is-pending { border-color:#fcd34d; background:#fffdf3; }
+.impact-network__targets article.is-pending > span { color:#a16207; background:#fef3c7; }
 .impact-network__targets article.is-complete { border-color:#b9e5d9; background:#fbfffd; }
 .impact-network__targets article.is-complete > span { color:#047857; background:#e9f9f3; }
 .impact-network__targets article.is-verifying > span svg { animation:slide-spin .9s linear infinite; }

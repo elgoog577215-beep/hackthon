@@ -266,7 +266,7 @@
                   <dd>{{ answerDiagnosis.question_understanding?.task_goal }}</dd>
                 </div>
                 <div v-if="answerDiagnosis.student_response?.approach">
-                  <dt>{{ t('courseWorkspace.practiceAnalysis.studentApproach', '你采用了什么思路') }}</dt>
+                  <dt>{{ studentResponseEvidenceLabel }}</dt>
                   <dd>{{ answerDiagnosis.student_response.approach }}</dd>
                 </div>
                 <div v-if="answerDiagnosis.student_response?.behavior_gap">
@@ -520,6 +520,7 @@ const emptyState = computed(() => practiceAvailabilityCopy(
   workspace.practice?.practice_availability?.reason_code || 'no_questions_in_scope',
   t,
 ))
+const isChoiceQuestion = computed(() => currentQuestion.value?.input_contract?.mode === 'choice')
 const answerLocked = computed(() => !!workspace.currentAttempt && workspace.currentAttempt.status !== 'in_progress')
 const hasAnswer = computed(() => hasMeaningfulAnswer(workspace.currentDraft || {}))
 const hasNext = computed(() => workspace.currentQuestionIndex < questions.value.length - 1)
@@ -543,6 +544,11 @@ const answerDiagnosis = computed(() => {
 const analysisFitLabel = computed(() => t(
   `courseWorkspace.practiceAnalysis.fit.${answerDiagnosis.value?.diagnosis?.library_fit || 'MISS'}`,
   ({ HIT: '已定位到本课目标', PARTIAL: '部分定位到本课目标', MISS: '暂未归入现有目标' } as Record<string, string>)[answerDiagnosis.value?.diagnosis?.library_fit || 'MISS'],
+))
+const studentResponseEvidenceLabel = computed(() => (
+  isChoiceQuestion.value
+    ? t('courseWorkspace.practiceAnalysis.selectedMeaning', '你的选择反映了什么')
+    : t('courseWorkspace.practiceAnalysis.studentApproach', '你采用了什么思路')
 ))
 const diagnosisTags = computed(() => {
   if (!answerDiagnosis.value) return []
@@ -911,6 +917,7 @@ function statusLabel(attempt: any) {
 function formatSolutionValue(value: unknown) {
   return presentSolutionValue(value)
 }
+
 </script>
 
 <style scoped>
@@ -960,7 +967,7 @@ function formatSolutionValue(value: unknown) {
 .question-prompt :deep(blockquote) { margin:16px 0; border-left-color:#0f766e; background:#f0fdfa; }
 .question-prompt :deep(table) { display:block; width:100%; overflow-x:auto; }
 .answer-editor { width:100%; min-height:clamp(360px,54vh,680px); padding:16px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; resize:vertical; font:inherit; line-height:1.7; outline:none; }.answer-editor:focus { border-color:#0f766e; box-shadow:0 0 0 3px rgba(15,118,110,.1); }.answer-editor:disabled { background:#f1f5f9; }
-.choice-list { display:grid; gap:10px; }.choice-list label { display:flex; gap:10px; padding:13px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; }
+.choice-list { display:grid; gap:10px; }.choice-list label { display:grid; grid-template-columns:auto 24px minmax(0,1fr); gap:10px; align-items:flex-start; padding:13px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; cursor:pointer; }.choice-list label:has(input:checked) { border-color:#0f766e; background:#f0fdfa; }.choice-list input { margin-top:3px; }.choice-list strong { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:999px; background:#f1f5f9; color:#475569; font-size:12px; }.choice-list span { padding-top:2px; line-height:1.55; }.choice-list label:has(input:checked) strong { background:#0f766e; color:#fff; }
 .practice-actions { position:sticky; bottom:0; display:flex; justify-content:space-between; gap:14px; align-items:center; margin-top:22px; padding:12px 0; background:linear-gradient(to bottom,rgba(248,250,252,.86),#f8fafc 28%); }.support-actions { display:flex; gap:8px; align-items:center; }.icon-command,.text-command,.primary-command { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; padding:0 12px; color:#334155; }.icon-command { width:42px; padding:0; }.icon-command:disabled,.text-command:disabled,.primary-command:disabled { opacity:.45; cursor:not-allowed; }.primary-command { border-color:#0f766e; background:#0f766e; color:#fff; font-weight:700; }
 .hint-results,.practice-feedback,.solution-result { margin-top:18px; border-top:1px solid #dbe3ed; padding-top:16px; }.hint-result { display:grid; grid-template-columns:78px 1fr; gap:12px; margin:8px 0; }.hint-result span { color:#a16207; font-size:12px; font-weight:700; }.hint-result p { margin:0; line-height:1.6; }.hint-result.loading p { display:flex; align-items:center; gap:8px; color:#64748b; }.hint-loading-icon { flex:0 0 auto; color:#0f766e; }
 .solution-result { color:#334155; }.solution-result p,.solution-result li { line-height:1.65; }.solution-result ul,.solution-result ol { padding-left:20px; }.solution-result h4 { margin:14px 0 7px; font-size:13px; color:#172033; }.solution-result pre { margin:0; padding:12px 14px; max-height:420px; overflow:auto; border:1px solid #dbe3ed; border-radius:6px; background:#f1f5f9; color:#0f172a; font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }.solution-steps ol,.solution-checks ul { margin:6px 0; }

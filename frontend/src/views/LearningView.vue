@@ -1,12 +1,16 @@
 <template>
-  <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt }">
+  <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview }">
     <div v-if="overlayVisible" class="surface-backdrop" @click="closeMobileSurfaces"></div>
 
     <Transition name="slide-left">
       <CourseNavigator
         v-if="navigatorVisible"
         class="navigator-surface"
+        :active-block-id="activeCourseBlockId"
+        :production-mode="isGenerationPreview"
+        :generation-task="generationTask"
         @select="selectNode"
+        @select-block="selectCourseBlock"
         @back="router.push('/courses')"
         @close="navigatorOpen = false"
       />
@@ -20,29 +24,28 @@
         :aria-hidden="resourcesOpen ? 'true' : undefined"
       >
         <div class="context-leading">
-          <button v-if="!navigatorVisible" type="button" :title="t('learningShell.openNavigator', '打开课程目录')" :aria-label="t('learningShell.openNavigator', '打开课程目录')" @click="navigatorOpen = true">
+          <button v-if="navigatorAvailable && !navigatorVisible" type="button" :title="t('learningShell.openNavigator', '打开课程目录')" :aria-label="t('learningShell.openNavigator', '打开课程目录')" @click="navigatorOpen = true">
             <PanelLeftOpen :size="17" />
           </button>
+          <button v-else-if="isGenerationPreview && !navigatorAvailable" type="button" :title="t('learningNavigator.back', '返回课程库')" :aria-label="t('learningNavigator.back', '返回课程库')" @click="router.push('/courses')">
+            <ArrowLeft :size="17" />
+          </button>
           <div class="context-copy">
-            <span>{{ isGenerationPreview ? t('courseGeneration.workspace.live', '课程正在生成') : currentParentLabel }}</span>
-            <strong>{{ isGenerationPreview ? generationStatusText : (courseStore.currentNode?.node_name || t('learningShell.selectNode', '选择一个学习目标')) }}</strong>
+            <span>{{ isGenerationPreview ? t('courseGeneration.workspace.label', '课程生产') : currentParentLabel }}</span>
+            <strong>{{ isGenerationPreview ? generationContextLabel : (courseStore.currentNode?.node_name || t('learningShell.selectNode', '选择一个学习目标')) }}</strong>
           </div>
         </div>
         <CourseWorkspaceTabs
-          v-if="!isGenerationPreview"
-          active-item="course"
+          :active-item="activeWorkspaceItem"
           :practice-available="Boolean(currentPracticeNode)"
           :practice-repair-available="questionBankRepairAvailable"
-          @outline="openTeachingResource('outline')"
-          @lesson-plan="openTeachingResource('lesson_plan')"
-          @course="openCourseWorkspace"
-          @practice="openCurrentPractice"
+          :practice-pending="isGenerationPreview"
+          :lesson-plan-pending="isGenerationPreview && !canOpenGenerationLessonPlan"
+          @lesson-plan="selectWorkspace('lesson-plan')"
+          @course="selectWorkspace('course')"
+          @practice="selectWorkspace('practice')"
         />
         <div class="context-actions">
-          <div v-if="isGenerationPreview" class="generation-meter" :aria-label="t('courseGeneration.workspace.progress', '生成进度')">
-            <span>{{ generationProgress }}%</span>
-            <i><b :style="{ width: `${generationProgress}%` }"></b></i>
-          </div>
           <button v-if="isGenerationPreview && !autoFollowGeneration" type="button" :title="t('courseGeneration.workspace.follow', '跟随当前生成章节')" :aria-label="t('courseGeneration.workspace.follow', '跟随当前生成章节')" @click="resumeGenerationFollow">
             <LocateFixed :size="17" />
           </button>
@@ -52,7 +55,31 @@
         </div>
       </div>
 
+      <CourseGenerationLifecycle
+        v-if="isGenerationPreview"
+        :task="generationTask"
+      />
+
+      <GenerationLessonPlan
+        v-if="activeWorkspaceItem === 'lesson-plan'"
+        :plan="courseStore.currentTeachingPlan"
+        :nodes="courseStore.nodes"
+        :active-node-id="courseStore.currentNode?.node_id"
+        :live="isGenerationPreview"
+        @select="selectNode"
+      />
+      <CourseProductionStage
+        v-else-if="showProductionStage"
+        :task="generationTask"
+        :course-name="generationContextLabel"
+        :elapsed-seconds="phaseElapsedSeconds"
+        :acting="generationActionBusy"
+        :has-draft="hasProductionDraft"
+        @resume="resumeGenerationTask"
+        @view-draft="showProductionStatus = false"
+      />
       <ContentArea
+        v-else
         ref="contentAreaRef"
         :side-ai-panel-visible="aiVisible"
         :inert="resourcesOpen"
@@ -61,7 +88,25 @@
         @quote-ask="openAi"
         @start-practice="openTask"
         @improve-block="openBlockImprovement"
+        @active-block-change="handleActiveBlockChange"
       />
+
+      <CourseGenerationGate
+        v-if="isGenerationPreview && courseStore.currentCourseId"
+        :course-id="courseStore.currentCourseId"
+        :task="generationTask"
+        @confirmed="handleGenerationGateConfirmed"
+      />
+
+      <button
+        v-if="showProductionStatusReturn"
+        type="button"
+        class="production-status-return"
+        @click="showProductionStatus = true"
+      >
+        <TriangleAlert :size="15" />
+        {{ t('courseGeneration.production.returnToRecovery', '生产已中断 · 查看恢复现场') }}
+      </button>
 
       <LearningDock
         v-if="!isGenerationPreview"
@@ -195,10 +240,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen } from 'lucide-vue-next'
+import { ElMessage } from 'element-plus'
+import { ArrowLeft, History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, TriangleAlert } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
+import CourseGenerationGate from '../components/CourseGenerationGate.vue'
+import CourseGenerationLifecycle from '../components/CourseGenerationLifecycle.vue'
+import CourseProductionStage from '../components/CourseProductionStage.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import CourseWorkspaceTabs from '../components/CourseWorkspaceTabs.vue'
+import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import LearningDock from '../components/LearningDock.vue'
 import LearningStats from '../components/LearningStats.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
@@ -213,11 +263,12 @@ import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { useLearningProgressStore, type NextLearningAction } from '../stores/learningProgress'
 import { useNoteStore } from '../stores/notes'
-import type { CourseBlockEditTarget, Node } from '../stores/types'
+import type { CourseBlockEditTarget, CourseBlockNavigationTarget, Node } from '../stores/types'
 import { isWorkspaceTaskAction, learningActionLabel } from '../utils/learning-action'
 import { isQuestionBankRepairReason } from '../utils/course-availability'
 import { isStartableLearningObjective } from '../utils/learning-scope'
 import { isResumableLearningAction } from '../utils/learning-resume'
+import { canResumeCourseProduction, courseProductionStageIndex, hasVisibleCourseDraft } from '../utils/course-production'
 import { t } from '../shared/i18n'
 
 const route = useRoute()
@@ -254,24 +305,60 @@ const aiPrefill = ref('')
 const aiEntrypoint = ref<'global' | 'selection' | 'practice' | 'continuity' | 'record'>('global')
 const aiBlockTarget = ref<CourseBlockEditTarget | undefined>(undefined)
 const autoFollowGeneration = ref(true)
+const activeWorkspaceItem = ref<'lesson-plan' | 'course' | 'practice'>('course')
+const phaseElapsedSeconds = ref(0)
+const phaseStartedAt = ref(Date.now())
+const generationActionBusy = ref(false)
+const showProductionStatus = ref(true)
+let phaseTimer: number | null = null
 const loadedLearningCourseId = ref('')
 const activeDomain = ref<'course' | 'notebook' | 'mistake-book' | 'overview' | 'knowledge-library' | 'assistant'>('course')
-const activeTeachingResource = ref<'outline' | 'lesson_plan'>('outline')
+const activeTeachingResource = ref<'outline' | 'lesson_plan'>('lesson_plan')
+const activeCourseBlockId = ref('')
 
 const isNarrow = computed(() => windowWidth.value < 1024)
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
 const generationTask = computed(() => courseStore.currentCourseId ? generationStore.tasks.get(courseStore.currentCourseId) : undefined)
-const generationProgress = computed(() => Math.max(0, Math.min(100, Math.round(generationTask.value?.progress || generationStore.generationProgress || 0))))
-const activeGenerationNodeId = computed(() => generationTask.value?.currentNodes?.[0]?.node_id || generationStore.currentGeneratingNodeId || '')
-const generationStatusText = computed(() => (
-  generationTask.value?.currentStep
-  || (generationTask.value?.currentPhase
-    ? t(`courseGeneration.phases.${generationTask.value.currentPhase}`, generationTask.value.currentPhase)
-    : '')
-  || t('courseGeneration.workspace.preparing', '正在准备课程结构')
+const generationStageIndex = computed(() => courseProductionStageIndex(generationTask.value))
+const generationTerminal = computed(() => ['error', 'paused', 'conflict'].includes(String(generationTask.value?.status || '')))
+const hasProductionDraft = computed(() => hasVisibleCourseDraft(
+  generationTask.value,
+  courseStore.nodes.map(node => node.node_content),
 ))
-const navigatorVisible = computed(() => !courseStore.isFocusMode && (isNarrow.value ? navigatorOpen.value : navigatorOpen.value))
-const overlayVisible = computed(() => isNarrow.value && navigatorOpen.value && !taskOpen.value)
+const canOpenGenerationLessonPlan = computed(() => (
+  generationStageIndex.value >= 2 || Boolean(courseStore.currentTeachingPlan?.sections?.length)
+))
+const showProductionStage = computed(() => Boolean(
+  isGenerationPreview.value
+  && activeWorkspaceItem.value === 'course'
+  && (!hasProductionDraft.value || (generationTerminal.value && showProductionStatus.value))
+))
+const showProductionStatusReturn = computed(() => Boolean(
+  isGenerationPreview.value
+  && activeWorkspaceItem.value === 'course'
+  && hasProductionDraft.value
+  && generationTerminal.value
+  && !showProductionStatus.value
+))
+const activeGenerationNodeId = computed(() => generationTask.value?.currentNodes?.[0]?.node_id || generationStore.currentGeneratingNodeId || '')
+const generationContextLabel = computed(() => (
+  courseStore.currentCourse?.course_name
+  || generationTask.value?.courseName
+  || t('courseGeneration.production.untitled', '新课程')
+))
+const navigatorAvailable = computed(() => (
+  !isGenerationPreview.value || courseStore.courseTree.length > 0
+))
+const navigatorVisible = computed(() => (
+  navigatorAvailable.value && !courseStore.isFocusMode && navigatorOpen.value
+))
+const phaseWorkspaceItem = computed<'lesson-plan' | 'course'>(() => {
+  if (generationTerminal.value) return 'course'
+  const phase = String(generationTask.value?.currentPhase || '')
+  if (/teaching|knowledge|graph/.test(phase)) return 'lesson-plan'
+  return 'course'
+})
+const overlayVisible = computed(() => isNarrow.value && navigatorVisible.value && !taskOpen.value)
 const noteCount = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format' && item.sourceType !== 'wrong').length)
 const mistakeCount = computed(() => workspaceStore.practiceNeedsReviewCount)
 const currentParentLabel = computed(() => {
@@ -330,9 +417,12 @@ watch(() => route.params.courseId, async value => {
   const courseId = String(value)
   loadedLearningCourseId.value = loadedLearningCourseId.value === courseId ? loadedLearningCourseId.value : ''
   autoFollowGeneration.value = true
+  activeCourseBlockId.value = ''
+  activeWorkspaceItem.value = 'course'
+  showProductionStatus.value = true
   aiVisible.value = false
   activeDomain.value = 'course'
-  activeTeachingResource.value = 'outline'
+  activeTeachingResource.value = 'lesson_plan'
   notebookOpen.value = false
   mistakeBookOpen.value = false
   statsOpen.value = false
@@ -344,6 +434,7 @@ watch(() => route.params.courseId, async value => {
   await courseStore.loadCourse(courseId)
   generationStore.observeCourse(courseId)
   if (isGenerationPreview.value) {
+    activeWorkspaceItem.value = phaseWorkspaceItem.value
     selectInitialNode()
     return
   }
@@ -376,6 +467,7 @@ async function loadPublishedLearningContext(courseId: string) {
 watch(() => courseStore.currentCourseProjection, async (projection, previous) => {
   if (projection !== 'published' || previous !== 'generation_preview' || !courseStore.currentCourseId) return
   autoFollowGeneration.value = false
+  activeWorkspaceItem.value = 'course'
   await loadPublishedLearningContext(courseStore.currentCourseId)
   selectInitialNode()
 })
@@ -384,6 +476,15 @@ watch(activeGenerationNodeId, nodeId => {
   if (!nodeId || !isGenerationPreview.value || !autoFollowGeneration.value) return
   const node = courseStore.nodes.find(item => item.node_id === nodeId)
   if (node) selectNode(node, false, false)
+})
+
+watch(() => [generationTask.value?.currentPhase, generationTask.value?.status], () => {
+  phaseStartedAt.value = Date.now()
+  phaseElapsedSeconds.value = 0
+  if (generationTerminal.value) showProductionStatus.value = true
+  if (isGenerationPreview.value && autoFollowGeneration.value) {
+    activeWorkspaceItem.value = phaseWorkspaceItem.value
+  }
 })
 
 watch(() => route.params.nodeId, value => {
@@ -404,10 +505,14 @@ watch(() => courseStore.currentNode, async node => {
 
 onMounted(() => {
   generationStore.restoreGenerationState()
+  phaseTimer = window.setInterval(() => {
+    phaseElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - phaseStartedAt.value) / 1000))
+  }, 1000)
   window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
+  if (phaseTimer !== null) window.clearInterval(phaseTimer)
   window.removeEventListener('resize', handleResize)
   generationStore.unobserveCourse(courseStore.currentCourseId)
 })
@@ -440,16 +545,90 @@ function selectNode(node: Node, updateRoute = true, manualSelection = true) {
   if (isGenerationPreview.value && manualSelection && node.node_id !== activeGenerationNodeId.value) {
     autoFollowGeneration.value = false
   }
+  activeCourseBlockId.value = ''
   courseStore.selectNode(node)
   courseStore.scrollToNode(node.node_id)
   if (updateRoute) void router.replace({ name: 'learning', params: { courseId: courseStore.currentCourseId, nodeId: node.node_id } })
   if (isNarrow.value) navigatorOpen.value = false
 }
 
+async function selectCourseBlock(target: CourseBlockNavigationTarget) {
+  activeCourseBlockId.value = target.blockId
+  courseStore.selectNode(target.node)
+  if (String(route.params.nodeId || '') !== target.node.node_id) {
+    await router.replace({
+      name: 'learning',
+      params: { courseId: courseStore.currentCourseId, nodeId: target.node.node_id },
+    })
+  }
+  await nextTick()
+  await contentAreaRef.value?.scrollToCourseBlock(target.node.node_id, target.blockId)
+  if (isNarrow.value) navigatorOpen.value = false
+}
+
+function handleActiveBlockChange(payload: { nodeId: string; blockId: string }) {
+  activeCourseBlockId.value = payload.blockId
+}
+
 function resumeGenerationFollow() {
   autoFollowGeneration.value = true
+  activeWorkspaceItem.value = phaseWorkspaceItem.value
   const node = courseStore.nodes.find(item => item.node_id === activeGenerationNodeId.value)
   if (node) selectNode(node, false, false)
+}
+
+function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice') {
+  if (isGenerationPreview.value) {
+    if (item === 'practice') return
+    if (item === 'lesson-plan' && !canOpenGenerationLessonPlan.value) return
+    autoFollowGeneration.value = false
+    activeWorkspaceItem.value = item
+    return
+  }
+  if (item === 'lesson-plan') {
+    activeWorkspaceItem.value = 'lesson-plan'
+    resourcesOpen.value = false
+    notebookOpen.value = false
+    mistakeBookOpen.value = false
+    statsOpen.value = false
+    taskOpen.value = false
+    aiVisible.value = false
+    courseStore.showKnowledgeLibrary = false
+    activeDomain.value = 'course'
+    return
+  }
+  if (item === 'practice') {
+    activeWorkspaceItem.value = 'practice'
+    openCurrentPractice()
+    return
+  }
+  activeWorkspaceItem.value = 'course'
+  void openCourseWorkspace()
+}
+
+async function resumeGenerationTask() {
+  const task = generationTask.value
+  const courseId = courseStore.currentCourseId
+  if (!task || !courseId || generationActionBusy.value || !canResumeCourseProduction(task)) return
+  generationActionBusy.value = true
+  try {
+    await generationStore.resumeTask(courseId, task.id)
+    await generationStore.fetchGlobalTasks()
+    await courseStore.refreshCourseData(courseId)
+    showProductionStatus.value = true
+    phaseStartedAt.value = Date.now()
+    phaseElapsedSeconds.value = 0
+    ElMessage.success(t('courseGeneration.production.resumed', '已从保存点继续课程生产'))
+  } catch {
+    // generationStore 已统一转换并提示恢复失败，页面只负责结束本地提交态。
+  } finally {
+    generationActionBusy.value = false
+  }
+}
+
+function handleGenerationGateConfirmed() {
+  autoFollowGeneration.value = true
+  activeWorkspaceItem.value = phaseWorkspaceItem.value
 }
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
@@ -563,6 +742,7 @@ function openKnowledgeLibrary() {
 function openTeachingResource(type: 'outline' | 'lesson_plan') {
   activeDomain.value = 'course'
   activeTeachingResource.value = type
+  activeWorkspaceItem.value = 'lesson-plan'
   resourcesOpen.value = true
   notebookOpen.value = false
   mistakeBookOpen.value = false
@@ -575,10 +755,15 @@ function openTeachingResource(type: 'outline' | 'lesson_plan') {
 
 async function openTeachingResourceFromTask(type: 'outline' | 'lesson_plan') {
   await closeTask()
+  if (type === 'lesson_plan') {
+    selectWorkspace('lesson-plan')
+    return
+  }
   openTeachingResource(type)
 }
 
 async function openCourseWorkspace() {
+  activeWorkspaceItem.value = 'course'
   resourcesOpen.value = false
   notebookOpen.value = false
   mistakeBookOpen.value = false
@@ -602,7 +787,12 @@ function openCurrentPractice() {
   statsOpen.value = false
   const targetNode = currentPracticeNode.value
     || (questionBankRepairAvailable.value ? courseStore.currentNode : null)
-  if (targetNode) openTask(targetNode)
+  if (targetNode) {
+    activeWorkspaceItem.value = 'practice'
+    openTask(targetNode)
+  } else {
+    activeWorkspaceItem.value = 'course'
+  }
 }
 
 function openStats() {
@@ -668,6 +858,7 @@ function openTask(node?: Node | null, taskRevisionId = '') {
 
 async function closeTask() {
   taskOpen.value = false
+  activeWorkspaceItem.value = 'course'
   if (!aiVisible.value) activeDomain.value = 'course'
   await refreshRuntime()
   await nextTick()
@@ -732,7 +923,7 @@ function closeMobileSurfaces() {
 .navigator-surface { flex: 0 0 280px; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .learning-context-bar { min-height:58px; flex:0 0 auto; display:grid; grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr); align-items:center; gap:12px; padding:7px 12px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.94); }
-.learning-context-bar.is-generation { grid-template-columns:minmax(0,1fr) auto; min-height:52px; background:rgba(255,255,255,.9); }
+.learning-context-bar.is-generation { min-height:52px; background:rgba(255,255,255,.96); }
 .context-leading { min-width:0; display:flex; align-items:center; gap:9px; }
 .context-leading > button,.context-actions > button { width:32px; height:32px; flex:0 0 32px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .context-leading > button:hover,.context-actions > button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
@@ -740,10 +931,9 @@ function closeMobileSurfaces() {
 .context-copy span { color:var(--lz-text-muted); font-size:9px; }
 .context-copy strong { margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--lz-text-strong); font-size:12px; }
 .context-actions { min-width:0; justify-self:end; display:flex; align-items:center; gap:7px; }
-.generation-meter { width:clamp(112px,16vw,220px); display:grid; grid-template-columns:auto minmax(60px,1fr); align-items:center; gap:8px; color:var(--lz-brand-strong); font-size:11px; font-weight:800; }
-.generation-meter i { height:5px; overflow:hidden; border-radius:999px; background:#e8eaff; }
-.generation-meter b { height:100%; display:block; border-radius:inherit; background:#6366f1; transition:width .35s ease; }
 .learning-content { min-height: 0; flex: 1; }
+.production-status-return { position:absolute; z-index:44; right:18px; bottom:16px; min-height:36px; display:inline-flex; align-items:center; gap:7px; padding:0 12px; border:1px solid #edb56a; border-radius:9px; color:#9a4d13; background:#fffaf0; box-shadow:0 10px 28px rgba(146,64,14,.12); font-size:10px; font-weight:800; cursor:pointer; }
+.production-status-return:hover { border-color:#d97706; background:#fff6e4; }
 .learning-tool-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
 .learning-tool-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:24px; }
 .learning-tool-modal__backdrop { position:absolute; inset:0; width:100%; height:100%; padding:0; border:0; border-radius:0; background:rgba(15,23,42,.42); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); cursor:default; }
@@ -777,11 +967,12 @@ function closeMobileSurfaces() {
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
   .learning-context-bar { min-height:52px; grid-template-columns:auto minmax(0,1fr) auto; gap:6px; padding:5px 7px; }
   .context-copy { display:none; }
-  .generation-meter { width:92px; grid-template-columns:auto minmax(44px,1fr); }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); }
   .learning-tool-overlay { position:fixed; inset:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); z-index:105; }
   .learning-tool-modal { padding:10px; }
   .learning-tool-modal__card,.learning-tool-modal__card.is-mistake-book { width:calc(100vw - 20px); max-height:calc(100dvh - 20px); border-radius:18px; }
+  .is-generation-preview { padding-bottom:0; }
+  .production-status-return { left:12px; right:12px; bottom:12px; justify-content:center; }
   .mobile-resume-prompt { position:fixed; left:10px; right:10px; bottom:calc(64px + env(safe-area-inset-bottom, 0px)); z-index:119; min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #15803d; border-radius:11px; color:#fff; background:#15803d; box-shadow:0 8px 22px rgba(21,128,61,.2); font-size:12px; font-weight:750; }
   .mobile-resume-prompt:disabled { opacity:.6; }
   .mobile-resume-prompt__spin { animation:mobile-resume-spin .8s linear infinite; }

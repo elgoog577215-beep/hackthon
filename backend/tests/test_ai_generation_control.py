@@ -5,14 +5,14 @@ from unittest.mock import AsyncMock
 import pytest
 
 from course_context import CourseContextManager
+from course_generation_budget import CourseGenerationDeadlineExceeded
 from course_pedagogy import PedagogyMode
 from course_repository import CourseDocumentRepository
 from course_versions import CourseVersionRepository
-from generation_workspace import GenerationWorkspaceRepository
-from generation_workspace import GenerationWorkspaceNotFound
+from generation_workspace import GenerationWorkspaceNotFound, GenerationWorkspaceRepository
 from learning_asset_storage import LearningAssetRepository
-from task_manager import DEFAULT_MAX_CONCURRENCY, TaskManager, TaskStateConflict
 from material_storage import MaterialRepository
+from task_manager import DEFAULT_MAX_CONCURRENCY, TaskManager, TaskStateConflict
 from websocket_service import WebSocketService
 
 
@@ -112,7 +112,7 @@ def test_task_manager_uses_provider_safe_default_concurrency():
     manager = TaskManager(storage=None, course_service=None, ws_service=None)
 
     assert manager.max_concurrency == DEFAULT_MAX_CONCURRENCY
-    assert manager.max_concurrency == 2
+    assert manager.max_concurrency == 4
 
 
 @pytest.mark.asyncio
@@ -174,6 +174,7 @@ async def test_pause_rejects_missing_and_terminal_tasks():
 
 def test_find_active_task_never_falls_back_to_terminal_history():
     manager = TaskManager(storage=None, course_service=None, ws_service=None)
+    manager.tasks = {}
     manager.tasks["done"] = {
         "id": "done",
         "course_id": "course-1",
@@ -442,12 +443,16 @@ def test_course_context_ledger_includes_blueprint_contract():
 
 
 @pytest.mark.asyncio
-async def test_schedule_nodes_waits_for_declared_dependencies():
-    order = []
+async def test_schedule_nodes_treats_prerequisites_as_learning_order_only():
+    started = []
+    both_started = asyncio.Event()
     manager = TaskManager(storage=None, course_service=None, ws_service=None, max_concurrency=2)
 
     async def fake_process(_task_id, node):
-        order.append(node["node_id"])
+        started.append(node["node_id"])
+        if len(started) == 2:
+            both_started.set()
+        await asyncio.wait_for(both_started.wait(), timeout=0.2)
         node["generation_status"] = "completed"
 
     manager._process_node = fake_process
@@ -458,7 +463,40 @@ async def test_schedule_nodes_waits_for_declared_dependencies():
         {"node_id": "L2-1-1", "node_level": 2},
     ])
 
-    assert order == ["L2-1-1", "L2-1-2"]
+    assert started == ["L2-1-2", "L2-1-1"]
+
+
+@pytest.mark.asyncio
+async def test_content_stage_deadline_cancels_unfinished_nodes():
+    manager = TaskManager(
+        storage=None,
+        course_service=None,
+        ws_service=None,
+        max_concurrency=2,
+    )
+    manager._content_stage_timeout_seconds = 0.01
+    cancelled = asyncio.Event()
+
+    async def fake_process(_task_id, _node):
+        try:
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    manager._process_node = fake_process
+    manager._is_content_complete = lambda _node: False
+
+    with pytest.raises(
+        CourseGenerationDeadlineExceeded,
+        match="课程正文阶段超过硬时限",
+    ):
+        await manager._schedule_nodes(
+            "t1",
+            [{"node_id": "L2-1-1", "node_level": 2}],
+        )
+
+    assert cancelled.is_set()
 
 
 @pytest.mark.asyncio

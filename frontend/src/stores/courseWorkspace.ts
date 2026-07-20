@@ -90,6 +90,10 @@ export interface FormalPracticeResponse {
     node_id?: string
   }
   questions: LearningAssetItem[]
+  batch_size: number
+  question_count: number
+  available_question_count: number
+  batch_policy: string
   active_attempts: PracticeAttempt[]
   summary: Record<string, number>
 }
@@ -172,8 +176,19 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       this.loading = true
       this.practiceLoading = true
       try {
+        const requestedTaskRevisionId = (
+          this.requestedTaskRef?.kind === 'practice'
+            ? this.requestedTaskRef.task_revision_id
+            : ''
+        )
         const res = await http.get(`/api/courses/${courseId}/practice`, {
-          params: { scope, ...(nodeId ? { node_id: nodeId } : {}) },
+          params: {
+            scope,
+            ...(nodeId ? { node_id: nodeId } : {}),
+            ...(requestedTaskRevisionId
+              ? { task_revision_id: requestedTaskRevisionId }
+              : {}),
+          },
         })
         try {
           await this.loadDiagnosticWorkflow(courseId, nodeId)
@@ -463,8 +478,20 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         (item.task_revision_id || item.revision_id) === selectedRevisionId
       ))
       if (selectedIndex < 0 && this.practice) {
-        this.practice.questions = [...questions, selected]
-        selectedIndex = this.practice.questions.length - 1
+        const batchSize = Math.max(1, Number(this.practice.batch_size || 3))
+        if (questions.length >= batchSize) {
+          const replacementIndex = Math.min(
+            this.currentQuestionIndex,
+            questions.length - 1,
+          )
+          const nextQuestions = [...questions]
+          nextQuestions[replacementIndex] = selected
+          this.practice.questions = nextQuestions
+          selectedIndex = replacementIndex
+        } else {
+          this.practice.questions = [...questions, selected]
+          selectedIndex = this.practice.questions.length - 1
+        }
       }
       this.currentQuestionIndex = Math.max(0, selectedIndex)
       this.currentAttempt = null
@@ -657,7 +684,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     },
     async confirmGenerationStep(
       courseId: string,
-      step: 'outline' | 'knowledge' | 'teaching' | 'content' | 'release',
+      step: 'outline' | 'content' | 'release',
     ) {
       const res = await http.post(`/api/courses/${courseId}/generation/steps/${step}/confirm`)
       return res.data

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import CourseWorkspaceTabs from '@/components/CourseWorkspaceTabs.vue'
 
 describe('CourseWorkspaceTabs', () => {
-  it('按大纲、教案、课程、练习的顺序展示一级工作区', async () => {
+  it('按教案、课程、练习的顺序展示一级工作区', async () => {
     const wrapper = mount(CourseWorkspaceTabs, {
       props: {
         activeItem: 'course',
@@ -12,15 +12,13 @@ describe('CourseWorkspaceTabs', () => {
     })
 
     const tabs = wrapper.findAll('[role="tab"]')
-    expect(tabs.map(tab => tab.text())).toEqual(['大纲', '教案', '课程', '练习'])
-    expect(tabs[2]!.attributes('aria-selected')).toBe('true')
+    expect(tabs.map(tab => tab.text())).toEqual(['教案', '课程', '练习'])
+    expect(tabs[1]!.attributes('aria-selected')).toBe('true')
 
     await tabs[0]!.trigger('click')
     await tabs[1]!.trigger('click')
     await tabs[2]!.trigger('click')
-    await tabs[3]!.trigger('click')
 
-    expect(wrapper.emitted('outline')).toHaveLength(1)
     expect(wrapper.emitted('lesson-plan')).toHaveLength(1)
     expect(wrapper.emitted('course')).toHaveLength(1)
     expect(wrapper.emitted('practice')).toHaveLength(1)
@@ -50,5 +48,34 @@ describe('CourseWorkspaceTabs', () => {
     expect(practice.attributes('disabled')).toBeUndefined()
     await practice.trigger('click')
     expect(wrapper.emitted('practice')).toHaveLength(1)
+  })
+
+  it('课程生成期间保留练习入口但明确禁用到发布后', () => {
+    const wrapper = mount(CourseWorkspaceTabs, {
+      props: {
+        activeItem: 'lesson-plan',
+        practicePending: true,
+      },
+    })
+
+    const practice = wrapper.get('[data-workspace-item="practice"]')
+    expect(practice.attributes('disabled')).toBeDefined()
+    expect(practice.attributes('title')).toContain('发布后')
+  })
+
+  it('目录确认前保留教案位置但不允许进入空白教案页', async () => {
+    const wrapper = mount(CourseWorkspaceTabs, {
+      props: {
+        activeItem: 'course',
+        lessonPlanPending: true,
+        practicePending: true,
+      },
+    })
+
+    const lessonPlan = wrapper.get('[data-workspace-item="lesson-plan"]')
+    expect(lessonPlan.attributes('disabled')).toBeDefined()
+    expect(lessonPlan.attributes('title')).toContain('目录确认后')
+    await lessonPlan.trigger('click')
+    expect(wrapper.emitted('lesson-plan')).toBeUndefined()
   })
 })
