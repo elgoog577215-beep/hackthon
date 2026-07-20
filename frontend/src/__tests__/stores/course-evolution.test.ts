@@ -92,6 +92,36 @@ describe('course evolution store', () => {
     )
   })
 
+  it('用单一令牌编排目录闪烁、正文定位和稳定展示阶段', () => {
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    const token = store.beginApplicationVisual({
+      planId: 'plan-1',
+      affectedSectionIds: ['section-1', 'section-2'],
+      appliedBlockIds: ['growth-animation'],
+      operationIds: ['operation-animation'],
+      targetSectionId: 'section-1',
+      targetBlockId: 'growth-animation',
+      targetOperationId: 'operation-animation',
+    })
+
+    expect(store.applicationVisual).toMatchObject({
+      token,
+      phase: 'navigator',
+      targetBlockId: 'growth-animation',
+    })
+    store.setApplicationVisualPhase(token, 'content')
+    expect(store.applicationVisual?.phase).toBe('content')
+    store.setApplicationVisualPhase(token + 1, 'settled')
+    expect(store.applicationVisual?.phase).toBe('content')
+    store.setApplicationVisualPhase(token, 'settled')
+    expect(store.applicationVisual?.phase).toBe('settled')
+
+    store.applyPayload('course-2', payload())
+    expect(store.applicationVisual).toBeNull()
+  })
+
   it('requests a reviewable replacement after an ineffective adaptation', async () => {
     httpMock.get.mockResolvedValue({ data: payload('applied') })
     httpMock.post.mockResolvedValue({ data: payload() })

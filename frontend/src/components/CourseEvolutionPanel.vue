@@ -329,12 +329,21 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ArrowRight, BadgeCheck, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, Layers3, LoaderCircle, LocateFixed, Network, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
 import CourseEvolutionReviewOverlay from './CourseEvolutionReviewOverlay.vue'
-import { useCourseEvolutionStore, type CourseEvolutionPlan, type EvolutionEvidence } from '../stores/courseEvolution'
+import {
+  useCourseEvolutionStore,
+  type CourseEvolutionApplicationPresentation,
+  type CourseEvolutionPlan,
+  type EvolutionEvidence,
+  type EvolutionOperation,
+} from '../stores/courseEvolution'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import { t } from '../shared/i18n'
 
 const props = defineProps<{ courseId: string; sectionId?: string; focusPlanId?: string }>()
+const emit = defineEmits<{
+  courseApplied: [presentation: CourseEvolutionApplicationPresentation]
+}>()
 const store = useCourseEvolutionStore()
 const courseStore = useCourseStore()
 const progressStore = useLearningProgressStore()
@@ -620,7 +629,87 @@ async function refreshCourseAndRuntime() {
   await courseStore.refreshCourseData(props.courseId)
   await progressStore.loadRuntime(props.courseId)
 }
-async function accept(plan: CourseEvolutionPlan) { await store.accept(plan.change_set_id, selectedScope[plan.change_set_id] || 'current'); await refreshCourseAndRuntime() }
+
+function applicationOperationPriority(operation: EvolutionOperation) {
+  return ({
+    ADD_ANIMATION: 0,
+    INSERT_COURSE_SUPPORT: 1,
+    ADD_TARGETED_PRACTICE: 2,
+    ADD_TRANSITION_SUPPORT: 3,
+    ADD_CHECKPOINT: 4,
+  } as Record<string, number>)[operation.operation_type] ?? 10
+}
+
+function buildApplicationPresentation(
+  sourcePlan: CourseEvolutionPlan,
+  selectedOperationIds?: string[],
+): CourseEvolutionApplicationPresentation {
+  const appliedPlan = store.plans.find(
+    item => item.change_set_id === sourcePlan.change_set_id,
+  ) || sourcePlan
+  const selectedIds = new Set(
+    selectedOperationIds?.length
+      ? selectedOperationIds
+      : appliedPlan.selected_operation_ids?.length
+        ? appliedPlan.selected_operation_ids
+        : appliedPlan.operations.map(operation => operation.operation_id),
+  )
+  const selectedCourseOperations = appliedPlan.operations
+    .filter(operation => (
+      operation.operation_type !== 'ADJUST_COURSE_DIFFICULTY'
+      && selectedIds.has(operation.operation_id)
+      && (appliedPlan.selected_scope !== 'current' || operation.scope === 'current')
+    ))
+    .sort((left, right) => applicationOperationPriority(left) - applicationOperationPriority(right))
+  const appliedBlockIds = (appliedPlan.applied_block_ids || []).map(String)
+  const appliedBlockIdSet = new Set(appliedBlockIds)
+  const documentEntries = courseStore.nodes.flatMap(node => (
+    (node.course_blocks || []).map(block => ({ node, block }))
+  ))
+  const evolvedEntries = documentEntries.filter(({ block }) => {
+    const metadata = block.payload?.course_evolution as Record<string, unknown> | undefined
+    return appliedBlockIdSet.has(block.block_id)
+      || String(metadata?.change_set_id || '') === appliedPlan.change_set_id
+  })
+  const preferredOperation = selectedCourseOperations.find(operation => (
+    evolvedEntries.some(({ block }) => (
+      String((block.payload?.course_evolution as Record<string, unknown> | undefined)?.operation_id || '')
+      === operation.operation_id
+    ))
+  )) || selectedCourseOperations[0]
+  const targetEntry = evolvedEntries.find(({ block }) => (
+    String((block.payload?.course_evolution as Record<string, unknown> | undefined)?.operation_id || '')
+    === preferredOperation?.operation_id
+  )) || evolvedEntries[0]
+  const affectedSectionIds = [...new Set(
+    selectedCourseOperations.map(operation => operation.target_section_id).filter(Boolean),
+  )]
+  if (!affectedSectionIds.length) {
+    for (const sectionId of appliedPlan.impact_summary?.affected_section_ids || []) {
+      affectedSectionIds.push(String(sectionId))
+    }
+  }
+  return {
+    planId: appliedPlan.change_set_id,
+    affectedSectionIds,
+    appliedBlockIds,
+    operationIds: selectedCourseOperations.map(operation => operation.operation_id),
+    targetSectionId: targetEntry?.node.node_id
+      || preferredOperation?.target_section_id
+      || appliedPlan.target_section_id
+      || props.sectionId
+      || '',
+    targetBlockId: targetEntry?.block.block_id || appliedBlockIds[0] || '',
+    targetOperationId: preferredOperation?.operation_id || '',
+  }
+}
+
+async function accept(plan: CourseEvolutionPlan) {
+  const scope = selectedScope[plan.change_set_id] || 'current'
+  await store.accept(plan.change_set_id, scope)
+  await refreshCourseAndRuntime()
+  emit('courseApplied', buildApplicationPresentation(plan))
+}
 
 type ReviewScanContext = {
   token: number
@@ -738,8 +827,13 @@ async function acceptSelected(plan: CourseEvolutionPlan) {
   )
   closeReview()
   await refreshCourseAndRuntime()
+  emit('courseApplied', buildApplicationPresentation(plan, operationIds))
 }
-async function undo(plan: CourseEvolutionPlan) { await store.undo(plan.change_set_id); await refreshCourseAndRuntime() }
+async function undo(plan: CourseEvolutionPlan) {
+  await store.undo(plan.change_set_id)
+  store.clearApplicationVisual(plan.change_set_id)
+  await refreshCourseAndRuntime()
+}
 async function adjust(plan: CourseEvolutionPlan) { await store.adjust(plan.change_set_id) }
 async function createSectionPlan() {
   if (!props.sectionId || !sectionInstruction.value.trim()) return

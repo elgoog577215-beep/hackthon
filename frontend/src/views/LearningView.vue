@@ -1,5 +1,5 @@
 <template>
-  <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview }">
+  <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth }">
     <div v-if="overlayVisible" class="surface-backdrop" @click="closeMobileSurfaces"></div>
 
     <Transition name="slide-left">
@@ -44,6 +44,13 @@
           @practice="selectWorkspace('practice')"
         />
         <div class="context-actions">
+          <div v-if="hasAppliedCourseGrowth" class="ai-course-version" role="status">
+            <Sparkles :size="14" />
+            <span>
+              <small>{{ t('courseEvolution.applicationVisual.courseEyebrow', 'AI 个体化课程') }}</small>
+              <strong>{{ t('courseEvolution.applicationVisual.newVersion', '新版本已应用') }}</strong>
+            </span>
+          </div>
           <button v-if="isGenerationPreview && !autoFollowGeneration" type="button" :title="t('courseGeneration.workspace.follow', '跟随当前生成章节')" :aria-label="t('courseGeneration.workspace.follow', '跟随当前生成章节')" @click="resumeGenerationFollow">
             <LocateFixed :size="17" />
           </button>
@@ -227,6 +234,7 @@
         @close="closeAi"
         @clear-block-target="clearBlockImprovement"
         @block-applied="handleBlockApplied"
+        @course-applied="handleCourseGrowthApplied"
       />
     </Transition>
 
@@ -243,7 +251,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen } from 'lucide-vue-next'
+import { History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, Sparkles } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseGenerationGate from '../components/CourseGenerationGate.vue'
 import CourseGenerationLifecycle from '../components/CourseGenerationLifecycle.vue'
@@ -267,6 +275,10 @@ import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { useLearningProgressStore, type NextLearningAction } from '../stores/learningProgress'
 import { useNoteStore } from '../stores/notes'
+import {
+  useCourseEvolutionStore,
+  type CourseEvolutionApplicationPresentation,
+} from '../stores/courseEvolution'
 import type { CourseBlockEditTarget, CourseBlockNavigationTarget, Node } from '../stores/types'
 import { isWorkspaceTaskAction, learningActionLabel } from '../utils/learning-action'
 import { isQuestionBankRepairReason } from '../utils/course-availability'
@@ -284,6 +296,7 @@ const workspaceStore = useCourseWorkspaceStore()
 const learningProgressStore = useLearningProgressStore()
 const aiTeacherStore = useAITeacherStore()
 const changeProposalsStore = useChangeProposalsStore()
+const courseEvolutionStore = useCourseEvolutionStore()
 const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 
 const windowWidth = ref(window.innerWidth)
@@ -317,6 +330,8 @@ const loadedLearningCourseId = ref('')
 const activeDomain = ref<'course' | 'notebook' | 'mistake-book' | 'overview' | 'knowledge-library' | 'assistant'>('course')
 const activeTeachingResource = ref<'outline' | 'lesson_plan'>('lesson_plan')
 const activeCourseBlockId = ref('')
+let courseGrowthLocationTimer: ReturnType<typeof setTimeout> | undefined
+let courseGrowthSettleTimer: ReturnType<typeof setTimeout> | undefined
 
 const isNarrow = computed(() => windowWidth.value < 1024)
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
@@ -361,6 +376,10 @@ const generationContextLabel = computed(() => (
 ))
 const navigatorVisible = computed(() => (
   !courseStore.isFocusMode && navigatorOpen.value
+))
+const hasAppliedCourseGrowth = computed(() => (
+  courseEvolutionStore.courseId === courseStore.currentCourseId
+  && courseEvolutionStore.appliedPlans.length > 0
 ))
 const overlayVisible = computed(() => isNarrow.value && navigatorVisible.value && !taskOpen.value)
 const noteCount = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format' && item.sourceType !== 'wrong').length)
@@ -562,6 +581,8 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   generationStore.unobserveCourse(courseStore.currentCourseId)
+  if (courseGrowthLocationTimer) clearTimeout(courseGrowthLocationTimer)
+  if (courseGrowthSettleTimer) clearTimeout(courseGrowthSettleTimer)
 })
 
 function handleResize() {
@@ -716,6 +737,34 @@ function clearBlockImprovement() {
 async function handleBlockApplied(target: CourseBlockEditTarget) {
   await nextTick()
   document.getElementById(`course-block-${target.block.block_id}`)?.scrollIntoView({ block: 'center' })
+}
+
+function handleCourseGrowthApplied(presentation: CourseEvolutionApplicationPresentation) {
+  if (courseGrowthLocationTimer) clearTimeout(courseGrowthLocationTimer)
+  if (courseGrowthSettleTimer) clearTimeout(courseGrowthSettleTimer)
+  const token = courseEvolutionStore.beginApplicationVisual(presentation)
+  activeWorkspaceItem.value = 'course'
+  navigatorOpen.value = true
+
+  courseGrowthLocationTimer = setTimeout(async () => {
+    if (courseEvolutionStore.applicationVisual?.token !== token) return
+    courseEvolutionStore.setApplicationVisualPhase(token, 'content')
+    const targetNode = courseStore.nodes.find(
+      node => node.node_id === presentation.targetSectionId,
+    )
+    if (targetNode && presentation.targetBlockId) {
+      await selectCourseBlock({
+        node: targetNode,
+        blockId: presentation.targetBlockId,
+      })
+    } else if (targetNode) {
+      selectNode(targetNode)
+    }
+    if (courseEvolutionStore.applicationVisual?.token !== token) return
+    courseGrowthSettleTimer = setTimeout(() => {
+      courseEvolutionStore.setApplicationVisualPhase(token, 'settled')
+    }, 2200)
+  }, 980)
 }
 
 function openAiForPractice(payload: { text: string; nodeId: string }) {
@@ -967,6 +1016,9 @@ function closeMobileSurfaces() {
 .navigator-surface { flex: 0 0 280px; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .learning-context-bar { min-height:58px; flex:0 0 auto; display:grid; grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr); align-items:center; gap:12px; padding:7px 12px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.94); }
+.has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
+.has-ai-course-growth .learning-context-bar:not(.is-generation) { position:relative; border-bottom-color:rgba(191,219,254,.9); background:linear-gradient(90deg,rgba(248,250,255,.98),rgba(240,249,255,.96) 58%,rgba(248,250,252,.98)); }
+.has-ai-course-growth .learning-context-bar:not(.is-generation)::after { content:""; position:absolute; right:0; bottom:-1px; left:0; height:2px; background:linear-gradient(90deg,#4f46e5 0 24%,#0891b2 62%,rgba(14,165,233,0)); opacity:.72; }
 .learning-context-bar.is-generation { min-height:52px; background:rgba(255,255,255,.96); }
 .context-leading { min-width:0; display:flex; align-items:center; gap:9px; }
 .context-leading > button,.context-actions > button { width:32px; height:32px; flex:0 0 32px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
@@ -975,6 +1027,11 @@ function closeMobileSurfaces() {
 .context-copy span { color:var(--lz-text-muted); font-size:9px; }
 .context-copy strong { margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--lz-text-strong); font-size:12px; }
 .context-actions { min-width:0; justify-self:end; display:flex; align-items:center; gap:7px; }
+.ai-course-version { min-width:0; display:flex; align-items:center; gap:7px; padding:5px 8px; border:1px solid rgba(165,180,252,.72); border-radius:9px; color:#4338ca; background:rgba(255,255,255,.86); box-shadow:0 5px 14px rgba(79,70,229,.08); }
+.ai-course-version > svg { flex:0 0 auto; color:#0891b2; }
+.ai-course-version > span { min-width:0; display:flex; flex-direction:column; line-height:1.12; }
+.ai-course-version small { color:#64748b; font-size:8px; font-weight:700; white-space:nowrap; }
+.ai-course-version strong { color:#312e81; font-size:10px; font-weight:800; white-space:nowrap; }
 .learning-content { min-height: 0; flex: 1; }
 .learning-tool-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
 .learning-tool-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:24px; }
@@ -995,6 +1052,7 @@ function closeMobileSurfaces() {
 .slide-right-enter-from, .slide-right-leave-to { transform: translateX(100%); opacity: 0; }
 @media (max-width:1279px) {
   .learning-context-bar { grid-template-columns:minmax(120px,.8fr) auto minmax(40px,.8fr); }
+  .ai-course-version small { display:none; }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { inset:0; padding:80px 12px 12px; }
 }
 @media (max-width: 1023px) {
@@ -1009,6 +1067,8 @@ function closeMobileSurfaces() {
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
   .learning-context-bar { min-height:52px; grid-template-columns:auto minmax(0,1fr) auto; gap:6px; padding:5px 7px; }
   .context-copy { display:none; }
+  .ai-course-version { padding:6px; }
+  .ai-course-version > span { display:none; }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); }
   .learning-tool-overlay { position:fixed; inset:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); z-index:105; }
   .learning-tool-modal { padding:10px; }
@@ -1020,4 +1080,7 @@ function closeMobileSurfaces() {
 }
 @media (min-width:768px) { .mobile-resume-prompt { display:none; } }
 @keyframes mobile-resume-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) {
+  .learning-main,.learning-context-bar { transition:none; }
+}
 </style>

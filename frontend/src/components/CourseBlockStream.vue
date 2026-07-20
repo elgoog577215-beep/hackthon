@@ -8,8 +8,19 @@
         :data-content-block-revision-id="item.block.block_revision_id"
         :data-content-block-type="item.block.type"
         :data-content-block-kind="String(item.block.metadata?.kind || '')"
-        :class="{ 'can-improve-formal': canImproveBlock(item.block.block_id) }"
+        :data-course-evolution-plan-id="evolutionMetadata(item.block)?.change_set_id"
+        :data-course-evolution-operation-id="evolutionMetadata(item.block)?.operation_id"
+        :class="{
+          'can-improve-formal': canImproveBlock(item.block.block_id),
+          'is-ai-evolved-block': isAiEvolvedBlock(item.block),
+          'is-ai-growth-highlight': isApplicationBlock(item.block) && applicationVisual?.phase === 'content',
+          'is-ai-growth-primary': isPrimaryApplicationBlock(item.block),
+        }"
       >
+        <span v-if="isAiEvolvedBlock(item.block)" class="ai-evolution-block-badge">
+          <Sparkles :size="12" />
+          {{ t('courseEvolution.applicationVisual.blockBadge', 'AI 个体化补充') }}
+        </span>
         <header v-if="item.block.title" class="block-heading">
           <span>{{ blockLabel(item.block.type) }}</span>
           <h4>{{ item.block.title }}</h4>
@@ -86,7 +97,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { PencilLine } from 'lucide-vue-next'
+import { PencilLine, Sparkles } from 'lucide-vue-next'
 import InlineCourseBlockAI from './InlineCourseBlockAI.vue'
 import InlineLearningRecordBlock from './InlineLearningRecordBlock.vue'
 import CourseEvolutionContentBlock from './CourseEvolutionContentBlock.vue'
@@ -95,6 +106,7 @@ import MarkdownDocumentEditor from './MarkdownDocumentEditor.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import type { ContentBlock, CourseBlockEditTarget, Node, Note } from '../stores/types'
 import { useNoteStore } from '../stores/notes'
+import { useCourseEvolutionStore } from '../stores/courseEvolution'
 import { t } from '../shared/i18n'
 
 const props = withDefaults(defineProps<{
@@ -112,6 +124,7 @@ const emit = defineEmits<{
 }>()
 const activeBlockId = ref('')
 const noteStore = useNoteStore()
+const evolutionStore = useCourseEvolutionStore()
 const liveRecordIds = reactive(new Set<string>())
 const regenerationRequests = reactive<Record<string, { token: number; prompt: string; action?: 'explain' | 'example' | 'simplify' | 'ask' }>>({})
 const blocks = computed(() => (props.node.course_blocks?.length
@@ -159,6 +172,37 @@ const streamItems = computed(() => {
   }
   return items
 })
+const applicationVisual = computed(() => evolutionStore.applicationVisual)
+
+function evolutionMetadata(block: ContentBlock) {
+  return block.metadata?.course_evolution as Record<string, string> | undefined
+}
+
+function isAiEvolvedBlock(block: ContentBlock) {
+  return Boolean(evolutionMetadata(block)?.change_set_id)
+}
+
+function isApplicationBlock(block: ContentBlock) {
+  const visual = applicationVisual.value
+  if (!visual) return false
+  const metadata = evolutionMetadata(block)
+  return visual.appliedBlockIds.includes(block.block_id)
+    || (
+      metadata?.change_set_id === visual.planId
+      && visual.operationIds.includes(String(metadata.operation_id || ''))
+    )
+}
+
+function isPrimaryApplicationBlock(block: ContentBlock) {
+  const visual = applicationVisual.value
+  if (!visual || !['content', 'settled'].includes(visual.phase)) return false
+  const metadata = evolutionMetadata(block)
+  return block.block_id === visual.targetBlockId
+    || Boolean(
+      visual.targetOperationId
+      && metadata?.operation_id === visual.targetOperationId,
+    )
+}
 
 function blockLabel(type: ContentBlock['type'] | string) {
   return t(`courseBlocks.${type}`, ({
@@ -213,6 +257,11 @@ async function deleteAiRecord(note: Note) {
 .legacy-inline-records { display:grid; gap:12px; margin-top:24px; }
 .course-content-block { --block-accent:#6366f1; --block-soft:#eef2ff; position:relative; min-width:0; scroll-margin-top:92px; }
 .course-content-block + .course-content-block { padding-top:2px; border-top:0; }
+.course-content-block.is-ai-evolved-block { padding:18px 20px 20px; border:1px solid rgba(191,219,254,.86); border-left:3px solid #4f46e5; border-radius:16px; background:linear-gradient(135deg,rgba(248,250,255,.98),rgba(240,249,255,.78)); box-shadow:0 10px 28px rgba(30,64,175,.07),inset 0 1px 0 rgba(255,255,255,.94); transition:border-color .28s ease,box-shadow .28s ease,background .28s ease,transform .28s ease; }
+.ai-evolution-block-badge { width:max-content; display:inline-flex; align-items:center; gap:5px; margin:0 0 12px; padding:4px 7px; border:1px solid rgba(165,180,252,.72); border-radius:999px; color:#4338ca; background:rgba(255,255,255,.9); font-size:9px; font-weight:800; letter-spacing:.02em; }
+.ai-evolution-block-badge > svg { color:#0891b2; }
+.course-content-block.is-ai-growth-highlight { border-color:rgba(129,140,248,.88); background:linear-gradient(135deg,rgba(245,247,255,1),rgba(236,254,255,.92)); box-shadow:0 0 0 3px rgba(99,102,241,.1),0 18px 38px rgba(30,64,175,.13); }
+.course-content-block.is-ai-growth-primary { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.13),0 20px 42px rgba(30,64,175,.16); animation:course-ai-growth-arrival 1.45s cubic-bezier(.2,.8,.2,1); }
 .block-heading { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-right:34px; }
 .course-content-block.can-improve-formal .block-heading { padding-right:120px; }
 .block-heading span { flex:0 0 auto; display:inline-flex; align-items:center; min-height:25px; padding:3px 8px; border:1px solid color-mix(in srgb,var(--block-accent) 18%,white); border-radius:8px; color:var(--block-accent); background:var(--block-soft); font-size:11px; font-weight:800; line-height:1; }
@@ -242,9 +291,17 @@ async function deleteAiRecord(note: Note) {
 .course-content-block :deep(hr) { display:none; }
 .stream-cursor { display: inline-block; width: 2px; height: 18px; background: var(--lz-brand); animation: blink 1s step-end infinite; }
 @keyframes blink { 50% { opacity: 0; } }
+@keyframes course-ai-growth-arrival {
+  0% { transform:translateY(8px) scale(.992); filter:saturate(.82); }
+  38% { transform:translateY(0) scale(1.006); filter:saturate(1.08); box-shadow:0 0 0 6px rgba(99,102,241,.15),0 24px 50px rgba(30,64,175,.2); }
+  100% { transform:translateY(0) scale(1); filter:saturate(1); }
+}
 @media (max-width:880px) {
   .course-content-block.can-improve-formal .block-heading { padding-right:38px; }
   .block-formal-improvement { width:30px; padding:0; justify-content:center; opacity:.68; pointer-events:auto; }
   .block-formal-improvement span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .course-content-block.is-ai-growth-primary { animation:none; }
 }
 </style>

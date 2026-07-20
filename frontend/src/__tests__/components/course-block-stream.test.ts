@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
 import CourseBlockStream from '@/components/CourseBlockStream.vue'
 import { useCourseStore } from '@/stores/course'
+import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import { useLearningProgressStore } from '@/stores/learningProgress'
 import type { Node as CourseNode, Note } from '@/stores/types'
 
@@ -234,6 +235,30 @@ describe('CourseBlockStream', () => {
     )
     expect(wrapper.text()).toContain('学习证据形成的课程版本')
     expect(wrapper.get('.course-content-block').attributes('data-content-block-id')).toBe('growth-1')
+    const evolutionStore = useCourseEvolutionStore(pinia)
+    const visualToken = evolutionStore.beginApplicationVisual({
+      planId: 'plan-1',
+      affectedSectionIds: ['node-1'],
+      appliedBlockIds: ['growth-1'],
+      operationIds: ['operation-1'],
+      targetSectionId: 'node-1',
+      targetBlockId: 'growth-1',
+      targetOperationId: 'operation-1',
+    })
+    evolutionStore.setApplicationVisualPhase(visualToken, 'content')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('.course-content-block').classes()).toContain('is-ai-evolved-block')
+    expect(wrapper.get('.course-content-block').classes()).toContain('is-ai-growth-highlight')
+    expect(wrapper.get('.course-content-block').classes()).toContain('is-ai-growth-primary')
+    expect(wrapper.get('.course-content-block').attributes('data-course-evolution-operation-id')).toBe('operation-1')
+    expect(wrapper.get('.ai-evolution-block-badge').text()).toContain('AI 个体化补充')
+
+    evolutionStore.setApplicationVisualPhase(visualToken, 'settled')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.course-content-block').classes()).not.toContain('is-ai-growth-highlight')
+    expect(wrapper.get('.course-content-block').classes()).toContain('is-ai-growth-primary')
+    evolutionStore.clearApplicationVisual()
   })
 
   it('确认后的针对性练习正文块打开后端指定的正式题目', async () => {

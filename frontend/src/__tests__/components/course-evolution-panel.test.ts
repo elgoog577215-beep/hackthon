@@ -142,7 +142,40 @@ describe('CourseEvolutionPanel', () => {
       course_evolution_plans: [strongPlan],
     })
     const accept = vi.spyOn(store, 'accept').mockResolvedValue({} as any)
-    vi.spyOn(useCourseStore(), 'refreshCourseData').mockResolvedValue(undefined as any)
+    const courseStore = useCourseStore()
+    courseStore.nodes = [{
+      node_id: 's1',
+      parent_node_id: 'root',
+      node_name: '1.2 矩阵',
+      node_level: 2,
+      node_content: '',
+      node_type: 'original',
+      generation_status: 'completed',
+      generated_chars: 0,
+      course_blocks: [{
+        block_id: 'growth-animation',
+        section_id: 's1',
+        position: 1,
+        kind: 'diagram',
+        role: 'reasoning',
+        payload: {
+          title: '为什么先右后左',
+          markdown: 'v → Bv → A(Bv)',
+          course_evolution: {
+            change_set_id: 'plan-1',
+            operation_id: 'operation-1',
+          },
+        },
+        asset_refs: [],
+        objective_refs: [],
+        concept_refs: [],
+        evidence_refs: [],
+        visibility_rule: {},
+        internal_revision: 'growth-revision',
+        status: 'final',
+      }],
+    }] as any
+    vi.spyOn(courseStore, 'refreshCourseData').mockResolvedValue(undefined as any)
     vi.spyOn(useLearningProgressStore(), 'loadRuntime').mockResolvedValue(undefined as any)
 
     const wrapper = mount(CourseEvolutionPanel, {
@@ -168,6 +201,15 @@ describe('CourseEvolutionPanel', () => {
     await flushPromises()
 
     expect(accept).toHaveBeenCalledWith('plan-1', 'current_and_next')
+    expect(wrapper.emitted('courseApplied')).toEqual([[
+      expect.objectContaining({
+        planId: 'plan-1',
+        affectedSectionIds: ['s1', 's2'],
+        targetSectionId: 's1',
+        targetBlockId: 'growth-animation',
+        targetOperationId: 'operation-1',
+      }),
+    ]])
   })
 
   it('英文模式完整呈现强学习语义和课程生长方案标签', async () => {

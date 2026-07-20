@@ -115,6 +115,7 @@
         :course-id="courseStore.currentCourseId"
         :section-id="currentNode?.node_id"
         :focus-plan-id="focusedEvolutionPlanId"
+        @course-applied="emit('courseApplied', $event)"
       />
 
       <section
@@ -629,6 +630,7 @@ import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import {
   useCourseEvolutionStore,
+  type CourseEvolutionApplicationPresentation,
   type CourseAdjustmentScope,
   type CourseEvolutionAnchorRole,
   type CourseEvolutionPlan,
@@ -664,6 +666,7 @@ const emit = defineEmits<{
   (event: 'close'): void
   (event: 'clearBlockTarget'): void
   (event: 'blockApplied', target: CourseBlockEditTarget): void
+  (event: 'courseApplied', presentation: CourseEvolutionApplicationPresentation): void
 }>()
 const aiStore = useAITeacherStore()
 const courseStore = useCourseStore()

@@ -153,4 +153,33 @@ describe('course navigator personal adaptation markers', () => {
     expect(wrapper.find('.adaptation-marker').attributes('data-state')).toBe('validated')
     expect(wrapper.find('.growth-trail').attributes('data-state')).toBe('validated')
   })
+
+  it('确认后只让受影响小节闪烁，并在动画结束后保留紫色生长定位', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const evolutionStore = useCourseEvolutionStore()
+    evolutionStore.courseId = 'course-1'
+    const token = evolutionStore.beginApplicationVisual({
+      planId: 'plan-1',
+      affectedSectionIds: ['section-1'],
+      appliedBlockIds: ['growth-animation'],
+      operationIds: ['operation-animation'],
+      targetSectionId: 'section-1',
+      targetBlockId: 'growth-animation',
+      targetOperationId: 'operation-animation',
+    })
+
+    const wrapper = mount(CourseNavigatorNode, {
+      props: { node, depth: 0 },
+    })
+
+    expect(wrapper.findAll('.is-ai-growth-target')).toHaveLength(1)
+    expect(wrapper.findAll('.is-ai-growth-pulse')).toHaveLength(1)
+    expect(wrapper.find('.has-ai-growth-descendant').exists()).toBe(true)
+
+    evolutionStore.setApplicationVisualPhase(token, 'content')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.is-ai-growth-pulse').exists()).toBe(false)
+    expect(wrapper.findAll('.is-ai-growth-target')).toHaveLength(1)
+  })
 })

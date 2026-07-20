@@ -8,6 +8,7 @@ import { useAITeacherStore } from '@/stores/aiTeacher'
 import { useChangeProposalsStore } from '@/stores/changeProposals'
 import { useCourseStore } from '@/stores/course'
 import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
+import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import { useGenerationStore } from '@/stores/generation'
 import { useLearningProgressStore } from '@/stores/learningProgress'
 import { useNoteStore } from '@/stores/notes'
@@ -27,6 +28,32 @@ const ContentAreaStub = defineComponent({
     }
   },
   template: '<div id="content-scroll-container"><button id="practice-block-n1" class="open-practice" @click="open">open</button><button class="open-targeted-practice" @click="openTargeted">targeted</button></div>',
+})
+
+const growthScrollSpy = vi.fn()
+const GrowthContentAreaStub = defineComponent({
+  setup(_, { expose }) {
+    expose({ scrollToCourseBlock: growthScrollSpy })
+  },
+  template: '<div id="content-scroll-container"></div>',
+})
+
+const GrowthSideAIPanelStub = defineComponent({
+  emits: ['close', 'courseApplied'],
+  setup(_, { emit }) {
+    return {
+      applyGrowth: () => emit('courseApplied', {
+        planId: 'plan-growth',
+        affectedSectionIds: ['n1'],
+        appliedBlockIds: ['growth-animation'],
+        operationIds: ['operation-animation'],
+        targetSectionId: 'n1',
+        targetBlockId: 'growth-animation',
+        targetOperationId: 'operation-animation',
+      }),
+    }
+  },
+  template: '<aside class="growth-ai-panel"><button class="apply-growth" @click="applyGrowth">应用课程生长</button></aside>',
 })
 
 const TaskOverlayStub = defineComponent({
@@ -216,6 +243,63 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(useCourseWorkspaceStore().requestedTaskRef?.task_revision_id).toBe('qr-targeted')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     wrapper.unmount()
+  })
+
+  it('确认课程生长后先点亮目录，再自动定位正文并稳定保留新版本状态', async () => {
+    const evolutionStore = useCourseEvolutionStore()
+    evolutionStore.applyPayload('c1', {
+      course_evolution_plans: [{
+        change_set_id: 'plan-growth',
+        hypothesis_id: 'hypothesis-growth',
+        evidence_ids: [],
+        operations: [],
+        allowed_scopes: ['current'],
+        impact_summary: { affected_section_ids: ['n1'] },
+        expected_effect: '',
+        status: 'applied',
+        effect_evaluation: {},
+      }],
+    })
+    growthScrollSpy.mockReset()
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: GrowthContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningDock: true,
+          LearningStats: true,
+          NotesPanel: true,
+          SideAIPanel: GrowthSideAIPanelStub,
+          Transition: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.classes()).toContain('has-ai-course-growth')
+    expect(wrapper.get('.ai-course-version').text()).toContain('新版本已应用')
+    await wrapper.get('[title="打开 AI 老师"]').trigger('click')
+    await flushPromises()
+
+    vi.useFakeTimers()
+    try {
+      await wrapper.get('.apply-growth').trigger('click')
+      expect(evolutionStore.applicationVisual?.phase).toBe('navigator')
+
+      await vi.advanceTimersByTimeAsync(980)
+      await flushPromises()
+      expect(evolutionStore.applicationVisual?.phase).toBe('content')
+      expect(growthScrollSpy).toHaveBeenCalledWith('n1', 'growth-animation')
+
+      await vi.advanceTimersByTimeAsync(2200)
+      expect(evolutionStore.applicationVisual?.phase).toBe('settled')
+    } finally {
+      vi.useRealTimers()
+      wrapper.unmount()
+    }
   })
 
   it('旧课程没有可用题目时仍可从顶层当前练习进入重建界面', async () => {

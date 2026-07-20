@@ -2,7 +2,16 @@
   <li v-if="visible" class="navigator-node">
     <button
       type="button"
-      :class="['node-button', `level-${node.node_level}`, { active: activeId === node.node_id }]"
+      :class="[
+        'node-button',
+        `level-${node.node_level}`,
+        {
+          active: activeId === node.node_id,
+          'is-ai-growth-target': isApplicationTarget,
+          'is-ai-growth-pulse': isApplicationPulse,
+          'has-ai-growth-descendant': hasApplicationTarget,
+        },
+      ]"
       :style="{ '--node-depth': String(depth) }"
       :aria-expanded="hasDisclosure ? disclosureExpanded : undefined"
       :aria-controls="hasDisclosure ? disclosureId : undefined"
@@ -123,6 +132,21 @@ const relevantPlans = computed(() => {
       || (plan.operations || []).some((operation: Record<string, any>) => ids.has(operation.target_section_id))
   })
 })
+const applicationVisual = computed(() => (
+  evolutionStore.courseId === courseStore.currentCourseId
+    ? evolutionStore.applicationVisual
+    : null
+))
+const isApplicationTarget = computed(() => Boolean(
+  applicationVisual.value?.affectedSectionIds.includes(props.node.node_id),
+))
+const hasApplicationTarget = computed(() => (
+  !isApplicationTarget.value
+  && Boolean(applicationVisual.value?.affectedSectionIds.some(sectionId => nodeIds.value.has(sectionId)))
+))
+const isApplicationPulse = computed(() => (
+  isApplicationTarget.value && applicationVisual.value?.phase === 'navigator'
+))
 const nodeIds = computed(() => {
   const ids = new Set<string>()
   const collect = (node: Node) => {
@@ -347,6 +371,12 @@ watch(() => props.activeId, (value, previous) => {
 .node-button:hover { transform:translateX(1px); color:var(--lz-text-strong); background:rgba(255,255,255,.7); }
 .node-button.active { border-color:rgba(255,255,255,.9); color:var(--lz-brand-strong); background:linear-gradient(90deg,rgba(255,255,255,.96),rgba(238,242,255,.84)); box-shadow:0 7px 18px rgba(99,102,241,.11),inset 0 1px 0 #fff; font-weight:700; }
 .node-button.active::before { height:28px; }
+.node-button.has-ai-growth-descendant { border-color:rgba(196,181,253,.46); background:rgba(250,250,255,.58); }
+.node-button.is-ai-growth-target { border-color:rgba(139,92,246,.55); color:#5b21b6; background:linear-gradient(90deg,rgba(245,243,255,.98),rgba(238,242,255,.82)); box-shadow:inset 3px 0 0 #7c3aed,0 6px 15px rgba(109,40,217,.08); }
+.node-button.is-ai-growth-target::before { height:28px; background:linear-gradient(180deg,#7c3aed,#4f46e5); }
+.node-button.is-ai-growth-target .adaptation-marker[data-state="active"] { border-color:#c4b5fd; color:#6d28d9; background:#f5f3ff; }
+.node-button.is-ai-growth-target .adaptation-marker[data-state="active"] b { background:#7c3aed; }
+.node-button.is-ai-growth-pulse { z-index:2; animation:navigator-ai-growth-pulse .5s cubic-bezier(.2,.8,.2,1) 2; }
 .node-button.level-1 { min-height:42px; margin-top:6px; color:var(--lz-text-strong); font-weight:750; }
 .node-button.level-2 { font-weight: 600; }
 .node-button > svg:first-child { color:var(--lz-text-muted); transition:transform .16s ease,color .16s ease; }
@@ -414,4 +444,11 @@ watch(() => props.activeId, (value, previous) => {
   .course-block-title { font-size:10px; }
 }
 @keyframes navigator-generation-spin { to { transform:rotate(360deg); } }
+@keyframes navigator-ai-growth-pulse {
+  0%,100% { transform:translateX(0) scale(1); box-shadow:inset 3px 0 0 #7c3aed,0 6px 15px rgba(109,40,217,.08); }
+  48% { transform:translateX(2px) scale(1.018); box-shadow:inset 3px 0 0 #7c3aed,0 0 0 3px rgba(139,92,246,.2),0 10px 24px rgba(79,70,229,.2); }
+}
+@media (prefers-reduced-motion:reduce) {
+  .node-button.is-ai-growth-pulse { animation:none; box-shadow:inset 3px 0 0 #7c3aed,0 0 0 3px rgba(139,92,246,.18); }
+}
 </style>

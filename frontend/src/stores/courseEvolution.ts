@@ -85,6 +85,23 @@ export interface CourseEvolutionPlan {
 
 export type EvolutionChangeSet = CourseEvolutionPlan
 
+export type CourseEvolutionApplicationPhase = 'navigator' | 'content' | 'settled'
+
+export interface CourseEvolutionApplicationPresentation {
+  planId: string
+  affectedSectionIds: string[]
+  appliedBlockIds: string[]
+  operationIds: string[]
+  targetSectionId: string
+  targetBlockId: string
+  targetOperationId: string
+}
+
+export interface CourseEvolutionApplicationVisual extends CourseEvolutionApplicationPresentation {
+  token: number
+  phase: CourseEvolutionApplicationPhase
+}
+
 export const useCourseEvolutionStore = defineStore('courseEvolution', {
   state: () => ({
     courseId: '',
@@ -97,6 +114,8 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     actingId: '',
     generating: false,
     generationError: '',
+    applicationVisual: null as CourseEvolutionApplicationVisual | null,
+    applicationVisualCounter: 0,
   }),
   getters: {
     pendingPlans: state => state.plans.filter(item => item.status === 'pending'),
@@ -104,12 +123,33 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
   },
   actions: {
     applyPayload(courseId: string, payload: Record<string, any>) {
+      if (this.courseId && this.courseId !== courseId) {
+        this.applicationVisual = null
+      }
       this.courseId = courseId
       this.evidenceItems = payload.evidence_items || []
       this.hypotheses = payload.hypotheses || []
       this.plans = payload.course_evolution_plans || payload.change_sets || payload.adaptation_plans || []
       this.permissions = payload.permissions || null
       this.summary = payload.summary || {}
+    },
+    beginApplicationVisual(presentation: CourseEvolutionApplicationPresentation) {
+      const token = this.applicationVisualCounter + 1
+      this.applicationVisualCounter = token
+      this.applicationVisual = {
+        ...presentation,
+        token,
+        phase: 'navigator',
+      }
+      return token
+    },
+    setApplicationVisualPhase(token: number, phase: CourseEvolutionApplicationPhase) {
+      if (!this.applicationVisual || this.applicationVisual.token !== token) return
+      this.applicationVisual.phase = phase
+    },
+    clearApplicationVisual(planId?: string) {
+      if (planId && this.applicationVisual?.planId !== planId) return
+      this.applicationVisual = null
     },
     async load(courseId: string) {
       this.loading = true
