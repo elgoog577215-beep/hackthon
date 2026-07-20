@@ -247,6 +247,7 @@ describe('LearningView 正文任务覆盖层', () => {
 
   it('确认课程生长后先点亮目录，再自动定位正文并稳定保留新版本状态', async () => {
     const evolutionStore = useCourseEvolutionStore()
+    let finishGrowthScroll: (() => void) | undefined
     evolutionStore.applyPayload('c1', {
       course_evolution_plans: [{
         change_set_id: 'plan-growth',
@@ -261,6 +262,9 @@ describe('LearningView 正文任务覆盖层', () => {
       }],
     })
     growthScrollSpy.mockReset()
+    growthScrollSpy.mockImplementation(() => new Promise<void>(resolve => {
+      finishGrowthScroll = resolve
+    }))
     const wrapper = mount(LearningView, {
       attachTo: document.body,
       global: {
@@ -291,8 +295,13 @@ describe('LearningView 正文任务覆盖层', () => {
 
       await vi.advanceTimersByTimeAsync(980)
       await flushPromises()
-      expect(evolutionStore.applicationVisual?.phase).toBe('content')
       expect(growthScrollSpy).toHaveBeenCalledWith('n1', 'growth-animation')
+      expect(evolutionStore.applicationVisual?.phase).toBe('navigator')
+
+      finishGrowthScroll?.()
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(32)
+      expect(evolutionStore.applicationVisual?.phase).toBe('content')
 
       await vi.advanceTimersByTimeAsync(2200)
       expect(evolutionStore.applicationVisual?.phase).toBe('settled')

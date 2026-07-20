@@ -748,7 +748,6 @@ function handleCourseGrowthApplied(presentation: CourseEvolutionApplicationPrese
 
   courseGrowthLocationTimer = setTimeout(async () => {
     if (courseEvolutionStore.applicationVisual?.token !== token) return
-    courseEvolutionStore.setApplicationVisualPhase(token, 'content')
     const targetNode = courseStore.nodes.find(
       node => node.node_id === presentation.targetSectionId,
     )
@@ -761,6 +760,10 @@ function handleCourseGrowthApplied(presentation: CourseEvolutionApplicationPrese
       selectNode(targetNode)
     }
     if (courseEvolutionStore.applicationVisual?.token !== token) return
+    await nextTick()
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    if (courseEvolutionStore.applicationVisual?.token !== token) return
+    courseEvolutionStore.setApplicationVisualPhase(token, 'content')
     courseGrowthSettleTimer = setTimeout(() => {
       courseEvolutionStore.setApplicationVisualPhase(token, 'settled')
     }, 2200)
