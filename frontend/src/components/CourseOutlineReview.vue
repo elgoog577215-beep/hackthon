@@ -52,6 +52,7 @@
               <textarea
                 v-if="Number(node.node_level || 2) >= 2 || 'learning_objective' in node"
                 v-model="node.learning_objective"
+                rows="1"
                 :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '写清这一节结束后，学习者能够做到什么')"
                 :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
               />
@@ -263,11 +264,11 @@ async function confirmOutline() {
   flex:1;
   display:flex;
   overflow:hidden;
-  padding:24px clamp(18px,4vw,54px) 48px;
+  padding:10px clamp(14px,2.5vw,28px) 16px;
   background:#f6f7f9;
 }
 .outline-review__sheet {
-  width:min(900px,100%);
+  width:min(1040px,100%);
   height:100%;
   min-height:0;
   display:grid;
@@ -275,16 +276,16 @@ async function confirmOutline() {
   margin:0 auto;
   overflow:hidden;
   border:1px solid #dde1e8;
-  border-radius:14px;
+  border-radius:10px;
   background:#fff;
-  box-shadow:0 12px 30px rgba(30,41,59,.06);
+  box-shadow:0 8px 22px rgba(30,41,59,.05);
 }
 .outline-review__header {
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
-  gap:28px;
-  padding:28px 30px 22px;
+  gap:16px;
+  padding:13px 20px 11px;
   border-bottom:1px solid #e7e9ee;
 }
 .outline-review__eyebrow {
@@ -297,21 +298,21 @@ async function confirmOutline() {
   letter-spacing:.08em;
 }
 .outline-review__header h1 {
-  margin:7px 0 6px;
+  margin:3px 0;
   color:#182230;
-  font:700 clamp(25px,3vw,34px)/1.2 Georgia,"Noto Serif SC",serif;
-  letter-spacing:-.02em;
+  font:720 clamp(20px,1.65vw,24px)/1.18 var(--font-sans);
+  letter-spacing:-.015em;
 }
 .outline-review__header p {
   max-width:660px;
   margin:0;
   color:#687386;
   font-size:11px;
-  line-height:1.7;
+  line-height:1.4;
 }
 .outline-review__count {
   flex:0 0 auto;
-  padding:6px 9px;
+  padding:5px 8px;
   border:1px solid #d9e5e0;
   border-radius:999px;
   color:#26715d;
@@ -354,11 +355,11 @@ async function confirmOutline() {
 }
 .outline-review__course-name {
   display:grid;
-  grid-template-columns:108px minmax(0,1fr);
+  grid-template-columns:84px minmax(0,1fr);
   align-items:center;
-  gap:12px;
-  margin:0 30px;
-  padding:20px 0 15px;
+  gap:10px;
+  margin:0 20px;
+  padding:7px 0 6px;
   border-bottom:1px solid #eceef2;
 }
 .outline-review__course-name span {
@@ -385,9 +386,9 @@ async function confirmOutline() {
   box-shadow:0 0 0 3px rgba(79,70,217,.08);
 }
 .outline-review__course-name input {
-  height:38px;
-  padding:0 10px;
-  font-size:13px;
+  height:28px;
+  padding:0 8px;
+  font-size:12px;
   font-weight:780;
 }
 .outline-review__nodes {
@@ -395,28 +396,28 @@ async function confirmOutline() {
   min-height:0;
   overflow:auto;
   margin:0;
-  padding:10px 30px 24px;
+  padding:3px 20px 10px;
   list-style:none;
 }
 .outline-review__nodes li {
   position:relative;
   display:grid;
-  grid-template-columns:34px 14px minmax(0,1fr);
-  gap:8px;
-  padding:11px 0;
+  grid-template-columns:28px 11px minmax(0,1fr);
+  gap:6px;
+  padding:5px 0;
   border-bottom:1px solid #eef0f3;
 }
 .outline-review__nodes li:last-child { border-bottom:0; }
-.outline-review__nodes li[data-level="1"] { margin-top:5px; }
+.outline-review__nodes li[data-level="1"] { margin-top:2px; }
 .outline-review__index {
-  padding-top:8px;
+  padding-top:6px;
   color:#969eac;
   font:700 9px/1 ui-monospace,SFMono-Regular,monospace;
 }
 .outline-review__branch {
   width:8px;
   height:8px;
-  margin-top:7px;
+  margin-top:5px;
   border:1.5px solid #8f96a5;
   border-radius:50%;
   background:#fff;
@@ -424,14 +425,14 @@ async function confirmOutline() {
 .outline-review__nodes li[data-level="1"] .outline-review__branch {
   width:10px;
   height:10px;
-  margin-top:6px;
+  margin-top:4px;
   border:0;
   border-radius:3px;
   background:#4f5b70;
 }
 .outline-review__nodes input {
-  height:30px;
-  padding:0 8px;
+  height:25px;
+  padding:0 6px;
   font-size:11px;
   font-weight:750;
 }
@@ -440,13 +441,14 @@ async function confirmOutline() {
   font-size:12px;
 }
 .outline-review__nodes textarea {
-  min-height:42px;
-  margin-top:3px;
-  padding:7px 8px;
+  height:26px;
+  min-height:26px;
+  margin-top:1px;
+  padding:4px 6px;
   resize:vertical;
   color:#687386;
   font-size:9px;
-  line-height:1.55;
+  line-height:1.35;
 }
 .outline-review__empty {
   grid-row:3;
@@ -461,8 +463,8 @@ async function confirmOutline() {
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:24px;
-  padding:14px 18px 14px 30px;
+  gap:16px;
+  padding:7px 12px 7px 20px;
   border-top:1px solid #dfe3e9;
   background:#fafbfc;
 }
@@ -476,7 +478,7 @@ async function confirmOutline() {
   gap:8px;
 }
 .outline-review__actions button {
-  min-height:36px;
+  min-height:32px;
   display:inline-flex;
   align-items:center;
   justify-content:center;
@@ -501,14 +503,14 @@ async function confirmOutline() {
 .outline-review__actions svg.lucide-loader-circle { animation:outline-review-spin .9s linear infinite; }
 @keyframes outline-review-spin { to { transform:rotate(360deg); } }
 @media (max-width:767px) {
-  .outline-review { padding:12px 9px 28px; }
-  .outline-review__sheet { border-radius:11px; }
-  .outline-review__header { display:grid; gap:12px; padding:21px 18px 17px; }
+  .outline-review { padding:6px 5px 12px; }
+  .outline-review__sheet { border-radius:10px; }
+  .outline-review__header { display:grid; gap:6px; padding:12px 12px 10px; }
   .outline-review__count { justify-self:start; }
-  .outline-review__course-name { grid-template-columns:1fr; gap:5px; margin:0 18px; padding:15px 0 12px; }
-  .outline-review__nodes { padding:7px 18px 18px; }
+  .outline-review__course-name { grid-template-columns:1fr; gap:2px; margin:0 12px; padding:7px 0 6px; }
+  .outline-review__nodes { padding:3px 12px 9px; }
   .outline-review__nodes li { grid-template-columns:25px 11px minmax(0,1fr); gap:5px; }
-  .outline-review__footer { align-items:stretch; flex-direction:column; padding:13px 16px 15px; }
+  .outline-review__footer { align-items:stretch; flex-direction:column; gap:6px; padding:8px 10px 10px; }
   .outline-review__actions { display:grid; grid-template-columns:.85fr 1.15fr; }
   .outline-review__actions button { padding:0 9px; }
 }
