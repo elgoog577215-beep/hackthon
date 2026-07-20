@@ -34,6 +34,14 @@ describe('QuestionBankReviewPanel', () => {
               canonical_answer: '应包含跨章节证据链。',
               rubric: [{ criterion: '证据对应', points: 4 }],
             },
+            solution_spec: {
+              summary: '先定位章节结论，再建立跨章节证据关系。',
+              steps: ['提取第一章结论', '用第二章证据验证结论'],
+              final_answer: '应包含跨章节证据链。',
+              checks: ['每条结论均有对应证据'],
+              option_analysis: [],
+              common_errors: ['只罗列结论，没有说明证据关系'],
+            },
             solution_validation: {
               passed: true,
               independent_answer: '独立求解结果',
@@ -65,6 +73,11 @@ describe('QuestionBankReviewPanel', () => {
           coverage_ratio: 1,
         },
         review_queue: { blocking_count: 1 },
+        generation_summary: {
+          diversity_rejection_count: 2,
+          diversity_regeneration_count: 1,
+          historical_diversity_comparison_count: 6,
+        },
         web_enrichment: { status: 'completed', source_count: 2 },
         chapter_rebuild: {},
         items: [{
@@ -97,6 +110,12 @@ describe('QuestionBankReviewPanel', () => {
             repair_count: 1,
             semantic_reviewer_trigger: true,
             issue_codes: ['MATERIAL_BINDING_INVALID'],
+          },
+          diversity_report: {
+            passed: false,
+            max_similarity: 0.86,
+            closest_question_id: 'item-history-1',
+            reasons: ['shared_subject_anchors'],
           },
         }],
       } })
@@ -144,6 +163,10 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('1 道高风险题等待发布前确认')
     expect(wrapper.text()).toContain('浏览全部题目')
     expect(wrapper.text()).toContain('thermodynamics')
+    expect(wrapper.get('[data-testid="question-diversity-monitor"]').text())
+      .toContain('2 次拦截')
+    expect(wrapper.get('[data-testid="question-diversity-monitor"]').text())
+      .toContain('历史比较 6 道')
     expect(wrapper.text()).toContain('解释热力学过程并验证能量守恒')
     expect(wrapper.text()).toContain('给定材料，完成跨章节分析并检查结论。')
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
@@ -153,6 +176,8 @@ describe('QuestionBankReviewPanel', () => {
     expect(audit.text()).toContain('life_science.case_analysis.v1')
     expect(audit.text()).toContain('修复 1 次')
     expect(audit.text()).toContain('MATERIAL_BINDING_INVALID')
+    expect(audit.text()).toContain('重复 86%')
+    expect(audit.text()).toContain('item-history-1')
   })
 
   it('题目列表按每页十条分页并在筛选时回到第一页', async () => {
@@ -710,6 +735,9 @@ describe('QuestionBankReviewPanel', () => {
       '/api/courses/course-1/question-bank/items/revision-1/solution',
     )
     expect(wrapper.text()).toContain('应包含跨章节证据链')
+    expect(wrapper.text()).toContain('先定位章节结论')
+    expect(wrapper.text()).toContain('用第二章证据验证结论')
+    expect(wrapper.text()).toContain('只罗列结论')
     expect(wrapper.text()).toContain('独立求解结果')
   })
 })

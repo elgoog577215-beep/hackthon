@@ -24,6 +24,10 @@ from assessment_contracts import (
     compile_assessment_objectives,
     compile_course_assessment_profile,
 )
+from assessment_diversity import (
+    build_diversity_signature,
+    compare_diversity_signatures,
+)
 from assessment_generation import generate_universal_question_contract
 from course_versioning import stable_hash
 from practice_contracts import (
@@ -1231,6 +1235,11 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
         issues.append({"code": "question:low_parse_confidence", "severity": "major"})
     if "near_duplicate" in (item.get("risk_flags") or []):
         issues.append({"code": "question:near_duplicate", "severity": "major"})
+    if "semantic_near_duplicate" in (item.get("risk_flags") or []):
+        issues.append({
+            "code": "question:semantic_near_duplicate",
+            "severity": "critical",
+        })
     if "answer_conflict" in (item.get("risk_flags") or []):
         issues.append({"code": "question:answer_conflict", "severity": "critical"})
     has_reasoning_steps = bool(
@@ -1881,6 +1890,18 @@ def _generated_course_items(
                     generated_contract.get(
                         "generation_audit_summary"
                     )
+                    or {}
+                ),
+                "diversity_signature": deepcopy(
+                    generated_contract.get("diversity_signature")
+                    or {}
+                ),
+                "diversity_report": deepcopy(
+                    generated_contract.get("diversity_report")
+                    or (
+                        generated_contract.get("quality_report")
+                        or {}
+                    ).get("diversity_report")
                     or {}
                 ),
                 "domain_validation": deepcopy(
@@ -3116,27 +3137,145 @@ def _mark_near_duplicate_risks(items: list[dict[str, Any]]) -> None:
         left_text = _normalize_text(str(left.get("prompt") or ""))
         if not left_text:
             continue
+        left_signature = build_diversity_signature(left)
+        left["diversity_signature"] = deepcopy(left_signature)
         for right in comparable[index + 1:]:
             if left.get("node_id") != right.get("node_id"):
                 continue
-            if set(left.get("practice_levels") or []) != set(
-                right.get("practice_levels") or []
-            ):
-                continue
             right_text = _normalize_text(str(right.get("prompt") or ""))
-            similarity = SequenceMatcher(None, left_text, right_text).ratio()
-            if 0.9 <= similarity < 1:
-                cluster_id = stable_hash(sorted([left_text, right_text]), prefix="qdc_")
+            lexical_similarity = SequenceMatcher(
+                None,
+                left_text,
+                right_text,
+            ).ratio()
+            right_signature = build_diversity_signature(right)
+            right["diversity_signature"] = deepcopy(
+                right_signature
+            )
+            semantic = compare_diversity_signatures(
+                left_signature,
+                right_signature,
+            )
+            semantic_signals = semantic.get("signals") or {}
+            lexical_duplicate = bool(
+                lexical_similarity >= 0.9
+                and (
+                    float(
+                        semantic_signals.get("task_similarity")
+                        or 0
+                    ) >= 0.9
+                    or semantic_signals.get(
+                        "same_cognitive_action"
+                    )
+                    or semantic_signals.get(
+                        "same_reasoning_route"
+                    )
+                )
+            )
+            if lexical_duplicate or semantic.get("duplicate"):
+                cluster_id = stable_hash(
+                    sorted([
+                        str(left_signature.get("signature_id") or ""),
+                        str(right_signature.get("signature_id") or ""),
+                    ]),
+                    prefix="qdc_",
+                )
                 for item in (left, right):
                     item["near_duplicate_cluster_id"] = cluster_id
-                    item["risk_flags"] = _unique([*(item.get("risk_flags") or []), "near_duplicate"])
+                    item["risk_flags"] = _unique([
+                        *(item.get("risk_flags") or []),
+                        "near_duplicate",
+                        "semantic_near_duplicate",
+                    ])
+                    item["diversity_report"] = {
+                        "schema_version": (
+                            "question_diversity_report_v1"
+                        ),
+                        "passed": False,
+                        "max_similarity": max(
+                            lexical_similarity,
+                            float(
+                                semantic.get(
+                                    "overall_similarity"
+                                )
+                                or 0
+                            ),
+                        ),
+                        "closest_question_id": (
+                            right.get("item_id")
+                            if item is left
+                            else left.get("item_id")
+                        ),
+                        "reasons": _unique([
+                            *semantic.get("reasons", []),
+                            *(
+                                ["lexical_threshold"]
+                                if lexical_duplicate
+                                else []
+                            ),
+                        ]),
+                        "signals": deepcopy(
+                            semantic.get("signals") or {}
+                        ),
+                        "threshold": semantic.get("threshold"),
+                    }
                     item["review_required"] = True
                     item["lifecycle_status"] = "needs_review"
                     item["review_status"] = "needs_review"
-                    item["quality_report"] = evaluate_question_item_quality(item)
+                    _mark_quality_as_semantic_duplicate(item)
                     item["revision_id"] = _item_revision_id(item)
                     item["formal_task"] = _stored_formal_task_from_item(item)
                     item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
+
+
+def _mark_quality_as_semantic_duplicate(
+    item: dict[str, Any],
+) -> None:
+    """Preserve prior private-solution checks after the envelope is stored."""
+    quality = deepcopy(item.get("quality_report") or {})
+    issues = list(quality.get("issues") or [])
+    issues.extend([
+        {
+            "code": "question:near_duplicate",
+            "severity": "major",
+        },
+        {
+            "code": "question:semantic_near_duplicate",
+            "severity": "critical",
+        },
+    ])
+    quality.update({
+        "schema_version": (
+            quality.get("schema_version")
+            or "question_item_quality_v1"
+        ),
+        "passed": False,
+        "status": "failed",
+        "decision": "regenerate",
+        "issues": _deduplicate_quality_issues(issues),
+    })
+    item_checks = quality.get("item_checks")
+    if isinstance(item_checks, dict):
+        item_check_issues = list(item_checks.get("issues") or [])
+        item_check_issues.extend([
+            {
+                "code": "question:near_duplicate",
+                "severity": "major",
+            },
+            {
+                "code": "question:semantic_near_duplicate",
+                "severity": "critical",
+            },
+        ])
+        quality["item_checks"] = {
+            **item_checks,
+            "passed": False,
+            "status": "failed",
+            "issues": _deduplicate_quality_issues(
+                item_check_issues
+            ),
+        }
+    item["quality_report"] = quality
 
 
 def _teacher_source_record(
@@ -3461,6 +3600,16 @@ def _formal_task_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "source_records": deepcopy(item.get("source_records") or []),
         "quality_status": (item.get("quality_report") or {}).get("status"),
         "quality_report": deepcopy(item.get("quality_report") or {}),
+        "diversity_signature": deepcopy(
+            item.get("diversity_signature") or {}
+        ),
+        "diversity_report": deepcopy(
+            item.get("diversity_report")
+            or (item.get("quality_report") or {}).get(
+                "diversity_report"
+            )
+            or {}
+        ),
         "review_status": item.get("review_status"),
         "assessment_role": item.get("assessment_role"),
         "assessment_distribution": deepcopy(item.get("assessment_distribution") or {}),
@@ -4103,6 +4252,9 @@ def _public_design_brief_summary(
         "primary_skill": brief.get("primary_skill"),
         "primary_misconception": brief.get(
             "primary_misconception"
+        ),
+        "diversity_plan": deepcopy(
+            brief.get("diversity_plan") or {}
         ),
         "content_coverage": bool(
             retrieval.get("content_coverage")

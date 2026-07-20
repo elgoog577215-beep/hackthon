@@ -11,6 +11,7 @@ from copy import deepcopy
 import re
 from typing import Any
 
+from assessment_diversity import compile_diversity_plan
 from course_versioning import stable_hash
 
 
@@ -299,7 +300,18 @@ def compile_question_design_brief(
             misconceptions[0] if misconceptions else ""
         ),
         "question_type": question_type,
+        "discipline_family": str(
+            slot.get("discipline_family") or "general"
+        ),
         "question_type_semantics": semantics,
+        "diversity_plan": compile_diversity_plan(
+            discipline_family=str(
+                slot.get("discipline_family") or "general"
+            ),
+            practice_level=practice_level,
+            variant_index=variant_index,
+            objective=objective,
+        ),
         "required_observable_evidence": (
             observable[:3]
             or semantics.get("semantic_obligations", [])[:2]

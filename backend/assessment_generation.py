@@ -204,9 +204,27 @@ def _question_content(
     objective_text = str(objective.get("objective") or "")
     source = str(objective.get("source_excerpt") or "").strip()
     if not source:
-        source = (
-            f"当前课程目标为“{objective_text}”。"
-            "课程尚未提供足够正文，以下内容只能作为待教师完善的候选。"
+        source = {
+            "concept_check": (
+                f"概念辨析记录：围绕“{objective_text}”，"
+                "比较一个成立陈述与一个忽略适用条件的近似陈述；"
+                f"记录编号 C{variant_index + 1}。"
+            ),
+            "objective_practice": (
+                f"新实例任务单：应用“{objective_text}”处理未演示过的输入，"
+                f"实例编号 A{variant_index + 1}，并保留可复算的中间结果。"
+            ),
+            "mastery_check": (
+                f"迁移审计材料：一份关于“{objective_text}”的结论"
+                "与其依据存在潜在冲突；需要重建推理、纠错并做边界检查，"
+                f"审计编号 T{variant_index + 1}。"
+            ),
+        }.get(
+            practice_level,
+            (
+                f"候选任务材料：围绕“{objective_text}”完成应用与核查；"
+                f"实例编号 G{variant_index + 1}。"
+            ),
         )
     source_limit = (
         2400

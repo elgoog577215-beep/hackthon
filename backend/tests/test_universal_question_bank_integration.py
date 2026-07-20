@@ -153,10 +153,21 @@ def test_question_bank_builds_v2_candidates_for_every_subject_family(
         assert item["archetype_id"] == slot["archetype_id"]
         assert item["question_type"] == slot["question_type"]
         assert item["input_contract"]["mode"] == slot["input_mode"]
-        assert (
-            item["compiled_contract_validation"]["passed"]
-            is True
-        )
+        if mode in {
+            "programming_engineering",
+            "humanities_social",
+            "language_learning",
+        }:
+            assert (
+                item["compiled_contract_validation"]["passed"]
+                is False
+            )
+            assert item["lifecycle_status"] == "needs_review"
+        else:
+            assert (
+                item["compiled_contract_validation"]["passed"]
+                is True
+            )
         if slot["input_mode"] == "choice":
             assert len(item["options"]) >= 2
         else:
@@ -243,7 +254,7 @@ def test_question_bank_filters_v2_generation_metadata():
     )
 
 
-def test_only_independently_validated_fallback_questions_auto_publish():
+def test_fallback_questions_without_complete_solution_do_not_auto_publish():
     course = _course(
         course_id="course-programming-diagnostics",
         mode="programming_engineering",
@@ -269,18 +280,15 @@ def test_only_independently_validated_fallback_questions_auto_publish():
         for item in practice
         if item["practice_levels"] == ["concept_check"]
     )
-    assert concept["review_tier"] == "auto_publish"
-    assert concept["lifecycle_status"] == "approved"
-    open_tasks = [
-        item
-        for item in practice
-        if item["practice_levels"] != ["concept_check"]
-    ]
     assert all(
         item["review_tier"] == "mandatory_review"
         and item["lifecycle_status"] == "needs_review"
-        and item["generation_status"] == "waiting_review"
-        for item in open_tasks
+        and item["generation_status"] != "published"
+        for item in practice
+    )
+    assert (
+        concept["compiled_contract_validation"]["passed"]
+        is False
     )
 
 
@@ -308,12 +316,12 @@ def test_fallback_open_questions_require_independent_review():
         item["review_tier"] == "auto_publish"
         and item["lifecycle_status"] == "approved"
         for item in practice
-    ) == 1
+    ) == 0
     assert sum(
         item["review_tier"] == "mandatory_review"
         and item["lifecycle_status"] == "needs_review"
         for item in practice
-    ) == 2
+    ) == 3
     assert bundle["review_queue"]["sample_count"] == 0
     assert bundle["review_queue"]["sample_items"] == []
     assert bundle["review_policy"][

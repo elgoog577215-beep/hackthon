@@ -115,6 +115,12 @@ def test_solution_payload_exposes_steps_readable_answer_and_checks():
                     "preorder": [30, 20, 10, 25, 40, 50],
                 },
                 "checks": ["中序严格递增", "所有平衡因子绝对值不超过1"],
+                "option_analysis": [{
+                    "option_id": "A",
+                    "is_correct": True,
+                    "explanation": "旋转序列与平衡结果一致。",
+                }],
+                "common_errors": ["只检查中序有序，未检查平衡因子。"],
                 "representation": {
                     "kind": "tree",
                     "content": "    30\n   /  \\\n 20    40",
@@ -128,6 +134,8 @@ def test_solution_payload_exposes_steps_readable_answer_and_checks():
     assert payload["steps"][0].startswith("插入10")
     assert payload["final_answer"] == "前序遍历：30 → 20 → 10 → 25 → 40 → 50"
     assert payload["checks"] == ["中序严格递增", "所有平衡因子绝对值不超过1"]
+    assert payload["option_analysis"][0]["option_id"] == "A"
+    assert payload["common_errors"][0].startswith("只检查")
     assert payload["representation"]["kind"] == "tree"
 
 
@@ -1057,6 +1065,22 @@ def test_solution_reveal_requires_an_unseen_equivalent_validation(monkeypatch, t
     assert validation_attempt.json()["attempt"]["origin_attempt_id"] == created["attempt_id"]
 
 
+def _set_refresh_material(
+    question: dict,
+    *,
+    material: str,
+    task: str,
+) -> dict:
+    result = deepcopy(question)
+    result["prompt"] = f"{material}\n{task}"
+    result["input_materials"] = [material]
+    result["deliverable"] = task
+    spec = result.setdefault("question_spec", {})
+    spec.setdefault("stimulus", {})["rendered_text"] = material
+    spec.setdefault("task", {})["rendered_text"] = task
+    return result
+
+
 def test_manual_refresh_selects_an_unattempted_frozen_question(monkeypatch):
     course = _course()
     current = enrich_question_contract({
@@ -1173,3 +1197,148 @@ def test_manual_refresh_skips_a_duplicate_prompt(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["question"]["task_revision_id"] == "qr3"
+
+
+def test_manual_refresh_skips_cross_type_semantic_duplicate(monkeypatch):
+    course = _course()
+    base = deepcopy(course["learning_assets"]["questions"][0])
+    current = _set_refresh_material(enrich_question_contract({
+        **base,
+        "revision_id": "qr1",
+        "task_revision_id": "qr1",
+        "practice_level": "mastery_check",
+        "question_type": "short_answer",
+    }, practice_level="mastery_check"), material=(
+        "设 V={(x,y)|x,y∈R}，向量加法为通常加法，"
+        "数乘定义为 k·(x,y)=(kx,0)。"
+    ), task="判断该结构是否为实数域上的向量空间并说明理由。")
+    semantic_duplicate = _set_refresh_material(
+        enrich_question_contract({
+            **base,
+            "asset_id": "q2",
+            "revision_id": "qr2",
+            "task_revision_id": "qr2",
+            "practice_level": "mastery_check",
+            "question_type": "single_choice",
+        }, practice_level="mastery_check"),
+        material=(
+            "在 R² 上保留通常加法，并规定标量乘法"
+            " k⊙(x,y)=(kx,0)。"
+        ),
+        task="从选项中选择它不能构成向量空间的正确原因。",
+    )
+    distinct = _set_refresh_material(enrich_question_contract({
+        **base,
+        "asset_id": "q3",
+        "revision_id": "qr3",
+        "task_revision_id": "qr3",
+        "practice_level": "mastery_check",
+    }, practice_level="mastery_check"), material=(
+        "给定向量 a=(3,4)，坐标在标准正交基下表示。"
+    ), task="计算 ‖a‖，并用平方关系复核结果。")
+    assert practice_router.compare_diversity_signatures(
+        practice_router.build_diversity_signature(current),
+        practice_router.build_diversity_signature(semantic_duplicate),
+    )["duplicate"] is True
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    monkeypatch.setattr(
+        practice_router,
+        "_questions",
+        lambda _course, *, node_id, scope: [
+            deepcopy(current),
+            deepcopy(semantic_duplicate),
+            deepcopy(distinct),
+        ],
+    )
+    monkeypatch.setattr(
+        practice_router.practice_attempt_repository,
+        "list",
+        lambda _user_id, _course_id: [],
+    )
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    response = client.post(
+        "/api/courses/c1/practice/refresh",
+        json={
+            "current_task_revision_id": "qr1",
+            "node_id": "n1",
+            "scope": "node",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["question"]["task_revision_id"] == "qr3"
+    assert payload["diversity_selection"]["candidate_count"] == 2
+    assert payload["diversity_selection"]["diverse_candidate_count"] == 1
+
+
+def test_manual_refresh_reports_when_only_semantic_duplicates_exist(
+    monkeypatch,
+):
+    course = _course()
+    base = deepcopy(course["learning_assets"]["questions"][0])
+    current = _set_refresh_material(enrich_question_contract({
+        **base,
+        "revision_id": "qr1",
+        "task_revision_id": "qr1",
+        "practice_level": "mastery_check",
+    }, practice_level="mastery_check"), material=(
+        "设 V={(x,y)|x,y∈R}，数乘定义为 k·(x,y)=(kx,0)。"
+    ), task="判断 V 是否为向量空间。")
+    duplicate = _set_refresh_material(enrich_question_contract({
+        **base,
+        "asset_id": "q2",
+        "revision_id": "qr2",
+        "task_revision_id": "qr2",
+        "practice_level": "mastery_check",
+        "question_type": "single_choice",
+    }, practice_level="mastery_check"), material=(
+        "在 R² 中定义标量作用 k⊙(x,y)=(kx,0)，加法不变。"
+    ), task="选择它不是向量空间的原因。")
+    assert practice_router.compare_diversity_signatures(
+        practice_router.build_diversity_signature(current),
+        practice_router.build_diversity_signature(duplicate),
+    )["duplicate"] is True
+
+    async def fake_course(_course_id):
+        return deepcopy(course)
+
+    monkeypatch.setattr(practice_router, "get_course_or_404", fake_course)
+    monkeypatch.setattr(
+        practice_router,
+        "_questions",
+        lambda _course, *, node_id, scope: [
+            deepcopy(current),
+            deepcopy(duplicate),
+        ],
+    )
+    monkeypatch.setattr(
+        practice_router.practice_attempt_repository,
+        "list",
+        lambda _user_id, _course_id: [],
+    )
+    app = FastAPI()
+    app.include_router(practice_router.router, prefix="/api")
+    client = TestClient(app, headers={"X-User-Id": "u1"})
+
+    response = client.post(
+        "/api/courses/c1/practice/refresh",
+        json={
+            "current_task_revision_id": "qr1",
+            "node_id": "n1",
+            "scope": "node",
+        },
+    )
+
+    assert response.status_code == 409
+    assert (
+        response.json()["detail"]["code"]
+        == "no_diverse_alternative_question"
+    )

@@ -1779,7 +1779,11 @@ def _build_thermodynamics_spec(context: AdapterContext) -> dict[str, Any]:
 def _build_dynamic_array_spec(
     context: AdapterContext,
 ) -> dict[str, Any]:
-    initial_capacity = 2
+    initial_capacity = {
+        "concept_check": 2,
+        "objective_practice": 3,
+        "mastery_check": 1,
+    }.get(context.practice_level, 2)
     insert_count = context.variant_index + 6
     growth_factor = 2
     canonical = _solve_dynamic_array_growth(
@@ -1787,6 +1791,42 @@ def _build_dynamic_array_spec(
         insert_count,
         growth_factor,
     )
+    if context.practice_level == "concept_check":
+        material = (
+            f"容量轨迹题：动态数组初始容量为{initial_capacity}，"
+            f"按{growth_factor}倍扩容，依次追加1至{insert_count}；"
+            "只有在 size == capacity 时才复制已有元素。"
+        )
+        task_text = (
+            "不写完整程序，预测每次触发扩容时的 size、扩容后容量和复制数，"
+            "再判断一次追加的最坏成本与连续追加的摊还成本。"
+        )
+        action = "predict_resize_trace"
+        deliverable = "扩容触发点、容量轨迹、复制总数和复杂度辨析"
+    elif context.practice_level == "objective_practice":
+        material = (
+            f"待调试 append 以容量{initial_capacity}开始并追加1至"
+            f"{insert_count}，但代码在 size > capacity 时才扩容，"
+            "导致首次越界写入后才分配新空间。"
+        )
+        task_text = (
+            "定位扩容条件的错误，改为正确边界判断；重建修复后的扩容轨迹、"
+            "复制总数与最终数组，并给出恰好满容量的复测证据。"
+        )
+        action = "debug_resize_boundary"
+        deliverable = "缺陷位置、修复条件、复测轨迹、复制总数和最终状态"
+    else:
+        material = (
+            f"实现任务：动态数组初始容量为{initial_capacity}，"
+            f"按{growth_factor}倍扩容；输入流依次提供整数1至"
+            f"{insert_count}，扩容时必须复制全部已有元素。"
+        )
+        task_text = (
+            "独立实现 append，输出每次扩容前后的容量与复制元素数；"
+            "给出最终数组，并用累计复制次数验证连续插入的摊还复杂度。"
+        )
+        action = "implement_transform_and_test"
+        deliverable = "可运行append实现、扩容轨迹、复制总数、最终数组和复杂度说明"
     return {
         "archetype_id": "dynamic_array_growth_trace",
         "stimulus": {
@@ -1798,18 +1838,12 @@ def _build_dynamic_array_spec(
                 "growth_factor": growth_factor,
                 "append_values": list(range(1, insert_count + 1)),
             },
-            "rendered_text": (
-                f"动态数组初始容量为{initial_capacity}，按{growth_factor}倍扩容；"
-                f"依次插入整数1至{insert_count}。扩容时复制全部已有元素。"
-            ),
+            "rendered_text": material,
         },
         "task": {
-            "action": "implement_transform_and_test",
-            "rendered_text": (
-                "实现 append，记录每次扩容前后的容量与复制元素数；"
-                "给出最终数组，并区分单次最坏复杂度和连续插入的摊还复杂度。"
-            ),
-            "deliverable": "可运行append实现、扩容轨迹、复制总数、最终数组和复杂度说明",
+            "action": action,
+            "rendered_text": task_text,
+            "deliverable": deliverable,
         },
         "constraints": [
             "只能在size等于capacity时扩容",
@@ -2106,7 +2140,11 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
         deliverable = semantic_case["deliverable"]
     elif "向量" in topic:
         left = [seed, seed + 1]
-        right = [2, -1]
+        right = {
+            "concept_check": [1, -1],
+            "objective_practice": [2, -1],
+            "mastery_check": [-1, 2],
+        }.get(context.practice_level, [2, -1])
         data = {
             "case_kind": "vector_operations",
             "left": left,
@@ -2117,16 +2155,44 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
             "dot_product": left[0] * right[0] + left[1] * right[1],
             "left_norm_squared": left[0] ** 2 + left[1] ** 2,
         }
-        input_text = (
-            f"给定二维向量 u={tuple(left)}、v={tuple(right)}，"
-            "坐标均在标准正交基下表示。"
-        )
-        task_text = "计算 u+v、u·v 和 ‖u‖²，并用计算结果完成一次检验。"
+        if context.practice_level == "concept_check":
+            input_text = (
+                f"学生甲观察二维向量 u={tuple(left)}、v={tuple(right)}，"
+                "断言“只要两个向量的分量一正一负，它们就正交”。"
+            )
+            task_text = (
+                "先用内积判断该断言在本例中是否成立，再计算 u+v 与 ‖u‖²，"
+                "指出判断正交所依赖的决定性条件。"
+            )
+        elif context.practice_level == "mastery_check":
+            wrong_sum = [left[0] + right[0], left[1] - right[1]]
+            wrong_dot = left[0] * right[0] - left[1] * right[1]
+            input_text = (
+                f"复核记录：对 u={tuple(left)}、v={tuple(right)}，"
+                f"某同学写出 u+v={tuple(wrong_sum)}、u·v={wrong_dot}，"
+                f"并据此声称 ‖u‖²={sum(left)}。"
+            )
+            task_text = (
+                "逐项审查记录，纠正所有错误，给出正确的 u+v、u·v 和 ‖u‖²，"
+                "并用一个独立关系完成复核。"
+            )
+        else:
+            input_text = (
+                f"给定二维向量 u={tuple(left)}、v={tuple(right)}，"
+                "坐标均在标准正交基下表示。"
+            )
+            task_text = (
+                "计算 u+v、u·v 和 ‖u‖²，并用计算结果完成一次检验。"
+            )
         archetype = "vector_operations_and_boundary_check"
         deliverable = "向量运算结果、使用依据、完整过程和几何或代数检查"
     elif "矩阵" in topic and "方程" not in topic:
         left = [[seed, 1], [2, seed + 1]]
-        right = [[1, 2], [0, 1]]
+        right = {
+            "concept_check": [[0, 1], [1, 0]],
+            "objective_practice": [[1, 2], [0, 1]],
+            "mastery_check": [[2, 0], [1, 1]],
+        }.get(context.practice_level, [[1, 2], [0, 1]])
         product = [
             [
                 left[row][0] * right[0][column]
@@ -2144,8 +2210,35 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
             "product": product,
             "left_determinant": left[0][0] * left[1][1] - left[0][1] * left[1][0],
         }
-        input_text = f"给定矩阵 A={left}、B={right}，两者均为2×2实矩阵。"
-        task_text = "计算 AB 和 det(A)，写出关键步骤并检查矩阵维度。"
+        if context.practice_level == "concept_check":
+            input_text = (
+                f"学生甲面对矩阵 A={left}、B={right}，"
+                "主张“矩阵乘法可逐位置相乘，而且交换次序不影响结果”。"
+            )
+            task_text = (
+                "按行乘列规则计算 AB，并计算 det(A)；据此辨析该主张，"
+                "指出矩阵乘法最容易混淆的条件。"
+            )
+        elif context.practice_level == "mastery_check":
+            claimed_product = [
+                [
+                    left[row][column] * right[row][column]
+                    for column in range(2)
+                ]
+                for row in range(2)
+            ]
+            input_text = (
+                f"项目验算单记录 A={left}、B={right}，并把 AB 写成"
+                f"逐元素乘积 {claimed_product}，同时把 det(A) 写成"
+                f" {left[0][0] * left[1][1] + left[0][1] * left[1][0]}。"
+            )
+            task_text = (
+                "审查验算单，重算 AB 与 det(A)，逐项定位错误，"
+                "再用维度或行列式关系完成独立复核。"
+            )
+        else:
+            input_text = f"给定矩阵 A={left}、B={right}，两者均为2×2实矩阵。"
+            task_text = "计算 AB 和 det(A)，写出关键步骤并检查矩阵维度。"
         archetype = "matrix_product_and_determinant"
         deliverable = "矩阵乘积、行列式、逐项计算过程和维度检查"
     elif any(marker in topic for marker in ("线性空间", "向量空间", "基与坐标", "线性组合")):
@@ -2160,11 +2253,35 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
             "coefficients": [target[0] - target[1], target[1]],
             "reconstructed": target,
         }
-        input_text = (
-            f"在 R² 中给定有序基 B=({tuple(basis[0])},{tuple(basis[1])})，"
-            f"目标向量 w={tuple(target)}。"
-        )
-        task_text = "求 w 在基 B 下的坐标，并用线性组合重构 w 进行检验。"
+        if context.practice_level == "concept_check":
+            input_text = (
+                f"学生把 w={tuple(target)} 在有序基"
+                f" B=({tuple(basis[0])},{tuple(basis[1])}) 下的坐标"
+                f"直接写成 {tuple(target)}。"
+            )
+            task_text = (
+                "用线性组合重构辨析该写法；若不正确，求出正确坐标，"
+                "说明标准坐标与基下坐标的区别。"
+            )
+        elif context.practice_level == "mastery_check":
+            wrong = [
+                canonical["coefficients"][0] + 1,
+                canonical["coefficients"][1],
+            ]
+            input_text = (
+                f"坐标审计单给出 B=({tuple(basis[0])},{tuple(basis[1])})、"
+                f"w={tuple(target)}，却记录 [w]_B={tuple(wrong)}。"
+            )
+            task_text = (
+                "重建坐标方程并定位系数错误，给出正确 [w]_B，"
+                "再由基向量线性组合恢复 w 完成独立复核。"
+            )
+        else:
+            input_text = (
+                f"在 R² 中给定有序基 B=({tuple(basis[0])},{tuple(basis[1])})，"
+                f"目标向量 w={tuple(target)}。"
+            )
+            task_text = "求 w 在基 B 下的坐标，并用线性组合重构 w 进行检验。"
         archetype = "basis_coordinate_reconstruction"
         deliverable = "基下坐标、线性组合过程和重构检查"
     elif any(marker in topic for marker in ("方程", "消元", "线性系统")):
@@ -2181,11 +2298,37 @@ def _build_math_spec(context: AdapterContext) -> dict[str, Any]:
             "equations": equations,
         }
         canonical = {"x": x_value, "y": y_value}
-        input_text = (
-            f"方程组为 x+y={equations[0]['c']}，"
-            f"2x-y={equations[1]['c']}；变量限定为实数。"
-        )
-        task_text = "求解该方程组，并把结果代回两个方程验算。"
+        if context.practice_level == "concept_check":
+            proposed = {
+                "x": x_value + 1,
+                "y": y_value - 1,
+            }
+            input_text = (
+                f"候选解 ({proposed['x']},{proposed['y']}) 被提交给方程组"
+                f" x+y={equations[0]['c']}、2x-y={equations[1]['c']}。"
+            )
+            task_text = (
+                "分别代入两个方程辨析候选解是否成立，再求出真正的解，"
+                "说明“满足一个方程”为什么不充分。"
+            )
+        elif context.practice_level == "mastery_check":
+            claimed_x = x_value - 1
+            claimed_y = y_value + 2
+            input_text = (
+                f"审计记录给出方程 x+y={equations[0]['c']} 与"
+                f" 2x-y={equations[1]['c']}，但消元结果被写成"
+                f" x={claimed_x}, y={claimed_y}。"
+            )
+            task_text = (
+                "重建消元过程，定位记录中的错误，给出正确解，"
+                "并把结果代回两个原方程完成双重验算。"
+            )
+        else:
+            input_text = (
+                f"方程组为 x+y={equations[0]['c']}，"
+                f"2x-y={equations[1]['c']}；变量限定为实数。"
+            )
+            task_text = "求解该方程组，并把结果代回两个方程验算。"
         archetype = "two_variable_linear_system"
         deliverable = "方程组的解、关键推导和代回验算"
     else:
@@ -2291,30 +2434,80 @@ def _linear_algebra_semantic_case(
     if any(marker in topic for marker in (
         "条件概率", "conditional probability", "贝叶斯",
     )):
+        conditional_variants = [
+            {
+                "sample_space_size": 80,
+                "condition_event_count": 40,
+                "intersection_count": 30,
+                "experiment": "筛查记录分类",
+                "condition_event": "检测结果为阳性",
+                "target_event": "复核后确认为目标状态",
+                "input_text": (
+                    "某批80条匿名筛查记录中，40条检测为阳性；"
+                    "阳性记录里有30条经复核确认为目标状态。"
+                ),
+                "task_text": (
+                    "把“检测阳性”作为条件事件，计算复核确认的条件概率，"
+                    "明确分子、分母并检查概率范围。"
+                ),
+            },
+            {
+                "sample_space_size": 60,
+                "condition_event_count": 24,
+                "intersection_count": 18,
+                "experiment": "课程学习记录统计",
+                "condition_event": "已通过先修测验",
+                "target_event": "按时完成综合项目",
+                "input_text": (
+                    "一组60名学习者中，24人通过先修测验；"
+                    "这24人里有18人按时完成综合项目。"
+                ),
+                "task_text": (
+                    "计算在已通过先修测验的条件下按时完成项目的概率，"
+                    "说明条件样本空间为何不是全体60人。"
+                ),
+            },
+            {
+                "sample_space_size": 52,
+                "condition_event_count": 13,
+                "intersection_count": 3,
+                "experiment": "从标准扑克牌中等可能抽取一张牌",
+                "condition_event": "抽到红桃",
+                "target_event": "抽到红桃中的人头牌",
+                "input_text": (
+                    "从一副52张标准扑克牌中等可能抽取一张。"
+                    "已知抽到红桃；13张红桃里有3张人头牌。"
+                ),
+                "task_text": (
+                    "列出条件事件与交事件的结果数，计算抽到人头牌的条件概率，"
+                    "并用不超过1的范围条件复核。"
+                ),
+            },
+        ]
+        variant = conditional_variants[seed % len(conditional_variants)]
+        denominator = int(variant["condition_event_count"])
+        numerator = int(variant["intersection_count"])
+        divisor = _greatest_common_divisor(numerator, denominator)
         return {
             "data": {
                 "case_kind": "conditional_probability",
-                "sample_space_size": 36,
-                "condition_event_count": 18,
-                "intersection_count": 12,
-                "experiment": "投掷两枚公平六面骰子",
-                "condition_event": "第一枚骰子的点数不小于4",
-                "target_event": "两枚骰子的点数和不小于8",
+                "sample_space_size": variant["sample_space_size"],
+                "condition_event_count": denominator,
+                "intersection_count": numerator,
+                "experiment": variant["experiment"],
+                "condition_event": variant["condition_event"],
+                "target_event": variant["target_event"],
             },
             "canonical": {
-                "condition_probability": "2/3",
-                "numerator_count": 12,
-                "denominator_count": 18,
+                "condition_probability": (
+                    f"{numerator // divisor}/{denominator // divisor}"
+                ),
+                "numerator_count": numerator,
+                "denominator_count": denominator,
                 "range_check": True,
             },
-            "input_text": (
-                "同时投掷两枚公平六面骰子。已知第一枚骰子的点数不小于4，"
-                "求两枚骰子点数和不小于8的条件概率。"
-            ),
-            "task_text": (
-                "列出条件事件中的等可能结果数和同时满足目标事件的结果数，"
-                "计算条件概率并检查结果是否在[0,1]内。"
-            ),
+            "input_text": variant["input_text"],
+            "task_text": variant["task_text"],
             "archetype": "conditional_probability_by_counting",
             "deliverable": "条件样本空间计数、交事件计数、条件概率和范围检查",
         }
@@ -2584,6 +2777,41 @@ def _linear_algebra_semantic_case(
     )):
         basis = [[1, 0], [1, 1]]
         target = [seed, seed + 1]
+        coefficients = [target[0] - target[1], target[1]]
+        variant_kind = seed % 3
+        if variant_kind == 2:
+            input_text = (
+                f"在有序基 B=((1,0),(1,1)) 下，学生把向量"
+                f" w={_format_compact_vector(target)} 的坐标写成"
+                f" ({target[0]},{target[1]})。"
+            )
+            task_text = (
+                "用线性组合重构检验该坐标是否正确；若不正确，求出正确"
+                "坐标，并说明标准坐标与基下坐标不能直接等同。"
+            )
+            deliverable = "候选坐标辨析、正确基下坐标和重构检验"
+        elif variant_kind == 1:
+            wrong = [coefficients[0] + 1, coefficients[1]]
+            input_text = (
+                f"坐标转换审计单给出 B=((1,0),(1,1))、"
+                f"w={_format_compact_vector(target)}，但记录的基下坐标为"
+                f" {_format_compact_vector(wrong)}。"
+            )
+            task_text = (
+                "重建坐标方程，定位审计单中的系数错误，给出正确坐标，"
+                "再由基向量线性组合恢复 w 完成独立复核。"
+            )
+            deliverable = "坐标方程、错误定位、正确系数和重构证据"
+        else:
+            input_text = (
+                f"在 R² 中给定有序基 B=((1,0),(1,1))，"
+                f"目标向量 w={_format_compact_vector(target)}。"
+            )
+            task_text = (
+                "求 w 在基 B 下的坐标，"
+                "并用线性组合重构 w 进行检验。"
+            )
+            deliverable = "基下坐标、线性组合过程和重构检查"
         return {
             "data": {
                 "case_kind": "basis_coordinates",
@@ -2591,19 +2819,13 @@ def _linear_algebra_semantic_case(
                 "target": target,
             },
             "canonical": {
-                "coefficients": [target[0] - target[1], target[1]],
+                "coefficients": coefficients,
                 "reconstructed": target,
             },
-            "input_text": (
-                f"在 R² 中给定有序基 B=((1,0),(1,1))，"
-                f"目标向量 w={_format_compact_vector(target)}。"
-            ),
-            "task_text": (
-                "求 w 在基 B 下的坐标，"
-                "并用线性组合重构 w 进行检验。"
-            ),
+            "input_text": input_text,
+            "task_text": task_text,
             "archetype": "basis_coordinate_reconstruction",
-            "deliverable": "基下坐标、线性组合过程和重构检查",
+            "deliverable": deliverable,
         }
     if any(marker in topic for marker in (
         "线性无关", "线性相关", "生成集", "线性组合",
@@ -2651,32 +2873,79 @@ def _build_programming_spec(context: AdapterContext) -> dict[str, Any]:
     )
     if output_topic:
         value = seed + 2
-        code = (
-            f"value = {value}\n"
-            "result = print(f\"value:{value}\")\n"
-            "print(result is None)"
-        )
+        if context.practice_level == "concept_check":
+            code = (
+                f"value = {value}\n"
+                "result = print(f\"value:{value}\")\n"
+                "print(result is None)"
+            )
+            expected_stdout = [f"value:{value}", "True"]
+            input_text = (
+                "在 Python 中运行以下最小代码，区分标准输出与函数返回值：\n"
+                f"{code}"
+            )
+            action = "predict_and_discriminate"
+            task_text = (
+                "预测两行标准输出与 result 的值，并说明 print 的输出副作用"
+                "为什么不等于它的返回值。"
+            )
+            deliverable = "输出预测、返回值判断和决定性概念说明"
+        elif context.practice_level == "mastery_check":
+            code = (
+                "def emit(values):\n"
+                "    returns = []\n"
+                "    for item in values:\n"
+                "        returns.append(print(f\"item:{item}\"))\n"
+                "    return returns\n\n"
+                f"states = emit([{value}, {value + 1}])\n"
+                "print(all(state is None for state in states))"
+            )
+            expected_stdout = [
+                f"item:{value}",
+                f"item:{value + 1}",
+                "True",
+            ]
+            input_text = (
+                "某日志适配函数同时产生输出副作用并收集调用返回值：\n"
+                f"{code}"
+            )
+            action = "trace_transfer_and_verify"
+            task_text = (
+                "跟踪循环中每次 print 的输出和 returns 的状态，写出完整标准"
+                "输出，解释最终布尔值，并设计一个不改变返回列表的输出格式修改。"
+            )
+            deliverable = "循环状态轨迹、三行输出、最终状态解释和迁移修改"
+        else:
+            code = (
+                "def announce(value):\n"
+                "    printed = print(f\"value:{value}\")\n"
+                "    return printed\n\n"
+                f"result = announce({value})\n"
+                "print(result or \"missing\")"
+            )
+            expected_stdout = [f"value:{value}", "missing"]
+            input_text = (
+                "以下函数被误认为会返回刚打印的文本，失败测试期望 result 是"
+                "字符串：\n"
+                f"{code}"
+            )
+            action = "debug_and_retest"
+            task_text = (
+                "写出实际标准输出和 result 的值，定位失败测试的错误假设，"
+                "给出让函数显式返回文本的最小修改并说明复测结果。"
+            )
+            deliverable = "失败复现、原因定位、最小修复和复测证据"
         data = {
             "case_kind": "stdout_trace",
             "language": "python",
             "code": code,
-            "expected_stdout": [f"value:{value}", "True"],
+            "expected_stdout": expected_stdout,
             "expected_return_value": None,
         }
-        input_text = (
-            "在 Python 中运行以下代码，并分别记录标准输出与 print 调用的返回值：\n"
-            f"{code}"
-        )
         canonical_answer: dict[str, Any] | None = {
             "stdout": list(data["expected_stdout"]),
             "print_return_value": None,
         }
-        action = "execute_explain_and_modify"
-        task_text = (
-            "写出两行标准输出和 print 的返回值，说明二者区别，"
-            "再给出一处可运行修改及其结果。"
-        )
-        deliverable = "运行结果、标准输出与返回值的区别，以及一处可运行修改"
     else:
         sample_id = f"CASE-{seed:02d}"
         data = {

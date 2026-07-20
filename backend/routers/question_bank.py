@@ -53,6 +53,7 @@ from question_bank import (
 from question_bank_jobs import (
     question_bank_rebuild_job_repository,
 )
+from solution_contracts import project_solution_spec
 from storage import storage
 from storage_utils import save_course_compat
 
@@ -486,6 +487,18 @@ def _generation_summary(
         "generation_calls": audit.get("generation_calls", 0),
         "repair_calls": audit.get("repair_calls", 0),
         "failure_count": audit.get("failure_count", 0),
+        "diversity_rejection_count": audit.get(
+            "diversity_rejection_count",
+            0,
+        ),
+        "diversity_regeneration_count": audit.get(
+            "diversity_regeneration_count",
+            0,
+        ),
+        "historical_diversity_comparison_count": audit.get(
+            "historical_diversity_comparison_count",
+            0,
+        ),
         "items": deepcopy(audit.get("items") or []),
     }
 
@@ -2097,6 +2110,7 @@ async def get_question_bank_item_solution(
         "item_revision_id": revision_id,
         "solution_revision_id": solution_revision_id,
         "solution_envelope": deepcopy(solution),
+        "solution_spec": project_solution_spec(solution),
         "solution_validation": deepcopy(
             item.get("solution_validation") or {}
         ),

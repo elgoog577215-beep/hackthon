@@ -388,6 +388,13 @@ def _quality_contract() -> tuple[dict, dict, dict]:
             "validation_mode": "numeric_unit_validator",
             "canonical_answer": {"value": 12, "unit": "kJ"},
             "rubric": ["列式正确", "结果和单位正确"],
+            "worked_solution": {
+                "schema_version": "worked_solution_v1",
+                "summary": "统一符号与单位后，代入热力学第一定律计算。",
+                "steps": ["ΔU=Q-W=20 kJ-8 kJ=12 kJ。"],
+                "final_answer": {"value": 12, "unit": "kJ"},
+                "checks": ["回代得到ΔU+W=Q"],
+            },
         },
         "solution_validation": {
             "passed": True,
@@ -431,6 +438,84 @@ def test_quality_score_passes_at_85_and_blocks_reference_copy():
     assert copied["reference_similarity"] >= 0.65
     assert "REFERENCE_SIMILARITY_HIGH" in {
         issue["code"] for issue in copied["issues"]
+    }
+
+
+def test_quality_gate_rejects_missing_worked_solution():
+    contract, objective, slot = _quality_contract()
+    contract["solution_envelope"].pop("worked_solution")
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+        },
+    )
+
+    assert report["passed"] is False
+    assert "WORKED_SOLUTION_INCOMPLETE" in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_quality_gate_rejects_task_contract_as_canonical_answer():
+    contract, objective, slot = _quality_contract()
+    contract["solution_envelope"]["canonical_answer"] = {
+        "objective": "完成综合任务",
+        "required_evidence": ["给出证据"],
+        "required_parts": ["结论"],
+    }
+    contract["solution_envelope"]["worked_solution"][
+        "final_answer"
+    ] = contract["solution_envelope"]["canonical_answer"]
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+        },
+    )
+
+    assert report["passed"] is False
+    assert "ANSWER_CONTRACT_PLACEHOLDER" in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_quality_gate_regenerates_cross_type_semantic_duplicate():
+    contract, objective, slot = _quality_contract()
+    existing = deepcopy(contract)
+    existing["question_type"] = "selected_response"
+    contract["question_type"] = "structured_application"
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot={**slot, "discipline_family": "natural_science"},
+        existing_questions=[existing],
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    assert report["passed"] is False
+    assert report["decision"] == "regenerate"
+    assert report["diversity_report"]["passed"] is False
+    assert "SEMANTIC_DUPLICATE_QUESTION" in {
+        issue["code"] for issue in report["issues"]
     }
 
 

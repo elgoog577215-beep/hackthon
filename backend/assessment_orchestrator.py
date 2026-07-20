@@ -24,6 +24,10 @@ from assessment_blueprint import (
     compile_course_assessment_blueprint,
     slot_for,
 )
+from assessment_diversity import (
+    forbidden_diversity_context,
+    historical_questions_for_node,
+)
 from assessment_generation import generate_universal_question_contract
 from assessment_quality import evaluate_question_contract_quality
 from assessment_retrieval import (
@@ -43,6 +47,7 @@ from code_runner_client import (
     CodeRunnerUnavailable,
     code_runner_client,
 )
+from solution_contracts import worked_solution_is_complete
 
 
 PRACTICE_LEVELS = (
@@ -233,14 +238,22 @@ class UniversalAssessmentModel(AIBase):
                 "如果 mode=structured_fields，answer 必须是以每个 field_id 为键的对象；"
                 "如果 mode=choice，answer 只能是 option id。"
                 "请独立求解下列题目。你没有也不得猜测生成器答案。"
-                "只输出JSON：{\"answer\": ..., \"work\": [...], "
-                "\"checks\": [...]}。\n"
+                "输出面向学生、提交后可公开的教学解析，不输出私有思维过程。"
+                "work必须给出明确的推导、代入、计算或证据步骤，不能只写"
+                "“分析题意”“按步骤计算”“检查答案”等模板话。选择题的"
+                "option_analysis必须逐项解释题面中的全部选项。"
+                "只输出JSON：{\"answer\": ..., \"summary\": \"...\", "
+                "\"work\": [{\"title\": \"...\", \"explanation\": \"...\", "
+                "\"calculation\": \"...\", \"result\": \"...\"}], "
+                "\"checks\": [...], \"option_analysis\": [...], "
+                "\"common_errors\": [...]}。\n"
                 f"{code_answer_requirement}"
                 f"{json.dumps(public_question_spec, ensure_ascii=False)}"
             ),
             system_prompt=(
                 "你是独立解题与复核模型。只读取公开题面，"
                 "不得使用任何标准答案、隐藏测试或评分参数。"
+                "你的解析将直接展示给学生，必须具体、完整且可复核。"
             ),
             retry_count=1,
             enable_thinking=input_mode in {
@@ -700,6 +713,9 @@ class AssessmentGenerationOrchestrator:
             "semantic_evaluation_calls": 0,
             "batch_semantic_evaluation_calls": 0,
             "batch_semantic_fallback_count": 0,
+            "diversity_rejection_count": 0,
+            "diversity_regeneration_count": 0,
+            "historical_diversity_comparison_count": 0,
             "call_timings": [],
             "fallback_count": 0,
             "failure_count": 0,
@@ -761,6 +777,13 @@ class AssessmentGenerationOrchestrator:
             if not objective:
                 continue
             contracts[node_id] = {}
+            accepted_questions = historical_questions_for_node(
+                prepared,
+                node_id=node_id,
+            )
+            audit["historical_diversity_comparison_count"] += len(
+                accepted_questions
+            )
             for variant_index, practice_level in enumerate(
                 PRACTICE_LEVELS
             ):
@@ -847,9 +870,8 @@ class AssessmentGenerationOrchestrator:
                 }
                 try:
                     existing_prompts = [
-                        contract.get("prompt", "")
-                        for levels in contracts.values()
-                        for contract in levels.values()
+                        str(item.get("prompt") or "")
+                        for item in accepted_questions
                     ]
                     final_contract: dict[str, Any] | None = None
                     last_contract: dict[str, Any] | None = None
@@ -860,6 +882,12 @@ class AssessmentGenerationOrchestrator:
                         try:
                             if next_action == "generate":
                                 audit["generation_calls"] += 1
+                                generation_context = (
+                                    _context_with_diversity_constraints(
+                                        context,
+                                        accepted_questions,
+                                    )
+                                )
                                 candidate = (
                                     await _timed_model_call(
                                         audit,
@@ -868,13 +896,19 @@ class AssessmentGenerationOrchestrator:
                                         batch_size=1,
                                         call=lambda: (
                                             self.model.generate_candidate(
-                                                deepcopy(context)
+                                                generation_context
                                             )
                                         ),
                                     )
                                 )
                             elif next_action == "repair":
                                 audit["repair_calls"] += 1
+                                generation_context = (
+                                    _context_with_diversity_constraints(
+                                        context,
+                                        accepted_questions,
+                                    )
+                                )
                                 candidate = (
                                     await _timed_model_call(
                                         audit,
@@ -884,7 +918,7 @@ class AssessmentGenerationOrchestrator:
                                         call=lambda: (
                                             self.model.repair_candidate(
                                                 {
-                                                    **deepcopy(context),
+                                                    **generation_context,
                                                     "quality_report": deepcopy(
                                                         last_quality or {}
                                                     ),
@@ -990,6 +1024,7 @@ class AssessmentGenerationOrchestrator:
                             slot=slot,
                             references=references,
                             existing_prompts=existing_prompts,
+                            existing_questions=accepted_questions,
                             semantic_report=semantic_report,
                         )
                         contract["quality_report"] = deepcopy(quality)
@@ -1007,6 +1042,14 @@ class AssessmentGenerationOrchestrator:
                         )
                         last_contract = contract
                         last_quality = quality
+                        diversity_report = (
+                            quality.get("diversity_report") or {}
+                        )
+                        item_audit["diversity_report"] = deepcopy(
+                            diversity_report
+                        )
+                        if not diversity_report.get("passed", True):
+                            audit["diversity_rejection_count"] += 1
                         item_audit["attempts"].append({
                             "attempt": attempt_index + 1,
                             "score": quality.get("score"),
@@ -1022,6 +1065,9 @@ class AssessmentGenerationOrchestrator:
                             ]),
                         })
                         if quality.get("passed"):
+                            accepted_questions.append(
+                                deepcopy(contract)
+                            )
                             item_audit["first_pass_passed"] = (
                                 attempt_index == 0
                             )
@@ -1036,6 +1082,10 @@ class AssessmentGenerationOrchestrator:
                             break
                         item_audit["repair_count"] += 1
                         if quality.get("decision") == "regenerate":
+                            if not diversity_report.get("passed", True):
+                                audit[
+                                    "diversity_regeneration_count"
+                                ] += 1
                             next_action = "generate"
                             item_audit["attempts"][-1][
                                 "next_action"
@@ -1163,7 +1213,6 @@ class AssessmentGenerationOrchestrator:
         total_items: int,
     ) -> dict[str, dict[str, dict[str, Any]]]:
         contracts: dict[str, dict[str, dict[str, Any]]] = {}
-        accepted_prompts: list[str] = []
         quality_lock = asyncio.Lock()
         slot_parallelism = self.slot_concurrency
         if callable(
@@ -1186,6 +1235,13 @@ class AssessmentGenerationOrchestrator:
             if not objective:
                 continue
             contracts[node_id] = {}
+            accepted_questions = historical_questions_for_node(
+                prepared,
+                node_id=node_id,
+            )
+            audit["historical_diversity_comparison_count"] += len(
+                accepted_questions
+            )
             initial_candidates = (
                 await self._generate_initial_candidate_batch(
                     profile=profile,
@@ -1194,6 +1250,7 @@ class AssessmentGenerationOrchestrator:
                     reference_package=reference_package,
                     node_id=node_id,
                     audit=audit,
+                    existing_questions=accepted_questions,
                 )
             )
             semantic_batcher = _SemanticEvaluationBatcher(
@@ -1230,7 +1287,7 @@ class AssessmentGenerationOrchestrator:
                         practice_level=practice_level,
                         variant_index=variant_index,
                         audit=audit,
-                        accepted_prompts=accepted_prompts,
+                        accepted_questions=accepted_questions,
                         quality_lock=quality_lock,
                         initial_candidate=initial_candidates.get(
                             practice_level
@@ -1307,6 +1364,7 @@ class AssessmentGenerationOrchestrator:
         reference_package: dict[str, Any],
         node_id: str,
         audit: dict[str, Any],
+        existing_questions: list[dict[str, Any]] | None = None,
     ) -> dict[str, dict[str, Any]]:
         batch_method = getattr(
             self.model,
@@ -1350,16 +1408,19 @@ class AssessmentGenerationOrchestrator:
             )
             contexts.append(
                 _compact_batch_generation_context(
-                    _generation_context(
-                        profile=profile,
-                        objective=objective,
-                        slot=slot,
-                        references=references,
-                        content_evidence=content_evidence,
-                        reference_summary=reference_summary,
-                        design_brief=design_brief,
-                        practice_level=practice_level,
-                        variant_index=variant_index,
+                    _context_with_diversity_constraints(
+                        _generation_context(
+                            profile=profile,
+                            objective=objective,
+                            slot=slot,
+                            references=references,
+                            content_evidence=content_evidence,
+                            reference_summary=reference_summary,
+                            design_brief=design_brief,
+                            practice_level=practice_level,
+                            variant_index=variant_index,
+                        ),
+                        existing_questions or [],
                     )
                 )
             )
@@ -1410,7 +1471,7 @@ class AssessmentGenerationOrchestrator:
         practice_level: str,
         variant_index: int,
         audit: dict[str, Any],
-        accepted_prompts: list[str],
+        accepted_questions: list[dict[str, Any]],
         quality_lock: asyncio.Lock,
         initial_candidate: dict[str, Any] | None = None,
         semantic_batcher: _SemanticEvaluationBatcher | None = None,
@@ -1508,6 +1569,12 @@ class AssessmentGenerationOrchestrator:
                 try:
                     if next_action == "generate":
                         audit["generation_calls"] += 1
+                        generation_context = (
+                            _context_with_diversity_constraints(
+                                context,
+                                accepted_questions,
+                            )
+                        )
                         candidate = await _timed_model_call(
                             audit,
                             role="generator",
@@ -1515,12 +1582,18 @@ class AssessmentGenerationOrchestrator:
                             batch_size=1,
                             call=lambda: (
                                 self.model.generate_candidate(
-                                    deepcopy(context)
+                                    generation_context
                                 )
                             ),
                         )
                     elif next_action == "repair":
                         audit["repair_calls"] += 1
+                        generation_context = (
+                            _context_with_diversity_constraints(
+                                context,
+                                accepted_questions,
+                            )
+                        )
                         candidate = await _timed_model_call(
                             audit,
                             role="generator",
@@ -1529,7 +1602,7 @@ class AssessmentGenerationOrchestrator:
                             call=lambda: (
                                 self.model.repair_candidate(
                                     {
-                                        **deepcopy(context),
+                                        **generation_context,
                                         "quality_report": deepcopy(
                                             last_quality or {}
                                         ),
@@ -1638,12 +1711,16 @@ class AssessmentGenerationOrchestrator:
                         objective=objective,
                         slot=slot,
                         references=references,
-                        existing_prompts=list(accepted_prompts),
+                        existing_prompts=[
+                            str(item.get("prompt") or "")
+                            for item in accepted_questions
+                        ],
+                        existing_questions=list(accepted_questions),
                         semantic_report=semantic_report,
                     )
                     if quality.get("passed"):
-                        accepted_prompts.append(
-                            str(contract.get("prompt") or "")
+                        accepted_questions.append(
+                            deepcopy(contract)
                         )
                 contract["quality_report"] = deepcopy(quality)
                 item_audit["semantic_preflight"] = deepcopy(
@@ -1660,6 +1737,14 @@ class AssessmentGenerationOrchestrator:
                 )
                 last_contract = contract
                 last_quality = quality
+                diversity_report = (
+                    quality.get("diversity_report") or {}
+                )
+                item_audit["diversity_report"] = deepcopy(
+                    diversity_report
+                )
+                if not diversity_report.get("passed", True):
+                    audit["diversity_rejection_count"] += 1
                 item_audit["attempts"].append({
                     "attempt": attempt_index + 1,
                     "score": quality.get("score"),
@@ -1689,6 +1774,8 @@ class AssessmentGenerationOrchestrator:
                     break
                 item_audit["repair_count"] += 1
                 if quality.get("decision") == "regenerate":
+                    if not diversity_report.get("passed", True):
+                        audit["diversity_regeneration_count"] += 1
                     next_action = "generate"
                     item_audit["attempts"][-1][
                         "next_action"
@@ -2082,6 +2169,8 @@ def _repair_action_for_issues(
     issue_codes: Iterable[str],
 ) -> str:
     codes = {str(code or "") for code in issue_codes}
+    if "SEMANTIC_DUPLICATE_QUESTION" in codes:
+        return "regenerate_with_forbidden_diversity_signatures"
     if "QUESTION_TYPE_SEMANTIC_MISMATCH" in codes:
         return "regenerate_task_and_answer_within_design_brief"
     if "MATERIAL_NOT_REQUIRED" in codes:
@@ -2125,6 +2214,18 @@ def _attach_generation_audit_summary(
         "semantic_reviewer_trigger": bool(
             item_audit.get("semantic_reviewer_trigger")
         ),
+        "diversity": {
+            key: deepcopy(
+                (item_audit.get("diversity_report") or {}).get(key)
+            )
+            for key in (
+                "passed",
+                "max_similarity",
+                "closest_question_id",
+                "reasons",
+                "threshold",
+            )
+        },
         "repair_action": next(
             (
                 str(attempt.get("repair_action") or "")
@@ -2204,6 +2305,13 @@ def _contract_from_candidate(
         raise AIProviderRequestError(
             "invalid_candidate_solution_graph"
         )
+    if "worked_solution" in solution_draft and not isinstance(
+        solution_draft.get("worked_solution"),
+        dict,
+    ):
+        raise AIProviderRequestError(
+            "invalid_candidate_worked_solution"
+        )
     if (
         len(str(stimulus.get("rendered_text") or "").strip()) < 12
         or len(str(task.get("rendered_text") or "").strip()) < 12
@@ -2238,6 +2346,7 @@ def _contract_from_candidate(
         "validator_config",
         "misconception_rules",
         "solution_graph",
+        "worked_solution",
         "hidden_tests",
     ):
         if field in solution_draft:
@@ -2475,6 +2584,7 @@ def _apply_independent_validation(
             "severity": "critical" if deterministic else "major",
         }]
     )
+    _attach_learner_worked_solution(contract, independent)
     contract["solution_envelope"]["independent_solution_record"] = {
         "answer_hash": stable_hash(
             independent.get("answer"),
@@ -2486,6 +2596,7 @@ def _apply_independent_validation(
         ),
         "checks": deepcopy(independent.get("checks") or []),
     }
+    _refresh_solution_revision_id(contract)
     contract["solution_validation"] = {
         "schema_version": "solution_validation_report_v1",
         "passed": passed,
@@ -2514,6 +2625,94 @@ def _apply_independent_validation(
     contract["risk_flags"] = [
         str(issue["code"]) for issue in issues
     ]
+
+
+def _attach_learner_worked_solution(
+    contract: dict[str, Any],
+    independent: dict[str, Any],
+) -> None:
+    """Fill missing public teaching fields from the independent solver."""
+    question_spec = contract.get("question_spec") or {}
+    solution = contract.get("solution_envelope") or {}
+    option_ids = [
+        str(option.get("id") or "")
+        for option in question_spec.get("options") or []
+        if isinstance(option, dict) and option.get("id")
+    ]
+    if worked_solution_is_complete(
+        solution,
+        option_ids=option_ids,
+    ):
+        return
+
+    existing = deepcopy(solution.get("worked_solution") or {})
+    independent_work = independent.get("work")
+    if not isinstance(independent_work, list):
+        independent_work = []
+    independent_checks = independent.get("checks")
+    if not isinstance(independent_checks, list):
+        independent_checks = []
+    option_analysis = independent.get("option_analysis")
+    if not isinstance(option_analysis, (list, dict)):
+        option_analysis = []
+    common_errors = independent.get("common_errors")
+    if not isinstance(common_errors, list):
+        common_errors = []
+    solution["worked_solution"] = {
+        "schema_version": "worked_solution_v1",
+        "summary": str(
+            existing.get("summary")
+            or independent.get("summary")
+            or ""
+        ).strip(),
+        "steps": deepcopy(
+            existing.get("steps")
+            or independent_work
+        ),
+        "final_answer": deepcopy(
+            existing.get("final_answer")
+            if existing.get("final_answer") not in (None, "", [], {})
+            else solution.get("canonical_answer")
+        ),
+        "checks": deepcopy(
+            existing.get("checks")
+            or independent_checks
+        ),
+        "option_analysis": deepcopy(
+            existing.get("option_analysis")
+            or option_analysis
+        ),
+        "common_errors": deepcopy(
+            existing.get("common_errors")
+            or common_errors
+        ),
+        "representation": deepcopy(
+            existing.get("representation")
+        ),
+    }
+
+
+def _refresh_solution_revision_id(
+    contract: dict[str, Any],
+) -> None:
+    question_spec = contract.get("question_spec") or {}
+    solution = contract.get("solution_envelope") or {}
+    solution_payload = {
+        key: value
+        for key, value in solution.items()
+        if key != "solution_revision_id"
+    }
+    revision_id = stable_hash(
+        {
+            "course_id": question_spec.get("course_id"),
+            "node_id": question_spec.get("node_id"),
+            "practice_level": question_spec.get("practice_level"),
+            **solution_payload,
+        },
+        prefix="sol_",
+    )
+    solution["solution_revision_id"] = revision_id
+    question_spec["solution_revision_id"] = revision_id
 
 
 def _normalize_semantic_report(
@@ -2695,6 +2894,23 @@ def _generation_context(
     }
 
 
+def _context_with_diversity_constraints(
+    context: dict[str, Any],
+    existing_questions: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
+    result = deepcopy(context)
+    result["diversity_constraints"] = forbidden_diversity_context(
+        existing_questions,
+        discipline_family=str(
+            (context.get("assessment_slot") or {}).get(
+                "discipline_family"
+            )
+            or "general"
+        ),
+    )
+    return result
+
+
 def _compact_batch_generation_context(
     context: dict[str, Any],
 ) -> dict[str, Any]:
@@ -2816,6 +3032,24 @@ def _generation_prompt_v2(context: dict[str, Any]) -> str:
                     "check": "A concise result check",
                 }],
             },
+            "worked_solution": {
+                "schema_version": "worked_solution_v1",
+                "summary": "A concise teaching overview",
+                "steps": [{
+                    "title": "Step title",
+                    "explanation": "Complete learner-facing derivation",
+                    "calculation": "Substitution or intermediate work when applicable",
+                    "result": "Intermediate result",
+                }],
+                "final_answer": "Must equal canonical_answer",
+                "checks": ["How the learner can verify the result"],
+                "option_analysis": [{
+                    "option_id": "A",
+                    "is_correct": True,
+                    "explanation": "Why this option is correct or incorrect",
+                }],
+                "common_errors": ["A likely error and how to avoid it"],
+            },
         },
     }
     answer_first_directive = (
@@ -2829,6 +3063,44 @@ def _generation_prompt_v2(context: dict[str, Any]) -> str:
         "reproducible defect and an answer with location, cause, repair and "
         "retest evidence. Every material block must be needed for the answer, "
         "and ordinary code material must not exceed 20 effective lines. "
+        "Obey question_design_brief.diversity_plan and "
+        "diversity_constraints. Do not reuse a forbidden core instance, "
+        "data set, source passage, code sample, formula set, or reasoning "
+        "route. Changing only wording, response format, labels, context "
+        "decoration, or numeric parameters is not a new question. "
+    )
+    return (
+        answer_first_directive
+        +
+        "输出必须严格使用 REQUIRED_OUTPUT_SCHEMA 中的键名和嵌套结构，"
+        "不得改名或省略必填字段。stimulus.rendered_text 与 "
+        "task.rendered_text 必须是具体完整题面；solution.validation_mode "
+        "必须逐字等于 assessment_slot.validation_mode。非选择题可输出空 "
+        "options；代码题另加 solution.hidden_tests。\n"
+        "<REQUIRED_OUTPUT_SCHEMA>\n"
+        f"{json.dumps(output_schema, ensure_ascii=False)}\n"
+        "</REQUIRED_OUTPUT_SCHEMA>\n"
+        "生成一道原创、可作答、可评分的课程题目。严格遵守 "
+        "assessment_slot 锁定的知识点、题型、作答模式、难度和验证器。"
+        "参考包只用于学习材料结构、设问方式、约束、难度信号和评分结构，"
+        "不得复制参考题面。只输出JSON，顶层必须为 question_spec 和 "
+        "solution。question_spec只能含公开题面；solution单独保存答案、"
+        "量规、验证器配置、solution_graph与worked_solution，不得把答案或内部Markdown标记"
+        "写入题面。选择题必须提供至少两个唯一 options，标准答案必须对应"
+        "一个 option id。worked_solution是学生提交后可见的完整教学解析，"
+        "必须包含概述、可复核推导步骤、最终答案和结果检查；选择题还必须"
+        "逐项解释所有选项。只写可公开的教学推导，不输出私有思维过程。"
+        "Any code shown to the learner in stimulus.rendered_text or "
+        "task.rendered_text must use a complete fenced Markdown code block "
+        "with an explicit language tag, for example ```python. Never refer "
+        "to 'the code above' unless that code is present in the public "
+        "question text. task.rendered_text must not exceed 300 Chinese "
+        "characters; put data, examples, and background in stimulus, and "
+        "put checkable details in constraints. "
+        f"{code_requirement}\n"
+        "<UNTRUSTED_SOURCE_DATA>\n"
+        f"{json.dumps(context, ensure_ascii=False)}\n"
+        "</UNTRUSTED_SOURCE_DATA>"
     )
 
 
@@ -2868,37 +3140,6 @@ def _semantic_review_candidate_count(
         ):
             count += 1
     return count
-    return (
-        answer_first_directive
-        +
-        "输出必须严格使用 REQUIRED_OUTPUT_SCHEMA 中的键名和嵌套结构，"
-        "不得改名或省略必填字段。stimulus.rendered_text 与 "
-        "task.rendered_text 必须是具体完整题面；solution.validation_mode "
-        "必须逐字等于 assessment_slot.validation_mode。非选择题可输出空 "
-        "options；代码题另加 solution.hidden_tests。\n"
-        "<REQUIRED_OUTPUT_SCHEMA>\n"
-        f"{json.dumps(output_schema, ensure_ascii=False)}\n"
-        "</REQUIRED_OUTPUT_SCHEMA>\n"
-        "生成一道原创、可作答、可评分的课程题目。严格遵守 "
-        "assessment_slot 锁定的知识点、题型、作答模式、难度和验证器。"
-        "参考包只用于学习材料结构、设问方式、约束、难度信号和评分结构，"
-        "不得复制参考题面。只输出JSON，顶层必须为 question_spec 和 "
-        "solution。question_spec只能含公开题面；solution单独保存答案、"
-        "量规、验证器配置与solution_graph，不得把答案或内部Markdown标记"
-        "写入题面。选择题必须提供至少两个唯一 options，标准答案必须对应"
-        "一个 option id。"
-        "Any code shown to the learner in stimulus.rendered_text or "
-        "task.rendered_text must use a complete fenced Markdown code block "
-        "with an explicit language tag, for example ```python. Never refer "
-        "to 'the code above' unless that code is present in the public "
-        "question text. task.rendered_text must not exceed 300 Chinese "
-        "characters; put data, examples, and background in stimulus, and "
-        "put checkable details in constraints. "
-        f"{code_requirement}\n"
-        "<UNTRUSTED_SOURCE_DATA>\n"
-        f"{json.dumps(context, ensure_ascii=False)}\n"
-        "</UNTRUSTED_SOURCE_DATA>"
-    )
 
 
 def _repair_prompt_v2(
@@ -2962,6 +3203,11 @@ def _repair_prompt_v2(
             "Use the minimum sufficient material, bind it to solution_graph "
             "steps, and remove unrelated imports, functions and background. "
         ),
+        "WORKED_SOLUTION_INCOMPLETE": (
+            "Write a complete learner-facing worked_solution with a teaching "
+            "summary, explicit derivation steps, the actual final answer and "
+            "result checks. For a choice question, explain every option. "
+        ),
     }
     for issue_code, directive in semantic_repair_directives.items():
         if issue_code in issue_codes:
@@ -3018,6 +3264,24 @@ def _batch_generation_prompt(
                     "check": "结果检查",
                 }],
             },
+            "worked_solution": {
+                "schema_version": "worked_solution_v1",
+                "summary": "教学性概述",
+                "steps": [{
+                    "title": "步骤标题",
+                    "explanation": "面向学生的完整推导",
+                    "calculation": "代入、计算或中间过程",
+                    "result": "本步结果",
+                }],
+                "final_answer": "必须与canonical_answer一致",
+                "checks": ["结果自查方法"],
+                "option_analysis": [{
+                    "option_id": "A",
+                    "is_correct": True,
+                    "explanation": "该选项正确或错误的具体原因",
+                }],
+                "common_errors": ["常见错误及避免方法"],
+            },
         },
     }
     batch = [
@@ -3042,8 +3306,15 @@ def _batch_generation_prompt(
         f"一次生成{len(batch)}道相互独立的原创课程题目。"
         "必须为每个BATCH_CONTEXT生成且只生成一个candidate，"
         "不能遗漏、合并或交换slot_id。只输出JSON，不输出解释。\n"
+        "同批题目之间不得复用核心实例、材料、数据集、代码样例、"
+        "公式组合或解题路径；仅改变题型、措辞、标签、背景或数字不算新题。"
+        "每道题必须遵守各自question_design_brief.diversity_plan，"
+        "并至少在实例、认知动作、推理路径三项中的两项与其他题不同。\n"
         "选择题必须至少包含两个互斥选项，canonical_answer必须是"
         "唯一option id；非选择题options必须为空数组。"
+        "每道题都必须提供worked_solution：含概述、完整推导步骤、"
+        "最终答案和结果检查；选择题必须逐项解释全部选项。"
+        "worked_solution只能写可公开的教学推导，不得输出私有思维过程。"
         "普通题不得复制整章材料，题面不得泄漏答案。"
         "代码实现题必须是确定性的标准输入/标准输出任务，"
         "仅支持python或javascript，并在solution.hidden_tests中"

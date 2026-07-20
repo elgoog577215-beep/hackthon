@@ -67,7 +67,24 @@ class RepairingModel:
             public_question_spec.get("input_contract") or {}
         ).get("mode")
         if mode == "choice":
-            return {"answer": "A"}
+            return {
+                "answer": "A",
+                "summary": "根据热量与功的正负号约定逐项判断。",
+                "work": ["系统吸热时Q取正，对外做功时W取正。"],
+                "checks": ["所选记录同时满足两项符号约定"],
+                "option_analysis": [
+                    {
+                        "option_id": "A",
+                        "is_correct": True,
+                        "explanation": "同时满足吸热为正、对外做功为正。",
+                    },
+                    {
+                        "option_id": "B",
+                        "is_correct": False,
+                        "explanation": "与题面给出的吸热和做功过程矛盾。",
+                    },
+                ],
+            }
         if mode == "structured_fields":
             return {
                 "answer": {
@@ -75,9 +92,17 @@ class RepairingModel:
                         "完成任务并给出可复核证据": 1.0,
                     },
                     "confidence": 0.95,
-                }
+                },
+                "summary": "比较两组能量记录并用守恒方程定位矛盾。",
+                "work": ["分别代入ΔU=Q-W，比较记录值与计算值。"],
+                "checks": ["修正后满足ΔU+W=Q"],
             }
-        return {"answer": {"value": 12, "unit": "kJ"}}
+        return {
+            "answer": {"value": 12, "unit": "kJ"},
+            "summary": "先统一符号和单位，再代入热力学第一定律。",
+            "work": ["代入ΔU=Q-W=20 kJ-8 kJ=12 kJ。"],
+            "checks": ["回代得到ΔU+W=20 kJ=Q"],
+        }
 
     async def repair_candidate(
         self,
@@ -244,7 +269,12 @@ def _proposal(answer: float, context: dict) -> dict:
         "A"
         if mode == "choice"
         else (
-            {"rubric": ["完成任务并给出可复核证据"]}
+            {
+                "rubric_scores": {
+                    "完成任务并给出可复核证据": 1.0,
+                },
+                "confidence": 0.95,
+            }
             if mode == "structured_fields"
             else {"value": answer, "unit": "kJ"}
         )
@@ -261,6 +291,28 @@ def _proposal(answer: float, context: dict) -> dict:
             "relative_tolerance": 0.001,
         }
     )
+    materials = {
+        "concept_check": (
+            "系统吸热时 Q 取正，系统对外做功时 W 取正。"
+            "现需判断一组热量与功的符号记录是否符合约定。"
+        ),
+        "objective_practice": (
+            "封闭系统吸收热量20 kJ，并对外做功8 kJ。"
+        ),
+        "mastery_check": (
+            "工程师给出两个封闭系统过程的能量审计表，"
+            "其中一个过程不满足能量守恒，需要定位并修正。"
+        ),
+    }
+    tasks = {
+        "concept_check": "选择唯一符合热量与功符号约定的记录。",
+        "objective_practice": (
+            "采用 ΔU=Q-W 计算内能变化，写出过程并核对单位。"
+        ),
+        "mastery_check": (
+            "比较两个过程，指出矛盾记录并给出修正后的守恒检查。"
+        ),
+    }
     return {
         "question_spec": {
             "stimulus": {
@@ -271,14 +323,13 @@ def _proposal(answer: float, context: dict) -> dict:
                 },
                 "rendered_text": (
                     f"{objective}（{practice_level}）："
-                    "封闭系统吸收热量20 kJ，并对外做功8 kJ。"
+                    f"{materials[practice_level]}"
                 ),
             },
             "task": {
                 "action": "calculate",
                 "rendered_text": (
-                    "采用 ΔU=Q-W 完成蓝图规定的作答，"
-                    f"写出过程并核对单位和结论；层级为{practice_level}。"
+                    tasks[practice_level]
                 ),
                 "deliverable": "过程、答案和结果检查",
             },
@@ -318,6 +369,38 @@ def _proposal(answer: float, context: dict) -> dict:
                     "action": "检查结果和能量守恒",
                     "check": "ΔU+W=Q",
                 }],
+            },
+            "worked_solution": {
+                "schema_version": "worked_solution_v1",
+                "summary": (
+                    "根据符号约定，代入热力学第一定律并检查能量守恒。"
+                ),
+                "steps": [{
+                    "title": "确定符号",
+                    "explanation": "系统吸热时Q为正，对外做功时W为正。",
+                    "result": "Q=+20 kJ，W=+8 kJ",
+                }, {
+                    "title": "代入计算",
+                    "explanation": "将热量和功代入ΔU=Q-W。",
+                    "calculation": "ΔU=20-8=12 kJ",
+                    "result": "内能增加12 kJ",
+                }],
+                "final_answer": canonical_answer,
+                "checks": ["回代验证ΔU+W=Q"],
+                "option_analysis": (
+                    [{
+                        "option_id": "A",
+                        "is_correct": True,
+                        "explanation": "同时满足吸热和对外做功的符号约定。",
+                    }, {
+                        "option_id": "B",
+                        "is_correct": False,
+                        "explanation": "与题面给出的能量交换过程矛盾。",
+                    }]
+                    if mode == "choice"
+                    else []
+                ),
+                "common_errors": ["把系统对外做功误记为负值。"],
             },
         },
     }
@@ -397,7 +480,11 @@ async def test_prepared_contracts_drive_diverse_question_bank_items():
     ]
 
     assert len(generated) == 3
-    assert all("20 kJ" in item["prompt"] for item in generated)
+    assert any("20 kJ" in item["prompt"] for item in generated)
+    assert len({
+        item["diversity_signature"]["material_digest"]
+        for item in generated
+    }) == 3
     assert {
         item["input_contract"]["mode"]
         for item in generated
@@ -578,6 +665,7 @@ async def test_choice_generation_uses_fast_non_thinking_json_mode(
     model = UniversalAssessmentModel()
 
     async def fake_call(prompt, **kwargs):
+        captured["prompt"] = prompt
         captured.update(kwargs)
         return '{"question_spec": {}, "solution": {}}'
 
@@ -591,6 +679,8 @@ async def test_choice_generation_uses_fast_non_thinking_json_mode(
     assert captured["enable_thinking"] is False
     assert captured["json_mode"] is True
     assert captured["max_tokens"] == 2048
+    assert isinstance(captured["prompt"], str)
+    assert "<REQUIRED_OUTPUT_SCHEMA>" in captured["prompt"]
 
 
 async def test_scoped_orchestration_only_calls_models_for_requested_nodes():

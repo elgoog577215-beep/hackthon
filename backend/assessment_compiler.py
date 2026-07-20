@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
+from solution_contracts import project_solution_spec
 
 
 INPUT_MODES = {
@@ -116,6 +117,10 @@ def solution_answer_spec(
     canonical = deepcopy(solution.get("canonical_answer"))
     rubric = deepcopy(solution.get("rubric") or [])
     validator_config = deepcopy(solution.get("validator_config") or {})
+    solution_spec = project_solution_spec(
+        solution,
+        fallback=fallback_answer,
+    )
 
     if input_mode == "choice":
         option_ids = {
@@ -156,11 +161,14 @@ def solution_answer_spec(
                 or 70
             ),
             "validator_config": validator_config,
+            "solution_spec": solution_spec,
         }
 
     if legacy:
+        legacy.setdefault("solution_spec", solution_spec)
         return legacy
     if fallback_answer:
+        fallback_answer.setdefault("solution_spec", solution_spec)
         return fallback_answer
     return {
         "type": "rubric",
@@ -171,6 +179,7 @@ def solution_answer_spec(
             validator_config.get("pass_score") or 70
         ),
         "validator_config": validator_config,
+        "solution_spec": solution_spec,
     }
 
 
@@ -406,6 +415,49 @@ def validate_compiled_question_contract(
         )
 
     if not legacy_text_compat:
+        solution_spec = answer_spec.get("solution_spec") or {}
+        if len(str(solution_spec.get("summary") or "").strip()) < 8:
+            add(
+                "WORKED_SOLUTION_SUMMARY_MISSING",
+                "compiled answer does not contain a teaching summary",
+            )
+        if not solution_spec.get("steps"):
+            add(
+                "WORKED_SOLUTION_STEPS_MISSING",
+                "compiled answer does not contain learner-facing solution steps",
+            )
+        if solution_spec.get("final_answer") in (None, "", [], {}):
+            add(
+                "WORKED_SOLUTION_FINAL_ANSWER_MISSING",
+                "compiled answer does not contain a final answer",
+            )
+        elif (
+            answer_spec.get("canonical_answer")
+            not in (None, "", [], {})
+            and solution_spec.get("final_answer")
+            != answer_spec.get("canonical_answer")
+        ):
+            add(
+                "WORKED_SOLUTION_FINAL_ANSWER_MISMATCH",
+                "worked solution final answer differs from canonical answer",
+            )
+        if not solution_spec.get("checks"):
+            add(
+                "WORKED_SOLUTION_CHECKS_MISSING",
+                "compiled answer does not contain result checks",
+            )
+        if input_mode == "choice":
+            analyzed_options = {
+                str(value.get("option_id") or "")
+                for value in solution_spec.get("option_analysis") or []
+                if isinstance(value, dict)
+                and str(value.get("explanation") or "").strip()
+            }
+            if not set(option_ids).issubset(analyzed_options):
+                add(
+                    "CHOICE_OPTION_ANALYSIS_INCOMPLETE",
+                    "worked solution must explain every visible option",
+                )
         allowed_validators = _VALIDATORS_BY_INPUT_MODE.get(
             input_mode,
             set(),
