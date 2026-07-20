@@ -127,6 +127,63 @@ class DeterministicAssessmentOrchestrator:
                     slot=slot,
                     references=[],
                 )
+                mode = str(
+                    (
+                        contract["question_spec"].get(
+                            "input_contract"
+                        )
+                        or {}
+                    ).get("mode")
+                    or ""
+                )
+                if mode == "choice":
+                    contract["question_spec"]["options"] = [
+                        {"id": "A", "text": "满足题面全部条件"},
+                        {"id": "B", "text": "不满足题面关键条件"},
+                    ]
+                    canonical = "A"
+                    option_analysis = [
+                        {
+                            "option_id": "A",
+                            "is_correct": True,
+                            "explanation": "该选项满足题面给出的全部条件。",
+                        },
+                        {
+                            "option_id": "B",
+                            "is_correct": False,
+                            "explanation": "该选项遗漏题面的关键条件。",
+                        },
+                    ]
+                elif mode == "numeric_unit":
+                    canonical = {"value": 0.5, "unit": "1"}
+                    option_analysis = []
+                else:
+                    canonical = {
+                        "answer": "根据题面条件形成的完整示例结论",
+                        "evidence": ["使用题面给出的关键条件"],
+                        "result_check": "结论满足全部约束",
+                    }
+                    option_analysis = []
+                contract["solution_envelope"][
+                    "canonical_answer"
+                ] = canonical
+                contract["solution_envelope"]["worked_solution"] = {
+                    "schema_version": "worked_solution_v1",
+                    "summary": "先整理题面条件，再完成计算或推导并检查结论。",
+                    "steps": [{
+                        "title": "建立条件",
+                        "explanation": "把题面给出的已知量和限制条件逐项对应到求解过程。",
+                        "result": "得到可直接代入或推导的条件集合",
+                    }, {
+                        "title": "完成求解",
+                        "explanation": "按照课程定义完成计算或论证，形成具体结论。",
+                        "result": "得到最终参考答案",
+                    }],
+                    "final_answer": deepcopy(canonical),
+                    "checks": ["逐项核对最终答案是否满足题面约束"],
+                    "option_analysis": option_analysis,
+                    "common_errors": ["遗漏题面条件，导致结论不可验证。"],
+                }
                 contract["review_required"] = False
                 contract["risk_flags"] = []
                 contract["question_spec"]["risk_contract"] = {

@@ -108,6 +108,14 @@
           <strong>{{ webStatusLabel }}</strong>
           <small>{{ t('questionBank.sourceCount', '{count} 个来源').replace('{count}', String(webEnrichment.source_count || 0)) }}</small>
         </article>
+        <article data-testid="question-diversity-monitor">
+          <span>{{ t('questionBank.diversity', '题组多样性') }}</span>
+          <strong>{{ generationSummary.diversity_rejection_count || 0 }} 次拦截</strong>
+          <small>
+            重生成 {{ generationSummary.diversity_regeneration_count || 0 }} 次
+            · 历史比较 {{ generationSummary.historical_diversity_comparison_count || 0 }} 道
+          </small>
+        </article>
       </div>
 
       <section class="assessment-profile" data-testid="assessment-profile">
@@ -445,9 +453,21 @@
                       : '规则通过，未调用' }}
                   </b>
                 </span>
+                <span>
+                  题组多样性
+                  <b :data-status="item.diversity_report?.passed === false ? 'failed' : 'passed'">
+                    {{ item.diversity_report?.passed === false
+                      ? `重复 ${Math.round(Number(item.diversity_report?.max_similarity || 0) * 100)}%`
+                      : `通过 ${Math.round(Number(item.diversity_report?.max_similarity || 0) * 100)}%` }}
+                  </b>
+                </span>
               </div>
               <p v-if="item.generation_audit_summary?.issue_codes?.length">
                 问题代码：{{ item.generation_audit_summary.issue_codes.join('、') }}
+              </p>
+              <p v-if="item.diversity_report?.passed === false">
+                最接近题目：{{ item.diversity_report.closest_question_id || '-' }}
+                · 原因：{{ item.diversity_report.reasons?.join('、') || '语义重复' }}
               </p>
             </section>
             <button
@@ -469,11 +489,67 @@
               v-if="solutions[item.revision_id]"
               class="question-solution-diff"
             >
-              <div>
+              <div class="question-solution-diff__worked">
+                <strong>{{ t('questionBank.workedSolution', '完整解析') }}</strong>
+                <p v-if="solutionSpec(solutions[item.revision_id] || {}).summary">
+                  {{ solutionSpec(solutions[item.revision_id] || {}).summary }}
+                </p>
+                <ol v-if="solutionSpec(solutions[item.revision_id] || {}).steps?.length">
+                  <li
+                    v-for="(step, stepIndex) in solutionSpec(solutions[item.revision_id] || {}).steps"
+                    :key="`${item.revision_id}-solution-step-${stepIndex}`"
+                  >
+                    {{ formatSolutionStep(step) }}
+                  </li>
+                </ol>
+                <strong>{{ t('questionBank.canonicalAnswer', '标准答案') }}</strong>
+                <pre>{{ formatValue(solutionSpec(solutions[item.revision_id] || {}).final_answer ?? '-') }}</pre>
+                <section
+                  v-if="solutionSpec(solutions[item.revision_id] || {}).option_analysis?.length"
+                  class="question-solution-diff__analysis"
+                >
+                  <strong>{{ t('questionBank.optionAnalysis', '选项解析') }}</strong>
+                  <ul>
+                    <li
+                      v-for="analysis in solutionSpec(solutions[item.revision_id] || {}).option_analysis"
+                      :key="`${item.revision_id}-option-${analysis.option_id}`"
+                    >
+                      <b>{{ analysis.option_id }}</b>：{{ analysis.explanation }}
+                    </li>
+                  </ul>
+                </section>
+                <section
+                  v-if="solutionSpec(solutions[item.revision_id] || {}).checks?.length"
+                  class="question-solution-diff__analysis"
+                >
+                  <strong>{{ t('questionBank.solutionChecks', '结果检查') }}</strong>
+                  <ul>
+                    <li
+                      v-for="check in solutionSpec(solutions[item.revision_id] || {}).checks"
+                      :key="`${item.revision_id}-check-${check}`"
+                    >
+                      {{ check }}
+                    </li>
+                  </ul>
+                </section>
+                <section
+                  v-if="solutionSpec(solutions[item.revision_id] || {}).common_errors?.length"
+                  class="question-solution-diff__analysis"
+                >
+                  <strong>{{ t('questionBank.commonErrors', '常见错误') }}</strong>
+                  <ul>
+                    <li
+                      v-for="error in solutionSpec(solutions[item.revision_id] || {}).common_errors"
+                      :key="`${item.revision_id}-error-${error}`"
+                    >
+                      {{ error }}
+                    </li>
+                  </ul>
+                </section>
+              </div>
+              <div class="question-solution-diff__validation">
                 <strong>{{ t('questionBank.canonicalAnswer', '标准答案或量规') }}</strong>
                 <pre>{{ solutionAnswer(solutions[item.revision_id] || {}) }}</pre>
-              </div>
-              <div>
                 <strong>{{ t('questionBank.independentValidation', '独立求解与验证') }}</strong>
                 <pre>{{ solutionValidation(solutions[item.revision_id] || {}) }}</pre>
               </div>
@@ -622,7 +698,11 @@ interface QuestionBankItem {
   assessment_role: string
   lifecycle_status: string
   risk_flags: string[]
-  quality_report?: { passed?: boolean; status?: string }
+  quality_report?: {
+    passed?: boolean
+    status?: string
+    diversity_report?: QuestionDiversityReport
+  }
   source_records?: Array<Record<string, unknown>>
   node_id?: string
   objective_id?: string
@@ -648,6 +728,20 @@ interface QuestionBankItem {
     semantic_reviewer_trigger?: boolean
     issue_codes?: string[]
   }
+  diversity_report?: QuestionDiversityReport
+  diversity_signature?: {
+    signature_id?: string
+    plugin_id?: string
+    material_preview?: string
+  }
+}
+
+interface QuestionDiversityReport {
+  passed?: boolean
+  max_similarity?: number
+  closest_question_id?: string
+  reasons?: string[]
+  threshold?: number
 }
 
 interface AssessmentObjective {
@@ -670,6 +764,7 @@ const rebuildErrorMessage = ref('')
 const bundleRevisionId = ref('')
 const coverage = ref<Record<string, number>>({})
 const reviewQueue = ref<Record<string, any>>({})
+const generationSummary = ref<Record<string, any>>({})
 const webEnrichment = ref<Record<string, unknown>>({})
 const assessmentProfile = ref<Record<string, any>>({})
 const assessmentObjectives = ref<AssessmentObjective[]>([])
@@ -1086,6 +1181,7 @@ async function load() {
     bundleRevisionId.value = String(data.bundle_revision_id || '')
     coverage.value = data.coverage || {}
     reviewQueue.value = data.review_queue || {}
+    generationSummary.value = data.generation_summary || {}
     webEnrichment.value = data.web_enrichment || {}
     assessmentProfile.value = data.assessment_profile || {}
     chapterRebuild.value = data.chapter_rebuild || {}
@@ -1332,6 +1428,23 @@ function solutionAnswer(payload: Record<string, any>) {
   )
 }
 
+function solutionSpec(payload: Record<string, any>) {
+  return payload.solution_spec || {}
+}
+
+function formatSolutionStep(step: unknown) {
+  if (typeof step === 'string') return step
+  if (!step || typeof step !== 'object') return String(step || '')
+  const value = step as Record<string, unknown>
+  return [
+    value.title,
+    value.explanation,
+    value.calculation,
+    value.result,
+    value.check,
+  ].filter(Boolean).join('；')
+}
+
 function solutionValidation(payload: Record<string, any>) {
   return formatValue(payload.solution_validation || '-')
 }
@@ -1354,7 +1467,7 @@ function formatValue(value: unknown) {
 .question-bank-panel__header-buttons { display:flex; align-items:center; gap:7px; }
 .question-bank-panel__header button, .question-bank-panel__state button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text-secondary); background: #fff; cursor: pointer; }
 .question-bank-panel__header button:disabled { opacity:.55; cursor:not-allowed; }
-.question-bank-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.question-bank-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .question-bank-summary article { display: grid; gap: 4px; padding: 12px; border-radius: 10px; background: var(--lz-surface-muted); }
 .question-bank-summary span, .question-bank-summary small { color: var(--lz-text-muted); font-size: 10px; }
 .question-bank-summary strong { color: var(--lz-text-strong); font-size: 14px; }
@@ -1450,7 +1563,7 @@ function formatValue(value: unknown) {
 .question-review-item dt { color: var(--lz-text-muted); }
 .question-review-item dd { margin: 0; color: var(--lz-text-secondary); }
 .question-review-item textarea { min-height: 54px; padding: 8px 9px; border: 1px solid var(--lz-border); border-radius: 8px; resize: vertical; color: var(--lz-text); font: inherit; font-size: 11px; }
-.question-review-item__solution { justify-self:start; display:inline-flex; align-items:center; gap:6px; padding:6px 8px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; }.question-solution-diff { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }.question-solution-diff>div { min-width:0; display:grid; gap:5px; }.question-solution-diff strong { color:var(--lz-text-secondary); font-size:10px; }.question-solution-diff pre { max-height:220px; overflow:auto; margin:0; padding:9px; border-radius:8px; color:#334155; background:#f8fafc; font:10px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
+.question-review-item__solution { justify-self:start; display:inline-flex; align-items:center; gap:6px; padding:6px 8px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; }.question-solution-diff { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:8px; }.question-solution-diff>div { min-width:0; display:grid; align-content:start; gap:7px; padding:10px; border-radius:8px; background:#f8fafc; }.question-solution-diff strong { color:var(--lz-text-secondary); font-size:10px; }.question-solution-diff p,.question-solution-diff li { margin:0; color:#334155; font-size:10px; line-height:1.65; }.question-solution-diff ol,.question-solution-diff ul { display:grid; gap:5px; margin:0; padding-left:20px; }.question-solution-diff pre { max-height:220px; overflow:auto; margin:0; padding:9px; border-radius:8px; color:#334155; background:#fff; font:10px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }.question-solution-diff__analysis { display:grid; gap:5px; }
 .question-review-item footer { display:flex; align-items:center; justify-content:flex-end; gap:10px; }
 .question-review-item footer button { display: inline-flex; align-items: center; gap: 5px; padding: 7px 11px; border-radius: 8px; cursor: pointer; }
 .question-review-item__reject { border: 1px solid #fecaca; color: #b91c1c; background: #fff; }

@@ -330,6 +330,23 @@
                 <li v-for="check in workspace.revealedSolution.checks" :key="check">{{ check }}</li>
               </ul>
             </div>
+            <div v-if="workspace.revealedSolution.option_analysis?.length" class="solution-option-analysis">
+              <h4>{{ t('courseWorkspace.practice.optionAnalysis', '选项解析') }}</h4>
+              <ul>
+                <li
+                  v-for="analysis in workspace.revealedSolution.option_analysis"
+                  :key="analysis.option_id"
+                >
+                  <strong>{{ analysis.option_id }}</strong>：{{ analysis.explanation }}
+                </li>
+              </ul>
+            </div>
+            <div v-if="workspace.revealedSolution.common_errors?.length" class="solution-common-errors">
+              <h4>{{ t('courseWorkspace.practice.commonErrors', '常见错误') }}</h4>
+              <ul>
+                <li v-for="error in workspace.revealedSolution.common_errors" :key="error">{{ error }}</li>
+              </ul>
+            </div>
             <p
               v-else-if="workspace.revealedSolution.correct_answer !== null && workspace.revealedSolution.correct_answer !== undefined"
             >

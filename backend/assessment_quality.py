@@ -8,6 +8,8 @@ import re
 from typing import Any, Iterable
 
 from assessment_blueprint import INPUT_CONTRACT_SCHEMA, INPUT_MODES
+from assessment_diversity import evaluate_question_diversity
+from solution_contracts import worked_solution_is_complete
 
 
 QUESTION_QUALITY_SCHEMA = "question_quality_report_v2"
@@ -31,6 +33,8 @@ _REPAIRABLE_HARD_CODES = {
     "MISSING_CONDITION",
     "ANSWER_CONFLICT",
     "ANSWER_OR_RUBRIC_MISSING",
+    "ANSWER_CONTRACT_PLACEHOLDER",
+    "WORKED_SOLUTION_INCOMPLETE",
     "INPUT_CONTRACT_MISMATCH",
     "MARKDOWN_INVALID",
     "CODE_MATERIAL_NOT_RENDERABLE",
@@ -57,6 +61,7 @@ def evaluate_question_contract_quality(
     slot: dict[str, Any] | None,
     references: Iterable[dict[str, Any]] = (),
     existing_prompts: Iterable[str] = (),
+    existing_questions: Iterable[dict[str, Any]] = (),
     semantic_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return a fail-closed score and a machine-actionable repair decision."""
@@ -77,13 +82,30 @@ def evaluate_question_contract_quality(
         contract.get("design_brief")
         or semantic_preflight
     )
+    option_ids = [
+        str(option.get("id") or "")
+        for option in spec.get("options") or []
+        if isinstance(option, dict) and option.get("id")
+    ]
+    meaningful_answer = _meaningful_canonical_answer(
+        solution.get("canonical_answer")
+    )
     issues: list[dict[str, Any]] = []
     hard_checks = {
         "schema": spec.get("schema_version") == "question_spec_v2",
         "input_contract": _valid_input_contract(input_contract),
         "answer_or_rubric": (
-            solution.get("canonical_answer") is not None
+            meaningful_answer
             or bool(solution.get("rubric"))
+        ),
+        "answer_executable": meaningful_answer,
+        "worked_solution": worked_solution_is_complete(
+            solution,
+            option_ids=(
+                option_ids
+                if str(input_contract.get("mode") or "") == "choice"
+                else ()
+            ),
         ),
         "validation": bool(validation.get("passed")),
         "markdown": _markdown_valid(prompt),
@@ -130,6 +152,14 @@ def evaluate_question_contract_quality(
         "answer_or_rubric": (
             "ANSWER_OR_RUBRIC_MISSING",
             "标准答案或评分量规缺失",
+        ),
+        "answer_executable": (
+            "ANSWER_CONTRACT_PLACEHOLDER",
+            "标准答案只是任务要求或评分合同，不是实际参考答案",
+        ),
+        "worked_solution": (
+            "WORKED_SOLUTION_INCOMPLETE",
+            "缺少面向学生的完整解析、推导步骤、最终答案或结果检查",
         ),
         "validation": ("VALIDATION_FAILED", "独立求解或验证未通过"),
         "markdown": ("MARKDOWN_INVALID", "Markdown或代码围栏不完整"),
@@ -187,7 +217,33 @@ def evaluate_question_contract_quality(
         prompt,
         existing_prompts,
     )
-    hard_checks["not_duplicate"] = duplicate_similarity < 0.9
+
+    diversity_pool = [
+        deepcopy(value)
+        for value in existing_questions
+        if isinstance(value, dict)
+    ]
+    if not diversity_pool:
+        diversity_pool = [
+            {"prompt": str(value)}
+            for value in existing_prompts
+            if str(value).strip()
+        ]
+    diversity_report = evaluate_question_diversity(
+        contract,
+        existing_questions=diversity_pool,
+        discipline_family=str(
+            (slot or {}).get("discipline_family") or "general"
+        ),
+    )
+    contract["diversity_signature"] = deepcopy(
+        diversity_report.get("signature") or {}
+    )
+    contract["diversity_report"] = deepcopy(diversity_report)
+    hard_checks["not_duplicate"] = bool(
+        duplicate_similarity < 0.9
+        or diversity_report.get("passed")
+    )
     if not hard_checks["not_duplicate"]:
         issues.append(
             _issue(
@@ -195,6 +251,28 @@ def evaluate_question_contract_quality(
                 "critical",
                 "题目与当前题库已有题目高度重复",
                 evidence={"similarity": round(duplicate_similarity, 4)},
+            )
+        )
+    hard_checks["semantic_diversity"] = bool(
+        diversity_report.get("passed")
+    )
+    if not hard_checks["semantic_diversity"]:
+        issues.append(
+            _issue(
+                "SEMANTIC_DUPLICATE_QUESTION",
+                "critical",
+                "题目复用了同一核心材料、实例或推理路径",
+                evidence={
+                    "similarity": diversity_report.get(
+                        "max_similarity"
+                    ),
+                    "closest_question_id": diversity_report.get(
+                        "closest_question_id"
+                    ),
+                    "reasons": deepcopy(
+                        diversity_report.get("reasons") or []
+                    ),
+                },
             )
         )
 
@@ -210,7 +288,10 @@ def evaluate_question_contract_quality(
         objective=objective,
         slot=slot,
         semantic_report=semantic,
-        duplicate_similarity=duplicate_similarity,
+        duplicate_similarity=max(
+            duplicate_similarity,
+            float(diversity_report.get("max_similarity") or 0),
+        ),
     )
     total_score = sum(dimensions.values())
     hard_gate_passed = all(hard_checks.values())
@@ -309,6 +390,7 @@ def evaluate_question_contract_quality(
         },
         "reference_similarity": round(reference_similarity, 4),
         "duplicate_similarity": round(duplicate_similarity, 4),
+        "diversity_report": deepcopy(diversity_report),
         "issues": _deduplicate_issues(issues),
         "decision": decision,
     }
@@ -360,10 +442,34 @@ def _dimension_scores(
         fallback=15 if complete else 7,
         maximum=15,
     )
-    answer_score = 15 if (
-        solution.get("canonical_answer") is not None
-        or solution.get("rubric")
-    ) else 0
+    answer_score = (
+        15
+        if (
+            _meaningful_canonical_answer(
+                solution.get("canonical_answer")
+            )
+            and worked_solution_is_complete(
+                solution,
+                option_ids=(
+                    [
+                        str(option.get("id") or "")
+                        for option in spec.get("options") or []
+                        if isinstance(option, dict) and option.get("id")
+                    ]
+                    if str(
+                        (
+                            spec.get("input_contract")
+                            or contract.get("input_contract")
+                            or {}
+                        ).get("mode")
+                        or ""
+                    ) == "choice"
+                    else ()
+                ),
+            )
+        )
+        else 0
+    )
     difficulty = _bounded_dimension(
         semantic_dimensions.get("difficulty_fit"),
         fallback=10 if (
@@ -393,6 +499,30 @@ def _dimension_scores(
         "diversity": diversity,
         "renderability": renderability,
     }
+
+
+def _meaningful_canonical_answer(value: Any) -> bool:
+    if value in (None, "", [], {}):
+        return False
+    if not isinstance(value, dict):
+        return True
+    placeholder_keys = {
+        "objective",
+        "required_evidence",
+        "required_parts",
+        "deliverable",
+        "criteria",
+        "rubric",
+    }
+    populated_keys = {
+        str(key)
+        for key, item in value.items()
+        if item not in (None, "", [], {})
+    }
+    return bool(
+        populated_keys
+        and not populated_keys.issubset(placeholder_keys)
+    )
 
 
 def _valid_input_contract(value: Any) -> bool:

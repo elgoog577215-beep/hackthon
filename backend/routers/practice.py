@@ -13,6 +13,10 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from assessment_contracts import project_public_question
+from assessment_diversity import (
+    build_diversity_signature,
+    compare_diversity_signatures,
+)
 from assessment_tasks import project_assessment_task, resolve_assessment_task
 from course_knowledge_map import project_learning_assets_to_knowledge
 from course_learning_availability import (
@@ -334,11 +338,62 @@ async def refresh_practice_question(
         )
         for item in attempts
     }
+    seen_questions = [
+        item
+        for item in questions
+        if (
+            _task_revision_id(item) in attempted_revision_ids
+            or _task_revision_id(item)
+            == payload.current_task_revision_id
+        )
+    ]
+    seen_signatures = [
+        build_diversity_signature(item)
+        for item in seen_questions
+    ]
+    diverse_alternatives: list[
+        tuple[int, dict[str, Any], float]
+    ] = []
+    for pair_index, alternative in enumerate(alternatives):
+        signature = build_diversity_signature(alternative)
+        comparisons = [
+            compare_diversity_signatures(
+                signature,
+                seen_signature,
+            )
+            for seen_signature in seen_signatures
+        ]
+        if any(
+            comparison.get("duplicate")
+            for comparison in comparisons
+        ):
+            continue
+        max_similarity = max(
+            [
+                float(
+                    comparison.get("overall_similarity") or 0
+                )
+                for comparison in comparisons
+            ]
+            or [0.0]
+        )
+        diverse_alternatives.append(
+            (pair_index, alternative, max_similarity)
+        )
+    if not diverse_alternatives:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "no_diverse_alternative_question",
+                "message": "当前范围暂无语义上真正不同的冻结题目",
+            },
+        )
     current_level = str(current.get("practice_level") or "")
     ranked = sorted(
-        enumerate(alternatives),
+        diverse_alternatives,
         key=lambda pair: (
             _task_revision_id(pair[1]) in attempted_revision_ids,
+            pair[2],
             str(pair[1].get("practice_level") or "") != current_level,
             pair[0],
         ),
@@ -350,6 +405,15 @@ async def refresh_practice_question(
         "question": _student_question_payload(selected),
         "has_alternative": True,
         "attempt_history_preserved": True,
+        "diversity_selection": {
+            "schema_version": "practice_diversity_selection_v1",
+            "max_similarity_to_seen": ranked[0][2],
+            "seen_question_count": len(seen_questions),
+            "candidate_count": len(alternatives),
+            "diverse_candidate_count": len(
+                diverse_alternatives
+            ),
+        },
     }
 
 
@@ -1252,6 +1316,8 @@ def _solution_payload(question: dict[str, Any]) -> dict[str, Any]:
         "representation": present_solution_representation(
             structured.get("representation")
         ),
+        "option_analysis": structured.get("option_analysis") or [],
+        "common_errors": structured.get("common_errors") or [],
         "criteria": spec.get("criteria") or [],
         "reference_concepts": spec.get("expected_keywords") or [],
         "correct_answer": (
