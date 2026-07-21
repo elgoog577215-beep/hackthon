@@ -53,8 +53,10 @@ class CourseOutlinePlanningBudget:
 
     compact_max_sections: int = 6
     batch_max_sections: int = 6
-    batch_timeout_seconds: int = 60
-    total_timeout_seconds: int = 180
+    # Legacy names retained for callers. There is no whole-outline deadline;
+    # the per-unit value means continuous stream inactivity.
+    batch_timeout_seconds: int = 90
+    total_timeout_seconds: int = 0
 
     @classmethod
     def from_env(cls) -> CourseOutlinePlanningBudget:
@@ -72,17 +74,12 @@ class CourseOutlinePlanningBudget:
                 maximum=8,
             ),
             batch_timeout_seconds=_env_int(
-                "COURSE_OUTLINE_BATCH_TIMEOUT_SECONDS",
-                60,
+                "COURSE_OUTLINE_INACTIVITY_TIMEOUT_SECONDS",
+                90,
                 minimum=30,
-                maximum=180,
-            ),
-            total_timeout_seconds=_env_int(
-                "COURSE_OUTLINE_TOTAL_TIMEOUT_SECONDS",
-                180,
-                minimum=60,
                 maximum=600,
             ),
+            total_timeout_seconds=0,
         )
 
     def choose_mode(self, shape_constraints: dict[str, Any]) -> str:
@@ -108,11 +105,19 @@ def outline_request_fingerprint(
     difficulty_profile: dict[str, Any],
 ) -> str:
     """Identify whether a persisted outline checkpoint still matches the request."""
+    # ``brief_id`` identifies one compilation event and is intentionally
+    # regenerated. It must not invalidate semantically identical outline
+    # checkpoints during resume.
+    stable_brief = {
+        key: value
+        for key, value in brief.items()
+        if key != "brief_id"
+    }
     return stable_hash(
         {
             "topic": topic,
             "audience": audience,
-            "brief": brief,
+            "brief": stable_brief,
             "difficulty_profile": difficulty_profile,
         },
         prefix="outline_request_",

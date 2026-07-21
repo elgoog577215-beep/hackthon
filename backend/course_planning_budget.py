@@ -38,15 +38,21 @@ def estimate_json_tokens(value: Any) -> int:
 @dataclass(frozen=True)
 class CoursePlanningBudget:
     mode: str = "auto"
-    compact_max_sections: int = 3
-    skeleton_max_sections: int = 6
-    batch_max_sections: int = 3
+    # A complete teaching plan is a verbose semantic artifact. Real provider
+    # runs show that two sections can already reach the 8k-token output edge,
+    # so only a one-section course uses the compact fast path and every detail
+    # request owns exactly one independently recoverable section.
+    compact_max_sections: int = 1
+    skeleton_max_sections: int = 2
+    batch_max_sections: int = 1
     batch_max_knowledge: int = 15
     max_input_tokens: int = 7000
     max_output_tokens: int = 8000
     concurrency: int = 4
-    batch_timeout_seconds: int = 60
-    total_timeout_seconds: int = 360
+    # Legacy field name retained for callers: this is a continuous stream
+    # inactivity window, not a wall-clock request deadline.
+    batch_timeout_seconds: int = 90
+    total_timeout_seconds: int = 0
 
     @classmethod
     def from_env(cls) -> CoursePlanningBudget:
@@ -56,15 +62,15 @@ class CoursePlanningBudget:
         return cls(
             mode=mode,
             compact_max_sections=_env_int(
-                "COURSE_TEACHING_PLAN_COMPACT_MAX_SECTIONS", 3,
+                "COURSE_TEACHING_PLAN_COMPACT_MAX_SECTIONS", 1,
                 minimum=1, maximum=8,
             ),
             skeleton_max_sections=_env_int(
-                "COURSE_TEACHING_PLAN_SKELETON_MAX_SECTIONS", 6,
+                "COURSE_TEACHING_PLAN_SKELETON_MAX_SECTIONS", 2,
                 minimum=2, maximum=8,
             ),
             batch_max_sections=_env_int(
-                "COURSE_TEACHING_PLAN_BATCH_MAX_SECTIONS", 3,
+                "COURSE_TEACHING_PLAN_BATCH_MAX_SECTIONS", 1,
                 minimum=1, maximum=6,
             ),
             batch_max_knowledge=_env_int(
@@ -84,13 +90,10 @@ class CoursePlanningBudget:
                 minimum=1, maximum=4,
             ),
             batch_timeout_seconds=_env_int(
-                "COURSE_TEACHING_PLAN_BATCH_TIMEOUT_SECONDS", 60,
-                minimum=30, maximum=180,
+                "COURSE_TEACHING_PLAN_INACTIVITY_TIMEOUT_SECONDS", 90,
+                minimum=30, maximum=600,
             ),
-            total_timeout_seconds=_env_int(
-                "COURSE_TEACHING_PLAN_TOTAL_TIMEOUT_SECONDS", 360,
-                minimum=120, maximum=600,
-            ),
+            total_timeout_seconds=0,
         )
 
     def choose_mode(
@@ -101,7 +104,7 @@ class CoursePlanningBudget:
     ) -> str:
         if self.mode != "auto":
             return self.mode
-        estimated_output_tokens = len(sections) * 2600
+        estimated_output_tokens = len(sections) * 4500
         if (
             len(sections) <= self.compact_max_sections
             and compact_input_tokens <= self.max_input_tokens

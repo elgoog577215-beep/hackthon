@@ -109,6 +109,23 @@ def test_unclosed_display_math_fence_blocks_release():
     assert report["passed"] is False
 
 
+def test_stream_finalizer_closes_display_math_before_node_completion():
+    cleaned = fix_latex_content(_content("\n\n$$\nx^2 + y^2"))
+    report = evaluate_node_content(cleaned, _node())
+
+    assert cleaned.rstrip().endswith("$$")
+    assert not any(
+        item["code"] == "unclosed_math_fence"
+        for item in report["issues"]
+    )
+
+
+def test_stream_finalizer_does_not_count_dollars_inside_code_fence():
+    content = _content("\n\n```python\nprice = '$$'\n```\n")
+
+    assert fix_latex_content(content).rstrip().endswith("```")
+
+
 def test_duplicate_node_heading_is_rejected_before_it_becomes_an_empty_intro_block():
     report = evaluate_node_content(
         "## 二叉搜索树\n\n## 本节任务\n\n请分析树高。\n\n## 检查与反馈\n\n检查退化条件。",

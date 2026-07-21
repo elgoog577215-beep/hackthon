@@ -42,6 +42,8 @@ class CourseGenerationBudget:
     outline_max_output_tokens: int = 4096
     content_max_output_tokens: int = 8192
     provider_max_attempts: int = 2
+    # Legacy field name: structured calls now interpret this as continuous
+    # stream inactivity, never total wall-clock duration.
     call_timeout_seconds: int = 90
     content_inactivity_timeout_seconds: int = 90
     content_concurrency: int = 4
@@ -81,10 +83,10 @@ class CourseGenerationBudget:
                 maximum=2,
             ),
             call_timeout_seconds=_env_int(
-                "COURSE_GENERATION_CALL_TIMEOUT_SECONDS",
+                "COURSE_GENERATION_INACTIVITY_TIMEOUT_SECONDS",
                 90,
                 minimum=30,
-                maximum=180,
+                maximum=600,
             ),
             content_inactivity_timeout_seconds=_env_int(
                 "COURSE_CONTENT_INACTIVITY_TIMEOUT_SECONDS",

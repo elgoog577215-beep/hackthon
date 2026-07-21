@@ -20,7 +20,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -33,6 +33,11 @@ from openai import (
     InternalServerError,
     PermissionDeniedError,
     RateLimitError,
+)
+
+from ai_capacity import (
+    ModelCapacityCoolingDown,
+    get_provider_capacity_controller,
 )
 
 # 添加项目根目录到系统路径以导入共享配置
@@ -419,6 +424,27 @@ class AIBase:
     def _cooldown_model(self, model_id: str, error: Exception) -> None:
         """Backward-compatible spelling for callers using the older helper."""
         self._cool_down_model(model_id, error)
+
+    @staticmethod
+    def _capacity_failure_kind(error: Exception) -> str:
+        message = str(error).lower()
+        if any(marker in message for marker in (
+            "insufficient_quota",
+            "insufficient balance",
+            "exceeded today's quota",
+            "exceeded your current quota",
+            "额度",
+        )):
+            return "quota_exhausted"
+        if AIBase._error_status_code(error) == 429 or any(
+            marker in message
+            for marker in ("limit_burst_rate", "rate limit", "速率限制")
+        ):
+            return "rate_limited"
+        return "transient"
+
+    def provider_capacity_snapshot(self) -> dict:
+        return get_provider_capacity_controller(self.api_base).snapshot()
 
     @staticmethod
     def _error_status_code(error: Exception) -> Optional[int]:
@@ -924,6 +950,7 @@ class AIBase:
         raise_on_failure: bool = False,
         json_mode: bool = False,
         model_role: str | None = None,
+        on_stream_activity: Callable[[], None] | None = None,
     ) -> Optional[str]:
         """
         通用 LLM 调用函数。
@@ -981,6 +1008,7 @@ class AIBase:
                 attempts += 1
                 try:
                     extra_body = self._thinking_extra_body(enable_thinking)
+                    capacity = get_provider_capacity_controller(self.api_base)
 
                     request_options = {
                         "model": model_id,
@@ -996,40 +1024,50 @@ class AIBase:
                         request_options["response_format"] = {
                             "type": "json_object"
                         }
+                    lease = await capacity.acquire(
+                        model_id,
+                        on_wait_activity=on_stream_activity,
+                    )
                     try:
-                        await self._wait_for_request_slot()
-                        response = await self.client.chat.completions.create(
-                            **request_options
-                        )
-                    except Exception as format_error:
-                        if not (
-                            json_mode
-                            and self._error_status_code(format_error) == 400
-                        ):
-                            raise
-                        request_options.pop("response_format", None)
-                        await self._wait_for_request_slot()
-                        response = await self.client.chat.completions.create(
-                            **request_options
-                        )
+                        try:
+                            await self._wait_for_request_slot()
+                            response = await self.client.chat.completions.create(
+                                **request_options
+                            )
+                        except Exception as format_error:
+                            if not (
+                                json_mode
+                                and self._error_status_code(format_error) == 400
+                            ):
+                                raise
+                            request_options.pop("response_format", None)
+                            await self._wait_for_request_slot()
+                            response = await self.client.chat.completions.create(
+                                **request_options
+                            )
 
-                    # 聚合流式响应
-                    full_content = ""
-                    reasoning_chars = 0
-                    truncated = False
-                    async for chunk in response:
-                        if chunk.choices:
-                            # 思考内容不属于课程产物，只记录长度用于调试。
-                            if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                                reasoning = chunk.choices[0].delta.reasoning_content
-                                if reasoning:
-                                    reasoning_chars += len(reasoning)
+                        # 聚合流式响应；内容和推理分片都表示调用仍活跃。
+                        full_content = ""
+                        reasoning_chars = 0
+                        truncated = False
+                        async for chunk in response:
+                            if chunk.choices:
+                                if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+                                    reasoning = chunk.choices[0].delta.reasoning_content
+                                    if reasoning:
+                                        reasoning_chars += len(reasoning)
+                                        if on_stream_activity:
+                                            on_stream_activity()
 
-                            delta = chunk.choices[0].delta
-                            if delta.content:
-                                full_content += delta.content
-                            if getattr(chunk.choices[0], "finish_reason", None) == "length":
-                                truncated = True
+                                delta = chunk.choices[0].delta
+                                if delta.content:
+                                    full_content += delta.content
+                                    if on_stream_activity:
+                                        on_stream_activity()
+                                if getattr(chunk.choices[0], "finish_reason", None) == "length":
+                                    truncated = True
+                    finally:
+                        await lease.release()
 
                     if truncated:
                         logger.warning(
@@ -1058,6 +1096,10 @@ class AIBase:
                         if attempt < retry_count - 1:
                             await asyncio.sleep(1)
                             continue
+                        await capacity.report_failure(
+                            model_id,
+                            failure_kind="transient",
+                        )
                         self._cool_down_model(model_id, empty_error)
                         break
 
@@ -1066,6 +1108,7 @@ class AIBase:
                         model_id,
                         model_role,
                     )
+                    await capacity.report_success(model_id)
                     logger.debug(
                         "AI reasoning received (Model: %s, chars=%d)",
                         model_id,
@@ -1077,12 +1120,20 @@ class AIBase:
                 except Exception as e:
                     last_error = e
                     logger.error(f"AI API Call Error (Model: {model_id}, Attempt {attempt+1}/{retry_count}): {e}")
+                    if isinstance(e, ModelCapacityCoolingDown):
+                        break
                     if self._is_authentication_error(e):
                         self._block_provider("authentication_failed")
                         if raise_on_failure:
                             raise AIProviderUnavailable("authentication_failed") from e
                         return None
                     if self._should_try_next_model(e):
+                        capacity = get_provider_capacity_controller(self.api_base)
+                        await capacity.report_failure(
+                            model_id,
+                            failure_kind=self._capacity_failure_kind(e),
+                            cooldown_seconds=self._model_failure_cooldown_seconds(e),
+                        )
                         self._cool_down_model(model_id, e)
                         break
                     if attempt < retry_count - 1:
@@ -1106,6 +1157,7 @@ class AIBase:
         max_input_tokens: int | None = None,
         max_input_chars: int | None = None,
         max_attempts: int | None = None,
+        on_stream_activity: Callable[[], None] | None = None,
     ):
         """
         流式 LLM 调用 - 生成器函数
@@ -1146,35 +1198,43 @@ class AIBase:
             yielded = False
             try:
                 extra_body = self._thinking_extra_body(enable_thinking)
-
-                await self._wait_for_request_slot()
-                response = await self.client.chat.completions.create(
-                    model=model_id,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    stream=True,
-                    max_tokens=max_tokens or self.max_tokens,
-                    extra_body=extra_body
+                capacity = get_provider_capacity_controller(self.api_base)
+                lease = await capacity.acquire(
+                    model_id,
+                    on_wait_activity=on_stream_activity,
                 )
+                try:
+                    await self._wait_for_request_slot()
+                    response = await self.client.chat.completions.create(
+                        model=model_id,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": prompt}
+                        ],
+                        stream=True,
+                        max_tokens=max_tokens or self.max_tokens,
+                        extra_body=extra_body
+                    )
 
-                truncated = False
-                async for chunk in response:
-                    if chunk.choices:
-                        # 处理推理内容（用于日志/调试）
-                        if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                            reasoning = chunk.choices[0].delta.reasoning_content
-                            if reasoning:
-                                # 可以记录思考过程或暂时忽略
-                                pass
+                    truncated = False
+                    async for chunk in response:
+                        if chunk.choices:
+                            if hasattr(chunk.choices[0].delta, 'reasoning_content'):
+                                reasoning = chunk.choices[0].delta.reasoning_content
+                                if reasoning:
+                                    if on_stream_activity:
+                                        on_stream_activity()
 
-                        delta = chunk.choices[0].delta
-                        if delta.content:
-                            yielded = True
-                            yield delta.content
-                        if getattr(chunk.choices[0], "finish_reason", None) == "length":
-                            truncated = True
+                            delta = chunk.choices[0].delta
+                            if delta.content:
+                                yielded = True
+                                if on_stream_activity:
+                                    on_stream_activity()
+                                yield delta.content
+                            if getattr(chunk.choices[0], "finish_reason", None) == "length":
+                                truncated = True
+                finally:
+                    await lease.release()
                 if truncated:
                     raise AIResponseTruncated(
                         "模型流式输出达到硬上限："
@@ -1182,16 +1242,26 @@ class AIBase:
                     )
                 if yielded:
                     self._remember_model(use_fast_model, model_id)
+                    await capacity.report_success(model_id)
                     return
                 last_error = AIProviderRequestError(f"Model {model_id} returned an empty stream")
             except Exception as e:
                 logger.error(f"Stream Error (Model: {model_id}): {e}")
+                if isinstance(e, ModelCapacityCoolingDown):
+                    last_error = e
+                    continue
                 if self._is_authentication_error(e):
                     self._block_provider("authentication_failed")
                     raise AIProviderUnavailable("authentication_failed") from e
                 last_error = e
                 should_try_next = self._should_try_next_model(e)
                 if should_try_next:
+                    capacity = get_provider_capacity_controller(self.api_base)
+                    await capacity.report_failure(
+                        model_id,
+                        failure_kind=self._capacity_failure_kind(e),
+                        cooldown_seconds=self._model_failure_cooldown_seconds(e),
+                    )
                     self._cool_down_model(model_id, e)
                 if yielded or not should_try_next:
                     if isinstance(e, AIProviderRequestError):

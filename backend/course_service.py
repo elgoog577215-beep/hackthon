@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import logging
 import os
@@ -510,11 +511,8 @@ class CourseService(AIBase):
             "outline_batch_max_sections": (
                 self._outline_budget.batch_max_sections
             ),
-            "outline_batch_timeout_seconds": (
+            "outline_inactivity_timeout_seconds": (
                 self._outline_budget.batch_timeout_seconds
-            ),
-            "outline_total_timeout_seconds": (
-                self._outline_budget.total_timeout_seconds
             ),
             "outline_concurrency": self._planning_concurrency,
             "teaching_plan_max_input_tokens": (
@@ -526,11 +524,8 @@ class CourseService(AIBase):
             "teaching_plan_concurrency": (
                 self._teaching_plan_budget.concurrency
             ),
-            "teaching_plan_call_timeout_seconds": (
+            "teaching_plan_inactivity_timeout_seconds": (
                 self._teaching_plan_budget.batch_timeout_seconds
-            ),
-            "teaching_plan_total_timeout_seconds": (
-                self._teaching_plan_budget.total_timeout_seconds
             ),
         }
 
@@ -1015,7 +1010,7 @@ class CourseService(AIBase):
                     "provider_max_attempts": (
                         self._generation_budget.provider_max_attempts
                     ),
-                    "call_timeout_seconds": (
+                    "inactivity_timeout_seconds": (
                         self._generation_budget.call_timeout_seconds
                     ),
                     "model_call_count": outline_model_call_count,
@@ -1079,65 +1074,13 @@ class CourseService(AIBase):
             "revision_id": knowledge_scope_contract.get("revision_id"),
         }
         await self._notify_checkpoint(on_checkpoint, course_data)
-        try:
-            plan = await asyncio.wait_for(
-                self._prepare_course_teaching_plan(
-                    course_data=course_data,
-                    plan=plan,
-                    artifacts=artifacts,
-                    on_phase=on_phase,
-                    on_checkpoint=on_checkpoint,
-                ),
-                timeout=(
-                    self._teaching_plan_budget.total_timeout_seconds
-                ),
-            )
-        except asyncio.TimeoutError:
-            teaching_stage = course_data.setdefault(
-                "generation_stage_artifacts", {}
-            ).setdefault("course_teaching_plan", {})
-            teaching_stage.update({
-                "status": "degrading",
-                "timed_out": True,
-                "total_timeout_seconds": (
-                    self._teaching_plan_budget.total_timeout_seconds
-                ),
-            })
-            course_data["generation_status"] = "course_teaching_plan_degrading"
-            await self._notify_checkpoint(on_checkpoint, course_data)
-            logger.warning(
-                "Course teaching plan timed out after %ss; compiling the "
-                "remaining plan locally",
-                self._teaching_plan_budget.total_timeout_seconds,
-                exc_info=True,
-            )
-            fallback_sections = [
-                section
-                for chapter in plan.get("chapters") or []
-                if isinstance(chapter, dict)
-                for section in chapter.get("sections") or []
-                if isinstance(section, dict)
-            ]
-            plan = await self._compile_fallback_course_teaching_plan(
-                course_data=course_data,
-                plan=plan,
-                sections=fallback_sections,
-                outline_revision_id=str(
-                    (course_data.get("course_knowledge_scope_contract") or {})
-                    .get("revision_id")
-                    or ""
-                ),
-                on_checkpoint=on_checkpoint,
-                reason="teaching_plan_total_timeout",
-                existing_skeleton=(
-                    course_data.get("course_teaching_plan_skeleton")
-                    if isinstance(
-                        course_data.get("course_teaching_plan_skeleton"),
-                        dict,
-                    )
-                    else None
-                ),
-            )
+        plan = await self._prepare_course_teaching_plan(
+            course_data=course_data,
+            plan=plan,
+            artifacts=artifacts,
+            on_phase=on_phase,
+            on_checkpoint=on_checkpoint,
+        )
         plan = normalize_course_plan_contract(plan)
         full_plan_report = validate_course_plan_constraints(
             plan,
@@ -1367,6 +1310,7 @@ class CourseService(AIBase):
         on_phase: Callable[..., Awaitable[None] | None] | None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
         force_batched: bool = False,
+        semantic_retry_count: int = 0,
     ) -> dict[str, Any]:
         """Build one official plan through a compact or 1-N-1 path."""
         sections: list[dict[str, Any]] = []
@@ -1417,12 +1361,10 @@ class CourseService(AIBase):
             "provider_max_attempts": (
                 self._generation_budget.provider_max_attempts
             ),
-            "call_timeout_seconds": (
+            "inactivity_timeout_seconds": (
                 self._teaching_plan_budget.batch_timeout_seconds
             ),
-            "total_timeout_seconds": (
-                self._teaching_plan_budget.total_timeout_seconds
-            ),
+            "completion_policy": "all_units_settled",
             "max_concurrency": self._teaching_plan_budget.concurrency,
         }
 
@@ -1440,7 +1382,11 @@ class CourseService(AIBase):
             sections=sections,
             expected_outline_revision_id=outline_revision_id,
         )
-        if existing_report.get("passed"):
+        if (
+            existing_report.get("passed")
+            and teaching_stage.get("semantic_status") != "retry_required"
+            and not teaching_stage.get("degraded")
+        ):
             official_plan = promote_course_teaching_plan_v3(
                 existing_plan,
                 outline_revision_id=outline_revision_id,
@@ -1457,6 +1403,7 @@ class CourseService(AIBase):
             planned_course = apply_course_teaching_plan(plan, official_plan)
             teaching_stage.update({
                 "status": "completed",
+                "semantic_status": "ai_complete",
                 "schema_version": official_plan.get("schema_version"),
                 "revision_id": official_plan.get("revision_id"),
                 "source_outline_revision_id": outline_revision_id,
@@ -1522,6 +1469,9 @@ class CourseService(AIBase):
 
         strategy = "adaptive_skeleton_batches"
         started_at = time.monotonic()
+        previous_duration_ms = int(
+            teaching_stage.get("duration_ms") or 0
+        )
         counter = {
             "calls": int(teaching_stage.get("model_call_count") or 0),
             "prompt_chars": int(teaching_stage.get("prompt_chars") or 0),
@@ -1535,9 +1485,12 @@ class CourseService(AIBase):
         prompt_detail_levels: list[str] = list(
             teaching_stage.get("prompt_detail_levels") or []
         )
-        fallback_units: list[dict[str, Any]] = list(
+        previous_fallback_units = list(
             teaching_stage.get("fallback_units") or []
         )
+        # A retry starts with a clean degradation ledger. Successfully frozen
+        # model batches are reused below; local semantic fallbacks are retried.
+        fallback_units: list[dict[str, Any]] = []
         counter_lock = asyncio.Lock()
 
         async def request_model(
@@ -1968,6 +1921,11 @@ class CourseService(AIBase):
             isinstance(raw_skeleton, dict)
             and raw_skeleton.get("source_outline_revision_id") == outline_revision_id
             and skeleton_report.get("passed")
+            and not any(
+                str(item.get("unit") or "").startswith("skeleton_chunk_")
+                for item in previous_fallback_units
+                if isinstance(item, dict)
+            )
         )
         if not skeleton_is_current:
             (
@@ -2158,6 +2116,7 @@ class CourseService(AIBase):
             if (
                 isinstance(stored, dict)
                 and stored.get("status") == "completed"
+                and stored.get("generation_source") == "model"
                 and stored.get("skeleton_revision_id") == skeleton.get("revision_id")
                 and list(stored.get("section_ids") or []) == list(spec.get("section_ids") or [])
                 and candidate_report.get("passed")
@@ -2542,7 +2501,9 @@ class CourseService(AIBase):
             sections=sections,
             expected_outline_revision_id=outline_revision_id,
         )
-        duration_ms = int((time.monotonic() - started_at) * 1000)
+        duration_ms = previous_duration_ms + int(
+            (time.monotonic() - started_at) * 1000
+        )
         if not report.get("passed"):
             teaching_stage.update({
                 "status": "failed",
@@ -2562,8 +2523,13 @@ class CourseService(AIBase):
             )
 
         planned_course = apply_course_teaching_plan(plan, course_teaching_plan)
+        semantic_status = (
+            "retry_required" if fallback_units else "ai_complete"
+        )
         teaching_stage.update({
-            "status": "completed",
+            "status": (
+                "retry_required" if fallback_units else "completed"
+            ),
             "schema_version": course_teaching_plan.get("schema_version"),
             "revision_id": course_teaching_plan.get("revision_id"),
             "source_outline_revision_id": outline_revision_id,
@@ -2579,6 +2545,24 @@ class CourseService(AIBase):
             ),
             "fallback_units": deepcopy(fallback_units),
             "degraded": bool(fallback_units),
+            "semantic_status": semantic_status,
+            "semantic_retry_count": semantic_retry_count,
+            "ai_section_count": (
+                0
+                if any(
+                    str(item.get("unit") or "").startswith("skeleton_chunk_")
+                    for item in fallback_units
+                )
+                else sum(
+                    len(spec.get("section_ids") or [])
+                    for spec in batch_specs
+                    if (
+                        stored_batches.get(str(spec.get("batch_id") or ""), {})
+                        .get("generation_source") == "model"
+                    )
+                )
+            ),
+            "provider_capacity": self.provider_capacity_snapshot(),
             "final_payload_split_count": sum(
                 bool(spec.get("split_from_final_payload"))
                 for spec in batch_specs
@@ -2621,6 +2605,42 @@ class CourseService(AIBase):
                 artifacts,
             )
         await self._notify_checkpoint(on_checkpoint, course_data)
+        if fallback_units:
+            if semantic_retry_count < 1:
+                teaching_stage["semantic_retry_count"] = (
+                    semantic_retry_count + 1
+                )
+                await self._notify_phase(
+                    on_phase,
+                    "course_teaching_plan_retry",
+                    47,
+                    "正在从检查点自动重试未通过的教案单元",
+                    phase_progress=0,
+                    phase_detail={
+                        "artifact_type": "course_teaching_plan",
+                        "retry_units": [
+                            str(item.get("unit") or "")
+                            for item in fallback_units
+                        ],
+                        "preserved_ai_sections": int(
+                            teaching_stage.get("ai_section_count") or 0
+                        ),
+                    },
+                )
+                await self._notify_checkpoint(on_checkpoint, course_data)
+                return await self._prepare_course_teaching_plan(
+                    course_data=course_data,
+                    plan=plan,
+                    artifacts=artifacts,
+                    on_phase=on_phase,
+                    on_checkpoint=on_checkpoint,
+                    force_batched=True,
+                    semantic_retry_count=semantic_retry_count + 1,
+                )
+            raise AIProviderRequestError(
+                "全课教案仍有非 AI 语义单元，已保留成功批次并停止在正文之前；"
+                "请从检查点重试剩余教案单元"
+            )
         await self._notify_phase(
             on_phase,
             "course_teaching_plan",
@@ -2824,7 +2844,9 @@ class CourseService(AIBase):
             course_teaching_plan,
         )
         teaching_stage.update({
-            "status": "completed",
+            "status": "retry_required",
+            "semantic_status": "retry_required",
+            "degraded": True,
             "schema_version": course_teaching_plan.get("schema_version"),
             "revision_id": course_teaching_plan.get("revision_id"),
             "source_outline_revision_id": outline_revision_id,
@@ -2837,7 +2859,6 @@ class CourseService(AIBase):
                 if preserved_skeleton_sections or preserved_batch_count
                 else "deterministic_local_fallback"
             ),
-            "degraded": True,
             "fallback_reason": reason,
             "fallback_units": fallback_units,
             "batches": finalized_batches,
@@ -2913,12 +2934,10 @@ class CourseService(AIBase):
             "provider_max_attempts": (
                 self._generation_budget.provider_max_attempts
             ),
-            "call_timeout_seconds": (
+            "inactivity_timeout_seconds": (
                 self._teaching_plan_budget.batch_timeout_seconds
             ),
-            "total_timeout_seconds": (
-                self._teaching_plan_budget.total_timeout_seconds
-            ),
+            "completion_policy": "all_units_settled",
             "max_concurrency": 1,
         }
 
@@ -2936,7 +2955,11 @@ class CourseService(AIBase):
             sections=sections,
             expected_outline_revision_id=outline_revision_id,
         )
-        if report.get("passed"):
+        if (
+            report.get("passed")
+            and teaching_stage.get("semantic_status") != "retry_required"
+            and not teaching_stage.get("degraded")
+        ):
             existing_plan = promote_course_teaching_plan_v3(
                 existing_plan,
                 outline_revision_id=outline_revision_id,
@@ -2956,6 +2979,7 @@ class CourseService(AIBase):
             )
             teaching_stage.update({
                 "status": "completed",
+                "semantic_status": "ai_complete",
                 "schema_version": existing_plan.get("schema_version"),
                 "revision_id": existing_plan.get("revision_id"),
                 "source_outline_revision_id": outline_revision_id,
@@ -3319,6 +3343,7 @@ class CourseService(AIBase):
         )
         teaching_stage.update({
             "status": "completed",
+            "semantic_status": "ai_complete",
             "schema_version": course_teaching_plan.get(
                 "schema_version"
             ),
@@ -3334,6 +3359,7 @@ class CourseService(AIBase):
                 level != "full" for level in prompt_detail_levels
             ),
             "model_call_count": model_call_count,
+            "provider_capacity": self.provider_capacity_snapshot(),
             "strategy": "compact_single_call",
             "section_count": len(sections),
             "knowledge_point_count": (
@@ -3485,8 +3511,8 @@ class CourseService(AIBase):
         max_output_tokens: int | None = None,
         max_attempts: int | None = None,
     ) -> str:
-        """Run one bounded model unit and emit progress heartbeats."""
-        timeout_seconds = max(
+        """Run one model unit until it completes or stops producing chunks."""
+        inactivity_timeout_seconds = max(
             1.0,
             float(
                 stage_timeout_seconds
@@ -3494,7 +3520,15 @@ class CourseService(AIBase):
                 else self._generation_budget.call_timeout_seconds
             ),
         )
-        call = self._call_llm(
+        activity_event = asyncio.Event()
+        last_activity = time.monotonic()
+
+        def _mark_activity() -> None:
+            nonlocal last_activity
+            last_activity = time.monotonic()
+            activity_event.set()
+
+        call_task = asyncio.create_task(self._call_llm(
             user_prompt,
             system_prompt,
             retry_count=1,
@@ -3505,62 +3539,101 @@ class CourseService(AIBase):
             max_attempts=max_attempts,
             reject_truncated=True,
             raise_on_failure=True,
-        )
-        if not on_phase:
-            try:
-                return await asyncio.wait_for(call, timeout=timeout_seconds)
-            except asyncio.TimeoutError as exc:
-                raise CourseGenerationDeadlineExceeded(
-                    f"{phase} 阶段超过 {int(timeout_seconds)} 秒仍未返回，"
-                    "已停止当前最小生成单元，可从最近检查点继续"
-                ) from exc
+            json_mode=True,
+            on_stream_activity=_mark_activity,
+        ))
+        started_at = time.monotonic()
+        last_heartbeat = started_at
+        try:
+            while not call_task.done():
+                now = time.monotonic()
+                inactive_for = now - last_activity
+                remaining = max(
+                    0.01,
+                    inactivity_timeout_seconds - inactive_for,
+                )
+                wait_for = min(
+                    remaining,
+                    max(0.05, heartbeat_seconds),
+                )
+                activity_task = asyncio.create_task(activity_event.wait())
+                done, _pending = await asyncio.wait(
+                    {call_task, activity_task},
+                    timeout=wait_for,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if call_task in done:
+                    activity_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await activity_task
+                    break
+                if activity_task in done:
+                    activity_event.clear()
+                    continue
+                activity_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await activity_task
 
-        done = asyncio.Event()
+                now = time.monotonic()
+                inactive_for = now - last_activity
+                if inactive_for >= inactivity_timeout_seconds:
+                    call_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await call_task
+                    if on_phase:
+                        await self._notify_phase(
+                            on_phase,
+                            phase,
+                            base_progress,
+                            f"{heartbeat_message}长时间没有新输出，已保留最近检查点",
+                            phase_progress=100,
+                            phase_detail={
+                                **(phase_detail or {}),
+                                "timed_out": True,
+                                "timeout_policy": "stream_inactivity",
+                                "inactivity_timeout_seconds": (
+                                    inactivity_timeout_seconds
+                                ),
+                            },
+                        )
+                    raise CourseGenerationDeadlineExceeded(
+                        f"{phase} 阶段连续 {int(inactivity_timeout_seconds)} "
+                        "秒没有新内容，已停止当前最小生成单元，可从最近检查点继续"
+                    )
 
-        async def _heartbeat() -> None:
-            elapsed = 0
-            while True:
-                try:
-                    await asyncio.wait_for(done.wait(), timeout=heartbeat_seconds)
-                    return
-                except asyncio.TimeoutError:
-                    elapsed += int(heartbeat_seconds)
+                if on_phase and now - last_heartbeat >= heartbeat_seconds:
+                    last_heartbeat = now
                     await self._notify_phase(
                         on_phase,
                         phase,
                         base_progress,
-                        f"{heartbeat_message}（已等待约 {elapsed} 秒）",
+                        f"{heartbeat_message}（已等待约 {int(now - started_at)} 秒）",
                         phase_progress=100,
                         phase_detail={
                             **(phase_detail or {}),
                             "heartbeat": True,
-                            "elapsed_seconds": elapsed,
+                            "elapsed_seconds": int(now - started_at),
+                            "inactive_seconds": int(inactive_for),
+                            "timeout_policy": "stream_inactivity",
                         },
                     )
-
-        heartbeat_task = asyncio.create_task(_heartbeat())
-        try:
-            return await asyncio.wait_for(call, timeout=timeout_seconds)
-        except asyncio.TimeoutError as exc:
-            await self._notify_phase(
-                on_phase,
-                phase,
-                base_progress,
-                f"{heartbeat_message}超时，已保留最近检查点",
-                phase_progress=100,
-                phase_detail={
-                    **(phase_detail or {}),
-                    "timed_out": True,
-                    "timeout_seconds": timeout_seconds,
-                },
-            )
-            raise CourseGenerationDeadlineExceeded(
-                f"{phase} 阶段超过 {int(timeout_seconds)} 秒仍未返回，"
-                "已停止当前最小生成单元，可从最近检查点继续"
-            ) from exc
+            try:
+                return call_task.result()
+            except asyncio.TimeoutError as exc:
+                # Some provider adapters surface their own inactivity timeout
+                # as asyncio.TimeoutError; keep the same resumable contract.
+                raise CourseGenerationDeadlineExceeded(
+                    f"{phase} 阶段连续 {int(inactivity_timeout_seconds)} "
+                    "秒没有新内容，已停止当前最小生成单元，可从最近检查点继续"
+                ) from exc
+        except asyncio.CancelledError:
+            call_task.cancel()
+            raise
         finally:
-            done.set()
-            await heartbeat_task
+            if not call_task.done():
+                call_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await call_task
 
     @staticmethod
     async def _notify_phase(
@@ -3740,12 +3813,10 @@ class CourseService(AIBase):
             "compact_failure_reason": compact_failure_reason or None,
             "batch_max_sections": self._outline_budget.batch_max_sections,
             "max_concurrency": self._planning_concurrency,
-            "batch_timeout_seconds": (
+            "inactivity_timeout_seconds": (
                 self._outline_budget.batch_timeout_seconds
             ),
-            "total_timeout_seconds": (
-                self._outline_budget.total_timeout_seconds
-            ),
+            "completion_policy": "all_units_settled",
         })
 
         def add_fallback(
@@ -4473,23 +4544,11 @@ class CourseService(AIBase):
                 for spec in specs
             )
         ]
-        timed_out = False
         if chapter_tasks:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(
-                        *chapter_tasks,
-                        return_exceptions=False,
-                    ),
-                    timeout=self._outline_budget.total_timeout_seconds,
-                )
-            except asyncio.TimeoutError:
-                timed_out = True
-                logger.warning(
-                    "Course outline expansion reached %ss; compiling "
-                    "unfinished outline batches locally",
-                    self._outline_budget.total_timeout_seconds,
-                )
+            await asyncio.gather(
+                *chapter_tasks,
+                return_exceptions=False,
+            )
 
         for spec in batch_specs:
             batch_id = str(spec.get("batch_id") or "")
@@ -4521,9 +4580,7 @@ class CourseService(AIBase):
             add_fallback(
                 unit=batch_id,
                 reason=(
-                    "outline_total_timeout"
-                    if timed_out
-                    else "unfinished_batch"
+                    "unfinished_batch"
                 ),
                 section_ids=list(
                     spec.get("expected_node_ids") or []
@@ -4538,11 +4595,7 @@ class CourseService(AIBase):
                 "payload": deepcopy(batch),
                 "validation_report": deepcopy(report),
                 "generation_source": "deterministic_local_fallback",
-                "fallback_reason": (
-                    "outline_total_timeout"
-                    if timed_out
-                    else "unfinished_batch"
-                ),
+                "fallback_reason": "unfinished_batch",
                 "prompt_detail_level": "local",
             }
 
@@ -4559,7 +4612,7 @@ class CourseService(AIBase):
                 if fallback_units
                 else "completed"
             ),
-            "timed_out": timed_out,
+            "timed_out": False,
             "skeleton": deepcopy(skeleton),
             "skeleton_revision_id": skeleton.get("revision_id"),
             "batches": stored_batches,
@@ -4651,6 +4704,7 @@ class CourseService(AIBase):
         node: dict,
         config: NodeGenerationConfig,
         on_chunk: Callable[[str], Awaitable[None]],
+        on_activity: Callable[[], None] | None = None,
         course_data: dict[str, Any] | None = None,
         existing_draft: str = "",
     ) -> str:
@@ -4755,6 +4809,7 @@ class CourseService(AIBase):
                         max_attempts=(
                             self._generation_budget.provider_max_attempts
                         ),
+                        on_stream_activity=on_activity,
                     ):
                         normalized = chunk.strip()
                         if (

@@ -66,6 +66,28 @@ def test_frozen_reasoning_path_hint_contract_is_not_replaced():
     ] == ["冻结提示1", "冻结提示2", "冻结提示3"]
 
 
+def test_empty_contracts_are_compiled_and_objective_rubric_is_executable():
+    enriched = enrich_question_contract({
+        "question_type": "worked_solution",
+        "practice_level": "objective_practice",
+        "prompt": "根据给定条件计算条件概率，并核对结果。",
+        "learning_objective": "能够使用条件概率定义完成计算",
+        "input_contract": {},
+        "grading_policy": {},
+        "validation_policy": {},
+        "answer_spec": {
+            "criteria": ["条件概率数值正确"],
+            "expected_keywords": ["条件概率"],
+        },
+    })
+
+    assert enriched["input_contract"]["mode"] == "rich_text"
+    assert enriched["grading_policy"]["method"] == "rubric_ai"
+    assert enriched["validation_policy"]["mastery_eligible"] is False
+    criteria = " ".join(enriched["answer_spec"]["criteria"])
+    assert all(marker in criteria for marker in ("依据", "过程", "检查"))
+
+
 def test_generated_practice_contract_projects_to_private_single_choice_answer():
     projected = project_default_single_choice({
         "prompt": "根据矩阵计算结果并完成判断。",

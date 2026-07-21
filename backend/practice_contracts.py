@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import re
+from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
 from reasoning_paths import compile_reasoning_support
 from solution_presentation import present_solution_value
-
 
 DEFAULT_PRACTICE_BATCH_SIZE = 3
 DEFAULT_PRACTICE_QUESTION_TYPE = "single_choice"
@@ -195,11 +194,18 @@ def enrich_question_contract(
     objective = str(item.get("learning_objective") or item.get("prompt") or "当前学习目标")
     level = practice_level or str(item.get("practice_level") or "objective_practice")
     item["practice_level"] = level
-    item.setdefault("input_contract", {
-        "mode": INPUT_MODES.get(question_type, "rich_text"),
-        "required": True,
-        "supports_attachments": question_type in {"implementation_task", "source_argument", "scenario_deliverable"},
-    })
+    if not isinstance(item.get("input_contract"), dict) or not item.get(
+        "input_contract"
+    ):
+        item["input_contract"] = {
+            "mode": INPUT_MODES.get(question_type, "rich_text"),
+            "required": True,
+            "supports_attachments": question_type in {
+                "implementation_task",
+                "source_argument",
+                "scenario_deliverable",
+            },
+        }
     if not item.get("hint_contract"):
         support = _legacy_reasoning_support(
             item,
@@ -214,19 +220,47 @@ def enrich_question_contract(
             for value in answer_spec.get("criteria") or []
             if str(value).strip()
         ]
+    if level == "objective_practice":
+        criteria_text = " ".join(criteria)
+        focus = str(
+            next(iter(answer_spec.get("expected_keywords") or []), "")
+            or objective
+        ).strip()
+        required_checks = (
+            ("依据", f"依据：明确使用题面条件与“{focus}”相关知识作出判断。"),
+            ("过程", "过程：展示从已知条件到结论的关键判断、计算或论证步骤。"),
+            ("检查", "检查：核对结果满足题目限制，并完成边界、单位或反例复核。"),
+        )
+        criteria.extend(
+            sentence
+            for marker, sentence in required_checks
+            if marker not in criteria_text
+        )
+        answer_spec = deepcopy(answer_spec)
+        answer_spec["criteria"] = criteria
+        item["answer_spec"] = answer_spec
     _complete_hint_policy(item)
     method = "deterministic" if answer_spec.get("correct_answer") is not None or answer_spec.get("correct_option_id") is not None else "rubric_ai"
-    item.setdefault("grading_policy", {
-        "method": method,
-        "pass_score": int(answer_spec.get("pass_score") or 70),
-        "confidence_threshold": 0.72,
-        "near_threshold_review_margin": 3,
-    })
-    item.setdefault("validation_policy", {
-        "mastery_eligible": level in {"mastery_check", "final_assessment"},
-        "max_support_level_for_mastery": 1,
-        "requires_unseen_validation_after_solution": True,
-    })
+    if not isinstance(item.get("grading_policy"), dict) or not item.get(
+        "grading_policy"
+    ):
+        item["grading_policy"] = {
+            "method": method,
+            "pass_score": int(answer_spec.get("pass_score") or 70),
+            "confidence_threshold": 0.72,
+            "near_threshold_review_margin": 3,
+        }
+    if not isinstance(item.get("validation_policy"), dict) or not item.get(
+        "validation_policy"
+    ):
+        item["validation_policy"] = {
+            "mastery_eligible": level in {
+                "mastery_check",
+                "final_assessment",
+            },
+            "max_support_level_for_mastery": 1,
+            "requires_unseen_validation_after_solution": True,
+        }
     contract_payload = {
         "practice_level": item["practice_level"],
         "input_contract": item["input_contract"],

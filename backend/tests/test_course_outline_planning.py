@@ -248,7 +248,7 @@ async def test_forty_eight_section_outline_uses_parallel_bounded_batches(
 
 
 @pytest.mark.asyncio
-async def test_outline_total_timeout_preserves_shape_and_only_falls_back_missing_batches(
+async def test_outline_waits_for_productive_batches_without_whole_course_deadline(
     monkeypatch,
 ):
     service = CourseService(planning_concurrency=2)
@@ -284,14 +284,10 @@ async def test_outline_total_timeout_preserves_shape_and_only_falls_back_missing
         for chapter in outline["chapters"]
     ) == 24
     stage = result["generation_stage_artifacts"]["outline"]
-    assert stage["timed_out"] is True
-    assert stage["status"] == "completed_with_warnings"
-    assert stage["needs_manual_review"] is True
-    assert len(stage["fallback_units"]) == 4
-    assert all(
-        item["reason"] == "outline_total_timeout"
-        for item in stage["fallback_units"]
-    )
+    assert stage["timed_out"] is False
+    assert stage["status"] == "completed"
+    assert stage["needs_manual_review"] is False
+    assert stage["fallback_units"] == []
 
 
 @pytest.mark.asyncio
@@ -351,6 +347,26 @@ async def test_outline_resume_only_requests_missing_chapter_batch(monkeypatch):
         resumed["generation_stage_artifacts"]["outline"]["status"]
         == "completed"
     )
+
+
+def test_outline_fingerprint_ignores_ephemeral_brief_id():
+    from course_outline_planning import outline_request_fingerprint
+
+    common = {
+        "topic": "并行系统",
+        "audience": "大学生",
+        "difficulty_profile": {"level": "intermediate"},
+    }
+    first = outline_request_fingerprint(
+        **common,
+        brief={"brief_id": "brief-first", "goal": "学会并行系统"},
+    )
+    second = outline_request_fingerprint(
+        **common,
+        brief={"brief_id": "brief-second", "goal": "学会并行系统"},
+    )
+
+    assert first == second
 
 
 def test_section_scope_payload_stays_linear_and_each_slice_is_bounded():

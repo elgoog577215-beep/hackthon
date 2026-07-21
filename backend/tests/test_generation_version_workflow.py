@@ -542,9 +542,41 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
         "_prepare_content_candidate",
         reject_confirmed_content_recompile,
     )
+    asset_blocker = {
+        "code": "questions:input_contract_missing",
+        "severity": "critical",
+        "message": "题目缺少正式练习契约",
+        "blocking": True,
+    }
+    manager._generation_workspace_repository.update_course(
+        job["job_id"],
+        lambda course: {
+            **course,
+            "asset_quality_report": {
+                **(course.get("asset_quality_report") or {}),
+                "passed": False,
+                "blocking_issues": [asset_blocker],
+            },
+        },
+    )
     release_review = manager.get_generation_review(job["course_id"])
     assert release_review["step"] == "release"
     assert release_review["artifact"]["source_chain"]["can_publish"] is True
+    assert asset_blocker in release_review["artifact"]["blocking_issues"]
+    assert release_review["artifact"]["asset_blocking_issues"] == [
+        asset_blocker
+    ]
+    manager._generation_workspace_repository.update_course(
+        job["job_id"],
+        lambda course: {
+            **course,
+            "asset_quality_report": {
+                **(course.get("asset_quality_report") or {}),
+                "passed": True,
+                "blocking_issues": [],
+            },
+        },
+    )
 
     await manager.confirm_generation_step(job["course_id"], "release")
     assert await manager._task_queue.get() == job["job_id"]

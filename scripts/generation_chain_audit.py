@@ -70,6 +70,9 @@ STAGE_METRIC_KEYS = {
     "completion_policy",
     "generation_dependency",
     "degraded",
+    "semantic_status",
+    "semantic_retry_count",
+    "ai_section_count",
     "needs_manual_review",
     "runtime_budget",
     "actual",
@@ -84,6 +87,17 @@ STAGE_METRIC_KEYS = {
     "knowledge_compilation_model_call_count",
     "graph_compilation_model_call_count",
     "total_prompt_tokens",
+    "provider_capacity",
+    "provider",
+    "start_interval_seconds",
+    "models",
+    "limit",
+    "in_flight",
+    "started",
+    "succeeded",
+    "rate_limited",
+    "quota_exhausted",
+    "transient_failures",
 }
 
 
@@ -472,7 +486,7 @@ def _collect_report(
             })
 
     return {
-        "schema_version": "course_generation_chain_audit_v1",
+        "schema_version": "course_generation_chain_audit_v2",
         "started_at": datetime.fromtimestamp(
             time.time() - elapsed_seconds, tz=timezone.utc
         ).isoformat(),
@@ -523,6 +537,11 @@ def _collect_report(
             "units": model_units,
             "provider_event_counts": dict(provider_event_counts),
             "provider_events": provider_handler.events,
+            "provider_capacity": (
+                service.provider_capacity_snapshot()
+                if service
+                else {}
+            ),
             "provider_attempt_observability_note": (
                 "非流式请求可从日志识别成功与失败尝试；流式成功只在业务单元层可见，"
                 "若先失败后切换模型，则失败尝试另见 provider_events。"

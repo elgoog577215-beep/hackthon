@@ -31,6 +31,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ai_base import AIProviderRequestError
 from content_blocks import set_node_content_blocks
 from course_coherence import (
     compile_course_coherence_contract,
@@ -215,6 +216,27 @@ def fix_latex_content(content: str) -> str:
         lambda match: f'${match.group(1).strip()}$',
         content,
     )
+
+    # A streamed model can stop after opening a display formula. Repair the
+    # smallest deterministic boundary here, before the node is marked complete,
+    # while leaving literal dollars inside fenced code untouched.
+    lines = content.splitlines()
+    in_code_fence = False
+    display_fence_count = 0
+    for index, line in enumerate(lines):
+        if re.match(r"^\s*```", line):
+            in_code_fence = not in_code_fence
+            continue
+        if in_code_fence:
+            continue
+        normalized = re.sub(r"(?<!\\)\${3,}", "$$", line)
+        lines[index] = normalized
+        display_fence_count += len(
+            re.findall(r"(?<!\\)\$\$", normalized)
+        )
+    content = "\n".join(lines)
+    if display_fence_count % 2:
+        content = f"{content.rstrip()}\n$$\n"
     
     return content
 
@@ -1424,13 +1446,41 @@ class TaskManager:
         elif step == "release":
             source_report = deepcopy(course_data.get("generation_source_chain_report") or {})
             quality_report = deepcopy(course_data.get("generation_quality_report") or {})
+            asset_quality = deepcopy(course_data.get("asset_quality_report") or {})
+            teaching_stage = deepcopy(
+                (course_data.get("generation_stage_artifacts") or {}).get(
+                    "course_teaching_plan"
+                )
+                or {}
+            )
+            release_blockers = [
+                *deepcopy(quality_report.get("blocking_issues") or []),
+                *deepcopy(asset_quality.get("blocking_issues") or []),
+            ]
+            if teaching_stage.get("semantic_status") == "retry_required":
+                release_blockers.append({
+                    "code": "teaching_plan:retry_required",
+                    "severity": "critical",
+                    "message": "全课教案仍有非 AI 语义单元，需要先重试失败批次",
+                    "blocking": True,
+                })
             artifact = {
                 "quality_status": quality_report.get("final_status"),
                 "publication_allowed": bool(quality_report.get("publication_allowed")),
-                "blocking_issues": deepcopy(quality_report.get("blocking_issues") or []),
+                "blocking_issues": release_blockers,
+                "asset_blocking_issues": deepcopy(
+                    asset_quality.get("blocking_issues") or []
+                ),
+                "teaching_semantic_status": teaching_stage.get(
+                    "semantic_status"
+                ),
                 "warnings": deepcopy(
                     quality_report.get("warnings")
                     or quality_report.get("quality_warnings")
+                    or []
+                ) + deepcopy(
+                    asset_quality.get("warnings")
+                    or asset_quality.get("quality_warnings")
                     or []
                 ),
                 "source_chain": source_report,
@@ -3010,6 +3060,10 @@ class TaskManager:
             ).get("course_teaching_plan") or {}
             teaching_ready = bool(
                 teaching_stage.get("status") == "completed"
+                and teaching_stage.get("semantic_status") in {
+                    None,
+                    "ai_complete",
+                }
                 and all(
                     node.get("module_plan")
                     for node in course_data.get("nodes") or []
@@ -3024,6 +3078,13 @@ class TaskManager:
                 # adapter. New jobs already contain the one-call plan.
                 course_data = self.course_service.compile_teaching_plan(course_data)
                 await self._save_task_course(task_id, course_data)
+                teaching_stage = (
+                    course_data.get("generation_stage_artifacts") or {}
+                ).get("course_teaching_plan") or {}
+            if teaching_stage.get("semantic_status") == "retry_required":
+                raise AIProviderRequestError(
+                    "教案语义仍需重试，正文生成不会提前启动"
+                )
             if not course_data.get("learning_asset_plan"):
                 course_data["learning_asset_plan"] = compile_learning_asset_plan(course_data)
                 if isinstance(course_data.get("course_blueprint"), dict):
@@ -3469,6 +3530,7 @@ class TaskManager:
                                 node=node,
                                 config=config,
                                 on_chunk=on_chunk,
+                                on_activity=activity_event.set,
                                 course_data=fresh_course,
                                 existing_draft=existing_draft,
                             ),
@@ -3481,6 +3543,10 @@ class TaskManager:
                         fixed_content = fix_latex_content(content)
                         generated_chars = len(fixed_content) if fixed_content else 0
 
+                        generation_quality = evaluate_node_content(
+                            fixed_content,
+                            node,
+                        )
                         generation_runtime = deepcopy(
                             node.get("generation_runtime") or {}
                         )
@@ -3498,8 +3564,11 @@ class TaskManager:
                             generated_chars,
                             grounding_annotations=node.get("grounding_annotations") or [],
                             grounding_invalid_refs=node.get("grounding_invalid_refs") or [],
-                            generation_quality=node.get("generation_quality"),
-                            needs_manual_review=bool(node.get("needs_manual_review")),
+                            generation_quality=generation_quality,
+                            needs_manual_review=(
+                                bool(node.get("needs_manual_review"))
+                                or not generation_quality.get("passed", False)
+                            ),
                             generation_runtime=generation_runtime,
                         )
 

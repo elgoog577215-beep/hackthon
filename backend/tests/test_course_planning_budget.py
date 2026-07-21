@@ -58,7 +58,7 @@ def test_planning_context_deduplicates_shared_contracts():
     assert len(compact) < len(naive) * 0.8
 
 
-def test_default_planning_waves_fit_inside_total_deadline():
+def test_default_planning_has_no_whole_course_wall_clock_deadline():
     budget = CoursePlanningBudget()
     section_count = 24
     skeleton_waves = math.ceil(
@@ -69,11 +69,10 @@ def test_default_planning_waves_fit_inside_total_deadline():
     )
     detail_waves = math.ceil(detail_batches / budget.concurrency)
 
-    assert (
-        (skeleton_waves + detail_waves)
-        * budget.batch_timeout_seconds
-        <= budget.total_timeout_seconds
-    )
+    assert skeleton_waves > 0
+    assert detail_waves > 0
+    assert budget.batch_timeout_seconds == 90
+    assert budget.total_timeout_seconds == 0
 
 
 def test_compact_plan_is_promoted_to_one_stable_v3_contract():
@@ -310,7 +309,7 @@ def test_twenty_one_section_plan_uses_scoped_bounded_batch_prompts():
             AIBase.estimate_request_tokens(user_prompt, system_prompt)
         )
 
-    assert len(batches) == 7
+    assert len(batches) == 21
     assert max(prompt_tokens) <= budget.max_input_tokens
     assert prompt_chars < 100_000
 
