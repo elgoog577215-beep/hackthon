@@ -138,6 +138,7 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
             generated = workspace.get("course_data") or {}
             stage_artifacts = generated.get("generation_stage_artifacts") or {}
             teaching_stage = stage_artifacts.get("course_teaching_plan") or {}
+            teaching_plan = generated.get("course_teaching_plan") or {}
             knowledge_base = generated.get("course_knowledge_base") or {}
             quality_report = generated.get(
                 "generation_quality_report"
@@ -186,8 +187,18 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                 failures.append(
                     f"两个人工确认门顺序异常：{confirmed_steps}"
                 )
-            if int(teaching_stage.get("model_call_count") or 0) not in {1, 2}:
-                failures.append("全课教案没有使用一次调用或一次定向纠正完成")
+            if teaching_plan.get("schema_version") != "course_teaching_plan_v3":
+                failures.append("正式全课教案不是 course_teaching_plan_v3")
+            if int(teaching_stage.get("model_call_count") or 0) < 1:
+                failures.append("全课教案没有记录真实模型调用")
+            if int(
+                teaching_stage.get("knowledge_compilation_model_call_count") or 0
+            ) != 0:
+                failures.append("知识库编译仍占用模型调用")
+            if int(
+                teaching_stage.get("graph_compilation_model_call_count") or 0
+            ) != 0:
+                failures.append("关系图编译仍占用模型调用")
             if "course_knowledge_index" in stage_artifacts:
                 failures.append("新链路仍生成了独立知识索引阶段")
             if "course_graph" in stage_artifacts:
