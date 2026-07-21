@@ -11,6 +11,7 @@ from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceNotFound, GenerationWorkspaceRepository
 from learning_asset_storage import LearningAssetRepository
 from material_storage import MaterialRepository
+from course_generation_budget import CourseGenerationDeadlineExceeded
 from task_manager import DEFAULT_MAX_CONCURRENCY, TaskManager, TaskStateConflict
 from websocket_service import WebSocketService
 
@@ -466,43 +467,79 @@ async def test_schedule_nodes_treats_prerequisites_as_learning_order_only():
 
 
 @pytest.mark.asyncio
-async def test_content_stage_deadline_preserves_partial_course_and_cancels_nodes():
+async def test_content_stage_has_no_fixed_wall_clock_deadline():
     manager = TaskManager(
         storage=None,
         course_service=None,
         ws_service=None,
         max_concurrency=2,
     )
-    manager._content_stage_timeout_seconds = 0.01
-    manager.save_tasks = lambda: None
-    manager.tasks["t1"] = {
-        "id": "t1",
-        "course_id": "c1",
-        "status": "running",
-        "phase": "content_generation",
-    }
+    completed = []
+
+    async def fake_process(_task_id, node):
+        await asyncio.sleep(0.03)
+        completed.append(node["node_id"])
+
+    manager._process_node = fake_process
+    manager._is_content_complete = lambda _node: False
+
+    settled = await manager._schedule_nodes(
+        "t1",
+        [
+            {"node_id": "L2-1-1", "node_level": 2},
+            {"node_id": "L2-1-2", "node_level": 2},
+        ],
+    )
+
+    assert settled is True
+    assert completed == ["L2-1-1", "L2-1-2"]
+    assert not hasattr(manager, "_content_stage_timeout_seconds")
+
+
+@pytest.mark.asyncio
+async def test_content_stream_keeps_running_while_chunks_continue():
+    manager = TaskManager(storage=None, course_service=None, ws_service=None)
+    manager._content_inactivity_timeout_seconds = 0.02
+    activity = asyncio.Event()
+
+    async def progressing_stream():
+        for _ in range(4):
+            await asyncio.sleep(0.012)
+            activity.set()
+        return "持续生成完成"
+
+    result = await manager._await_content_progress(
+        "持续输出小节",
+        progressing_stream(),
+        activity,
+    )
+
+    assert result == "持续生成完成"
+
+
+@pytest.mark.asyncio
+async def test_content_stream_stops_after_real_inactivity():
+    manager = TaskManager(storage=None, course_service=None, ws_service=None)
+    manager._content_inactivity_timeout_seconds = 0.01
+    activity = asyncio.Event()
     cancelled = asyncio.Event()
 
-    async def fake_process(_task_id, _node):
+    async def stalled_stream():
         try:
             await asyncio.sleep(1)
         except asyncio.CancelledError:
             cancelled.set()
             raise
+        return "不会到达"
 
-    manager._process_node = fake_process
-    manager._is_content_complete = lambda _node: False
+    with pytest.raises(CourseGenerationDeadlineExceeded, match="没有新内容"):
+        await manager._await_content_progress(
+            "卡住的小节",
+            stalled_stream(),
+            activity,
+        )
 
-    completed = await manager._schedule_nodes(
-        "t1",
-        [{"node_id": "L2-1-1", "node_level": 2}],
-    )
-
-    assert completed is False
     assert cancelled.is_set()
-    assert manager.tasks["t1"]["status"] == "paused"
-    assert manager.tasks["t1"]["phase"] == "content_partial"
-    assert "可以从未完成小节继续" in manager.tasks["t1"]["message"]
 
 
 @pytest.mark.asyncio

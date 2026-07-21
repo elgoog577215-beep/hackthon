@@ -25,7 +25,7 @@ import os
 import re
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -270,11 +270,8 @@ class TaskManager:
         self._content_max_retries = (
             self._generation_budget.content_max_retries
         )
-        self._content_node_timeout_seconds = (
-            self._generation_budget.content_node_timeout_seconds
-        )
-        self._content_stage_timeout_seconds = (
-            self._generation_budget.content_stage_timeout_seconds
+        self._content_inactivity_timeout_seconds = (
+            self._generation_budget.content_inactivity_timeout_seconds
         )
         self._material_repository = getattr(course_service, "_material_repository", material_repository)
         self._version_repository = version_repository or course_version_repository
@@ -850,6 +847,11 @@ class TaskManager:
             confirmed["course_outline_revision_id"] = frozen["blueprint_revision_id"]
             course_data = confirmed
             await self._save_task_course(task_id, course_data)
+            if reopened_revision and task.get("workspace_id"):
+                await asyncio.to_thread(
+                    self._generation_workspace_repository.clear_node_drafts,
+                    str(task["workspace_id"]),
+                )
             self._version_repository.delete_draft(course_id)
             revision = guided_artifact_revision(
                 "outline",
@@ -2563,35 +2565,13 @@ class TaskManager:
 
         if not tasks:
             return True
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True),
-                timeout=self._content_stage_timeout_seconds,
-            )
-            return True
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Course content stage reached %ss; unfinished nodes were "
-                "cancelled with drafts preserved",
-                self._content_stage_timeout_seconds,
-            )
-            async with self._lock:
-                task = self.tasks.get(task_id)
-                if task:
-                    task["status"] = "paused"
-                    task["phase"] = "content_partial"
-                    task["current_phase"] = "content_partial"
-                    task["message"] = (
-                        "正文阶段达到总时限，已保留完成内容与草稿；"
-                        "可以从未完成小节继续"
-                    )
-                    task["error"] = None
-                    task["current_nodes"] = []
-                    task["current_node_name"] = ""
-                    task["updated_at"] = datetime.now().isoformat()
-                    self.save_tasks()
-            await self._push_progress(task_id)
-            return False
+        # Course size determines how many bounded node units enter the queue;
+        # it must not create a fixed wall-clock failure for otherwise healthy
+        # streams.  Each node owns an inactivity watchdog, so this gather still
+        # settles when a provider stalls without prematurely pausing a large
+        # course that continues to make progress.
+        await asyncio.gather(*tasks, return_exceptions=True)
+        return True
 
     async def _prepare_subject_knowledge(
         self,
@@ -3078,12 +3058,10 @@ class TaskManager:
                 "pending_section_count": len(incomplete_l2),
                 "max_concurrency": self.max_concurrency,
                 "max_retries_per_node": self._content_max_retries,
-                "node_timeout_seconds": (
-                    self._content_node_timeout_seconds
+                "inactivity_timeout_seconds": (
+                    self._content_inactivity_timeout_seconds
                 ),
-                "stage_timeout_seconds": (
-                    self._content_stage_timeout_seconds
-                ),
+                "completion_policy": "all_nodes_settled",
                 "generation_dependency": "frozen_teaching_plan_only",
             })
             await self._save_task_course(task_id, course_data)
@@ -3111,18 +3089,16 @@ class TaskManager:
                     "graph_compilation": "deterministic_completed",
                     "max_concurrency": self.max_concurrency,
                     "max_retries_per_node": self._content_max_retries,
-                    "node_timeout_seconds": (
-                        self._content_node_timeout_seconds
+                    "inactivity_timeout_seconds": (
+                        self._content_inactivity_timeout_seconds
                     ),
-                    "stage_timeout_seconds": (
-                        self._content_stage_timeout_seconds
-                    ),
+                    "completion_policy": "all_nodes_settled",
                     "generation_dependency": (
                         "frozen_teaching_plan_only"
                     ),
                 },
             )
-            completed_within_deadline = await self._schedule_nodes(
+            await self._schedule_nodes(
                 task_id,
                 incomplete_l2,
             )
@@ -3162,11 +3138,10 @@ class TaskManager:
                 ),
                 "completed_section_count": completed_section_count,
                 "failed_section_count": failed_section_count,
-                "deadline_exceeded": completed_within_deadline is False,
                 "resume_available": (
-                    completed_within_deadline is False
-                    or completed_section_count < len(generated_nodes)
+                    completed_section_count < len(generated_nodes)
                 ),
+                "completion_policy": "all_nodes_settled",
                 "max_prompt_tokens": max(
                     (
                         int(item.get("estimated_input_tokens") or 0)
@@ -3180,12 +3155,6 @@ class TaskManager:
                 ),
             })
             await self._save_task_course(task_id, fresh_course)
-            if completed_within_deadline is False:
-                # Stay at a resumable checkpoint. A partial course must not
-                # advance into content confirmation or release preparation.
-                await self._push_progress(task_id)
-                return
-
         course_data = self._load_task_course(task_id) or course_data
         if guided and not guided_step_confirmed(guided_workflow, "content"):
             l2_nodes = [
@@ -3265,7 +3234,16 @@ class TaskManager:
                     break
             return fresh_data
 
-        return await self._mutate_task_course(task_id, update)
+        fresh_data = await self._mutate_task_course(task_id, update)
+        task = self.tasks.get(task_id) or {}
+        workspace_id = task.get("workspace_id")
+        if fresh_data is not None and workspace_id:
+            await asyncio.to_thread(
+                self._generation_workspace_repository.clear_node_draft,
+                str(workspace_id),
+                node_id,
+            )
+        return fresh_data
 
     async def _save_node_draft(
         self,
@@ -3277,6 +3255,18 @@ class TaskManager:
     ) -> None:
         if not content:
             return
+        task = self.tasks.get(task_id) or {}
+        workspace_id = task.get("workspace_id")
+        if workspace_id:
+            await asyncio.to_thread(
+                self._generation_workspace_repository.save_node_draft,
+                str(workspace_id),
+                node_id,
+                content,
+                generation_runtime=generation_runtime,
+            )
+            return
+
         def update(fresh_data: dict[str, Any]) -> dict[str, Any]:
             for item in fresh_data.get("nodes", []):
                 if item.get("node_id") == node_id:
@@ -3320,6 +3310,65 @@ class TaskManager:
             )
         await self.ws_service.push_node_completed(course_id, payload)
 
+    async def _await_content_progress(
+        self,
+        node_name: str,
+        generation: Awaitable[str],
+        activity_event: asyncio.Event,
+    ) -> str:
+        """Wait while a stream is productive; stop only after no progress."""
+        generation_task = asyncio.create_task(generation)
+        activity_waiter: asyncio.Task[bool] | None = None
+        try:
+            while True:
+                activity_waiter = asyncio.create_task(activity_event.wait())
+                done, _pending = await asyncio.wait(
+                    {generation_task, activity_waiter},
+                    timeout=self._content_inactivity_timeout_seconds,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if generation_task in done:
+                    activity_waiter.cancel()
+                    await asyncio.gather(
+                        activity_waiter,
+                        return_exceptions=True,
+                    )
+                    return generation_task.result()
+                if activity_waiter in done:
+                    activity_event.clear()
+                    activity_waiter = None
+                    continue
+
+                activity_waiter.cancel()
+                await asyncio.gather(
+                    activity_waiter,
+                    return_exceptions=True,
+                )
+                activity_waiter = None
+                generation_task.cancel()
+                await asyncio.gather(
+                    generation_task,
+                    return_exceptions=True,
+                )
+                raise CourseGenerationDeadlineExceeded(
+                    f"小节 {node_name} 连续 "
+                    f"{self._content_inactivity_timeout_seconds} 秒没有新内容；"
+                    "已停止当前小节并保留流式草稿"
+                )
+        finally:
+            if activity_waiter is not None and not activity_waiter.done():
+                activity_waiter.cancel()
+                await asyncio.gather(
+                    activity_waiter,
+                    return_exceptions=True,
+                )
+            if not generation_task.done():
+                generation_task.cancel()
+                await asyncio.gather(
+                    generation_task,
+                    return_exceptions=True,
+                )
+
     async def _process_node(self, task_id: str, node: dict) -> None:
         """处理单个节点，包含重试和错误恢复。
 
@@ -3346,10 +3395,6 @@ class TaskManager:
                 return
 
             start_time = datetime.now()
-            node_deadline = (
-                time.monotonic() + self._content_node_timeout_seconds
-            )
-
             async with self._lock:
                 node_info = {
                     "node_id": node_id,
@@ -3387,6 +3432,7 @@ class TaskManager:
                         streamed_chars = 0
                         last_progress_push = time.monotonic()
                         last_checkpoint = time.monotonic()
+                        activity_event = asyncio.Event()
                         fresh_course = self._load_task_course(task_id) or {}
                         fresh_node = next(
                             (item for item in fresh_course.get("nodes", []) if item.get("node_id") == node_id),
@@ -3396,6 +3442,7 @@ class TaskManager:
 
                         async def on_chunk(chunk: str) -> None:
                             nonlocal streamed_chars, last_progress_push, last_checkpoint
+                            activity_event.set()
                             accumulated.append(chunk)
                             streamed_chars += len(chunk)
                             if self.ws_service:
@@ -3415,30 +3462,18 @@ class TaskManager:
                                 )
                                 last_checkpoint = now
 
-                        remaining_seconds = node_deadline - time.monotonic()
-                        if remaining_seconds <= 0:
-                            raise CourseGenerationDeadlineExceeded(
-                                f"小节 {node_name} 超过 "
-                                f"{self._content_node_timeout_seconds} 秒硬时限"
-                            )
-                        try:
-                            content = await asyncio.wait_for(
-                                self.course_service.generate_node_content_stream(
-                                    course_id=course_id,
-                                    node=node,
-                                    config=config,
-                                    on_chunk=on_chunk,
-                                    course_data=fresh_course,
-                                    existing_draft=existing_draft,
-                                ),
-                                timeout=remaining_seconds,
-                            )
-                        except asyncio.TimeoutError as exc:
-                            raise CourseGenerationDeadlineExceeded(
-                                f"小节 {node_name} 超过 "
-                                f"{self._content_node_timeout_seconds} 秒硬时限；"
-                                "已保留流式草稿"
-                            ) from exc
+                        content = await self._await_content_progress(
+                            node_name,
+                            self.course_service.generate_node_content_stream(
+                                course_id=course_id,
+                                node=node,
+                                config=config,
+                                on_chunk=on_chunk,
+                                course_data=fresh_course,
+                                existing_draft=existing_draft,
+                            ),
+                            activity_event,
+                        )
 
                         end_time = datetime.now()
                         duration_ms = (end_time - start_time).total_seconds() * 1000
@@ -3446,6 +3481,15 @@ class TaskManager:
                         fixed_content = fix_latex_content(content)
                         generated_chars = len(fixed_content) if fixed_content else 0
 
+                        generation_runtime = deepcopy(
+                            node.get("generation_runtime") or {}
+                        )
+                        generation_runtime.update({
+                            "timeout_policy": "stream_inactivity",
+                            "inactivity_timeout_seconds": (
+                                self._content_inactivity_timeout_seconds
+                            ),
+                        })
                         fresh_data = await self._save_generated_node_content(
                             task_id,
                             course_id,
@@ -3456,7 +3500,7 @@ class TaskManager:
                             grounding_invalid_refs=node.get("grounding_invalid_refs") or [],
                             generation_quality=node.get("generation_quality"),
                             needs_manual_review=bool(node.get("needs_manual_review")),
-                            generation_runtime=node.get("generation_runtime"),
+                            generation_runtime=generation_runtime,
                         )
 
                         self._add_log_entry(
@@ -3808,7 +3852,11 @@ class TaskManager:
         course_id = str(task["course_id"])
         workspace_id = task.get("workspace_id")
         if workspace_id:
-            self._generation_workspace_repository.save_course(str(workspace_id), course_data)
+            await asyncio.to_thread(
+                self._generation_workspace_repository.save_course,
+                str(workspace_id),
+                course_data,
+            )
             return
         candidate_id = task.get("candidate_id")
         if not candidate_id:
@@ -4676,7 +4724,11 @@ class TaskManager:
             return None
         workspace_id = task.get("workspace_id")
         if workspace_id:
-            return self._generation_workspace_repository.update_course(str(workspace_id), updater)
+            return await asyncio.to_thread(
+                self._generation_workspace_repository.update_course,
+                str(workspace_id),
+                updater,
+            )
         course_data = self._load_task_course(task_id)
         if not course_data:
             return None

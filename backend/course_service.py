@@ -409,6 +409,7 @@ class CourseService(AIBase):
             "course_generation_v11",
             "course_generation_v12",
             "course_generation_v13",
+            "course_generation_v14",
         }
         if checkpoint_ready:
             refreshed_brief = deepcopy(existing.get("course_generation_brief") or {})

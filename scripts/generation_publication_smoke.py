@@ -87,7 +87,7 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                     if not review:
                         raise RuntimeError("任务等待确认，但没有可读取的审阅产物")
                     step = str(review.get("step") or "")
-                    if step not in {"outline", "content", "release"}:
+                    if step not in {"outline", "release"}:
                         raise RuntimeError(f"烟测遇到非四步链路节点：{step or 'unknown'}")
                     if not review.get("can_confirm"):
                         artifact = review.get("artifact") or {}
@@ -182,9 +182,9 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                 failures.append("发布后的课程文档为空")
             if manager.get_generation_workspace_course(course_id) is not None:
                 failures.append("已发布工作区仍覆盖正式课程读取")
-            if confirmed_steps != ["outline", "content", "release"]:
+            if confirmed_steps != ["outline", "release"]:
                 failures.append(
-                    f"四步确认顺序异常：{confirmed_steps}"
+                    f"两个人工确认门顺序异常：{confirmed_steps}"
                 )
             if int(teaching_stage.get("model_call_count") or 0) not in {1, 2}:
                 failures.append("全课教案没有使用一次调用或一次定向纠正完成")

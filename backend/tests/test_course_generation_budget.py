@@ -79,9 +79,11 @@ def test_environment_cannot_disable_per_request_safety_fuses(
         "99",
     )
     monkeypatch.setenv(
-        "COURSE_CONTENT_STAGE_TIMEOUT_SECONDS",
+        "COURSE_CONTENT_INACTIVITY_TIMEOUT_SECONDS",
         "99999",
     )
+    monkeypatch.setenv("COURSE_CONTENT_NODE_TIMEOUT_SECONDS", "99999")
+    monkeypatch.setenv("COURSE_CONTENT_STAGE_TIMEOUT_SECONDS", "99999")
 
     budget = CourseGenerationBudget.from_env()
 
@@ -89,15 +91,18 @@ def test_environment_cannot_disable_per_request_safety_fuses(
     assert budget.max_input_chars == 24_000
     assert budget.max_input_tokens == 8000
     assert budget.provider_max_attempts == 2
-    assert budget.content_stage_timeout_seconds == 900
+    assert budget.content_inactivity_timeout_seconds == 240
+    assert "content_node_timeout_seconds" not in budget.to_dict()
+    assert "content_stage_timeout_seconds" not in budget.to_dict()
 
 
 def test_content_budget_is_a_resumable_window_not_a_course_size_cap():
     budget = CourseGenerationBudget()
 
     assert budget.content_concurrency == 4
-    assert budget.content_node_timeout_seconds == 75
-    assert budget.content_stage_timeout_seconds == 480
+    assert budget.content_inactivity_timeout_seconds == 90
+    assert not hasattr(budget, "content_node_timeout_seconds")
+    assert not hasattr(budget, "content_stage_timeout_seconds")
     assert "max_sections" not in budget.to_dict()
 
 

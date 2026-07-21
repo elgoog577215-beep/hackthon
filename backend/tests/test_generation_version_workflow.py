@@ -497,6 +497,19 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
     assert plan_stage["knowledge_compilation_model_call_count"] == 0
     assert plan_stage["graph_compilation_model_call_count"] == 0
 
+    manager._generation_workspace_repository.save_node_draft(
+        job["job_id"],
+        generated_course["nodes"][0]["node_id"],
+        "目录变更后不得恢复的旧草稿",
+    )
+    stale_sidecar = (
+        tmp_path
+        / "workspaces"
+        / ".node-drafts"
+        / job["job_id"]
+        / f"{generated_course['nodes'][0]['node_id']}.json"
+    )
+    assert stale_sidecar.exists()
     reopened = await manager.reopen_generation_step(job["course_id"], "outline")
     assert reopened["invalidated_steps"] == ["content", "release"]
     assert task["guided_workflow"]["review_step"] == "outline"
@@ -509,6 +522,7 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
     assert "course_knowledge_base" not in invalidated_course
     assert invalidated_course["nodes"][0].get("module_plan") is None
     assert invalidated_course["nodes"][0]["generation_status"] == "pending"
+    assert not stale_sidecar.exists()
 
     monkeypatch.setattr(
         manager,

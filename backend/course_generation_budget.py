@@ -43,8 +43,7 @@ class CourseGenerationBudget:
     content_max_output_tokens: int = 8192
     provider_max_attempts: int = 2
     call_timeout_seconds: int = 90
-    content_node_timeout_seconds: int = 75
-    content_stage_timeout_seconds: int = 480
+    content_inactivity_timeout_seconds: int = 90
     content_concurrency: int = 4
     content_max_retries: int = 1
 
@@ -87,17 +86,11 @@ class CourseGenerationBudget:
                 minimum=30,
                 maximum=180,
             ),
-            content_node_timeout_seconds=_env_int(
-                "COURSE_CONTENT_NODE_TIMEOUT_SECONDS",
-                75,
-                minimum=60,
+            content_inactivity_timeout_seconds=_env_int(
+                "COURSE_CONTENT_INACTIVITY_TIMEOUT_SECONDS",
+                90,
+                minimum=30,
                 maximum=240,
-            ),
-            content_stage_timeout_seconds=_env_int(
-                "COURSE_CONTENT_STAGE_TIMEOUT_SECONDS",
-                480,
-                minimum=120,
-                maximum=900,
             ),
             content_concurrency=_env_int(
                 "COURSE_CONTENT_CONCURRENCY",

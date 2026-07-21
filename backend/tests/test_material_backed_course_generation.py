@@ -455,7 +455,7 @@ def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
         }],
     )
 
-    assert artifacts["pipeline_version"] == "course_generation_v13"
+    assert artifacts["pipeline_version"] == "course_generation_v14"
     assert artifacts["course_generation_brief"]["course_shape_constraints"] == {}
     assert artifacts["material_cards"][0]["usage"] == "content_source"
     assert artifacts["material_cards"][0]["parse_status"] == "metadata_only"
@@ -656,8 +656,8 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
         }],
     )
 
-    assert data["generation_pipeline_version"] == "course_generation_v13"
-    assert data["generation_schema_version"] == "course_generation_v13"
+    assert data["generation_pipeline_version"] == "course_generation_v14"
+    assert data["generation_schema_version"] == "course_generation_v14"
     assert data["prompt_contract_version"] == "course_prompt_v22"
     assert len(calls) == 2
     assert not any("判断课程教学结构" in prompt for prompt in calls)
