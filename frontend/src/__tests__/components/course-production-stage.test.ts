@@ -63,7 +63,7 @@ describe('CourseProductionStage', () => {
     expect(wrapper.text()).toContain('课程需求与资料处理结果已保留')
     expect(wrapper.text()).toContain('AI 服务暂时无法完成身份校验')
     expect(wrapper.find('.production-progress').exists()).toBe(false)
-    expect(wrapper.find('.formation-outline__skeleton').exists()).toBe(true)
+    expect(wrapper.find('.outline-germination').exists()).toBe(true)
     expect(wrapper.text().match(/课程需求与资料处理结果已保留/g)).toHaveLength(1)
 
     await wrapper.get('.formation-recovery > button').trigger('click')
@@ -89,5 +89,74 @@ describe('CourseProductionStage', () => {
     expect(stages[0]!.attributes('data-status')).toBe('completed')
     expect(stages[1]!.attributes('data-status')).toBe('error')
     expect(stages[1]!.attributes('aria-label')).toContain('已中断')
+  })
+
+  it('把真实目录检查点投影为可展开的生长树', async () => {
+    const task: Task = {
+      ...interruptedTask,
+      status: 'running',
+      error: undefined,
+      progress: 33,
+      currentPhase: 'outline_generation',
+      phaseDetail: {
+        artifact_type: 'course_outline_growth',
+        outline_growth: {
+          schema_version: 'course_outline_growth_v1',
+          state: 'growing',
+          active_chapter_number: 2,
+          completed_batches: 1,
+          total_batches: 3,
+          completed_sections: 2,
+          total_sections: 6,
+          chapters: [
+            {
+              chapter_number: 1,
+              title: '建立坐标',
+              learning_focus: '看见概念之间的关系',
+              section_count: 2,
+              completed_section_count: 2,
+              status: 'completed',
+              sections: [
+                { node_id: 'L2-1-1', section_number: '1.1', title: '从问题出发', learning_objective: '能识别真正问题' },
+                { node_id: 'L2-1-2', section_number: '1.2', title: '建立核心概念', learning_objective: '能说明概念边界' },
+              ],
+            },
+            {
+              chapter_number: 2,
+              title: '展开方法',
+              learning_focus: '把概念转成可执行方法',
+              section_count: 2,
+              completed_section_count: 0,
+              status: 'growing',
+              sections: [],
+            },
+            {
+              chapter_number: 3,
+              title: '完成迁移',
+              learning_focus: '在新情境中独立应用',
+              section_count: 2,
+              completed_section_count: 0,
+              status: 'waiting',
+              sections: [],
+            },
+          ],
+        },
+      },
+    }
+    const wrapper = mount(CourseProductionStage, {
+      props: { task, courseName: '知识生长课' },
+    })
+
+    expect(wrapper.findAll('.growth-chapter')).toHaveLength(3)
+    expect(wrapper.text()).toContain('2/6 个小节')
+    expect(wrapper.text()).toContain('建立坐标')
+    expect(wrapper.text()).toContain('这一节正在形成')
+    expect(wrapper.get('.growth-chapter[data-state="growing"] .growth-chapter__head').attributes('aria-expanded')).toBe('true')
+
+    const firstChapter = wrapper.get('.growth-chapter[data-state="completed"] .growth-chapter__head')
+    expect(firstChapter.attributes('aria-expanded')).toBe('false')
+    await firstChapter.trigger('click')
+    expect(firstChapter.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.text()).toContain('从问题出发')
   })
 })

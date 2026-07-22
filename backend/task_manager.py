@@ -4342,13 +4342,41 @@ class TaskManager:
             if not task:
                 return
             bounded_progress = max(0, min(int(progress), 100))
+            previous_phase = str(task.get("current_phase") or task.get("phase") or "")
+            previous_detail = task.get("phase_detail")
+            next_detail = deepcopy(phase_detail or {})
+            if (
+                phase == previous_phase == "outline_generation"
+                and isinstance(previous_detail, dict)
+                and isinstance(previous_detail.get("outline_growth"), dict)
+            ):
+                previous_growth = previous_detail["outline_growth"]
+                next_growth = next_detail.get("outline_growth")
+                if not isinstance(next_growth, dict):
+                    # Heartbeats carry only the active provider unit. Keep the
+                    # latest persisted tree so the visible outline never shrinks.
+                    next_detail["outline_growth"] = deepcopy(previous_growth)
+                elif int(next_growth.get("completed_sections") or 0) < int(
+                    previous_growth.get("completed_sections") or 0
+                ):
+                    # Parallel chapter calls can report an older snapshot after
+                    # another chapter saved. Preserve the monotonic tree while
+                    # still following the newly active batch.
+                    merged_growth = deepcopy(previous_growth)
+                    merged_growth["active_batch_id"] = next_growth.get(
+                        "active_batch_id"
+                    )
+                    merged_growth["active_chapter_number"] = next_growth.get(
+                        "active_chapter_number"
+                    )
+                    next_detail["outline_growth"] = merged_growth
             task["phase"] = phase
             task["current_phase"] = phase
             task["phase_progress"] = max(
                 0,
                 min(int(phase_progress if phase_progress is not None else bounded_progress), 100),
             )
-            task["phase_detail"] = phase_detail or {}
+            task["phase_detail"] = next_detail
             task["progress"] = max(int(task.get("progress") or 0), bounded_progress)
             task["message"] = message
             task["updated_at"] = datetime.now().isoformat()

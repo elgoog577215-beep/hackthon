@@ -3387,6 +3387,105 @@ class CourseService(AIBase):
             ):
                 results[batch_id] = candidate
 
+        def outline_growth_detail(
+            *,
+            active_spec: dict[str, Any] | None = None,
+            state: str = "growing",
+        ) -> dict[str, Any]:
+            """Project persisted outline checkpoints into a user-safe live tree."""
+            completed_sections = 0
+            chapters: list[dict[str, Any]] = []
+            for chapter in skeleton.get("chapters") or []:
+                if not isinstance(chapter, dict):
+                    continue
+                chapter_number = int(chapter.get("chapter_number") or 0)
+                sections: list[dict[str, Any]] = []
+                for spec in sorted(
+                    (
+                        item
+                        for item in batch_specs
+                        if int(item.get("chapter_number") or 0)
+                        == chapter_number
+                    ),
+                    key=lambda item: int(
+                        item.get("start_section_index") or 0
+                    ),
+                ):
+                    batch = results.get(str(spec.get("batch_id") or "")) or {}
+                    sections.extend(
+                        {
+                            "node_id": str(item.get("node_id") or ""),
+                            "section_number": str(
+                                item.get("section_number") or ""
+                            ),
+                            "title": str(item.get("title") or ""),
+                            "learning_objective": str(
+                                item.get("learning_objective") or ""
+                            ),
+                        }
+                        for item in batch.get("sections") or []
+                        if isinstance(item, dict)
+                    )
+                completed_sections += len(sections)
+                section_count = int(chapter.get("section_count") or 0)
+                is_active = bool(
+                    active_spec
+                    and int(active_spec.get("chapter_number") or 0)
+                    == chapter_number
+                )
+                chapters.append({
+                    "chapter_number": chapter_number,
+                    "title": str(chapter.get("title") or ""),
+                    "learning_focus": str(
+                        chapter.get("learning_focus") or ""
+                    ),
+                    "section_count": section_count,
+                    "completed_section_count": len(sections),
+                    "status": (
+                        "completed"
+                        if section_count > 0 and len(sections) >= section_count
+                        else "growing"
+                        if is_active
+                        else "waiting"
+                    ),
+                    "sections": sections,
+                })
+            return {
+                "schema_version": "course_outline_growth_v1",
+                "state": state,
+                "course_title": str(skeleton.get("course_title") or topic),
+                "positioning": str(skeleton.get("positioning") or ""),
+                "active_batch_id": str(
+                    (active_spec or {}).get("batch_id") or ""
+                ),
+                "active_chapter_number": int(
+                    (active_spec or {}).get("chapter_number") or 0
+                ),
+                "completed_batches": len(results),
+                "total_batches": len(batch_specs),
+                "completed_sections": completed_sections,
+                "total_sections": sum(
+                    int(item.get("section_count") or 0)
+                    for item in skeleton.get("chapters") or []
+                    if isinstance(item, dict)
+                ),
+                "chapters": chapters,
+            }
+
+        await self._notify_phase(
+            on_phase,
+            "outline_generation",
+            32,
+            "课程章节主干已形成，正在展开各章小节",
+            phase_progress=int(
+                100 * len(results) / max(1, len(batch_specs))
+            ),
+            phase_detail={
+                "artifact_type": "course_outline_growth",
+                "outline_growth": outline_growth_detail(state="skeleton_ready"),
+            },
+        )
+
         specs_by_chapter: dict[int, list[dict[str, Any]]] = {}
         for spec in batch_specs:
             specs_by_chapter.setdefault(
@@ -3525,6 +3624,9 @@ class CourseService(AIBase):
                         "batch_id": batch_id,
                         "completed_batches": len(results),
                         "total_batches": len(batch_specs),
+                        "outline_growth": outline_growth_detail(
+                            active_spec=spec,
+                        ),
                     },
                 )
                 try:
@@ -3722,6 +3824,27 @@ class CourseService(AIBase):
                     "batches": stored_batches,
                 })
                 await persist_stage()
+                growth_detail = outline_growth_detail(active_spec=spec)
+            await self._notify_phase(
+                on_phase,
+                "outline_generation",
+                33,
+                (
+                    f"第 {chapter_number} 章已形成 "
+                    f"{growth_detail['completed_sections']}/"
+                    f"{growth_detail['total_sections']} 个小节"
+                ),
+                phase_progress=int(
+                    100
+                    * int(growth_detail["completed_batches"])
+                    / max(1, int(growth_detail["total_batches"]))
+                ),
+                phase_detail={
+                    "artifact_type": "course_outline_growth",
+                    "batch_id": batch_id,
+                    "outline_growth": growth_detail,
+                },
+            )
             return batch
 
         async def generate_chapter(
@@ -3829,6 +3952,17 @@ class CourseService(AIBase):
             "needs_manual_review": bool(fallback_units),
         })
         await persist_stage()
+        await self._notify_phase(
+            on_phase,
+            "outline_generation",
+            34,
+            "课程目录已完整形成，正在准备确认",
+            phase_progress=100,
+            phase_detail={
+                "artifact_type": "course_outline_growth",
+                "outline_growth": outline_growth_detail(state="completed"),
+            },
+        )
         return plan, plan_report, stage
 
     def _convert_plan_to_nodes(self, plan: dict, course_id: str) -> list[dict]:

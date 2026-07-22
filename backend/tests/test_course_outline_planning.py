@@ -202,6 +202,18 @@ async def test_forty_eight_section_outline_uses_parallel_bounded_batches(
     active = 0
     max_active = 0
     payloads: list[tuple[str, str, dict]] = []
+    growth_snapshots: list[dict] = []
+
+    async def capture_phase(
+        _phase,
+        _progress,
+        _message,
+        _phase_progress,
+        phase_detail,
+    ):
+        growth = phase_detail.get("outline_growth") or {}
+        if growth:
+            growth_snapshots.append(deepcopy(growth))
 
     async def fake_call(prompt, system_prompt="", **kwargs):
         nonlocal active, max_active
@@ -225,6 +237,7 @@ async def test_forty_eight_section_outline_uses_parallel_bounded_batches(
         topic="并行系统",
         requirements="生成 8 章，共 48 个小节",
         stop_after_outline=True,
+        on_phase=capture_phase,
     )
 
     outline = result["course_outline"]
@@ -241,6 +254,16 @@ async def test_forty_eight_section_outline_uses_parallel_bounded_batches(
     assert max_active >= 2
     assert max_active <= 4
     assert len(payloads) == 9
+    assert growth_snapshots[0]["state"] == "skeleton_ready"
+    assert growth_snapshots[0]["total_sections"] == 48
+    assert growth_snapshots[-1]["state"] == "completed"
+    assert growth_snapshots[-1]["completed_sections"] == 48
+    assert growth_snapshots[-1]["chapters"][0]["sections"][0] == {
+        "node_id": "L2-1-1",
+        "section_number": "1.1",
+        "title": "任务 L2-1-1",
+        "learning_objective": "独立完成 L2-1-1",
+    }
     for user_prompt, system_prompt, kwargs in payloads:
         assert len(user_prompt) + len(system_prompt) <= 20_000
         assert AIBase.estimate_request_tokens(

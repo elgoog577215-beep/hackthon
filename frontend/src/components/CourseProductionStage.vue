@@ -26,33 +26,129 @@
           <small>{{ outlineMeta }}</small>
         </header>
 
-        <ol v-if="outlineNodes.length" class="formation-outline__nodes">
-          <li
-            v-for="(node, index) in outlineNodes"
-            :key="node.node_id"
-            :data-level="node.node_level"
-            :data-state="nodeState(node)"
-          >
-            <span class="formation-outline__index">{{ String(index + 1).padStart(2, '0') }}</span>
-            <span class="formation-outline__marker" aria-hidden="true"></span>
-            <div>
-              <strong>{{ node.node_name }}</strong>
-              <p v-if="node.learning_objective">{{ node.learning_objective }}</p>
-            </div>
-            <span class="formation-outline__status">
-              <LoaderCircle v-if="nodeState(node) === 'generating'" :size="12" />
-              <Check v-else-if="nodeState(node) === 'finalized'" :size="12" />
-              <TriangleAlert v-else-if="nodeState(node) === 'failed'" :size="12" />
-              {{ nodeStateLabel(node) }}
-            </span>
-          </li>
-        </ol>
+        <div v-if="stageKey === 'outline'" class="outline-growth-summary" aria-live="polite">
+          <div :data-complete="growthSkeletonReady">
+            <span><Sprout :size="14" /></span>
+            <p>
+              <small>{{ t('courseGeneration.production.growthTrunk', '课程主干') }}</small>
+              <strong>{{ growthSkeletonReady
+                ? t('courseGeneration.production.growthFormed', '已形成')
+                : t('courseGeneration.production.growthExtracting', '正在抽取') }}</strong>
+            </p>
+          </div>
+          <div :data-complete="growthCompletedSections > 0">
+            <span><GitBranch :size="14" /></span>
+            <p>
+              <small>{{ t('courseGeneration.production.growthBranches', '小节枝系') }}</small>
+              <strong>{{ growthCompletedSections }} / {{ growthTotalSections || '—' }}</strong>
+            </p>
+          </div>
+          <div :data-complete="growthCompletedBatches > 0">
+            <span><Database :size="14" /></span>
+            <p>
+              <small>{{ t('courseGeneration.production.growthCheckpoints', '已存检查点') }}</small>
+              <strong>{{ growthCompletedBatches }} / {{ growthTotalBatches || '—' }}</strong>
+            </p>
+          </div>
+        </div>
 
-        <div v-else class="formation-outline__skeleton" aria-hidden="true">
-          <div v-for="row in skeletonRows" :key="row" :data-level="row === 1 || row === 4 ? 1 : 2">
-            <span></span>
-            <i></i>
-            <p><b></b><small></small></p>
+        <div v-if="growthChapters.length" class="outline-growth-tree">
+          <article
+            v-for="(chapter, chapterIndex) in growthChapters"
+            :key="chapter.id"
+            class="growth-chapter"
+            :data-state="chapter.status"
+            :style="{ '--growth-order': chapterIndex }"
+          >
+            <button
+              type="button"
+              class="growth-chapter__head"
+              :aria-expanded="isChapterExpanded(chapter.id)"
+              :aria-controls="`growth-branch-${chapter.id}`"
+              @click="toggleChapter(chapter.id)"
+            >
+              <span class="growth-chapter__node" aria-hidden="true">
+                <Check v-if="chapter.status === 'completed'" :size="13" />
+                <Sprout v-else-if="chapter.status === 'growing'" :size="14" />
+                <span v-else>{{ String(chapter.chapterNumber).padStart(2, '0') }}</span>
+              </span>
+              <span class="growth-chapter__copy">
+                <small>{{ t('courseGeneration.production.growthChapter', '第 {number} 章').replace('{number}', String(chapter.chapterNumber)) }}</small>
+                <strong>{{ chapter.title }}</strong>
+                <span v-if="chapter.focus">{{ chapter.focus }}</span>
+              </span>
+              <span class="growth-chapter__progress">
+                <i><b :style="{ width: `${chapter.progress}%` }"></b></i>
+                <small>{{ chapter.completedCount }}/{{ chapter.sectionCount }}</small>
+              </span>
+              <ChevronDown :size="16" :class="{ 'is-open': isChapterExpanded(chapter.id) }" />
+            </button>
+
+            <ol
+              v-show="isChapterExpanded(chapter.id)"
+              :id="`growth-branch-${chapter.id}`"
+              class="growth-chapter__sections"
+            >
+              <li
+                v-for="(section, sectionIndex) in chapter.sections"
+                :key="section.id"
+                :data-state="section.status"
+                :style="{ '--section-order': sectionIndex }"
+              >
+                <span class="growth-section__joint" aria-hidden="true"></span>
+                <span class="growth-section__number">{{ section.number }}</span>
+                <div>
+                  <strong>{{ section.title }}</strong>
+                  <p v-if="section.objective">{{ section.objective }}</p>
+                </div>
+                <span class="growth-section__state">
+                  <LoaderCircle v-if="section.status === 'generating'" :size="12" />
+                  <TriangleAlert v-else-if="section.status === 'failed'" :size="12" />
+                  <Check v-else :size="12" />
+                  {{ growthSectionStateLabel(section.status) }}
+                </span>
+              </li>
+              <li
+                v-for="bud in chapter.visibleBuds"
+                :key="`${chapter.id}-bud-${bud}`"
+                class="growth-section growth-section--bud"
+                :data-state="chapter.status === 'growing' && bud === 1 ? 'growing' : 'waiting'"
+              >
+                <span class="growth-section__joint" aria-hidden="true"></span>
+                <span class="growth-section__number">{{ chapter.completedCount + bud }}</span>
+                <div>
+                  <strong>{{ chapter.status === 'growing' && bud === 1
+                    ? t('courseGeneration.production.growthSectionForming', '这一节正在形成')
+                    : t('courseGeneration.production.growthSectionWaiting', '等待沿主干展开') }}</strong>
+                  <p><span></span><span></span></p>
+                </div>
+                <span class="growth-section__state">
+                  <LoaderCircle v-if="chapter.status === 'growing' && bud === 1" :size="12" />
+                  <CircleDashed v-else :size="12" />
+                  {{ chapter.status === 'growing' && bud === 1
+                    ? t('courseGeneration.workspace.generating', '正在生成')
+                    : t('courseGeneration.workspace.waiting', '等待生成') }}
+                </span>
+              </li>
+              <li v-if="chapter.hiddenBudCount" class="growth-chapter__more">
+                {{ t('courseGeneration.production.growthMoreSections', '还有 {count} 个小节将在本章继续生长')
+                  .replace('{count}', String(chapter.hiddenBudCount)) }}
+              </li>
+            </ol>
+          </article>
+        </div>
+
+        <div v-else class="outline-germination" aria-live="polite">
+          <div class="outline-germination__signal" aria-hidden="true">
+            <i></i><i></i><i></i>
+            <span><Sprout :size="20" /></span>
+          </div>
+          <div>
+            <strong>{{ t('courseGeneration.production.growthStarting', '正在找到这门课的生长主线') }}</strong>
+            <p>{{ t('courseGeneration.production.growthStartingHelp', '先确定整体章节和每章职责，随后小节会在它们的最终位置逐个出现。') }}</p>
+          </div>
+          <div class="outline-germination__branches" aria-hidden="true">
+            <span v-for="row in skeletonRows" :key="row" :style="{ '--seed-order': row }"><i></i><b></b></span>
           </div>
         </div>
       </section>
@@ -93,8 +189,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Check, CirclePause, GitCompareArrows, LoaderCircle, RotateCw, TriangleAlert } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import {
+  Check, ChevronDown, CircleDashed, CirclePause, Database, GitBranch,
+  GitCompareArrows, LoaderCircle, RotateCw, Sprout, TriangleAlert,
+} from 'lucide-vue-next'
 import type { Node, Task } from '../stores/types'
 import { t } from '../shared/i18n'
 import {
@@ -123,6 +222,28 @@ const emit = defineEmits<{
 }>()
 
 const skeletonRows = [1, 2, 3, 4, 5, 6]
+type GrowthSectionStatus = 'saved' | 'generating' | 'finalized' | 'draft' | 'failed' | 'waiting'
+type GrowthChapter = {
+  id: string
+  chapterNumber: number
+  title: string
+  focus: string
+  sectionCount: number
+  completedCount: number
+  progress: number
+  status: 'completed' | 'growing' | 'waiting' | 'failed'
+  sections: Array<{
+    id: string
+    number: string
+    title: string
+    objective: string
+    status: GrowthSectionStatus
+  }>
+  visibleBuds: number
+  hiddenBudCount: number
+}
+
+const expandedChapterIds = ref<Set<string>>(new Set())
 const stageIndex = computed(() => courseProductionStageIndex(props.task))
 const stageKey = computed(() => courseProductionStageKey(props.task))
 const stageStatus = computed(() => courseProductionStageStatus(props.task, stageIndex.value))
@@ -140,6 +261,134 @@ const outlineNodes = computed(() => props.nodes
     const source = props.nodes
     return source.findIndex(node => node.node_id === left.node_id) - source.findIndex(node => node.node_id === right.node_id)
   }))
+
+const outlineGrowth = computed<Record<string, any> | null>(() => {
+  const value = props.task?.phaseDetail?.outline_growth
+  return value && typeof value === 'object' ? value as Record<string, any> : null
+})
+
+const growthChapters = computed<GrowthChapter[]>(() => {
+  const projected = Array.isArray(outlineGrowth.value?.chapters)
+    ? outlineGrowth.value!.chapters as Record<string, any>[]
+    : []
+  if (projected.length) {
+    const activeChapter = Number(outlineGrowth.value?.active_chapter_number || 0)
+    return projected.map((chapter, index) => {
+      const chapterNumber = Number(chapter.chapter_number || index + 1)
+      const sections = (Array.isArray(chapter.sections) ? chapter.sections : []).map((section: Record<string, any>, sectionIndex: number) => ({
+        id: String(section.node_id || `growth-${chapterNumber}-${sectionIndex + 1}`),
+        number: String(section.section_number || `${chapterNumber}.${sectionIndex + 1}`),
+        title: String(section.title || t('courseGeneration.production.growthSectionSaved', '已形成小节')),
+        objective: String(section.learning_objective || ''),
+        status: 'saved' as GrowthSectionStatus,
+      }))
+      const sectionCount = Math.max(sections.length, Number(chapter.section_count || 0))
+      const completedCount = Math.min(sectionCount, Math.max(sections.length, Number(chapter.completed_section_count || 0)))
+      const rawStatus = String(chapter.status || '')
+      const status: GrowthChapter['status'] = rawStatus === 'completed' || (sectionCount > 0 && completedCount >= sectionCount)
+        ? 'completed'
+        : rawStatus === 'growing' || activeChapter === chapterNumber
+          ? 'growing'
+          : rawStatus === 'failed'
+            ? 'failed'
+            : 'waiting'
+      const remaining = Math.max(0, sectionCount - sections.length)
+      return {
+        id: `chapter-${chapterNumber}`,
+        chapterNumber,
+        title: String(chapter.title || t('courseGeneration.production.growthChapter', '第 {number} 章').replace('{number}', String(chapterNumber))),
+        focus: String(chapter.learning_focus || ''),
+        sectionCount,
+        completedCount,
+        progress: sectionCount ? Math.round(100 * completedCount / sectionCount) : 0,
+        status,
+        sections,
+        visibleBuds: Math.min(3, remaining),
+        hiddenBudCount: Math.max(0, remaining - 3),
+      }
+    })
+  }
+
+  const chapterNodes = outlineNodes.value.filter(node => node.node_level === 1)
+  if (!chapterNodes.length) return []
+  return chapterNodes.map((chapter, index) => {
+    const sections = outlineNodes.value.filter(node => node.parent_node_id === chapter.node_id)
+    const projectedSections = sections.map((section, sectionIndex) => {
+      const state = nodeState(section) as GrowthSectionStatus
+      const numberMatch = section.node_name.match(/^([\d.]+)\s*/)
+      return {
+        id: section.node_id,
+        number: numberMatch?.[1] || `${index + 1}.${sectionIndex + 1}`,
+        title: section.node_name.replace(/^[\d.]+\s*/, ''),
+        objective: section.learning_objective || '',
+        status: state,
+      }
+    })
+    const completedCount = projectedSections.filter(section => ['saved', 'draft', 'finalized'].includes(section.status)).length
+    const hasFailed = projectedSections.some(section => section.status === 'failed')
+    const hasGrowing = projectedSections.some(section => section.status === 'generating')
+    return {
+      id: chapter.node_id,
+      chapterNumber: index + 1,
+      title: chapter.node_name.replace(/^第\s*\d+\s*章\s*/, ''),
+      focus: chapter.learning_objective || '',
+      sectionCount: sections.length,
+      completedCount,
+      progress: sections.length ? Math.round(100 * completedCount / sections.length) : 0,
+      status: hasFailed ? 'failed' : hasGrowing ? 'growing' : completedCount === sections.length && sections.length ? 'completed' : 'waiting',
+      sections: projectedSections,
+      visibleBuds: 0,
+      hiddenBudCount: 0,
+    }
+  })
+})
+
+const growthSkeletonReady = computed(() => growthChapters.value.length > 0)
+const growthCompletedSections = computed(() => {
+  if (outlineGrowth.value) return Number(outlineGrowth.value.completed_sections || 0)
+  return stageKey.value === 'outline'
+    ? outlineNodes.value.filter(node => node.node_level === 2).length
+    : growthChapters.value.reduce((sum, chapter) => sum + chapter.completedCount, 0)
+})
+const growthTotalSections = computed(() => {
+  if (outlineGrowth.value) return Number(outlineGrowth.value.total_sections || 0)
+  return growthChapters.value.reduce((sum, chapter) => sum + chapter.sectionCount, 0)
+})
+const growthCompletedBatches = computed(() => Number(
+  outlineGrowth.value?.completed_batches ?? props.task?.phaseDetail?.completed_batches ?? 0,
+))
+const growthTotalBatches = computed(() => Number(
+  outlineGrowth.value?.total_batches ?? props.task?.phaseDetail?.total_batches ?? 0,
+))
+
+watch(growthChapters, chapters => {
+  if (!chapters.length) return
+  const next = new Set(expandedChapterIds.value)
+  const active = chapters.find(chapter => chapter.status === 'growing')
+  if (active) next.add(active.id)
+  if (!next.size) next.add(chapters[0]!.id)
+  expandedChapterIds.value = next
+}, { immediate: true })
+
+function isChapterExpanded(chapterId: string) {
+  return expandedChapterIds.value.has(chapterId)
+}
+
+function toggleChapter(chapterId: string) {
+  const next = new Set(expandedChapterIds.value)
+  if (next.has(chapterId)) next.delete(chapterId)
+  else next.add(chapterId)
+  expandedChapterIds.value = next
+}
+
+function growthSectionStateLabel(state: GrowthSectionStatus) {
+  if (state === 'saved') return t('courseGeneration.production.growthSavedToOutline', '已写入目录')
+  if (state === 'generating') return t('courseGeneration.workspace.generating', '正在生成')
+  if (state === 'finalized') return t('courseGeneration.workspace.finalized', '已定稿')
+  if (state === 'failed') return t('courseGeneration.workspace.failed', '生成失败')
+  if (state === 'draft') return t('courseGeneration.workspace.draft', 'AI 草稿')
+  return t('courseGeneration.workspace.waiting', '等待生成')
+}
 
 const stageLabels = computed<Record<CourseProductionStageKey, string>>(() => ({
   requirements: t('courseGeneration.lifecycle.requirements', '需求'),
@@ -167,12 +416,20 @@ const descriptions = computed<Record<CourseProductionStageKey, string>>(() => ({
 }))
 const stageDescription = computed(() => descriptions.value[stageKey.value])
 const outlineTitle = computed(() => {
-  if (outlineNodes.value.length) {
+  if (growthChapters.value.length) {
+    if (stageKey.value === 'outline' && growthCompletedSections.value < growthTotalSections.value) {
+      return t('courseGeneration.production.outlineGrowing', '目录正在沿章节主干生长')
+    }
     return t('courseGeneration.production.outlineVisible', '目录已经进入课程工作区')
   }
   return t('courseGeneration.production.outlineForming', '目录会在最终位置逐步出现')
 })
 const outlineMeta = computed(() => {
+  if (growthTotalSections.value) {
+    return t('courseGeneration.production.growthNodeProgress', '{completed}/{total} 个小节')
+      .replace('{completed}', String(growthCompletedSections.value))
+      .replace('{total}', String(growthTotalSections.value))
+  }
   if (outlineNodes.value.length) {
     return t('courseGeneration.production.nodeCount', '{count} 个节点')
       .replace('{count}', String(outlineNodes.value.length))
@@ -188,15 +445,6 @@ function nodeState(node: Node) {
   if (status === 'completed' || node.content_state === 'finalized') return 'finalized'
   if (node.content_state === 'draft' || Boolean(node.node_content)) return 'draft'
   return 'waiting'
-}
-
-function nodeStateLabel(node: Node) {
-  const state = nodeState(node)
-  if (state === 'generating') return t('courseGeneration.workspace.generating', '正在生成')
-  if (state === 'finalized') return t('courseGeneration.workspace.finalized', '已定稿')
-  if (state === 'failed') return t('courseGeneration.workspace.failed', '生成失败')
-  if (state === 'draft') return t('courseGeneration.workspace.draft', 'AI 草稿')
-  return t('courseGeneration.workspace.waiting', '等待生成')
 }
 
 const savedItems = computed(() => {
@@ -319,6 +567,322 @@ const resumeLabel = computed(() => props.task?.status === 'paused'
   color:#697386;
   font:700 12px/1 ui-monospace,SFMono-Regular,monospace;
 }
+.outline-growth-summary {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:1px;
+  margin:16px 0 12px;
+  overflow:hidden;
+  border:1px solid #e2e7e3;
+  border-radius:12px;
+  background:#e2e7e3;
+}
+.outline-growth-summary > div {
+  min-width:0;
+  display:grid;
+  grid-template-columns:34px minmax(0,1fr);
+  align-items:center;
+  gap:9px;
+  padding:10px 12px;
+  background:rgba(250,252,250,.96);
+}
+.outline-growth-summary > div > span {
+  width:34px;
+  height:34px;
+  display:grid;
+  place-items:center;
+  border:1px solid #dfe6e1;
+  border-radius:50% 50% 46% 54%;
+  color:#7b847e;
+  background:#fff;
+  transition:color .3s ease,border-color .3s ease,background .3s ease;
+}
+.outline-growth-summary > div[data-complete="true"] > span {
+  border-color:#b7d9c8;
+  color:#137258;
+  background:#eef8f3;
+}
+.outline-growth-summary p { min-width:0; margin:0; }
+.outline-growth-summary small,
+.outline-growth-summary strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.outline-growth-summary small { color:#8a938d; font-size:10px; font-weight:750; letter-spacing:.04em; }
+.outline-growth-summary strong { margin-top:2px; color:#34453d; font-size:12px; line-height:1.35; }
+.outline-growth-tree {
+  position:relative;
+  display:grid;
+  gap:9px;
+  margin:0 0 18px;
+  padding:10px 12px 12px 25px;
+  overflow:hidden;
+  border:1px solid #e1e6e2;
+  border-radius:14px;
+  background:
+    radial-gradient(circle at 92% 0,rgba(101,112,206,.08),transparent 30%),
+    linear-gradient(180deg,#fbfcfa 0%,#f7faf8 100%);
+}
+.outline-growth-tree::before {
+  content:"";
+  position:absolute;
+  top:25px;
+  bottom:25px;
+  left:22px;
+  width:2px;
+  border-radius:999px;
+  background:linear-gradient(180deg,#a6c9b8,#bed1c6 70%,rgba(190,209,198,0));
+  transform-origin:top;
+  animation:growth-stem 1s cubic-bezier(.2,.78,.26,1) both;
+}
+.growth-chapter {
+  --chapter-color:#81968c;
+  position:relative;
+  animation:growth-arrive .5s cubic-bezier(.2,.8,.25,1) both;
+  animation-delay:calc(var(--growth-order) * 60ms);
+}
+.growth-chapter::before {
+  content:"";
+  position:absolute;
+  z-index:0;
+  top:24px;
+  left:-3px;
+  width:17px;
+  height:1px;
+  background:#b7c9c0;
+  transform-origin:left;
+  animation:growth-branch .45s ease-out both;
+  animation-delay:calc(120ms + var(--growth-order) * 60ms);
+}
+.growth-chapter[data-state="growing"] { --chapter-color:#5e62c4; }
+.growth-chapter[data-state="completed"] { --chapter-color:#168063; }
+.growth-chapter[data-state="failed"] { --chapter-color:#b65f20; }
+.growth-chapter__head {
+  position:relative;
+  z-index:1;
+  width:100%;
+  min-height:54px;
+  display:grid;
+  grid-template-columns:38px minmax(0,1fr) minmax(96px,150px) 20px;
+  align-items:center;
+  gap:10px;
+  padding:7px 10px 7px 7px;
+  border:1px solid #e1e6e3;
+  border-radius:11px;
+  color:inherit;
+  background:rgba(255,255,255,.92);
+  box-shadow:0 3px 10px rgba(40,58,48,.035);
+  text-align:left;
+  cursor:pointer;
+  transition:border-color .2s ease,box-shadow .2s ease,transform .2s ease;
+}
+.growth-chapter__head:hover {
+  border-color:#cbd8d0;
+  box-shadow:0 8px 20px rgba(40,58,48,.07);
+  transform:translateY(-1px);
+}
+.growth-chapter__head:focus-visible { outline:3px solid rgba(94,98,196,.18); outline-offset:2px; }
+.growth-chapter[data-state="growing"] .growth-chapter__head {
+  border-color:#cbcdf0;
+  background:linear-gradient(90deg,rgba(247,247,255,.97),rgba(255,255,255,.96));
+  box-shadow:0 8px 24px rgba(84,88,176,.09);
+}
+.growth-chapter__node {
+  position:relative;
+  width:34px;
+  height:34px;
+  display:grid;
+  place-items:center;
+  border:1px solid color-mix(in srgb,var(--chapter-color) 45%,#fff);
+  border-radius:50% 50% 44% 56%;
+  color:var(--chapter-color);
+  background:color-mix(in srgb,var(--chapter-color) 9%,#fff);
+  font:800 10px/1 ui-monospace,SFMono-Regular,monospace;
+}
+.growth-chapter[data-state="growing"] .growth-chapter__node::before,
+.growth-chapter[data-state="growing"] .growth-chapter__node::after {
+  content:"";
+  position:absolute;
+  inset:-1px;
+  border:1px solid rgba(94,98,196,.36);
+  border-radius:inherit;
+  animation:growth-ring 2s ease-out infinite;
+}
+.growth-chapter[data-state="growing"] .growth-chapter__node::after { animation-delay:1s; }
+.growth-chapter__copy { min-width:0; display:block; }
+.growth-chapter__copy small { display:block; color:var(--chapter-color); font-size:9px; font-weight:850; letter-spacing:.08em; }
+.growth-chapter__copy strong {
+  display:block;
+  margin-top:2px;
+  overflow:hidden;
+  color:#24332c;
+  font-size:14px;
+  line-height:1.35;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.growth-chapter__copy > span {
+  display:block;
+  margin-top:2px;
+  overflow:hidden;
+  color:#7a857f;
+  font-size:11px;
+  line-height:1.35;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.growth-chapter__progress { display:grid; grid-template-columns:minmax(45px,1fr) auto; align-items:center; gap:7px; }
+.growth-chapter__progress > i { height:4px; overflow:hidden; border-radius:999px; background:#edf0ee; }
+.growth-chapter__progress b {
+  display:block;
+  height:100%;
+  border-radius:inherit;
+  background:var(--chapter-color);
+  transition:width .5s cubic-bezier(.2,.78,.25,1);
+}
+.growth-chapter__progress small { color:#7c8781; font:750 10px/1 ui-monospace,SFMono-Regular,monospace; }
+.growth-chapter__head > svg { color:#9aa49f; transition:transform .25s ease,color .2s ease; }
+.growth-chapter__head > svg.is-open { color:var(--chapter-color); transform:rotate(180deg); }
+.growth-chapter__sections {
+  position:relative;
+  display:grid;
+  margin:0 0 0 42px;
+  padding:4px 0 2px 20px;
+  list-style:none;
+}
+.growth-chapter__sections::before {
+  content:"";
+  position:absolute;
+  top:0;
+  bottom:14px;
+  left:7px;
+  width:1px;
+  background:#cbd8d1;
+  transform-origin:top;
+  animation:growth-stem .45s ease-out both;
+}
+.growth-chapter__sections > li {
+  position:relative;
+  min-height:48px;
+  display:grid;
+  grid-template-columns:42px minmax(0,1fr) auto;
+  align-items:center;
+  gap:9px;
+  padding:6px 8px 6px 5px;
+  border-bottom:1px solid rgba(222,229,225,.75);
+  animation:growth-arrive .38s ease-out both;
+  animation-delay:calc(var(--section-order,0) * 45ms);
+}
+.growth-chapter__sections > li:last-child { border-bottom:0; }
+.growth-section__joint {
+  position:absolute;
+  top:50%;
+  left:-13px;
+  width:14px;
+  height:1px;
+  background:#cbd8d1;
+}
+.growth-section__joint::after {
+  content:"";
+  position:absolute;
+  top:-3px;
+  right:-1px;
+  width:7px;
+  height:7px;
+  border:1px solid #91ad9f;
+  border-radius:50%;
+  background:#f8faf8;
+}
+li[data-state="growing"] .growth-section__joint::after,
+li[data-state="generating"] .growth-section__joint::after {
+  border-color:#6d70ca;
+  background:#e8e9ff;
+  box-shadow:0 0 0 4px rgba(109,112,202,.1);
+  animation:growth-breathe 1.4s ease-in-out infinite;
+}
+li[data-state="failed"] .growth-section__joint::after { border-color:#bd6729; background:#fff0df; }
+.growth-section__number { color:#6f7d76; font:760 10px/1 ui-monospace,SFMono-Regular,monospace; }
+.growth-chapter__sections li > div { min-width:0; }
+.growth-chapter__sections li > div strong {
+  display:block;
+  overflow:hidden;
+  color:#35453d;
+  font-size:12px;
+  line-height:1.4;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.growth-chapter__sections li > div p {
+  margin:2px 0 0;
+  overflow:hidden;
+  color:#89928d;
+  font-size:10px;
+  line-height:1.45;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.growth-section__state { display:inline-flex; align-items:center; gap:5px; color:#73867d; font-size:10px; white-space:nowrap; }
+li[data-state="growing"] .growth-section__state,
+li[data-state="generating"] .growth-section__state { color:#575cb8; }
+li[data-state="failed"] .growth-section__state { color:#a9571d; }
+.growth-section__state svg.lucide-loader-circle { animation:formation-spin .9s linear infinite; }
+.growth-section--bud > div strong { color:#7c8781!important; font-weight:650; }
+.growth-section--bud > div p { display:flex; align-items:center; gap:5px; }
+.growth-section--bud > div p span {
+  width:42%;
+  height:5px;
+  border-radius:99px;
+  background:linear-gradient(90deg,#e9eeeb,#f8faf9,#e9eeeb);
+  background-size:200% 100%;
+  animation:formation-shimmer 1.8s linear infinite;
+}
+.growth-section--bud > div p span:last-child { width:24%; }
+.growth-chapter__more {
+  min-height:32px!important;
+  display:block!important;
+  padding:9px 8px!important;
+  color:#8b948f;
+  font-size:10px;
+}
+.outline-germination {
+  min-height:310px;
+  display:grid;
+  grid-template-columns:120px minmax(0,1fr) minmax(220px,.85fr);
+  align-items:center;
+  gap:24px;
+  margin:0 0 18px;
+  padding:26px clamp(20px,4vw,44px);
+  overflow:hidden;
+  border:1px solid #e1e6e2;
+  border-radius:14px;
+  background:
+    radial-gradient(circle at 12% 50%,rgba(40,135,100,.11),transparent 25%),
+    radial-gradient(circle at 88% 10%,rgba(94,98,196,.09),transparent 28%),
+    #fafcfa;
+}
+.outline-germination__signal { position:relative; width:112px; height:112px; display:grid; place-items:center; }
+.outline-germination__signal > i { position:absolute; inset:8px; border:1px solid rgba(35,128,94,.15); border-radius:47% 53% 50% 50%; animation:growth-orbit 7s linear infinite; }
+.outline-germination__signal > i:nth-child(2) { inset:20px 2px; animation-duration:9s; animation-direction:reverse; }
+.outline-germination__signal > i:nth-child(3) { inset:1px 24px; animation-duration:6s; }
+.outline-germination__signal > span {
+  position:relative;
+  z-index:1;
+  width:52px;
+  height:52px;
+  display:grid;
+  place-items:center;
+  border:1px solid #acd5c3;
+  border-radius:50% 48% 52% 45%;
+  color:#167b5e;
+  background:#eef8f3;
+  box-shadow:0 12px 30px rgba(31,110,81,.13);
+  animation:growth-breathe 1.8s ease-in-out infinite;
+}
+.outline-germination > div:nth-child(2) strong { color:#25382f; font-size:18px; line-height:1.35; }
+.outline-germination > div:nth-child(2) p { max-width:520px; margin:7px 0 0; color:#748078; font-size:12px; line-height:1.7; }
+.outline-germination__branches { display:grid; gap:12px; }
+.outline-germination__branches > span { display:grid; grid-template-columns:12px minmax(0,1fr); align-items:center; gap:8px; opacity:0; animation:growth-arrive .45s ease forwards; animation-delay:calc(var(--seed-order) * 100ms); }
+.outline-germination__branches i { width:8px; height:8px; border:1px solid #b6c8bf; border-radius:50%; }
+.outline-germination__branches b { height:8px; border-radius:99px; background:linear-gradient(90deg,#e6ece8,#f7f9f8,#e6ece8); background-size:200% 100%; animation:formation-shimmer 1.8s linear infinite; }
+.outline-germination__branches span:nth-child(2n) b { width:76%; }
+.outline-germination__branches span:nth-child(3n) b { width:88%; }
 .formation-outline__nodes {
   display:grid;
   margin:0;
@@ -561,6 +1125,12 @@ li[data-state="failed"] .formation-outline__status { color:#b54708; }
 }
 @keyframes formation-spin { to { transform:rotate(360deg); } }
 @keyframes formation-shimmer { to { background-position:-220% 0; } }
+@keyframes growth-stem { from { transform:scaleY(0); opacity:.2; } to { transform:scaleY(1); opacity:1; } }
+@keyframes growth-branch { from { transform:scaleX(0); opacity:.2; } to { transform:scaleX(1); opacity:1; } }
+@keyframes growth-arrive { from { opacity:0; transform:translateY(7px) scale(.99); } to { opacity:1; transform:none; } }
+@keyframes growth-ring { 0% { opacity:.7; transform:scale(.82); } 75%,100% { opacity:0; transform:scale(1.65); } }
+@keyframes growth-breathe { 50% { transform:translateY(-2px) scale(1.035); } }
+@keyframes growth-orbit { to { transform:rotate(360deg); } }
 @media (max-width:767px) {
   .course-production-stage { padding:10px 8px 18px; }
   .formation-sheet { border-radius:10px; }
@@ -569,6 +1139,24 @@ li[data-state="failed"] .formation-outline__status { color:#b54708; }
   .formation-sheet__header p { font-size:13px; }
   .formation-outline { padding:0 16px; }
   .formation-outline > header div { align-items:flex-start; flex-direction:column; gap:3px; }
+  .outline-growth-summary { grid-template-columns:1fr; gap:1px; margin-top:12px; }
+  .outline-growth-summary > div { min-height:49px; padding:7px 10px; }
+  .outline-growth-summary > div > span { width:31px; height:31px; }
+  .outline-growth-tree { padding:8px 8px 10px 18px; }
+  .outline-growth-tree::before { left:15px; }
+  .growth-chapter::before { left:-3px; width:10px; }
+  .growth-chapter__head { grid-template-columns:34px minmax(0,1fr) 18px; gap:8px; padding:7px; }
+  .growth-chapter__node { width:31px; height:31px; }
+  .growth-chapter__progress { grid-column:2; grid-row:2; width:min(150px,100%); margin-top:-4px; }
+  .growth-chapter__head > svg { grid-column:3; grid-row:1/3; }
+  .growth-chapter__copy > span { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .growth-chapter__sections { margin-left:29px; padding-left:15px; }
+  .growth-chapter__sections > li { grid-template-columns:36px minmax(0,1fr); gap:7px; padding:7px 3px; }
+  .growth-section__state { grid-column:2; justify-self:start; }
+  .growth-chapter__more { grid-column:1/-1!important; }
+  .outline-germination { min-height:380px; grid-template-columns:1fr; justify-items:center; gap:14px; padding:22px 18px; text-align:center; }
+  .outline-germination__signal { width:96px; height:96px; }
+  .outline-germination__branches { width:100%; }
   .formation-outline__nodes li { grid-template-columns:26px 13px minmax(0,1fr); gap:8px; padding:10px 0; }
   .formation-outline__status { grid-column:3; justify-self:start; padding:3px 0 0; }
   .formation-outline__skeleton > div { grid-template-columns:26px 13px minmax(0,1fr); gap:8px; padding:10px 0; }
@@ -580,6 +1168,17 @@ li[data-state="failed"] .formation-outline__status { color:#b54708; }
 @media (prefers-reduced-motion:reduce) {
   .formation-sheet svg,
   .formation-outline__skeleton b,
-  .formation-outline__skeleton small { animation:none!important; }
+  .formation-outline__skeleton small,
+  .outline-growth-tree::before,
+  .growth-chapter,
+  .growth-chapter::before,
+  .growth-chapter__sections::before,
+  .growth-chapter__sections > li,
+  .growth-chapter__node::before,
+  .growth-chapter__node::after,
+  .growth-section__joint::after,
+  .growth-section--bud span,
+  .outline-germination *,
+  .outline-germination__branches > span { animation:none!important; }
 }
 </style>
