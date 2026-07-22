@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_base import AIProviderRequestError
+from assessment_orchestrator import AssessmentGenerationOrchestrator
 from content_blocks import set_node_content_blocks
 from course_coherence import (
     compile_course_coherence_contract,
@@ -117,6 +118,7 @@ from question_bank import (
     QuestionBankRepository,
     question_bank_repository,
     reconcile_question_bank,
+    reconcile_scoped_question_bank,
 )
 from question_search import enrich_question_bank_with_web
 from representation_compiler import (
@@ -273,6 +275,7 @@ class TaskManager:
         workspace_repository: GenerationWorkspaceRepository | None = None,
         document_repository: CourseDocumentRepository | None = None,
         question_bank_repository_override: QuestionBankRepository | None = None,
+        assessment_orchestrator_override: AssessmentGenerationOrchestrator | None = None,
     ) -> None:
         self.storage = storage
         self.course_service = course_service
@@ -307,6 +310,9 @@ class TaskManager:
         self._learning_asset_repository = asset_repository or learning_asset_repository
         self._question_bank_repository = (
             question_bank_repository_override or question_bank_repository
+        )
+        self._assessment_orchestrator = (
+            assessment_orchestrator_override or AssessmentGenerationOrchestrator()
         )
         self._generation_workspace_repository = workspace_repository or generation_workspace_repository
         self._course_document_repository = document_repository or CourseDocumentRepository(storage)
@@ -1803,8 +1809,9 @@ class TaskManager:
             return {
                 **base,
                 "state": "quality_blocked",
+                "can_resume": True,
                 "reason_code": "quality_gate_failed",
-                "reason": "内容已经生成，但结构或引用检查未通过；重复运行不会绕过同一错误",
+                "reason": "正文和教案已经保留；继续后只修复未通过的练习并重新执行发布检查",
                 "checkpoint": checkpoint,
             }
         if status in {"paused", "failed", "completed_with_warnings"}:
@@ -2332,6 +2339,7 @@ class TaskManager:
             return {"status": "resumed", "task": self._task_view(task)}
 
         recovery = self.describe_task_recovery(task_id)
+        quality_repair = recovery.get("state") == "quality_blocked"
         if task.get("status") in {"pending", "running"}:
             return {"status": "already_active", "task": self._task_view(task)}
         if recovery.get("state") == "completed":
@@ -2346,9 +2354,15 @@ class TaskManager:
             if task.get("status") in {"pending", "running"}:
                 return {"status": "already_active", "task": self._task_view(task)}
             task["status"] = "pending"
-            task["phase"] = "resuming"
-            task["current_phase"] = "resuming"
-            task["message"] = "正在确认保存点并恢复任务"
+            task["phase"] = "practice_repair" if quality_repair else "resuming"
+            task["current_phase"] = task["phase"]
+            task["message"] = (
+                "正在保留课程正文并定位未通过的练习"
+                if quality_repair
+                else "正在确认保存点并恢复任务"
+            )
+            if quality_repair:
+                task["asset_repair_requested"] = True
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
 
@@ -2364,7 +2378,11 @@ class TaskManager:
             if workspace_id:
                 self._generation_workspace_repository.record_recovery(
                     workspace_id,
-                    reason="manual_resume",
+                    reason=(
+                        "asset_quality_repair"
+                        if quality_repair
+                        else "manual_resume"
+                    ),
                     automatic=False,
                 )
         except (CourseDocumentNotFound, CourseDocumentConflict) as exc:
@@ -2406,25 +2424,44 @@ class TaskManager:
             or recovery_checkpoint.get("draft_node_ids")
         )
         phase = (
+            "practice_repair"
+            if quality_repair
+            else
             "content_generation"
             if knowledge_ready or has_content_checkpoint
             else "course_teaching_plan"
             if has_outline
             else "requirement_analysis"
         )
-        progress_cap = 50 if knowledge_ready or has_content_checkpoint else 35 if has_outline else 0
+        progress_cap = (
+            94
+            if quality_repair
+            else 50
+            if knowledge_ready or has_content_checkpoint
+            else 35
+            if has_outline
+            else 0
+        )
         async with self._lock:
             task["status"] = "pending"
             task["phase"] = phase
             task["current_phase"] = phase
             task["progress"] = min(int(task.get("progress") or 0), progress_cap)
             task["phase_progress"] = 0
-            task["message"] = "已从保存点恢复，等待继续"
+            task["message"] = (
+                "已保留全部课程内容，等待定向修复练习"
+                if quality_repair
+                else "已从保存点恢复，等待继续"
+            )
             task["error"] = None
             task["current_nodes"] = []
             task["current_node_name"] = ""
             task["recovery_count"] = int(task.get("recovery_count") or 0) + 1
-            task["last_recovery_reason"] = "manual_resume"
+            task["last_recovery_reason"] = (
+                "asset_quality_repair"
+                if quality_repair
+                else "manual_resume"
+            )
             task["updated_at"] = datetime.now().isoformat()
             self._node_retries[task_id] = {}
             self.save_tasks()
@@ -4454,6 +4491,170 @@ class TaskManager:
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
 
+    @staticmethod
+    def _failed_practice_targets(
+        assets: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, list[str]]:
+        """Return only rejected learner-facing exercise slots by section."""
+        failed: dict[str, list[str]] = {}
+        for question in assets.get("questions") or []:
+            quality = question.get("quality_report") or {}
+            if (
+                question.get("quality_status") != "passed"
+                or quality.get("passed") is not True
+                or not question.get("practice_contract_revision_id")
+                or not question.get("input_contract")
+            ):
+                node_id = str(question.get("node_id") or "")
+                practice_level = str(question.get("practice_level") or "")
+                if node_id and practice_level:
+                    failed.setdefault(node_id, []).append(practice_level)
+        return {
+            node_id: list(dict.fromkeys(levels))
+            for node_id, levels in failed.items()
+        }
+
+    async def _repair_failed_practice_nodes(
+        self,
+        task_id: str,
+        asset_course: dict[str, Any],
+        question_bank_bundle: dict[str, Any],
+        asset_bundle: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """Use AI only for sections rejected by deterministic compilation.
+
+        Course content and already valid exercises stay immutable. This closes
+        the former gap where the generation pipeline required universal
+        exercises but never invoked the universal assessment orchestrator.
+        """
+        failed_targets = self._failed_practice_targets(
+            asset_bundle.get("assets") or {}
+        )
+        failed_node_ids = list(failed_targets)
+        if not failed_node_ids:
+            return question_bank_bundle, asset_bundle, {
+                "status": "not_needed",
+                "target_node_ids": [],
+                "target_node_count": 0,
+            }
+
+        self.tasks[task_id]["asset_repair_requested"] = True
+        self.save_tasks()
+        await self._update_phase(
+            task_id,
+            "practice_repair",
+            94,
+            f"正在定向修复 {len(failed_node_ids)} 个小节的练习，不重做课程正文",
+            phase_progress=70,
+            phase_detail={
+                "target_node_ids": failed_node_ids,
+                "target_node_count": len(failed_node_ids),
+                "repair_scope": "failed_practice_only",
+            },
+        )
+        completed_repair_nodes: list[str] = []
+
+        async def checkpoint_repaired_node(event: dict[str, Any]) -> None:
+            nonlocal question_bank_bundle
+            node_id = str(event.get("node_id") or "")
+            contracts = event.get("contracts") or {}
+            if not node_id or not event.get("passed") or not contracts:
+                return
+            partial_course = deepcopy(asset_course)
+            partial_course["_assessment_generated_contracts"] = {
+                node_id: deepcopy(contracts),
+            }
+            partial_compilation = compile_learning_assets(partial_course)
+            partial_question_bank = partial_compilation.pop(
+                "question_bank_bundle"
+            )
+            web_enrichment = deepcopy(
+                question_bank_bundle.get("web_enrichment") or {}
+            )
+            question_bank_bundle = reconcile_scoped_question_bank(
+                question_bank_bundle,
+                partial_question_bank,
+                node_ids=[node_id],
+                practice_levels_by_node={
+                    node_id: failed_targets.get(node_id) or [],
+                },
+                preserve_reviewed=True,
+                preserve_global_assessments=True,
+            )
+            question_bank_bundle["web_enrichment"] = web_enrichment
+            question_bank_bundle = self._question_bank_repository.save_bundle(
+                str(self.tasks[task_id]["course_id"]),
+                question_bank_bundle,
+                activate=False,
+            )
+            completed_repair_nodes.append(node_id)
+            await self._update_phase(
+                task_id,
+                "practice_repair",
+                94,
+                (
+                    f"练习已修复 {len(completed_repair_nodes)}/"
+                    f"{len(failed_node_ids)} 个小节"
+                ),
+                phase_progress=(
+                    70
+                    + int(
+                        len(completed_repair_nodes)
+                        / max(1, len(failed_node_ids))
+                        * 25
+                    )
+                ),
+                phase_detail={
+                    "completed_node_ids": completed_repair_nodes,
+                    "completed_node_count": len(completed_repair_nodes),
+                    "target_node_count": len(failed_node_ids),
+                    "checkpoint_policy": "per_section",
+                },
+            )
+
+        prepared_course = await self._assessment_orchestrator.prepare_course(
+            asset_course,
+            node_ids=failed_node_ids,
+            practice_levels_by_node=failed_targets,
+            on_chapter_complete=checkpoint_repaired_node,
+        )
+        repaired_compilation = compile_learning_assets(prepared_course)
+        rebuilt_question_bank = repaired_compilation.pop("question_bank_bundle")
+        repaired_question_bank = reconcile_scoped_question_bank(
+            question_bank_bundle,
+            rebuilt_question_bank,
+            node_ids=failed_node_ids,
+            preserve_reviewed=True,
+            preserve_global_assessments=True,
+            practice_levels_by_node=failed_targets,
+        )
+        # Web evidence belongs to the course-level source package. A scoped
+        # exercise repair must not erase the enrichment receipt of other nodes.
+        repaired_question_bank["web_enrichment"] = deepcopy(
+            question_bank_bundle.get("web_enrichment") or {}
+        )
+        repaired_assets = compile_learning_assets(
+            prepared_course,
+            question_bank_bundle=repaired_question_bank,
+        )
+        repaired_assets.pop("question_bank_bundle", None)
+        remaining_targets = self._failed_practice_targets(
+            repaired_assets.get("assets") or {}
+        )
+        remaining_node_ids = list(remaining_targets)
+        return repaired_question_bank, repaired_assets, {
+            "status": "passed" if not remaining_node_ids else "incomplete",
+            "target_node_ids": failed_node_ids,
+            "target_node_count": len(failed_node_ids),
+            "target_slot_count": sum(len(levels) for levels in failed_targets.values()),
+            "target_practice_levels": deepcopy(failed_targets),
+            "remaining_node_ids": remaining_node_ids,
+            "remaining_node_count": len(remaining_node_ids),
+            "generation_audit": deepcopy(
+                prepared_course.get("_assessment_generation_audit") or {}
+            ),
+        }
+
     async def _prepare_content_candidate(
         self,
         task_id: str,
@@ -4466,8 +4667,10 @@ class TaskManager:
         fresh_course = self._load_task_course(task_id) or course_data
         stage_artifacts = fresh_course.setdefault("generation_stage_artifacts", {})
         prepared = stage_artifacts.get("content_candidate") or {}
+        repair_requested = bool(task.get("asset_repair_requested"))
         if (
-            prepared.get("status") == "completed"
+            not repair_requested
+            and prepared.get("status") == "completed"
             and fresh_course.get("generation_quality_report")
             and fresh_course.get("asset_quality_report")
             and fresh_course.get("learning_asset_bundle_revision_id")
@@ -4530,17 +4733,23 @@ class TaskManager:
             "正在整理课程题库、覆盖矩阵与风险审核队列",
             phase_progress=55,
         )
-        question_bank_bundle = await enrich_question_bank_with_web(
-            fresh_course,
-            question_bank_bundle,
-        )
         previous_question_bank = self._question_bank_repository.load_bundle(
             str(task["course_id"])
         )
-        question_bank_bundle = reconcile_question_bank(
-            previous_question_bank,
-            question_bank_bundle,
-        )
+        if repair_requested and previous_question_bank:
+            # Node-level repair checkpoints are already immutable, validated
+            # question-bank revisions. Rebuilding them from deterministic
+            # fallbacks would throw away successful work from a prior run.
+            question_bank_bundle = previous_question_bank
+        else:
+            question_bank_bundle = await enrich_question_bank_with_web(
+                fresh_course,
+                question_bank_bundle,
+            )
+            question_bank_bundle = reconcile_question_bank(
+                previous_question_bank,
+                question_bank_bundle,
+            )
         # Recompile from the reconciled source of truth so teacher-reviewed
         # prompts and answer rubrics are the tasks frozen into this asset bundle.
         asset_bundle = compile_learning_assets(
@@ -4548,6 +4757,16 @@ class TaskManager:
             question_bank_bundle=question_bank_bundle,
         )
         asset_bundle.pop("question_bank_bundle", None)
+        (
+            question_bank_bundle,
+            asset_bundle,
+            practice_repair_summary,
+        ) = await self._repair_failed_practice_nodes(
+            task_id,
+            asset_course,
+            question_bank_bundle,
+            asset_bundle,
+        )
         # Learning-asset compilation deterministically assigns the objective
         # identities and course-knowledge bindings used by its own contracts.
         # Persist that exact node projection before evaluating or publishing so
@@ -4573,8 +4792,17 @@ class TaskManager:
             else "blocked"
         )
         fresh_course["question_analysis_summary"] = {
-            "source": "compiled_contract",
-            "model_call_count": 0,
+            "source": (
+                "targeted_ai_repair"
+                if practice_repair_summary.get("target_node_count")
+                else "compiled_contract"
+            ),
+            "model_call_count": int(
+                (
+                    practice_repair_summary.get("generation_audit") or {}
+                ).get("model_call_count")
+                or 0
+            ),
             "total": len(analyzed_questions),
             "passed": sum(
                 (item.get("question_analysis") or {}).get("status")
@@ -4587,6 +4815,7 @@ class TaskManager:
                 for item in analyzed_questions
             ),
         }
+        fresh_course["practice_repair_summary"] = practice_repair_summary
         question_bank_bundle = self._question_bank_repository.save_bundle(
             str(task["course_id"]),
             question_bank_bundle,
@@ -4670,8 +4899,22 @@ class TaskManager:
             "learning_asset_bundle_revision_id": fresh_course.get(
                 "learning_asset_bundle_revision_id"
             ),
+            "practice_repair": deepcopy(practice_repair_summary),
         }
+        if repair_requested and isinstance(task.get("guided_workflow"), dict):
+            workflow = task["guided_workflow"]
+            if guided_step_confirmed(workflow, "content"):
+                content_state = guided_step_state(workflow, "content")
+                content_state["artifact_revision"] = guided_artifact_revision(
+                    "content",
+                    fresh_course,
+                    request=task.get("request_snapshot") or {},
+                )
+                content_state["input_revisions"] = (
+                    guided_expected_input_revisions(workflow, "content")
+                )
         await self._save_task_course(task_id, fresh_course)
+        task.pop("asset_repair_requested", None)
         await self._update_progress(task_id, fresh_course)
         strict_quality_passed = (
             quality_report.get("final_status") == "passed"
@@ -4703,6 +4946,7 @@ class TaskManager:
         confirmed_content_checkpoint = bool(
             isinstance(guided_workflow, dict)
             and guided_step_confirmed(guided_workflow, "content")
+            and not task.get("asset_repair_requested")
             and content_stage.get("status") == "completed"
             and isinstance(
                 course_data.get("generation_quality_report"),

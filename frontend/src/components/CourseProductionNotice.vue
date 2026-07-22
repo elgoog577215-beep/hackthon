@@ -50,6 +50,7 @@ const technicalError = computed(() => String(props.task?.error || '').trim())
 const title = computed(() => {
   if (status.value === 'paused') return t('courseGeneration.production.pausedTitle', '课程生产已暂停')
   if (status.value === 'conflict') return t('courseGeneration.production.blockedTitle', '课程生产需要处理冲突')
+  if (props.task?.publicationAllowed === false) return t('courseGeneration.production.qualityBlockedTitle', '课程练习需要定向修复')
   return t('courseGeneration.production.interruptedTitle', '课程生产暂时中断')
 })
 const friendlyError = computed(() => {
@@ -65,11 +66,15 @@ const friendlyError = computed(() => {
   }
   if (status.value === 'paused') return t('courseGeneration.production.pausedDescription', '当前模型调用已经停止。')
   if (status.value === 'conflict') return t('courseGeneration.production.blockedDescription', '当前产物与课程真源存在冲突。')
+  if (props.task?.publicationAllowed === false) return t('courseGeneration.production.qualityBlockedDescription', '课程正文已经生成，系统只会重做未通过的练习。')
   return t('courseGeneration.production.genericError', '本阶段尚未完成。')
 })
-const resumeLabel = computed(() => status.value === 'paused'
-  ? t('courseGeneration.production.continueAction', '继续课程生产')
-  : t('courseGeneration.production.retryAction', '重试当前阶段'))
+const resumeLabel = computed(() => {
+  if (props.task?.publicationAllowed === false) return t('courseGeneration.production.repairPracticeAction', '修复练习并重新检查')
+  return status.value === 'paused'
+    ? t('courseGeneration.production.continueAction', '继续课程生产')
+    : t('courseGeneration.production.retryAction', '重试当前阶段')
+})
 </script>
 
 <style scoped>

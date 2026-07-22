@@ -443,6 +443,22 @@ async def test_orchestrator_uses_bounded_repair_and_isolates_solver():
     assert audit["first_pass_pass_rate"] == pytest.approx(2 / 3, abs=0.001)
 
 
+async def test_orchestrator_generates_only_rejected_practice_slots():
+    model = RepairingModel()
+    prepared = await AssessmentGenerationOrchestrator(
+        model=model
+    ).prepare_course(
+        _course(),
+        node_ids=["thermo-1"],
+        practice_levels_by_node={"thermo-1": ["concept_check"]},
+    )
+
+    contracts = prepared["_assessment_generated_contracts"]["thermo-1"]
+    assert set(contracts) == {"concept_check"}
+    assert model.generate_calls == 1
+    assert prepared["_assessment_generation_audit"]["planned_item_count"] == 1
+
+
 async def test_three_disagreements_discard_only_failed_slot():
     model = DisagreeingModel()
     prepared = await AssessmentGenerationOrchestrator(

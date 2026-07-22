@@ -711,6 +711,7 @@ def reconcile_scoped_question_bank(
     node_ids: Iterable[str],
     preserve_reviewed: bool = True,
     preserve_global_assessments: bool = False,
+    practice_levels_by_node: dict[str, Iterable[str]] | None = None,
 ) -> dict[str, Any]:
     """Replace only selected nodes while preserving other active revisions."""
     if not previous:
@@ -728,6 +729,14 @@ def reconcile_scoped_question_bank(
     }
     if not selected:
         raise ValueError("node_ids are required for scoped reconciliation")
+    selected_levels = {
+        str(node_id): {
+            str(level)
+            for level in levels
+            if str(level).strip()
+        }
+        for node_id, levels in (practice_levels_by_node or {}).items()
+    }
 
     def in_scope(item: dict[str, Any]) -> bool:
         if (
@@ -744,7 +753,17 @@ def reconcile_scoped_question_bank(
             )
             if value
         }
-        return bool(item_nodes & selected)
+        matched_nodes = item_nodes & selected
+        if not matched_nodes:
+            return False
+        if not selected_levels:
+            return True
+        practice_level = str(item.get("practice_level") or "")
+        return any(
+            not selected_levels.get(node_id)
+            or practice_level in selected_levels[node_id]
+            for node_id in matched_nodes
+        )
 
     previous_items = list(previous.get("items") or [])
     rebuilt_items = list(rebuilt.get("items") or [])

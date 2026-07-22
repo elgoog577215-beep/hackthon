@@ -358,6 +358,7 @@ def diagnostic_tasks(course: dict[str, Any], task: dict[str, Any], hypotheses: l
     templates = [
         item for item in (course.get("learning_assets") or {}).get("diagnostic_templates") or []
         if item.get("objective_revision_id") == task.get("objective_revision_id")
+        and item.get("quality_status") == "passed"
     ]
     results = []
     for index, hypothesis in enumerate(hypotheses[:3]):
@@ -436,6 +437,7 @@ def remediation_payload(
         project_assessment_task(item, purpose="remediation_validation", source="course_asset_reserve")
         for item in assets.get("validation_questions") or []
         if item.get("objective_revision_id") == case.get("objective_revision_id")
+        and item.get("quality_status") == "passed"
     ][:2]
     if not validations:
         fallback = deepcopy(guided)

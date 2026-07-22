@@ -709,6 +709,14 @@ def evaluate_learning_asset_quality(
     for question in assets.get("questions") or []:
         if not question.get("revision_id") or not question.get("node_id") or not question.get("answer_spec"):
             issues.append(_asset_issue("structure", "critical", "questions", "题目缺少稳定修订、节点或答案量规", question))
+        if question.get("quality_status") != "passed":
+            issues.append(_asset_issue(
+                "semantic",
+                "critical",
+                "questions",
+                "正式练习未通过题目结构、答案或领域校验",
+                question,
+            ))
         invalid = set(question.get("evidence_ids") or []) - allowed_evidence
         if invalid:
             issues.append(_asset_issue("grounding_difficulty", "critical", "questions", f"题目引用无效证据：{sorted(invalid)}", question))
@@ -819,9 +827,17 @@ def evaluate_learning_asset_quality(
         if not (task.get("quality_report") or {}).get("passed"):
             issues.append(_asset_issue(
                 "semantic",
-                "critical",
+                (
+                    "critical"
+                    if task.get("review_status") == "approved"
+                    else "review_required"
+                ),
                 "final_assessment",
-                "综合测评任务未通过与普通题一致的结构和答案合同检查",
+                (
+                    "已批准的综合测评未通过正式质量门"
+                    if task.get("review_status") == "approved"
+                    else "综合测评候选稿尚未通过质量门，复核前不会对学生开放"
+                ),
                 task,
             ))
         if task.get("review_status") != "approved":
@@ -922,7 +938,13 @@ def evaluate_learning_asset_quality(
         if task.get("practice_level") == "remediation_validation" and prompt in formal_prompts:
             issues.append(_asset_issue("semantic", "critical", "diagnostic_remediation", "保留验证题不得复用已展示正式题目", task))
         if task.get("quality_status") != "passed":
-            issues.append(_asset_issue("semantic", "major", "diagnostic_remediation", "诊断或验证任务未通过质量门", task))
+            issues.append(_asset_issue(
+                "semantic",
+                "review_required",
+                "diagnostic_remediation",
+                "诊断或验证候选任务未通过质量门，已隔离且不阻断课程首次发布",
+                task,
+            ))
     for unit in assets.get("remediation_units") or []:
         if not unit.get("revision_id") or not unit.get("remediation_objective") or not unit.get("guided_task"):
             issues.append(_asset_issue("structure", "critical", "remediation_units", "补救单元缺少目标、任务或修订", unit))

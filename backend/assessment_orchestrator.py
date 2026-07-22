@@ -654,7 +654,7 @@ class AssessmentGenerationOrchestrator:
             1,
             min(
                 3,
-                int(os.getenv("ASSESSMENT_SLOT_CONCURRENCY", "1")),
+                int(os.getenv("ASSESSMENT_SLOT_CONCURRENCY", "3")),
             ),
         )
         self.generation_batch_size = max(
@@ -675,6 +675,7 @@ class AssessmentGenerationOrchestrator:
         course_data: dict[str, Any],
         *,
         node_ids: Iterable[str] | None = None,
+        practice_levels_by_node: dict[str, Iterable[str]] | None = None,
         on_progress: AssessmentProgressCallback | None = None,
         on_chapter_complete: AssessmentChapterCallback | None = None,
         reference_package: dict[str, Any] | None = None,
@@ -733,6 +734,18 @@ class AssessmentGenerationOrchestrator:
             if node_ids is not None
             else None
         )
+        requested_levels_by_node = {
+            str(node_id): tuple(
+                level
+                for level in PRACTICE_LEVELS
+                if level in {str(value) for value in levels}
+            )
+            for node_id, levels in (practice_levels_by_node or {}).items()
+        }
+
+        def levels_for(node_id: str) -> tuple[str, ...]:
+            return requested_levels_by_node.get(node_id) or PRACTICE_LEVELS
+
         target_nodes = [
             node
             for node in prepared.get("nodes") or []
@@ -743,7 +756,10 @@ class AssessmentGenerationOrchestrator:
             )
             and objective_by_node.get(str(node.get("node_id") or ""))
         ]
-        total_items = len(target_nodes) * len(PRACTICE_LEVELS)
+        total_items = sum(
+            len(levels_for(str(node.get("node_id") or "")))
+            for node in target_nodes
+        )
         audit["planned_item_count"] = total_items
         completed_items = 0
         if (
@@ -768,6 +784,7 @@ class AssessmentGenerationOrchestrator:
                 on_progress=on_progress,
                 on_chapter_complete=on_chapter_complete,
                 total_items=total_items,
+                practice_levels_by_node=requested_levels_by_node,
             )
             completed_items = total_items
             target_nodes = []
@@ -784,9 +801,8 @@ class AssessmentGenerationOrchestrator:
             audit["historical_diversity_comparison_count"] += len(
                 accepted_questions
             )
-            for variant_index, practice_level in enumerate(
-                PRACTICE_LEVELS
-            ):
+            for practice_level in levels_for(node_id):
+                variant_index = PRACTICE_LEVELS.index(practice_level)
                 slot = slot_for(
                     blueprint,
                     node_id=node_id,
@@ -1211,6 +1227,7 @@ class AssessmentGenerationOrchestrator:
         on_progress: AssessmentProgressCallback | None,
         on_chapter_complete: AssessmentChapterCallback | None,
         total_items: int,
+        practice_levels_by_node: dict[str, tuple[str, ...]],
     ) -> dict[str, dict[str, dict[str, Any]]]:
         contracts: dict[str, dict[str, dict[str, Any]]] = {}
         quality_lock = asyncio.Lock()
@@ -1231,6 +1248,9 @@ class AssessmentGenerationOrchestrator:
 
         for node in target_nodes:
             node_id = str(node.get("node_id") or "")
+            node_practice_levels = (
+                practice_levels_by_node.get(node_id) or PRACTICE_LEVELS
+            )
             objective = objective_by_node.get(node_id)
             if not objective:
                 continue
@@ -1251,6 +1271,7 @@ class AssessmentGenerationOrchestrator:
                     node_id=node_id,
                     audit=audit,
                     existing_questions=accepted_questions,
+                    practice_levels=node_practice_levels,
                 )
             )
             semantic_batcher = _SemanticEvaluationBatcher(
@@ -1296,8 +1317,8 @@ class AssessmentGenerationOrchestrator:
                     )
 
             results = await asyncio.gather(*[
-                run_slot(index, level)
-                for index, level in enumerate(PRACTICE_LEVELS)
+                run_slot(PRACTICE_LEVELS.index(level), level)
+                for level in node_practice_levels
             ])
             fatal_errors: list[Exception] = []
             node_audit_items: list[dict[str, Any]] = []
@@ -1320,7 +1341,7 @@ class AssessmentGenerationOrchestrator:
                 )
             chapter_passed = bool(
                 not fatal_errors
-                and set(contracts[node_id]) == set(PRACTICE_LEVELS)
+                and set(contracts[node_id]) == set(node_practice_levels)
                 and all(
                     str(item.get("final_decision") or "")
                     in {"publish", "teacher_review"}
@@ -1365,6 +1386,7 @@ class AssessmentGenerationOrchestrator:
         node_id: str,
         audit: dict[str, Any],
         existing_questions: list[dict[str, Any]] | None = None,
+        practice_levels: Iterable[str] = PRACTICE_LEVELS,
     ) -> dict[str, dict[str, Any]]:
         batch_method = getattr(
             self.model,
@@ -1383,9 +1405,8 @@ class AssessmentGenerationOrchestrator:
         )
         contexts: list[dict[str, Any]] = []
         levels_by_slot: dict[str, str] = {}
-        for variant_index, practice_level in enumerate(
-            PRACTICE_LEVELS
-        ):
+        for practice_level in practice_levels:
+            variant_index = PRACTICE_LEVELS.index(practice_level)
             slot = slot_for(
                 blueprint,
                 node_id=node_id,

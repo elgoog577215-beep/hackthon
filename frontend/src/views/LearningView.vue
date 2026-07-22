@@ -337,7 +337,13 @@ const isNarrow = computed(() => windowWidth.value < 1024)
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
 const generationTask = computed(() => courseStore.currentCourseId ? generationStore.tasks.get(courseStore.currentCourseId) : undefined)
 const generationStageIndex = computed(() => courseProductionStageIndex(generationTask.value))
-const generationTerminal = computed(() => ['error', 'paused', 'conflict'].includes(String(generationTask.value?.status || '')))
+const generationTerminal = computed(() => (
+  ['error', 'paused', 'conflict'].includes(String(generationTask.value?.status || ''))
+  || (
+    generationTask.value?.status === 'completed_with_warnings'
+    && generationTask.value.publicationAllowed === false
+  )
+))
 const hasProductionDraft = computed(() => hasVisibleCourseDraft(
   generationTask.value,
   courseStore.nodes.map(node => node.node_content),

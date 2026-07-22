@@ -279,7 +279,7 @@ async def test_restart_recognizes_publication_receipt_without_duplicate_executio
 
 
 @pytest.mark.asyncio
-async def test_quality_failure_is_not_exposed_as_runtime_retry(tmp_path, monkeypatch):
+async def test_quality_failure_resumes_as_targeted_asset_repair(tmp_path, monkeypatch):
     manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
         tmp_path, monkeypatch, task_status="failed"
     )
@@ -293,10 +293,13 @@ async def test_quality_failure_is_not_exposed_as_runtime_retry(tmp_path, monkeyp
     recovery = manager.describe_task_recovery("job-recovery")
 
     assert recovery["state"] == "quality_blocked"
-    assert recovery["can_resume"] is False
-    with pytest.raises(TaskRecoveryConflict):
-        await manager.resume_task("job-recovery")
-    assert manager._task_queue.empty()
+    assert recovery["can_resume"] is True
+    resumed = await manager.resume_task("job-recovery")
+    assert resumed["status"] == "resumed"
+    assert manager.tasks["job-recovery"]["asset_repair_requested"] is True
+    assert manager.tasks["job-recovery"]["phase"] == "practice_repair"
+    assert manager._task_queue.qsize() == 1
+    assert workspaces.load("job-recovery")["recovery_history"][-1]["reason"] == "asset_quality_repair"
 
 
 @pytest.mark.asyncio
