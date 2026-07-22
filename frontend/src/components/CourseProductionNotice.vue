@@ -50,6 +50,7 @@ const technicalError = computed(() => String(props.task?.error || '').trim())
 const title = computed(() => {
   if (status.value === 'paused') return t('courseGeneration.production.pausedTitle', '课程生产已暂停')
   if (status.value === 'conflict') return t('courseGeneration.production.blockedTitle', '课程生产需要处理冲突')
+  if (props.task?.publicationAllowed === false) return t('courseGeneration.production.qualityBlockedTitle', '课程练习需要定向修复')
   return t('courseGeneration.production.interruptedTitle', '课程生产暂时中断')
 })
 const friendlyError = computed(() => {
@@ -65,24 +66,28 @@ const friendlyError = computed(() => {
   }
   if (status.value === 'paused') return t('courseGeneration.production.pausedDescription', '当前模型调用已经停止。')
   if (status.value === 'conflict') return t('courseGeneration.production.blockedDescription', '当前产物与课程真源存在冲突。')
+  if (props.task?.publicationAllowed === false) return t('courseGeneration.production.qualityBlockedDescription', '课程正文已经生成，系统只会重做未通过的练习。')
   return t('courseGeneration.production.genericError', '本阶段尚未完成。')
 })
-const resumeLabel = computed(() => status.value === 'paused'
-  ? t('courseGeneration.production.continueAction', '继续课程生产')
-  : t('courseGeneration.production.retryAction', '重试当前阶段'))
+const resumeLabel = computed(() => {
+  if (props.task?.publicationAllowed === false) return t('courseGeneration.production.repairPracticeAction', '修复练习并重新检查')
+  return status.value === 'paused'
+    ? t('courseGeneration.production.continueAction', '继续课程生产')
+    : t('courseGeneration.production.retryAction', '重试当前阶段')
+})
 </script>
 
 <style scoped>
 .production-notice {
   flex:0 0 auto;
   display:grid;
-  grid-template-columns:32px minmax(0,1fr) auto;
+  grid-template-columns:38px minmax(0,1fr) auto;
   align-items:start;
-  gap:11px;
-  margin:12px clamp(14px,3vw,38px) 0;
-  padding:11px 12px;
+  gap:13px;
+  margin:14px clamp(18px,3vw,42px) 0;
+  padding:14px 15px;
   border:1px solid #efd3a8;
-  border-radius:10px;
+  border-radius:12px;
   color:#75431c;
   background:#fffbf3;
 }
@@ -96,11 +101,11 @@ const resumeLabel = computed(() => status.value === 'paused'
   background:#fff8ef;
 }
 .production-notice__icon {
-  width:32px;
-  height:32px;
+  width:38px;
+  height:38px;
   display:grid;
   place-items:center;
-  border-radius:8px;
+  border-radius:10px;
   color:#b54708;
   background:#fff1db;
 }
@@ -115,24 +120,24 @@ const resumeLabel = computed(() => status.value === 'paused'
   flex-wrap:wrap;
   gap:7px;
 }
-.production-notice__copy strong { color:#643713; font-size:10px; }
+.production-notice__copy strong { color:#643713; font-size:14px; line-height:1.4; }
 .production-notice[data-state="paused"] .production-notice__copy strong { color:#344054; }
 .production-notice__copy > div span {
-  padding:2px 6px;
+  padding:3px 7px;
   border-radius:999px;
   color:#7b5b3e;
   background:rgba(255,255,255,.72);
-  font-size:8px;
+  font-size:11px;
   font-weight:750;
 }
 .production-notice__copy p {
-  margin:3px 0 0;
+  margin:5px 0 0;
   color:#84664c;
-  font-size:9px;
-  line-height:1.55;
+  font-size:12px;
+  line-height:1.6;
 }
 .production-notice[data-state="paused"] .production-notice__copy p { color:#697386; }
-.production-notice details { margin-top:5px; color:#8a6b4f; font-size:8px; }
+.production-notice details { margin-top:7px; color:#8a6b4f; font-size:11px; }
 .production-notice summary { width:max-content; cursor:pointer; }
 .production-notice code {
   display:block;
@@ -145,17 +150,17 @@ const resumeLabel = computed(() => status.value === 'paused'
   white-space:pre-wrap;
 }
 .production-notice > button {
-  min-height:34px;
+  min-height:40px;
   display:inline-flex;
   align-items:center;
   justify-content:center;
   gap:6px;
-  padding:0 12px;
+  padding:0 15px;
   border:1px solid #a85b1a;
-  border-radius:7px;
+  border-radius:9px;
   color:#fff;
   background:#a85b1a;
-  font-size:9px;
+  font-size:12px;
   font-weight:800;
   cursor:pointer;
 }
@@ -164,8 +169,9 @@ const resumeLabel = computed(() => status.value === 'paused'
 @keyframes production-notice-spin { to { transform:rotate(360deg); } }
 @media (max-width:767px) {
   .production-notice {
-    grid-template-columns:30px minmax(0,1fr);
-    margin:9px 9px 0;
+    grid-template-columns:36px minmax(0,1fr);
+    margin:10px 9px 0;
+    padding:12px;
   }
   .production-notice > button {
     grid-column:1/-1;

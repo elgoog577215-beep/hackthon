@@ -109,15 +109,15 @@ function stageStatusLabel(index: number) {
 <style scoped>
 .generation-lifecycle {
   flex:0 0 auto;
-  padding:9px clamp(14px,3vw,38px) 0;
-  border-bottom:1px solid #e7eaf0;
-  background:#fff;
+  padding:14px clamp(20px,3vw,44px) 0;
+  border-bottom:1px solid #e6e9f0;
+  background:linear-gradient(180deg,#fff 0%,#fcfcfe 100%);
 }
 .generation-lifecycle__inner {
   display:grid;
-  grid-template-columns:minmax(122px,.55fr) minmax(460px,2.2fr) 48px;
+  grid-template-columns:minmax(164px,.62fr) minmax(560px,2.2fr) 62px;
   align-items:center;
-  gap:18px;
+  gap:22px;
 }
 .generation-lifecycle__summary {
   min-width:0;
@@ -126,13 +126,13 @@ function stageStatusLabel(index: number) {
   gap:8px;
 }
 .generation-lifecycle__summary > span {
-  width:28px;
-  height:28px;
-  flex:0 0 28px;
+  width:36px;
+  height:36px;
+  flex:0 0 36px;
   display:grid;
   place-items:center;
   border:1px solid #d7dce5;
-  border-radius:8px;
+  border-radius:10px;
   color:#596579;
   background:#f8f9fb;
 }
@@ -143,14 +143,15 @@ function stageStatusLabel(index: number) {
 }
 .generation-lifecycle__summary small {
   color:#9aa1ae;
-  font-size:7px;
+  font-size:11px;
   font-weight:800;
   letter-spacing:.08em;
 }
 .generation-lifecycle__summary strong {
   overflow:hidden;
   color:#354052;
-  font-size:9px;
+  font-size:13px;
+  line-height:1.35;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
@@ -188,7 +189,7 @@ function stageStatusLabel(index: number) {
   position:relative;
   min-width:0;
   display:grid;
-  grid-template-columns:20px minmax(0,1fr);
+  grid-template-columns:26px minmax(0,1fr);
   align-items:center;
   gap:5px;
 }
@@ -196,8 +197,8 @@ function stageStatusLabel(index: number) {
   content:"";
   position:absolute;
   z-index:0;
-  top:9px;
-  left:19px;
+  top:12px;
+  left:25px;
   right:1px;
   height:1px;
   background:#dfe3eb;
@@ -208,15 +209,15 @@ function stageStatusLabel(index: number) {
 .generation-lifecycle__marker {
   position:relative;
   z-index:1;
-  width:20px;
-  height:20px;
+  width:26px;
+  height:26px;
   display:grid;
   place-items:center;
   border:1px solid #d5dbe5;
   border-radius:50%;
   color:#98a2b3;
   background:#fff;
-  font-size:7px;
+  font-size:10px;
   font-weight:800;
 }
 .generation-lifecycle strong {
@@ -227,8 +228,8 @@ function stageStatusLabel(index: number) {
   overflow:hidden;
   color:#8a93a4;
   background:#fff;
-  font-size:9px;
-  line-height:1.25;
+  font-size:12px;
+  line-height:1.35;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
@@ -275,7 +276,7 @@ li[data-status="blocked"] strong {
 .generation-lifecycle__value {
   justify-self:end;
   color:#4f55b5;
-  font:750 10px/1 ui-monospace,SFMono-Regular,monospace;
+  font:750 13px/1 ui-monospace,SFMono-Regular,monospace;
   white-space:nowrap;
 }
 .generation-lifecycle__value[data-status="review"],
@@ -284,15 +285,16 @@ li[data-status="blocked"] strong {
 .generation-lifecycle__value[data-status="blocked"] { color:#b05a18; }
 .generation-lifecycle__value[data-status="paused"] { color:#667085; }
 .generation-lifecycle__track {
-  height:2px;
-  margin:8px calc(-1 * clamp(14px,3vw,38px)) 0;
+  height:3px;
+  margin:13px calc(-1 * clamp(20px,3vw,44px)) 0;
   overflow:hidden;
   background:#edf0f4;
 }
 .generation-lifecycle__track i {
   display:block;
   height:100%;
-  background:#666bd0;
+  border-radius:0 999px 999px 0;
+  background:linear-gradient(90deg,#5662d7,#855ee3);
   transition:width .3s ease;
 }
 @keyframes lifecycle-spin {
@@ -300,14 +302,14 @@ li[data-status="blocked"] strong {
 }
 @media (max-width:1050px) {
   .generation-lifecycle__inner {
-    grid-template-columns:110px minmax(410px,1fr) 42px;
+    grid-template-columns:132px minmax(0,1fr) 48px;
     gap:10px;
   }
-  .generation-lifecycle strong { font-size:8px; }
+  .generation-lifecycle strong { font-size:11px; }
 }
 @media (max-width:767px) {
   .generation-lifecycle {
-    padding:8px 9px 0;
+    padding:10px 12px 0;
   }
   .generation-lifecycle__inner {
     grid-template-columns:minmax(0,1fr) auto;
@@ -317,9 +319,9 @@ li[data-status="blocked"] strong {
     order:0;
   }
   .generation-lifecycle__summary > span {
-    width:25px;
-    height:25px;
-    flex-basis:25px;
+    width:32px;
+    height:32px;
+    flex-basis:32px;
   }
   .generation-lifecycle__value {
     order:1;
@@ -336,21 +338,21 @@ li[data-status="blocked"] strong {
     text-align:center;
   }
   .generation-lifecycle li:not(:last-child)::after {
-    top:9px;
+    top:11px;
     left:50%;
     right:-50%;
   }
   .generation-lifecycle__marker {
-    width:20px;
-    height:20px;
+    width:25px;
+    height:25px;
   }
   .generation-lifecycle strong {
-    max-width:58px;
+    max-width:64px;
     width:auto;
     overflow:visible;
     background:transparent;
-    font-size:7px;
-    line-height:1.15;
+    font-size:10.5px;
+    line-height:1.25;
     text-overflow:clip;
     white-space:normal;
   }

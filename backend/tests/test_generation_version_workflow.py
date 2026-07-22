@@ -7,6 +7,7 @@ from course_repository import CourseDocumentRepository
 from course_versioning import build_blueprint_draft
 from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
+from guided_generation import step_state as guided_step_state
 from task_manager import TaskManager
 
 
@@ -476,6 +477,15 @@ async def test_guided_job_requires_teaching_confirmation_before_content(
         )
 
     monkeypatch.setattr(manager, "_schedule_nodes", finish_content)
+    # This workflow test uses deliberately repetitive placeholder content; the
+    # quality contract is covered separately. Keep this case on the publishable
+    # branch so it tests review-gate sequencing instead of relying on the old
+    # impossible state (quality blocked + waiting for release confirmation).
+    monkeypatch.setattr(
+        manager,
+        "_quality_allows_publication",
+        lambda _course, _report: True,
+    )
     await manager._process_task(job["job_id"])
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"
@@ -678,6 +688,85 @@ async def test_waiting_confirmation_survives_restart_without_skipping_gate(tmp_p
     assert restored.tasks[job["job_id"]]["status"] == "waiting_for_review"
     assert restored.tasks[job["job_id"]]["guided_workflow"]["review_step"] == "outline"
     assert restored._task_queue.empty()
+
+
+@pytest.mark.parametrize("review_step", ["outline", "release"])
+@pytest.mark.asyncio
+async def test_legacy_compact_review_rebuilds_on_restart(tmp_path, monkeypatch, review_step):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    storage = MemoryStorage()
+    workspaces = GenerationWorkspaceRepository(tmp_path / "workspaces")
+    documents = CourseDocumentRepository(storage)
+    versions = CourseVersionRepository(tmp_path / "versions")
+    manager = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=versions,
+        workspace_repository=workspaces,
+        document_repository=documents,
+    )
+    job = await manager.create_generation_job({"subject": "旧版三章六节课程"})
+    assert await manager._task_queue.get() == job["job_id"]
+    await manager._process_task(job["job_id"])
+
+    legacy = manager._load_task_course(job["job_id"])
+    legacy.update({
+        "generation_pipeline_version": "course_generation_v15",
+        "generation_schema_version": "course_generation_v15",
+        "course_outline": {
+            "chapters": [
+                {
+                    "chapter_number": index,
+                    "title": f"第{index}章",
+                    "sections": [{"node_id": f"L2-{index}-1"}, {"node_id": f"L2-{index}-2"}],
+                }
+                for index in range(1, 4)
+            ],
+        },
+        "course_plan": {"chapters": [{"chapter_number": 1}]},
+        "generation_stage_artifacts": {
+            "outline": {
+                "status": "completed",
+                "strategy": "compact_single_call",
+                "actual": {"chapter_count": 3, "section_count": 6},
+            },
+        },
+    })
+    await manager._save_task_course(job["job_id"], legacy)
+    if review_step == "release":
+        workflow = manager.tasks[job["job_id"]]["guided_workflow"]
+        workflow["current_step"] = "release"
+        workflow["review_step"] = "release"
+        guided_step_state(workflow, "outline")["status"] = "confirmed"
+        guided_step_state(workflow, "content")["status"] = "confirmed"
+        guided_step_state(workflow, "release")["status"] = "waiting_for_confirmation"
+    manager.save_tasks()
+
+    restored = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=versions,
+        workspace_repository=workspaces,
+        document_repository=documents,
+    )
+
+    should_enqueue = await restored._reconcile_task_after_restart(job["job_id"])
+
+    assert should_enqueue is True
+    task = restored.tasks[job["job_id"]]
+    assert task["status"] == "pending"
+    assert task["phase"] == "outline_rebuild_required"
+    assert task["guided_workflow"]["review_step"] is None
+    assert guided_step_state(task["guided_workflow"], "outline")["status"] == "pending"
+    rebuilt = restored._load_task_course(job["job_id"])
+    assert "course_outline" not in rebuilt
+    assert "course_plan" not in rebuilt
+    assert rebuilt["nodes"] == []
+    assert rebuilt["generation_stage_artifacts"] == {}
 
 
 @pytest.mark.asyncio

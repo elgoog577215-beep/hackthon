@@ -15,6 +15,7 @@ def _item(
     *,
     status: str = "approved",
     solution_id: str | None = None,
+    practice_level: str = "concept_check",
 ) -> dict:
     objective_ref = f"objective:{node_id}"
     return {
@@ -24,6 +25,7 @@ def _item(
         "node_ids": [node_id],
         "course_objective_refs": [objective_ref],
         "assessment_role": "practice",
+        "practice_level": practice_level,
         "lifecycle_status": status,
         "review_status": status,
         "review_required": status == "needs_review",
@@ -114,6 +116,32 @@ def test_scoped_rebuild_preserves_unselected_nodes_and_private_solutions():
         "solution:old-a",
         "solution:old-b",
     }
+
+
+def test_scoped_rebuild_replaces_only_failed_practice_level():
+    previous = _bundle([
+        _item("old-concept", "node-a", practice_level="concept_check"),
+        _item("old-mastery", "node-a", practice_level="mastery_check"),
+    ])
+    rebuilt = _bundle([
+        _item("new-concept", "node-a", practice_level="concept_check"),
+        _item("new-mastery", "node-a", practice_level="mastery_check"),
+    ])
+
+    merged = reconcile_scoped_question_bank(
+        previous,
+        rebuilt,
+        node_ids=["node-a"],
+        practice_levels_by_node={"node-a": ["concept_check"]},
+        preserve_reviewed=False,
+    )
+
+    active_ids = {
+        item["item_id"]
+        for item in merged["items"]
+        if item["lifecycle_status"] != "retired"
+    }
+    assert active_ids == {"new-concept", "old-mastery"}
 
 
 def test_scoped_rebuild_preserves_untouched_rag_coverage_metadata():

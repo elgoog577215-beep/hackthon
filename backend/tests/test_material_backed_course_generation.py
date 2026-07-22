@@ -353,6 +353,53 @@ def _multi_section_outline(labels):
     })
 
 
+def _outline_skeleton_v2_response(plan):
+    return json.dumps({
+        "course_title": plan["course_title"],
+        "positioning": plan.get("positioning") or "完成全部课程成果",
+        "learning_objectives": (
+            plan.get("learning_objectives") or ["完成全部课程成果"]
+        ),
+        "prerequisites": plan.get("prerequisites") or [],
+        "chapters": [
+            {
+                "chapter_number": index,
+                "title": chapter["title"],
+                "learning_focus": (
+                    chapter.get("learning_focus")
+                    or f"完成第 {index} 阶段学习任务"
+                ),
+                "section_count": len(chapter.get("sections") or []),
+            }
+            for index, chapter in enumerate(
+                plan.get("chapters") or [],
+                start=1,
+            )
+        ],
+    }, ensure_ascii=False)
+
+
+def _outline_batch_v2_response(system_prompt, plan):
+    match = re.search(
+        r"## 当前批次\n(\{.*?\})\n\n## 当前章已完成",
+        system_prompt,
+        re.S,
+    )
+    assert match, system_prompt
+    spec = json.loads(match.group(1))
+    sections_by_id = {
+        section["node_id"]: section
+        for chapter in plan.get("chapters") or []
+        for section in chapter.get("sections") or []
+    }
+    return json.dumps({
+        "sections": [
+            sections_by_id[node_id]
+            for node_id in spec["expected_node_ids"]
+        ],
+    }, ensure_ascii=False)
+
+
 def _knowledge_skeleton_for_plan(plan, labels):
     sections = [
         section
@@ -457,8 +504,11 @@ def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
         }],
     )
 
-    assert artifacts["pipeline_version"] == "course_generation_v15"
-    assert artifacts["course_generation_brief"]["course_shape_constraints"] == {}
+    assert artifacts["pipeline_version"] == "course_generation_v16"
+    assert artifacts["course_generation_brief"]["course_shape_constraints"] == {
+        "minimum_chapter_count": 6,
+        "minimum_section_count": 18,
+    }
     assert artifacts["material_cards"][0]["usage"] == "content_source"
     assert artifacts["material_cards"][0]["parse_status"] == "metadata_only"
     assert "content" not in artifacts["material_cards"][0]
@@ -608,34 +658,43 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     service = CourseService(materials=MaterialRepository(tmp_path / "materials"))
     calls: list[str] = []
+    plan = normalize_course_outline_contract({
+        "course_title": "微积分电子课程资料",
+        "learning_objectives": ["理解极限与导数"],
+        "prerequisites": ["函数基础"],
+        "chapters": [{
+            "chapter_number": 1,
+            "title": "导数基础",
+            "learning_focus": "从变化率理解导数",
+            "sections": [{
+                "section_number": "1.1",
+                "title": "导数的定义",
+                "complexity": "medium",
+                "learning_objective": "能用定义解释导数",
+                "prerequisite_node_ids": [],
+                "misconceptions": ["连续不一定可导"],
+                "assessment": ["能判断分段函数可导性"],
+                "scope_boundary": "不展开高阶导数",
+            }],
+        }],
+    })
 
     async def fake_call_llm(prompt, system_prompt, **_kwargs):
         calls.append(prompt)
-        if "整门课所有小节教案" in prompt:
-            return _teaching_plan_response(
-                system_prompt,
-                {"导数的定义": "导数定义"},
+        labels = {"导数的定义": "导数定义"}
+        if "全课章节骨架 V2" in system_prompt:
+            return _outline_skeleton_v2_response(plan)
+        if "章节小节目录批次 V2" in system_prompt:
+            return _outline_batch_v2_response(system_prompt, plan)
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(
+                system_prompt, labels,
             )
-        return json.dumps({
-            "course_title": "微积分电子课程资料",
-            "learning_objectives": ["理解极限与导数"],
-            "prerequisites": ["函数基础"],
-            "chapters": [{
-                "chapter_number": 1,
-                "title": "导数基础",
-                "learning_focus": "从变化率理解导数",
-                "sections": [{
-                    "section_number": "1.1",
-                    "title": "导数的定义",
-                    "complexity": "medium",
-                    "learning_objective": "能用定义解释导数",
-                    "prerequisite_node_ids": [],
-                    "misconceptions": ["连续不一定可导"],
-                    "assessment": ["能判断分段函数可导性"],
-                    "scope_boundary": "不展开高阶导数",
-                }],
-            }],
-        }, ensure_ascii=False)
+        if prompt.startswith("生成详细小节教案批次"):
+            return _teaching_batch_v3_response(
+                system_prompt, labels,
+            )
+        raise AssertionError((prompt, system_prompt))
 
     monkeypatch.setattr(service, "_call_llm", fake_call_llm)
 
@@ -648,7 +707,10 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
         course_purpose="exam_sprint",
         asset_preferences={"questions": True, "final_assessment": True},
         web_question_enrichment={"enabled": True},
-        requirements="少废话，适合自学，讲清数学底层逻辑。",
+        requirements=(
+            "生成 1 章，共 1 个小节；"
+            "少废话，适合自学，讲清数学底层逻辑。"
+        ),
         materials=[{
             "filename": "期末真题.md",
             "usage": "question_source",
@@ -658,10 +720,10 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
         }],
     )
 
-    assert data["generation_pipeline_version"] == "course_generation_v15"
-    assert data["generation_schema_version"] == "course_generation_v15"
-    assert data["prompt_contract_version"] == "course_prompt_v22"
-    assert len(calls) == 2
+    assert data["generation_pipeline_version"] == "course_generation_v16"
+    assert data["generation_schema_version"] == "course_generation_v16"
+    assert data["prompt_contract_version"] == "course_prompt_v23"
+    assert len(calls) == 4
     assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"
     assert data["generation_mode"] == "fast"
@@ -699,8 +761,8 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
         "course_teaching_plan"
     ]
     assert teaching_stage["status"] == "completed"
-    assert teaching_stage["strategy"] == "compact_single_call"
-    assert teaching_stage["model_call_count"] == 1
+    assert teaching_stage["strategy"] == "adaptive_skeleton_batches"
+    assert teaching_stage["model_call_count"] == 2
     assert teaching_stage["knowledge_compilation_model_call_count"] == 0
     assert teaching_stage["graph_compilation_model_call_count"] == 0
     assert data["course_teaching_plan"]["sections"]
@@ -715,35 +777,44 @@ async def test_course_service_resumes_from_persisted_pedagogy_checkpoint(monkeyp
 
     service = CourseService(materials=MaterialRepository(tmp_path / "materials"))
     calls = []
+    plan = normalize_course_outline_contract({
+        "course_title": "Python 工程实战",
+        "learning_objectives": ["完成可运行项目"],
+        "prerequisites": [],
+        "chapters": [{
+            "chapter_number": 1,
+            "title": "最小项目",
+            "sections": [{
+                "section_number": "1.1",
+                "title": "启动项目",
+                "learning_objective": "能运行并验证输出",
+                "assessment": ["命令返回预期结果"],
+                "scope_boundary": "只覆盖启动与输出验证",
+            }],
+        }],
+    })
 
     async def fake_call_llm(prompt, system_prompt, **_kwargs):
         calls.append(prompt)
-        if "整门课所有小节教案" in prompt:
-            return _teaching_plan_response(
-                system_prompt,
-                {"启动项目": "项目启动"},
+        labels = {"启动项目": "项目启动"}
+        if "全课章节骨架 V2" in system_prompt:
+            return _outline_skeleton_v2_response(plan)
+        if "章节小节目录批次 V2" in system_prompt:
+            return _outline_batch_v2_response(system_prompt, plan)
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(
+                system_prompt, labels,
             )
-        return json.dumps({
-            "course_title": "Python 工程实战",
-            "learning_objectives": ["完成可运行项目"],
-            "prerequisites": [],
-            "chapters": [{
-                "chapter_number": 1,
-                "title": "最小项目",
-                "sections": [{
-                    "section_number": "1.1",
-                    "title": "启动项目",
-                    "learning_objective": "能运行并验证输出",
-                    "assessment": ["命令返回预期结果"],
-                    "scope_boundary": "只覆盖启动与输出验证",
-                }],
-            }],
-        }, ensure_ascii=False)
+        if prompt.startswith("生成详细小节教案批次"):
+            return _teaching_batch_v3_response(
+                system_prompt, labels,
+            )
+        raise AssertionError((prompt, system_prompt))
 
     monkeypatch.setattr(service, "_call_llm", fake_call_llm)
     profile = resolve_pedagogy_profile(
         subject="Python 工程实战",
-        requirements="完成可运行项目",
+        requirements="生成 1 章，共 1 个小节；完成可运行项目",
         requested_mode="programming_engineering",
     )
     existing = {
@@ -758,13 +829,13 @@ async def test_course_service_resumes_from_persisted_pedagogy_checkpoint(monkeyp
     data = await service.build_course_draft(
         course_id="course-resume",
         topic="Python 工程实战",
-        requirements="完成可运行项目",
+        requirements="生成 1 章，共 1 个小节；完成可运行项目",
         existing_course_data=existing,
     )
 
-    assert len(calls) == 2
-    assert calls[0].startswith("为「Python 工程实战」生成轻量课程目录")
-    assert calls[1].startswith("生成整门课所有小节教案")
+    assert len(calls) == 4
+    assert calls[0].startswith("为「Python 工程实战」规划全课章节骨架")
+    assert calls[2].startswith("规划全课知识职责骨架 V3")
     assert data["subject_pedagogy_profile"]["primary_mode"] == "programming_engineering"
     assert data["nodes"]
 
@@ -780,7 +851,7 @@ async def test_invalid_model_json_never_falls_back_to_placeholder_course(monkeyp
         return "这不是 JSON"
 
     monkeypatch.setattr(service, "_call_llm", invalid_json)
-    with pytest.raises(AIProviderRequestError, match="轻量课程目录未通过结构验收"):
+    with pytest.raises(AIProviderRequestError, match="完整课程目录未通过结构验收"):
         await service.build_course_draft(
             course_id="course-invalid-outline",
             topic="全新主题代号",
@@ -788,10 +859,9 @@ async def test_invalid_model_json_never_falls_back_to_placeholder_course(monkeyp
             pedagogy_mode="general",
         )
 
-    # Compact outline gets one correction, then the bounded chapter-skeleton
-    # path gets one correction. Invalid semantics still never become a fake
-    # placeholder course.
-    assert len(calls) == 4
+    # The complete chapter-skeleton path gets one bounded correction. Invalid
+    # semantics still never become a fake placeholder course.
+    assert len(calls) == 2
     assert not (tmp_path / "debug_failed_json.txt").exists()
 
 
@@ -1157,34 +1227,38 @@ def test_probability_style_quality_defects_no_longer_fail_the_course_plan():
 async def test_course_service_can_stop_after_outline_without_generating_knowledge(monkeypatch):
     service = CourseService()
     calls = []
-
-    async def fake_call_llm(prompt, _system_prompt, **_kwargs):
-        calls.append(prompt)
-        return json.dumps({
-            "course_title": "目录确认课程",
-            "learning_objectives": ["能完成目录确认"],
-            "prerequisites": [],
-            "chapters": [{
-                "title": "确认结构",
-                "sections": [{
-                    "title": "确认小节责任",
-                    "learning_objective": "能确认当前小节的责任与边界",
-                    "assessment": ["确认目录"],
-                    "scope_boundary": "不生成知识点和正文",
-                }],
+    plan = normalize_course_outline_contract({
+        "course_title": "目录确认课程",
+        "learning_objectives": ["能完成目录确认"],
+        "prerequisites": [],
+        "chapters": [{
+            "title": "确认结构",
+            "sections": [{
+                "title": "确认小节责任",
+                "learning_objective": "能确认当前小节的责任与边界",
+                "assessment": ["确认目录"],
+                "scope_boundary": "不生成知识点和正文",
             }],
-        }, ensure_ascii=False)
+        }],
+    })
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        calls.append(prompt)
+        if "全课章节骨架 V2" in system_prompt:
+            return _outline_skeleton_v2_response(plan)
+        return _outline_batch_v2_response(system_prompt, plan)
 
     monkeypatch.setattr(service, "_call_llm", fake_call_llm)
     data = await service.build_course_draft(
         course_id="course-outline-only",
         topic="目录确认课程",
         pedagogy_mode="general",
+        requirements="生成 1 章，共 1 个小节",
         stop_after_outline=True,
     )
 
-    assert len(calls) == 1
-    assert calls[0].startswith("为「目录确认课程」生成轻量课程目录")
+    assert len(calls) == 2
+    assert calls[0].startswith("为「目录确认课程」规划全课章节骨架")
     assert data["generation_status"] == "outline_ready"
     assert data["course_outline"]["chapters"][0]["sections"][0]["knowledge_structure"] == []
     assert "course_knowledge_base" not in data
@@ -1317,37 +1391,35 @@ def test_explicit_course_shape_is_compiled_as_a_hard_constraint():
 @pytest.mark.asyncio
 async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkeypatch):
     service = CourseService()
-    responses = [
-        "这不是 JSON",
-        json.dumps({
-            "course_title": "一元二次方程",
-            "learning_objectives": ["能判断根的情况并完成基础建模"],
-            "prerequisites": ["整式运算"],
-            "chapters": [{
-                "chapter_number": 1,
-                "title": "从判别到建模",
-                "learning_focus": "先判断解的结构，再把情境转化为方程",
-                "sections": [
-                    {
-                        "node_id": "L2-1-1",
-                        "section_number": "1.1",
-                        "title": "判别式与根的情况",
-                        "learning_objective": "能使用判别式判断实数根的个数",
-                        "prerequisite_node_ids": [],
-                        "assessment": ["判断三个方程的根的情况"],
-                    },
-                    {
-                        "node_id": "L2-1-2",
-                        "section_number": "1.2",
-                        "title": "实际问题建模",
-                        "learning_objective": "能把面积问题转化为一元二次方程并验根",
-                        "prerequisite_node_ids": ["L2-1-1"],
-                        "assessment": ["完成一个面积建模任务"],
-                    },
-                ],
-            }],
-        }, ensure_ascii=False),
-    ]
+    plan = normalize_course_outline_contract({
+        "course_title": "一元二次方程",
+        "learning_objectives": ["能判断根的情况并完成基础建模"],
+        "prerequisites": ["整式运算"],
+        "chapters": [{
+            "chapter_number": 1,
+            "title": "从判别到建模",
+            "learning_focus": "先判断解的结构，再把情境转化为方程",
+            "sections": [
+                {
+                    "node_id": "L2-1-1",
+                    "section_number": "1.1",
+                    "title": "判别式与根的情况",
+                    "learning_objective": "能使用判别式判断实数根的个数",
+                    "prerequisite_node_ids": [],
+                    "assessment": ["判断三个方程的根的情况"],
+                },
+                {
+                    "node_id": "L2-1-2",
+                    "section_number": "1.2",
+                    "title": "实际问题建模",
+                    "learning_objective": "能把面积问题转化为一元二次方程并验根",
+                    "prerequisite_node_ids": ["L2-1-1"],
+                    "assessment": ["完成一个面积建模任务"],
+                },
+            ],
+        }],
+    })
+    responses = ["这不是 JSON", _outline_skeleton_v2_response(plan)]
     prompts = []
 
     async def fake_call_llm(prompt, system_prompt, **_kwargs):
@@ -1366,6 +1438,8 @@ async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkey
                 system_prompt,
                 title_to_label,
             )
+        if "章节小节目录批次 V2" in system_prompt:
+            return _outline_batch_v2_response(system_prompt, plan)
         return responses.pop(0)
 
     monkeypatch.setattr(service, "_call_llm", fake_call_llm)
@@ -1376,11 +1450,11 @@ async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkey
         pedagogy_mode="math_formal",
     )
 
-    assert len(prompts) == 5
-    assert prompts[1].startswith("重新生成")
-    assert prompts[2].startswith("规划全课知识职责骨架 V3")
-    assert prompts[3].startswith("生成详细小节教案批次")
+    assert len(prompts) == 6
+    assert prompts[1].startswith("只修复全课章节骨架")
+    assert prompts[3].startswith("规划全课知识职责骨架 V3")
     assert prompts[4].startswith("生成详细小节教案批次")
+    assert prompts[5].startswith("生成详细小节教案批次")
     assert data["course_plan_constraint_report"]["passed"] is True
     assert data["course_plan_constraint_report"]["actual"] == {
         "chapter_count": 1,
@@ -1425,7 +1499,7 @@ def test_course_knowledge_skeleton_freezes_unique_owner_and_earlier_reuse():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("section_count", [2, 3, 12, 21])
-async def test_course_teaching_plan_uses_compact_or_bounded_batches(
+async def test_course_teaching_plan_always_uses_bounded_complete_pipeline(
     monkeypatch,
     section_count,
 ):
@@ -1482,16 +1556,6 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
                     for node_id in spec["expected_node_ids"]
                 ],
             }, ensure_ascii=False)
-        if prompt.startswith("生成整门课所有小节教案"):
-            response = json.loads(_teaching_plan_response(
-                system_prompt, title_to_label,
-            ))
-            for section in response["sections"]:
-                section["teaching_modules"] = []
-            return json.dumps(
-                response,
-                ensure_ascii=False,
-            )
         if prompt.startswith("规划全课知识职责骨架 V3"):
             return _teaching_skeleton_v3_response(
                 system_prompt, title_to_label,
@@ -1529,44 +1593,34 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
     assert course_data["generation_stage_artifacts"]["teaching"][
         "schema_version"
     ] == "course_teaching_plan_v3"
-    if section_count <= service._teaching_plan_budget.compact_max_sections:
-        assert stage["strategy"] == "compact_single_call"
-        assert stage["model_call_count"] == 1
-        assert len(calls) == 2
-    else:
-        expected_outline_calls = (
-            1
-            if section_count
-            <= service._outline_budget.compact_max_sections
-            else 1 + (
-                section_count
-                + service._outline_budget.batch_max_sections
-                - 1
-            ) // service._outline_budget.batch_max_sections
-        )
-        expected_batches = (
-            section_count
-            + service._teaching_plan_budget.batch_max_sections
-            - 1
-        ) // service._teaching_plan_budget.batch_max_sections
-        expected_skeleton_chunks = (
-            section_count
-            + service._teaching_plan_budget.skeleton_max_sections
-            - 1
-        ) // service._teaching_plan_budget.skeleton_max_sections
-        assert stage["strategy"] == "adaptive_skeleton_batches"
-        assert stage["schema_version"] == "course_teaching_plan_v3"
-        assert stage["batch_count"] == expected_batches
-        assert stage["skeleton_chunk_count"] == expected_skeleton_chunks
-        assert stage["model_call_count"] == (
-            expected_skeleton_chunks + expected_batches
-        )
-        assert len(calls) == (
-            expected_outline_calls
-            + expected_skeleton_chunks
-            + expected_batches
-        )
-        assert max_active_batches == min(4, expected_batches)
+    expected_outline_calls = 1 + (
+        section_count
+        + service._outline_budget.batch_max_sections
+        - 1
+    ) // service._outline_budget.batch_max_sections
+    expected_batches = (
+        section_count
+        + service._teaching_plan_budget.batch_max_sections
+        - 1
+    ) // service._teaching_plan_budget.batch_max_sections
+    expected_skeleton_chunks = (
+        section_count
+        + service._teaching_plan_budget.skeleton_max_sections
+        - 1
+    ) // service._teaching_plan_budget.skeleton_max_sections
+    assert stage["strategy"] == "adaptive_skeleton_batches"
+    assert stage["schema_version"] == "course_teaching_plan_v3"
+    assert stage["batch_count"] == expected_batches
+    assert stage["skeleton_chunk_count"] == expected_skeleton_chunks
+    assert stage["model_call_count"] == (
+        expected_skeleton_chunks + expected_batches
+    )
+    assert len(calls) == (
+        expected_outline_calls
+        + expected_skeleton_chunks
+        + expected_batches
+    )
+    assert max_active_batches == min(4, expected_batches)
     assert stage["knowledge_compilation_model_call_count"] == 0
     assert stage["graph_compilation_model_call_count"] == 0
     assert stage["section_count"] == section_count
@@ -1595,10 +1649,10 @@ async def test_course_teaching_plan_uses_compact_or_bounded_batches(
 
 
 @pytest.mark.asyncio
-async def test_compact_provider_failure_switches_to_adaptive_batches(
+async def test_single_section_course_never_uses_course_level_compact_path(
     monkeypatch,
 ):
-    labels = ["紧凑入口"]
+    labels = ["完整入口"]
     plan = _multi_section_outline(labels)
     title_to_label = {
         section["title"]: label
@@ -1614,8 +1668,10 @@ async def test_compact_provider_failure_switches_to_adaptive_batches(
 
     async def fake_call_llm(prompt, system_prompt, **_kwargs):
         calls.append(prompt)
-        if prompt.startswith("生成整门课所有小节教案"):
-            raise AIProviderRequestError("compact provider failed")
+        if "全课章节骨架 V2" in system_prompt:
+            return _outline_skeleton_v2_response(plan)
+        if "章节小节目录批次 V2" in system_prompt:
+            return _outline_batch_v2_response(system_prompt, plan)
         if prompt.startswith("规划全课知识职责骨架 V3"):
             return _teaching_skeleton_v3_response(
                 system_prompt,
@@ -1626,17 +1682,18 @@ async def test_compact_provider_failure_switches_to_adaptive_batches(
                 system_prompt,
                 title_to_label,
             )
-        return json.dumps(plan, ensure_ascii=False)
+        raise AssertionError((prompt, system_prompt))
 
     monkeypatch.setattr(service, "_call_llm", fake_call_llm)
 
     course_data = await service.build_course_draft(
-        course_id="course-compact-adaptive-fallback",
-        topic="紧凑链路恢复",
+        course_id="course-complete-single-section",
+        topic="完整链路验证",
         target_audience="大学生",
         depth="intermediate",
         style="academic",
         pedagogy_mode="general",
+        requirements="生成 1 章，共 1 个小节",
     )
 
     stage = course_data["generation_stage_artifacts"][
@@ -1645,12 +1702,14 @@ async def test_compact_provider_failure_switches_to_adaptive_batches(
     assert stage["status"] == "completed"
     assert stage["semantic_status"] == "ai_complete"
     assert stage["strategy"] == "adaptive_skeleton_batches"
-    assert stage["compact_fallback_reason"].startswith(
-        "compact_provider_error:"
-    )
-    assert stage["model_call_count"] == 3
+    assert "compact_fallback_reason" not in stage
+    assert stage["model_call_count"] == 2
     assert stage["degraded"] is False
     assert len(calls) == 4
+    assert not any(
+        prompt.startswith("生成整门课所有小节教案")
+        for prompt in calls
+    )
 
 
 @pytest.mark.asyncio

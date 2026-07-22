@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -145,26 +147,42 @@ async def test_outline_compacts_forty_thousand_character_requirement_before_api(
 
     async def fake_call(prompt, system_prompt, **kwargs):
         payloads.append((prompt, system_prompt, kwargs))
-        return """{
-          "course_title": "结构化课程",
-          "positioning": "完成一个可检查成果",
-          "learning_objectives": ["解释并应用核心方法"],
-          "prerequisites": [],
-          "chapters": [{
-            "chapter_number": 1,
-            "title": "基础",
-            "learning_focus": "建立核心能力",
-            "sections": [{
-              "node_id": "L2-1-1",
-              "section_number": "1.1",
-              "title": "核心方法",
-              "learning_objective": "能解释并应用核心方法",
-              "prerequisite_node_ids": [],
-              "assessment": ["完成一次应用任务"],
-              "scope_boundary": "只覆盖当前方法"
-            }]
-          }]
-        }"""
+        if "全课章节骨架 V2" in system_prompt:
+            return json.dumps({
+                "course_title": "结构化课程",
+                "positioning": "完成一个可检查成果",
+                "learning_objectives": ["解释并应用核心方法"],
+                "prerequisites": [],
+                "chapters": [
+                    {
+                        "chapter_number": chapter,
+                        "title": f"阶段 {chapter}",
+                        "learning_focus": f"完成阶段 {chapter}",
+                        "section_count": 3,
+                    }
+                    for chapter in range(1, 7)
+                ],
+            }, ensure_ascii=False)
+        match = re.search(
+            r"## 当前批次\n(\{.*?\})\n\n## 当前章已完成",
+            system_prompt,
+            re.S,
+        )
+        assert match, system_prompt
+        spec = json.loads(match.group(1))
+        return json.dumps({
+            "sections": [
+                {
+                    "node_id": node_id,
+                    "title": f"核心方法 {node_id}",
+                    "learning_objective": "能解释并应用核心方法",
+                    "prerequisite_node_ids": [],
+                    "assessment": ["完成一次应用任务"],
+                    "scope_boundary": "只覆盖当前方法",
+                }
+                for node_id in spec["expected_node_ids"]
+            ],
+        }, ensure_ascii=False)
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
     result = await service.build_course_draft(
@@ -174,18 +192,19 @@ async def test_outline_compacts_forty_thousand_character_requirement_before_api(
         stop_after_outline=True,
     )
 
-    assert len(payloads) == 1
-    user_prompt, system_prompt, kwargs = payloads[0]
-    assert len(user_prompt) + len(system_prompt) <= 20_000
-    assert AIBase.estimate_request_tokens(
-        user_prompt,
-        system_prompt,
-    ) <= 7_000
-    assert kwargs["max_input_chars"] == 20_000
-    assert kwargs["max_input_tokens"] == 7_000
+    assert len(payloads) == 7
+    for user_prompt, system_prompt, kwargs in payloads:
+        assert len(user_prompt) + len(system_prompt) <= 20_000
+        assert AIBase.estimate_request_tokens(
+            user_prompt,
+            system_prompt,
+        ) <= 7_000
+        assert kwargs["max_input_chars"] == 20_000
+        assert kwargs["max_input_tokens"] == 7_000
     outline_stage = result["generation_stage_artifacts"]["outline"]
-    assert outline_stage["adaptive_compaction_count"] == 1
-    assert outline_stage["prompt_detail_levels"][-1] in {
+    assert outline_stage["strategy"] == "hierarchical_chapter_batches"
+    assert outline_stage["adaptive_compaction_count"] >= 1
+    assert outline_stage["prompt_detail_levels"][0] in {
         "compact",
         "minimal",
     }

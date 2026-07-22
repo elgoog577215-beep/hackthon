@@ -6,13 +6,16 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import sys
 import os
 import logging
 import json
+
+try:
+    from static_serving import ImmutableStaticFiles, frontend_file_response
+except ImportError:
+    from backend.static_serving import ImmutableStaticFiles, frontend_file_response
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
@@ -215,11 +218,15 @@ index_html = os.path.join(static_dir, "index.html")
 
 if os.path.exists(static_dir) and os.path.exists(index_html):
     if os.path.exists(os.path.join(static_dir, "assets")):
-        app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
+        app.mount(
+            "/assets",
+            ImmutableStaticFiles(directory=os.path.join(static_dir, "assets")),
+            name="assets",
+        )
 
     @app.get("/")
     async def serve_root():
-        return FileResponse(index_html)
+        return frontend_file_response(index_html, entrypoint=True)
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
@@ -228,8 +235,8 @@ if os.path.exists(static_dir) and os.path.exists(index_html):
             raise HTTPException(status_code=404, detail="API endpoint not found")
         file_path = os.path.join(static_dir, full_path)
         if os.path.exists(file_path) and os.path.isfile(file_path):
-            return FileResponse(file_path)
-        return FileResponse(index_html)
+            return frontend_file_response(file_path)
+        return frontend_file_response(index_html, entrypoint=True)
 else:
     @app.get("/")
     async def root():

@@ -22,161 +22,12 @@ from course_knowledge_base import (
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
 )
-from course_pedagogy import TEMPLATES, SubjectPedagogyProfile, module_block_role
+from course_pedagogy import SubjectPedagogyProfile, module_block_role
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v22"
+PROMPT_CONTRACT_VERSION = "course_prompt_v23"
 
 
 class CoursePromptComposer:
-    def build_outline_prompt(
-        self,
-        *,
-        subject: str,
-        audience: str,
-        brief: dict[str, Any],
-        profile: SubjectPedagogyProfile,
-        difficulty_profile: dict[str, Any],
-        gap_assessment: dict[str, Any],
-        adaptation_decision: dict[str, Any],
-        material_context: str,
-        detail_level: str = "full",
-        compact_max_sections: int = 6,
-    ) -> str:
-        profile_data = profile.to_dict()
-        primary = TEMPLATES[profile.primary_mode]
-        guardrails = "\n".join(f"- {item}" for item in primary.quality_guardrails)
-        if detail_level != "full":
-            compact_chars = 240 if detail_level == "compact" else 120
-            compact_items = 10 if detail_level == "compact" else 5
-            subject = clip_text(subject, 240 if detail_level == "compact" else 120)
-            audience = clip_text(audience, 160 if detail_level == "compact" else 80)
-            brief = compact_value(
-                brief,
-                max_string_chars=compact_chars,
-                max_list_items=compact_items,
-                max_depth=4 if detail_level == "compact" else 3,
-            )
-            difficulty_profile = compact_value(
-                difficulty_profile,
-                max_string_chars=160 if detail_level == "compact" else 80,
-                max_list_items=8 if detail_level == "compact" else 4,
-                max_depth=3,
-            )
-            gap_assessment = compact_value(
-                gap_assessment,
-                max_string_chars=160 if detail_level == "compact" else 80,
-                max_list_items=6 if detail_level == "compact" else 3,
-                max_depth=3,
-            )
-            adaptation_decision = compact_value(
-                adaptation_decision,
-                max_string_chars=160 if detail_level == "compact" else 80,
-                max_list_items=6 if detail_level == "compact" else 3,
-                max_depth=3,
-            )
-            profile_data = compact_value(
-                profile_data,
-                max_string_chars=160 if detail_level == "compact" else 80,
-                max_list_items=8 if detail_level == "compact" else 4,
-                max_depth=3,
-            )
-            material_context = clip_text(
-                material_context,
-                5000 if detail_level == "compact" else 2200,
-            )
-        return f"""## 输出契约
-你只负责生成供用户审阅的轻量课程目录，不生成知识点、知识关系、正文或练习。
-只输出有效 JSON，不输出寒暄、计划或 Markdown 代码围栏。
-
-## 课程输入
-- 主题：{subject}
-- 学习对象：{audience}
-- 结构化 brief：{json.dumps(brief, ensure_ascii=False)}
-
-## 难度能力契约
-{format_difficulty_profile(difficulty_profile)}
-
-## 就绪度差距与适配
-- 差距评估：{json.dumps(gap_assessment, ensure_ascii=False)}
-- 适配决策：{json.dumps(adaptation_decision, ensure_ascii=False)}
-
-必须保持用户选择的目标难度。如果决策要求诊断、桥接或前置单元，将它体现在课程顺序和学习任务中，不得静默降级。
-
-## 教学画像
-{json.dumps(profile_data, ensure_ascii=False)}
-
-主模式决定课程顺序和最终考核。辅模式只在主任务依赖它的位置注入。不要把两套目录简单拼接。
-
-## 主模式质量边界
-{guardrails}
-
-## 资料上下文
-{material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
-
-## 目录要求
-1. 这是小课紧凑快速路径。用户明确指定章数或小节总数时必须精确满足；未指定小节总数时，本次最多生成 {compact_max_sections} 节。课程总规模没有固定产品上限，更大的课程由系统切换到章节骨架和分片链，不能在本次调用中压缩、截断或展开为大目录。
-2. 每个小节只承担一个明确、可观察、与其他小节不同的学习责任。
-3. 每个小节给出可观察学习目标、前置小节、范围边界和验收任务。
-4. 每个小节必须给出 `node_id`，统一使用 `L2-章号-节号`，例如第 1 章第 1 节是 `L2-1-1`。
-5. 前置依赖只能引用已经出现的 `node_id`，不得引用尚未出现的小节。
-6. 只需上下文衔接但可以独立生成的内容不要伪造成硬依赖。
-7. 不输出 `knowledge_structure`、`knowledge_relations`、`reused_knowledge_names`、正文、题目或内部知识 ID。
-8. 不编造论文、链接、书目、年份或未上传资料。
-
-## JSON Schema
-{{
-  "course_title": "课程名",
-  "positioning": "课程定位与最终成果",
-  "learning_objectives": ["可观察成果"],
-  "prerequisites": ["必要前置"],
-  "chapters": [
-    {{
-      "chapter_number": 1,
-      "title": "章节名",
-      "learning_focus": "本章能力推进",
-      "sections": [
-        {{
-          "node_id": "L2-1-1",
-          "section_number": "1.1",
-          "title": "小节名",
-          "learning_objective": "学完后能完成的任务",
-          "prerequisite_node_ids": [],
-          "assessment": ["验收标准或任务"],
-          "scope_boundary": "本节负责什么，以及明确不提前展开什么"
-        }}
-      ]
-    }}
-  ]
-}}"""
-
-    def build_outline_correction_prompt(
-        self,
-        *,
-        original_prompt: str,
-        brief: dict[str, Any],
-        issues: list[dict[str, Any]],
-    ) -> str:
-        issue_text = "\n".join(
-            f"- {clip_text(item.get('message'), 280)}" for item in issues[:12]
-        ) or "- 上一次输出不是完整有效的 JSON"
-        shape = brief.get("course_shape_constraints") or {}
-        original_prompt = clip_text(original_prompt, 9000)
-        return f"""
-## 轻量目录纠正任务
-
-上一次轻量课程目录未通过确定性验收：
-{issue_text}
-
-用户明确课程形状：
-- 章数：{shape.get('chapter_count') or '由教学设计决定'}
-- 小节总数：{shape.get('section_count') or '由教学设计决定'}
-
-请重新输出一份完整的轻量目录 JSON。不得输出知识点、知识关系、正文、Markdown
-围栏、占位目录或解释。所有原始要求、学科模式和难度契约仍以下面的原始契约为准。
-
-{original_prompt}
-""".strip()
-
     def build_outline_skeleton_v2_prompt(
         self,
         *,
@@ -244,6 +95,8 @@ class CoursePromptComposer:
 - 结构化 brief：{json.dumps(brief, ensure_ascii=False)}
 - 用户指定章数：{shape.get('chapter_count') or '未指定'}
 - 用户指定小节总数：{shape.get('section_count') or '未指定'}
+- 完整课程最低章数：{shape.get('minimum_chapter_count') or '按用户明确数量'}
+- 完整课程最低小节总数：{shape.get('minimum_section_count') or '按用户明确数量'}
 
 ## 难度与适配
 - 难度：{json.dumps(difficulty_profile, ensure_ascii=False)}
@@ -258,10 +111,11 @@ class CoursePromptComposer:
 
 ## 约束
 1. 用户指定章数或小节总数时必须精确满足；所有 `section_count` 之和必须等于指定总数。
-2. 未指定数量时按知识与能力依赖决定合理规模。课程总量没有固定产品上限。
-3. 每章只定义一个清晰、互不重复的学习推进范围，不能把小节详情塞进章节焦点。
-4. 章节按学习先后排列，后续章节不得重复承担前面已经完成的核心责任。
-5. 只返回章节骨架，不返回 `sections`、知识点、关系、正文或题目。
+2. 未指定数量时必须覆盖从必要前置到最终成果的完整知识与能力依赖，并达到上面的完整课程最低规模；可以按主题需要继续增加，课程总量没有固定产品上限。
+3. 这是所有课程统一使用的完整规划入口。单次批次大小只是执行预算，不得把整门课程压缩成一个批次或默认六节。
+4. 每章只定义一个清晰、互不重复的学习推进范围，不能把小节详情塞进章节焦点。
+5. 章节按学习先后排列，后续章节不得重复承担前面已经完成的核心责任。
+6. 只返回章节骨架，不返回 `sections`、知识点、关系、正文或题目。
 
 ## JSON Schema
 {{
@@ -416,158 +270,6 @@ class CoursePromptComposer:
 不得改变；不要输出解释或 Markdown 围栏。
 
 {clip_text(original_prompt, 8500)}
-""".strip()
-
-    def build_course_teaching_plan_prompt(
-        self,
-        *,
-        course_title: str,
-        positioning: str,
-        learning_objectives: list[str],
-        sections: list[dict[str, Any]],
-        detail_level: str = "full",
-    ) -> str:
-        if detail_level != "full":
-            course_title = clip_text(
-                course_title, 180 if detail_level == "compact" else 96
-            )
-            positioning = clip_text(
-                positioning, 240 if detail_level == "compact" else 120
-            )
-            learning_objectives = [
-                clip_text(item, 180 if detail_level == "compact" else 96)
-                for item in learning_objectives[:8 if detail_level == "compact" else 4]
-            ]
-            sections = compact_value(
-                sections,
-                max_string_chars=180 if detail_level == "compact" else 96,
-                max_list_items=12 if detail_level == "compact" else 8,
-                max_depth=5 if detail_level == "compact" else 4,
-            )
-        return f"""## 输出契约
-你一次性规划整门课所有小节的教案。目录已经冻结，不得修改章节、小节、顺序、
-目标或范围。教案确定本节知识、能力、掌握标准和需要额外强调的课程块职责；系统会
-把它编译到模板拥有的课程块骨架上、本地封装为唯一 `CourseTeachingPlanV3`，并从
-同一结果编译课程知识库，不存在第二次知识库或知识图谱生成。只输出有效 JSON，
-不输出解释或 Markdown 围栏。
-
-## 课程
-- 名称：{course_title}
-- 定位：{positioning}
-- 全课成果：{json.dumps(learning_objectives, ensure_ascii=False)}
-- 按教学顺序排列的小节与模板：{json.dumps(sections, ensure_ascii=False)}
-
-## 教案原则
-1. 必须按输入顺序完整返回每个 `node_id`，不得增删、改名或调序。
-2. 全课只维护一套知识身份。每个知识规范名称只在首次完整教学的小节定义一次；
-   后续使用只写入 `reused_knowledge_names`。
-3. 每节通常首次负责 2-5 个可单独解释、练习和诊断的原子知识点；不得把小节标题
-   直接当知识点，也不得为凑数量拆分同义节点。
-4. 每个知识点必须包含独立陈述、条件或边界、可观察能力、可验证掌握标准，以及
-   它为何是课程入口或依赖哪些此前已经定义的知识。
-5. `prerequisite_names` 只能引用本节更早出现或前序小节已定义的规范名称。确有
-   对比、推导、应用或一般化关系时可写入 `relations`；不得为了画图制造关系。
-6. 易错点只有能给出具体错误表现、辨别方法和修复策略时才生成。
-7. 模板拥有硬骨架：`required=true` 的块由系统自动保留，不需要为了确认而重复
-   返回；`required=false` 的块只在确有教学价值时选择。不得返回输入列表之外的块。
-8. `teaching_modules` 只表达需要额外强调的局部职责。返回某个块时，应说明具体
-   职责、负责的知识规范名称和写作指导；未显式绑定的新知识由系统绑定到核心教学
-   块。教案只拥有局部选择和强调自由，不能删除或改写模板硬约束。
-9. 遵守 `learning_objective`、`scope_boundary`、难度和编排风格，不提前完成后续
-   小节的核心教学，不输出正文、题目或内部稳定 ID。
-10. 带有 `evidence_hints` 时，只吸收与本节目标直接相关的资料概念，不得虚构来源。
-
-## JSON Schema
-{{
-  "sections": [
-    {{
-      "node_id": "L2-1-1",
-      "knowledge_structure": [
-        {{
-          "concept_group": "知识问题域",
-          "description": "该问题域在本节中的作用与边界",
-          "knowledge_points": [
-            {{
-              "name": "原子知识规范名称",
-              "statement": "独立成立的知识命题或操作规则",
-              "knowledge_type": "definition",
-              "conditions": ["成立条件"],
-              "boundaries": ["不适用范围或易混边界"],
-              "counterexamples": [],
-              "entry_reason": "没有前置知识时说明为何从这里开始，否则留空",
-              "prerequisite_names": [],
-              "relations": [
-                {{
-                  "target_name": "已经定义的相关知识名称",
-                  "relation_type": "contrasts_with",
-                  "reason": "具体关系理由",
-                  "distinction": "对比关系必须提供判别维度"
-                }}
-              ],
-              "capability_points": [
-                {{
-                  "name": "能力名称",
-                  "observable_behavior": "不依赖答案时可以观察到的动作",
-                  "required_evidence_types": ["practice_attempt"]
-                }}
-              ],
-              "misconceptions": [
-                {{
-                  "name": "错误模式",
-                  "observable_error_pattern": "具体怎样出错",
-                  "confused_with": "容易与什么混淆",
-                  "discrimination": "用什么条件或反例区分",
-                  "repair_strategy": "如何修复"
-                }}
-              ],
-              "mastery_criteria": [
-                {{
-                  "name": "掌握标准",
-                  "observable_performance": "独立表现",
-                  "required_independence": "independent",
-                  "required_transfer": "variation",
-                  "verification_method": "验证方法",
-                  "required_evidence_types": ["practice_attempt"]
-                }}
-              ],
-              "aliases": []
-            }}
-          ]
-        }}
-      ],
-      "reused_knowledge_names": [],
-      "knowledge_relations": [],
-      "teaching_modules": [
-        {{
-          "module_id": "输入模板中允许的模块 ID",
-          "teaching_purpose": "该课程块在本节承担的具体教学职责",
-          "knowledge_names": ["该块负责的知识规范名称"],
-          "teaching_guidance": "正文生成时必须体现的讲法、例子或学习者行动"
-        }}
-      ]
-    }}
-  ]
-}}""".strip()
-
-    def build_course_teaching_plan_correction_prompt(
-        self,
-        *,
-        original_prompt: str,
-        issues: list[dict[str, Any]],
-    ) -> str:
-        issue_text = "\n".join(
-            f"- {clip_text(item.get('message'), 280)}" for item in issues[:12]
-        ) or "- 上一次输出不是完整有效的 JSON"
-        original_prompt = clip_text(original_prompt, 9000)
-        return f"""## 全课小节教案结构纠正
-
-上一次整课教案存在以下结构或引用错误：
-{issue_text}
-
-只修复这些错误并重新输出完整 JSON。不得改变目录、模板、难度或课程风格，不得
-输出正文、评分、解释或 Markdown 围栏。
-
-{original_prompt}
 """.strip()
 
     def build_teaching_plan_skeleton_v3_prompt(

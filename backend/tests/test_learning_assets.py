@@ -222,6 +222,35 @@ def test_quality_gate_rejects_missing_required_questions():
     assert any(item["asset_type"] == "questions" for item in report["blocking_issues"])
 
 
+def test_unpublished_enhancement_candidates_do_not_block_core_course_release():
+    course = _course()
+    bundle = compile_learning_assets(course)
+    diagnostic = bundle["assets"]["diagnostic_templates"][0]
+    diagnostic["quality_status"] = "failed"
+    final = bundle["assets"]["final_assessment"][0]
+    final["quality_report"] = {"passed": False, "status": "failed"}
+    final["review_status"] = "needs_review"
+
+    report = evaluate_learning_asset_quality(
+        course,
+        bundle["plan"],
+        bundle["assets"],
+    )
+
+    assert not any(
+        item["asset_type"] in {"diagnostic_remediation", "final_assessment"}
+        for item in report["blocking_issues"]
+    )
+    assert any(
+        item["asset_type"] == "diagnostic_remediation"
+        for item in report["warnings"]
+    )
+    assert any(
+        "候选稿" in item["message"]
+        for item in report["warnings"]
+    )
+
+
 def test_question_analysis_is_compiled_without_ai_and_missing_contract_is_blocked():
     course = _course()
     bundle = compile_learning_assets(course)

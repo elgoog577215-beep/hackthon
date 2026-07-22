@@ -736,8 +736,27 @@ def build_final_course_quality_report(
             "按全课总编契约定点修复目标小节，保持其他章节不变",
             str(issue.get("node_id") or ""),
         ))
+    asset_quality = course_data.get("asset_quality_report") or {}
+    for issue in asset_quality.get("blocking_issues") or []:
+        blocking_issues.append(_issue(
+            f"asset:{issue.get('issue_id') or issue.get('asset_type') or 'quality'}",
+            str(issue.get("severity") or "major"),
+            str(issue.get("message") or "课程学习资产存在阻断问题"),
+            "仅修复未通过的学习资产，保留已经生成的教案与课程正文",
+            str(issue.get("asset_id") or ""),
+        ))
+    for issue in asset_quality.get("warnings") or []:
+        quality_warnings.append(_issue(
+            f"asset:{issue.get('issue_id') or issue.get('asset_type') or 'warning'}",
+            str(issue.get("severity") or "warning"),
+            str(issue.get("message") or "课程学习资产等待后续复核"),
+            "候选增强资产保持隔离，不影响当前正式学习内容",
+            str(issue.get("asset_id") or ""),
+        ))
     final_status = (
-        "passed"
+        "quality_failed"
+        if blocking_issues
+        else "passed"
         if blueprint_report.get("passed") and difficulty_alignment.get("passed")
         and grounding_quality.get("passed") and knowledge_quality.get("strict_passed")
         and coherence_quality.get("strict_passed") and not weak_nodes

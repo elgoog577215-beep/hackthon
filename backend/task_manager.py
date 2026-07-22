@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_base import AIProviderRequestError
+from assessment_orchestrator import AssessmentGenerationOrchestrator
 from content_blocks import set_node_content_blocks
 from course_coherence import (
     compile_course_coherence_contract,
@@ -117,6 +118,7 @@ from question_bank import (
     QuestionBankRepository,
     question_bank_repository,
     reconcile_question_bank,
+    reconcile_scoped_question_bank,
 )
 from question_search import enrich_question_bank_with_web
 from representation_compiler import (
@@ -229,7 +231,14 @@ def fix_latex_content(content: str) -> str:
             continue
         if in_code_fence:
             continue
-        normalized = re.sub(r"(?<!\\)\${3,}", "$$", line)
+        # Some providers still emit the legacy Markdown display form with a
+        # single dollar on its own line. The quality gate correctly rejects
+        # that form, so normalize it before a generated node is finalized.
+        # Literal dollars inside fenced code were excluded above.
+        if re.match(r"^\s*(?<!\\)\$\s*$", line):
+            normalized = re.sub(r"\$", "$$", line, count=1)
+        else:
+            normalized = re.sub(r"(?<!\\)\${3,}", "$$", line)
         lines[index] = normalized
         display_fence_count += len(
             re.findall(r"(?<!\\)\$\$", normalized)
@@ -266,6 +275,7 @@ class TaskManager:
         workspace_repository: GenerationWorkspaceRepository | None = None,
         document_repository: CourseDocumentRepository | None = None,
         question_bank_repository_override: QuestionBankRepository | None = None,
+        assessment_orchestrator_override: AssessmentGenerationOrchestrator | None = None,
     ) -> None:
         self.storage = storage
         self.course_service = course_service
@@ -300,6 +310,9 @@ class TaskManager:
         self._learning_asset_repository = asset_repository or learning_asset_repository
         self._question_bank_repository = (
             question_bank_repository_override or question_bank_repository
+        )
+        self._assessment_orchestrator = (
+            assessment_orchestrator_override or AssessmentGenerationOrchestrator()
         )
         self._generation_workspace_repository = workspace_repository or generation_workspace_repository
         self._course_document_repository = document_repository or CourseDocumentRepository(storage)
@@ -1825,8 +1838,9 @@ class TaskManager:
             return {
                 **base,
                 "state": "quality_blocked",
+                "can_resume": True,
                 "reason_code": "quality_gate_failed",
-                "reason": "内容已经生成，但结构或引用检查未通过；重复运行不会绕过同一错误",
+                "reason": "正文和教案已经保留；继续后只修复未通过的练习并重新执行发布检查",
                 "checkpoint": checkpoint,
             }
         if status in {"paused", "failed", "completed_with_warnings"}:
@@ -1952,6 +1966,13 @@ class TaskManager:
             return True
         if task.get("type") != "course_generation":
             return False
+        if await self._restart_legacy_compact_review_on_complete_pipeline(
+            task_id,
+            task,
+        ):
+            return True
+        if await self._reconcile_release_review_after_restart(task_id, task):
+            return False
         if (
             task.get("status") == "completed_with_warnings"
             and task.get("phase") == "quality_failed"
@@ -2025,6 +2046,271 @@ class TaskManager:
         self._node_retries[task_id] = {}
         return True
 
+    @staticmethod
+    def _mark_release_gate_blocked(workflow: dict[str, Any]) -> None:
+        """Remove an impossible release confirmation from the review state."""
+        release_state = guided_step_state(workflow, "release")
+        release_state["status"] = "needs_regeneration"
+        release_state["artifact_revision"] = None
+        release_state["input_revisions"] = {}
+        release_state["confirmed_at"] = None
+        workflow["current_step"] = "release"
+        workflow["review_step"] = None
+        workflow["updated_at"] = datetime.now().isoformat()
+
+    @staticmethod
+    def _repair_release_math_boundaries(course_data: dict[str, Any]) -> list[str]:
+        """Apply safe formatting-only repairs to persisted release candidates."""
+        repaired_node_ids: list[str] = []
+        recoverable_codes = {
+            "legacy_math_delimiter",
+            "unclosed_math_fence",
+        }
+        for node in course_data.get("nodes") or []:
+            if int(node.get("node_level") or 1) != 2:
+                continue
+            content = str(node.get("node_content") or "")
+            report = evaluate_node_content(content, node)
+            issue_codes = {
+                str(item.get("code") or "")
+                for item in report.get("issues") or []
+            }
+            if not issue_codes.intersection(recoverable_codes):
+                continue
+
+            changed = False
+            blocks = node.get("content_blocks")
+            if isinstance(blocks, list) and blocks:
+                for block in blocks:
+                    if not isinstance(block, dict):
+                        continue
+                    original = str(block.get("content") or "")
+                    fixed = fix_latex_content(original)
+                    if fixed != original:
+                        block["content"] = fixed
+                        changed = True
+                if changed:
+                    # Preserve logical block IDs and metadata while refreshing
+                    # fingerprints, revisions and the aggregate Markdown.
+                    set_node_content_blocks(node, content)
+            else:
+                fixed = fix_latex_content(content)
+                if fixed != content:
+                    node.pop("content_blocks", None)
+                    set_node_content_blocks(node, fixed)
+                    changed = True
+
+            if not changed:
+                continue
+            node["generation_quality"] = evaluate_node_content(
+                str(node.get("node_content") or ""),
+                node,
+            )
+            repaired_node_ids.append(str(node.get("node_id") or ""))
+        return repaired_node_ids
+
+    async def _reconcile_release_review_after_restart(
+        self,
+        task_id: str,
+        task: dict[str, Any],
+    ) -> bool:
+        """Re-evaluate persisted release gates instead of preserving a dead review.
+
+        Older jobs could be saved as ``waiting_for_review`` even though the
+        same artifact was stamped ``publication_allowed=false``. On restart we
+        deterministically re-run the current quality rules, repair only safe
+        math fence formatting, and either restore a genuinely confirmable
+        release gate or settle the job as ``quality_failed``.
+        """
+        workflow = task.get("guided_workflow")
+        if (
+            task.get("status") != "waiting_for_review"
+            or not isinstance(workflow, dict)
+            or str(workflow.get("review_step") or "") != "release"
+        ):
+            return False
+        course_data = self._load_task_course(task_id)
+        if not isinstance(course_data, dict):
+            return False
+        stored_quality = course_data.get("generation_quality_report") or {}
+        stored_source_chain = course_data.get("generation_source_chain_report") or {}
+        if (
+            stored_quality.get("publication_allowed") is True
+            and stored_source_chain.get("can_publish") is True
+        ):
+            # A healthy release review already has a clickable confirmation
+            # and must remain byte-for-byte stable across restarts.
+            return False
+
+        fresh_course = deepcopy(course_data)
+        repaired_node_ids = self._repair_release_math_boundaries(fresh_course)
+        if repaired_node_ids and guided_step_confirmed(workflow, "content"):
+            content_state = guided_step_state(workflow, "content")
+            content_state["artifact_revision"] = guided_artifact_revision(
+                "content",
+                fresh_course,
+                request=task.get("request_snapshot") or {},
+            )
+            content_state["input_revisions"] = guided_expected_input_revisions(
+                workflow,
+                "content",
+            )
+
+        asset_plan = fresh_course.get("learning_asset_plan") or {}
+        learning_assets = fresh_course.get("learning_assets") or {}
+        if asset_plan and learning_assets:
+            fresh_course["asset_quality_report"] = evaluate_learning_asset_quality(
+                fresh_course,
+                asset_plan,
+                learning_assets,
+            )
+        asset_quality = fresh_course.get("asset_quality_report") or {}
+        quality_report = build_final_course_quality_report(
+            fresh_course,
+            job_id=task_id,
+        )
+        quality_report["asset_quality"] = asset_quality
+        if (
+            quality_report.get("final_status") == "passed"
+            and asset_quality
+            and not asset_quality.get("passed", False)
+        ):
+            quality_report["final_status"] = "completed_with_warnings"
+
+        publication_allowed = self._quality_allows_publication(
+            fresh_course,
+            quality_report,
+        )
+        source_chain_report = build_source_chain_report(
+            workflow,
+            fresh_course,
+            request=task.get("request_snapshot") or {},
+        )
+        publication_allowed = bool(
+            publication_allowed and source_chain_report.get("can_publish")
+        )
+        quality_report["publication_allowed"] = publication_allowed
+        quality_report["source_chain_passed"] = bool(
+            source_chain_report.get("can_publish")
+        )
+        fresh_course["generation_quality_report"] = quality_report
+        fresh_course["generation_source_chain_report"] = source_chain_report
+        await self._save_task_course(task_id, fresh_course)
+
+        task["release_gate_reconciled_at"] = datetime.now().isoformat()
+        task["release_gate_repaired_node_ids"] = repaired_node_ids
+        if publication_allowed:
+            await self._pause_for_guided_review(
+                task_id,
+                fresh_course,
+                "release",
+                phase="release_ready",
+                progress=98,
+                message="全部检查通过，等待确认发布",
+                phase_detail={
+                    "publication_allowed": True,
+                    "source_chain_passed": True,
+                    "blocking_issue_count": 0,
+                    "restart_reconciled": True,
+                    "repaired_node_ids": repaired_node_ids,
+                },
+            )
+            return True
+
+        self._mark_release_gate_blocked(workflow)
+        await self._complete_task(task_id, fresh_course)
+        return True
+
+    async def _restart_legacy_compact_review_on_complete_pipeline(
+        self,
+        task_id: str,
+        task: dict[str, Any],
+    ) -> bool:
+        """Rebuild legacy compact outlines instead of preserving their size cap.
+
+        Review gates normally survive service restarts unchanged. V16 makes one
+        deliberate migration exception: a pre-V16 course whose outline did not
+        come from the hierarchical pipeline must be rebuilt before the user can
+        confirm either the outline or release. This repairs already-open 3x2
+        courses even if the user continued generating before deployment, without
+        touching current full-pipeline reviews or published courses.
+        """
+        workflow = task.get("guided_workflow")
+        if (
+            task.get("status") != "waiting_for_review"
+            or not isinstance(workflow, dict)
+            or str(workflow.get("review_step") or "") not in {"outline", "release"}
+        ):
+            return False
+        course_data = self._load_task_course(task_id) or {}
+        pipeline_version = str(
+            course_data.get("generation_pipeline_version")
+            or course_data.get("generation_schema_version")
+            or ""
+        )
+        outline_stage = (
+            (course_data.get("generation_stage_artifacts") or {}).get("outline")
+            or {}
+        )
+        if (
+            not pipeline_version.startswith("course_generation_v")
+            or pipeline_version == PIPELINE_VERSION
+            or outline_stage.get("strategy") == "hierarchical_chapter_batches"
+            or not course_data.get("course_outline")
+        ):
+            return False
+
+        rebuilt = deepcopy(course_data)
+        for field in (
+            "course_plan",
+            "course_outline",
+            "course_blueprint",
+            "course_outline_constraint_report",
+            "blueprint_validation_report",
+            "blueprint_revision_id",
+            "course_outline_revision_id",
+            "course_teaching_plan",
+            "course_knowledge_base",
+            "course_knowledge_map",
+            "course_knowledge_graph",
+            "generation_quality_report",
+            "generation_source_chain_report",
+            "learning_asset_plan",
+            "learning_assets",
+        ):
+            rebuilt.pop(field, None)
+        rebuilt["nodes"] = []
+        rebuilt["knowledge_relations"] = []
+        rebuilt["generation_stage_artifacts"] = {}
+        rebuilt["generation_status"] = "outline_rebuild_required"
+        await self._save_task_course(task_id, rebuilt)
+        workspace_id = str(task.get("workspace_id") or "")
+        if workspace_id:
+            await asyncio.to_thread(
+                self._generation_workspace_repository.clear_node_drafts,
+                workspace_id,
+            )
+        self._version_repository.delete_draft(str(task.get("course_id") or ""))
+
+        invalidate_guided_steps_after(workflow, "outline")
+        outline_state = guided_step_state(workflow, "outline")
+        outline_state["status"] = "pending"
+        outline_state["confirmed_at"] = None
+        outline_state["artifact_revision"] = None
+        workflow["current_step"] = "outline"
+        workflow["review_step"] = None
+        workflow["updated_at"] = datetime.now().isoformat()
+        task["status"] = "pending"
+        task["phase"] = "outline_rebuild_required"
+        task["current_phase"] = "outline_rebuild_required"
+        task["phase_progress"] = 0
+        task["message"] = "旧版精简目录正在按完整课程链路重新生成"
+        task["blueprint_confirmed"] = False
+        task.pop("blueprint_revision_id", None)
+        task["updated_at"] = datetime.now().isoformat()
+        self._node_retries[task_id] = {}
+        return True
+
     async def pause_task(self, task_id: str) -> None:
         """Pause a job and cancel its active model calls after saving drafts."""
         task = self.tasks.get(task_id)
@@ -2082,6 +2368,7 @@ class TaskManager:
             return {"status": "resumed", "task": self._task_view(task)}
 
         recovery = self.describe_task_recovery(task_id)
+        quality_repair = recovery.get("state") == "quality_blocked"
         if task.get("status") in {"pending", "running"}:
             return {"status": "already_active", "task": self._task_view(task)}
         if recovery.get("state") == "completed":
@@ -2096,9 +2383,15 @@ class TaskManager:
             if task.get("status") in {"pending", "running"}:
                 return {"status": "already_active", "task": self._task_view(task)}
             task["status"] = "pending"
-            task["phase"] = "resuming"
-            task["current_phase"] = "resuming"
-            task["message"] = "正在确认保存点并恢复任务"
+            task["phase"] = "practice_repair" if quality_repair else "resuming"
+            task["current_phase"] = task["phase"]
+            task["message"] = (
+                "正在保留课程正文并定位未通过的练习"
+                if quality_repair
+                else "正在确认保存点并恢复任务"
+            )
+            if quality_repair:
+                task["asset_repair_requested"] = True
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
 
@@ -2114,7 +2407,11 @@ class TaskManager:
             if workspace_id:
                 self._generation_workspace_repository.record_recovery(
                     workspace_id,
-                    reason="manual_resume",
+                    reason=(
+                        "asset_quality_repair"
+                        if quality_repair
+                        else "manual_resume"
+                    ),
                     automatic=False,
                 )
         except (CourseDocumentNotFound, CourseDocumentConflict) as exc:
@@ -2156,25 +2453,44 @@ class TaskManager:
             or recovery_checkpoint.get("draft_node_ids")
         )
         phase = (
+            "practice_repair"
+            if quality_repair
+            else
             "content_generation"
             if knowledge_ready or has_content_checkpoint
             else "course_teaching_plan"
             if has_outline
             else "requirement_analysis"
         )
-        progress_cap = 50 if knowledge_ready or has_content_checkpoint else 35 if has_outline else 0
+        progress_cap = (
+            94
+            if quality_repair
+            else 50
+            if knowledge_ready or has_content_checkpoint
+            else 35
+            if has_outline
+            else 0
+        )
         async with self._lock:
             task["status"] = "pending"
             task["phase"] = phase
             task["current_phase"] = phase
             task["progress"] = min(int(task.get("progress") or 0), progress_cap)
             task["phase_progress"] = 0
-            task["message"] = "已从保存点恢复，等待继续"
+            task["message"] = (
+                "已保留全部课程内容，等待定向修复练习"
+                if quality_repair
+                else "已从保存点恢复，等待继续"
+            )
             task["error"] = None
             task["current_nodes"] = []
             task["current_node_name"] = ""
             task["recovery_count"] = int(task.get("recovery_count") or 0) + 1
-            task["last_recovery_reason"] = "manual_resume"
+            task["last_recovery_reason"] = (
+                "asset_quality_repair"
+                if quality_repair
+                else "manual_resume"
+            )
             task["updated_at"] = datetime.now().isoformat()
             self._node_retries[task_id] = {}
             self.save_tasks()
@@ -4085,13 +4401,41 @@ class TaskManager:
             if not task:
                 return
             bounded_progress = max(0, min(int(progress), 100))
+            previous_phase = str(task.get("current_phase") or task.get("phase") or "")
+            previous_detail = task.get("phase_detail")
+            next_detail = deepcopy(phase_detail or {})
+            if (
+                phase == previous_phase == "outline_generation"
+                and isinstance(previous_detail, dict)
+                and isinstance(previous_detail.get("outline_growth"), dict)
+            ):
+                previous_growth = previous_detail["outline_growth"]
+                next_growth = next_detail.get("outline_growth")
+                if not isinstance(next_growth, dict):
+                    # Heartbeats carry only the active provider unit. Keep the
+                    # latest persisted tree so the visible outline never shrinks.
+                    next_detail["outline_growth"] = deepcopy(previous_growth)
+                elif int(next_growth.get("completed_sections") or 0) < int(
+                    previous_growth.get("completed_sections") or 0
+                ):
+                    # Parallel chapter calls can report an older snapshot after
+                    # another chapter saved. Preserve the monotonic tree while
+                    # still following the newly active batch.
+                    merged_growth = deepcopy(previous_growth)
+                    merged_growth["active_batch_id"] = next_growth.get(
+                        "active_batch_id"
+                    )
+                    merged_growth["active_chapter_number"] = next_growth.get(
+                        "active_chapter_number"
+                    )
+                    next_detail["outline_growth"] = merged_growth
             task["phase"] = phase
             task["current_phase"] = phase
             task["phase_progress"] = max(
                 0,
                 min(int(phase_progress if phase_progress is not None else bounded_progress), 100),
             )
-            task["phase_detail"] = phase_detail or {}
+            task["phase_detail"] = next_detail
             task["progress"] = max(int(task.get("progress") or 0), bounded_progress)
             task["message"] = message
             task["updated_at"] = datetime.now().isoformat()
@@ -4234,6 +4578,170 @@ class TaskManager:
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
 
+    @staticmethod
+    def _failed_practice_targets(
+        assets: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, list[str]]:
+        """Return only rejected learner-facing exercise slots by section."""
+        failed: dict[str, list[str]] = {}
+        for question in assets.get("questions") or []:
+            quality = question.get("quality_report") or {}
+            if (
+                question.get("quality_status") != "passed"
+                or quality.get("passed") is not True
+                or not question.get("practice_contract_revision_id")
+                or not question.get("input_contract")
+            ):
+                node_id = str(question.get("node_id") or "")
+                practice_level = str(question.get("practice_level") or "")
+                if node_id and practice_level:
+                    failed.setdefault(node_id, []).append(practice_level)
+        return {
+            node_id: list(dict.fromkeys(levels))
+            for node_id, levels in failed.items()
+        }
+
+    async def _repair_failed_practice_nodes(
+        self,
+        task_id: str,
+        asset_course: dict[str, Any],
+        question_bank_bundle: dict[str, Any],
+        asset_bundle: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """Use AI only for sections rejected by deterministic compilation.
+
+        Course content and already valid exercises stay immutable. This closes
+        the former gap where the generation pipeline required universal
+        exercises but never invoked the universal assessment orchestrator.
+        """
+        failed_targets = self._failed_practice_targets(
+            asset_bundle.get("assets") or {}
+        )
+        failed_node_ids = list(failed_targets)
+        if not failed_node_ids:
+            return question_bank_bundle, asset_bundle, {
+                "status": "not_needed",
+                "target_node_ids": [],
+                "target_node_count": 0,
+            }
+
+        self.tasks[task_id]["asset_repair_requested"] = True
+        self.save_tasks()
+        await self._update_phase(
+            task_id,
+            "practice_repair",
+            94,
+            f"正在定向修复 {len(failed_node_ids)} 个小节的练习，不重做课程正文",
+            phase_progress=70,
+            phase_detail={
+                "target_node_ids": failed_node_ids,
+                "target_node_count": len(failed_node_ids),
+                "repair_scope": "failed_practice_only",
+            },
+        )
+        completed_repair_nodes: list[str] = []
+
+        async def checkpoint_repaired_node(event: dict[str, Any]) -> None:
+            nonlocal question_bank_bundle
+            node_id = str(event.get("node_id") or "")
+            contracts = event.get("contracts") or {}
+            if not node_id or not event.get("passed") or not contracts:
+                return
+            partial_course = deepcopy(asset_course)
+            partial_course["_assessment_generated_contracts"] = {
+                node_id: deepcopy(contracts),
+            }
+            partial_compilation = compile_learning_assets(partial_course)
+            partial_question_bank = partial_compilation.pop(
+                "question_bank_bundle"
+            )
+            web_enrichment = deepcopy(
+                question_bank_bundle.get("web_enrichment") or {}
+            )
+            question_bank_bundle = reconcile_scoped_question_bank(
+                question_bank_bundle,
+                partial_question_bank,
+                node_ids=[node_id],
+                practice_levels_by_node={
+                    node_id: failed_targets.get(node_id) or [],
+                },
+                preserve_reviewed=True,
+                preserve_global_assessments=True,
+            )
+            question_bank_bundle["web_enrichment"] = web_enrichment
+            question_bank_bundle = self._question_bank_repository.save_bundle(
+                str(self.tasks[task_id]["course_id"]),
+                question_bank_bundle,
+                activate=False,
+            )
+            completed_repair_nodes.append(node_id)
+            await self._update_phase(
+                task_id,
+                "practice_repair",
+                94,
+                (
+                    f"练习已修复 {len(completed_repair_nodes)}/"
+                    f"{len(failed_node_ids)} 个小节"
+                ),
+                phase_progress=(
+                    70
+                    + int(
+                        len(completed_repair_nodes)
+                        / max(1, len(failed_node_ids))
+                        * 25
+                    )
+                ),
+                phase_detail={
+                    "completed_node_ids": completed_repair_nodes,
+                    "completed_node_count": len(completed_repair_nodes),
+                    "target_node_count": len(failed_node_ids),
+                    "checkpoint_policy": "per_section",
+                },
+            )
+
+        prepared_course = await self._assessment_orchestrator.prepare_course(
+            asset_course,
+            node_ids=failed_node_ids,
+            practice_levels_by_node=failed_targets,
+            on_chapter_complete=checkpoint_repaired_node,
+        )
+        repaired_compilation = compile_learning_assets(prepared_course)
+        rebuilt_question_bank = repaired_compilation.pop("question_bank_bundle")
+        repaired_question_bank = reconcile_scoped_question_bank(
+            question_bank_bundle,
+            rebuilt_question_bank,
+            node_ids=failed_node_ids,
+            preserve_reviewed=True,
+            preserve_global_assessments=True,
+            practice_levels_by_node=failed_targets,
+        )
+        # Web evidence belongs to the course-level source package. A scoped
+        # exercise repair must not erase the enrichment receipt of other nodes.
+        repaired_question_bank["web_enrichment"] = deepcopy(
+            question_bank_bundle.get("web_enrichment") or {}
+        )
+        repaired_assets = compile_learning_assets(
+            prepared_course,
+            question_bank_bundle=repaired_question_bank,
+        )
+        repaired_assets.pop("question_bank_bundle", None)
+        remaining_targets = self._failed_practice_targets(
+            repaired_assets.get("assets") or {}
+        )
+        remaining_node_ids = list(remaining_targets)
+        return repaired_question_bank, repaired_assets, {
+            "status": "passed" if not remaining_node_ids else "incomplete",
+            "target_node_ids": failed_node_ids,
+            "target_node_count": len(failed_node_ids),
+            "target_slot_count": sum(len(levels) for levels in failed_targets.values()),
+            "target_practice_levels": deepcopy(failed_targets),
+            "remaining_node_ids": remaining_node_ids,
+            "remaining_node_count": len(remaining_node_ids),
+            "generation_audit": deepcopy(
+                prepared_course.get("_assessment_generation_audit") or {}
+            ),
+        }
+
     async def _prepare_content_candidate(
         self,
         task_id: str,
@@ -4246,8 +4754,10 @@ class TaskManager:
         fresh_course = self._load_task_course(task_id) or course_data
         stage_artifacts = fresh_course.setdefault("generation_stage_artifacts", {})
         prepared = stage_artifacts.get("content_candidate") or {}
+        repair_requested = bool(task.get("asset_repair_requested"))
         if (
-            prepared.get("status") == "completed"
+            not repair_requested
+            and prepared.get("status") == "completed"
             and fresh_course.get("generation_quality_report")
             and fresh_course.get("asset_quality_report")
             and fresh_course.get("learning_asset_bundle_revision_id")
@@ -4310,17 +4820,23 @@ class TaskManager:
             "正在整理课程题库、覆盖矩阵与风险审核队列",
             phase_progress=55,
         )
-        question_bank_bundle = await enrich_question_bank_with_web(
-            fresh_course,
-            question_bank_bundle,
-        )
         previous_question_bank = self._question_bank_repository.load_bundle(
             str(task["course_id"])
         )
-        question_bank_bundle = reconcile_question_bank(
-            previous_question_bank,
-            question_bank_bundle,
-        )
+        if repair_requested and previous_question_bank:
+            # Node-level repair checkpoints are already immutable, validated
+            # question-bank revisions. Rebuilding them from deterministic
+            # fallbacks would throw away successful work from a prior run.
+            question_bank_bundle = previous_question_bank
+        else:
+            question_bank_bundle = await enrich_question_bank_with_web(
+                fresh_course,
+                question_bank_bundle,
+            )
+            question_bank_bundle = reconcile_question_bank(
+                previous_question_bank,
+                question_bank_bundle,
+            )
         # Recompile from the reconciled source of truth so teacher-reviewed
         # prompts and answer rubrics are the tasks frozen into this asset bundle.
         asset_bundle = compile_learning_assets(
@@ -4328,6 +4844,16 @@ class TaskManager:
             question_bank_bundle=question_bank_bundle,
         )
         asset_bundle.pop("question_bank_bundle", None)
+        (
+            question_bank_bundle,
+            asset_bundle,
+            practice_repair_summary,
+        ) = await self._repair_failed_practice_nodes(
+            task_id,
+            asset_course,
+            question_bank_bundle,
+            asset_bundle,
+        )
         # Learning-asset compilation deterministically assigns the objective
         # identities and course-knowledge bindings used by its own contracts.
         # Persist that exact node projection before evaluating or publishing so
@@ -4353,8 +4879,17 @@ class TaskManager:
             else "blocked"
         )
         fresh_course["question_analysis_summary"] = {
-            "source": "compiled_contract",
-            "model_call_count": 0,
+            "source": (
+                "targeted_ai_repair"
+                if practice_repair_summary.get("target_node_count")
+                else "compiled_contract"
+            ),
+            "model_call_count": int(
+                (
+                    practice_repair_summary.get("generation_audit") or {}
+                ).get("model_call_count")
+                or 0
+            ),
             "total": len(analyzed_questions),
             "passed": sum(
                 (item.get("question_analysis") or {}).get("status")
@@ -4367,6 +4902,7 @@ class TaskManager:
                 for item in analyzed_questions
             ),
         }
+        fresh_course["practice_repair_summary"] = practice_repair_summary
         question_bank_bundle = self._question_bank_repository.save_bundle(
             str(task["course_id"]),
             question_bank_bundle,
@@ -4450,8 +4986,22 @@ class TaskManager:
             "learning_asset_bundle_revision_id": fresh_course.get(
                 "learning_asset_bundle_revision_id"
             ),
+            "practice_repair": deepcopy(practice_repair_summary),
         }
+        if repair_requested and isinstance(task.get("guided_workflow"), dict):
+            workflow = task["guided_workflow"]
+            if guided_step_confirmed(workflow, "content"):
+                content_state = guided_step_state(workflow, "content")
+                content_state["artifact_revision"] = guided_artifact_revision(
+                    "content",
+                    fresh_course,
+                    request=task.get("request_snapshot") or {},
+                )
+                content_state["input_revisions"] = (
+                    guided_expected_input_revisions(workflow, "content")
+                )
         await self._save_task_course(task_id, fresh_course)
+        task.pop("asset_repair_requested", None)
         await self._update_progress(task_id, fresh_course)
         strict_quality_passed = (
             quality_report.get("final_status") == "passed"
@@ -4483,6 +5033,7 @@ class TaskManager:
         confirmed_content_checkpoint = bool(
             isinstance(guided_workflow, dict)
             and guided_step_confirmed(guided_workflow, "content")
+            and not task.get("asset_repair_requested")
             and content_stage.get("status") == "completed"
             and isinstance(
                 course_data.get("generation_quality_report"),
@@ -4558,29 +5109,26 @@ class TaskManager:
             fresh_course["generation_quality_report"] = quality_report
             await self._save_task_course(task_id, fresh_course)
             if not guided_step_confirmed(guided_workflow, "release"):
-                await self._pause_for_guided_review(
-                    task_id,
-                    fresh_course,
-                    "release",
-                    phase="release_ready",
-                    progress=98,
-                    message=(
-                        "全部检查通过，等待确认发布"
-                        if publication_allowed
-                        else "发布检查发现阻断问题，请查看检查结果"
-                    ),
-                    phase_detail={
-                        "publication_allowed": publication_allowed,
-                        "source_chain_passed": bool(
-                            source_chain_report.get("can_publish")
-                        ),
-                        "blocking_issue_count": len(
-                            quality_report.get("blocking_issues") or []
-                        )
-                        + len(source_chain_report.get("issues") or []),
-                    },
-                )
-                return
+                if publication_allowed:
+                    await self._pause_for_guided_review(
+                        task_id,
+                        fresh_course,
+                        "release",
+                        phase="release_ready",
+                        progress=98,
+                        message="全部检查通过，等待确认发布",
+                        phase_detail={
+                            "publication_allowed": True,
+                            "source_chain_passed": True,
+                            "blocking_issue_count": 0,
+                        },
+                    )
+                    return
+                # A release step cannot simultaneously be waiting for user
+                # confirmation and be impossible to confirm. Keep the quality
+                # evidence, clear the false review gate, and let the existing
+                # terminal branch settle this workspace as quality_failed.
+                self._mark_release_gate_blocked(guided_workflow)
 
         candidate_id = task.get("candidate_id")
         workspace_id = task.get("workspace_id")

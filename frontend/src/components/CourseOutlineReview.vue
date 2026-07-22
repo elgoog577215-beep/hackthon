@@ -264,28 +264,39 @@ async function confirmOutline() {
   flex:1;
   display:flex;
   overflow:hidden;
-  padding:10px clamp(14px,2.5vw,28px) 16px;
-  background:#f6f7f9;
+  padding:18px clamp(18px,3vw,40px) 26px;
+  background:radial-gradient(circle at 88% 2%,rgba(99,102,241,.065),transparent 28%),linear-gradient(180deg,#f8f9fc 0%,#f4f6f9 100%);
 }
 .outline-review__sheet {
-  width:min(1040px,100%);
+  position:relative;
+  width:min(1100px,100%);
   height:100%;
   min-height:0;
   display:grid;
   grid-template-rows:auto auto minmax(0,1fr) auto;
   margin:0 auto;
   overflow:hidden;
-  border:1px solid #dde1e8;
-  border-radius:10px;
-  background:#fff;
-  box-shadow:0 8px 22px rgba(30,41,59,.05);
+  border:1px solid rgba(208,213,223,.88);
+  border-radius:16px;
+  background:rgba(255,255,255,.98);
+  box-shadow:0 18px 48px rgba(30,41,59,.075),0 2px 7px rgba(30,41,59,.035);
+}
+.outline-review__sheet::before {
+  content:"";
+  position:absolute;
+  z-index:3;
+  top:0;
+  right:0;
+  left:0;
+  height:3px;
+  background:linear-gradient(90deg,#5963d8,#7a63e4 58%,#9956d9);
 }
 .outline-review__header {
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
-  gap:16px;
-  padding:13px 20px 11px;
+  gap:28px;
+  padding:26px 30px 22px;
   border-bottom:1px solid #e7e9ee;
 }
 .outline-review__eyebrow {
@@ -293,31 +304,31 @@ async function confirmOutline() {
   align-items:center;
   gap:7px;
   color:#087a5b;
-  font-size:9px;
+  font-size:12px;
   font-weight:850;
   letter-spacing:.08em;
 }
 .outline-review__header h1 {
-  margin:3px 0;
+  margin:7px 0 6px;
   color:#182230;
-  font:720 clamp(20px,1.65vw,24px)/1.18 var(--font-sans);
-  letter-spacing:-.015em;
+  font:700 clamp(27px,2.6vw,36px)/1.18 Georgia,"Noto Serif SC",serif;
+  letter-spacing:-.025em;
 }
 .outline-review__header p {
   max-width:660px;
   margin:0;
   color:#687386;
-  font-size:11px;
-  line-height:1.4;
+  font-size:13px;
+  line-height:1.65;
 }
 .outline-review__count {
   flex:0 0 auto;
-  padding:5px 8px;
+  padding:7px 11px;
   border:1px solid #d9e5e0;
   border-radius:999px;
   color:#26715d;
   background:#f2faf7;
-  font-size:9px;
+  font-size:12px;
   font-weight:750;
 }
 .outline-review__loading,
@@ -330,7 +341,7 @@ async function confirmOutline() {
   gap:9px;
   padding:30px;
   color:#687386;
-  font-size:11px;
+  font-size:13px;
 }
 .outline-review__loading svg {
   color:#4f46d9;
@@ -341,30 +352,30 @@ async function confirmOutline() {
   color:#9a4d13;
 }
 .outline-review__load-error > div { max-width:520px; }
-.outline-review__load-error p { margin:3px 0 0; color:#84664c; font-size:9px; }
+.outline-review__load-error p { margin:4px 0 0; color:#84664c; font-size:12px; }
 .outline-review__load-error button {
-  min-height:32px;
-  padding:0 11px;
+  min-height:38px;
+  padding:0 14px;
   border:1px solid #e2a753;
   border-radius:7px;
   color:#9a4d13;
   background:#fffaf0;
-  font-size:9px;
+  font-size:12px;
   font-weight:800;
   cursor:pointer;
 }
 .outline-review__course-name {
   display:grid;
-  grid-template-columns:84px minmax(0,1fr);
+  grid-template-columns:100px minmax(0,1fr);
   align-items:center;
-  gap:10px;
-  margin:0 20px;
-  padding:7px 0 6px;
+  gap:14px;
+  margin:0 30px;
+  padding:14px 0 12px;
   border-bottom:1px solid #eceef2;
 }
 .outline-review__course-name span {
   color:#7b8494;
-  font-size:9px;
+  font-size:12px;
   font-weight:750;
 }
 .outline-review input,
@@ -386,9 +397,9 @@ async function confirmOutline() {
   box-shadow:0 0 0 3px rgba(79,70,217,.08);
 }
 .outline-review__course-name input {
-  height:28px;
-  padding:0 8px;
-  font-size:12px;
+  height:36px;
+  padding:0 10px;
+  font-size:14px;
   font-weight:780;
 }
 .outline-review__nodes {
@@ -396,28 +407,28 @@ async function confirmOutline() {
   min-height:0;
   overflow:auto;
   margin:0;
-  padding:3px 20px 10px;
+  padding:6px 30px 18px;
   list-style:none;
 }
 .outline-review__nodes li {
   position:relative;
   display:grid;
-  grid-template-columns:28px 11px minmax(0,1fr);
-  gap:6px;
-  padding:5px 0;
+  grid-template-columns:34px 14px minmax(0,1fr);
+  gap:9px;
+  padding:10px 0;
   border-bottom:1px solid #eef0f3;
 }
 .outline-review__nodes li:last-child { border-bottom:0; }
 .outline-review__nodes li[data-level="1"] { margin-top:2px; }
 .outline-review__index {
-  padding-top:6px;
+  padding-top:8px;
   color:#969eac;
-  font:700 9px/1 ui-monospace,SFMono-Regular,monospace;
+  font:700 11px/1 ui-monospace,SFMono-Regular,monospace;
 }
 .outline-review__branch {
   width:8px;
   height:8px;
-  margin-top:5px;
+  margin-top:7px;
   border:1.5px solid #8f96a5;
   border-radius:50%;
   background:#fff;
@@ -425,30 +436,30 @@ async function confirmOutline() {
 .outline-review__nodes li[data-level="1"] .outline-review__branch {
   width:10px;
   height:10px;
-  margin-top:4px;
+  margin-top:6px;
   border:0;
   border-radius:3px;
   background:#4f5b70;
 }
 .outline-review__nodes input {
-  height:25px;
-  padding:0 6px;
-  font-size:11px;
+  height:31px;
+  padding:0 8px;
+  font-size:14px;
   font-weight:750;
 }
 .outline-review__nodes li[data-level="1"] input {
   color:#182230;
-  font-size:12px;
+  font-size:15px;
 }
 .outline-review__nodes textarea {
-  height:26px;
-  min-height:26px;
-  margin-top:1px;
-  padding:4px 6px;
+  height:38px;
+  min-height:38px;
+  margin-top:3px;
+  padding:7px 8px;
   resize:vertical;
   color:#687386;
-  font-size:9px;
-  line-height:1.35;
+  font-size:13px;
+  line-height:1.55;
 }
 .outline-review__empty {
   grid-row:3;
@@ -456,21 +467,21 @@ async function confirmOutline() {
   padding:42px 30px;
   color:#8a93a3;
   text-align:center;
-  font-size:10px;
+  font-size:13px;
 }
 .outline-review__footer {
   grid-row:4;
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:16px;
-  padding:7px 12px 7px 20px;
+  gap:24px;
+  padding:13px 18px 14px 30px;
   border-top:1px solid #dfe3e9;
   background:#fafbfc;
 }
 .outline-review__footer > div:first-child { min-width:0; }
-.outline-review__footer strong { color:#344054; font-size:10px; }
-.outline-review__footer p { margin:2px 0 0; color:#7b8494; font-size:8px; line-height:1.45; }
+.outline-review__footer strong { color:#344054; font-size:13px; }
+.outline-review__footer p { margin:3px 0 0; color:#7b8494; font-size:11px; line-height:1.5; }
 .outline-review__footer p.outline-review__action-error { color:#b42318; }
 .outline-review__actions {
   flex:0 0 auto;
@@ -478,14 +489,14 @@ async function confirmOutline() {
   gap:8px;
 }
 .outline-review__actions button {
-  min-height:32px;
+  min-height:40px;
   display:inline-flex;
   align-items:center;
   justify-content:center;
   gap:7px;
-  padding:0 13px;
-  border-radius:8px;
-  font-size:9px;
+  padding:0 16px;
+  border-radius:9px;
+  font-size:12px;
   font-weight:800;
   cursor:pointer;
 }
@@ -499,18 +510,21 @@ async function confirmOutline() {
   border:1px solid #3f47a8;
   color:#fff;
   background:#3f47a8;
+  box-shadow:0 7px 18px rgba(63,71,168,.18);
 }
+.outline-review__actions button:not(:disabled):hover { transform:translateY(-1px); }
 .outline-review__actions svg.lucide-loader-circle { animation:outline-review-spin .9s linear infinite; }
 @keyframes outline-review-spin { to { transform:rotate(360deg); } }
 @media (max-width:767px) {
-  .outline-review { padding:6px 5px 12px; }
-  .outline-review__sheet { border-radius:10px; }
-  .outline-review__header { display:grid; gap:6px; padding:12px 12px 10px; }
+  .outline-review { padding:8px 6px 14px; }
+  .outline-review__sheet { border-radius:13px; }
+  .outline-review__header { display:grid; gap:9px; padding:19px 16px 15px; }
+  .outline-review__header h1 { font-size:27px; }
   .outline-review__count { justify-self:start; }
-  .outline-review__course-name { grid-template-columns:1fr; gap:2px; margin:0 12px; padding:7px 0 6px; }
-  .outline-review__nodes { padding:3px 12px 9px; }
-  .outline-review__nodes li { grid-template-columns:25px 11px minmax(0,1fr); gap:5px; }
-  .outline-review__footer { align-items:stretch; flex-direction:column; gap:6px; padding:8px 10px 10px; }
+  .outline-review__course-name { grid-template-columns:1fr; gap:3px; margin:0 16px; padding:10px 0 8px; }
+  .outline-review__nodes { padding:4px 16px 12px; }
+  .outline-review__nodes li { grid-template-columns:26px 12px minmax(0,1fr); gap:6px; }
+  .outline-review__footer { align-items:stretch; flex-direction:column; gap:9px; padding:11px 12px 13px; }
   .outline-review__actions { display:grid; grid-template-columns:.85fr 1.15fr; }
   .outline-review__actions button { padding:0 9px; }
 }

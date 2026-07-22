@@ -45,7 +45,12 @@ export function courseProductionStageKey(task?: Task): CourseProductionStageKey 
 
 export function courseProductionStageStatus(task: Task | undefined, index: number): CourseProductionStageStatus {
   const activeIndex = courseProductionStageIndex(task)
-  if (task?.status === 'completed' || task?.status === 'completed_with_warnings') return 'completed'
+  if (task?.status === 'completed') return 'completed'
+  if (task?.status === 'completed_with_warnings' && task.publicationAllowed === false) {
+    if (index < 4) return 'completed'
+    return index === 4 ? 'blocked' : 'pending'
+  }
+  if (task?.status === 'completed_with_warnings') return 'completed'
   if (index < activeIndex) return 'completed'
   if (index > activeIndex) return 'pending'
   if (task?.status === 'error') return 'error'
@@ -78,7 +83,7 @@ export function courseProductionRecoveryDetail(task?: Task): string {
   const completedNodes = Number(checkpoint?.completed_nodes || 0)
   const reasonCode = String(task?.recovery?.reason_code || '')
 
-  if (reasonCode === 'quality_blocked') {
+  if (reasonCode === 'quality_gate_failed') {
     return t('courseGeneration.production.recoveryQuality', '发布检查发现阻断项；修复后可从当前现场继续。')
   }
   if (reasonCode === 'version_conflict' || task?.status === 'conflict') {

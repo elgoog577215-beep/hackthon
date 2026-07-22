@@ -47,6 +47,16 @@ describe('course production stage projection', () => {
     expect(courseProductionStageStatus(task({ status: 'waiting_for_review' }), 1)).toBe('review')
   })
 
+  it('质量阻断只卡住发布阶段，不把已完成内容伪装成发布成功', () => {
+    const blocked = task({
+      status: 'completed_with_warnings',
+      currentPhase: 'quality_failed',
+      publicationAllowed: false,
+    })
+    expect(courseProductionStageStatus(blocked, 3)).toBe('completed')
+    expect(courseProductionStageStatus(blocked, 4)).toBe('blocked')
+  })
+
   it('区分教案、正文与发布阶段', () => {
     expect(courseProductionStageIndex(task({ currentPhase: 'course_teaching_plan_batch' }))).toBe(2)
     expect(courseProductionStageIndex(task({ currentPhase: 'content_generation' }))).toBe(3)

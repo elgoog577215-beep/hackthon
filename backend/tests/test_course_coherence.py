@@ -203,6 +203,10 @@ def test_forward_prerequisite_is_a_blocking_contract_error():
 
 def test_duplicate_substantive_explanation_is_diagnostic_not_ai_repair_blocker():
     course = _course()
+    baseline = build_final_course_quality_report(
+        course,
+        job_id="coherence-baseline",
+    )
     duplicate = (
         "函数图像把每一个输入与对应输出放在坐标平面中，因此观察图像时必须同时检查定义域、"
         "变化方向和边界位置。只有把这些条件一起说明，单调区间与最值结论才有明确意义，"
@@ -219,7 +223,8 @@ def test_duplicate_substantive_explanation_is_diagnostic_not_ai_repair_blocker()
     assert coherence["passed"] is False
     assert coherence["duplicate_pair_count"] == 1
     assert any(item["code"] == "coherence:duplicate_explanation" for item in coherence["issues"])
-    assert final["final_status"] == "completed_with_warnings"
+    assert final["final_status"] == baseline["final_status"]
+    assert final["publication_allowed"] == baseline["publication_allowed"]
     assert not any(
         item["code"] == "coherence:duplicate_explanation"
         for item in final["blocking_issues"]
@@ -258,7 +263,7 @@ def test_teaching_plan_fallback_is_visible_in_final_review():
         job_id="teaching-fallback-test",
     )
 
-    assert report["final_status"] == "completed_with_warnings"
+    assert report["final_status"] == baseline["final_status"]
     assert report["publication_allowed"] == baseline["publication_allowed"]
     assert report["manual_review_required_nodes"] == ["L2-1-1"]
     assert any(

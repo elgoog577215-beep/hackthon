@@ -51,7 +51,6 @@ def _clip(value: Any, max_chars: int) -> str:
 class CourseOutlinePlanningBudget:
     """Per-unit outline execution settings, never a total-course ceiling."""
 
-    compact_max_sections: int = 6
     batch_max_sections: int = 6
     # Legacy names retained for callers. There is no whole-outline deadline;
     # the per-unit value means continuous stream inactivity.
@@ -61,12 +60,6 @@ class CourseOutlinePlanningBudget:
     @classmethod
     def from_env(cls) -> CourseOutlinePlanningBudget:
         return cls(
-            compact_max_sections=_env_int(
-                "COURSE_OUTLINE_COMPACT_MAX_SECTIONS",
-                6,
-                minimum=1,
-                maximum=8,
-            ),
             batch_max_sections=_env_int(
                 "COURSE_OUTLINE_BATCH_MAX_SECTIONS",
                 6,
@@ -81,20 +74,6 @@ class CourseOutlinePlanningBudget:
             ),
             total_timeout_seconds=0,
         )
-
-    def choose_mode(self, shape_constraints: dict[str, Any]) -> str:
-        """Use the compact fast path only when requested output is known small."""
-        sections = _positive_int(shape_constraints.get("section_count"))
-        chapters = _positive_int(shape_constraints.get("chapter_count"))
-        if sections is not None:
-            return (
-                "compact"
-                if sections <= self.compact_max_sections
-                else "hierarchical"
-            )
-        if chapters is not None and chapters > 2:
-            return "hierarchical"
-        return "compact"
 
 
 def outline_request_fingerprint(
@@ -211,6 +190,12 @@ def validate_outline_skeleton(
         ))
     expected_chapters = _positive_int(shape_constraints.get("chapter_count"))
     expected_sections = _positive_int(shape_constraints.get("section_count"))
+    minimum_chapters = _positive_int(
+        shape_constraints.get("minimum_chapter_count")
+    )
+    minimum_sections = _positive_int(
+        shape_constraints.get("minimum_section_count")
+    )
     actual_sections = sum(
         int(item.get("section_count") or 0)
         for item in chapters
@@ -224,6 +209,16 @@ def validate_outline_skeleton(
         issues.append(_issue(
             "outline_skeleton:section_count_mismatch",
             f"用户要求 {expected_sections} 节，骨架实际分配 {actual_sections} 节",
+        ))
+    if expected_chapters is None and minimum_chapters is not None and len(chapters) < minimum_chapters:
+        issues.append(_issue(
+            "outline_skeleton:below_complete_chapter_minimum",
+            f"完整课程至少需要 {minimum_chapters} 章，骨架实际为 {len(chapters)} 章",
+        ))
+    if expected_sections is None and minimum_sections is not None and actual_sections < minimum_sections:
+        issues.append(_issue(
+            "outline_skeleton:below_complete_section_minimum",
+            f"完整课程至少需要 {minimum_sections} 节，骨架实际分配 {actual_sections} 节",
         ))
     if (
         expected_chapters is not None
