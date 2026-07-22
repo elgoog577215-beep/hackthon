@@ -229,7 +229,14 @@ def fix_latex_content(content: str) -> str:
             continue
         if in_code_fence:
             continue
-        normalized = re.sub(r"(?<!\\)\${3,}", "$$", line)
+        # Some providers still emit the legacy Markdown display form with a
+        # single dollar on its own line. The quality gate correctly rejects
+        # that form, so normalize it before a generated node is finalized.
+        # Literal dollars inside fenced code were excluded above.
+        if re.match(r"^\s*(?<!\\)\$\s*$", line):
+            normalized = re.sub(r"\$", "$$", line, count=1)
+        else:
+            normalized = re.sub(r"(?<!\\)\${3,}", "$$", line)
         lines[index] = normalized
         display_fence_count += len(
             re.findall(r"(?<!\\)\$\$", normalized)
@@ -1928,6 +1935,8 @@ class TaskManager:
             task,
         ):
             return True
+        if await self._reconcile_release_review_after_restart(task_id, task):
+            return False
         if (
             task.get("status") == "completed_with_warnings"
             and task.get("phase") == "quality_failed"
@@ -1999,6 +2008,181 @@ class TaskManager:
         task["last_recovery_reason"] = "service_restart"
         task["updated_at"] = datetime.now().isoformat()
         self._node_retries[task_id] = {}
+        return True
+
+    @staticmethod
+    def _mark_release_gate_blocked(workflow: dict[str, Any]) -> None:
+        """Remove an impossible release confirmation from the review state."""
+        release_state = guided_step_state(workflow, "release")
+        release_state["status"] = "needs_regeneration"
+        release_state["artifact_revision"] = None
+        release_state["input_revisions"] = {}
+        release_state["confirmed_at"] = None
+        workflow["current_step"] = "release"
+        workflow["review_step"] = None
+        workflow["updated_at"] = datetime.now().isoformat()
+
+    @staticmethod
+    def _repair_release_math_boundaries(course_data: dict[str, Any]) -> list[str]:
+        """Apply safe formatting-only repairs to persisted release candidates."""
+        repaired_node_ids: list[str] = []
+        recoverable_codes = {
+            "legacy_math_delimiter",
+            "unclosed_math_fence",
+        }
+        for node in course_data.get("nodes") or []:
+            if int(node.get("node_level") or 1) != 2:
+                continue
+            content = str(node.get("node_content") or "")
+            report = evaluate_node_content(content, node)
+            issue_codes = {
+                str(item.get("code") or "")
+                for item in report.get("issues") or []
+            }
+            if not issue_codes.intersection(recoverable_codes):
+                continue
+
+            changed = False
+            blocks = node.get("content_blocks")
+            if isinstance(blocks, list) and blocks:
+                for block in blocks:
+                    if not isinstance(block, dict):
+                        continue
+                    original = str(block.get("content") or "")
+                    fixed = fix_latex_content(original)
+                    if fixed != original:
+                        block["content"] = fixed
+                        changed = True
+                if changed:
+                    # Preserve logical block IDs and metadata while refreshing
+                    # fingerprints, revisions and the aggregate Markdown.
+                    set_node_content_blocks(node, content)
+            else:
+                fixed = fix_latex_content(content)
+                if fixed != content:
+                    node.pop("content_blocks", None)
+                    set_node_content_blocks(node, fixed)
+                    changed = True
+
+            if not changed:
+                continue
+            node["generation_quality"] = evaluate_node_content(
+                str(node.get("node_content") or ""),
+                node,
+            )
+            repaired_node_ids.append(str(node.get("node_id") or ""))
+        return repaired_node_ids
+
+    async def _reconcile_release_review_after_restart(
+        self,
+        task_id: str,
+        task: dict[str, Any],
+    ) -> bool:
+        """Re-evaluate persisted release gates instead of preserving a dead review.
+
+        Older jobs could be saved as ``waiting_for_review`` even though the
+        same artifact was stamped ``publication_allowed=false``. On restart we
+        deterministically re-run the current quality rules, repair only safe
+        math fence formatting, and either restore a genuinely confirmable
+        release gate or settle the job as ``quality_failed``.
+        """
+        workflow = task.get("guided_workflow")
+        if (
+            task.get("status") != "waiting_for_review"
+            or not isinstance(workflow, dict)
+            or str(workflow.get("review_step") or "") != "release"
+        ):
+            return False
+        course_data = self._load_task_course(task_id)
+        if not isinstance(course_data, dict):
+            return False
+        stored_quality = course_data.get("generation_quality_report") or {}
+        stored_source_chain = course_data.get("generation_source_chain_report") or {}
+        if (
+            stored_quality.get("publication_allowed") is True
+            and stored_source_chain.get("can_publish") is True
+        ):
+            # A healthy release review already has a clickable confirmation
+            # and must remain byte-for-byte stable across restarts.
+            return False
+
+        fresh_course = deepcopy(course_data)
+        repaired_node_ids = self._repair_release_math_boundaries(fresh_course)
+        if repaired_node_ids and guided_step_confirmed(workflow, "content"):
+            content_state = guided_step_state(workflow, "content")
+            content_state["artifact_revision"] = guided_artifact_revision(
+                "content",
+                fresh_course,
+                request=task.get("request_snapshot") or {},
+            )
+            content_state["input_revisions"] = guided_expected_input_revisions(
+                workflow,
+                "content",
+            )
+
+        asset_plan = fresh_course.get("learning_asset_plan") or {}
+        learning_assets = fresh_course.get("learning_assets") or {}
+        if asset_plan and learning_assets:
+            fresh_course["asset_quality_report"] = evaluate_learning_asset_quality(
+                fresh_course,
+                asset_plan,
+                learning_assets,
+            )
+        asset_quality = fresh_course.get("asset_quality_report") or {}
+        quality_report = build_final_course_quality_report(
+            fresh_course,
+            job_id=task_id,
+        )
+        quality_report["asset_quality"] = asset_quality
+        if (
+            quality_report.get("final_status") == "passed"
+            and asset_quality
+            and not asset_quality.get("passed", False)
+        ):
+            quality_report["final_status"] = "completed_with_warnings"
+
+        publication_allowed = self._quality_allows_publication(
+            fresh_course,
+            quality_report,
+        )
+        source_chain_report = build_source_chain_report(
+            workflow,
+            fresh_course,
+            request=task.get("request_snapshot") or {},
+        )
+        publication_allowed = bool(
+            publication_allowed and source_chain_report.get("can_publish")
+        )
+        quality_report["publication_allowed"] = publication_allowed
+        quality_report["source_chain_passed"] = bool(
+            source_chain_report.get("can_publish")
+        )
+        fresh_course["generation_quality_report"] = quality_report
+        fresh_course["generation_source_chain_report"] = source_chain_report
+        await self._save_task_course(task_id, fresh_course)
+
+        task["release_gate_reconciled_at"] = datetime.now().isoformat()
+        task["release_gate_repaired_node_ids"] = repaired_node_ids
+        if publication_allowed:
+            await self._pause_for_guided_review(
+                task_id,
+                fresh_course,
+                "release",
+                phase="release_ready",
+                progress=98,
+                message="全部检查通过，等待确认发布",
+                phase_detail={
+                    "publication_allowed": True,
+                    "source_chain_passed": True,
+                    "blocking_issue_count": 0,
+                    "restart_reconciled": True,
+                    "repaired_node_ids": repaired_node_ids,
+                },
+            )
+            return True
+
+        self._mark_release_gate_blocked(workflow)
+        await self._complete_task(task_id, fresh_course)
         return True
 
     async def _restart_legacy_outline_review_on_complete_pipeline(
@@ -4587,29 +4771,26 @@ class TaskManager:
             fresh_course["generation_quality_report"] = quality_report
             await self._save_task_course(task_id, fresh_course)
             if not guided_step_confirmed(guided_workflow, "release"):
-                await self._pause_for_guided_review(
-                    task_id,
-                    fresh_course,
-                    "release",
-                    phase="release_ready",
-                    progress=98,
-                    message=(
-                        "全部检查通过，等待确认发布"
-                        if publication_allowed
-                        else "发布检查发现阻断问题，请查看检查结果"
-                    ),
-                    phase_detail={
-                        "publication_allowed": publication_allowed,
-                        "source_chain_passed": bool(
-                            source_chain_report.get("can_publish")
-                        ),
-                        "blocking_issue_count": len(
-                            quality_report.get("blocking_issues") or []
-                        )
-                        + len(source_chain_report.get("issues") or []),
-                    },
-                )
-                return
+                if publication_allowed:
+                    await self._pause_for_guided_review(
+                        task_id,
+                        fresh_course,
+                        "release",
+                        phase="release_ready",
+                        progress=98,
+                        message="全部检查通过，等待确认发布",
+                        phase_detail={
+                            "publication_allowed": True,
+                            "source_chain_passed": True,
+                            "blocking_issue_count": 0,
+                        },
+                    )
+                    return
+                # A release step cannot simultaneously be waiting for user
+                # confirmation and be impossible to confirm. Keep the quality
+                # evidence, clear the false review gate, and let the existing
+                # terminal branch settle this workspace as quality_failed.
+                self._mark_release_gate_blocked(guided_workflow)
 
         candidate_id = task.get("candidate_id")
         workspace_id = task.get("workspace_id")

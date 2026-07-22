@@ -476,6 +476,15 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
         )
 
     monkeypatch.setattr(manager, "_schedule_nodes", finish_content)
+    # This workflow test uses deliberately repetitive placeholder content; the
+    # quality contract is covered separately. Keep this case on the publishable
+    # branch so it tests review-gate sequencing instead of relying on the old
+    # impossible state (quality blocked + waiting for release confirmation).
+    monkeypatch.setattr(
+        manager,
+        "_quality_allows_publication",
+        lambda _course, _report: True,
+    )
     await manager._process_task(job["job_id"])
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"

@@ -102,6 +102,17 @@ def test_legacy_single_dollar_display_delimiter_blocks_release():
     assert report["passed"] is False
 
 
+def test_stream_finalizer_normalizes_legacy_display_math_delimiters():
+    cleaned = fix_latex_content(_content("\n\n$\nx^2 + y^2\n$"))
+    report = evaluate_node_content(cleaned, _node())
+
+    assert "\n\n$$\nx^2 + y^2\n$$" in cleaned
+    assert not any(
+        item["code"] == "legacy_math_delimiter"
+        for item in report["issues"]
+    )
+
+
 def test_unclosed_display_math_fence_blocks_release():
     report = evaluate_node_content(_content("\n\n$$\nx^2 + y^2"), _node())
 

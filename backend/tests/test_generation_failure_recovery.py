@@ -13,6 +13,13 @@ import pytest
 from course_repository import CourseDocumentRepository
 from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
+from guided_generation import (
+    artifact_revision,
+    confirm_waiting_step,
+    create_guided_workflow,
+    mark_waiting,
+    step_state,
+)
 from task_manager import TaskManager, TaskRecoveryConflict
 
 
@@ -96,6 +103,21 @@ async def _workspace_manager(tmp_path, monkeypatch, *, task_status: str = "runni
         "error": "provider connection closed" if task_status == "failed" else None,
     }
     return manager, storage, workspaces, versions, documents
+
+
+def _release_workflow(course: dict, request: dict | None = None) -> dict:
+    snapshot = request or {}
+    workflow = create_guided_workflow(snapshot)
+    for step in ("outline", "content"):
+        revision = artifact_revision(step, course, request=snapshot)
+        mark_waiting(workflow, step, revision=revision)
+        confirm_waiting_step(workflow, step, revision=revision)
+    mark_waiting(
+        workflow,
+        "release",
+        revision=artifact_revision("release", course, request=snapshot),
+    )
+    return workflow
 
 
 @pytest.mark.asyncio
@@ -275,6 +297,175 @@ async def test_quality_failure_is_not_exposed_as_runtime_retry(tmp_path, monkeyp
     with pytest.raises(TaskRecoveryConflict):
         await manager.resume_task("job-recovery")
     assert manager._task_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_blocked_release_settles_quality_failed_instead_of_dead_review(
+    tmp_path,
+    monkeypatch,
+):
+    manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path,
+        monkeypatch,
+    )
+    course = workspaces.load_course("job-recovery")
+    course.update({
+        "course_knowledge_base": {
+            "revision_id": "ckb_release",
+            "lifecycle_status": "active",
+        },
+        "course_knowledge_map": {
+            "course_knowledge_base_revision_id": "ckb_release",
+        },
+        "learning_asset_bundle_revision_id": "lab_release",
+        "asset_quality_report": {
+            "passed": False,
+            "blocking_issues": [{
+                "code": "questions:input_contract_missing",
+                "severity": "critical",
+                "message": "题目缺少正式练习契约",
+            }],
+        },
+        "generation_quality_report": {
+            "final_status": "completed_with_warnings",
+            "publication_allowed": False,
+            "blocking_issues": [],
+        },
+        "generation_stage_artifacts": {
+            "content_candidate": {"status": "completed"},
+        },
+    })
+    workflow = _release_workflow(course)
+    workspaces.save_course("job-recovery", course)
+    manager.tasks["job-recovery"].update({
+        "status": "running",
+        "phase": "finalizing",
+        "guided_workflow": workflow,
+    })
+
+    await manager._complete_task("job-recovery", course)
+
+    task = manager.tasks["job-recovery"]
+    assert task["status"] == "completed_with_warnings"
+    assert task["phase"] == "quality_failed"
+    assert task["guided_workflow"]["review_step"] is None
+    assert step_state(task["guided_workflow"], "release")["status"] == (
+        "needs_regeneration"
+    )
+    assert workspaces.load("job-recovery")["status"] == "quality_failed"
+
+
+@pytest.mark.asyncio
+async def test_restart_rechecks_dead_release_and_restores_confirmable_gate(
+    tmp_path,
+    monkeypatch,
+):
+    import task_manager as task_manager_module
+
+    manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path,
+        monkeypatch,
+    )
+    course = workspaces.load_course("job-recovery")
+    course.update({
+        "course_knowledge_base": {
+            "revision_id": "ckb_release",
+            "lifecycle_status": "active",
+        },
+        "course_knowledge_map": {
+            "course_knowledge_base_revision_id": "ckb_release",
+        },
+        "asset_quality_report": {
+            "passed": True,
+            "blocking_issues": [],
+        },
+        "generation_quality_report": {
+            "final_status": "completed_with_warnings",
+            "publication_allowed": False,
+            "blocking_issues": [{
+                "code": "legacy_stale_gate",
+                "severity": "critical",
+            }],
+        },
+    })
+    workflow = _release_workflow(course)
+    workspaces.save_course("job-recovery", course)
+    manager.tasks["job-recovery"].update({
+        "status": "waiting_for_review",
+        "phase": "release_ready",
+        "guided_workflow": workflow,
+    })
+    monkeypatch.setattr(
+        task_manager_module,
+        "build_final_course_quality_report",
+        lambda _course, job_id=None: {
+            "job_id": job_id,
+            "final_status": "passed",
+            "publication_allowed": True,
+            "blocking_issues": [],
+            "warnings": [],
+        },
+    )
+
+    should_queue = await manager._reconcile_task_after_restart("job-recovery")
+
+    assert should_queue is False
+    task = manager.tasks["job-recovery"]
+    assert task["status"] == "waiting_for_review"
+    assert task["guided_workflow"]["review_step"] == "release"
+    review = manager.get_generation_review("course-recovery")
+    assert review["step"] == "release"
+    assert review["can_confirm"] is True
+    assert review["artifact"]["publication_allowed"] is True
+    assert review["artifact"]["source_chain"]["can_publish"] is True
+
+
+@pytest.mark.asyncio
+async def test_restart_preserves_healthy_release_review_without_reconciliation(
+    tmp_path,
+    monkeypatch,
+):
+    manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path,
+        monkeypatch,
+    )
+    course = workspaces.load_course("job-recovery")
+    course.update({
+        "course_knowledge_base": {
+            "revision_id": "ckb_release",
+            "lifecycle_status": "active",
+        },
+        "course_knowledge_map": {
+            "course_knowledge_base_revision_id": "ckb_release",
+        },
+        "asset_quality_report": {"passed": True, "blocking_issues": []},
+        "generation_quality_report": {
+            "final_status": "passed",
+            "publication_allowed": True,
+            "blocking_issues": [],
+        },
+    })
+    workflow = _release_workflow(course)
+    course["generation_source_chain_report"] = {
+        "can_publish": True,
+        "issues": [],
+        "sentinel": "preserve-me",
+    }
+    workspaces.save_course("job-recovery", course)
+    manager.tasks["job-recovery"].update({
+        "status": "waiting_for_review",
+        "phase": "release_ready",
+        "guided_workflow": workflow,
+    })
+
+    should_queue = await manager._reconcile_task_after_restart("job-recovery")
+
+    assert should_queue is False
+    task = manager.tasks["job-recovery"]
+    assert task["status"] == "waiting_for_review"
+    assert "release_gate_reconciled_at" not in task
+    saved = workspaces.load_course("job-recovery")
+    assert saved["generation_source_chain_report"]["sentinel"] == "preserve-me"
 
 
 @pytest.mark.asyncio
