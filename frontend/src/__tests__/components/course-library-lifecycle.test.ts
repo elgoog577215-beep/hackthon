@@ -11,6 +11,7 @@ const router = createRouter({
   history: createMemoryHistory(),
   routes: [
     { path: '/courses', name: 'course-library', component: CourseLibraryView },
+    { path: '/course/:courseId/workbench', name: 'course-workbench', component: { template: '<div />' } },
     { path: '/course/:courseId/learn', name: 'learning', component: { template: '<div />' } },
   ],
 })
@@ -131,5 +132,36 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(router.currentRoute.value.name).toBe('learning')
     expect(router.currentRoute.value.params.courseId).toBe('course-live')
     expect(wrapper.findComponent({ name: 'CourseTaskCenter' }).props('modelValue')).toBe(false)
+  })
+
+  it('opens a published course through the unified Qizhi workbench', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [{ course_id: 'course-ready', course_name: '矩阵与线性变换', node_count: 12 }]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    await router.push('/courses')
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('.course-main').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('course-workbench')
+    expect(router.currentRoute.value.params.courseId).toBe('course-ready')
+    wrapper.unmount()
   })
 })

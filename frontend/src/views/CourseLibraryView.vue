@@ -192,7 +192,14 @@ function taskNeedsAttention(task: { status: string; publicationAllowed?: boolean
 }
 
 function openCourse(courseId: string, nodeId?: string) {
-  void router.push({ name: 'learning', params: { courseId, ...(nodeId ? { nodeId } : {}) } })
+  void router.push({
+    name: nodeId ? 'learning' : 'course-workbench',
+    params: { courseId, ...(nodeId ? { nodeId } : {}) },
+  })
+}
+
+function openGeneratingCourse(courseId: string) {
+  void router.push({ name: 'learning', params: { courseId } })
 }
 
 function openTaskCenter(courseId = '') {
@@ -215,7 +222,7 @@ async function generateCourse(payload: { subject: string; options: CourseGenerat
       return
     }
     createDialogOpen.value = false
-    openCourse(result.courseId)
+    openGeneratingCourse(result.courseId)
     void courseStore.fetchCourseList()
     ElMessage.success(t('courseLibrary.createStarted', '课程已开始生成，正在进入生成现场'))
   } catch {

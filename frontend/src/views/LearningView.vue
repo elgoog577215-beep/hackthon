@@ -302,6 +302,7 @@ const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
+const workflowOpenedAi = ref(false)
 const notebookOpen = ref(false)
 const mistakeBookOpen = ref(false)
 const statsOpen = ref(false)
@@ -714,6 +715,25 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   if (isNarrow.value) navigatorOpen.value = false
 }
 
+watch(
+  () => [route.query.surface, loadedLearningCourseId.value] as const,
+  ([surface, loadedCourseId]) => {
+    const growthRequested = String(surface || '') === 'growth'
+      && Boolean(loadedCourseId)
+      && loadedCourseId === courseStore.currentCourseId
+      && !isGenerationPreview.value
+    if (growthRequested) {
+      openAi()
+      workflowOpenedAi.value = true
+    } else if (workflowOpenedAi.value) {
+      aiVisible.value = false
+      activeDomain.value = 'course'
+      workflowOpenedAi.value = false
+
+    }
+  },
+  { immediate: true },
+)
 function openBlockImprovement(target: CourseBlockEditTarget) {
   activeDomain.value = 'assistant'
   aiBlockTarget.value = target
