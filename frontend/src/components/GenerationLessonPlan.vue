@@ -18,7 +18,7 @@
       <span v-else-if="live" class="generation-lesson-plan__working">
         <LoaderCircle :size="14" />
         {{ t('courseGeneration.lessonPlan.generating', '正在规划') }}
-        <b>{{ taskProgress }}%</b>
+        <b>{{ completedSections }}/{{ totalSections }}</b>
       </span>
     </header>
 
@@ -106,7 +106,19 @@ const sections = computed(() => lessonNodes.value.map(node => ({
   plan: planByNode.value.get(node.node_id),
 })))
 const planReady = computed(() => props.plan?.status === 'completed' && Boolean(props.plan.sections?.length))
-const taskProgress = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0)))))
+const completedSections = computed(() => Number(
+  props.task?.recovery?.checkpoint?.completed_teaching_plan_sections
+  ?? props.task?.phaseDetail?.completed_items
+  ?? props.plan?.sections?.length
+  ?? 0,
+))
+const totalSections = computed(() => Number(
+  props.task?.recovery?.checkpoint?.total_teaching_plan_sections
+  ?? props.task?.phaseDetail?.total_items
+  ?? props.plan?.section_count
+  ?? sections.value.length
+  ?? 0,
+))
 const moduleCount = computed(() => (props.plan?.sections || []).reduce(
   (sum, section) => sum + (section.teaching_modules?.length || 0),
   0,

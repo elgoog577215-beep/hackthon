@@ -50,9 +50,9 @@ const acting = ref(false)
 const error = ref('')
 const generationReview = ref<any>(null)
 
-const reviewStep = computed<'content' | 'release' | null>(() => {
+const reviewStep = computed<'teaching' | 'content' | 'release' | null>(() => {
   const step = props.task?.guidedWorkflow?.review_step
-  return step === 'content' || step === 'release' ? step : null
+  return step === 'teaching' || step === 'content' || step === 'release' ? step : null
 })
 const visible = computed(() => (
   props.task?.status === 'waiting_for_review'
@@ -66,15 +66,23 @@ const blockingIssues = computed<any[]>(() => [
 const canConfirm = computed(() => Boolean(generationReview.value?.can_confirm))
 const gateEyebrow = computed(() => reviewStep.value === 'release'
   ? t('courseGeneration.gate.releaseEyebrow', '最后一步')
+  : reviewStep.value === 'teaching'
+    ? t('courseGeneration.gate.teachingEyebrow', '第二步 · 需要确认')
   : t('courseGeneration.gate.legacyEyebrow', '旧任务衔接'))
 const gateTitle = computed(() => reviewStep.value === 'release'
   ? t('courseGeneration.gate.releaseTitle', '课程已经长成，可以确认发布')
+  : reviewStep.value === 'teaching'
+    ? t('courseGeneration.gate.teachingTitle', '全课教案已经生成，请确认教学安排')
   : t('courseGeneration.gate.legacyTitle', '正文已完成，继续准备发布'))
 const gateHelp = computed(() => reviewStep.value === 'release'
   ? t('courseGeneration.gate.releaseHelp', '发布后练习、笔记和 AI 老师正式开放；当前生成页会原地切换为学习页。')
+  : reviewStep.value === 'teaching'
+    ? t('courseGeneration.gate.teachingHelp', '确认后才会开始正文生成；教案和知识职责会成为每节正文的唯一依据。')
   : t('courseGeneration.gate.legacyHelp', '这是旧任务留下的确认点；继续后不会重新生成正文。'))
 const primaryLabel = computed(() => reviewStep.value === 'release'
   ? t('courseGeneration.gate.publish', '确认并发布')
+  : reviewStep.value === 'teaching'
+    ? t('courseGeneration.gate.confirmTeaching', '确认教案并生成正文')
   : t('courseGeneration.gate.continue', '继续准备发布'))
 const readinessLabel = computed(() => {
   const completed = Number(
@@ -94,6 +102,14 @@ const readinessLabel = computed(() => {
       .replace('{completed}', String(completed))
       .replace('{total}', String(total))
       .replace('{blockers}', String(blockingIssues.value.length))
+  }
+  if (reviewStep.value === 'teaching') {
+    const batches = Number(reviewArtifact.value?.completed_batches || 0)
+    const totalBatches = Number(reviewArtifact.value?.total_batches || 0)
+    const sectionText = t('courseGeneration.gate.teachingReadiness', '教案 {completed}/{total} 节已完成')
+      .replace('{completed}', String(completed))
+      .replace('{total}', String(total))
+    return totalBatches ? `${sectionText} · 批次 ${batches}/${totalBatches}` : sectionText
   }
   if (total) {
     return t('courseGeneration.gate.contentReadiness', '正文 {completed}/{total} 已完成')
@@ -135,6 +151,8 @@ async function confirmStep() {
     await courseStore.refreshCourseData(props.courseId)
     ElMessage.success(step === 'release'
       ? t('courseGeneration.gate.publishing', '已确认发布，正在完成最后保存')
+      : step === 'teaching'
+        ? t('courseGeneration.gate.teachingConfirmed', '教案已确认，正文开始逐节生成')
       : t('courseGeneration.gate.confirmed', '已确认，课程继续生成'))
     emit('confirmed', step)
   } catch {

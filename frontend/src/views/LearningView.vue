@@ -66,7 +66,7 @@
       />
 
       <GenerationLessonPlan
-        v-if="activeWorkspaceItem === 'lesson-plan'"
+        v-if="activeWorkspaceItem === 'lesson-plan' || showTeachingReview"
         :plan="courseStore.currentTeachingPlan"
         :nodes="courseStore.nodes"
         :active-node-id="courseStore.currentNode?.node_id"
@@ -356,6 +356,11 @@ const showOutlineReview = computed(() => Boolean(
   && activeWorkspaceItem.value === 'course'
   && generationTask.value?.status === 'waiting_for_review'
   && generationTask.value?.guidedWorkflow?.review_step === 'outline'
+))
+const showTeachingReview = computed(() => Boolean(
+  isGenerationPreview.value
+  && generationTask.value?.status === 'waiting_for_review'
+  && generationTask.value?.guidedWorkflow?.review_step === 'teaching'
 ))
 const showProductionStage = computed(() => Boolean(
   isGenerationPreview.value
@@ -692,7 +697,7 @@ async function resumeGenerationTask() {
   }
 }
 
-function handleGenerationGateConfirmed(_step?: 'outline' | 'content' | 'release') {
+function handleGenerationGateConfirmed(_step?: 'outline' | 'teaching' | 'content' | 'release') {
   autoFollowGeneration.value = true
   activeWorkspaceItem.value = 'course'
 }

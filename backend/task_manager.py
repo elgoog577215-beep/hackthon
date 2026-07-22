@@ -8,7 +8,7 @@
 #
 # 生成流程：
 # 1. 创建唯一 GenerationJob → 2. 生成并确认课程目录
-# 3. 一次生成全课小节教案并本地编译知识库 → 4. 并行生成正文
+# 3. 分批生成并确认全课小节教案 → 4. 并行生成正文
 # 5. 编译学习资产并执行确定性结构校验 → 6. 保存并推送进度
 #
 # Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 10.1, 10.2, 10.3, 10.4,
@@ -953,6 +953,7 @@ class TaskManager:
             task["phase_progress"] = 100
             task["message"] = {
                 "outline": "课程目录已确认，开始冻结全课知识职责并按预算生成详细教案与正文",
+                "teaching": "全课教案已确认，开始按小节持续生成课程正文",
                 "content": "课程内容已确认，开始执行结构与发布预检",
                 "release": "确认发布已完成，正在发布课程",
             }.get(step, "当前步骤已确认，继续生成")
@@ -1359,6 +1360,25 @@ class TaskManager:
                     for node in course_data.get("nodes") or []
                 ],
             }
+        elif step == "teaching":
+            teaching_plan = project_course_teaching_plan(course_data)
+            teaching_stage = deepcopy(
+                (course_data.get("generation_stage_artifacts") or {}).get(
+                    "course_teaching_plan"
+                ) or {}
+            )
+            sections = list(teaching_plan.get("sections") or [])
+            artifact = {
+                "status": str(teaching_plan.get("status") or teaching_stage.get("status") or ""),
+                "section_count": int(teaching_plan.get("section_count") or len(sections)),
+                "completed_count": len(sections),
+                "knowledge_point_count": int(teaching_plan.get("knowledge_point_count") or 0),
+                "teaching_module_count": int(teaching_plan.get("teaching_module_count") or 0),
+                "completed_batches": int(teaching_stage.get("completed_batch_count") or teaching_stage.get("completed_batches") or 0),
+                "total_batches": int(teaching_stage.get("batch_count") or teaching_stage.get("total_batches") or 0),
+                "semantic_status": teaching_stage.get("semantic_status"),
+                "sections": deepcopy(sections),
+            }
         elif step == "content":
             content_nodes = [
                 node
@@ -1496,6 +1516,15 @@ class TaskManager:
                 task.get("status") == "waiting_for_review"
                 and workflow.get("review_step") == step
                 and (
+                    (
+                        step != "teaching"
+                        or (
+                            artifact.get("status") == "completed"
+                            and artifact.get("completed_count") == artifact.get("section_count")
+                            and artifact.get("semantic_status") != "retry_required"
+                        )
+                    )
+                    and
                     (
                         step != "content"
                         or (
@@ -3085,6 +3114,36 @@ class TaskManager:
                 raise AIProviderRequestError(
                     "教案语义仍需重试，正文生成不会提前启动"
                 )
+            if guided and not guided_step_confirmed(guided_workflow, "teaching"):
+                teaching_plan = project_course_teaching_plan(course_data)
+                section_count = int(
+                    teaching_plan.get("section_count")
+                    or len(teaching_plan.get("sections") or [])
+                )
+                await self._pause_for_guided_review(
+                    task_id,
+                    course_data,
+                    "teaching",
+                    phase="teaching_plan_ready",
+                    progress=max(55, int(task.get("progress") or 0)),
+                    message="全课教案已生成，确认后将按小节持续生成正文",
+                    phase_detail={
+                        "artifact_type": "course_teaching_plan",
+                        "completed_items": section_count,
+                        "total_items": section_count,
+                        "completed_batches": int(
+                            teaching_stage.get("completed_batch_count")
+                            or teaching_stage.get("completed_batches")
+                            or 0
+                        ),
+                        "total_batches": int(
+                            teaching_stage.get("batch_count")
+                            or teaching_stage.get("total_batches")
+                            or 0
+                        ),
+                    },
+                )
+                return
             if not course_data.get("learning_asset_plan"):
                 course_data["learning_asset_plan"] = compile_learning_asset_plan(course_data)
                 if isinstance(course_data.get("course_blueprint"), dict):
@@ -3806,7 +3865,7 @@ class TaskManager:
                         request=task.get("request_snapshot") or {},
                     )
                     if (
-                        legacy_review in {"knowledge", "teaching"}
+                        legacy_review == "knowledge"
                         and task.get("status") == "waiting_for_review"
                     ):
                         task["status"] = "pending"

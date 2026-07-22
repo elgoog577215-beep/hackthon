@@ -1,4 +1,4 @@
-"""Deterministic state and revision rules for the four-step course workflow."""
+"""Deterministic state and revision rules for the staged course workflow."""
 
 from __future__ import annotations
 
@@ -8,10 +8,11 @@ from typing import Any
 
 from course_versioning import stable_hash
 
-GUIDED_WORKFLOW_SCHEMA = "guided_course_generation_v2"
+GUIDED_WORKFLOW_SCHEMA = "guided_course_generation_v3"
 GUIDED_STEP_KEYS = (
     "requirements",
     "outline",
+    "teaching",
     "content",
     "release",
 )
@@ -58,7 +59,12 @@ def migrate_guided_workflow(
     *,
     request: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Collapse persisted v1 knowledge/teaching gates into the v2 content step."""
+    """Migrate persisted workflows to explicit outline/teaching/content gates.
+
+    V2 briefly collapsed teaching review into content generation. V3 restores
+    the product contract: the confirmed outline produces a reviewable teaching
+    plan, and lesson content cannot start until that plan is confirmed.
+    """
     keys = [
         str(item.get("key") or "")
         for item in workflow.get("steps") or []
@@ -92,19 +98,29 @@ def migrate_guided_workflow(
 
     old_review = str(workflow.get("review_step") or "")
     old_current = str(workflow.get("current_step") or "")
-    if old_review in {"outline", "content", "release"}:
+    if old_review in {"outline", "teaching", "content", "release"}:
         migrated["review_step"] = old_review
         migrated["current_step"] = old_review
-    elif old_review in {"knowledge", "teaching"}:
+    elif old_review == "knowledge":
         migrated["review_step"] = None
-        migrated["current_step"] = "content"
-        content = step_state(migrated, "content")
-        if content.get("status") in {"locked", "needs_regeneration"}:
-            content["status"] = "pending"
-    elif old_current in {"outline", "content", "release"}:
+        migrated["current_step"] = "teaching"
+    elif old_current in {"outline", "teaching", "content", "release"}:
         migrated["current_step"] = old_current
-    elif old_current in {"knowledge", "teaching"}:
-        migrated["current_step"] = "content"
+    elif old_current == "knowledge":
+        migrated["current_step"] = "teaching"
+
+    teaching = step_state(migrated, "teaching")
+    content = step_state(migrated, "content")
+    outline = step_state(migrated, "outline")
+    if "teaching" not in old_by_key:
+        if content.get("status") in {
+            "confirmed", "waiting_for_confirmation", "in_progress",
+        }:
+            teaching["status"] = "confirmed"
+            teaching["artifact_revision"] = "migrated_v2_teaching"
+            teaching["confirmed_at"] = datetime.now().isoformat()
+        elif outline.get("status") == "confirmed":
+            teaching["status"] = "pending"
 
     for key in GUIDED_STEP_KEYS:
         item = step_state(migrated, key)
@@ -380,6 +396,21 @@ def artifact_revision(
             _outline_revision_payload(course_data),
             prefix="outline_",
         )
+    if step == "teaching":
+        return stable_hash(
+            {
+                "teaching_plan": course_data.get("course_teaching_plan") or {},
+                "section_modules": [
+                    {
+                        "node_id": node.get("node_id"),
+                        "module_plan": node.get("module_plan") or [],
+                    }
+                    for node in course_data.get("nodes") or []
+                    if int(node.get("node_level") or 1) == 2
+                ],
+            },
+            prefix="teaching_",
+        )
     if step == "content":
         return stable_hash(
             {
@@ -438,6 +469,11 @@ def build_source_chain_report(
         state = step_state(workflow, step)
         expected = str(state.get("artifact_revision") or "")
         actual = artifact_revision(step, course_data, request=request)
+        if step == "teaching" and expected == "migrated_v2_teaching":
+            # V2 jobs could already be producing content before the explicit
+            # teaching gate existed. Their persisted plan remains authoritative,
+            # but no historical teaching revision was stored to recompute.
+            actual = expected
         if (
             canonical_document
             and step != "requirements"
