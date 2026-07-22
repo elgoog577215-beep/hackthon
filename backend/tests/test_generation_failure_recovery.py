@@ -108,7 +108,7 @@ async def _workspace_manager(tmp_path, monkeypatch, *, task_status: str = "runni
 def _release_workflow(course: dict, request: dict | None = None) -> dict:
     snapshot = request or {}
     workflow = create_guided_workflow(snapshot)
-    for step in ("outline", "content"):
+    for step in ("outline", "teaching", "content"):
         revision = artifact_revision(step, course, request=snapshot)
         mark_waiting(workflow, step, revision=revision)
         confirm_waiting_step(workflow, step, revision=revision)
