@@ -223,37 +223,6 @@ body {
   background: var(--color-slate-400);
 }
 
-/* Smart Scaling for Laptops */
-@media (max-width: 1600px) {
-  body {
-    zoom: 0.85;
-  }
-  
-  #app, .h-screen {
-    height: 117.6vh !important;
-    width: 117.6vw !important;
-  }
-  
-  .el-overlay, .fixed.inset-0 {
-    height: 117.6vh !important;
-    width: 117.6vw !important;
-  }
-
-  @media (max-width: 768px) {
-    body {
-      zoom: 1;
-    }
-    #app, .h-screen {
-      height: 100vh !important;
-      width: 100vw !important;
-    }
-    .el-overlay, .fixed.inset-0 {
-      height: 100% !important;
-      width: 100% !important;
-    }
-  }
-}
-
 /* ============================================
    TYPOGRAPHY SYSTEM - Refined
    ============================================ */
