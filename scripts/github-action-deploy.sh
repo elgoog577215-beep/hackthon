@@ -7,10 +7,10 @@ CURRENT_LINK="${LINGZHI_CURRENT_LINK:-$BASE_DIR/hackthon}"
 RELEASES_DIR="${LINGZHI_RELEASES_DIR:-$BASE_DIR/releases}"
 STATE_DIR="${LINGZHI_STATE_DIR:-$BASE_DIR/state}"
 BACKUP_DIR="${LINGZHI_BACKUP_DIR:-$BASE_DIR/backups}"
-REPOSITORY_DIR="${LINGZHI_REPOSITORY_DIR:-$BASE_DIR/repository.git}"
 VENV="${LINGZHI_VENV:-$BASE_DIR/.venv}"
-REPOSITORY_URL="${LINGZHI_REPOSITORY_URL:-git@github.com-lingzhi:elgoog577215-beep/hackthon.git}"
-BRANCH="${LINGZHI_BRANCH:-main}"
+TARGET_COMMIT="${LINGZHI_TARGET_COMMIT:-}"
+ARTIFACT_PATH="${LINGZHI_ARTIFACT_PATH:-}"
+ARTIFACT_SHA256="${LINGZHI_ARTIFACT_SHA256:-}"
 HEALTH_URL="${LINGZHI_HEALTH_URL:-http://127.0.0.1:7862/api/health}"
 TASKS_URL="${LINGZHI_TASKS_URL:-${HEALTH_URL%/health}/tasks?limit=100}"
 SERVICE_NAME="${LINGZHI_SERVICE_NAME:-lingzhi}"
@@ -18,6 +18,8 @@ LOCK_FILE="${LINGZHI_DEPLOY_LOCK:-/var/lock/lingzhi-deploy.lock}"
 KEEP_RELEASES="${LINGZHI_KEEP_RELEASES:-2}"
 KEEP_BACKUPS="${LINGZHI_KEEP_BACKUPS:-10}"
 MIN_FREE_MB="${LINGZHI_MIN_FREE_MB:-2048}"
+HEALTH_ATTEMPTS="${LINGZHI_HEALTH_ATTEMPTS:-60}"
+HEALTH_INTERVAL_SECONDS="${LINGZHI_HEALTH_INTERVAL_SECONDS:-2}"
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
 service_stopped=0
@@ -39,6 +41,26 @@ validate_settings() {
     fi
     if ! [[ "$MIN_FREE_MB" =~ ^[0-9]+$ ]] || [ "$MIN_FREE_MB" -lt 1 ]; then
         log "LINGZHI_MIN_FREE_MB 必须是正整数"
+        exit 1
+    fi
+    if ! [[ "$HEALTH_ATTEMPTS" =~ ^[0-9]+$ ]] || [ "$HEALTH_ATTEMPTS" -lt 1 ]; then
+        log "LINGZHI_HEALTH_ATTEMPTS 必须是正整数"
+        exit 1
+    fi
+    if ! [[ "$HEALTH_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [ "$HEALTH_INTERVAL_SECONDS" -lt 1 ]; then
+        log "LINGZHI_HEALTH_INTERVAL_SECONDS 必须是正整数"
+        exit 1
+    fi
+    if ! [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+        log "LINGZHI_TARGET_COMMIT 必须是完整提交哈希"
+        exit 1
+    fi
+    if [ ! -f "$ARTIFACT_PATH" ]; then
+        log "找不到构建机上传的发布包：$ARTIFACT_PATH"
+        exit 1
+    fi
+    if ! [[ "$ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+        log "LINGZHI_ARTIFACT_SHA256 必须是完整 SHA-256"
         exit 1
     fi
 }
@@ -122,11 +144,11 @@ switch_current() {
 
 wait_for_health() {
     local attempt
-    for attempt in $(seq 1 40); do
+    for attempt in $(seq 1 "$HEALTH_ATTEMPTS"); do
         if curl --fail --silent --show-error --max-time 2 "$HEALTH_URL" >/dev/null; then
             return 0
         fi
-        sleep 1
+        sleep "$HEALTH_INTERVAL_SECONDS"
     done
     return 1
 }
@@ -191,17 +213,14 @@ cleanup_backups
 cleanup_releases
 ensure_free_space
 
-if [ ! -d "$REPOSITORY_DIR" ]; then
-    log "创建仓库缓存"
-    git clone --bare "$REPOSITORY_URL" "$REPOSITORY_DIR"
+printf '%s  %s\n' "$ARTIFACT_SHA256" "$ARTIFACT_PATH" | sha256sum --check --status
+artifact_listing="$(tar -tzf "$ARTIFACT_PATH")"
+if grep -Eq '(^|/)\.\.(/|$)|^/' <<< "$artifact_listing"; then
+    log "发布包包含不安全路径"
+    exit 1
 fi
 
-git --git-dir="$REPOSITORY_DIR" remote set-url origin "$REPOSITORY_URL"
-git --git-dir="$REPOSITORY_DIR" fetch --prune origin \
-    "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
-
-target_commit="$(git --git-dir="$REPOSITORY_DIR" rev-parse "refs/remotes/origin/$BRANCH")"
-release_path="$RELEASES_DIR/$target_commit"
+release_path="$RELEASES_DIR/$TARGET_COMMIT"
 
 if [ -e "$CURRENT_LINK" ]; then
     previous_path="$(readlink -f "$CURRENT_LINK")"
@@ -213,41 +232,36 @@ if [ ! -f "$release_path/.deploy-ready" ]; then
         exit 1
     fi
     rm -rf "$release_path"
-    log "准备版本：$target_commit"
-    git clone --shared --no-checkout "$REPOSITORY_DIR" "$release_path"
-    git -C "$release_path" checkout --detach "$target_commit"
+    log "解压构建机发布包：$TARGET_COMMIT"
+    mkdir -p "$release_path"
+    tar -xzf "$ARTIFACT_PATH" -C "$release_path" --no-same-owner
+
+    if [ "$(cat "$release_path/.release-commit" 2>/dev/null || true)" != "$TARGET_COMMIT" ]; then
+        log "发布包提交标记与目标提交不一致"
+        exit 1
+    fi
+    if [ ! -f "$release_path/backend/static/index.html" ]; then
+        log "发布包缺少前端构建产物"
+        exit 1
+    fi
+    if [ -n "$previous_path" ] \
+        && [ -f "$previous_path/backend/requirements.txt" ] \
+        && ! cmp -s "$previous_path/backend/requirements.txt" "$release_path/backend/requirements.txt"; then
+        log "后端依赖发生变化；标准发布禁止在低性能服务器安装依赖"
+        exit 1
+    fi
 
     rm -rf "$release_path/backend/data"
     ln -s "$STATE_DIR/backend-data" "$release_path/backend/data"
 
     if [ -f "$STATE_DIR/.env" ]; then
+        rm -f "$release_path/.env"
         ln -s "$STATE_DIR/.env" "$release_path/.env"
     fi
-
-    if [ -d /opt/nodejs/node-v24.12.0-linux-x64/bin ]; then
-        export PATH="/opt/nodejs/node-v24.12.0-linux-x64/bin:$PATH"
-    fi
-
-    log "安装前端依赖并构建"
-    (
-        cd "$release_path/frontend"
-        npm ci
-        VITE_BASE_PATH=/lingzhi/ npm run build
-    )
-
-    rm -rf "$release_path/backend/static"
-    mkdir -p "$release_path/backend/static"
-    cp -a "$release_path/frontend/dist/." "$release_path/backend/static/"
-
-    if [ ! -x "$VENV/bin/python" ]; then
-        python3 -m venv "$VENV"
-    fi
-    log "安装后端依赖"
-    "$VENV/bin/pip" install -r "$release_path/backend/requirements.txt"
-    log "清理前端构建缓存"
-    rm -rf "$release_path/frontend/node_modules" "$release_path/frontend/dist"
     touch "$release_path/.deploy-ready"
 fi
+
+rm -f "$ARTIFACT_PATH"
 
 if systemctl is-active --quiet "$SERVICE_NAME"; then
     if ! active_task_ids="$(active_generation_task_ids)"; then
@@ -304,7 +318,7 @@ fi
 
 service_stopped=0
 trap - ERR
-log "部署完成：$target_commit"
+log "部署完成：$TARGET_COMMIT"
 
 cleanup_backups
 cleanup_releases

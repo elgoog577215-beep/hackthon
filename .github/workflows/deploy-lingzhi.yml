@@ -16,12 +16,26 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - name: Checkout deployment script
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Deploy on server
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build release artifact on runner
+        env:
+          LINGZHI_TARGET_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          scripts/build-deploy-artifact.sh "/tmp/lingzhi-release-${GITHUB_SHA}.tgz"
+
+      - name: Configure deployment SSH
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -37,10 +51,42 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
+      - name: Upload release artifact
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          remote_artifact="/opt/lingzhi/incoming/lingzhi-release-${GITHUB_SHA}.tgz"
           ssh \
             -i ~/.ssh/lingzhi_deploy \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "bash -s" < scripts/github-action-deploy.sh
+            "install -d -m 700 /opt/lingzhi/incoming"
+          scp \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "/tmp/lingzhi-release-${GITHUB_SHA}.tgz" \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_artifact"
+
+      - name: Activate release on server
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          local_artifact="/tmp/lingzhi-release-${GITHUB_SHA}.tgz"
+          remote_artifact="/opt/lingzhi/incoming/lingzhi-release-${GITHUB_SHA}.tgz"
+          artifact_sha256="$(sha256sum "$local_artifact" | awk '{print $1}')"
+          ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "LINGZHI_TARGET_COMMIT='$GITHUB_SHA' LINGZHI_ARTIFACT_PATH='$remote_artifact' LINGZHI_ARTIFACT_SHA256='$artifact_sha256' bash -s" \
+            < scripts/github-action-deploy.sh
