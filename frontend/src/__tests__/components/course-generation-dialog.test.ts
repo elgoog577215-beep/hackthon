@@ -32,6 +32,12 @@ describe('CourseGenerationDialog', () => {
     await wrapper.find('[data-testid="web-question-enrichment"]').setValue(true)
     expect(wrapper.text()).toContain('四步完成课程')
     expect(wrapper.findAll('.guided-intro__steps li')).toHaveLength(4)
+    expect(wrapper.findAll('.guided-intro__steps strong').map(item => item.text())).toEqual([
+      '目录确认',
+      '教案确认',
+      '正文生成',
+      '确认发布',
+    ])
     expect(wrapper.text()).not.toContain('直接生成')
     await wrapper.get('#course-requirements').setValue('保留完整推导，并提供独立练习')
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')

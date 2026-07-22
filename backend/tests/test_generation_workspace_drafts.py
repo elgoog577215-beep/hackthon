@@ -98,6 +98,40 @@ def test_finalized_main_content_wins_over_stale_sidecar(tmp_path):
     assert "node_content_draft" not in node
 
 
+def test_workspace_atomic_write_retries_transient_windows_file_lock(
+    tmp_path, monkeypatch,
+):
+    import generation_workspace as workspace_module
+
+    repository = GenerationWorkspaceRepository(tmp_path / "workspaces")
+    repository.create(
+        "job-draft",
+        course_id="course-draft",
+        course_data=_course(),
+    )
+    real_replace = workspace_module.os.replace
+    attempts = 0
+
+    def replace_after_transient_lock(source, target):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("temporarily locked")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(workspace_module.os, "replace", replace_after_transient_lock)
+    monkeypatch.setattr(workspace_module.time, "sleep", lambda _seconds: None)
+
+    updated = repository.update_course(
+        "job-draft",
+        lambda course: {**course, "course_name": "重试成功"},
+    )
+
+    assert attempts == 2
+    assert updated["course_name"] == "重试成功"
+    assert repository.load_course("job-draft")["course_name"] == "重试成功"
+
+
 @pytest.mark.asyncio
 async def test_task_manager_clears_sidecar_after_final_commit(tmp_path, monkeypatch):
     import task_manager as task_manager_module

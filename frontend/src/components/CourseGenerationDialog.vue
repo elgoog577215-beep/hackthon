@@ -137,8 +137,8 @@
 
           <section class="form-section guided-intro">
             <div class="guided-intro__heading">
-              <strong>{{ t('courseGeneration.guided.title', '四步完成课程') }}</strong>
-              <span>{{ t('courseGeneration.guided.help', '确认目录后，系统先冻结全课知识职责，再按预算生成详细教案与各节正文。') }}</span>
+              <strong>{{ t('courseGeneration.guided.title', '提交需求后，四步完成课程') }}</strong>
+              <span>{{ t('courseGeneration.guided.help', '目录和教案分别确认；正文边生成边显示，最后由你确认发布。') }}</span>
             </div>
             <ol class="guided-intro__steps">
               <li v-for="(label, index) in guidedStepLabels" :key="label">
@@ -299,9 +299,9 @@ const purposeOptions = computed(() => ([
   { value: 'personalized_remedial' as const, label: t('courseWorkspace.purpose.personalized_remedial', '个性补弱') },
 ]))
 const guidedStepLabels = computed(() => [
-  t('courseGeneration.guided.requirements', '需求'),
-  t('courseGeneration.guided.outline', '目录'),
-  t('courseGeneration.guided.content', '课程生成'),
+  t('courseGeneration.guided.outline', '目录确认'),
+  t('courseGeneration.guided.teaching', '教案确认'),
+  t('courseGeneration.guided.content', '正文生成'),
   t('courseGeneration.guided.release', '确认发布'),
 ])
 
@@ -379,7 +379,7 @@ async function submit() {
 .guided-intro__heading { display:flex; align-items:baseline; justify-content:space-between; gap:18px; }
 .guided-intro__heading strong { color:var(--lz-text-strong); font-size:12px; }
 .guided-intro__heading span { color:var(--lz-text-muted); font-size:10px; text-align:right; }
-.guided-intro__steps { margin:0; padding:0; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); list-style:none; }
+.guided-intro__steps { margin:0; padding:0; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; }
 .guided-intro__steps li { position:relative; min-width:0; display:grid; justify-items:center; gap:6px; color:var(--lz-text-secondary); font-size:10px; text-align:center; }
 .guided-intro__steps li:not(:last-child)::after { content:""; position:absolute; top:12px; left:calc(50% + 16px); right:calc(-50% + 16px); height:1px; background:var(--lz-border); }
 .guided-intro__steps span { position:relative; z-index:1; width:25px; height:25px; display:grid; place-items:center; border:1px solid rgba(99,102,241,.24); border-radius:50%; color:var(--lz-brand-strong); background:#fff; font-family:ui-monospace,monospace; font-weight:750; }

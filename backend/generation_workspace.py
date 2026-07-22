@@ -9,7 +9,9 @@ import os
 from pathlib import Path
 import re
 import threading
+import time
 from typing import Any, Callable
+import uuid
 
 from storage import DATA_DIR
 
@@ -275,16 +277,32 @@ class GenerationWorkspaceRepository:
     @staticmethod
     def _atomic_write(path: Path, data: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(path.suffix + ".tmp")
+        temp = path.with_suffix(
+            f"{path.suffix}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}.tmp"
+        )
         try:
             with temp.open("w", encoding="utf-8") as handle:
                 json.dump(data, handle, ensure_ascii=False, indent=2)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temp, path)
+            for attempt in range(6):
+                try:
+                    os.replace(temp, path)
+                    break
+                except OSError as exc:
+                    retryable = (
+                        isinstance(exc, PermissionError)
+                        or getattr(exc, "winerror", None) in {5, 32}
+                    )
+                    if not retryable or attempt == 5:
+                        raise
+                    time.sleep(0.05 * (2 ** attempt))
         finally:
             if temp.exists():
-                temp.unlink()
+                try:
+                    temp.unlink()
+                except OSError:
+                    pass
 
     @staticmethod
     def _unlink_with_temp(path: Path) -> bool:

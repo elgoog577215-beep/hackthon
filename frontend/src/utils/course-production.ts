@@ -25,17 +25,19 @@ export function courseProductionStageIndex(task?: Task): number {
 
   const reviewStep = task.guidedWorkflow?.review_step
   if (reviewStep === 'outline') return 1
+  if (reviewStep === 'teaching') return 2
   if (reviewStep === 'content') return 3
   if (reviewStep === 'release') return 4
-
-  const phaseIndex = phaseStageIndex(String(task.currentPhase || '').toLowerCase())
-  if (phaseIndex !== null) return phaseIndex
 
   const currentStep = task.guidedWorkflow?.current_step
   if (currentStep === 'requirements') return 0
   if (currentStep === 'outline') return 1
+  if (currentStep === 'teaching') return 2
   if (currentStep === 'content') return 3
   if (currentStep === 'release') return 4
+
+  const phaseIndex = phaseStageIndex(String(task.currentPhase || '').toLowerCase())
+  if (phaseIndex !== null) return phaseIndex
   return 1
 }
 

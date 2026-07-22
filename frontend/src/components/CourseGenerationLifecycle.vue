@@ -57,14 +57,13 @@ const props = withDefaults(defineProps<{
 })
 
 const stages = computed(() => [
-  { key: 'outline', backendIndex: 1, label: t('courseGeneration.lifecycle.outline', '大纲') },
-  { key: 'teaching', backendIndex: 2, label: t('courseGeneration.lifecycle.teaching', '教案') },
-  { key: 'content', backendIndex: 3, label: t('courseGeneration.lifecycle.content', '课程正文') },
+  { key: 'outline', backendIndex: 1, label: t('courseGeneration.lifecycle.outline', '目录确认') },
+  { key: 'teaching', backendIndex: 2, label: t('courseGeneration.lifecycle.teaching', '教案确认') },
+  { key: 'content', backendIndex: 3, label: t('courseGeneration.lifecycle.content', '正文生成') },
+  { key: 'release', backendIndex: 4, label: t('courseGeneration.lifecycle.release', '确认发布') },
 ])
 const backendStageIndex = computed(() => courseProductionStageIndex(props.task))
-const activeIndex = computed(() => (
-  backendStageIndex.value <= 1 ? 0 : backendStageIndex.value === 2 ? 1 : 2
-))
+const activeIndex = computed(() => Math.max(0, Math.min(stages.value.length - 1, backendStageIndex.value - 1)))
 const currentStage = computed(() => stages.value[activeIndex.value] || stages.value[0]!)
 const currentStatus = computed(() => stageStatus(activeIndex.value))
 const progressValue = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0)))))

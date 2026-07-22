@@ -371,15 +371,29 @@ const reviewArtifact = computed(() => generationReview.value?.artifact || null)
 const workflowSteps = computed(() => {
   const workflow = selectedTask.value?.guidedWorkflow || generationReview.value?.guided_workflow
   const current = workflow?.current_step
-  return (workflow?.steps || []).map((step: any) => ({
-    ...step,
-    label: guidedStepLabel(step.key),
-    displayStatus: (
-      step.status === 'pending'
-      && current === step.key
-      && selectedTask.value?.status === 'running'
-    ) ? 'in_progress' : step.status,
-  }))
+  const sourceSteps = workflow?.steps || []
+  const visibleKeys: Exclude<GuidedGenerationStepKey, 'requirements'>[] = ['outline', 'teaching', 'content', 'release']
+  const currentIndex = visibleKeys.indexOf(current as Exclude<GuidedGenerationStepKey, 'requirements'>)
+  return visibleKeys.map((key, index) => {
+    const source = sourceSteps.find((step: any) => step.key === key)
+    const status = source?.status || (
+      currentIndex > index ? 'confirmed'
+        : currentIndex === index ? 'pending'
+          : 'locked'
+    )
+    return {
+      ...source,
+      key,
+      number: index + 1,
+      status,
+      label: guidedStepLabel(key),
+      displayStatus: (
+        status === 'pending'
+        && current === key
+        && selectedTask.value?.status === 'running'
+      ) ? 'in_progress' : status,
+    }
+  })
 })
 const currentReviewNumber = computed(() => {
   const step = workflowSteps.value.find((item: any) => item.key === currentReviewStep.value)
@@ -636,10 +650,10 @@ function formatTaskTime(value: string) {
 }
 function guidedStepLabel(step: GuidedGenerationStepKey) {
   return {
-    requirements: t('courseTasks.workflow.requirements', '需求'),
-    outline: t('courseTasks.workflow.outline', '目录'),
-    teaching: t('courseTasks.workflow.teaching', '教案'),
-    content: t('courseTasks.workflow.content', '课程生成'),
+    requirements: t('courseTasks.workflow.requirements', '需求输入'),
+    outline: t('courseTasks.workflow.outline', '目录确认'),
+    teaching: t('courseTasks.workflow.teaching', '教案确认'),
+    content: t('courseTasks.workflow.content', '正文生成'),
     release: t('courseTasks.workflow.release', '确认发布'),
   }[step]
 }
