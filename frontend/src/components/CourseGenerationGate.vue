@@ -149,24 +149,26 @@ async function confirmStep() {
 
 <style scoped>
 .generation-gate {
+  position:relative;
+  z-index:4;
   flex:0 0 auto;
   display:grid;
-  grid-template-columns:34px minmax(0,1fr) auto;
+  grid-template-columns:42px minmax(0,1fr) auto;
   align-items:center;
-  gap:12px;
+  gap:15px;
   margin:0;
-  padding:12px clamp(14px,3vw,38px);
-  border-top:1px solid #dfe3e9;
-  background:#fafbfc;
-  box-shadow:0 -8px 24px rgba(30,41,59,.04);
+  padding:14px clamp(18px,3vw,42px) 15px;
+  border-top:1px solid #dce3e2;
+  background:linear-gradient(90deg,rgba(247,251,249,.98),rgba(252,253,253,.98) 58%,#fff);
+  box-shadow:0 -12px 30px rgba(30,41,59,.065);
 }
 .generation-gate__icon {
-  width:34px;
-  height:34px;
+  width:42px;
+  height:42px;
   display:grid;
   place-items:center;
   border:1px solid #cde2da;
-  border-radius:9px;
+  border-radius:12px;
   color:#087a5b;
   background:#eef8f4;
 }
@@ -175,18 +177,18 @@ async function confirmStep() {
   display:grid;
   grid-template-columns:auto minmax(0,1fr);
   align-items:baseline;
-  gap:2px 8px;
+  gap:3px 10px;
 }
 .generation-gate__copy > span {
   color:#26715d;
-  font-size:8px;
+  font-size:11px;
   font-weight:850;
   letter-spacing:.07em;
 }
 .generation-gate__copy strong {
   overflow:hidden;
   color:#263144;
-  font-size:11px;
+  font-size:15px;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
@@ -194,45 +196,52 @@ async function confirmStep() {
   grid-column:1/-1;
   margin:0;
   color:#727d8f;
-  font-size:8px;
-  line-height:1.45;
+  font-size:12px;
+  line-height:1.5;
 }
 .generation-gate__copy small {
   grid-column:1/-1;
   width:max-content;
-  margin-top:3px;
-  padding:3px 6px;
+  margin-top:5px;
+  padding:4px 8px;
   border-radius:999px;
   color:#346b5b;
   background:#edf7f3;
-  font-size:8px;
+  font-size:11px;
   font-weight:750;
 }
 .generation-gate__copy p.generation-gate__error { color:#b42318; }
 .generation-gate > button {
-  min-height:36px;
+  min-height:44px;
   display:inline-flex;
   align-items:center;
   justify-content:center;
   gap:6px;
-  padding:0 14px;
+  padding:0 18px;
   border:1px solid #087a5b;
-  border-radius:8px;
+  border-radius:10px;
   color:#fff;
-  background:#087a5b;
-  font-size:9px;
+  background:linear-gradient(135deg,#0a8061,#2e8c70);
+  box-shadow:0 8px 20px rgba(8,122,91,.2);
+  font-size:13px;
   font-weight:800;
   cursor:pointer;
 }
-.generation-gate > button:disabled { opacity:.5; cursor:not-allowed; }
+.generation-gate > button:disabled { opacity:.5; box-shadow:none; cursor:not-allowed; }
+.generation-gate > button:not(:disabled):hover { transform:translateY(-1px); box-shadow:0 10px 24px rgba(8,122,91,.24); }
 .generation-gate > button svg.lucide-loader-circle { animation:gate-spin .85s linear infinite; }
 @keyframes gate-spin { to { transform:rotate(360deg); } }
 @media (max-width:767px) {
   .generation-gate {
-    grid-template-columns:30px minmax(0,1fr);
+    grid-template-columns:36px minmax(0,1fr);
     align-items:start;
-    padding:10px 9px calc(10px + env(safe-area-inset-bottom,0px));
+    gap:10px;
+    padding:12px 10px calc(12px + env(safe-area-inset-bottom,0px));
   }
+  .generation-gate__icon { width:36px; height:36px; border-radius:10px; }
+  .generation-gate__copy { grid-template-columns:1fr; gap:2px; }
+  .generation-gate__copy strong,.generation-gate__copy p,.generation-gate__copy small { grid-column:1; }
+  .generation-gate__copy strong { white-space:normal; }
   .generation-gate > button { grid-column:1/-1; width:100%; }
 }
 @media (prefers-reduced-motion:reduce) {
