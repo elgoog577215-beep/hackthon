@@ -15,13 +15,27 @@
           'is-ai-evolved-block': isAiEvolvedBlock(item.block),
           'is-ai-growth-highlight': isApplicationBlock(item.block) && applicationVisual?.phase === 'content',
           'is-ai-growth-primary': isPrimaryApplicationBlock(item.block),
+          'is-ppt-same-source-highlight': isPptSameSourceBlock(item.block),
+          'is-ppt-same-source-primary': isPptSameSourcePrimary(item.block),
+          'is-ppt-same-source-pulse': isPptSameSourcePrimary(item.block) && sameSourcePulse,
         }"
       >
+        <span v-if="isPptSameSourceBlock(item.block)" class="ppt-same-source-badge">
+          <GitCompareArrows :size="12" />
+          {{ t('teachingRepresentations.sameSourceUpdateBadge', 'PPT 同源更新') }}
+        </span>
         <span v-if="isAiEvolvedBlock(item.block)" class="ai-evolution-block-badge">
           <Sparkles :size="12" />
           {{ t('courseEvolution.applicationVisual.blockBadge', 'AI 个体化补充') }}
         </span>
         <header v-if="item.block.title" class="block-heading">
+        <aside v-if="isPptSameSourcePrimary(item.block)" class="ppt-same-source-diff">
+          <small>{{ t('teachingRepresentations.sameSourceTrigger', '由 PPT 学习目标修改触发') }}</small>
+          <dl>
+            <div><dt>{{ t('teachingRepresentations.sameSourceBefore', '修改前') }}</dt><dd>{{ sameSourceState?.beforeText }}</dd></div>
+            <div><dt>{{ t('teachingRepresentations.sameSourceAfter', '修改后') }}</dt><dd>{{ sameSourceState?.afterText }}</dd></div>
+          </dl>
+        </aside>
           <span>{{ blockLabel(item.block.type) }}</span>
           <h4>{{ item.block.title }}</h4>
         </header>
@@ -96,8 +110,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
-import { PencilLine, Sparkles } from 'lucide-vue-next'
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
+import { GitCompareArrows, PencilLine, Sparkles } from 'lucide-vue-next'
 import InlineCourseBlockAI from './InlineCourseBlockAI.vue'
 import InlineLearningRecordBlock from './InlineLearningRecordBlock.vue'
 import CourseEvolutionContentBlock from './CourseEvolutionContentBlock.vue'
@@ -107,7 +121,13 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import type { ContentBlock, CourseBlockEditTarget, Node, Note } from '../stores/types'
 import { useNoteStore } from '../stores/notes'
 import { useCourseEvolutionStore } from '../stores/courseEvolution'
+import { useCourseStore } from '../stores/course'
 import { t } from '../shared/i18n'
+import {
+  markPptSameSourceAnimationPlayed,
+  readPptSameSourceHighlight,
+} from '../utils/ppt-same-source'
+import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 
 const props = withDefaults(defineProps<{
   node: Node
@@ -125,6 +145,10 @@ const emit = defineEmits<{
 const activeBlockId = ref('')
 const noteStore = useNoteStore()
 const evolutionStore = useCourseEvolutionStore()
+const courseStore = useCourseStore()
+const sameSourceState = ref<PptSameSourceHighlightState | null>(null)
+const sameSourcePulse = ref(false)
+let sameSourcePulseTimer: number | undefined
 const liveRecordIds = reactive(new Set<string>())
 const regenerationRequests = reactive<Record<string, { token: number; prompt: string; action?: 'explain' | 'example' | 'simplify' | 'ask' }>>({})
 const blocks = computed(() => (props.node.course_blocks?.length
@@ -174,6 +198,37 @@ const streamItems = computed(() => {
 })
 const applicationVisual = computed(() => evolutionStore.applicationVisual)
 
+
+watch(
+  [() => courseStore.currentCourseId, () => props.node.node_id],
+  () => { void refreshSameSourceHighlight() },
+  { immediate: true },
+)
+
+onUnmounted(() => {
+  if (sameSourcePulseTimer) window.clearTimeout(sameSourcePulseTimer)
+})
+
+async function refreshSameSourceHighlight() {
+  const state = readPptSameSourceHighlight(
+    window.sessionStorage,
+    courseStore.currentCourseId,
+    props.node.node_id,
+  )
+  sameSourceState.value = state
+  sameSourcePulse.value = Boolean(state && !state.animationPlayed)
+  if (!state) return
+  await nextTick()
+  const target = document.getElementById(`course-block-${state.primaryBlockId}`)
+  if (target && typeof target.scrollIntoView === 'function') {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+  if (!sameSourcePulse.value) return
+  markPptSameSourceAnimationPlayed(window.sessionStorage, state.createdAt)
+  sameSourcePulseTimer = window.setTimeout(() => {
+    sameSourcePulse.value = false
+  }, 1600)
+}
 function evolutionMetadata(block: ContentBlock) {
   return block.metadata?.course_evolution as Record<string, string> | undefined
 }
@@ -204,6 +259,18 @@ function isPrimaryApplicationBlock(block: ContentBlock) {
     )
 }
 
+
+function isPptSameSourceBlock(block: ContentBlock) {
+  return Boolean(
+    sameSourceState.value?.blockIds.includes(block.block_id)
+    && !isAiEvolvedBlock(block),
+  )
+}
+
+function isPptSameSourcePrimary(block: ContentBlock) {
+  return isPptSameSourceBlock(block)
+    && sameSourceState.value?.primaryBlockId === block.block_id
+}
 function blockLabel(type: ContentBlock['type'] | string) {
   return t(`courseBlocks.${type}`, ({
     intro: '引入', orientation: '引入', prerequisite: '前置', objective: '任务', concept: '概念',
@@ -260,6 +327,21 @@ async function deleteAiRecord(note: Note) {
 .course-content-block.is-ai-evolved-block { padding:18px 20px 20px; border:1px solid rgba(191,219,254,.86); border-left:3px solid #4f46e5; border-radius:16px; background:linear-gradient(135deg,rgba(248,250,255,.98),rgba(240,249,255,.78)); box-shadow:0 10px 28px rgba(30,64,175,.07),inset 0 1px 0 rgba(255,255,255,.94); transition:border-color .28s ease,box-shadow .28s ease,background .28s ease,transform .28s ease; }
 .ai-evolution-block-badge { width:max-content; display:inline-flex; align-items:center; gap:5px; margin:0 0 12px; padding:4px 7px; border:1px solid rgba(165,180,252,.72); border-radius:999px; color:#4338ca; background:rgba(255,255,255,.9); font-size:9px; font-weight:800; letter-spacing:.02em; }
 .ai-evolution-block-badge > svg { color:#0891b2; }
+
+.course-content-block.is-ppt-same-source-highlight {
+  padding:18px 20px 20px; border:1px solid #f2c94c; border-left:3px solid #d6a400;
+  border-radius:16px; background:linear-gradient(135deg,#fffdf2,#fff8d8);
+  box-shadow:0 12px 30px rgba(146,101,0,.1);
+}
+.course-content-block.is-ppt-same-source-primary { border-color:#d6a400; }
+.course-content-block.is-ppt-same-source-pulse { animation:ppt-same-source-arrival 1.45s cubic-bezier(.2,.8,.2,1) 1; }
+.ppt-same-source-badge { width:max-content; display:inline-flex; align-items:center; gap:5px; margin:0 0 12px; padding:4px 7px; border:1px solid #e8bf37; border-radius:999px; color:#713f12; background:#fffdf2; font-size:9px; font-weight:800; letter-spacing:.02em; }
+.ppt-same-source-diff { display:grid; gap:8px; margin:0 0 16px; padding:11px; border:1px solid #f1d36b; border-radius:10px; background:rgba(255,255,255,.72); }
+.ppt-same-source-diff > small { color:#8a5b00; font-size:10px; font-weight:800; }
+.ppt-same-source-diff dl { display:grid; gap:7px; margin:0; }
+.ppt-same-source-diff dl > div { display:grid; grid-template-columns:48px minmax(0,1fr); gap:8px; }
+.ppt-same-source-diff dt { color:#9a6a08; font-size:10px; font-weight:750; }
+.ppt-same-source-diff dd { margin:0; color:#3f3521; font-size:11px; line-height:1.55; }
 .course-content-block.is-ai-growth-highlight { border-color:rgba(129,140,248,.88); background:linear-gradient(135deg,rgba(245,247,255,1),rgba(236,254,255,.92)); box-shadow:0 0 0 3px rgba(99,102,241,.1),0 18px 38px rgba(30,64,175,.13); }
 .course-content-block.is-ai-growth-primary { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.13),0 20px 42px rgba(30,64,175,.16); animation:course-ai-growth-arrival 1.45s cubic-bezier(.2,.8,.2,1); }
 .block-heading { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-right:34px; }
@@ -296,6 +378,11 @@ async function deleteAiRecord(note: Note) {
   38% { transform:translateY(0) scale(1.006); filter:saturate(1.08); box-shadow:0 0 0 6px rgba(99,102,241,.15),0 24px 50px rgba(30,64,175,.2); }
   100% { transform:translateY(0) scale(1); filter:saturate(1); }
 }
+@keyframes ppt-same-source-arrival {
+  0% { transform:translateY(7px) scale(.993); box-shadow:0 0 0 0 rgba(234,179,8,0); }
+  38% { transform:translateY(0) scale(1.004); box-shadow:0 0 0 6px rgba(234,179,8,.17),0 22px 46px rgba(146,101,0,.16); }
+  100% { transform:translateY(0) scale(1); box-shadow:0 12px 30px rgba(146,101,0,.1); }
+}
 @media (max-width:880px) {
   .course-content-block.can-improve-formal .block-heading { padding-right:38px; }
   .block-formal-improvement { width:30px; padding:0; justify-content:center; opacity:.68; pointer-events:auto; }
@@ -303,5 +390,6 @@ async function deleteAiRecord(note: Note) {
 }
 @media (prefers-reduced-motion:reduce) {
   .course-content-block.is-ai-growth-primary { animation:none; }
+  .course-content-block.is-ppt-same-source-pulse { animation:none; }
 }
 </style>

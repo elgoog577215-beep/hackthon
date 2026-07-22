@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
 import CourseBlockStream from '@/components/CourseBlockStream.vue'
 import { useCourseStore } from '@/stores/course'
 import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import { useLearningProgressStore } from '@/stores/learningProgress'
+import { PPT_SAME_SOURCE_STORAGE_KEY, PPT_SAME_SOURCE_TTL_MS } from '@/utils/ppt-same-source'
 import type { Node as CourseNode, Note } from '@/stores/types'
 
 const componentSource = readFileSync(resolve(process.cwd(), 'src/components/CourseBlockStream.vue'), 'utf8')
@@ -48,6 +49,10 @@ const global = {
     },
   },
 }
+
+beforeEach(() => {
+  sessionStorage.clear()
+})
 
 describe('CourseBlockStream', () => {
   it('优先渲染正式课程文档块，而不是旧内容块副本', () => {
@@ -414,5 +419,88 @@ describe('CourseBlockStream', () => {
     expect(wrapper.find('.inline-learning-record').exists()).toBe(false)
     await wrapper.get('.release-record-stub').trigger('click')
     expect(wrapper.find('.inline-learning-record').exists()).toBe(true)
+
+  })
+  it('只在目标课程正文块显示 PPT 同源黄色高亮，并保留 AI 生长块的紫色语义', async () => {
+    useCourseStore(pinia).currentCourseId = 'course-1'
+    sessionStorage.setItem(PPT_SAME_SOURCE_STORAGE_KEY, JSON.stringify({
+      courseId: 'course-1',
+      sectionId: 'node-1',
+      blockIds: ['objective', 'growth'],
+      primaryBlockId: 'objective',
+      beforeText: '掌握矩阵乘法的计算规则',
+      afterText: '理解矩阵乘法为什么表示线性变换的复合，并能解释运算顺序',
+      createdAt: Date.now(),
+      animationPlayed: false,
+    }))
+    const node: CourseNode = {
+      ...baseNode,
+      course_blocks: [
+        {
+          block_id: 'objective', section_id: 'node-1', position: 0, kind: 'callout', role: 'objective',
+          payload: { title: '本节目标', markdown: '理解复合顺序。' }, asset_refs: [], objective_refs: [],
+          concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'objective-r1', status: 'final',
+        },
+        {
+          block_id: 'reasoning', section_id: 'node-1', position: 1, kind: 'rich_text', role: 'reasoning',
+          payload: { title: '未受影响', markdown: '保持正式课程蓝色语义。' }, asset_refs: [], objective_refs: [],
+          concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'reasoning-r1', status: 'final',
+        },
+        {
+          block_id: 'growth', section_id: 'node-1', position: 2, kind: 'rich_text', role: 'reasoning',
+          payload: {
+            title: 'AI 新增',
+            markdown: '保持个体化生长语义。',
+            course_evolution: { change_set_id: 'plan-1', operation_id: 'operation-1' },
+          },
+          asset_refs: [], objective_refs: [], concept_refs: [], evidence_refs: [],
+          visibility_rule: {}, internal_revision: 'growth-r1', status: 'final',
+        },
+      ],
+    }
+
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+    await wrapper.vm.$nextTick()
+    const blocks = wrapper.findAll('.course-content-block')
+
+    expect(blocks[0]!.classes()).toContain('is-ppt-same-source-highlight')
+    expect(blocks[0]!.classes()).toContain('is-ppt-same-source-primary')
+    expect(blocks[0]!.text()).toContain('PPT 同源更新')
+    expect(blocks[0]!.text()).toContain('由 PPT 学习目标修改触发')
+    expect(blocks[0]!.text()).toContain('掌握矩阵乘法的计算规则')
+    expect(blocks[0]!.text()).toContain('理解矩阵乘法为什么表示线性变换的复合')
+    expect(blocks[1]!.classes()).not.toContain('is-ppt-same-source-highlight')
+    expect(blocks[2]!.classes()).toContain('is-ai-evolved-block')
+    expect(blocks[2]!.classes()).not.toContain('is-ppt-same-source-highlight')
+    expect(JSON.parse(sessionStorage.getItem(PPT_SAME_SOURCE_STORAGE_KEY) || '{}').animationPlayed).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('忽略并清理超过十分钟的 PPT 同源高亮状态', async () => {
+    useCourseStore(pinia).currentCourseId = 'course-1'
+    sessionStorage.setItem(PPT_SAME_SOURCE_STORAGE_KEY, JSON.stringify({
+      courseId: 'course-1',
+      sectionId: 'node-1',
+      blockIds: ['objective'],
+      primaryBlockId: 'objective',
+      beforeText: '旧目标',
+      afterText: '新目标',
+      createdAt: Date.now() - PPT_SAME_SOURCE_TTL_MS - 1,
+    }))
+    const node: CourseNode = {
+      ...baseNode,
+      course_blocks: [{
+        block_id: 'objective', section_id: 'node-1', position: 0, kind: 'callout', role: 'objective',
+        payload: { title: '本节目标', markdown: '正式正文。' }, asset_refs: [], objective_refs: [],
+        concept_refs: [], evidence_refs: [], visibility_rule: {}, internal_revision: 'objective-r1', status: 'final',
+      }],
+    }
+
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('.course-content-block').classes()).not.toContain('is-ppt-same-source-highlight')
+    expect(wrapper.find('.ppt-same-source-badge').exists()).toBe(false)
+    expect(sessionStorage.getItem(PPT_SAME_SOURCE_STORAGE_KEY)).toBeNull()
   })
 })

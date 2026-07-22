@@ -403,7 +403,8 @@ async def preview_teaching_representation_edit(
     request: Request,
 ) -> dict:
     require_user_id(request.headers.get("X-User-Id"))
-    await get_course_or_404(course_id)
+    if not (os.getenv("EVOLUTION_DEMO_MODE") == "1" and course_id == "demo-matrix-growth-v2"):
+        await get_course_or_404(course_id)
     try:
         registry, _representation, spec = await run_in_threadpool(
             _representation_and_spec,
@@ -430,7 +431,8 @@ async def apply_teaching_representation_edit(
     request: Request,
 ) -> dict:
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    await get_course_or_404(course_id)
+    if not (os.getenv("EVOLUTION_DEMO_MODE") == "1" and course_id == "demo-matrix-growth-v2"):
+        await get_course_or_404(course_id)
     try:
         registry, representation, spec = await run_in_threadpool(
             _representation_and_spec,

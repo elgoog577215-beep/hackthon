@@ -6,8 +6,8 @@
     "close": "关闭"
   },
   "app": {
-    "brand": "灵知",
-    "product": "KnowledgeMap",
+    "brand": "启智",
+    "product": "启智",
     "backToLibrary": "返回课程库",
     "learning": "学习现场",
     "loadingCourse": "正在载入课程",
@@ -766,7 +766,7 @@
       }
     },
     "slides": {
-      "brand": "灵知",
+      "brand": "启智",
       "courseDeck": "课堂演示",
       "sameSourceDeck": "同源课程课件",
       "chapter": "章节",

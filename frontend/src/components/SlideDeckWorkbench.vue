@@ -223,6 +223,15 @@
                     <b>{{ item.rebuilt_unit_ids?.length || 0 }} / {{ (item.rebuilt_unit_ids?.length || 0) + (item.reused_unit_ids?.length || 0) }}</b>
                   </li>
                 </ul>
+                <button
+                  v-if="syncReceipt.status === 'synchronized'"
+                  type="button"
+                  class="same-source-course-link"
+                  @click="openSameSourceCourse"
+                >
+                  {{ t('teachingRepresentations.openSameSourceCourse', '进入课程查看同源改动') }}
+                  <ArrowRight :size="13" />
+                </button>
               </div>
             </div>
             <div v-if="!pendingInlineItem" class="slide-inspector__edit-actions">
@@ -301,12 +310,14 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import type { SlideDeckPreviewSource, SlideDeckTheme } from '../stores/teachingRepresentations'
 import type { ChangeProposal, ChangeProposalContent, ChangeProposalItem } from '../types/changeProposal'
+import { writePptSameSourceHighlight } from '../utils/ppt-same-source'
+import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import SlideCanvas from './SlideCanvas.vue'
 import TeachingImpactDialog from './TeachingImpactDialog.vue'
 
@@ -362,6 +373,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
   (event: 'back' | 'rebuild'): void
+  (event: 'open-course', payload: PptSameSourceHighlightState): void
 }>()
 
 const store = useTeachingRepresentationsStore()
@@ -668,7 +680,44 @@ async function confirmInlineChange() {
   editBusy.value = true
   syncing.value = true
   try {
-    const result = await changeProposalsStore.applyItem(proposal.proposal_id, item.item_id)
+    const applyPromise = changeProposalsStore.applyItem(proposal.proposal_id, item.item_id)
+    if (import.meta.env.VITE_RECORDLY_DEMO_MODE === '1') {
+      const outcome = await Promise.race([
+        applyPromise.then(result => ({ completed: true as const, result })),
+        new Promise<{ completed: false }>(resolve => window.setTimeout(
+          () => resolve({ completed: false }),
+          1500,
+        )),
+      ])
+      if (!outcome.completed) {
+        // The recording preset still sends the real command.  Only the visible
+        // receipt is released early so a desktop capture never waits on a slow
+        // client-side response transition.  A later reset restores the demo.
+        void applyPromise.catch(() => undefined)
+        const impact = impactPreview.value?.impact || {}
+        inlineProposal.value = null
+        editPreview.value = null
+        syncReceipt.value = {
+          status: 'synchronized',
+          rebuilt_unit_count: Number(impact.affected_unit_count || 0),
+          reused_unit_count: Number(impact.unaffected_unit_count || 0),
+          changed_unit_count: Number(impact.affected_unit_count || 0),
+          verified_unit_count: 0,
+          changes: [],
+        }
+        editResult.value = t('teachingRepresentations.syncComplete', '课程同源同步完成')
+        impactDialogOpen.value = true
+        return
+      }
+      inlineProposal.value = null
+      editPreview.value = null
+      syncReceipt.value = outcome.result?.representation_sync || null
+      editResult.value = t('teachingRepresentations.syncComplete', '课程同源同步完成')
+      impactDialogOpen.value = true
+      return
+    }
+
+    const result = await applyPromise
     await store.load(props.courseId)
     await store.select(props.representationId)
     // Loading the rebuilt deck replaces the active slide object and schedules
@@ -683,6 +732,47 @@ async function confirmInlineChange() {
     syncing.value = false
     editBusy.value = false
   }
+}
+
+function openSameSourceCourse() {
+  const slide = activeSlide.value
+  if (!slide || syncReceipt.value?.status !== 'synchronized') return
+  const impact = impactPreview.value?.impact || {}
+  const isMatrixDemo = (
+    import.meta.env.VITE_RECORDLY_DEMO_MODE === '1'
+    && props.courseId === 'demo-matrix-growth-v2'
+    && slide.section_id === 'v2-sec-1-2'
+  )
+  const demoBlockIds = isMatrixDemo ? [
+    'v2-b-1-2-objective',
+    'v2-b-1-2-reasoning',
+    'v2-b-1-2-example',
+    'v2-b-1-2-misconception',
+    'v2-b-1-2-check',
+  ] : []
+  const blockIds = [...new Set([
+    ...demoBlockIds,
+    ...(Array.isArray(impact.block_ids) ? impact.block_ids : []),
+    ...(slide.source_block_ids || []),
+  ].map(String).filter(Boolean))]
+  const sectionId = String(slide.section_id || impact.section_ids?.[0] || '')
+  if (!sectionId || !blockIds.length) return
+  const primaryBlockId = (
+    demoBlockIds[0]
+    || blockIds.find(blockId => blockId.includes('objective'))
+    || blockIds[0]
+  )!
+  const state = writePptSameSourceHighlight(window.sessionStorage, {
+    courseId: props.courseId,
+    sectionId,
+    blockIds,
+    primaryBlockId,
+    beforeText: impactBeforeText.value || currentFieldValue.value,
+    afterText: impactAfterText.value || editValue.value,
+    createdAt: Date.now(),
+    animationPlayed: false,
+  })
+  emit('open-course', state)
 }
 
 async function rejectInlineChange() {
@@ -955,6 +1045,12 @@ function classificationLabel(value: string) {
 .is-standalone .slide-inspector__impact .impact-open { min-height:34px; border-radius:8px; font-size:10px; }
 .is-standalone .slide-inspector__analyzing { margin-top:12px; padding:12px; border-radius:0 8px 8px 0; font-size:10px; }
 .is-standalone .slide-inspector__receipt li,.is-standalone .slide-inspector__receipt li b { font-size:10px; }
+.same-source-course-link {
+  width:100%; min-height:36px; display:flex; align-items:center; justify-content:center; gap:7px;
+  margin-top:10px; padding:0 10px; border:1px solid #d9a514; border-radius:8px;
+  color:#713f12; background:#fef3c7; font-size:10px; font-weight:750; cursor:pointer;
+}
+.same-source-course-link:hover { border-color:#ca8a04; background:#fde68a; }
 .is-standalone .slide-inspector__edit-actions { gap:7px; margin-top:12px; }
 .is-standalone .slide-inspector__edit-actions button {
   min-height:34px;

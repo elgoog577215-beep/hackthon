@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SlideDeckWorkbench from '@/components/SlideDeckWorkbench.vue'
 import { useTeachingRepresentationsStore } from '@/stores/teachingRepresentations'
+import { PPT_SAME_SOURCE_STORAGE_KEY } from '@/utils/ppt-same-source'
 
 const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 
@@ -32,6 +33,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   httpMock.get.mockReset()
   httpMock.post.mockReset()
+  sessionStorage.clear()
 })
 
 describe('SlideDeckWorkbench', () => {
@@ -230,6 +232,8 @@ describe('SlideDeckWorkbench', () => {
           impact: {
             affected_unit_count: 5,
             unaffected_unit_count: 12,
+            block_ids: ['block-a'],
+            section_ids: ['section-a'],
             change_items: [
               { representation_type: 'slide_deck', unit_id: 'slide:section-a', label: 'PPT · 学习目标', role: 'PPT 学习目标', reason: '修改起点', origin: true },
               { representation_type: 'lesson_plan', unit_id: 'lesson:section-a', label: '教案 · 向量加法', role: '教案重点', reason: '课堂重点需要对齐', origin: false },
@@ -355,6 +359,22 @@ describe('SlideDeckWorkbench', () => {
     expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('相关内容已精准同步')
     expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('教学重点放在概念关系与为什么成立')
     expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('来源版本已重新校验')
+    const openCourse = wrapper.get('.same-source-course-link')
+    expect(openCourse.text()).toContain('进入课程查看同源改动')
+    await openCourse.trigger('click')
+    const savedState = JSON.parse(sessionStorage.getItem(PPT_SAME_SOURCE_STORAGE_KEY) || '{}')
+    expect(savedState).toEqual(expect.objectContaining({
+      courseId: 'course-1',
+      sectionId: 'section-a',
+      blockIds: ['block-a'],
+      primaryBlockId: 'block-a',
+      beforeText: '掌握向量加法的计算规则',
+      afterText: '理解向量加法为什么表示位移的复合',
+    }))
+    expect(wrapper.emitted('open-course')?.[0]?.[0]).toEqual(expect.objectContaining({
+      courseId: 'course-1',
+      sectionId: 'section-a',
+    }))
 
     ;(document.body.querySelector('.impact-dialog__actions .primary') as HTMLButtonElement).click()
     await wrapper.find('.slide-inspector__edit textarea').setValue('理解向量加法为什么表示位移复合，并能解释顺序')

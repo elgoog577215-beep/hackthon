@@ -6,8 +6,8 @@
     "close": "Close"
   },
   "app": {
-    "brand": "Lingzhi",
-    "product": "KnowledgeMap",
+    "brand": "Qizhi AI",
+    "product": "Qizhi AI",
     "backToLibrary": "Back to course library",
     "learning": "Learning session",
     "loadingCourse": "Loading course",
@@ -766,7 +766,7 @@
       }
     },
     "slides": {
-      "brand": "Lingzhi",
+      "brand": "Qizhi AI",
       "courseDeck": "Classroom presentation",
       "sameSourceDeck": "Same-source course deck",
       "chapter": "CHAPTER",

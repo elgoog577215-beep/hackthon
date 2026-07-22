@@ -62,6 +62,7 @@
         @back="backToCourse"
         @rebuild="rebuild"
         @ask-ai="openAiForSlide"
+        @open-course="openSameSourceCourse"
       />
 
       <Transition name="ppt-ai">
@@ -91,6 +92,7 @@ import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import type { CourseDocumentEnvelope } from '../stores/types'
+import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import http from '../utils/http'
 
 const route = useRoute()
@@ -224,6 +226,13 @@ async function cancelBuild() {
 
 function backToCourse() {
   void router.push({ name: 'learning', params: { courseId: courseId.value } })
+}
+
+function openSameSourceCourse(state: PptSameSourceHighlightState) {
+  void router.push({
+    name: 'learning',
+    params: { courseId: state.courseId, nodeId: state.sectionId },
+  })
 }
 
 function openAiForSlide(payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }) {

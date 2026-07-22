@@ -9,7 +9,7 @@
     <template v-if="slide.layout === 'cover'">
       <div class="deck-cover__wash"></div>
       <div class="deck-cover__index">{{ String(pageNumber).padStart(2, '0') }}</div>
-      <div class="deck-cover__brand">{{ t('teachingRepresentations.slides.brand', '灵知') }}</div>
+      <div class="deck-cover__brand">{{ t('teachingRepresentations.slides.brand', '启智') }}</div>
       <div class="deck-cover__content">
         <small>{{ slide.eyebrow || t('teachingRepresentations.slides.courseDeck', '课堂演示') }}</small>
         <h2>{{ slide.title }}</h2>

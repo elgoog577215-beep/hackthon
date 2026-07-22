@@ -2,7 +2,8 @@
   <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute }">
     <header v-if="!isPptRoute" class="app-header glass-panel-elevated">
       <button class="brand-button" type="button" :aria-label="t('app.backToLibrary', '返回课程库')" @click="router.push('/courses')">
-        <img class="brand-logo" :src="qizhiLogoUrl" alt="" />
+        <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
+        <span class="brand-name">启智</span>
       </button>
 
       <div v-if="isLearningRoute" class="header-actions">
@@ -95,7 +96,6 @@
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Download, Presentation, Scan, Search, Settings2, X } from 'lucide-vue-next'
-import qizhiLogoUrl from './assets/qizhi-logo.svg'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
@@ -217,15 +217,16 @@ function changeLocale(locale: 'zh' | 'en') {
   transition: transform .2s ease, background .2s ease;
 }
 .brand-button:hover { transform: translateY(-1px); }
-.brand-button:hover .brand-logo { transform: scale(1.025); filter: drop-shadow(0 6px 10px rgba(0,16,129,.16)); }
+.brand-button:hover .brand-mark { transform: scale(1.035); filter: drop-shadow(0 6px 10px rgba(0,16,129,.16)); }
 
-.brand-logo {
-  width: 87px;
-  height: 40px;
+.brand-mark {
+  width: 34px;
+  height: 34px;
   display: block;
   object-fit: contain;
   transition: transform .2s ease, filter .2s ease;
 }
+.brand-name { color:#001081; font-size:20px; font-weight:850; letter-spacing:.08em; }
 
 .course-context-copy {
   min-width: 0;
@@ -291,7 +292,7 @@ function changeLocale(locale: 'zh' | 'en') {
   .app-header { border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
   .app-main { border-radius: 0; }
   .app-header { grid-template-columns: auto minmax(0, 1fr); }
-  .brand-logo { width: 78px; height: 36px; }
+  .brand-mark { width:32px; height:32px; }
   .header-actions .header-icon-button:nth-of-type(1),
   .header-actions :deep(.el-popover__reference-wrapper),
   .header-actions :deep(.el-dropdown) { display: none; }

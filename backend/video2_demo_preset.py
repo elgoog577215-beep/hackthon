@@ -28,7 +28,9 @@ from course_document import (
 )
 from course_revisions import revision_vector_for_document
 from learning_asset_storage import LearningAssetRepository
+from representation_compiler import compile_core_representations
 from storage import Storage
+from teaching_representations import TeachingRepresentationRepository
 
 
 COURSE_ID = "demo-matrix-growth-v2"
@@ -36,6 +38,8 @@ COURSE_TITLE = "矩阵与线性变换"
 TARGET_SECTION_ID = "v2-sec-1-2"
 TARGET_BLOCK_ID = "v2-b-1-2-orientation"
 DEMO_USER_ID = "video2-demo-student"
+PPT_BASELINE_GOAL = "掌握矩阵乘法的计算规则"
+PPT_TARGET_GOAL = "理解矩阵乘法为什么表示线性变换的复合，并能解释运算顺序"
 FIXED_PROMPT = (
     "矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。"
     "请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。"
@@ -88,7 +92,7 @@ def build_video2_course_document() -> CourseDocument:
             "v2-ch-1",
             "1.2 矩阵：线性映射与矩阵运算",
             2,
-            "把矩阵看成作用于向量的线性变换，能完成矩阵乘法，并区分计算规则与变换含义。",
+            PPT_BASELINE_GOAL,
             key_points=["矩阵的列向量语义", "矩阵乘法", "不交换性"],
             knowledge_structure=_knowledge_structure(
                 "矩阵的几何语义",
@@ -377,6 +381,19 @@ def build_video2_course_document() -> CourseDocument:
         ),
     ]
 
+    target_section = next(
+        section for section in sections
+        if section.section_id == TARGET_SECTION_ID
+    )
+    target_section.attributes = {
+        **target_section.attributes,
+        "demo_baseline_goal": PPT_BASELINE_GOAL,
+        "demo_target_goal": PPT_TARGET_GOAL,
+        "demo_same_source_block_ids": [
+            "v2-b-1-2-objective", "v2-b-1-2-reasoning", "v2-b-1-2-example",
+            "v2-b-1-2-misconception", "v2-b-1-2-check",
+        ],
+    }
     blocks = [
         *_blocks_1_1(),
         *_blocks_1_2(),
@@ -619,7 +636,7 @@ def build_video2_learning_asset_bundle() -> dict[str, Any]:
 
 
 def prepare_video2_demo(data_dir: str | Path) -> dict[str, Any]:
-    """把指定 data 目录重置为可直接录制视频二的起点。"""
+    """把指定 data 目录重置为两条视频共用的确定性课程起点。"""
     root = Path(data_dir).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     _clear_previous_demo_state(root)
@@ -635,6 +652,31 @@ def prepare_video2_demo(data_dir: str | Path) -> dict[str, Any]:
         COURSE_ID,
         build_video2_learning_asset_bundle(),
     )
+
+    document = CourseDocument.model_validate(course["course_document"])
+    representation_repository = TeachingRepresentationRepository(root / "teaching_representations")
+    build = compile_core_representations(
+        document,
+        course,
+        representation_repository,
+    )
+    registry = representation_repository.load(COURSE_ID)
+    slide_representation = next(
+        item for item in registry.representations
+        if item.representation_type == "slide_deck"
+    )
+    slide_spec = next(
+        item for item in registry.specs
+        if item.spec_id == slide_representation.spec_id
+    )
+    slides = slide_spec.payload["content"]["slides"]
+    target_slide_index = next(
+        index for index, slide in enumerate(slides)
+        if slide.get("section_id") == TARGET_SECTION_ID
+    )
+    target_slide = slides[target_slide_index]
+    if target_slide.get("key_message") != PPT_BASELINE_GOAL:
+        raise RuntimeError("Shared demo PPT did not compile with the baseline learning goal")
     return {
         "course_id": COURSE_ID,
         "course_title": COURSE_TITLE,
@@ -644,8 +686,15 @@ def prepare_video2_demo(data_dir: str | Path) -> dict[str, Any]:
         "fixed_prompt": FIXED_PROMPT,
         "course_revision": course["course_document_revision"],
         "learning_asset_bundle_revision": stored_assets["bundle_revision_id"],
+        "representation_registry_revision": registry.registry_revision,
+        "compiled_representation_count": len(build["representations"]),
+        "target_slide_unit_id": target_slide["unit_id"],
+        "target_slide_number": target_slide_index + 1,
+        "baseline_goal": PPT_BASELINE_GOAL,
+        "target_goal": PPT_TARGET_GOAL,
         "course_file": str(root / "courses" / f"{COURSE_ID}.json"),
         "relative_url": f"/course/{COURSE_ID}/learn/{TARGET_SECTION_ID}",
+        "relative_ppt_url": f"/course/{COURSE_ID}/ppt",
         "external_model_required": False,
     }
 
@@ -670,6 +719,10 @@ def _clear_previous_demo_state(data_dir: Path) -> None:
         file_path = data_dir / directory_name / f"{COURSE_ID}.json"
         if file_path.exists():
             file_path.unlink()
+
+    for directory_name in ("teaching_representations", "change_proposals", "block_regeneration_candidates"):
+        _remove_scoped_json_files(data_dir / directory_name, COURSE_ID)
+
 
     scoped_key = hashlib.sha256(
         f"{DEMO_USER_ID}\0{COURSE_ID}".encode("utf-8"),

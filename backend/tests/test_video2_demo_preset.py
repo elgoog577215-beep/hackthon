@@ -9,6 +9,7 @@ from video2_demo_preset import (
     COURSE_TITLE,
     DEMO_USER_ID,
     FIXED_PROMPT,
+    PPT_BASELINE_GOAL,
     TARGET_SECTION_ID,
     _is_course_scoped_payload,
     build_video2_course_envelope,
@@ -41,6 +42,7 @@ def test_video2_course_is_curated_and_keeps_the_growth_gap_open():
     assert len(learnable_sections) == 12
     assert len(document.blocks) >= 58
     assert target.title == "1.2 矩阵：线性映射与矩阵运算"
+    assert target.learning_objective == PPT_BASELINE_GOAL
     assert len(target_blocks) == 7
     assert any(section.title.startswith("3.1 特征向量") for section in learnable_sections)
     assert any(section.title.startswith("4.3 综合项目") for section in learnable_sections)
@@ -79,6 +81,9 @@ def test_prepare_video2_demo_resets_only_the_dedicated_course(tmp_path: Path):
     assert result["course_id"] == COURSE_ID
     assert result["learner_id"] == DEMO_USER_ID
     assert result["external_model_required"] is False
+    assert result["compiled_representation_count"] == 6
+    assert result["relative_ppt_url"] == f"/course/{COURSE_ID}/ppt"
+    assert result["baseline_goal"] == PPT_BASELINE_GOAL
     assert json.loads(
         (courses_dir / "other-course.json").read_text(encoding="utf-8"),
     ) == other_course
