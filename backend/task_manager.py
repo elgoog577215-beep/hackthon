@@ -1930,7 +1930,7 @@ class TaskManager:
             return True
         if task.get("type") != "course_generation":
             return False
-        if await self._restart_legacy_outline_review_on_complete_pipeline(
+        if await self._restart_legacy_compact_review_on_complete_pipeline(
             task_id,
             task,
         ):
@@ -2185,7 +2185,7 @@ class TaskManager:
         await self._complete_task(task_id, fresh_course)
         return True
 
-    async def _restart_legacy_outline_review_on_complete_pipeline(
+    async def _restart_legacy_compact_review_on_complete_pipeline(
         self,
         task_id: str,
         task: dict[str, Any],
@@ -2193,17 +2193,17 @@ class TaskManager:
         """Rebuild legacy compact outlines instead of preserving their size cap.
 
         Review gates normally survive service restarts unchanged. V16 makes one
-        deliberate migration exception: a pre-V16 outline waiting for review
-        that did not come from the hierarchical pipeline must be rebuilt before
-        the user can confirm it. This repairs already-open 3x2 courses when the
-        deployment restarts the service, without touching current full-pipeline
-        reviews or published courses.
+        deliberate migration exception: a pre-V16 course whose outline did not
+        come from the hierarchical pipeline must be rebuilt before the user can
+        confirm either the outline or release. This repairs already-open 3x2
+        courses even if the user continued generating before deployment, without
+        touching current full-pipeline reviews or published courses.
         """
         workflow = task.get("guided_workflow")
         if (
             task.get("status") != "waiting_for_review"
             or not isinstance(workflow, dict)
-            or str(workflow.get("review_step") or "") != "outline"
+            or str(workflow.get("review_step") or "") not in {"outline", "release"}
         ):
             return False
         course_data = self._load_task_course(task_id) or {}
@@ -2248,8 +2248,15 @@ class TaskManager:
         rebuilt["generation_stage_artifacts"] = {}
         rebuilt["generation_status"] = "outline_rebuild_required"
         await self._save_task_course(task_id, rebuilt)
+        workspace_id = str(task.get("workspace_id") or "")
+        if workspace_id:
+            await asyncio.to_thread(
+                self._generation_workspace_repository.clear_node_drafts,
+                workspace_id,
+            )
         self._version_repository.delete_draft(str(task.get("course_id") or ""))
 
+        invalidate_guided_steps_after(workflow, "outline")
         outline_state = guided_step_state(workflow, "outline")
         outline_state["status"] = "pending"
         outline_state["confirmed_at"] = None

@@ -7,6 +7,7 @@ from course_repository import CourseDocumentRepository
 from course_versioning import build_blueprint_draft
 from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
+from guided_generation import step_state as guided_step_state
 from task_manager import TaskManager
 
 
@@ -673,8 +674,9 @@ async def test_waiting_confirmation_survives_restart_without_skipping_gate(tmp_p
     assert restored._task_queue.empty()
 
 
+@pytest.mark.parametrize("review_step", ["outline", "release"])
 @pytest.mark.asyncio
-async def test_legacy_compact_outline_review_rebuilds_on_restart(tmp_path, monkeypatch):
+async def test_legacy_compact_review_rebuilds_on_restart(tmp_path, monkeypatch, review_step):
     import task_manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
@@ -718,6 +720,13 @@ async def test_legacy_compact_outline_review_rebuilds_on_restart(tmp_path, monke
         },
     })
     await manager._save_task_course(job["job_id"], legacy)
+    if review_step == "release":
+        workflow = manager.tasks[job["job_id"]]["guided_workflow"]
+        workflow["current_step"] = "release"
+        workflow["review_step"] = "release"
+        guided_step_state(workflow, "outline")["status"] = "confirmed"
+        guided_step_state(workflow, "content")["status"] = "confirmed"
+        guided_step_state(workflow, "release")["status"] = "waiting_for_confirmation"
     manager.save_tasks()
 
     restored = TaskManager(
@@ -736,6 +745,7 @@ async def test_legacy_compact_outline_review_rebuilds_on_restart(tmp_path, monke
     assert task["status"] == "pending"
     assert task["phase"] == "outline_rebuild_required"
     assert task["guided_workflow"]["review_step"] is None
+    assert guided_step_state(task["guided_workflow"], "outline")["status"] == "pending"
     rebuilt = restored._load_task_course(job["job_id"])
     assert "course_outline" not in rebuilt
     assert "course_plan" not in rebuilt
