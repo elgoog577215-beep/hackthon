@@ -1023,6 +1023,8 @@ function closeMobileSurfaces() {
 .has-ai-course-growth .learning-context-bar:not(.is-generation) { position:relative; border-bottom-color:rgba(191,219,254,.9); background:linear-gradient(90deg,rgba(248,250,255,.98),rgba(240,249,255,.96) 58%,rgba(248,250,252,.98)); }
 .has-ai-course-growth .learning-context-bar:not(.is-generation)::after { content:""; position:absolute; right:0; bottom:-1px; left:0; height:2px; background:linear-gradient(90deg,#4f46e5 0 24%,#0891b2 62%,rgba(14,165,233,0)); opacity:.72; }
 .learning-context-bar.is-generation { min-height:52px; background:rgba(255,255,255,.96); }
+.learning-context-bar.is-generation .context-copy span { font-size:11px; line-height:1.35; }
+.learning-context-bar.is-generation .context-copy strong { margin-top:2px; font-size:14px; line-height:1.4; }
 .context-leading { min-width:0; display:flex; align-items:center; gap:9px; }
 .context-leading > button,.context-actions > button { width:32px; height:32px; flex:0 0 32px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .context-leading > button:hover,.context-actions > button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
