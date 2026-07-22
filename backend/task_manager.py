@@ -3775,6 +3775,27 @@ class TaskManager:
                     activity_waiter = None
                     continue
 
+                # Progress can arrive exactly as ``asyncio.wait`` snapshots a
+                # timeout.  Re-check both signals before cancelling the
+                # generation task, otherwise a productive stream may be
+                # mistaken for an inactive one on coarse event loops.
+                if generation_task.done():
+                    activity_waiter.cancel()
+                    await asyncio.gather(
+                        activity_waiter,
+                        return_exceptions=True,
+                    )
+                    return generation_task.result()
+                if activity_event.is_set():
+                    activity_event.clear()
+                    activity_waiter.cancel()
+                    await asyncio.gather(
+                        activity_waiter,
+                        return_exceptions=True,
+                    )
+                    activity_waiter = None
+                    continue
+
                 activity_waiter.cancel()
                 await asyncio.gather(
                     activity_waiter,
