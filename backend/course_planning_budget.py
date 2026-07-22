@@ -37,12 +37,9 @@ def estimate_json_tokens(value: Any) -> int:
 
 @dataclass(frozen=True)
 class CoursePlanningBudget:
-    mode: str = "auto"
-    # A complete teaching plan is a verbose semantic artifact. Real provider
-    # runs show that two sections can already reach the 8k-token output edge,
-    # so only a one-section course uses the compact fast path and every detail
-    # request owns exactly one independently recoverable section.
-    compact_max_sections: int = 1
+    # Every course uses the same skeleton -> bounded details -> local assembly
+    # path. These limits only bound one model request; they never classify or
+    # shrink a course into a separate small-course product mode.
     skeleton_max_sections: int = 2
     batch_max_sections: int = 1
     batch_max_knowledge: int = 15
@@ -56,15 +53,7 @@ class CoursePlanningBudget:
 
     @classmethod
     def from_env(cls) -> CoursePlanningBudget:
-        mode = os.getenv("COURSE_TEACHING_PLAN_MODE", "auto").strip().lower()
-        if mode not in {"auto", "compact", "batched"}:
-            mode = "auto"
         return cls(
-            mode=mode,
-            compact_max_sections=_env_int(
-                "COURSE_TEACHING_PLAN_COMPACT_MAX_SECTIONS", 1,
-                minimum=1, maximum=8,
-            ),
             skeleton_max_sections=_env_int(
                 "COURSE_TEACHING_PLAN_SKELETON_MAX_SECTIONS", 2,
                 minimum=2, maximum=8,
@@ -95,23 +84,6 @@ class CoursePlanningBudget:
             ),
             total_timeout_seconds=0,
         )
-
-    def choose_mode(
-        self,
-        *,
-        sections: list[dict[str, Any]],
-        compact_input_tokens: int,
-    ) -> str:
-        if self.mode != "auto":
-            return self.mode
-        estimated_output_tokens = len(sections) * 4500
-        if (
-            len(sections) <= self.compact_max_sections
-            and compact_input_tokens <= self.max_input_tokens
-            and estimated_output_tokens <= self.max_output_tokens
-        ):
-            return "compact"
-        return "batched"
 
 
 def build_compact_planning_context(

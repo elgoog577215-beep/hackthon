@@ -1923,6 +1923,11 @@ class TaskManager:
             return True
         if task.get("type") != "course_generation":
             return False
+        if await self._restart_legacy_outline_review_on_complete_pipeline(
+            task_id,
+            task,
+        ):
+            return True
         if (
             task.get("status") == "completed_with_warnings"
             and task.get("phase") == "quality_failed"
@@ -1992,6 +1997,89 @@ class TaskManager:
         task["current_node_name"] = ""
         task["restart_recovery_count"] = int(task.get("restart_recovery_count") or 0) + 1
         task["last_recovery_reason"] = "service_restart"
+        task["updated_at"] = datetime.now().isoformat()
+        self._node_retries[task_id] = {}
+        return True
+
+    async def _restart_legacy_outline_review_on_complete_pipeline(
+        self,
+        task_id: str,
+        task: dict[str, Any],
+    ) -> bool:
+        """Rebuild legacy compact outlines instead of preserving their size cap.
+
+        Review gates normally survive service restarts unchanged. V16 makes one
+        deliberate migration exception: a pre-V16 outline waiting for review
+        that did not come from the hierarchical pipeline must be rebuilt before
+        the user can confirm it. This repairs already-open 3x2 courses when the
+        deployment restarts the service, without touching current full-pipeline
+        reviews or published courses.
+        """
+        workflow = task.get("guided_workflow")
+        if (
+            task.get("status") != "waiting_for_review"
+            or not isinstance(workflow, dict)
+            or str(workflow.get("review_step") or "") != "outline"
+        ):
+            return False
+        course_data = self._load_task_course(task_id) or {}
+        pipeline_version = str(
+            course_data.get("generation_pipeline_version")
+            or course_data.get("generation_schema_version")
+            or ""
+        )
+        outline_stage = (
+            (course_data.get("generation_stage_artifacts") or {}).get("outline")
+            or {}
+        )
+        if (
+            not pipeline_version.startswith("course_generation_v")
+            or pipeline_version == PIPELINE_VERSION
+            or outline_stage.get("strategy") == "hierarchical_chapter_batches"
+            or not course_data.get("course_outline")
+        ):
+            return False
+
+        rebuilt = deepcopy(course_data)
+        for field in (
+            "course_plan",
+            "course_outline",
+            "course_blueprint",
+            "course_outline_constraint_report",
+            "blueprint_validation_report",
+            "blueprint_revision_id",
+            "course_outline_revision_id",
+            "course_teaching_plan",
+            "course_knowledge_base",
+            "course_knowledge_map",
+            "course_knowledge_graph",
+            "generation_quality_report",
+            "generation_source_chain_report",
+            "learning_asset_plan",
+            "learning_assets",
+        ):
+            rebuilt.pop(field, None)
+        rebuilt["nodes"] = []
+        rebuilt["knowledge_relations"] = []
+        rebuilt["generation_stage_artifacts"] = {}
+        rebuilt["generation_status"] = "outline_rebuild_required"
+        await self._save_task_course(task_id, rebuilt)
+        self._version_repository.delete_draft(str(task.get("course_id") or ""))
+
+        outline_state = guided_step_state(workflow, "outline")
+        outline_state["status"] = "pending"
+        outline_state["confirmed_at"] = None
+        outline_state["artifact_revision"] = None
+        workflow["current_step"] = "outline"
+        workflow["review_step"] = None
+        workflow["updated_at"] = datetime.now().isoformat()
+        task["status"] = "pending"
+        task["phase"] = "outline_rebuild_required"
+        task["current_phase"] = "outline_rebuild_required"
+        task["phase_progress"] = 0
+        task["message"] = "旧版精简目录正在按完整课程链路重新生成"
+        task["blueprint_confirmed"] = False
+        task.pop("blueprint_revision_id", None)
         task["updated_at"] = datetime.now().isoformat()
         self._node_retries[task_id] = {}
         return True

@@ -688,6 +688,7 @@ function phaseLabel(phase: string | undefined, status: Task['status']) {
     outline_generation: t('courseTasks.phases.outlineGeneration', '生成轻量课程目录'),
     outline_validation: t('courseTasks.phases.outlineValidation', '检查课程目录'),
     outline_ready: t('courseTasks.phases.outlineReady', '等待确认课程目录'),
+    outline_rebuild_required: t('courseTasks.phases.outlineRebuildRequired', '按完整课程模式重建目录'),
     outline_confirmed: t('courseTasks.phases.outlineConfirmed', '目录已确认'),
     course_teaching_plan: t('courseTasks.phases.courseTeachingPlan', '规划并汇编全课小节教案'),
     course_teaching_plan_skeleton: t('courseTasks.phases.courseTeachingPlanSkeleton', '冻结全课知识职责'),

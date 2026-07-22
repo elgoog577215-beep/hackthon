@@ -153,6 +153,7 @@
       "outlineGeneration": "Generating a lightweight course outline",
       "outlineValidation": "Validating the course outline",
       "outlineReady": "Waiting for outline confirmation",
+      "outlineRebuildRequired": "Rebuilding the full course outline",
       "outlineConfirmed": "Outline confirmed",
       "courseTeachingPlan": "Planning and assembling all section lesson plans",
       "courseTeachingPlanSkeleton": "Freezing course-wide knowledge ownership",

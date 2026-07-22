@@ -10,6 +10,7 @@ import pytest
 from ai_base import AIBase
 from course_generation_workflow import (
     _extract_course_shape_constraints,
+    _resolve_course_shape_constraints,
     build_course_knowledge_scope_contract,
     build_section_knowledge_scope_slice,
 )
@@ -74,8 +75,8 @@ def _outline_batch_payload(system_prompt: str) -> str:
 def test_total_course_size_is_not_an_outline_budget_dimension():
     budget = CourseOutlinePlanningBudget()
 
-    assert budget.choose_mode({"section_count": 6}) == "compact"
-    assert budget.choose_mode({"section_count": 120}) == "hierarchical"
+    assert not hasattr(budget, "choose_mode")
+    assert not hasattr(budget, "compact_max_sections")
     assert not hasattr(budget, "max_sections")
     assert _extract_course_shape_constraints(
         "生成 20 章，共 120 个小节",
@@ -83,38 +84,41 @@ def test_total_course_size_is_not_an_outline_budget_dimension():
         "chapter_count": 20,
         "section_count": 120,
     }
+    assert _resolve_course_shape_constraints("") == {
+        "minimum_chapter_count": 6,
+        "minimum_section_count": 18,
+    }
 
 
-def test_compact_outline_cannot_smuggle_a_large_result_past_the_shard_router():
-    service = CourseService()
-    response = json.dumps({
-        "course_title": "意外大目录",
-        "positioning": "应切换到分片链",
-        "chapters": [{
-            "chapter_number": 1,
-            "title": "主线",
-            "sections": [
-                {
-                    "node_id": f"L2-1-{index}",
-                    "section_number": f"1.{index}",
-                    "title": f"任务 {index}",
-                }
-                for index in range(1, 8)
-            ],
-        }],
-    }, ensure_ascii=False)
-
-    plan, report = service._validated_compact_course_outline(
-        response,
-        {"course_shape_constraints": {}},
+def test_unspecified_course_rejects_six_section_skeleton():
+    shape = _resolve_course_shape_constraints("")
+    fingerprint = outline_request_fingerprint(
+        topic="深度神经网络",
+        audience="undergraduate",
+        brief={"course_shape_constraints": shape},
+        difficulty_profile={"level": "intermediate"},
+    )
+    skeleton = normalize_outline_skeleton(
+        json.loads(_outline_skeleton_payload(
+            chapter_count=3,
+            sections_per_chapter=2,
+        )),
+        topic="深度神经网络",
+        request_fingerprint=fingerprint,
+    )
+    report = validate_outline_skeleton(
+        skeleton,
+        shape_constraints=shape,
+        request_fingerprint=fingerprint,
     )
 
-    assert plan is not None
     assert report["passed"] is False
-    assert any(
-        issue["code"] == "outline:compact_unit_exceeded"
-        for issue in report["issues"]
-    )
+    assert {
+        issue["code"] for issue in report["issues"]
+    } >= {
+        "outline_skeleton:below_complete_chapter_minimum",
+        "outline_skeleton:below_complete_section_minimum",
+    }
 
 
 def test_large_outline_is_split_per_chapter_and_locally_assembled():
@@ -253,7 +257,6 @@ async def test_outline_waits_for_productive_batches_without_whole_course_deadlin
 ):
     service = CourseService(planning_concurrency=2)
     service._outline_budget = CourseOutlinePlanningBudget(
-        compact_max_sections=6,
         batch_max_sections=6,
         batch_timeout_seconds=1,
         total_timeout_seconds=0.02,

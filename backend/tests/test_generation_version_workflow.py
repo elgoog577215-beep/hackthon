@@ -665,6 +665,76 @@ async def test_waiting_confirmation_survives_restart_without_skipping_gate(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_legacy_compact_outline_review_rebuilds_on_restart(tmp_path, monkeypatch):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    storage = MemoryStorage()
+    workspaces = GenerationWorkspaceRepository(tmp_path / "workspaces")
+    documents = CourseDocumentRepository(storage)
+    versions = CourseVersionRepository(tmp_path / "versions")
+    manager = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=versions,
+        workspace_repository=workspaces,
+        document_repository=documents,
+    )
+    job = await manager.create_generation_job({"subject": "旧版三章六节课程"})
+    assert await manager._task_queue.get() == job["job_id"]
+    await manager._process_task(job["job_id"])
+
+    legacy = manager._load_task_course(job["job_id"])
+    legacy.update({
+        "generation_pipeline_version": "course_generation_v15",
+        "generation_schema_version": "course_generation_v15",
+        "course_outline": {
+            "chapters": [
+                {
+                    "chapter_number": index,
+                    "title": f"第{index}章",
+                    "sections": [{"node_id": f"L2-{index}-1"}, {"node_id": f"L2-{index}-2"}],
+                }
+                for index in range(1, 4)
+            ],
+        },
+        "course_plan": {"chapters": [{"chapter_number": 1}]},
+        "generation_stage_artifacts": {
+            "outline": {
+                "status": "completed",
+                "strategy": "compact_single_call",
+                "actual": {"chapter_count": 3, "section_count": 6},
+            },
+        },
+    })
+    await manager._save_task_course(job["job_id"], legacy)
+    manager.save_tasks()
+
+    restored = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=versions,
+        workspace_repository=workspaces,
+        document_repository=documents,
+    )
+
+    should_enqueue = await restored._reconcile_task_after_restart(job["job_id"])
+
+    assert should_enqueue is True
+    task = restored.tasks[job["job_id"]]
+    assert task["status"] == "pending"
+    assert task["phase"] == "outline_rebuild_required"
+    assert task["guided_workflow"]["review_step"] is None
+    rebuilt = restored._load_task_course(job["job_id"])
+    assert "course_outline" not in rebuilt
+    assert "course_plan" not in rebuilt
+    assert rebuilt["nodes"] == []
+    assert rebuilt["generation_stage_artifacts"] == {}
+
+
+@pytest.mark.asyncio
 async def test_candidate_workspace_write_does_not_mutate_current_course(tmp_path):
     current = {"course_id": "c1", "course_name": "current", "nodes": []}
     storage = MemoryStorage(current)

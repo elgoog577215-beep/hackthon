@@ -24,7 +24,7 @@ from course_pedagogy import SubjectPedagogyProfile
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
-PIPELINE_VERSION = "course_generation_v15"
+PIPELINE_VERSION = "course_generation_v16"
 
 COURSE_RELATION_TYPES = {
     "prerequisite",
@@ -64,6 +64,7 @@ def build_course_generation_artifacts(
     learner_profile_summary: str = "",
     prepared_materials: dict[str, Any] | None = None,
     grounding_strategy: str = "material_first",
+    course_purpose: str = "systematic",
 ) -> dict[str, Any]:
     """Build persisted brief and material artifacts without a second task."""
     prepared = prepared_materials or {}
@@ -78,6 +79,7 @@ def build_course_generation_artifacts(
         target_audience=target_audience,
         material_cards=cards,
         learner_profile_summary=learner_profile_summary,
+        course_purpose=course_purpose,
     )
     artifacts = {
         "pipeline_version": PIPELINE_VERSION,
@@ -2420,9 +2422,10 @@ def _build_brief(
     target_audience: str,
     material_cards: list[dict[str, Any]],
     learner_profile_summary: str,
+    course_purpose: str,
 ) -> dict[str, Any]:
     lowered = requirements.lower()
-    shape_constraints = _extract_course_shape_constraints(requirements)
+    shape_constraints = _resolve_course_shape_constraints(requirements)
     unprovided = _extract_unprovided_references(requirements, material_cards)
     style_requirements = [
         "覆盖完整",
@@ -2446,6 +2449,16 @@ def _build_brief(
         hard_constraints.append(
             f"课程必须恰好包含 {shape_constraints['section_count']} 个小节"
         )
+    if shape_constraints.get("minimum_chapter_count"):
+        hard_constraints.append(
+            "用户未指定课程规模时，完整课程不得少于 "
+            f"{shape_constraints['minimum_chapter_count']} 章"
+        )
+    if shape_constraints.get("minimum_section_count"):
+        hard_constraints.append(
+            "用户未指定课程规模时，完整课程不得少于 "
+            f"{shape_constraints['minimum_section_count']} 个小节"
+        )
     return {
         "brief_id": f"brief-{uuid.uuid4().hex[:10]}",
         "goal": "生成一本高质量电子课程资料",
@@ -2454,6 +2467,7 @@ def _build_brief(
         "scope": "以用户上传资料和主题要求为主；无资料时按通用自学资料降级",
         "style_requirements": style_requirements,
         "difficulty": difficulty,
+        "course_purpose": course_purpose,
         "length": "章节完整、节点适中，优先保证可学性而不是堆长文",
         "example_density": "每个关键知识点至少规划例题或检查题",
         "material_usage_strategy": _material_usage_strategy(material_cards),
@@ -2541,6 +2555,17 @@ def _extract_course_shape_constraints(requirements: str) -> dict[str, int]:
         if value:
             result["section_count"] = value
     return result
+
+
+def _resolve_course_shape_constraints(requirements: str) -> dict[str, int]:
+    """Apply the complete-course baseline only when the user gave no size."""
+    explicit = _extract_course_shape_constraints(requirements)
+    if explicit:
+        return explicit
+    return {
+        "minimum_chapter_count": 6,
+        "minimum_section_count": 18,
+    }
 
 
 def _parse_count(value: str) -> int | None:
