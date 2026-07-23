@@ -876,6 +876,11 @@
         "slides": "课堂课件"
       }
     },
+    "sameSourceUpdateBadge": "课程正文已同步更新",
+    "sameSourceResultTitle": "PPT 的修改已经联动到这里",
+    "sameSourceTrigger": "由 PPT 学习目标修改触发 · 以下为真实前后差异",
+    "sameSourceBefore": "修改前",
+    "sameSourceAfter": "修改后",
     "slides": {
       "brand": "启智",
       "courseDeck": "课堂演示",

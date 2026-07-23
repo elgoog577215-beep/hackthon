@@ -876,6 +876,11 @@
         "slides": "Classroom slides"
       }
     },
+    "sameSourceUpdateBadge": "Course content updated",
+    "sameSourceResultTitle": "The PPT edit has propagated here",
+    "sameSourceTrigger": "Triggered by the PPT learning-objective edit · actual before-and-after difference",
+    "sameSourceBefore": "Before",
+    "sameSourceAfter": "After",
     "slides": {
       "brand": "Qizhi AI",
       "courseDeck": "Classroom presentation",

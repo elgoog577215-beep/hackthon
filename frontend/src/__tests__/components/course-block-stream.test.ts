@@ -465,8 +465,9 @@ describe('CourseBlockStream', () => {
 
     expect(blocks[0]!.classes()).toContain('is-ppt-same-source-highlight')
     expect(blocks[0]!.classes()).toContain('is-ppt-same-source-primary')
-    expect(blocks[0]!.text()).toContain('PPT 同源更新')
-    expect(blocks[0]!.text()).toContain('由 PPT 学习目标修改触发')
+    expect(blocks[0]!.text()).toContain('课程正文已同步更新')
+    expect(blocks[0]!.text()).toContain('PPT 的修改已经联动到这里')
+    expect(blocks[0]!.text()).toContain('由 PPT 学习目标修改触发 · 以下为真实前后差异')
     expect(blocks[0]!.text()).toContain('掌握矩阵乘法的计算规则')
     expect(blocks[0]!.text()).toContain('理解矩阵乘法为什么表示线性变换的复合')
     expect(blocks[1]!.classes()).not.toContain('is-ppt-same-source-highlight')
