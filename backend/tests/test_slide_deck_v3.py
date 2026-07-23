@@ -80,6 +80,178 @@ def source_course() -> dict:
     }
 
 
+def narrative_course() -> dict:
+    return {
+        "course_id": "narrative-course",
+        "course_name": "线性代数的结构与方法",
+        "nodes": [
+            {
+                "node_id": "chapter-vectors",
+                "parent_node_id": "root",
+                "node_name": "第一章 向量空间",
+                "node_level": 1,
+                "content_blocks": [{
+                    "block_id": "chapter-vectors-summary",
+                    "title": "正文",
+                    "content": "从向量空间的结构出发，建立后续线性变换的语言基础。",
+                    "metadata": {"role": "orientation"},
+                }],
+            },
+            {
+                "node_id": "topic-definition",
+                "parent_node_id": "chapter-vectors",
+                "node_name": "1.1 向量空间的定义",
+                "node_level": 2,
+                "content_blocks": [{
+                    "block_id": "topic-definition-summary",
+                    "title": "正文",
+                    "content": "先识别研究对象，再理解公理为何能够统一不同实例。",
+                    "metadata": {"role": "concept"},
+                }],
+            },
+            {
+                "node_id": "detail-definition",
+                "parent_node_id": "topic-definition",
+                "node_name": "1.1.1 从实例到公理",
+                "node_level": 3,
+                "content_blocks": [{
+                    "block_id": "detail-definition-body",
+                    "title": "正文",
+                    "content": (
+                        "### 核心概念与背景\n"
+                        "向量空间把看似不同的对象放进同一套运算规则中。\n\n"
+                        "### 深度原理与底层机制\n"
+                        "封闭性保证运算不会离开研究对象，分配律保证结构可以稳定组合。\n\n"
+                        "### 技术实现与方法论\n"
+                        "- 检查集合是否封闭\n"
+                        "- 检查加法与数乘公理\n"
+                        "- 判断子集是否构成子空间\n\n"
+                        "### 实战案例与行业应用\n"
+                        "多项式集合与矩阵集合都可以按同一组公理验证为向量空间。\n\n"
+                        "### 思考与挑战\n"
+                        "如果集合对数乘不封闭，它还可能是向量空间吗？"
+                    ),
+                    "metadata": {"role": "concept"},
+                }],
+            },
+            {
+                "node_id": "chapter-transformations",
+                "parent_node_id": "root",
+                "node_name": "第二章 线性变换",
+                "node_level": 1,
+                "content_blocks": [{
+                    "block_id": "chapter-transformations-summary",
+                    "title": "正文",
+                    "content": "把向量空间的结构映射到新的表示中。",
+                    "metadata": {"role": "orientation"},
+                }],
+            },
+        ],
+    }
+
+
+def test_fragmenter_preserves_source_headings_as_semantic_boundaries() -> None:
+    document = document_from_legacy_course(narrative_course())
+    fragments = fragment_course_document(document)
+    headings = [
+        item.text for item in fragments
+        if item.block_id == "detail-definition-body" and item.kind == "heading"
+    ]
+
+    assert headings == [
+        "核心概念与背景",
+        "深度原理与底层机制",
+        "技术实现与方法论",
+        "实战案例与行业应用",
+        "思考与挑战",
+    ]
+
+
+def test_teaching_plan_builds_a_chapter_level_learning_progression() -> None:
+    course = narrative_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    plan = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    detail_ids = {
+        item.fragment_id
+        for item in fragments
+        if item.block_id == "detail-definition-body"
+    }
+    detail_pages = [
+        page for page in plan.pages
+        if detail_ids & set(page.fragment_ids)
+    ]
+    mainline_detail_pages = [page for page in detail_pages if not page.appendix]
+    appendix_detail_pages = [page for page in detail_pages if page.appendix]
+
+    first_chapter_index = next(
+        index for index, page in enumerate(plan.pages)
+        if page.page_id == "slide:chapter:chapter-vectors"
+    )
+    first_topic_index = next(
+        index for index, page in enumerate(plan.pages)
+        if set(page.fragment_ids) & detail_ids and not page.appendix
+    )
+    first_recap_index = next(
+        index for index, page in enumerate(plan.pages)
+        if page.page_id == "slide:chapter-recap:chapter-vectors"
+    )
+    second_chapter_index = next(
+        index for index, page in enumerate(plan.pages)
+        if page.page_id == "slide:chapter:chapter-transformations"
+    )
+
+    assert first_chapter_index < first_topic_index < first_recap_index
+    assert first_recap_index < second_chapter_index
+    assert mainline_detail_pages
+    assert appendix_detail_pages
+    assert {
+        page.narrative_role for page in mainline_detail_pages
+    } >= {"concept", "reasoning", "example", "checkpoint"}
+    assert len({page.layout for page in mainline_detail_pages}) >= 3
+    assert {
+        fragment_id
+        for page in plan.pages
+        for fragment_id in page.fragment_ids
+    } == {item.fragment_id for item in fragments}
+
+
+def test_source_heading_becomes_slide_claim_without_body_duplication() -> None:
+    course = narrative_course()
+    document = document_from_legacy_course(course)
+    plan = deterministic_slide_allocation(
+        document,
+        fragment_course_document(document),
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="teaching",
+        theme="qizhi-classroom",
+        allocation_plan=plan,
+    )
+    reasoning = next(
+        slide for slide in content["slides"]
+        if slide["slide_purpose"] == "reasoning"
+    )
+    body_text = "\n".join(
+        text
+        for block in reasoning["blocks"]
+        for text in [block.get("content", ""), *(block.get("items") or [])]
+    )
+
+    assert reasoning["title"] == "深度原理与底层机制"
+    assert "深度原理与底层机制" not in body_text
+    assert "封闭性保证运算不会离开研究对象" in body_text
+
+
 @pytest.mark.parametrize("mode", ["full", "teaching"])
 def test_full_coverage_modes_materialize_every_source_fragment(mode: str) -> None:
     course = source_course()
@@ -371,7 +543,7 @@ def test_common_latex_is_translated_without_leaking_commands() -> None:
     } & {"raw_latex_leaked"}
 
 
-def test_teaching_mode_routes_deep_generic_sections_to_appendix() -> None:
+def test_teaching_mode_promotes_semantic_deep_content_and_keeps_remainder_in_appendix() -> None:
     course = source_course()
     course["nodes"].append({
         "node_id": "section-detail",
@@ -381,7 +553,14 @@ def test_teaching_mode_routes_deep_generic_sections_to_appendix() -> None:
         "content_blocks": [{
             "block_id": "block-detail",
             "title": "Proof details",
-            "content": "A detailed derivation retained verbatim for reference.",
+            "content": (
+                "### Core idea\n"
+                "A definition used by the teaching mainline.\n\n"
+                "### Deep derivation\n"
+                "A detailed derivation retained verbatim for reference.\n\n"
+                "### Further reading\n"
+                "An optional historical note remains in the appendix."
+            ),
             "metadata": {"role": "concept"},
         }],
     })
@@ -401,7 +580,8 @@ def test_teaching_mode_routes_deep_generic_sections_to_appendix() -> None:
     ]
 
     assert detail_pages
-    assert all(page.appendix for page in detail_pages)
+    assert any(not page.appendix for page in detail_pages)
+    assert any(page.appendix for page in detail_pages)
 
 
 def test_teaching_appendix_uses_compact_readable_editorial_layout() -> None:
