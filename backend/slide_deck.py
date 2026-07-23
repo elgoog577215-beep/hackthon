@@ -41,6 +41,7 @@ SlideLayout = Literal[
     "misconception",
     "practice",
     "recap",
+    "appendix",
 ]
 
 
@@ -158,6 +159,7 @@ LAYOUT_CAPACITY: dict[str, dict[str, int]] = {
     "misconception": {"blocks": 1, "characters": 620, "items": 4},
     "practice": {"blocks": 2, "characters": 1000, "items": 8},
     "recap": {"blocks": 3, "characters": 720, "items": 8},
+    "appendix": {"blocks": 1, "characters": 820, "items": 0},
 }
 
 
@@ -1743,14 +1745,35 @@ def _layout_content_issues(slide: SlideSpec) -> list[dict[str, Any]]:
         for block in visible_blocks
     ):
         issues.append(_issue("critical", "objective_content_overflow", "目标页内容超过左右栏容量。", slide.unit_id))
+    concept_block_count = max(1, len(visible_blocks))
+    concept_content_limit = {1: 280, 2: 150}.get(concept_block_count, 96)
+    concept_item_limit = {1: 72, 2: 48}.get(concept_block_count, 32)
     if slide.layout == "concept" and any(
-        len(block.content) > 96
-        or len(block.items) > 3
-        or any(len(item) > 32 for item in block.items)
+        len(block.content) > concept_content_limit
+        or len(block.items) > (6 if concept_block_count == 1 else 3)
+        or any(len(item) > concept_item_limit for item in block.items)
         or bool(block.content.strip() and block.items)
         for block in visible_blocks
     ):
         issues.append(_issue("critical", "concept_card_overflow", "概念页卡片内容超过实际容量。", slide.unit_id))
+    if slide.layout == "appendix":
+        appendix_values = [
+            value
+            for block in visible_blocks
+            for value in ([block.content] if block.content else block.items)
+            if value
+        ]
+        if (
+            len(visible_blocks) > 1
+            or sum(len(value) for value in appendix_values) > 820
+            or any(len(item) > 110 for block in visible_blocks for item in block.items)
+        ):
+            issues.append(_issue(
+                "critical",
+                "appendix_content_overflow",
+                "附录正文超过宽版编辑布局容量。",
+                slide.unit_id,
+            ))
     if slide.layout == "process" and any(
         len(item) > 48 for block in visible_blocks for item in block.items
     ):

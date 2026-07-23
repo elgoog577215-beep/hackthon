@@ -17,7 +17,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
-from slide_deck import SlideBlockSpec, SlideSpec, slide_quality, validate_slide_deck
+from slide_deck import (
+    SlideBlockSpec,
+    SlideSpec,
+    _plain_text,
+    slide_quality,
+    validate_slide_deck,
+)
 
 SLIDE_DECK_V3_SCHEMA = "slide_deck_v3"
 SLIDE_DECK_V3_COMPILER_VERSION = "source_first_slide_compiler_v1"
@@ -245,6 +251,12 @@ def _fragment_block(block: CourseBlock) -> list[tuple[str, str]]:
                 if str(item.get("text") if isinstance(item, dict) else item).strip()
             ]
         return []
+    # Course authoring markers are control metadata, not visible teaching copy.
+    # Removing them here prevents empty placeholder pages while leaving all
+    # audience-visible source text untouched.
+    raw = re.sub(r"<!--[\s\S]*?-->", "", raw).strip()
+    if not raw:
+        return []
 
     result: list[tuple[str, str]] = []
     cursor = 0
@@ -307,7 +319,12 @@ def _fragment_prose(raw: str, block: CourseBlock) -> list[tuple[str, str]]:
 
 
 def _looks_like_formula(value: str) -> bool:
-    return bool(re.search(r"(?:\$\$?|\\\(|\\\[|\\frac|\\sum|\\int|\\sqrt)", value))
+    # Inline math belongs to its surrounding prose.  Only a standalone display
+    # expression becomes a formula fragment/page.
+    return bool(re.fullmatch(
+        r"\s*(?:\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\])\s*",
+        value,
+    ))
 
 
 async def plan_slide_deck_v3(
@@ -445,11 +462,26 @@ def deterministic_slide_allocation(
     for fragment in included:
         grouped.setdefault((fragment.section_id, fragment.block_id), []).append(fragment)
     for (section_id, block_id), block_fragments in grouped.items():
-        appendix = mode == "teaching" and block_fragments[0].role in _APPENDIX_ROLES
-        chunks = _paginate_fragments(block_fragments, capacity)
+        section = section_index.get(section_id)
+        appendix = mode == "teaching" and (
+            block_fragments[0].role in _APPENDIX_ROLES
+            or bool(section and section.level >= 3)
+        )
+        chunks = _paginate_fragments(
+            block_fragments,
+            capacity,
+            appendix=appendix,
+        )
         for chunk_index, chunk in enumerate(chunks):
             page_id = f"slide:{block_id}:{chunk_index + 1}"
-            layout = "appendix" if appendix else _layout_for_fragments(chunk)
+            source_layout = _layout_for_fragments(chunk)
+            layout = (
+                source_layout
+                if appendix and _has_atomic_fragment(chunk)
+                else "appendix"
+                if appendix
+                else source_layout
+            )
             derived = []
             if chunk_index:
                 derived.append(DerivedTextV1(
@@ -519,16 +551,32 @@ def _select_fragments_for_mode(
 def _paginate_fragments(
     fragments: list[ContentFragmentV1],
     capacity: int,
+    *,
+    appendix: bool = False,
 ) -> list[list[ContentFragmentV1]]:
     pages: list[list[ContentFragmentV1]] = []
     current: list[ContentFragmentV1] = []
     current_size = 0
     for fragment in fragments:
         size = len(fragment.text)
-        fragment_capacity = capacity * (2 if fragment.kind == "code" else 1)
+        candidate = [*current, fragment]
+        page_limit = (
+            8 if appendix and not _has_atomic_fragment(candidate)
+            else _fragment_page_limit(candidate)
+        )
+        text_capacity = (
+            max(capacity, 820)
+            if appendix
+            else _materialized_text_capacity(candidate, capacity)
+        )
         if current and (
-            current_size + size > min(capacity, fragment_capacity)
-            or len(current) >= 6
+            current_size + size > text_capacity
+            or len(current) >= page_limit
+            or (
+                not appendix
+                and _estimated_materialized_block_count(candidate) > 3
+            )
+            or (not appendix and not _fits_materialized_layout(candidate))
             or (fragment.kind == "code" and current)
         ):
             pages.append(current)
@@ -543,6 +591,79 @@ def _paginate_fragments(
     if current:
         pages.append(current)
     return pages
+
+
+def _has_atomic_fragment(fragments: list[ContentFragmentV1]) -> bool:
+    return bool({item.kind for item in fragments} & {"code", "formula", "table"})
+
+
+def _materialized_text_capacity(
+    fragments: list[ContentFragmentV1],
+    theme_capacity: int,
+) -> int:
+    kinds = {item.kind for item in fragments}
+    if kinds <= {"heading", "paragraph"}:
+        return min(theme_capacity, 280)
+    if kinds == {"list_item"}:
+        return min(theme_capacity, 360)
+    if kinds & {"code", "formula", "table"}:
+        return theme_capacity
+    return min(theme_capacity, 280)
+
+
+def _fragment_page_limit(fragments: list[ContentFragmentV1]) -> int:
+    kinds = {item.kind for item in fragments}
+    if kinds & {"code", "formula", "table"}:
+        return 1
+    if kinds == {"list_item"}:
+        return 5
+    return 8
+
+
+def _estimated_materialized_block_count(
+    fragments: list[ContentFragmentV1],
+) -> int:
+    """Count the visual blocks produced by contiguous fragment runs."""
+    return len(_visual_fragment_groups(fragments))
+
+
+def _visual_fragment_groups(
+    fragments: list[ContentFragmentV1],
+) -> list[tuple[str, list[ContentFragmentV1]]]:
+    groups: list[tuple[str, list[ContentFragmentV1]]] = []
+    for fragment in fragments:
+        if fragment.kind in {"heading", "paragraph"}:
+            group = "prose"
+        elif fragment.kind == "list_item" and len(_display_text(fragment.text)) <= 72:
+            group = "list"
+        elif fragment.kind == "list_item":
+            group = "long-list"
+        else:
+            group = fragment.kind
+        if groups and group in {"prose", "list"} and groups[-1][0] == group:
+            groups[-1][1].append(fragment)
+        else:
+            groups.append((group, [fragment]))
+    return groups
+
+
+def _fits_materialized_layout(fragments: list[ContentFragmentV1]) -> bool:
+    groups = _visual_fragment_groups(fragments)
+    visible_count = max(1, len(groups))
+    content_limit = {1: 280, 2: 150}.get(visible_count, 96)
+    item_limit = {1: 72, 2: 48}.get(visible_count, 32)
+    item_count_limit = 6 if visible_count == 1 else 3
+    for group, items in groups:
+        values = [_display_text(item.text) for item in items]
+        if group == "list":
+            if len(values) > item_count_limit or any(
+                len(value) > item_limit for value in values
+            ):
+                return False
+        elif group in {"prose", "long-list", "formula", "table"}:
+            if len("\n\n".join(values)) > content_limit:
+                return False
+    return True
 
 
 def _layout_for_fragments(fragments: list[ContentFragmentV1]) -> str:
@@ -560,11 +681,14 @@ def _layout_for_fragments(fragments: list[ContentFragmentV1]) -> str:
         return "misconception"
     if role in {"checkpoint", "activity"}:
         return "question"
-    if role in {"reasoning", "process"} or len([item for item in fragments if item.kind == "list_item"]) >= 3:
+    list_items = [item for item in fragments if item.kind == "list_item"]
+    if (
+        role in {"reasoning", "process"} or len(list_items) >= 3
+    ) and list_items and all(len(item.text) <= 48 for item in list_items):
         return "process"
     if role == "summary":
         return "summary"
-    if len(fragments) >= 4:
+    if kinds == {"list_item"} and len(fragments) >= 4:
         return "concept-cards"
     if len(fragments) == 2:
         return "two-column"
@@ -764,6 +888,14 @@ def compile_slide_deck_v3(
         "semantic_issue_count": len(quality["semantic"]["issues"]),
         "visual_issue_count": len(quality["visual"]["issues"]),
         "coverage_ratio": coverage["visible_coverage_ratio"],
+        "main_slide_count": sum(
+            1 for page in plan.pages if not page.appendix
+        ),
+        "appendix_slide_count": sum(
+            1 for page in plan.pages if page.appendix
+        ),
+        "large_deck_warning": len(plan.pages) > 120,
+        "split_recommended": len(plan.pages) > 300,
     }
     if progress_callback:
         progress_callback({"event": "slide_quality", "progress": 97, "quality": quality})
@@ -791,7 +923,7 @@ def _materialize_page(
             source_keys=["course_title"],
         )
     if page.layout == "roadmap":
-        labels = [item.text for item in page.derived_text]
+        labels = [_display_text(item.text) for item in page.derived_text]
         return SlideSpec(
             unit_id=page.page_id,
             position=0,
@@ -812,6 +944,15 @@ def _materialize_page(
             ],
         )
     if page.page_id == "slide:summary" and not fragments:
+        recap_sections = [
+            section
+            for section in sorted(sections.values(), key=lambda item: item.position)
+            if section.level == 1
+        ][:6]
+        if not recap_sections:
+            recap_sections = sorted(
+                sections.values(), key=lambda item: item.position
+            )[:6]
         return SlideSpec(
             unit_id=page.page_id,
             position=0,
@@ -819,7 +960,21 @@ def _materialize_page(
             slide_purpose="course_recap",
             eyebrow="课程回顾",
             title="回到课程目标",
-            blocks=[],
+            blocks=[SlideBlockSpec(
+                block_id=f"{page.page_id}:recap",
+                type="bullets",
+                title="课程内容回顾",
+                items=[_display_text(section.title) for section in recap_sections],
+                metadata={
+                    "derived_text": True,
+                    "source_section_ids": [
+                        section.section_id for section in recap_sections
+                    ],
+                },
+            )],
+            source_section_ids=[
+                section.section_id for section in recap_sections
+            ],
             source_keys=["course_title"],
         )
     if page.page_id == "slide:appendix-divider":
@@ -838,7 +993,16 @@ def _materialize_page(
     first = fragments[0] if fragments else None
     section = sections.get(first.section_id if first else "")
     block = blocks.get(first.block_id if first else "")
-    title = str((block.payload or {}).get("title") or (section.title if section else "课程内容"))
+    block_title = _display_text(
+        str((block.payload or {}).get("title") or "").strip()
+    )
+    title = (
+        _display_text(section.title)
+        if section and _is_placeholder_title(block_title)
+        else block_title or (
+            _display_text(section.title) if section else "课程内容"
+        )
+    )
     if page.derived_text and any(item.purpose == "continuation" for item in page.derived_text):
         title = f"{title}（续）"
     slide_blocks = _slide_blocks_from_fragments(page, fragments)
@@ -879,8 +1043,32 @@ def _slide_blocks_from_fragments(
     page: PlannedPageV2,
     fragments: list[ContentFragmentV1],
 ) -> list[SlideBlockSpec]:
+    if page.layout == "appendix":
+        return [SlideBlockSpec(
+            block_id=f"{page.page_id}:appendix-body",
+            type="statement",
+            content="\n\n".join(
+                (
+                    f"• {_display_text(fragment.text)}"
+                    if fragment.kind == "list_item"
+                    else _display_text(fragment.text)
+                )
+                for fragment in fragments
+            ),
+            metadata={
+                "fragment_ids": [
+                    fragment.fragment_id for fragment in fragments
+                ],
+                "source_hashes": {
+                    fragment.fragment_id: fragment.source_hash
+                    for fragment in fragments
+                },
+                "fragment_kind": "appendix_body",
+            },
+        )]
     result: list[SlideBlockSpec] = []
     pending_items: list[ContentFragmentV1] = []
+    pending_prose: list[ContentFragmentV1] = []
 
     def flush_items() -> None:
         if not pending_items:
@@ -888,7 +1076,7 @@ def _slide_blocks_from_fragments(
         result.append(SlideBlockSpec(
             block_id=f"{page.page_id}:items:{len(result) + 1}",
             type="process" if page.layout in {"process", "timeline", "cycle"} else "bullets",
-            items=[item.text for item in pending_items],
+            items=[_display_text(item.text) for item in pending_items],
             metadata={
                 "fragment_ids": [item.fragment_id for item in pending_items],
                 "source_hashes": {item.fragment_id: item.source_hash for item in pending_items},
@@ -896,16 +1084,48 @@ def _slide_blocks_from_fragments(
         ))
         pending_items.clear()
 
+    def flush_prose() -> None:
+        if not pending_prose:
+            return
+        result.append(SlideBlockSpec(
+            block_id=f"{page.page_id}:prose:{len(result) + 1}",
+            type="statement",
+            content="\n\n".join(
+                _display_text(item.text) for item in pending_prose
+            ),
+            metadata={
+                "fragment_ids": [item.fragment_id for item in pending_prose],
+                "source_hashes": {
+                    item.fragment_id: item.source_hash for item in pending_prose
+                },
+                "fragment_kind": "paragraph",
+            },
+        ))
+        pending_prose.clear()
+
     for fragment in fragments:
         if fragment.kind == "list_item":
-            pending_items.append(fragment)
+            flush_prose()
+            if len(_display_text(fragment.text)) <= 72:
+                pending_items.append(fragment)
+            else:
+                flush_items()
+                pending_prose.append(fragment)
             continue
         flush_items()
+        if fragment.kind in {"heading", "paragraph"}:
+            pending_prose.append(fragment)
+            continue
+        flush_prose()
         block_type = "code" if fragment.kind == "code" else "statement"
         result.append(SlideBlockSpec(
             block_id=f"{page.page_id}:fragment:{fragment.fragment_id}",
             type=block_type,
-            content=fragment.text,
+            content=(
+                fragment.text
+                if fragment.kind == "code"
+                else _display_text(fragment.text)
+            ),
             metadata={
                 "fragment_ids": [fragment.fragment_id],
                 "source_hashes": {fragment.fragment_id: fragment.source_hash},
@@ -914,7 +1134,45 @@ def _slide_blocks_from_fragments(
             },
         ))
     flush_items()
+    flush_prose()
     return result[:6]
+
+
+def _is_placeholder_title(value: str) -> bool:
+    normalized = re.sub(r"[\s:：_-]+", "", value).lower()
+    return normalized in {"正文", "内容", "课程内容", "未命名", "body", "content"}
+
+
+_SUPERSCRIPTS = str.maketrans("0123456789+-=()nijk", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿⁱʲᵏ")
+_MATHBB = {
+    "R": "ℝ",
+    "C": "ℂ",
+    "Z": "ℤ",
+    "Q": "ℚ",
+    "N": "ℕ",
+}
+_LATEX_SYMBOLS = {
+    r"\notin": "∉",
+    r"\in": "∈",
+    r"\subseteq": "⊆",
+    r"\subset": "⊂",
+    r"\cup": "∪",
+    r"\cap": "∩",
+    r"\times": "×",
+    r"\cdot": "·",
+    r"\leq": "≤",
+    r"\geq": "≥",
+    r"\neq": "≠",
+    r"\rightarrow": "→",
+    r"\to": "→",
+    r"\forall": "∀",
+    r"\exists": "∃",
+}
+
+
+def _display_text(value: str) -> str:
+    """Convert source markup to editable audience-facing text without rewriting it."""
+    return _plain_text(str(value or ""))
 
 
 def _renderer_layout(layout: str) -> str:
@@ -936,7 +1194,7 @@ def _renderer_layout(layout: str) -> str:
         "question": "practice",
         "answer": "practice",
         "summary": "recap",
-        "appendix": "concept",
+        "appendix": "appendix",
     }
     return mapping.get(layout, layout)
 
@@ -971,6 +1229,40 @@ def validate_slide_deck_v3(
     }
     report = validate_slide_deck(base_payload, course_data=course_data)
     issues = list(report.get("issues") or [])
+    knowledge_binding_issues = [
+        item for item in issues
+        if item.get("code") == "knowledge_binding_missing"
+    ]
+    if knowledge_binding_issues:
+        issues = [
+            item for item in issues
+            if item.get("code") != "knowledge_binding_missing"
+        ]
+        issues.append({
+            "severity": "minor",
+            "code": "knowledge_binding_missing",
+            "message": (
+                f"{len(knowledge_binding_issues)} 页尚未绑定正式知识 ID；"
+                "课程块来源已保留，不影响正文覆盖与导出。"
+            ),
+            "target": "deck",
+            "slide_id": "deck",
+            "layout": "deck",
+            "count": len(knowledge_binding_issues),
+            "affected_slide_ids": [
+                str(item.get("slide_id") or item.get("target") or "")
+                for item in knowledge_binding_issues[:50]
+            ],
+        })
+    for issue in issues:
+        if issue.get("code") == "formal_practice_not_represented":
+            issue["message"] = (
+                f"{int(issue.get('count') or 0)} 个小节的正式题目尚未进入"
+                "当前授课主线。"
+            )
+            issue["suggestion"] = (
+                "可按章节拆分课件并补充练习页；正文覆盖与当前导出不受影响。"
+            )
     coverage = content.get("coverage_report") or {}
     mode = str(content.get("mode") or "")
     if not coverage.get("hash_integrity_passed"):
@@ -999,18 +1291,36 @@ def validate_slide_deck_v3(
             "message": "精简模式的排除清单不完整。",
             "target": "deck",
         })
+    semantic_codes = {
+        str(item.get("code") or "")
+        for item in report.get("semantic", {}).get("issues", [])
+    }
+    semantic_codes.add("knowledge_binding_missing")
     semantic_issues = [
         item for item in issues
-        if str(item.get("code") or "").startswith(("fragment_", "source_", "concise_"))
+        if (
+            str(item.get("code") or "") in semantic_codes
+            or str(item.get("code") or "").startswith(
+                ("fragment_", "source_", "concise_")
+            )
+        )
     ]
     visual_issues = [item for item in issues if item not in semantic_issues]
     passed = not any(item.get("severity") == "critical" for item in issues)
+    score = max(0, 100 - sum(
+        {"critical": 20, "major": 5, "minor": 1}.get(
+            str(item.get("severity") or ""),
+            1,
+        )
+        for item in issues
+    ))
     return {
         **report,
         "passed": passed,
-        "score": max(0, 100 - sum(20 if item.get("severity") == "critical" else 5 for item in issues)),
+        "score": score,
         "issues": issues,
         "blockers": [item for item in issues if item.get("severity") == "critical"],
+        "warnings": [item for item in issues if item.get("severity") != "critical"],
         "semantic": {"passed": not any(item.get("severity") == "critical" for item in semantic_issues), "issues": semantic_issues},
         "visual": {"passed": not any(item.get("severity") == "critical" for item in visual_issues), "issues": visual_issues},
         "coverage": coverage,

@@ -147,6 +147,7 @@ function layoutLabel(value: string) {
     misconception: '易错',
     practice: '练习',
     recap: '小结',
+    appendix: '附录',
   } as Record<string, string>)[value] || value)
 }
 </script>
@@ -386,6 +387,36 @@ function layoutLabel(value: string) {
 .deck-canvas__blocks[data-layout="roadmap"],
 .deck-canvas__blocks[data-layout="process"] { inset:28% 5.5% 11%; }
 .deck-canvas__blocks[data-layout="comparison"] { inset:26% 5.5% 10.5%; }
+.deck-canvas__blocks[data-layout="appendix"] {
+  inset:25% 5.5% 10.5%;
+  grid-template-columns:1fr;
+}
+.deck-canvas__blocks[data-layout="appendix"] section {
+  padding:3.1%;
+  border-left:.42cqw solid var(--deck-blue);
+}
+.deck-canvas__blocks[data-layout="appendix"] p {
+  white-space:pre-line;
+  font-size:1.42cqw;
+  line-height:1.58;
+}
+.deck-canvas__blocks[data-layout="appendix"][data-count="1"] p {
+  column-count:2;
+  column-gap:3.2cqw;
+  column-rule:1px solid var(--deck-line);
+}
+.deck-canvas__blocks[data-count="1"]:not([data-layout="appendix"]) p {
+  font-size:1.72cqw;
+  line-height:1.48;
+}
+.deck-canvas__blocks[data-count="1"]:not([data-layout="appendix"]) li {
+  font-size:1.48cqw;
+}
+.deck-canvas__blocks:is([data-layout="recap"],[data-layout="summary"])[data-count="1"] ul {
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:1.1cqw 2.4cqw;
+  padding-left:1.4em;
+}
 .deck-canvas__blocks section {
   min-width:0;
   overflow:hidden;

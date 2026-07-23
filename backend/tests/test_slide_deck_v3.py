@@ -103,6 +103,12 @@ def test_full_coverage_modes_materialize_every_source_fragment(mode: str) -> Non
     assert content["coverage_report"]["visible_coverage_ratio"] == 1.0
     assert content["coverage_report"]["hash_integrity_passed"] is True
     assert content["quality_summary"]["passed"] is True
+    assert content["quality_summary"]["score"] >= 90
+    assert len([
+        issue
+        for issue in content["quality_report"]["warnings"]
+        if issue["code"] == "knowledge_binding_missing"
+    ]) <= 1
     referenced = {
         fragment_id
         for page in content["allocation_plan"]["pages"]
@@ -298,6 +304,179 @@ def test_deterministic_pages_respect_materialized_layout_capacity() -> None:
     } & {"slide_block_overflow", "concept_card_overflow"}
 
 
+def test_sequential_prose_is_grouped_into_readable_body_blocks() -> None:
+    course = source_course()
+    course["nodes"][0]["content_blocks"][0]["content"] = "\n\n".join(
+        f"Paragraph {index} explains one connected part of the same concept."
+        for index in range(1, 9)
+    )
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    plan = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="full",
+        theme="qizhi-classroom",
+    )
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="full",
+        theme="qizhi-classroom",
+        allocation_plan=plan,
+    )
+    teaching_slides = [
+        slide for slide in content["slides"]
+        if slide.get("source_block_ids") == ["block-core"]
+    ]
+
+    assert len(teaching_slides) <= 3
+    assert all(len(slide["blocks"]) <= 2 for slide in teaching_slides)
+    assert content["quality_report"]["passed"] is True
+
+
+def test_common_latex_is_translated_without_leaking_commands() -> None:
+    course = source_course()
+    course["nodes"][0]["content_blocks"][0]["content"] = (
+        r"The eigenvalue equation is $\det(A-\lambda I)=0$, "
+        r"and $\frac{1}{n}\sum_{i=1}^{n}x_i$ is an average."
+    )
+    document = document_from_legacy_course(course)
+    plan = deterministic_slide_allocation(
+        document,
+        fragment_course_document(document),
+        mode="full",
+        theme="qizhi-classroom",
+    )
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="full",
+        theme="qizhi-classroom",
+        allocation_plan=plan,
+    )
+    visible = "\n".join(
+        value
+        for slide in content["slides"]
+        for block in slide["blocks"]
+        for value in [block.get("content", ""), *(block.get("items") or [])]
+    )
+
+    assert "\\" not in visible
+    assert "$" not in visible
+    assert "λ" in visible
+    assert "∑" in visible
+    assert not {
+        issue["code"] for issue in content["quality_report"]["blockers"]
+    } & {"raw_latex_leaked"}
+
+
+def test_teaching_mode_routes_deep_generic_sections_to_appendix() -> None:
+    course = source_course()
+    course["nodes"].append({
+        "node_id": "section-detail",
+        "parent_node_id": "section-core",
+        "node_name": "Proof details",
+        "node_level": 3,
+        "content_blocks": [{
+            "block_id": "block-detail",
+            "title": "Proof details",
+            "content": "A detailed derivation retained verbatim for reference.",
+            "metadata": {"role": "concept"},
+        }],
+    })
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    plan = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    detail_ids = {
+        item.fragment_id for item in fragments if item.block_id == "block-detail"
+    }
+    detail_pages = [
+        page for page in plan.pages if detail_ids & set(page.fragment_ids)
+    ]
+
+    assert detail_pages
+    assert all(page.appendix for page in detail_pages)
+
+
+def test_teaching_appendix_uses_compact_readable_editorial_layout() -> None:
+    course = source_course()
+    course["nodes"].append({
+        "node_id": "section-appendix",
+        "parent_node_id": "section-core",
+        "node_name": "Detailed appendix",
+        "node_level": 3,
+        "content_blocks": [{
+            "block_id": "block-appendix",
+            "title": "Detailed appendix",
+            "content": "\n\n".join([
+                *[
+                    f"Supporting paragraph {index} remains verbatim and editable."
+                    for index in range(1, 7)
+                ],
+                "- First reference condition",
+                "- Second reference condition",
+            ]),
+            "metadata": {"role": "concept"},
+        }],
+    })
+    document = document_from_legacy_course(course)
+    plan = deterministic_slide_allocation(
+        document,
+        fragment_course_document(document),
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="teaching",
+        theme="qizhi-classroom",
+        allocation_plan=plan,
+    )
+    appendix_slides = [
+        slide for slide in content["slides"]
+        if slide.get("source_block_ids") == ["block-appendix"]
+    ]
+
+    assert len(appendix_slides) <= 2
+    assert all(slide["layout"] == "appendix" for slide in appendix_slides)
+    assert content["quality_report"]["passed"] is True
+
+
+def test_summary_page_contains_source_derived_recap_content() -> None:
+    course = source_course()
+    document = document_from_legacy_course(course)
+    plan = deterministic_slide_allocation(
+        document,
+        fragment_course_document(document),
+        mode="full",
+        theme="qizhi-classroom",
+    )
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="full",
+        theme="qizhi-classroom",
+        allocation_plan=plan,
+    )
+    summary = next(
+        slide for slide in content["slides"] if slide["unit_id"] == "slide:summary"
+    )
+
+    assert summary["blocks"]
+    assert any(
+        block.get("items") or block.get("content")
+        for block in summary["blocks"]
+    )
+    assert summary["source_section_ids"]
+
+
 @pytest.mark.asyncio
 async def test_ai_planner_cannot_inject_teaching_body_text() -> None:
     course = source_course()
@@ -417,6 +596,50 @@ def test_v3_export_is_editable_widescreen_and_uses_variant_theme(tmp_path: Path)
     assert len(presentation.slides) == len(spec.payload["content"]["slides"])
     assert any(
         shape.has_text_frame and shape.text.strip()
+        for slide in presentation.slides
+        for shape in slide.shapes
+    )
+    cover_sizes = [
+        paragraph.font.size.pt
+        for shape in presentation.slides[0].shapes
+        if shape.has_text_frame
+        for paragraph in shape.text_frame.paragraphs
+        if paragraph.font.size
+    ]
+    assert max(cover_sizes) >= 50
+    non_cover_heading_sizes = [
+        max(
+            (
+                paragraph.font.size.pt
+                for shape in slide.shapes
+                if shape.has_text_frame
+                for paragraph in shape.text_frame.paragraphs
+                if paragraph.font.size
+            ),
+            default=0,
+        )
+        for slide in list(presentation.slides)[1:]
+    ]
+    assert all(size >= 35 for size in non_cover_heading_sizes)
+    appendix_index = next(
+        index
+        for index, slide in enumerate(spec.payload["content"]["slides"])
+        if slide["layout"] == "appendix"
+    )
+    appendix_body_sizes = [
+        paragraph.font.size.pt
+        for shape in presentation.slides[appendix_index].shapes
+        if shape.has_text_frame
+        for paragraph in shape.text_frame.paragraphs
+        if paragraph.font.size
+    ]
+    assert appendix_body_sizes
+    assert 16 in appendix_body_sizes
+    assert all(
+        shape.left >= 0
+        and shape.top >= 0
+        and shape.left + shape.width <= presentation.slide_width
+        and shape.top + shape.height <= presentation.slide_height
         for slide in presentation.slides
         for shape in slide.shapes
     )

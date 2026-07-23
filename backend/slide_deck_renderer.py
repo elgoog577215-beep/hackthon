@@ -237,6 +237,7 @@ def _render_slide(
         "misconception": _render_misconception,
         "practice": _render_practice,
         "recap": _render_recap,
+        "appendix": _render_appendix,
     }.get(unit.layout, _render_concept)
     renderer(slide, unit, theme)
     if unit.layout != "cover":
@@ -245,19 +246,19 @@ def _render_slide(
 
 def _render_cover(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _shape(slide, 0.58, 0.55, 0.12, 5.92, theme["accent"], radius=False)
-    _shape(slide, 10.82, 0.0, 2.52, 7.5, theme["accent_soft"], radius=False)
+    _shape(slide, 10.82, 0.0, 2.513, 7.5, theme["accent_soft"], radius=False)
     _shape(slide, 11.35, 0.72, 1.04, 1.04, theme["green"], radius=True)
     _text(slide, "灵知", 11.35, 0.99, 1.04, 0.34, 15, "FFFFFF", bold=True, align="center")
     _text(slide, unit.eyebrow or "课程演示", 0.92, 0.72, 4.0, 0.38, 14, theme["accent"], bold=True)
     _text(
-        slide, unit.title, 0.92, 1.42, 9.15, 1.65, 34, theme["title"], bold=True,
+        slide, unit.title, 0.92, 1.34, 9.15, 1.82, 50, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
     )
     if unit.subtitle:
-        _text(slide, unit.subtitle, 0.94, 3.12, 7.8, 0.48, 15, theme["muted"])
+        _text(slide, unit.subtitle, 0.94, 3.24, 7.8, 0.52, 18, theme["muted"])
     _shape(slide, 0.92, 4.23, 8.85, 1.14, theme["canvas"], radius=True, line=theme["accent_soft"])
     _text(slide, "学习主线", 1.18, 4.48, 1.2, 0.28, 11, theme["green"], bold=True)
-    _text(slide, unit.key_message or _block_content(unit.blocks, 0), 2.42, 4.39, 7.0, 0.58, 15, theme["ink"], bold=True)
+    _text(slide, unit.key_message or _block_content(unit.blocks, 0), 2.42, 4.35, 7.0, 0.68, 18, theme["ink"], bold=True)
     _text(slide, "同一课程结构 · 知识与能力绑定 · 可继续编辑", 0.94, 6.45, 7.0, 0.32, 11, theme["muted"])
 
 
@@ -274,7 +275,7 @@ def _render_roadmap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         _shape(slide, x, y, 5.55, card_h, theme["canvas"], radius=True, line=theme["chart_bg"])
         _shape(slide, x + 0.22, y + 0.22, 0.5, 0.5, theme["accent_soft"], radius=True)
         _text(slide, f"{index + 1:02d}", x + 0.22, y + 0.33, 0.5, 0.2, 10, theme["accent"], bold=True, align="center")
-        _text(slide, item, x + 0.9, y + 0.24, 4.35, card_h - 0.25, 14, theme["ink"], bold=True)
+        _text(slide, item, x + 0.9, y + 0.24, 4.35, card_h - 0.25, 17, theme["ink"], bold=True)
 
 
 def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -321,11 +322,29 @@ def _render_concept(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         _shape(slide, x, 2.87, width, 3.52, theme["canvas"], radius=True, line=theme["chart_bg"])
         accent = [theme["accent"], theme["green"], theme["amber"]][index % 3]
         _shape(slide, x, 2.87, 0.08, 3.52, accent, radius=False)
-        _text(slide, block.title or f"要点 {index + 1}", x + 0.3, 3.17, width - 0.55, 0.42, 13, accent, bold=True)
+        _text(
+            slide,
+            block.title or unit.eyebrow or f"要点 {index + 1}",
+            x + 0.3,
+            3.14,
+            width - 0.55,
+            0.46,
+            15,
+            accent,
+            bold=True,
+        )
         if block.items:
-            _bullets(slide, block.items, x + 0.3, 3.76, width - 0.58, 2.18, 13, theme["ink"], accent)
+            item_size = 19 if len(blocks) == 1 and len(block.items) <= 3 else 16
+            _bullets(slide, block.items, x + 0.3, 3.72, width - 0.58, 2.25, item_size, theme["ink"], accent)
         else:
             is_formula = bool(block.metadata.get("formula"))
+            body_size = (
+                26
+                if len(blocks) == 1 and len(block.content) <= 70
+                else 21
+                if len(blocks) == 1 and len(block.content) <= 150
+                else 16
+            )
             _text(
                 slide,
                 block.content,
@@ -333,7 +352,7 @@ def _render_concept(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
                 3.76,
                 width - 0.58,
                 2.18,
-                14,
+                body_size,
                 theme["ink"],
                 font=theme["math_font"] if is_formula else theme["body_font"],
                 east_asian_font=theme["body_east_asian_font"],
@@ -417,6 +436,18 @@ def _render_practice(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None
 def _render_recap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     blocks = unit.blocks[:3]
+    if len(blocks) == 1 and len(blocks[0].items) > 1:
+        for index, value in enumerate(blocks[0].items[:6]):
+            column = index % 2
+            row = index // 2
+            x = 0.82 + column * 5.92
+            y = 1.82 + row * 1.43
+            accent = [theme["accent"], theme["green"], theme["amber"]][row % 3]
+            soft = [theme["accent_soft"], theme["green_soft"], theme["amber_soft"]][row % 3]
+            _shape(slide, x, y, 5.66, 1.18, soft, radius=True)
+            _text(slide, f"{index + 1:02d}", x + 0.26, y + 0.44, 0.52, 0.22, 12, accent, bold=True, align="center")
+            _text(slide, value, x + 0.92, y + 0.28, 4.38, 0.62, 17, theme["ink"], bold=True)
+        return
     for index, block in enumerate(blocks):
         y = 1.8 + index * 1.58
         accent = [theme["accent"], theme["green"], theme["amber"]][index % 3]
@@ -429,10 +460,99 @@ def _render_recap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         _text(slide, unit.key_message, 0.86, 6.27, 11.4, 0.38, 13, theme["muted"], bold=True, align="center")
 
 
+def _render_appendix(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    _heading(slide, unit, theme)
+    _shape(
+        slide,
+        0.78,
+        1.82,
+        11.78,
+        4.93,
+        theme["canvas"],
+        radius=True,
+        line=theme["chart_bg"],
+    )
+    _shape(slide, 0.78, 1.82, 0.09, 4.93, theme["accent"], radius=False)
+    values: list[str] = []
+    for block in unit.blocks:
+        if block.title:
+            values.append(block.title)
+        if block.items:
+            values.extend(f"• {item}" for item in block.items if item)
+        elif block.content:
+            values.append(block.content)
+    body = "\n\n".join(values)
+    if len(body) > 380:
+        left, right = _balanced_text_columns(body)
+        _text(
+            slide,
+            left,
+            1.13,
+            2.12,
+            5.22,
+            4.3,
+            16,
+            theme["ink"],
+            font=theme["body_font"],
+            east_asian_font=theme["body_east_asian_font"],
+        )
+        _shape(slide, 6.55, 2.13, 0.02, 4.25, theme["chart_bg"], radius=False)
+        _text(
+            slide,
+            right,
+            6.83,
+            2.12,
+            5.18,
+            4.3,
+            16,
+            theme["ink"],
+            font=theme["body_font"],
+            east_asian_font=theme["body_east_asian_font"],
+        )
+    else:
+        _text(
+            slide,
+            body,
+            1.13,
+            2.12,
+            11.02,
+            4.3,
+            16,
+            theme["ink"],
+            font=theme["body_font"],
+            east_asian_font=theme["body_east_asian_font"],
+        )
+
+
+def _balanced_text_columns(value: str) -> tuple[str, str]:
+    paragraphs = [item.strip() for item in value.split("\n\n") if item.strip()]
+    if len(paragraphs) < 2:
+        midpoint = max(1, len(value) // 2)
+        split_at = value.rfind("。", 0, midpoint)
+        if split_at < 1:
+            split_at = value.rfind("；", 0, midpoint)
+        if split_at < 1:
+            split_at = midpoint
+        return value[: split_at + 1].strip(), value[split_at + 1 :].strip()
+    target = len(value) / 2
+    left: list[str] = []
+    right: list[str] = []
+    left_size = 0
+    for paragraph in paragraphs:
+        if left and left_size + len(paragraph) > target:
+            right.append(paragraph)
+        elif right:
+            right.append(paragraph)
+        else:
+            left.append(paragraph)
+            left_size += len(paragraph) + 2
+    return "\n\n".join(left), "\n\n".join(right)
+
+
 def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _text(slide, unit.eyebrow or unit.slide_purpose, 0.78, 0.5, 2.7, 0.3, 11, theme["accent"], bold=True)
     _text(
-        slide, unit.title, 0.78, 0.88, 11.72, 0.7, 25, theme["title"], bold=True,
+        slide, unit.title, 0.78, 0.82, 11.72, 0.76, 36, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
     )
     _shape(slide, 0.78, 1.58, 0.72, 0.05, theme["accent"], radius=False)

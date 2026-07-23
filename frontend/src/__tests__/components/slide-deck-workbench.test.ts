@@ -56,7 +56,7 @@ describe('SlideDeckWorkbench', () => {
 
     expect(wrapper.find('.deck-canvas').attributes('data-theme')).toBe('qingfeng-classroom')
     expect(wrapper.find('.slide-workbench__count').text()).toContain('15')
-    expect(wrapper.find('.slide-workbench__count').text()).toContain('12–18')
+    expect(wrapper.find('.slide-workbench__count').text()).not.toContain('12–18')
 
     await wrapper.find('[data-theme-option="academic-bluegray"]').trigger('click')
     expect(wrapper.find('.deck-canvas').attributes('data-theme')).toBe('academic-bluegray')
@@ -71,6 +71,33 @@ describe('SlideDeckWorkbench', () => {
       .toBe('academic-bluegray')
 
     wrapper.unmount()
+  })
+
+  it('labels teaching mainline and appendix counts without a demo target', () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-1',
+        deckTitle: 'Linear algebra',
+        slides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'complete',
+        error: '',
+        quality: {
+          passed: true,
+          main_slide_count: 56,
+          appendix_slide_count: 741,
+          large_deck_warning: true,
+        },
+      },
+    })
+
+    const count = wrapper.find('.slide-workbench__count').text()
+    expect(count).toContain('56 页主线')
+    expect(count).toContain('741 页附录')
+    expect(count).toContain('建议按章节拆分')
   })
 
   it('uses the same structured slide spec for thumbnails, canvas, and source inspection', async () => {

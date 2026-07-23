@@ -242,13 +242,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             }
           }
           if (event.event === 'build_blocked') {
-            if (event.quality) {
-              this.draftSlideQuality = event.quality
-              if (this.liveSlides.length) {
-                this.slidePreviewSource = 'draft'
-                this.slideQuality = event.quality
-              }
-            }
+            this.settleFailedSlideDraft(event.quality)
             this.buildError = 'quality_gate_failed'
           }
           if (event.event === 'build_complete') completedRef.value = event
@@ -256,13 +250,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             event.event === 'build_complete'
             && String(event.build?.status || '').startsWith('failed')
           ) {
-            if (event.quality) {
-              this.draftSlideQuality = event.quality
-              if (this.liveSlides.length) {
-                this.slidePreviewSource = 'draft'
-                this.slideQuality = event.quality
-              }
-            }
+            this.settleFailedSlideDraft(event.quality)
             this.buildError = 'quality_gate_failed'
           }
           if (event.event === 'error') this.buildError = event.message || 'Teaching representation build failed'
@@ -304,6 +292,32 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     },
     async buildSlideDeckVariant(courseId: string, options: SlideDeckBuildOptions) {
       return this.buildProgressive(courseId, options)
+    },
+    settleFailedSlideDraft(quality?: Record<string, any>) {
+      if (quality) this.draftSlideQuality = quality
+      const publishedContent = this.selectedSpec?.payload?.content
+      const hasPublishedDeck = (
+        this.selectedRepresentation?.status === 'ready'
+        && ['slide_deck_v2', 'slide_deck_v3'].includes(publishedContent?.schema_version)
+      )
+      if (hasPublishedDeck) {
+        this.liveSlides = []
+        this.slidePreviewSource = 'published'
+        this.slideQuality = (
+          this.publishedSlideQuality
+          || publishedContent?.quality_summary
+          || null
+        )
+        return
+      }
+      this.liveSlides = this.liveSlides.slice(0, 5)
+      if (this.liveSlides.length) {
+        this.slidePreviewSource = 'draft'
+        this.slideQuality = this.draftSlideQuality
+      } else {
+        this.slidePreviewSource = 'published'
+        this.slideQuality = this.publishedSlideQuality
+      }
     },
     async pauseBuild() {
       if (!this.buildTaskId || !this.building) return

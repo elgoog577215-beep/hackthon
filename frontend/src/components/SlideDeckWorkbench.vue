@@ -15,7 +15,7 @@
           <TriangleAlert v-else :size="13" />
           {{ error ? t('teachingRepresentations.slides.buildFailed', '生成失败') : building ? stageLabel : qualityPassed ? t('teachingRepresentations.slides.qualityPassed', '质量检查通过') : t('teachingRepresentations.slides.qualityReview', '需要检查') }}
         </span>
-        <small class="slide-workbench__count">{{ t('teachingRepresentations.slides.demoPageCount', '{count} 页 · Demo 标准 12–18 页').replace('{count}', String(slides.length)) }}</small>
+        <small class="slide-workbench__count">{{ deckCountLabel }}</small>
       </div>
       <div class="slide-workbench__commands">
         <div class="slide-workbench__theme" :aria-label="t('pptWorkspace.themeLabel', '课件模式与风格')">
@@ -412,13 +412,28 @@ const notesVisible = ref(false)
 const presentationBlank = ref(false)
 const presentationSurface = ref<HTMLElement | null>(null)
 const previewTheme = ref<SlideDeckTheme>(props.theme)
-const layouts = ['cover', 'roadmap', 'chapter', 'objective', 'concept', 'comparison', 'process', 'code', 'misconception', 'practice', 'recap']
+const layouts = ['cover', 'roadmap', 'chapter', 'objective', 'concept', 'comparison', 'process', 'code', 'misconception', 'practice', 'recap', 'appendix']
 let autoPreviewTimer: number | undefined
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
 const activeIndex = computed(() => Math.max(0, props.slides.findIndex(slide => slide.unit_id === activeUnitId.value)))
 const activeSlide = computed(() => props.slides[activeIndex.value] || null)
 const qualityPassed = computed(() => props.quality?.passed === true)
+const deckCountLabel = computed(() => {
+  const main = Number(props.quality?.main_slide_count || 0)
+  const appendix = Number(props.quality?.appendix_slide_count || 0)
+  if (main || appendix) {
+    const parts = [
+      main ? `${main} 页主线` : '',
+      appendix ? `${appendix} 页附录` : '',
+    ].filter(Boolean)
+    const warning = props.quality?.large_deck_warning
+      ? ' · 超大课件，建议按章节拆分'
+      : ''
+    return `${parts.join(' + ')} · 共 ${main + appendix} 页${warning}`
+  }
+  return `${props.slides.length} 页`
+})
 const slideQualityPassed = computed(() => activeSlide.value?.quality?.passed === true)
 const previewSource = computed<SlideDeckPreviewSource>(() => (
   props.previewSource || (props.error ? 'draft' : 'published')
@@ -867,7 +882,7 @@ function askAi() {
 
 function layoutLabel(value: string) {
   return t(`teachingRepresentations.slides.layouts.${value}`, ({
-    cover: '封面', roadmap: '路线', chapter: '章节', objective: '目标', concept: '概念', comparison: '对比', process: '过程', code: '代码', misconception: '易错', practice: '练习', recap: '小结',
+    cover: '封面', roadmap: '路线', chapter: '章节', objective: '目标', concept: '概念', comparison: '对比', process: '过程', code: '代码', misconception: '易错', practice: '练习', recap: '小结', appendix: '附录',
   } as Record<string, string>)[value] || value)
 }
 
