@@ -17,6 +17,7 @@ from teaching_representations import (
 )
 
 EditClassification = Literal["presentation", "equivalent_semantic", "semantic", "ambiguous"]
+COURSE_TEXT_PATCH_SCHEMA = "course_text_patch_v1"
 
 _TEACHING_DIMENSIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
@@ -197,6 +198,87 @@ def representation_edit_impact(
         "total_unit_count": total_unit_count,
         "protected": ["无来源关系的课程块", "其他课程", "历史作答", "个人笔记原文"],
     }
+
+
+def build_course_text_patch(
+    block_payload: dict[str, Any],
+    *,
+    before: str,
+    after: str,
+) -> dict[str, Any]:
+    """把派生材料中的小改动定位为唯一、可冲突检测的课程文本补丁。"""
+    before_text = str(before or "")
+    after_text = str(after or "")
+    if not before_text:
+        raise ValueError("Semantic edit requires non-empty source text")
+
+    selected_field = ""
+    selected_content = ""
+    selected_start = -1
+    for field_group in (
+        ("markdown", "text", "content"),
+        ("title", "summary"),
+    ):
+        matches: list[tuple[str, str, int]] = []
+        for field in field_group:
+            content = block_payload.get(field)
+            if not isinstance(content, str):
+                continue
+            start = content.find(before_text)
+            if start >= 0:
+                matches.append((field, content, start))
+        if matches:
+            if len(matches) != 1:
+                raise ValueError("Semantic edit matches multiple course fields")
+            selected_field, selected_content, selected_start = matches[0]
+            break
+    if not selected_field:
+        raise ValueError("Semantic edit source text is not present in the course block")
+    if selected_content.find(before_text, selected_start + 1) >= 0:
+        raise ValueError("Semantic edit source text occurs more than once in the course block")
+
+    selected_end = selected_start + len(before_text)
+    prefix_context = selected_content[max(0, selected_start - 48):selected_start]
+    suffix_context = selected_content[selected_end:selected_end + 48]
+    return {
+        "schema_version": COURSE_TEXT_PATCH_SCHEMA,
+        "field": selected_field,
+        "start": selected_start,
+        "end": selected_end,
+        "before": before_text,
+        "after": after_text,
+        "prefix_context": prefix_context,
+        "suffix_context": suffix_context,
+        "line_start": selected_content.count("\n", 0, selected_start) + 1,
+        "line_end": selected_content.count("\n", 0, selected_end) + 1,
+    }
+
+
+def apply_course_text_patch_preview(
+    block_payload: dict[str, Any],
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    """在不写入课程的情况下生成补丁后的块 payload，供审阅差异使用。"""
+    field = str(patch.get("field") or "")
+    current = block_payload.get(field)
+    start = patch.get("start")
+    end = patch.get("end")
+    before = str(patch.get("before") or "")
+    if (
+        not isinstance(current, str)
+        or not isinstance(start, int)
+        or isinstance(start, bool)
+        or not isinstance(end, int)
+        or isinstance(end, bool)
+        or start < 0
+        or end < start
+        or end > len(current)
+        or current[start:end] != before
+    ):
+        raise ValueError("Course text patch no longer matches its preview source")
+    updated = deepcopy(block_payload)
+    updated[field] = f"{current[:start]}{str(patch.get('after') or '')}{current[end:]}"
+    return updated
 
 
 def _representation_units(spec: TeachingRepresentationSpec) -> list[dict[str, Any]]:
@@ -434,7 +516,10 @@ def _token_overlap(before: str, after: str) -> float:
 
 
 __all__ = [
+    "COURSE_TEXT_PATCH_SCHEMA",
     "apply_representation_only_edit",
+    "apply_course_text_patch_preview",
+    "build_course_text_patch",
     "classify_representation_edit",
     "representation_edit_impact",
 ]

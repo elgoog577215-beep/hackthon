@@ -394,6 +394,57 @@ async def test_replace_block_checks_revisions_and_returns_same_receipt_on_retry(
 
 
 @pytest.mark.asyncio
+async def test_patch_block_text_updates_only_the_exact_span_and_checks_anchors():
+    storage = MemoryStorage(legacy_course())
+    repository = CourseDocumentRepository(storage)
+    preview = repository.document_envelope("course-1")
+    await repository.migrate_legacy_course(
+        "course-1",
+        expected_source_checksum=preview["migration"]["source_checksum"],
+    )
+    document, _ = repository.load_document("course-1")
+    target = document.blocks[0]
+    markdown = str(target.payload["markdown"])
+    before = "大小和方向"
+    start = markdown.index(before)
+
+    receipt = await CourseCommandService(repository).patch_block_text(
+        "course-1",
+        command_id="patch-span-1",
+        expected_document_revision=document.document_revision,
+        expected_block_revision=target.internal_revision,
+        block_id=target.block_id,
+        field="markdown",
+        start=start,
+        end=start + len(before),
+        before=before,
+        after="大小、方向和线性组合语义",
+        prefix_context=markdown[max(0, start - 12):start],
+        suffix_context=markdown[start + len(before):start + len(before) + 12],
+    )
+
+    updated, _ = repository.load_document("course-1")
+    updated_target = next(item for item in updated.blocks if item.block_id == target.block_id)
+    assert updated_target.payload["title"] == target.payload["title"]
+    assert "大小、方向和线性组合语义" in updated_target.payload["markdown"]
+    assert receipt["operation"] == "patch_course_span"
+
+    with pytest.raises(CourseDocumentConflict, match="revision changed"):
+        await CourseCommandService(repository).patch_block_text(
+            "course-1",
+            command_id="patch-span-stale",
+            expected_document_revision=updated.document_revision,
+            expected_block_revision=target.internal_revision,
+            block_id=target.block_id,
+            field="markdown",
+            start=start,
+            end=start + len(before),
+            before=before,
+            after="过期内容",
+        )
+
+
+@pytest.mark.asyncio
 async def test_concurrent_commands_with_the_same_revision_allow_exactly_one_commit():
     storage = YieldingMemoryStorage(legacy_course())
     first_repository = CourseDocumentRepository(storage)

@@ -21,7 +21,9 @@ from representation_compiler import (
     validate_compiled_representations,
 )
 from representation_edits import (
+    apply_course_text_patch_preview,
     apply_representation_only_edit,
+    build_course_text_patch,
     classify_representation_edit,
     representation_edit_impact,
 )
@@ -632,6 +634,16 @@ def test_representation_edits_classify_semantic_boundary_and_preserve_course_sou
     assert any(item["role"] == "教案重点" for item in impact["change_items"])
     assert impact["protected_items"]
 
+    patch = build_course_text_patch(
+        document.blocks[0].payload,
+        before="向量",
+        after="几何向量",
+    )
+    preview_payload = apply_course_text_patch_preview(document.blocks[0].payload, patch)
+    assert patch["schema_version"] == "course_text_patch_v1"
+    assert patch["field"] == "markdown"
+    assert preview_payload["markdown"].startswith("几何向量")
+
     updated = apply_representation_only_edit(
         repository,
         registry,
@@ -753,6 +765,9 @@ def test_semantic_representation_edit_creates_authoring_change_without_writing_c
     local_item = local_change["items"][0]
     assert local_change["scope"] == "block"
     assert local_item["block_id"] == handout_unit["block_id"]
+    assert local_item["expected_block_revision"]
+    assert local_item["after"]["patch"]["schema_version"] == "course_text_patch_v1"
+    assert local_item["after"]["patch"]["field"] == "markdown"
     assert "校园步行路线" in local_item["after"]["payload"]["markdown"]
     assert storage.course == before_course
 

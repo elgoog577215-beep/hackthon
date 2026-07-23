@@ -238,6 +238,7 @@ class ExtendContentRequest(BaseModel):
     user_requirement: str
 
 class AskQuestionRequest(BaseModel):
+    request_id: Optional[str] = Field(default=None, min_length=8, max_length=200)
     course_id: str = Field(..., min_length=1, max_length=160)
     conversation_id: Optional[str] = Field(default=None, max_length=160)
     entrypoint: Literal["global", "selection", "practice", "continuity", "record", "block"] = "global"

@@ -28,6 +28,7 @@ from course_revisions import revision_vector_for_document
 from learning_asset_storage import learning_asset_repository
 from learning_events import load_learning_events
 from learning_records import learning_record_repository
+from product_runtime_policy import demo_overrides_enabled
 from practice_attempts import practice_attempt_repository
 
 COURSE_EVOLUTION_SCHEMA = "course_evolution_v2"
@@ -1134,7 +1135,13 @@ def _evaluate_hypotheses_and_candidates(
             and item.strength >= 0.82
         ]
         explicit_contracts = [
-            (item, _strong_self_report_contract(item.summary))
+            (
+                item,
+                _strong_self_report_contract(
+                    item.summary,
+                    course_id=item.course_id,
+                ),
+            )
             for item in explicit_statements
         ]
         strong_explicit_statements = [
@@ -1511,7 +1518,10 @@ def _build_change_set(
     explicit_request = next((
         item
         for item in reversed(linked_evidence)
-        if _strong_self_report_contract(item.summary)["is_strong"]
+        if _strong_self_report_contract(
+            item.summary,
+            course_id=item.course_id,
+        )["is_strong"]
     ), None)
     requested_supports = list(
         hypothesis.evidence_assessment.get("requested_supports") or []
@@ -2158,14 +2168,16 @@ def _attempt_score(attempt: dict[str, Any] | None) -> float | None:
     return None
 
 
-def _evolution_demo_mode() -> bool:
-    """Demo recordings may relax the strong-evidence contract via env flag."""
-    return os.getenv("EVOLUTION_DEMO_MODE", "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+def _evolution_demo_mode(course_id: str | None = None) -> bool:
+    """只允许白名单课程启用录屏专用的证据门槛。"""
+    return demo_overrides_enabled(course_id)
 
 
-def _strong_self_report_contract(statement: str) -> dict[str, Any]:
+def _strong_self_report_contract(
+    statement: str,
+    *,
+    course_id: str | None = None,
+) -> dict[str, Any]:
     """Recognize a complete, actionable learner request without matching one script.
 
     A broad course change needs an explicit semantic contract: the learner
@@ -2262,7 +2274,7 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
         and requested_supports
         and scope
     )
-    if _evolution_demo_mode() and not complete_contract:
+    if _evolution_demo_mode(course_id) and not complete_contract:
         # Demo mode (EVOLUTION_DEMO_MODE=1): a clear gap plus a concrete
         # teaching request is enough to trigger growth, so a recording can
         # rely on one scripted sentence instead of a full evidence trail.
@@ -2289,9 +2301,13 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
     }
 
 
-def strong_self_report_contract(statement: str) -> dict[str, Any]:
+def strong_self_report_contract(
+    statement: str,
+    *,
+    course_id: str | None = None,
+) -> dict[str, Any]:
     """Public parser shared by learner-facing course-adjustment entrypoints."""
-    return deepcopy(_strong_self_report_contract(statement))
+    return deepcopy(_strong_self_report_contract(statement, course_id=course_id))
 
 
 def _event_signal(event: dict[str, Any]) -> tuple[str, float, bool]:
@@ -2299,14 +2315,20 @@ def _event_signal(event: dict[str, Any]) -> tuple[str, float, bool]:
     statement = str((event.get("evidence") or {}).get("statement") or "")
     feedback = str((event.get("result") or {}).get("feedback") or "")
     if event_type == "learner_self_reported":
-        contract = _strong_self_report_contract(statement)
+        contract = _strong_self_report_contract(
+            statement,
+            course_id=str(event.get("course_id") or ""),
+        )
         if contract["is_strong"]:
             return "explicit_comprehension_gap", 0.96, False
         explicit = any(marker in statement for marker in ("完全看不懂", "不理解为什么", "推导跳步", "还是没懂", "没有解决"))
         return "explicit_comprehension_gap", 0.9 if explicit else 0.56, False
     if event_type == "assistant_question_submitted":
         question = str((event.get("evidence") or {}).get("question") or "")
-        contract = _strong_self_report_contract(question)
+        contract = _strong_self_report_contract(
+            question,
+            course_id=str(event.get("course_id") or ""),
+        )
         if contract["is_strong"]:
             return "explicit_comprehension_gap", 0.96, False
         explicit = any(marker in question for marker in (

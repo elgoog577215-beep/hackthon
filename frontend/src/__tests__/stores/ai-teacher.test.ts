@@ -90,6 +90,7 @@ describe('AI teacher store', () => {
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)
     expect(requestBody).toMatchObject({
+      request_id: expect.stringMatching(/^local-user-/),
       course_id: 'course-1',
       conversation_id: 'aic-1',
       node_id: 'node-1',

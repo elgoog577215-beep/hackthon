@@ -238,6 +238,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
         method: 'POST',
         headers: learnerIdentityHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
+          request_id: localUserId,
           course_id: payload.courseId,
           conversation_id: conversation.conversation_id,
           entrypoint: payload.entrypoint || 'global',

@@ -51,7 +51,7 @@
 
 - [ ] 5.1 将现有方案仓库升级为 `CourseEvolutionPlan / CourseEvolutionOperation`
 - [ ] 5.2 删除 `adaptive_blocks / PersonalCourseOverlay` 的正式课程写入能力，只保留即时支持和待确认投影
-- [ ] 5.3 实现 `PATCH_COURSE_SPAN` 的文本定位、前后差异、课程修订和冲突校验
+- [x] 5.3 实现 `PATCH_COURSE_SPAN` 的文本定位、前后差异、课程修订和冲突校验
 - [ ] 5.4 实现 `INSERT_COURSE_BLOCK / REPLACE_COURSE_BLOCK / RETIRE_COURSE_BLOCK` 课程操作
 - [ ] 5.5 实现课程支架拆分、组合及来源块、目标和知识引用迁移
 - [ ] 5.6 实现 `RESEQUENCE_COURSE_PATH` 及前置依赖检查

@@ -14,12 +14,16 @@ from course_evolution import (
     course_evolution_view,
     create_adjustment_plan,
     reject_change_set,
-    strong_self_report_contract,
     synchronize_and_evaluate_course_evolution,
     undo_change_set,
 )
+from course_evolution_intake import (
+    CourseEvolutionRequest,
+    record_course_evolution_request,
+)
 from dependencies import get_course_document_repository, get_course_or_404
 from learner_context import require_user_id
+from learning_contracts import LearnerCourseScope
 from learning_events import record_learning_event
 from section_evolution import (
     generate_course_adjustment_plan,
@@ -129,36 +133,30 @@ async def create_course_adjustment_plan(
     """Canonical entry for current-content, current-section and whole-course adjustments."""
     course = await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    request_contract = strong_self_report_contract(body.instruction)
-    can_use_evidence_flow = (
-        body.scope_selection != "current_block"
-        and request_contract["is_strong"]
-        and (
-            request_contract["scope"] != "current_and_next"
-            or body.scope_selection == "whole_course"
-        )
+    learning_scope = LearnerCourseScope.from_course(
+        course,
+        user_id=user_id,
+        expected_course_id=course_id,
     )
-    if can_use_evidence_flow:
+    evolution_request = CourseEvolutionRequest(
+        scope=learning_scope,
+        request_id=body.request_id,
+        instruction=body.instruction,
+        entrypoint="course_adjustment",
+        requested_scope=body.scope_selection,
+        section_id=body.section_id,
+        block_id=body.block_id,
+        surface_entrypoint="course_adjustment",
+        direction=body.direction,
+        anchor_role=body.anchor_role or "",
+        expected_document_revision=body.expected_document_revision,
+        expected_block_revision=body.expected_block_revision,
+    )
+    if evolution_request.can_use_evidence_flow():
         await run_in_threadpool(
-            record_learning_event,
-            event_type="assistant_question_submitted",
-            actor="user",
-            source="course_adjustment.learner_request",
-            user_id=user_id,
-            course_id=course_id,
-            course_version_id=course.get("current_course_version_id"),
-            node_id=body.section_id,
-            idempotency_key=f"course-adjustment:{body.request_id}",
-            evidence={
-                "question": body.instruction,
-                "entrypoint": "course_adjustment",
-                "requested_scope": body.scope_selection,
-            },
-            metadata={
-                "block_id": body.block_id,
-                "anchor_role": body.anchor_role,
-                "request_contract": request_contract,
-            },
+            record_course_evolution_request,
+            evolution_request,
+            recorder=record_learning_event,
         )
         state = await run_in_threadpool(
             synchronize_and_evaluate_course_evolution,

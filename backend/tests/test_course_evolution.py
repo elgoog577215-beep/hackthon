@@ -819,7 +819,16 @@ def test_demo_mode_relaxes_strong_contract(monkeypatch):
     assert contract["is_strong"] is False
 
     monkeypatch.setenv("EVOLUTION_DEMO_MODE", "1")
-    relaxed = course_evolution._strong_self_report_contract(weak)
+    assert course_evolution._strong_self_report_contract(weak)["is_strong"] is False
+    assert course_evolution._strong_self_report_contract(
+        weak,
+        course_id="another-course",
+    )["is_strong"] is False
+
+    relaxed = course_evolution._strong_self_report_contract(
+        weak,
+        course_id="demo-matrix-growth-v2",
+    )
     assert relaxed["is_strong"] is True
     assert relaxed["is_complete_contract"] is True
     assert relaxed["scope"] == "current"

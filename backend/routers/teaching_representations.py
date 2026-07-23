@@ -26,6 +26,7 @@ from dependencies import (
     get_task_manager_optional,
 )
 from learner_context import require_user_id
+from product_runtime_policy import demo_overrides_enabled
 from representation_compiler import (
     export_slide_deck_pptx,
     rebuild_core_representations_safely,
@@ -40,7 +41,9 @@ from teaching_representations import (
     teaching_representation_repository,
 )
 from representation_edits import (
+    apply_course_text_patch_preview,
     apply_representation_only_edit,
+    build_course_text_patch,
     classify_representation_edit,
     representation_edit_impact,
 )
@@ -403,7 +406,7 @@ async def preview_teaching_representation_edit(
     request: Request,
 ) -> dict:
     require_user_id(request.headers.get("X-User-Id"))
-    if not (os.getenv("EVOLUTION_DEMO_MODE") == "1" and course_id == "demo-matrix-growth-v2"):
+    if not demo_overrides_enabled(course_id):
         await get_course_or_404(course_id)
     try:
         registry, _representation, spec = await run_in_threadpool(
@@ -436,7 +439,7 @@ async def apply_teaching_representation_edit(
     request: Request,
 ) -> dict:
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    if not (os.getenv("EVOLUTION_DEMO_MODE") == "1" and course_id == "demo-matrix-growth-v2"):
+    if not demo_overrides_enabled(course_id):
         await get_course_or_404(course_id)
     try:
         registry, representation, spec = await run_in_threadpool(
@@ -570,25 +573,32 @@ async def apply_teaching_representation_edit(
         block = next((item for item in document.blocks if item.block_id == block_id), None)
         if block is None:
             raise HTTPException(status_code=404, detail="Source course block not found")
-        content_key = (
-            "markdown"
-            if "markdown" in block.payload
-            else ("text" if "text" in block.payload else "content")
-        )
-        current_content = str(block.payload.get(content_key) or "")
-        next_content = (
-            current_content.replace(before_text, after_text, 1)
-            if before_text and before_text in current_content
-            else f"{current_content}\n\n{after_text}".strip()
-        )
-        next_payload = deepcopy(block.payload)
-        next_payload[content_key] = next_content
+        try:
+            text_patch = build_course_text_patch(
+                block.payload,
+                before=before_text,
+                after=after_text,
+            )
+            next_payload = apply_course_text_patch_preview(block.payload, text_patch)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail={
+                "code": "course_source_span_conflict",
+                "message": str(exc),
+            }) from exc
         target_ids = [block_id]
         scope = "block"
         items = [{
             "block_id": block_id,
-            "before": deepcopy(block.payload),
-            "after": {"payload": next_payload},
+            "before": {
+                "block_id": block_id,
+                "payload": deepcopy(block.payload),
+                "block_revision": block.internal_revision,
+            },
+            "after": {
+                "payload": next_payload,
+                "patch": text_patch,
+            },
+            "expected_block_revision": block.internal_revision,
             "reason": "派生产物中的语义修改需要先回写课程真源，再同步所有相关教学表达。",
         }]
     authoring_change = create_authoring_change(
@@ -606,6 +616,12 @@ async def apply_teaching_representation_edit(
             "classification": "semantic",
             "semantic_change": classification.get("semantic_change"),
             "impact": impact,
+            "source_document_revision": document.document_revision,
+            "base_revision_vector": {
+                key: value
+                for key, value in revision_vector_for_document(document).revisions.items()
+                if key in source_keys
+            },
         },
     )
     return {
