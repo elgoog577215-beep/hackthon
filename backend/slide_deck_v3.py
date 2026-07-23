@@ -24,9 +24,24 @@ from slide_deck import (
     slide_quality,
     validate_slide_deck,
 )
+from slide_asset_repository import (
+    SlideAssetRepository,
+    finalize_visual_assets,
+    resolve_visual_plan_assets,
+)
+from slide_theme import slide_theme_version
+from slide_visuals import (
+    SlideVisualPlanV1,
+    apply_visual_plan_to_slides,
+    build_signature,
+    deterministic_visual_plan,
+    validate_visual_plan,
+    visual_integrity_issues,
+    visual_quality_report,
+)
 
 SLIDE_DECK_V3_SCHEMA = "slide_deck_v3"
-SLIDE_DECK_V3_COMPILER_VERSION = "source_first_slide_compiler_v1"
+SLIDE_DECK_V3_COMPILER_VERSION = "source_first_slide_compiler_v2_visual_director"
 
 SlideDeckMode = Literal["full", "teaching", "concise"]
 SlideDeckTheme = Literal[
@@ -104,11 +119,11 @@ _CONCISE_ROLES = {
     "transfer",
 }
 _THEME_PAGE_CAPACITY = {
-    "qizhi-classroom": 560,
-    "academic-editorial": 680,
-    "grid-notebook": 520,
-    "modern-geometric": 430,
-    "dark-tech": 500,
+    "qizhi-classroom": 360,
+    "academic-editorial": 420,
+    "grid-notebook": 340,
+    "modern-geometric": 300,
+    "dark-tech": 340,
 }
 
 
@@ -120,12 +135,22 @@ class ContentFragmentV1(_StrictModel):
     fragment_id: str
     section_id: str
     block_id: str
-    kind: Literal["heading", "paragraph", "list_item", "code", "formula", "table"]
+    kind: Literal[
+        "heading",
+        "paragraph",
+        "list_item",
+        "code",
+        "formula",
+        "table",
+        "image",
+        "diagram",
+    ]
     text: str
     ordinal: int = Field(ge=0)
     source_hash: str
     role: str
     source_kind: str
+    asset_refs: list[str] = Field(default_factory=list)
     objective_refs: list[str] = Field(default_factory=list)
     concept_refs: list[str] = Field(default_factory=list)
 
@@ -226,6 +251,15 @@ def fragment_course_document(document: CourseDocument) -> list[ContentFragmentV1
         if block.status == "retired":
             continue
         units = _fragment_block(block)
+        if not units and block.asset_refs and block.kind in {"image", "diagram"}:
+            payload = block.payload or {}
+            label = str(
+                payload.get("alt")
+                or payload.get("caption")
+                or payload.get("title")
+                or block.asset_refs[0]
+            ).strip()
+            units = [(block.kind, label)]
         for unit_index, (kind, text) in enumerate(units):
             clean = text.strip()
             if not clean:
@@ -246,6 +280,7 @@ def fragment_course_document(document: CourseDocument) -> list[ContentFragmentV1
                 source_hash=stable_hash(clean, prefix="sfh_"),
                 role=block.role,
                 source_kind=block.kind,
+                asset_refs=list(block.asset_refs),
                 objective_refs=list(block.objective_refs),
                 concept_refs=list(block.concept_refs),
             ))
@@ -1235,8 +1270,10 @@ def compile_slide_deck_v3(
     mode: SlideDeckMode = "teaching",
     theme: SlideDeckTheme = "qizhi-classroom",
     allocation_plan: SlideAllocationPlanV2 | dict[str, Any] | None = None,
+    visual_plan: SlideVisualPlanV1 | dict[str, Any] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     resume_slides: list[dict[str, Any]] | None = None,
+    asset_repository: SlideAssetRepository | None = None,
 ) -> dict[str, Any]:
     fragments = fragment_course_document(document)
     if allocation_plan is None:
@@ -1251,6 +1288,38 @@ def compile_slide_deck_v3(
         if plan.source_document_revision != document.document_revision:
             raise ValueError("Slide allocation source revision is stale")
         validate_allocation_plan(plan, fragments)
+    resolved_visual_plan = (
+        deterministic_visual_plan(document, plan, fragments)
+        if visual_plan is None
+        else (
+            visual_plan
+            if isinstance(visual_plan, SlideVisualPlanV1)
+            else SlideVisualPlanV1.model_validate(visual_plan)
+        )
+    )
+    validate_visual_plan(resolved_visual_plan, plan, fragments)
+    if progress_callback:
+        progress_callback({
+            "event": "visual_plan",
+            "progress": 10,
+            "stage": "visual_plan",
+            "visual_plan": resolved_visual_plan.model_dump(mode="json"),
+        })
+        progress_callback({
+            "event": "asset_progress",
+            "progress": 12,
+            "stage": "asset_compilation",
+            "completed": 0,
+            "total": 0,
+        })
+    resolved_visual_plan, visual_asset_manifest = resolve_visual_plan_assets(
+        resolved_visual_plan,
+        fragments,
+        course_id=document.course_id,
+        repository=asset_repository,
+        progress_callback=progress_callback,
+    )
+    validate_visual_plan(resolved_visual_plan, plan, fragments)
     catalog = {item.fragment_id: item for item in fragments}
     sections = {item.section_id: item for item in document.sections}
     blocks = {item.block_id: item for item in document.blocks}
@@ -1265,6 +1334,7 @@ def compile_slide_deck_v3(
     slides: list[SlideSpec] = []
     for page_index, page in enumerate(plan.pages):
         slide = resumed.get(page.page_id)
+        newly_materialized = slide is None
         if slide is None:
             slide = _materialize_page(
                 document,
@@ -1276,14 +1346,20 @@ def compile_slide_deck_v3(
             slide.position = page_index
             source_quality = deepcopy(slide.quality)
             slide.quality = {**slide_quality(slide), **source_quality}
-            if progress_callback:
-                progress_callback({
-                    "event": "slide_upsert",
-                    "progress": min(92, 10 + round(((page_index + 1) / max(1, len(plan.pages))) * 82)),
-                    "slide": slide.model_dump(mode="json"),
-                })
         else:
             slide.position = page_index
+        slide = SlideSpec.model_validate(
+            apply_visual_plan_to_slides(
+                [slide.model_dump(mode="json")],
+                resolved_visual_plan,
+            )[0]
+        )
+        if progress_callback and newly_materialized:
+            progress_callback({
+                "event": "slide_upsert",
+                "progress": min(92, 14 + round(((page_index + 1) / max(1, len(plan.pages))) * 78)),
+                "slide": slide.model_dump(mode="json"),
+            })
         slides.append(slide)
 
     referenced = _allocated_fragment_ids(plan)
@@ -1305,6 +1381,14 @@ def compile_slide_deck_v3(
             for fragment_id in referenced
         ),
     }
+    visual_quality = visual_quality_report(resolved_visual_plan, plan)
+    signature = build_signature(
+        source_document_revision=document.document_revision,
+        mode=plan.mode,
+        theme=plan.theme,
+        compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
+        theme_version=slide_theme_version(),
+    )
     content = {
         "schema_version": SLIDE_DECK_V3_SCHEMA,
         "title": document.title,
@@ -1315,6 +1399,11 @@ def compile_slide_deck_v3(
         "aspect_ratio": "16:9",
         "fragment_manifest": [item.model_dump(mode="json") for item in fragments],
         "allocation_plan": plan.model_dump(mode="json"),
+        "deck_brief": resolved_visual_plan.deck_brief,
+        "visual_plan": resolved_visual_plan.model_dump(mode="json"),
+        "visual_asset_manifest": visual_asset_manifest,
+        "build_signature": signature,
+        "visual_quality_report": visual_quality,
         "slides": [item.model_dump(mode="json") for item in slides],
         "coverage_report": coverage,
         "exclusions": [item.model_dump(mode="json") for item in plan.exclusions],
@@ -1322,6 +1411,12 @@ def compile_slide_deck_v3(
         "override_conflicts": [],
     }
     quality = validate_slide_deck_v3(content, course_data=course_data)
+    finalized_assets = finalize_visual_assets(
+        visual_asset_manifest,
+        repository=asset_repository,
+        publish=bool(quality["passed"]),
+    )
+    content["visual_asset_manifest"] = finalized_assets
     content["quality_report"] = deepcopy(quality)
     content["quality_summary"] = {
         "passed": quality["passed"],
@@ -1339,6 +1434,12 @@ def compile_slide_deck_v3(
         "split_recommended": len(plan.pages) > 300,
     }
     if progress_callback:
+        progress_callback({
+            "event": "visual_quality",
+            "progress": 96,
+            "stage": "visual_quality",
+            "quality": visual_quality,
+        })
         progress_callback({"event": "slide_quality", "progress": 97, "quality": quality})
     return content
 
@@ -1844,6 +1945,27 @@ def validate_slide_deck_v3(
             "message": "精简模式的排除清单不完整。",
             "target": "deck",
         })
+    visual_gate = content.get("visual_quality_report") or {}
+    if content.get("visual_plan"):
+        issues.extend(
+            item
+            for item in visual_gate.get("issues") or []
+            if item not in issues
+        )
+        for slide in content.get("slides") or []:
+            if not str(slide.get("teaching_job") or "").strip():
+                issues.append({
+                    "severity": "critical",
+                    "code": "teaching_job_missing",
+                    "slide_id": str(slide.get("unit_id") or ""),
+                })
+            if not str(slide.get("takeaway") or "").strip():
+                issues.append({
+                    "severity": "critical",
+                    "code": "takeaway_missing",
+                    "slide_id": str(slide.get("unit_id") or ""),
+                })
+        issues.extend(visual_integrity_issues(content))
     semantic_codes = {
         str(item.get("code") or "")
         for item in report.get("semantic", {}).get("issues", [])

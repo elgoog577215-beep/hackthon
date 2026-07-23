@@ -45,8 +45,16 @@
             :class="{ active: modelTheme === item.value }"
             @click="modelTheme = item.value"
           >
-            <div class="deck-theme-preview">
-              <i></i><b></b><span></span><em></em>
+            <div class="deck-theme-preview" :style="previewStyle(item.value)">
+              <div class="deck-theme-preview__cover">
+                <i></i><b>线性映射</b><span>结构与应用</span>
+              </div>
+              <div class="deck-theme-preview__split">
+                <b>保持结构</b><i></i><span></span><em></em>
+              </div>
+              <div class="deck-theme-preview__diagram">
+                <i>输入</i><b></b><i>映射</i>
+              </div>
             </div>
             <strong>{{ item.label }}</strong>
             <small>{{ item.description }}</small>
@@ -73,6 +81,7 @@
 import { computed, ref, watch } from 'vue'
 import { BookOpenText, Layers3, LoaderCircle, Presentation, ShieldCheck, Sparkles, X } from 'lucide-vue-next'
 import type { SlideDeckMode, SlideDeckTheme } from '../stores/teachingRepresentations'
+import themePack from '../data/slide-themes.json'
 
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
@@ -126,6 +135,24 @@ const pageEstimate = computed(() => {
   return `预计 ${Math.max(5, Math.round(base * .55))}–${Math.max(7, Math.round(base * .72))} 页`
 })
 
+function previewStyle(theme: V3Theme) {
+  const themes = themePack.themes as Record<string, Record<string, any>>
+  const token = themes[theme] ?? themes['qizhi-classroom'] ?? {
+    surface: 'FFFFFF',
+    accent: '2F6FE4',
+    accent_soft: 'E8F0FF',
+    green: '2E9B72',
+    ink: '1B2A3A',
+  }
+  return {
+    '--p': `#${token.surface}`,
+    '--m': `#${token.accent}`,
+    '--s': `#${token.accent_soft}`,
+    '--a': `#${token.green}`,
+    '--i': `#${token.ink}`,
+  }
+}
+
 function confirm() {
   emit('confirm', { mode: modelMode.value, theme: modelTheme.value })
 }
@@ -160,15 +187,23 @@ function confirm() {
 .deck-generator__themes strong,.deck-generator__themes small { display:block; padding:0 4px; }
 .deck-generator__themes strong { margin-top:9px; font-size:13px; }
 .deck-generator__themes small { margin-top:3px; color:#7a8797; font-size:10px; }
-.deck-theme-preview { --p:#fffdf7; --m:#2f6fe4; --a:#f29d38; position:relative; aspect-ratio:16/9; overflow:hidden; border-radius:9px; background:var(--p); box-shadow:inset 0 0 0 1px rgba(20,30,45,.08); }
-.deck-theme-preview i { position:absolute; left:8%; top:15%; width:48%; height:9%; border-radius:6px; background:var(--m); }
-.deck-theme-preview b { position:absolute; left:8%; top:31%; width:30%; height:4%; border-radius:5px; background:color-mix(in srgb,var(--m) 38%,transparent); }
-.deck-theme-preview span { position:absolute; left:8%; bottom:14%; width:39%; height:34%; border-radius:7px; background:color-mix(in srgb,var(--m) 16%,var(--p)); }
-.deck-theme-preview em { position:absolute; right:8%; bottom:14%; width:38%; height:50%; border-radius:10px 10px 3px 10px; background:var(--a); transform:skewY(-7deg); }
-button[data-theme="academic-editorial"] .deck-theme-preview { --p:#fbfaf7; --m:#315e7d; --a:#b9aa90; }
-button[data-theme="grid-notebook"] .deck-theme-preview { --p:#faf8f0; --m:#2d7464; --a:#d18a32; background-image:linear-gradient(#dce4de 1px,transparent 1px),linear-gradient(90deg,#dce4de 1px,transparent 1px); background-size:10px 10px; }
-button[data-theme="modern-geometric"] .deck-theme-preview { --p:#f6f3ff; --m:#6548e8; --a:#f08b3e; }
-button[data-theme="dark-tech"] .deck-theme-preview { --p:#0c1321; --m:#4db5ff; --a:#40d6b1; }
+.deck-theme-preview { position:relative; aspect-ratio:16/9; display:grid; grid-template-columns:1.18fr .82fr; grid-template-rows:1fr 1fr; gap:3px; padding:4px; overflow:hidden; border-radius:9px; color:var(--i); background:color-mix(in srgb,var(--p) 84%,var(--s)); box-shadow:inset 0 0 0 1px rgba(20,30,45,.08); }
+.deck-theme-preview > div { position:relative; overflow:hidden; border-radius:4px; background:var(--p); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--m) 13%,transparent); }
+.deck-theme-preview__cover { grid-row:1/3; padding:10px 7px; }
+.deck-theme-preview__cover i { display:block; width:4px; height:72%; border-radius:3px; background:var(--m); }
+.deck-theme-preview__cover b,.deck-theme-preview__cover span { position:absolute; left:17px; display:block; }
+.deck-theme-preview__cover b { top:19px; max-width:62px; font-size:8px; line-height:1.1; }
+.deck-theme-preview__cover span { top:39px; color:color-mix(in srgb,var(--i) 68%,transparent); font-size:5px; }
+.deck-theme-preview__split { padding:6px; }
+.deck-theme-preview__split b { font-size:5px; }
+.deck-theme-preview__split i,.deck-theme-preview__split span { position:absolute; bottom:7px; height:16px; border-radius:3px; }
+.deck-theme-preview__split i { left:6px; width:31%; background:var(--s); }
+.deck-theme-preview__split span { right:6px; width:47%; background:color-mix(in srgb,var(--a) 28%,var(--p)); }
+.deck-theme-preview__split em { position:absolute; right:10px; bottom:11px; width:25%; height:2px; background:var(--a); transform:rotate(-18deg); }
+.deck-theme-preview__diagram { display:flex; align-items:center; justify-content:center; gap:4px; }
+.deck-theme-preview__diagram i { min-width:22px; padding:4px 3px; border:1px solid var(--m); border-radius:4px; color:var(--i); background:var(--s); font-size:4px; font-style:normal; text-align:center; }
+.deck-theme-preview__diagram b { width:13px; height:1px; background:var(--m); }
+button[data-theme="grid-notebook"] .deck-theme-preview { background-image:linear-gradient(color-mix(in srgb,var(--m) 12%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--m) 12%,transparent) 1px,transparent 1px); background-size:9px 9px; }
 .deck-generator__panel > footer { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-top:26px; padding:21px 34px 26px; border-top:1px solid #e3e9f0; }
 .deck-generator__panel > footer > div { display:flex; align-items:center; gap:8px; color:#6c7a8d; font-size:12px; }
 .deck-generator__panel > footer > div svg { color:#16856b; }

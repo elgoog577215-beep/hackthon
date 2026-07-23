@@ -67,6 +67,11 @@ class SlideSpec(_StrictModel):
     title: str
     subtitle: str = ""
     key_message: str = ""
+    teaching_job: str = ""
+    takeaway: str = ""
+    transition_from: str = ""
+    composition: str = ""
+    visuals: list[dict[str, Any]] = Field(default_factory=list, max_length=3)
     blocks: list[SlideBlockSpec] = Field(default_factory=list, max_length=6)
     speaker_notes: str = ""
     section_id: str | None = None
@@ -130,6 +135,11 @@ class SlideDeckContent(_StrictModel):
     slides: list[SlideSpec]
     fragment_manifest: list[dict[str, Any]] = Field(default_factory=list)
     allocation_plan: dict[str, Any] = Field(default_factory=dict)
+    deck_brief: dict[str, Any] = Field(default_factory=dict)
+    visual_plan: dict[str, Any] = Field(default_factory=dict)
+    visual_asset_manifest: list[dict[str, Any]] = Field(default_factory=list)
+    build_signature: dict[str, Any] = Field(default_factory=dict)
+    visual_quality_report: dict[str, Any] = Field(default_factory=dict)
     coverage_report: dict[str, Any] = Field(default_factory=dict)
     exclusions: list[dict[str, Any]] = Field(default_factory=list)
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)

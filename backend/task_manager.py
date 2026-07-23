@@ -129,10 +129,18 @@ from representation_compiler import (
 )
 from slide_deck import SlideDeckPlanV1, plan_slide_deck
 from slide_deck_v3 import (
+    SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
+    fragment_course_document,
     normalize_slide_deck_theme,
     plan_slide_deck_v3,
     slide_deck_variant_key,
+)
+from slide_theme import slide_theme_version
+from slide_visuals import (
+    SlideVisualPlanV1,
+    build_signature,
+    plan_slide_visuals,
 )
 from storage import DATA_DIR
 from teaching_representations import teaching_representation_repository
@@ -199,6 +207,35 @@ def _source_first_slide_ai_workers() -> tuple[
         return provider._extract_json(response or "") or {}
 
     return planner, reviewer
+
+
+def _source_first_slide_visual_ai_worker() -> (
+    Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None
+):
+    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return None
+    provider = AIBase()
+    if provider.client is None:
+        return None
+
+    async def planner(request: dict[str, Any]) -> dict[str, Any]:
+        response = await provider._call_llm(
+            json.dumps(request, ensure_ascii=False),
+            system_prompt=(
+                "Return only one slide_visual_plan_v1 JSON object. "
+                "Use only the provided page_id and fragment_id values. "
+                "Takeaways and diagram labels must be short excerpts of their bound source text. "
+                "Do not emit slide body copy or add facts, numbers, claims, or chart data."
+            ),
+            use_fast_model=True,
+            retry_count=1,
+            enable_thinking=False,
+            raise_on_failure=True,
+        )
+        return provider._extract_json(response or "") or {}
+
+    return planner
 
 # 指数退避参数
 BACKOFF_BASE = 2
@@ -3337,15 +3374,48 @@ class TaskManager:
         source_revision = str(document.document_revision or "")
         saved_revision = str(task.get("representation_source_document_revision") or "")
         saved_variant = str(task.get("representation_variant_key") or "")
+        expected_signature = build_signature(
+            source_document_revision=source_revision,
+            mode=mode,
+            theme=theme,
+            compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
+            theme_version=slide_theme_version(),
+        )
+        saved_signature = str(task.get("representation_build_signature") or "")
         allocation_plan: SlideAllocationPlanV2 | None = None
+        visual_plan: SlideVisualPlanV1 | None = None
         resume_slides: list[dict[str, Any]] = []
-        if saved_revision == source_revision and saved_variant == variant_key:
+        if (
+            saved_revision == source_revision
+            and saved_variant == variant_key
+            and saved_signature == expected_signature["signature"]
+        ):
             try:
                 raw_plan = task.get("representation_deck_plan_v3")
                 if isinstance(raw_plan, dict):
                     allocation_plan = SlideAllocationPlanV2.model_validate(raw_plan)
             except (TypeError, ValueError):
                 allocation_plan = None
+            try:
+                raw_visual_plan = task.get("representation_visual_plan_v1")
+                if isinstance(raw_visual_plan, dict):
+                    resumed_visual_plan = deepcopy(raw_visual_plan)
+                    pages_by_id = {
+                        str(page.get("page_id") or ""): page
+                        for page in resumed_visual_plan.get("pages") or []
+                    }
+                    for event in task.get("event_history") or []:
+                        if (
+                            event.get("event") != "asset_ready"
+                            or not isinstance(event.get("visual_anchor"), dict)
+                        ):
+                            continue
+                        page = pages_by_id.get(str(event.get("page_id") or ""))
+                        if page is not None:
+                            page["visual_anchor"] = deepcopy(event["visual_anchor"])
+                    visual_plan = SlideVisualPlanV1.model_validate(resumed_visual_plan)
+            except (TypeError, ValueError):
+                visual_plan = None
             latest_slides: dict[str, dict[str, Any]] = {}
             for event in task.get("event_history") or []:
                 if event.get("event") != "slide_upsert" or not isinstance(event.get("slide"), dict):
@@ -3375,6 +3445,18 @@ class TaskManager:
                 ai_reviewer=reviewer,
             )
             resume_slides = []
+        if visual_plan is None:
+            visual_plan = await plan_slide_visuals(
+                document,
+                allocation_plan,
+                fragment_course_document(document),
+                ai_planner=_source_first_slide_visual_ai_worker(),
+            )
+            resume_slides = []
+        if (
+            allocation_plan is not None
+            and visual_plan is not None
+        ):
             async with self._lock:
                 current = self.tasks.get(task_id)
                 if not current or current.get("status") in {"paused", "cancelled"}:
@@ -3382,6 +3464,8 @@ class TaskManager:
                 current["representation_source_document_revision"] = source_revision
                 current["representation_variant_key"] = variant_key
                 current["representation_deck_plan_v3"] = allocation_plan.model_dump(mode="json")
+                current["representation_visual_plan_v1"] = visual_plan.model_dump(mode="json")
+                current["representation_build_signature"] = expected_signature["signature"]
                 current["updated_at"] = datetime.now().isoformat()
                 self.save_tasks()
         await self._record_representation_event(task_id, {
@@ -3396,12 +3480,34 @@ class TaskManager:
         })
         loop = asyncio.get_running_loop()
 
+        async def record_progress(payload: dict[str, Any]) -> None:
+            await self._record_representation_event(task_id, payload)
+            if payload.get("event") != "asset_ready":
+                return
+            async with self._lock:
+                current = self.tasks.get(task_id)
+                if not current:
+                    return
+                fingerprints = dict(current.get("representation_asset_fingerprints") or {})
+                seeds = dict(current.get("representation_generation_seeds") or {})
+                page_id = str(payload.get("page_id") or "")
+                if page_id:
+                    fingerprints[page_id] = str(payload.get("asset_id") or "")
+                    anchor = payload.get("visual_anchor") or {}
+                    seeds[page_id] = str(
+                        (anchor.get("parameters") or {}).get("generation_seed") or ""
+                    )
+                current["representation_asset_fingerprints"] = fingerprints
+                current["representation_generation_seeds"] = seeds
+                current["updated_at"] = datetime.now().isoformat()
+                self.save_tasks()
+
         def progress(payload: dict[str, Any]) -> None:
             current = self.tasks.get(task_id) or {}
             if current.get("status") in {"paused", "cancelled"}:
                 raise RuntimeError("slide_deck_variant_build_interrupted")
             future = asyncio.run_coroutine_threadsafe(
-                self._record_representation_event(task_id, payload),
+                record_progress(payload),
                 loop,
             )
             future.result(timeout=10)
@@ -3414,6 +3520,7 @@ class TaskManager:
             mode=mode,
             theme=theme,
             allocation_plan=allocation_plan,
+            visual_plan=visual_plan,
             progress_callback=progress,
             resume_slides=resume_slides,
         )

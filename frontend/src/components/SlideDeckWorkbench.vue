@@ -16,6 +16,9 @@
           {{ error ? t('teachingRepresentations.slides.buildFailed', '生成失败') : building ? stageLabel : qualityPassed ? t('teachingRepresentations.slides.qualityPassed', '质量检查通过') : t('teachingRepresentations.slides.qualityReview', '需要检查') }}
         </span>
         <small class="slide-workbench__count">{{ deckCountLabel }}</small>
+        <small v-if="currentRepresentation?.visual_engine_update_available" class="slide-workbench__engine-update">
+          {{ currentRepresentation.visual_engine_update_reason || '视觉引擎已更新' }}
+        </small>
       </div>
       <div class="slide-workbench__commands">
         <div class="slide-workbench__theme" :aria-label="t('pptWorkspace.themeLabel', '课件模式与风格')">
@@ -89,6 +92,8 @@
           :page-count="slides.length"
           :deck-title="deckTitle"
           :theme="previewTheme"
+          :course-id="courseId"
+          :representation-id="representationId"
         />
         <div v-else class="slide-stage__empty">
           <LoaderCircle v-if="building" :size="24" class="spinning" />
@@ -291,6 +296,8 @@
             :page-count="slides.length"
             :deck-title="deckTitle"
             :theme="previewTheme"
+            :course-id="courseId"
+            :representation-id="representationId"
             presenting
           />
           <aside v-if="notesVisible">
@@ -322,6 +329,7 @@ import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import type { SlideDeckMode, SlideDeckPreviewSource, SlideDeckTheme, TeachingRepresentation } from '../stores/teachingRepresentations'
 import type { ChangeProposal, ChangeProposalContent, ChangeProposalItem } from '../types/changeProposal'
+import type { SlideVisual } from '../types/slideVisual'
 import { writePptSameSourceHighlight } from '../utils/ppt-same-source'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import SlideCanvas from './SlideCanvas.vue'
@@ -344,6 +352,11 @@ interface Slide {
   title: string
   subtitle?: string
   key_message?: string
+  teaching_job?: string
+  takeaway?: string
+  transition_from?: string
+  composition?: string
+  visuals?: SlideVisual[]
   speaker_notes?: string
   section_id?: string
   blocks: SlideBlock[]
@@ -418,6 +431,9 @@ type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray
 
 const activeIndex = computed(() => Math.max(0, props.slides.findIndex(slide => slide.unit_id === activeUnitId.value)))
 const activeSlide = computed(() => props.slides[activeIndex.value] || null)
+const currentRepresentation = computed(() => (
+  props.variants.find(item => item.representation_id === props.representationId) || null
+))
 const qualityPassed = computed(() => props.quality?.passed === true)
 const deckCountLabel = computed(() => {
   const main = Number(props.quality?.main_slide_count || 0)
@@ -522,9 +538,12 @@ const stageLabel = computed(() => ({
   fragmenting: t('teachingRepresentations.slides.stages.fragmenting', '正在切分课程原文'),
   planning: t('teachingRepresentations.slides.stages.planning', '正在准备课程结构'),
   slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划页面'),
+  visual_plan: '正在规划教学视觉',
+  asset_compilation: '正在准备课程视觉素材',
   slide_build: t('teachingRepresentations.slides.stages.slideBuild', '正在生成页面'),
   reviewing: t('teachingRepresentations.slides.stages.reviewing', '正在审核页面分配'),
   quality: t('teachingRepresentations.slides.stages.quality', '正在检查质量'),
+  visual_quality: '正在检查视觉质量',
   complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
 }[props.stage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
 
@@ -907,6 +926,7 @@ function classificationLabel(value: string) {
 .slide-workbench__toolbar > div:first-child { min-width:0; display:flex; align-items:center; gap:10px; }.slide-workbench__toolbar strong { overflow:hidden; color:var(--lz-text-strong); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }.slide-workbench__toolbar small { flex:none; color:var(--lz-text-muted); font-size:9px; }
 .slide-workbench__status { min-height:24px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border-radius:6px; color:#047857; background:#ecfdf5; font-size:9px; font-weight:700; }.slide-workbench__status[data-state="building"] { color:#4f46e5; background:#eef2ff; }.slide-workbench__status[data-state="warning"] { color:#b45309; background:#fffbeb; }
 .slide-workbench__status[data-state="error"] { color:#b42318; background:#fef3f2; }
+.slide-workbench__engine-update { padding:4px 7px; border-radius:6px; color:#8a4b08; background:#fff4dc; font-size:9px; font-weight:750; }
 .slide-workbench__commands { flex:none; display:flex; gap:6px; }.slide-workbench__commands button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; cursor:pointer; }.slide-workbench__commands button:hover { color:var(--lz-brand-strong); border-color:#c7d2fe; background:var(--lz-brand-soft); }.slide-workbench__commands button:disabled { opacity:.45; cursor:not-allowed; }
 .slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
 .slide-workbench__theme select { min-height:28px; max-width:112px; padding:0 25px 0 8px; border:0; border-radius:6px; color:#536174; background:#fff; font-size:11px; font-weight:700; outline:none; }

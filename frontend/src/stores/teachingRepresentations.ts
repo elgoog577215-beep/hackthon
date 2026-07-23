@@ -29,6 +29,8 @@ export interface TeachingRepresentation {
   stale_reasons: string[]
   revision: string
   updated_at: string
+  visual_engine_update_available?: boolean
+  visual_engine_update_reason?: string
 }
 
 export interface TeachingRepresentationSpec {
@@ -53,6 +55,10 @@ export interface TeachingRepresentationBuildEvent {
   registry?: Record<string, any>
   sequence?: number
   task_id?: string
+  visual_plan?: Record<string, any>
+  asset_id?: string
+  completed?: number
+  total?: number
 }
 
 export async function consumeTeachingRepresentationStream(
@@ -223,6 +229,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           this.buildProgress = Math.max(this.buildProgress, Number(event.progress || 0))
           if (event.stage) this.buildStage = event.stage
           if (event.event === 'deck_plan') this.buildStage = 'slide_plan'
+          if (event.event === 'visual_plan') this.buildStage = 'visual_plan'
+          if (event.event === 'asset_progress' || event.event === 'asset_ready') {
+            this.buildStage = 'asset_compilation'
+          }
           if (event.event === 'slide_upsert' && event.slide) {
             this.buildStage = 'slide_build'
             if (this.slidePreviewSource !== 'draft') {
@@ -239,6 +249,13 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             if (this.liveSlides.length) {
               this.slidePreviewSource = 'draft'
               this.slideQuality = event.quality
+            }
+          }
+          if (event.event === 'visual_quality' && event.quality) {
+            this.buildStage = 'visual_quality'
+            this.draftSlideQuality = {
+              ...(this.draftSlideQuality || {}),
+              visual: event.quality,
             }
           }
           if (event.event === 'build_blocked') {

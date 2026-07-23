@@ -34,6 +34,7 @@ from representation_compiler import (
 )
 from slide_deck import SlideDeckPlanV1, plan_slide_deck
 from slide_deck_v3 import (
+    SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
     SlideDeckMode,
     SlideDeckTheme,
@@ -42,6 +43,9 @@ from slide_deck_v3 import (
     slide_deck_variant_key,
 )
 from slide_deck_renderer import SlideDeckQualityError, validate_theme
+from slide_asset_repository import slide_asset_repository
+from slide_theme import slide_theme_version
+from slide_visuals import build_signature
 from storage import DATA_DIR
 from teaching_representations import (
     RepresentationConflict,
@@ -120,7 +124,32 @@ def _reconciled_registry(course_id: str) -> dict:
         course_id,
         list(raw.get("course_operation_log") or []),
     )
-    return registry.model_dump(mode="json")
+    payload = registry.model_dump(mode="json")
+    specs = {
+        item["spec_id"]: item
+        for item in payload.get("specs") or []
+    }
+    for representation in payload.get("representations") or []:
+        if representation.get("representation_type") != "slide_deck":
+            continue
+        spec = specs.get(representation.get("spec_id")) or {}
+        content = (spec.get("payload") or {}).get("content") or {}
+        if content.get("schema_version") != "slide_deck_v3":
+            continue
+        expected = build_signature(
+            source_document_revision=str(content.get("source_document_revision") or ""),
+            mode=str(content.get("mode") or "teaching"),
+            theme=normalize_slide_deck_theme(
+                str(content.get("theme") or "qizhi-classroom")
+            ),
+            compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
+            theme_version=slide_theme_version(),
+        )
+        actual = str((content.get("build_signature") or {}).get("signature") or "")
+        if actual != expected["signature"]:
+            representation["visual_engine_update_available"] = True
+            representation["visual_engine_update_reason"] = "视觉引擎已更新"
+    return payload
 
 
 def _compile_registry(
@@ -433,6 +462,17 @@ async def stream_slide_deck_variant_build(
         cached_spec
         and str((cached_spec.payload.get("content") or {}).get("source_document_revision") or "")
         == str(document.document_revision or "")
+        and str(
+            ((cached_spec.payload.get("content") or {}).get("build_signature") or {}).get("signature")
+            or ""
+        )
+        == build_signature(
+            source_document_revision=str(document.document_revision or ""),
+            mode=body.mode,
+            theme=theme,
+            compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
+            theme_version=slide_theme_version(),
+        )["signature"]
     )
     if cached_current and not body.force_rebuild:
         async def cached_event_stream():
@@ -861,6 +901,44 @@ async def get_teaching_representation_spec(
     if spec is None:
         raise HTTPException(status_code=404, detail="Teaching representation spec not found")
     return {"status": "success", "representation": representation, "spec": spec}
+
+
+@router.get("/{representation_id}/assets/{asset_id}")
+async def get_teaching_slide_asset(
+    course_id: str,
+    representation_id: str,
+    asset_id: str,
+    request: Request,
+) -> FileResponse:
+    """Serve only immutable assets referenced by the requested slide version."""
+    payload = await get_teaching_representation_spec(course_id, representation_id, request)
+    representation = payload["representation"]
+    if representation["representation_type"] != "slide_deck":
+        raise HTTPException(status_code=409, detail="Only slide decks have visual assets")
+    content = (payload["spec"].get("payload") or {}).get("content") or {}
+    asset_manifest = {
+        str(item.get("asset_id") or ""): item
+        for item in content.get("visual_asset_manifest") or []
+    }
+    asset = asset_manifest.get(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Slide visual asset not found")
+    try:
+        stored = slide_asset_repository.get(asset_id)
+        path = slide_asset_repository.resolve(asset_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="Slide visual asset is unavailable") from exc
+    if stored is None or stored.course_id != course_id or stored.sha256 != str(asset.get("sha256") or ""):
+        raise HTTPException(status_code=409, detail="Slide visual asset manifest mismatch")
+    return FileResponse(
+        path,
+        media_type=stored.mime_type,
+        filename=stored.filename,
+        headers={
+            "Cache-Control": "private, max-age=31536000, immutable",
+            "ETag": f'"{stored.sha256}"',
+        },
+    )
 
 
 @router.get("/{representation_id}/export.pptx")

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
+from slide_asset_repository import slide_asset_repository
+from slide_theme import load_slide_theme_pack
 
 THEMES: dict[str, dict[str, str]] = {
     "qingfeng-classroom": {
@@ -164,6 +167,10 @@ THEMES: dict[str, dict[str, str]] = {
     },
 }
 
+# The five v3 themes are authored once and consumed by both Vue and PPTX.
+_SHARED_THEMES = load_slide_theme_pack()["themes"]
+THEMES.update({name: dict(tokens) for name, tokens in _SHARED_THEMES.items()})
+
 BODY_FONT = "Noto Sans SC"
 BODY_EAST_ASIAN_FONT = "Microsoft YaHei"
 CODE_FONT = "Aptos Mono"
@@ -225,6 +232,10 @@ def _render_slide(
     theme: dict[str, str],
 ) -> None:
     _fill_background(slide, theme["surface"])
+    if unit.visuals and unit.layout not in {"cover", "roadmap", "chapter", "recap", "appendix"}:
+        _render_visual_directed(slide, unit, theme)
+        _footer(slide, unit, page_number, page_count, theme)
+        return
     requested_layout = str(unit.quality.get("requested_layout") or "")
     renderer = {
         "cover": _render_cover,
@@ -262,6 +273,458 @@ def _render_slide(
     renderer(slide, unit, theme)
     if unit.layout != "cover":
         _footer(slide, unit, page_number, page_count, theme)
+
+
+def _render_visual_directed(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    """Render one dominant visual and the complete source body on a flat canvas."""
+    visual = dict(unit.visuals[0])
+    kind = str(visual.get("kind") or "none")
+    _heading(slide, unit, theme)
+    if kind in {"source_image", "generated_illustration"}:
+        if _render_image_visual(slide, unit, visual, theme):
+            return
+    if kind == "relational_diagram":
+        _render_relational_visual(slide, unit, visual, theme)
+        return
+    if kind == "coordinate_plot":
+        _render_coordinate_visual(slide, unit, visual, theme)
+        return
+    if kind == "chart":
+        _render_chart_visual(slide, unit, visual, theme)
+        return
+    if kind == "table":
+        _render_table_visual(slide, unit, visual, theme)
+        return
+    if kind == "formula":
+        _render_formula_visual(slide, unit, visual, theme)
+        return
+    if kind == "code":
+        _render_code_visual(slide, unit, visual, theme)
+        return
+    _render_editorial_body(slide, unit, theme)
+
+
+def _render_relational_visual(
+    slide: Any,
+    unit: SlideSpec,
+    visual: dict[str, Any],
+    theme: dict[str, str],
+) -> None:
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_CONNECTOR
+    from pptx.util import Inches
+
+    nodes = list(visual.get("nodes") or [])[:5]
+    edges = list(visual.get("edges") or [])[:10]
+    composition = unit.composition or "split-visual"
+    visual_left = composition in {"figure-first", "diagram-full"}
+    diagram_x = 0.78 if visual_left else 7.0
+    text_x = 7.22 if visual_left else 0.78
+    diagram_w = 5.95
+    text_w = 5.32
+    _source_panel(slide, unit, text_x, 1.92, text_w, 4.62, theme)
+    _shape(
+        slide,
+        diagram_x,
+        1.92,
+        diagram_w,
+        4.62,
+        theme["canvas"],
+        radius=True,
+        line=theme["chart_bg"],
+    )
+    _text(
+        slide,
+        str(visual.get("alt_text") or "课程结构图解"),
+        diagram_x + 0.32,
+        2.15,
+        diagram_w - 0.64,
+        0.34,
+        11,
+        theme["accent"],
+        bold=True,
+    )
+    if not nodes:
+        return
+    vertical = str((visual.get("parameters") or {}).get("direction") or "") == "vertical"
+    positions: dict[str, tuple[float, float, float, float]] = {}
+    if vertical:
+        node_h = min(0.72, 3.38 / max(1, len(nodes)))
+        for index, node in enumerate(nodes):
+            positions[str(node.get("node_id"))] = (
+                diagram_x + 0.55,
+                2.72 + index * (node_h + 0.16),
+                diagram_w - 1.1,
+                node_h,
+            )
+    else:
+        columns = 2 if len(nodes) > 3 else 1
+        if columns == 1:
+            node_w = (diagram_w - 1.1 - max(0, len(nodes) - 1) * 0.18) / len(nodes)
+            for index, node in enumerate(nodes):
+                positions[str(node.get("node_id"))] = (
+                    diagram_x + 0.55 + index * (node_w + 0.18),
+                    3.25,
+                    node_w,
+                    1.28,
+                )
+        else:
+            node_w = (diagram_w - 1.28) / 2
+            for index, node in enumerate(nodes):
+                row, column = divmod(index, 2)
+                positions[str(node.get("node_id"))] = (
+                    diagram_x + 0.46 + column * (node_w + 0.22),
+                    2.78 + row * 1.52,
+                    node_w,
+                    1.12,
+                )
+
+    # Connectors are deliberately created first so they remain behind nodes.
+    for edge in edges:
+        source = positions.get(str(edge.get("source") or ""))
+        target = positions.get(str(edge.get("target") or ""))
+        if not source or not target:
+            continue
+        x1 = source[0] + source[2] / 2
+        y1 = source[1] + source[3] / 2
+        x2 = target[0] + target[2] / 2
+        y2 = target[1] + target[3] / 2
+        connector = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT,
+            Inches(x1),
+            Inches(y1),
+            Inches(x2),
+            Inches(y2),
+        )
+        connector.line.color.rgb = RGBColor.from_string(theme["muted"])
+        connector.line.width = Inches(0.018)
+
+    for index, node in enumerate(nodes):
+        node_id = str(node.get("node_id") or "")
+        x, y, width, height = positions[node_id]
+        primary = str(node.get("emphasis") or "") == "primary"
+        shape = _shape(
+            slide,
+            x,
+            y,
+            width,
+            height,
+            theme["accent_soft"] if primary else theme["surface"],
+            radius=True,
+            line=theme["accent"] if primary else theme["chart_bg"],
+        )
+        _set_alt_text(shape, str(node.get("label") or ""))
+        _text(
+            slide,
+            str(node.get("label") or ""),
+            x + 0.15,
+            y + 0.18,
+            width - 0.3,
+            height - 0.28,
+            16,
+            theme["title"] if primary else theme["ink"],
+            bold=primary or len(str(node.get("label") or "")) < 18,
+            align="center",
+        )
+
+
+def _render_formula_visual(
+    slide: Any,
+    unit: SlideSpec,
+    visual: dict[str, Any],
+    theme: dict[str, str],
+) -> None:
+    formula = next(
+        (
+            block.content
+            for block in unit.blocks
+            if block.metadata.get("formula")
+        ),
+        _visible_source_text(unit),
+    )
+    _shape(slide, 0.78, 1.92, 7.15, 4.62, theme["canvas"], radius=True, line=theme["chart_bg"])
+    _text(slide, "FORMULA", 1.15, 2.22, 1.4, 0.3, 11, theme["accent"], bold=True)
+    _text(
+        slide,
+        formula,
+        1.14,
+        3.08,
+        6.42,
+        1.55,
+        28 if len(formula) < 72 else 20,
+        theme["title"],
+        bold=True,
+        align="center",
+        font=theme["math_font"],
+        east_asian_font=theme["body_east_asian_font"],
+    )
+    _source_panel(slide, unit, 8.2, 1.92, 4.36, 4.62, theme)
+
+
+def _render_code_visual(
+    slide: Any,
+    unit: SlideSpec,
+    visual: dict[str, Any],
+    theme: dict[str, str],
+) -> None:
+    code = _find_block(unit, "code")
+    _shape(slide, 0.78, 1.92, 7.65, 4.62, theme["code"], radius=True)
+    _text(slide, "SOURCE", 1.12, 2.18, 1.2, 0.28, 11, "AEB6D0", bold=True, font=CODE_FONT)
+    _text(
+        slide,
+        code.content if code else "",
+        1.12,
+        2.7,
+        6.92,
+        3.38,
+        16,
+        "F5F7FF",
+        font=CODE_FONT,
+        east_asian_font=theme["body_east_asian_font"],
+    )
+    supporting = SlideSpec.model_validate({
+        **unit.model_dump(mode="json"),
+        "blocks": [
+            block.model_dump(mode="json")
+            for block in unit.blocks
+            if block is not code
+        ],
+    })
+    _source_panel(slide, supporting, 8.7, 1.92, 3.86, 4.62, theme)
+
+
+def _render_table_visual(
+    slide: Any,
+    unit: SlideSpec,
+    visual: dict[str, Any],
+    theme: dict[str, str],
+) -> None:
+    parameters = visual.get("parameters") or {}
+    parameter_rows = parameters.get("rows") or []
+    if parameter_rows:
+        _table(
+            slide,
+            [str(value) for value in parameters.get("headers") or ["顺序", "课程原文要点"]],
+            [[str(value) for value in row] for row in parameter_rows],
+            0.78,
+            1.92,
+            7.18,
+            4.62,
+            theme,
+        )
+        _source_panel(slide, unit, 8.2, 1.92, 4.36, 4.62, theme)
+        return
+    block = next(
+        (
+            item for item in unit.blocks
+            if item.metadata.get("rows")
+        ),
+        None,
+    )
+    if block is None:
+        _source_panel(slide, unit, 0.78, 1.92, 11.78, 4.62, theme)
+        return
+    _table(
+        slide,
+        [str(value) for value in block.metadata.get("headers") or []],
+        [[str(value) for value in row] for row in block.metadata.get("rows") or []],
+        0.78,
+        1.92,
+        11.78,
+        4.62,
+        theme,
+    )
+
+
+def _render_coordinate_visual(
+    slide: Any,
+    unit: SlideSpec,
+    visual: dict[str, Any],
+    theme: dict[str, str],
+) -> None:
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_CONNECTOR
+    from pptx.util import Inches
+
+    _source_panel(slide, unit, 0.78, 1.92, 4.65, 4.62, theme)
+    _shape(slide, 5.72, 1.92, 6.84, 4.62, theme["canvas"], radius=True, line=theme["chart_bg"])
+    origin_x, origin_y = 8.98, 4.38
+    for x1, y1, x2, y2 in (
+        (6.25, origin_y, 12.05, origin_y),
+        (origin_x, 2.36, origin_x, 6.0),
+    ):
+        axis = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT,
+            Inches(x1),
+            Inches(y1),
+            Inches(x2),
+            Inches(y2),
+        )
+        axis.line.color.rgb = RGBColor.from_string(theme["muted"])
+    parameters = visual.get("parameters") or {}
+    points = list(parameters.get("points") or [])
+    for raw_x, raw_y in points[:10]:
+        x = origin_x + float(raw_x) * 0.72
+        y = origin_y - float(raw_y) * 0.48
+        shape = _shape(slide, x - 0.07, y - 0.07, 0.14, 0.14, theme["accent"], radius=True)
+        _set_alt_text(shape, str(visual.get("alt_text") or "坐标数据点"))
+    label_positions = (
+        (6.28, 2.55, 2.35, 0.9),
+        (9.36, 2.55, 2.35, 0.9),
+        (6.28, 4.9, 2.35, 0.9),
+        (9.36, 4.9, 2.35, 0.9),
+    )
+    for label, (x, y, width, height) in zip(
+        list(parameters.get("labels") or [])[:4],
+        label_positions,
+    ):
+        text = str(label.get("text") if isinstance(label, dict) else label)
+        shape = _shape(
+            slide,
+            x,
+            y,
+            width,
+            height,
+            theme["surface"],
+            radius=True,
+            line=theme["accent_soft"],
+        )
+        _set_alt_text(shape, text)
+        _text(
+            slide,
+            text,
+            x + 0.14,
+            y + 0.14,
+            width - 0.28,
+            height - 0.22,
+            16,
+            theme["ink"],
+            bold=len(text) < 18,
+            align="center",
+        )
+    if parameters.get("not_to_scale"):
+        _text(
+            slide,
+            "概念位置仅用于组织原文，不表示数值比例",
+            8.0,
+            6.12,
+            4.05,
+            0.24,
+            9,
+            theme["muted"],
+            align="right",
+        )
+
+
+def _render_chart_visual(
+    slide: Any,
+    unit: SlideSpec,
+    visual: dict[str, Any],
+    theme: dict[str, str],
+) -> None:
+    from pptx.chart.data import ChartData
+    from pptx.enum.chart import XL_CHART_TYPE
+    from pptx.util import Inches
+
+    parameters = visual.get("parameters") or {}
+    categories = [str(item) for item in parameters.get("categories") or []]
+    series = list(parameters.get("series") or [])
+    if not categories or not series:
+        _source_panel(slide, unit, 0.78, 1.92, 11.78, 4.62, theme)
+        return
+    data = ChartData()
+    data.categories = categories
+    for item in series[:4]:
+        values = item.get("values") or []
+        if len(values) != len(categories) or not all(isinstance(value, (int, float)) for value in values):
+            continue
+        data.add_series(str(item.get("name") or "Series"), values)
+    if not data._series:
+        _source_panel(slide, unit, 0.78, 1.92, 11.78, 4.62, theme)
+        return
+    chart = slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED,
+        Inches(0.78),
+        Inches(1.92),
+        Inches(7.4),
+        Inches(4.62),
+        data,
+    ).chart
+    chart.has_legend = len(series) > 1
+    _source_panel(slide, unit, 8.48, 1.92, 4.08, 4.62, theme)
+
+
+def _render_image_visual(
+    slide: Any,
+    unit: SlideSpec,
+    visual: dict[str, Any],
+    theme: dict[str, str],
+) -> bool:
+    from pptx.util import Inches
+
+    asset_id = str(visual.get("asset_id") or "")
+    if not asset_id:
+        return False
+    try:
+        image_path = slide_asset_repository.resolve(asset_id)
+    except (FileNotFoundError, ValueError):
+        return False
+    picture = slide.shapes.add_picture(
+        str(image_path),
+        Inches(0.78),
+        Inches(1.92),
+        width=Inches(7.2),
+        height=Inches(4.62),
+    )
+    _set_alt_text(picture, str(visual.get("alt_text") or "课程视觉素材"))
+    _source_panel(slide, unit, 8.28, 1.92, 4.28, 4.62, theme)
+    return True
+
+
+def _source_panel(
+    slide: Any,
+    unit: SlideSpec,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    theme: dict[str, str],
+) -> None:
+    body = _visible_source_text(unit)
+    _shape(slide, x, y, width, height, theme["surface"], radius=True, line=theme["chart_bg"])
+    _text(slide, "SOURCE", x + 0.28, y + 0.25, 1.1, 0.28, 10, theme["muted"], bold=True)
+    _text(
+        slide,
+        body,
+        x + 0.28,
+        y + 0.72,
+        width - 0.56,
+        height - 1.05,
+        18 if len(body) <= 170 else 16,
+        theme["ink"],
+        font=theme["body_font"],
+        east_asian_font=theme["body_east_asian_font"],
+    )
+
+
+def _visible_source_text(unit: SlideSpec) -> str:
+    values: list[str] = []
+    for block in unit.blocks:
+        if block.title:
+            values.append(block.title)
+        if block.items:
+            values.extend(f"• {item}" for item in block.items if item)
+        elif block.content:
+            values.append(block.content)
+    return "\n\n".join(value for value in values if value)
+
+
+def _set_alt_text(shape: Any, value: str) -> None:
+    try:
+        non_visual = shape._element.xpath(".//p:cNvPr")[0]
+        non_visual.set("descr", str(value or ""))
+    except (AttributeError, IndexError):
+        return
 
 
 def _render_cover(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -416,7 +879,7 @@ def _render_editorial_body(slide: Any, unit: SlideSpec, theme: dict[str, str]) -
     body = "\n\n".join(values)
     _shape(slide, 0.82, 1.82, 8.82, 4.55, theme["canvas"], radius=True, line=theme["chart_bg"])
     _shape(slide, 0.82, 1.82, 0.09, 4.55, theme["accent"], radius=False)
-    _text(slide, body, 1.22, 2.2, 7.98, 3.72, 18 if len(body) <= 180 else 15, theme["ink"])
+    _text(slide, body, 1.22, 2.2, 7.98, 3.72, 18 if len(body) <= 180 else 16, theme["ink"])
     _shape(slide, 9.94, 1.82, 2.56, 4.55, theme["accent_soft"], radius=True)
     _text(slide, unit.eyebrow or "阅读线索", 10.25, 2.18, 1.95, 0.32, 11, theme["accent"], bold=True)
     _text(slide, "定义\n→\n条件\n→\n结论", 10.25, 3.0, 1.95, 2.15, 18, theme["ink"], bold=True, align="center")
@@ -468,7 +931,7 @@ def _render_case_study(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
     _text(slide, "从具体情境\n检验抽象结构", 1.18, 3.0, 2.24, 1.35, 24, theme["ink"], bold=True)
     _shape(slide, 4.12, 1.82, 8.38, 4.55, theme["canvas"], radius=True, line=theme["chart_bg"])
     _text(slide, "案例观察", 4.48, 2.18, 1.6, 0.32, 12, theme["accent"], bold=True)
-    _text(slide, body, 4.48, 2.82, 7.3, 2.95, 18 if len(body) <= 180 else 15, theme["ink"])
+    _text(slide, body, 4.48, 2.82, 7.3, 2.95, 18 if len(body) <= 180 else 16, theme["ink"])
 
 
 def _render_comparison(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -495,7 +958,7 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         _shape(slide, x, 2.08, width, 3.72, theme["canvas"], radius=True, line=theme["chart_bg"])
         _shape(slide, x + 0.22, 2.34, 0.58, 0.58, theme["accent"], radius=True)
         _text(slide, str(index + 1), x + 0.22, 2.52, 0.58, 0.2, 12, "FFFFFF", bold=True, align="center")
-        _text(slide, item, x + 0.23, 3.25, width - 0.46, 1.95, 15, theme["ink"], bold=True)
+        _text(slide, item, x + 0.23, 3.25, width - 0.46, 1.95, 16, theme["ink"], bold=True)
         if index < len(items) - 1:
             _text(slide, "→", x + width + 0.01, 3.68, 0.22, 0.35, 17, theme["muted"], bold=True, align="center")
 
@@ -664,7 +1127,7 @@ def _balanced_text_columns(value: str) -> tuple[str, str]:
 def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _text(slide, unit.eyebrow or unit.slide_purpose, 0.78, 0.5, 2.7, 0.3, 11, theme["accent"], bold=True)
     _text(
-        slide, unit.title, 0.78, 0.82, 11.72, 0.76, 36, theme["title"], bold=True,
+        slide, _display_heading(unit), 0.78, 0.82, 11.72, 0.76, 36, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
     )
     _shape(slide, 0.78, 1.58, 0.72, 0.05, theme["accent"], radius=False)
@@ -678,7 +1141,14 @@ def _footer(slide: Any, unit: SlideSpec, page: int, total: int, theme: dict[str,
 
 
 def _fill_background(slide: Any, color: str) -> None:
-    _shape(slide, 0, 0, 13.333, 7.5, color, radius=False)
+    from pptx.dml.color import RGBColor
+
+    fill = slide.background.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor.from_string(color)
+    # Keep the legacy editable background shape as the first object while
+    # staying a fraction inside the canvas to avoid false overflow at full bleed.
+    _shape(slide, 0.01, 0.01, 13.30, 7.47, color, radius=False)
 
 
 def _shape(
@@ -819,10 +1289,26 @@ def _table(
             cell.margin_top = cell.margin_bottom = Inches(0.07)
             paragraph = cell.text_frame.paragraphs[0]
             _configure_font(paragraph.font, BODY_FONT)
-            paragraph.font.size = Pt(12 if column_count >= 4 else 14)
+            paragraph.font.size = Pt(16)
             paragraph.font.bold = row_index == 0
             paragraph.font.color.rgb = RGBColor.from_string(theme["accent"] if row_index == 0 else theme["ink"])
             paragraph.alignment = PP_ALIGN.LEFT
+
+
+def _display_heading(unit: SlideSpec) -> str:
+    takeaway = str(unit.takeaway or "").strip()
+    visual_kind = str(unit.visuals[0].get("kind") or "") if unit.visuals else ""
+    if not takeaway:
+        return unit.title
+    if (
+        visual_kind == "formula"
+        or takeaway.startswith(("$", "\\[", "\\("))
+        or re.search(r"\\[A-Za-z]+", takeaway)
+        or len(takeaway) > 96
+        or re.fullmatch(r"[\d\s.、:：()（）-]+", takeaway)
+    ):
+        return unit.title
+    return takeaway
 
 
 def _configure_font(font: Any, latin_font: str, east_asian_font: str = BODY_EAST_ASIAN_FONT) -> None:

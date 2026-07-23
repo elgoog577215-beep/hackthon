@@ -4,6 +4,7 @@
     :class="{ 'is-presenting': presenting }"
     :data-layout="visualLayout"
     :data-theme="theme"
+    :style="themeStyle"
     :aria-label="`${pageNumber} / ${pageCount} · ${slide.title}`"
   >
     <template v-if="slide.layout === 'cover'">
@@ -37,7 +38,7 @@
       <header class="deck-canvas__heading">
         <div>
           <small>{{ slide.eyebrow || layoutLabel(visualLayout) }}</small>
-          <h2>{{ slide.title }}</h2>
+          <h2>{{ displayHeading }}</h2>
         </div>
         <span>{{ String(pageNumber).padStart(2, '0') }}</span>
       </header>
@@ -50,6 +51,35 @@
       </blockquote>
 
       <div
+        v-if="slide.visuals?.length"
+        class="deck-canvas__story"
+        :data-composition="slide.composition || 'split-visual'"
+      >
+        <SlideVisualRenderer
+          :visuals="slide.visuals"
+          :course-id="courseId"
+          :representation-id="representationId"
+        />
+        <div class="deck-canvas__source">
+          <small>{{ slide.teaching_job }}</small>
+          <section v-for="block in slide.blocks" :key="block.block_id" :data-type="block.type">
+            <b v-if="block.title">{{ block.title }}</b>
+            <pre v-if="block.type === 'code'"><code>{{ block.content }}</code></pre>
+            <ol v-else-if="block.type === 'process'">
+              <li v-for="(item, itemIndex) in block.items" :key="item">
+                <i>{{ itemIndex + 1 }}</i><span>{{ item }}</span>
+              </li>
+            </ol>
+            <ul v-else-if="block.items?.length">
+              <li v-for="item in block.items" :key="item">{{ item }}</li>
+            </ul>
+            <p v-else>{{ block.content }}</p>
+          </section>
+        </div>
+      </div>
+
+      <div
+        v-else
         class="deck-canvas__blocks"
         :data-layout="visualLayout"
         :data-count="slide.blocks?.length || 0"
@@ -95,6 +125,9 @@
 import { computed } from 'vue'
 import { t } from '../shared/i18n'
 import type { SlideDeckTheme } from '../stores/teachingRepresentations'
+import SlideVisualRenderer from './SlideVisualRenderer.vue'
+import themePack from '../data/slide-themes.json'
+import type { SlideVisual } from '../types/slideVisual'
 
 interface SlideBlock {
   block_id: string
@@ -111,6 +144,11 @@ interface Slide {
   title: string
   subtitle?: string
   key_message?: string
+  teaching_job?: string
+  takeaway?: string
+  transition_from?: string
+  composition?: string
+  visuals?: SlideVisual[]
   section_id?: string
   blocks: SlideBlock[]
   quality?: {
@@ -128,12 +166,60 @@ const props = withDefaults(defineProps<{
   deckTitle: string
   theme?: SlideDeckTheme
   presenting?: boolean
+  courseId?: string
+  representationId?: string
 }>(), {
   theme: 'qingfeng-classroom',
   presenting: false,
+  courseId: '',
+  representationId: '',
 })
 
 const visualLayout = computed(() => props.slide.quality?.requested_layout || props.slide.layout)
+const displayHeading = computed(() => {
+  const takeaway = String(props.slide.takeaway || '').trim()
+  if (
+    !takeaway
+    || props.slide.visuals?.[0]?.kind === 'formula'
+    || takeaway.startsWith('$')
+    || takeaway.startsWith('\\[')
+    || takeaway.startsWith('\\(')
+    || /\\[A-Za-z]+/.test(takeaway)
+    || takeaway.length > 96
+    || /^[\d\s.、:：()（）-]+$/.test(takeaway)
+  ) {
+    return props.slide.title
+  }
+  return takeaway
+})
+const themeStyle = computed(() => {
+  const aliases: Record<string, string> = {
+    'qingfeng-classroom': 'qizhi-classroom',
+    'academic-bluegray': 'academic-editorial',
+  }
+  const key = aliases[props.theme] || props.theme
+  const token = (themePack.themes as Record<string, Record<string, any>>)[key]
+  if (!token) return {}
+  return {
+    '--deck-bg': `#${token.surface}`,
+    '--deck-paper': `#${token.surface}`,
+    '--deck-title': `#${token.title}`,
+    '--deck-ink': `#${token.title}`,
+    '--deck-body': `#${token.ink}`,
+    '--deck-muted': `#${token.muted}`,
+    '--deck-main': `#${token.accent}`,
+    '--deck-blue': `#${token.accent}`,
+    '--deck-blue-soft': `#${token.accent_soft}`,
+    '--deck-teal': `#${token.green}`,
+    '--deck-amber': `#${token.amber}`,
+    '--deck-card': `#${token.surface}`,
+    '--deck-line': `#${token.chart_bg}`,
+    '--deck-message-bg': `#${token.accent_soft}`,
+    '--deck-callout': `#${token.accent}`,
+    '--deck-title-font': `"${token.title_font}","${token.title_east_asian_font}",sans-serif`,
+    '--deck-body-font': `"${token.body_font}","${token.body_east_asian_font}",sans-serif`,
+  }
+})
 
 function chapterNumber(title: string) {
   return title.match(/\d+/)?.[0]?.padStart(2, '0') || '·'
@@ -407,6 +493,89 @@ function layoutLabel(value: string) {
   background:var(--deck-message-bg);
   font-size:1.36cqw;
   font-weight:720;
+  line-height:1.42;
+}
+.deck-canvas__story {
+  position:absolute;
+  inset:25% 5.5% 10.5%;
+  display:grid;
+  grid-template-columns:minmax(0,1.18fr) minmax(0,.82fr);
+  gap:2.4%;
+  min-height:0;
+}
+.deck-canvas__story[data-composition="split-visual"] {
+  grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);
+}
+.deck-canvas__story[data-composition="split-visual"] > .slide-visual { order:2; }
+.deck-canvas__story[data-composition="split-visual"] > .deck-canvas__source { order:1; }
+.deck-canvas__story[data-composition="diagram-full"] {
+  grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);
+}
+.deck-canvas__story[data-composition="exercise"] {
+  grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);
+}
+.deck-canvas__source {
+  min-width:0;
+  overflow:hidden;
+  padding:1.3cqw 0 1cqw 1.6cqw;
+  border-left:.34cqw solid var(--deck-blue);
+}
+.deck-canvas__source > small {
+  display:block;
+  margin-bottom:1cqw;
+  color:var(--deck-blue);
+  font-size:.82cqw;
+  font-weight:800;
+  letter-spacing:.08em;
+}
+.deck-canvas__source section {
+  margin:0 0 .9cqw;
+  padding:0;
+  border:0;
+  background:transparent;
+}
+.deck-canvas__source section > b {
+  display:block;
+  margin-bottom:.4cqw;
+  font-size:1.12cqw;
+}
+.deck-canvas__source p,.deck-canvas__source li {
+  color:var(--deck-body);
+  font-size:1.28cqw;
+  line-height:1.48;
+}
+.deck-canvas__source ul,.deck-canvas__source ol {
+  display:grid;
+  gap:.52cqw;
+  margin:0;
+  padding-left:1.25cqw;
+}
+.deck-canvas__source ol {
+  list-style:none;
+  padding-left:0;
+}
+.deck-canvas__source ol li {
+  display:flex;
+  gap:.7cqw;
+}
+.deck-canvas__source ol i {
+  display:grid;
+  width:1.55cqw;
+  height:1.55cqw;
+  flex:0 0 auto;
+  place-items:center;
+  border-radius:50%;
+  color:#fff;
+  background:var(--deck-blue);
+  font-style:normal;
+  font-size:.82cqw;
+  font-weight:800;
+}
+.deck-canvas__source pre {
+  max-height:13.5cqw;
+  overflow:hidden;
+  white-space:pre-wrap;
+  font-size:1.05cqw;
   line-height:1.42;
 }
 .deck-canvas__blocks {

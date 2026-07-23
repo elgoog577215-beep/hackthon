@@ -30,6 +30,7 @@ from slide_deck_v3 import (
     slide_deck_variant_key,
     validate_slide_deck_v3,
 )
+from slide_visuals import SlideVisualPlanV1
 from teaching_representations import (
     RepresentationPlan,
     SourceBinding,
@@ -453,6 +454,7 @@ def compile_slide_deck_variant(
     mode: SlideDeckMode,
     theme: SlideDeckTheme,
     allocation_plan: SlideAllocationPlanV2 | dict[str, Any] | None = None,
+    visual_plan: SlideVisualPlanV1 | dict[str, Any] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     resume_slides: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -489,6 +491,7 @@ def compile_slide_deck_variant(
         mode=mode,
         theme=normalized_theme,
         allocation_plan=allocation_plan,
+        visual_plan=visual_plan,
         progress_callback=progress_callback,
         resume_slides=resume_slides,
     )
@@ -599,6 +602,7 @@ def rebuild_slide_deck_variant_safely(
     mode: SlideDeckMode,
     theme: SlideDeckTheme,
     allocation_plan: SlideAllocationPlanV2 | dict[str, Any] | None = None,
+    visual_plan: SlideVisualPlanV1 | dict[str, Any] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     resume_slides: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -624,6 +628,7 @@ def rebuild_slide_deck_variant_safely(
                 mode=mode,
                 theme=theme,
                 allocation_plan=allocation_plan,
+                visual_plan=visual_plan,
                 progress_callback=progress_callback,
                 resume_slides=resume_slides,
             )
