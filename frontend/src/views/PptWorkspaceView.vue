@@ -225,7 +225,7 @@ async function cancelBuild() {
 }
 
 function backToCourse() {
-  void router.push({ name: 'course-workbench', params: { courseId: courseId.value } })
+  void router.push({ name: 'learning', params: { courseId: courseId.value } })
 }
 
 function openSameSourceCourse(state: PptSameSourceHighlightState) {
@@ -248,7 +248,7 @@ onMounted(loadWorkspace)
 </script>
 
 <style scoped>
-.ppt-workspace-view { position:fixed; inset:52px 0 0; z-index:70; display:flex; min-width:0; min-height:0; overflow:hidden; background:#e9edf3; }
+.ppt-workspace-view { position:fixed; inset:0; z-index:70; display:flex; min-width:0; min-height:0; overflow:hidden; background:#e9edf3; }
 .ppt-workspace-view__deck { min-width:0; flex:1 1 auto; }
 .ppt-workspace-view__ai { width:min(380px,34vw); flex:0 0 min(380px,34vw); border-left:1px solid #d5dce6; background:#fff; }
 .ppt-workspace-state {

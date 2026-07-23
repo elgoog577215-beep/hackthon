@@ -686,7 +686,10 @@
     "practiceHint": "Open formal practice for the current chapter",
     "practiceRepairHint": "Open practice and rebuild legacy questions",
     "practicePending": "Formal practice opens after the course is published",
-    "practiceUnavailable": "No formal practice is available for this chapter yet"
+    "practiceUnavailable": "No formal practice is available for this chapter yet",
+    "ppt": "PPT",
+    "pptHint": "Open the PPT workspace for this course",
+    "pptPending": "The PPT workspace opens after the course is published"
   },
   "teachingRepresentations": {
     "eyebrow": "Same-source course",

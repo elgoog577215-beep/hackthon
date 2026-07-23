@@ -32,7 +32,7 @@ describe('LearningTaskOverlay navigation', () => {
     expect(overlay.find('.task-overlay__close').exists()).toBe(true)
   })
 
-  it('进入练习后仍在同一顶栏切换教案、课程和练习', async () => {
+  it('进入练习后仍在同一顶栏切换教案、课程、练习和 PPT', async () => {
     const wrapper = mount(LearningTaskOverlay, {
       props: {
         courseId: 'course-1',
@@ -49,13 +49,15 @@ describe('LearningTaskOverlay navigation', () => {
     })
 
     const tabs = wrapper.findAll('.task-overlay > .course-workspace-tabs [role="tab"]')
-    expect(tabs.map(tab => tab.text())).toEqual(['教案', '课程', '练习'])
+    expect(tabs.map(tab => tab.text())).toEqual(['教案', '课程', '练习', 'PPT'])
     expect(tabs[2]!.attributes('aria-selected')).toBe('true')
 
     await tabs[0]!.trigger('click')
     await tabs[1]!.trigger('click')
+    await tabs[3]!.trigger('click')
 
     expect(wrapper.emitted('lesson-plan')).toHaveLength(1)
     expect(wrapper.emitted('course')).toHaveLength(1)
+    expect(wrapper.emitted('ppt')).toHaveLength(1)
   })
 })

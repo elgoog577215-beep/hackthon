@@ -58,7 +58,7 @@ const GrowthSideAIPanelStub = defineComponent({
 
 const TaskOverlayStub = defineComponent({
   props: ['courseId', 'nodeId', 'nodeLabel', 'originRect'],
-  emits: ['close', 'graded', 'askTeacher', 'records', 'stats', 'outline', 'lesson-plan', 'course'],
+  emits: ['close', 'graded', 'askTeacher', 'records', 'stats', 'outline', 'lesson-plan', 'course', 'ppt'],
   template: '<div class="task-overlay-stub" :data-node-id="nodeId" :data-origin-top="originRect?.top"><span>{{ nodeLabel }}</span><button class="task-records" @click="$emit(\'records\')">records</button><button class="task-stats" @click="$emit(\'stats\')">stats</button><button class="close-task" @click="$emit(\'close\')">close</button></div>',
 })
 
@@ -76,7 +76,10 @@ describe('LearningView 正文任务覆盖层', () => {
     setActivePinia(pinia)
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: '/course/:courseId/learn/:nodeId?', name: 'learning', component: LearningView }],
+      routes: [
+        { path: '/course/:courseId/learn/:nodeId?', name: 'learning', component: LearningView },
+        { path: '/course/:courseId/ppt', name: 'ppt-workspace', component: { template: '<div />' } },
+      ],
     })
     await router.push('/course/c1/learn/n1')
     await router.isReady()
@@ -159,7 +162,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it('正文页用顶栏切换教案、课程和练习，并从底栏直达知识库', async () => {
+  it('正文页用顶栏切换教案、课程、练习和 PPT，并从底栏直达知识库', async () => {
     const wrapper = mount(LearningView, {
       attachTo: document.body,
       global: {
@@ -180,7 +183,7 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['教案', '课程', '练习'])
+    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['教案', '课程', '练习', 'PPT'])
     expect(wrapper.get('.learning-context-bar [data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
     expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '错题本', '学习概况', '知识库', '智能助教'])
 
@@ -203,6 +206,9 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.get('.learning-stats-stub').attributes('data-closable')).toBe('true')
     await wrapper.get('.close-stats').trigger('click')
     expect(wrapper.find('.stats-overlay').exists()).toBe(false)
+    await wrapper.get('.learning-context-bar [data-workspace-item="ppt"]').trigger('click')
+    await flushPromises()
+    expect((globalThis as any).__learningTestRouter.currentRoute.value.name).toBe('ppt-workspace')
 
     await wrapper.get('[data-domain="knowledge-library"]').trigger('click')
     const courseStore = useCourseStore()
@@ -501,11 +507,12 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['教案', '课程', '练习'])
+    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['教案', '课程', '练习', 'PPT'])
     expect(wrapper.get('[data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('[data-workspace-item="lesson-plan"]').classes()).toContain('is-building')
     expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('title')).toContain('后台')
     expect(wrapper.get('[data-workspace-item="practice"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-workspace-item="ppt"]').attributes('disabled')).toBeDefined()
     expect(wrapper.findComponent({ name: 'GenerationLessonPlan' }).exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'CourseGenerationLifecycle' }).exists()).toBe(true)
 

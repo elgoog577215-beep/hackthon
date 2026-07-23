@@ -40,9 +40,11 @@
           :practice-pending="isGenerationPreview"
           :lesson-plan-pending="isGenerationPreview && !canOpenGenerationLessonPlan"
           :lesson-plan-building="generationLessonPlanBuilding"
+          :ppt-available="!isGenerationPreview"
           @lesson-plan="selectWorkspace('lesson-plan')"
           @course="selectWorkspace('course')"
           @practice="selectWorkspace('practice')"
+          @ppt="openPptWorkspace"
         />
         <div class="context-actions">
           <div v-if="hasAppliedCourseGrowth" class="ai-course-version" role="status">
@@ -148,6 +150,7 @@
         @outline="openTeachingResourceFromTask('outline')"
         @lesson-plan="openTeachingResourceFromTask('lesson_plan')"
         @course="closeTask"
+        @ppt="openPptWorkspace"
         @ask-teacher="openAiForPractice"
         @graded="refreshAfterGrade"
         @records="openNotebook"
@@ -219,6 +222,7 @@
         @lesson-plan="openTeachingResource('lesson_plan')"
         @course="openCourseWorkspace"
         @practice="openPracticeFromTeachingResource"
+        @ppt="openPptWorkspace"
       />
     </main>
 
@@ -303,7 +307,6 @@ const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
-const workflowOpenedAi = ref(false)
 const notebookOpen = ref(false)
 const mistakeBookOpen = ref(false)
 const statsOpen = ref(false)
@@ -324,7 +327,7 @@ const aiPrefill = ref('')
 const aiEntrypoint = ref<'global' | 'selection' | 'practice' | 'continuity' | 'record'>('global')
 const aiBlockTarget = ref<CourseBlockEditTarget | undefined>(undefined)
 const autoFollowGeneration = ref(true)
-const activeWorkspaceItem = ref<'lesson-plan' | 'course' | 'practice'>('course')
+const activeWorkspaceItem = ref<'lesson-plan' | 'course' | 'practice' | 'ppt'>('course')
 const generationActionBusy = ref(false)
 const practiceApiNodeId = ref('')
 let practiceAvailabilityRequest = 0
@@ -666,9 +669,9 @@ function resumeGenerationFollow() {
   if (node) selectNode(node, false, false)
 }
 
-function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice') {
+function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice' | 'ppt') {
   if (isGenerationPreview.value) {
-    if (item === 'practice') return
+    if (item === 'practice' || item === 'ppt') return
     if (item === 'lesson-plan' && !canOpenGenerationLessonPlan.value) return
     autoFollowGeneration.value = false
     activeWorkspaceItem.value = item
@@ -691,8 +694,18 @@ function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice') {
     openCurrentPractice()
     return
   }
+  if (item === 'ppt') {
+    openPptWorkspace()
+    return
+  }
   activeWorkspaceItem.value = 'course'
   void openCourseWorkspace()
+}
+
+function openPptWorkspace() {
+  const courseId = courseStore.currentCourseId
+  if (!courseId || isGenerationPreview.value) return
+  void router.push({ name: 'ppt-workspace', params: { courseId } })
 }
 
 async function resumeGenerationTask() {
@@ -735,25 +748,6 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   if (isNarrow.value) navigatorOpen.value = false
 }
 
-watch(
-  () => [route.query.surface, loadedLearningCourseId.value] as const,
-  ([surface, loadedCourseId]) => {
-    const growthRequested = String(surface || '') === 'growth'
-      && Boolean(loadedCourseId)
-      && loadedCourseId === courseStore.currentCourseId
-      && !isGenerationPreview.value
-    if (growthRequested) {
-      openAi()
-      workflowOpenedAi.value = true
-    } else if (workflowOpenedAi.value) {
-      aiVisible.value = false
-      activeDomain.value = 'course'
-      workflowOpenedAi.value = false
-
-    }
-  },
-  { immediate: true },
-)
 function openBlockImprovement(target: CourseBlockEditTarget) {
   activeDomain.value = 'assistant'
   aiBlockTarget.value = target

@@ -686,7 +686,10 @@
     "practiceHint": "打开当前章节的正式练习",
     "practiceRepairHint": "打开练习并重新生成旧版题目",
     "practicePending": "课程发布后开放正式练习",
-    "practiceUnavailable": "当前章节暂时没有正式练习"
+    "practiceUnavailable": "当前章节暂时没有正式练习",
+    "ppt": "PPT",
+    "pptHint": "打开当前课程的 PPT 工作台",
+    "pptPending": "课程发布后开放 PPT 工作台"
   },
   "teachingRepresentations": {
     "eyebrow": "结构化同源",

@@ -39,7 +39,7 @@ export function writePptSameSourceHighlight(storage: SessionStorageLike, state: 
   return normalized
 }
 
-export function peekPptSameSourceHighlight(storage: SessionStorageLike, courseId: string, now = Date.now()) {
+export function readPptSameSourceHighlight(storage: SessionStorageLike, courseId: string, sectionId: string, now = Date.now()) {
   const raw = storage.getItem(PPT_SAME_SOURCE_STORAGE_KEY)
   if (!raw) return null
   let state: PptSameSourceHighlightState | null = null
@@ -57,13 +57,7 @@ export function peekPptSameSourceHighlight(storage: SessionStorageLike, courseId
     storage.removeItem(PPT_SAME_SOURCE_STORAGE_KEY)
     return null
   }
-  if (state.courseId !== courseId) return null
-  return state
-}
-
-export function readPptSameSourceHighlight(storage: SessionStorageLike, courseId: string, sectionId: string, now = Date.now()) {
-  const state = peekPptSameSourceHighlight(storage, courseId, now)
-  if (!state || state.sectionId !== sectionId) return null
+  if (state.courseId !== courseId || state.sectionId !== sectionId) return null
   return state
 }
 

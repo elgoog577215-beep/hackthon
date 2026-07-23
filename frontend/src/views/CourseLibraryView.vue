@@ -193,7 +193,7 @@ function taskNeedsAttention(task: { status: string; publicationAllowed?: boolean
 
 function openCourse(courseId: string, nodeId?: string) {
   void router.push({
-    name: nodeId ? 'learning' : 'course-workbench',
+    name: 'learning',
     params: { courseId, ...(nodeId ? { nodeId } : {}) },
   })
 }

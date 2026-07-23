@@ -26,6 +26,7 @@
           @lesson-plan="emit('lesson-plan')"
           @course="emit('course')"
           @practice="emit('practice')"
+          @ppt="emit('ppt')"
         />
 
         <div class="representations-actions">
@@ -160,7 +161,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  (event: 'close' | 'outline' | 'lesson-plan' | 'course' | 'practice'): void
+  (event: 'close' | 'outline' | 'lesson-plan' | 'course' | 'practice' | 'ppt'): void
 }>()
 
 const store = useTeachingRepresentationsStore()
