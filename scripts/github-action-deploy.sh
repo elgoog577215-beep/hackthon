@@ -173,6 +173,19 @@ print(" ".join(sorted(
 '
 }
 
+log_generation_task_recovery_plan() {
+    local active_task_ids=""
+    if ! active_task_ids="$(active_generation_task_ids)"; then
+        log "无法读取任务状态；继续依赖持久检查点与启动对账完成安全发布：$TASKS_URL"
+        return 0
+    fi
+    if [ -n "$active_task_ids" ]; then
+        log "检测到正在生成的任务；将优雅停止服务，并由新版本从检查点恢复：$active_task_ids"
+        return 0
+    fi
+    log "未检测到正在生成的任务；继续切换版本"
+}
+
 rollback() {
     local exit_code=$?
     local active_path=""
@@ -261,17 +274,8 @@ if [ ! -f "$release_path/.deploy-ready" ]; then
     touch "$release_path/.deploy-ready"
 fi
 
-rm -f "$ARTIFACT_PATH"
-
 if systemctl is-active --quiet "$SERVICE_NAME"; then
-    if ! active_task_ids="$(active_generation_task_ids)"; then
-        log "无法读取任务状态，拒绝停止当前服务：$TASKS_URL"
-        exit 75
-    fi
-    if [ -n "$active_task_ids" ]; then
-        log "检测到正在生成的任务，取消本次发布：$active_task_ids"
-        exit 75
-    fi
+    log_generation_task_recovery_plan
 fi
 
 if [ -d "$CURRENT_LINK/backend/data" ] && [ ! "$CURRENT_LINK/backend/data" -ef "$STATE_DIR/backend-data" ]; then
@@ -319,6 +323,7 @@ fi
 service_stopped=0
 trap - ERR
 log "部署完成：$TARGET_COMMIT"
+rm -f "$ARTIFACT_PATH"
 
 cleanup_backups
 cleanup_releases
