@@ -53,7 +53,7 @@
               <span>01</span>
               <div>
                 <small>{{ t('teachingRepresentations.impactDialog.sourceEyebrow', '本次修改') }}</small>
-                <h3>{{ t('teachingRepresentations.impactDialog.sourceTitle', '从 PPT 改变课程含义') }}</h3>
+                <h3>{{ t('teachingRepresentations.impactDialog.sourceTitleTemplate', '从{material}改变课程含义').replace('{material}', sourceMaterialLabel) }}</h3>
               </div>
             </header>
 
@@ -279,7 +279,7 @@
 
               <div v-else class="preview-path">
                 <div class="preview-path__flow">
-                  <span><Presentation :size="15" />{{ t('teachingRepresentations.impactDialog.pptGoalChanged', 'PPT 目标变化') }}</span>
+                  <span><Presentation :size="15" />{{ t('teachingRepresentations.impactDialog.materialChanged', '{material}内容变化').replace('{material}', sourceMaterialLabel) }}</span>
                   <i><ArrowRight :size="14" /></i>
                   <span><GitBranch :size="15" />{{ selectedImpactItem.role || representationLabel(selectedImpactItem.representation_type) }}</span>
                   <i><ArrowRight :size="14" /></i>
@@ -342,8 +342,8 @@
               </button>
             </template>
             <template v-else>
-              <button type="button" :disabled="busy" @click="emit('choose-local')">
-                {{ t('teachingRepresentations.onlyThisPpt', '只改当前 PPT') }}
+              <button v-if="allowLocal" type="button" :disabled="busy" @click="emit('choose-local')">
+                {{ t('teachingRepresentations.impactDialog.onlyCurrentMaterial', '只改当前{material}').replace('{material}', sourceMaterialLabel) }}
               </button>
               <button type="button" class="primary" :disabled="busy" @click="emit('propose')">
                 <GitBranch :size="16" />{{ t('teachingRepresentations.impactDialog.createPlan', '生成精准同步方案') }}
@@ -387,12 +387,16 @@ const props = withDefaults(defineProps<{
   receipt?: Record<string, any> | null
   beforeText: string
   afterText: string
+  sourceType?: string
+  allowLocal?: boolean
   busy?: boolean
   syncing?: boolean
 }>(), {
   preview: null,
   proposalItem: null,
   receipt: null,
+  sourceType: 'slide_deck',
+  allowLocal: true,
   busy: false,
   syncing: false,
 })
@@ -403,6 +407,7 @@ const emit = defineEmits<{
 
 const selectedImpactKey = ref('')
 const resultTypeFilter = ref('all')
+const sourceMaterialLabel = computed(() => representationLabel(props.sourceType || 'slide_deck'))
 const semanticChange = computed(() => props.preview?.semantic_change || {})
 const affectedCount = computed(() => Number(props.preview?.impact?.affected_unit_count || 0))
 const unaffectedCount = computed(() => Number(props.preview?.impact?.unaffected_unit_count || 0))
@@ -472,7 +477,8 @@ const dialogTitle = computed(() => {
 const dialogDescription = computed(() => {
   if (props.receipt) return t('teachingRepresentations.impactDialog.completedDescription', '真实修改、来源校验与保持不变的内容都已在同一份回执中说明。')
   if (props.proposalItem) return t('teachingRepresentations.impactDialog.confirmDescription', '课程真源尚未改变；确认后只重建有共同来源依赖的内容。')
-  return t('teachingRepresentations.impactDialog.description', '从 PPT 修改出发，沿课程来源与教学作用精确计算影响范围。')
+  return t('teachingRepresentations.impactDialog.descriptionTemplate', '从{material}修改出发，沿课程来源与教学作用精确计算影响范围。')
+    .replace('{material}', sourceMaterialLabel.value)
 })
 
 watch(

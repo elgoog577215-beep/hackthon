@@ -7,11 +7,13 @@ import pytest
 from rate_limiter import _match_rate_limit
 from course_document import (
     CourseBlock,
+    CourseDocument,
     document_from_legacy_course,
     refresh_document_revision,
 )
 from course_repository import CourseDocumentRepository
 from course_evolution import (
+    AdaptationHypothesis,
     CourseEvolutionOperation,
     CourseEvolutionPlan,
     CourseEvolutionRepository,
@@ -648,6 +650,167 @@ def test_acceptance_commits_current_course_revision_and_can_be_undone(
         for block in undone_document.blocks
         if block.block_id in plan.applied_block_ids
     )
+
+
+def test_personal_path_fold_and_reorder_are_reviewed_course_operations_and_undoable(
+    tmp_path,
+):
+    course = _course()
+    document = CourseDocument.model_validate(course["course_document"])
+    source = next(block for block in document.blocks if block.section_id == "section-1")
+    folded = source.model_copy(update={
+        "block_id": "block-mastered-scaffold",
+        "position": 1,
+        "role": "example",
+        "payload": {
+            "title": "已掌握的基础算例",
+            "markdown": "学生已通过两次独立任务，可折叠这段基础算例。",
+        },
+    })
+    moved = source.model_copy(update={
+        "block_id": "block-transfer-challenge",
+        "position": 2,
+        "role": "application",
+        "payload": {
+            "title": "迁移挑战",
+            "markdown": "把迁移挑战提前到核心解释之后。",
+        },
+    })
+    document.blocks.extend([folded, moved])
+    document = refresh_document_revision(document)
+    course["course_document"] = document.model_dump(mode="json")
+    course["course_document_revision"] = document.document_revision
+    course["current_course_version_id"] = document.document_revision
+    document_repository = _document_repository(course)
+    repository = CourseEvolutionRepository(tmp_path)
+    now = "2026-07-23T10:00:00+00:00"
+    hypothesis = AdaptationHypothesis(
+        hypothesis_id="hypothesis-personal-path",
+        user_id="student-a",
+        course_id=course["course_id"],
+        problem_type="personal_path_optimization",
+        claim="正式证据表明基础算例已经掌握，可以折叠并把迁移挑战提前。",
+        target_block_id=folded.block_id,
+        status="candidate_created",
+        created_at=now,
+        updated_at=now,
+    )
+    operations = [
+        CourseEvolutionOperation(
+            operation_id="operation-fold",
+            operation_type="FOLD_COURSE_BLOCK",
+            target_block_id=folded.block_id,
+            target_section_id=folded.section_id,
+            reason="两次独立正式任务已经证明该基础支架可跳过。",
+            payload={
+                "action": "FOLD",
+                "before_preview": folded.payload["markdown"],
+                "after_preview": "折叠为已掌握节点，复习时仍可从历史中找回。",
+            },
+        ),
+        CourseEvolutionOperation(
+            operation_id="operation-reorder",
+            operation_type="REORDER_COURSE_BLOCK",
+            target_block_id=moved.block_id,
+            target_section_id=moved.section_id,
+            reason="把迁移挑战提前到核心解释之后，减少重复基础训练。",
+            payload={
+                "action": "REORDER",
+                "after_block_id": source.block_id,
+                "before_preview": "基础算例之后",
+                "after_preview": "核心解释之后",
+            },
+        ),
+    ]
+    plan = CourseEvolutionPlan(
+        change_set_id="plan-personal-path",
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypothesis_id=hypothesis.hypothesis_id,
+        source_kind="learning_evidence",
+        target_section_id=source.section_id,
+        growth_direction="challenge",
+        base_revision_vector={
+            key: value
+            for key, value in revision_vector_for_document(document).revisions.items()
+            if key in {
+                f"section:{source.section_id}",
+                f"block:{source.block_id}",
+                f"block:{folded.block_id}",
+                f"block:{moved.block_id}",
+            }
+        },
+        evidence_ids=["evidence-formal-success-1", "evidence-formal-success-2"],
+        operations=operations,
+        allowed_scopes=["current"],
+        expected_effect="减少已会内容，并让迁移挑战更早进入个人学习路径。",
+        created_at=now,
+        updated_at=now,
+    )
+    repository.save(CourseEvolutionState(
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypotheses=[hypothesis],
+        change_sets=[plan],
+        updated_at=now,
+    ))
+
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id=plan.change_set_id,
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    applied_document, _ = document_repository.load_document(course["course_id"])
+    by_id = {block.block_id: block for block in applied_document.blocks}
+
+    assert by_id[folded.block_id].status == "retired"
+    active_section_ids = [
+        block.block_id
+        for block in sorted(
+            (
+                block
+                for block in applied_document.blocks
+                if block.section_id == source.section_id
+                and block.status != "retired"
+            ),
+            key=lambda block: block.position,
+        )
+    ]
+    assert active_section_ids.index(moved.block_id) == active_section_ids.index(source.block_id) + 1
+    applied_plan = applied.change_sets[0]
+    assert applied_plan.application_receipt["folded_block_ids"] == [folded.block_id]
+    assert applied_plan.application_receipt["reordered_block_ids"] == [moved.block_id]
+
+    undo_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id=plan.change_set_id,
+        repository=repository,
+        document_repository=document_repository,
+    )
+    restored_document, _ = document_repository.load_document(course["course_id"])
+    restored_by_id = {block.block_id: block for block in restored_document.blocks}
+    assert restored_by_id[folded.block_id].status == "final"
+    restored_section_ids = [
+        block.block_id
+        for block in sorted(
+            (
+                block
+                for block in restored_document.blocks
+                if block.section_id == source.section_id
+                and block.status != "retired"
+            ),
+            key=lambda block: block.position,
+        )
+    ]
+    assert restored_section_ids == [
+        source.block_id,
+        folded.block_id,
+        moved.block_id,
+    ]
 
 
 def test_demo_mode_relaxes_strong_contract(monkeypatch):

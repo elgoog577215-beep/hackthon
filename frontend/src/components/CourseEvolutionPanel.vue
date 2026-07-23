@@ -6,6 +6,68 @@
       <button type="button" :title="t('courseEvolution.refresh', '重新分析学习证据')" :aria-label="t('courseEvolution.refresh', '重新分析学习证据')" :disabled="store.loading" @click="store.evaluate(courseId)"><RefreshCw :size="14" :class="{ spinning: store.loading }" /></button>
     </header>
 
+    <div class="growth-insight-switcher">
+      <button type="button" :class="{ active: mapOpen }" @click="mapOpen = !mapOpen; evidenceOpen = false">
+        <MapPinned :size="12" />
+        <span>{{ t('courseEvolution.personalMap.open', '个人学习地图') }}</span>
+        <b>{{ learningMapSummary.changed }}</b>
+      </button>
+      <button type="button" :class="{ active: evidenceOpen }" @click="evidenceOpen = !evidenceOpen; mapOpen = false">
+        <History :size="12" />
+        <span>{{ t('courseEvolution.evidenceTimeline.open', '学习证据轨迹') }}</span>
+        <b>{{ evidenceTimeline.length }}</b>
+      </button>
+    </div>
+
+    <section v-if="mapOpen" class="personal-learning-map" aria-live="polite">
+      <header>
+        <span><MapPinned :size="14" /></span>
+        <div>
+          <small>{{ t('courseEvolution.personalMap.eyebrow', '每个学生留下不同的课程版本') }}</small>
+          <strong>{{ t('courseEvolution.personalMap.title', '我的学习地图与成长教材') }}</strong>
+        </div>
+      </header>
+      <dl class="personal-map-stats">
+        <div><dt>{{ t('courseEvolution.personalMap.retained', '按原路径') }}</dt><dd>{{ learningMapSummary.retained }}</dd></div>
+        <div><dt>{{ t('courseEvolution.personalMap.supplemented', '已补充') }}</dt><dd>{{ learningMapSummary.supplemented }}</dd></div>
+        <div><dt>{{ t('courseEvolution.personalMap.upgraded', '已升级') }}</dt><dd>{{ learningMapSummary.upgraded }}</dd></div>
+        <div><dt>{{ t('courseEvolution.personalMap.folded', '已折叠') }}</dt><dd>{{ learningMapSummary.folded }}</dd></div>
+      </dl>
+      <ol class="personal-map-path">
+        <li v-for="item in learningMapItems" :key="item.sectionId" :data-state="item.state">
+          <span>{{ item.order }}</span>
+          <div>
+            <strong>{{ item.title }}</strong>
+            <small>{{ personalMapStateLabel(item.state) }} · {{ item.reason }}</small>
+          </div>
+          <b>{{ item.evidenceCount }}</b>
+        </li>
+      </ol>
+      <p><ShieldCheck :size="12" />{{ t('courseEvolution.personalMap.guard', '地图只属于当前学生；原始提问、笔记、错题和作答仍保留在证据轨迹中。') }}</p>
+    </section>
+
+    <section v-if="evidenceOpen" class="evidence-timeline">
+      <header>
+        <span><History :size="14" /></span>
+        <div>
+          <small>{{ t('courseEvolution.evidenceTimeline.eyebrow', '先保留事实，再形成判断') }}</small>
+          <strong>{{ t('courseEvolution.evidenceTimeline.title', '可追溯的学习证据轨迹') }}</strong>
+        </div>
+      </header>
+      <ol v-if="evidenceTimeline.length">
+        <li v-for="evidence in evidenceTimeline" :key="evidence.evidence_id" :data-counter="Boolean(evidence.is_counterevidence)">
+          <span><component :is="evidenceIcon(evidence.source_type)" :size="12" /></span>
+          <div>
+            <b>{{ evidenceKindLabel(evidence) }}</b>
+            <p>{{ evidence.summary }}</p>
+            <small>{{ evidenceLocationLabel(evidence) }} · {{ evidenceStrengthLabel(evidence) }}</small>
+          </div>
+          <button type="button" :title="t('courseEvolution.locateEvidence', '回到证据位置')" @click="locateEvidence(evidence)"><LocateFixed :size="12" /></button>
+        </li>
+      </ol>
+      <p v-else class="evidence-empty">{{ t('courseEvolution.evidenceTimeline.empty', '继续提问、记笔记或完成练习后，证据会出现在这里。') }}</p>
+    </section>
+
     <div v-if="sectionId" class="section-growth-request">
       <ol class="growth-steps" :aria-label="t('courseEvolution.sectionGrowth.stepsLabel', '课程生长六步')">
         <li v-for="step in growthSteps" :key="step.index" :class="{ active: step.index === currentGrowthStep, done: step.index < currentGrowthStep }">
@@ -327,7 +389,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { ArrowRight, BadgeCheck, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, Layers3, LoaderCircle, LocateFixed, Network, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
+import { ArrowRight, BadgeCheck, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, History, Layers3, LoaderCircle, LocateFixed, MapPinned, Network, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
 import CourseEvolutionReviewOverlay from './CourseEvolutionReviewOverlay.vue'
 import {
   useCourseEvolutionStore,
@@ -348,6 +410,8 @@ const store = useCourseEvolutionStore()
 const courseStore = useCourseStore()
 const progressStore = useLearningProgressStore()
 const expandedId = ref('')
+const mapOpen = ref(false)
+const evidenceOpen = ref(false)
 const sectionInstruction = ref('')
 const requestScope = ref<'current_section' | 'whole_course'>('current_section')
 const reviewPlanId = ref('')
@@ -398,6 +462,64 @@ const currentGrowthStep = computed(() => {
   if (current.generation_status === 'ready') return 5
   return 3
 })
+type PersonalMapState = 'retained' | 'supplemented' | 'upgraded' | 'folded' | 'reorganized'
+const evidenceTimeline = computed(() => (
+  [...store.evidenceItems]
+    .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')))
+    .slice(0, 12)
+))
+const learningMapItems = computed(() => (
+  courseStore.nodes
+    .filter(node => Boolean(node.course_blocks?.length))
+    .map((node, index) => {
+      const sectionId = String(node.node_id || '')
+      const sectionPlans = store.plans.filter(plan => (
+        plan.target_section_id === sectionId
+        || (plan.impact_summary?.affected_section_ids || []).map(String).includes(sectionId)
+        || plan.operations.some(operation => operation.target_section_id === sectionId)
+      ))
+      const activePlans = sectionPlans.filter(plan => ['pending', 'applied'].includes(plan.status))
+      const operations = activePlans.flatMap(plan => plan.operations.filter(operation => (
+        operation.target_section_id === sectionId
+      )))
+      let state: PersonalMapState = 'retained'
+      if (operations.some(operation => operation.operation_type === 'FOLD_COURSE_BLOCK')) state = 'folded'
+      else if (operations.some(operation => operation.operation_type === 'REORDER_COURSE_BLOCK')) state = 'reorganized'
+      else if (activePlans.some(plan => plan.growth_direction === 'challenge')) state = 'upgraded'
+      else if (operations.length) state = 'supplemented'
+      const sectionEvidence = store.evidenceItems.filter(evidence => evidence.anchor?.section_id === sectionId)
+      const latestPlan = activePlans.at(-1)
+      return {
+        sectionId,
+        order: String(index + 1).padStart(2, '0'),
+        title: String(node.node_name || sectionId),
+        state,
+        evidenceCount: sectionEvidence.length,
+        reason: String(
+          latestPlan?.impact_summary?.diagnosis
+          || latestPlan?.expected_effect
+          || (
+            progressStore.nodeProgress(sectionId)?.mastery_status === 'mastered'
+              ? t('courseEvolution.personalMap.masteredReason', '正式学习证据已掌握，复习时可快速通过')
+              : t('courseEvolution.personalMap.retainedReason', '当前证据支持保留原有学习路径')
+          ),
+        ),
+      }
+    })
+))
+const learningMapSummary = computed(() => {
+  const counts = {
+    retained: 0,
+    supplemented: 0,
+    upgraded: 0,
+    folded: 0,
+    reorganized: 0,
+    changed: 0,
+  }
+  for (const item of learningMapItems.value) counts[item.state] += 1
+  counts.changed = learningMapItems.value.length - counts.retained
+  return counts
+})
 
 function evidenceFor(plan: CourseEvolutionPlan) { return store.evidenceItems.filter(item => plan.evidence_ids.includes(item.evidence_id)) }
 function hypothesisFor(plan: CourseEvolutionPlan) { return store.hypotheses.find(item => item.hypothesis_id === plan.hypothesis_id) }
@@ -424,9 +546,40 @@ function sourceMessageFor(plan: CourseEvolutionPlan) {
 function validationFor(plan: CourseEvolutionPlan) { return String(plan.impact_summary?.validation_plan || hypothesisFor(plan)?.validation_plan || t('courseEvolution.validationFallback', '用后续同能力正式题检验调整是否有效')) }
 function evidenceLabel(source: EvolutionEvidence['source_type']) { return ({ learning_event: t('courseEvolution.sources.dialogue', '对话与反馈'), learning_record: t('courseEvolution.sources.record', '学习记录'), practice_attempt: t('courseEvolution.sources.practice', '正式练习') })[source] }
 function evidenceIcon(source: EvolutionEvidence['source_type']) { return ({ learning_event: FileQuestion, learning_record: NotebookTabs, practice_attempt: BookOpenText })[source] }
-function operationLabel(type: string, role = '') { return ({ INSERT_COURSE_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), INSERT_PERSONAL_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), ADD_TRANSITION_SUPPORT: t('courseEvolution.operations.transition', '后续承接'), ADD_CHECKPOINT: t('courseEvolution.operations.checkpoint', '理解检查'), ADD_TARGETED_PRACTICE: t('courseEvolution.operations.targetedPractice', '针对性练习'), ADD_ANIMATION: t('courseEvolution.operations.animation', '分步演示'), REPLACE_COURSE_BLOCK: roleLabel(role), INSERT_COURSE_BLOCK: roleLabel(role) } as Record<string, string>)[type] || type }
+function evidenceKindLabel(evidence: EvolutionEvidence) {
+  return ({
+    learner_question: t('courseEvolution.evidenceTimeline.question', 'AI 问答'),
+    explicit_comprehension_gap: t('courseEvolution.evidenceTimeline.selfReport', '思维自述'),
+    adaptive_feedback: t('courseEvolution.evidenceTimeline.feedback', '学习反馈'),
+    record_note: t('courseEvolution.evidenceTimeline.note', '个性化笔记'),
+    record_issue: t('courseEvolution.evidenceTimeline.wrong', '错题与疑点'),
+    record_review_task: t('courseEvolution.evidenceTimeline.reviewTask', '复习任务'),
+    formal_success: t('courseEvolution.evidenceTimeline.practiceSuccess', '正式练习通过'),
+    formal_failure: t('courseEvolution.evidenceTimeline.practiceFailure', '正式练习未通过'),
+  } as Record<string, string>)[evidence.evidence_kind] || evidenceLabel(evidence.source_type)
+}
+function evidenceLocationLabel(evidence: EvolutionEvidence) {
+  const node = courseStore.nodes.find(item => item.node_id === evidence.anchor?.section_id)
+  return String(node?.node_name || t('courseEvolution.evidenceTimeline.courseLevel', '课程级证据'))
+}
+function evidenceStrengthLabel(evidence: EvolutionEvidence) {
+  if (evidence.is_counterevidence) return t('courseEvolution.evidenceTimeline.counter', '反证/已会信号')
+  if (evidence.strength >= 0.82) return t('courseEvolution.evidenceTimeline.strong', '强证据')
+  if (evidence.strength >= 0.55) return t('courseEvolution.evidenceTimeline.medium', '中等证据')
+  return t('courseEvolution.evidenceTimeline.weak', '观察信号')
+}
+function personalMapStateLabel(state: PersonalMapState) {
+  return ({
+    retained: t('courseEvolution.personalMap.retained', '按原路径'),
+    supplemented: t('courseEvolution.personalMap.supplemented', '已补充'),
+    upgraded: t('courseEvolution.personalMap.upgraded', '已升级'),
+    folded: t('courseEvolution.personalMap.folded', '已折叠'),
+    reorganized: t('courseEvolution.personalMap.reorganized', '已重组'),
+  } as Record<PersonalMapState, string>)[state]
+}
+function operationLabel(type: string, role = '') { return ({ INSERT_COURSE_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), INSERT_PERSONAL_SUPPORT: t('courseEvolution.operations.explanation', '补充解释'), ADD_TRANSITION_SUPPORT: t('courseEvolution.operations.transition', '后续承接'), ADD_CHECKPOINT: t('courseEvolution.operations.checkpoint', '理解检查'), ADD_TARGETED_PRACTICE: t('courseEvolution.operations.targetedPractice', '针对性练习'), ADD_ANIMATION: t('courseEvolution.operations.animation', '分步演示'), REPLACE_COURSE_BLOCK: roleLabel(role), INSERT_COURSE_BLOCK: roleLabel(role), FOLD_COURSE_BLOCK: t('courseEvolution.operations.fold', '折叠已会内容'), REORDER_COURSE_BLOCK: t('courseEvolution.operations.reorder', '重组学习顺序') } as Record<string, string>)[type] || type }
 function roleLabel(role: string) { return ({ reasoning: t('courseEvolution.sectionGrowth.roles.reasoning', '理论推导'), application: t('courseEvolution.sectionGrowth.roles.application', '实战应用'), example: t('courseEvolution.sectionGrowth.roles.example', '例子讲解'), checkpoint: t('courseEvolution.sectionGrowth.roles.checkpoint', '理解检查'), concept: t('courseEvolution.sectionGrowth.roles.concept', '核心概念') } as Record<string, string>)[role] || role }
-function operationActionLabel(operation: any) { return operation.payload?.action === 'INSERT' ? t('courseEvolution.sectionGrowth.insert', '新增') : operation.payload?.action === 'REPLACE' ? t('courseEvolution.sectionGrowth.replace', '升级') : t('courseEvolution.sectionGrowth.adjust', '调整') }
+function operationActionLabel(operation: any) { return operation.payload?.action === 'INSERT' ? t('courseEvolution.sectionGrowth.insert', '新增') : operation.payload?.action === 'REPLACE' ? t('courseEvolution.sectionGrowth.replace', '升级') : operation.payload?.action === 'FOLD' ? t('courseEvolution.sectionGrowth.fold', '折叠') : operation.payload?.action === 'REORDER' ? t('courseEvolution.sectionGrowth.reorder', '重组') : t('courseEvolution.sectionGrowth.adjust', '调整') }
 function contentOperations(plan: CourseEvolutionPlan) { return plan.operations.filter(item => item.operation_type !== 'ADJUST_COURSE_DIFFICULTY') }
 function requiresWorkbench(plan: CourseEvolutionPlan) {
   // A complete strong self-report is already one learner-approved growth
@@ -739,14 +892,23 @@ function findGeneratedWholeCoursePlan(context: ReviewScanContext) {
     if (target) return target
   }
   const candidates = [...store.plans].reverse().filter(plan => (
-    isManualPlan(plan)
-    && plan.scope_selection === 'whole_course'
+    !context.baselinePlanIds.has(plan.change_set_id)
     && plan.target_section_id === props.sectionId
   ))
-  return candidates.find(plan => (
+  const wholeCourseCandidates = candidates.filter(plan => (
+    isManualPlan(plan) && plan.scope_selection === 'whole_course'
+  ))
+  return wholeCourseCandidates.find(plan => (
     !context.baselinePlanIds.has(plan.change_set_id)
     && plan.request_text === context.instruction
-  )) || candidates.find(plan => !context.baselinePlanIds.has(plan.change_set_id)) || null
+  )) || wholeCourseCandidates[0]
+    // A semantically complete learner statement can be promoted by the
+    // backend into an evidence-driven current-and-next plan. It still belongs
+    // to the whole-course review flow the learner explicitly opened, so bind
+    // that real plan instead of leaving the preview in an endless scan state.
+    || candidates.find(plan => plan.request_text === context.instruction)
+    || candidates[0]
+    || null
 }
 
 function syncActiveReview(context: ReviewScanContext) {
@@ -985,6 +1147,43 @@ onUnmounted(clearProgressPoll)
 .evolution-panel header small { color:#6b7280; font-size:8px; }
 .evolution-panel header strong { font-size:11px; }
 .evolution-panel header button { width:28px; height:28px; display:grid; place-items:center; border:0; border-radius:6px; color:#6d28d9; background:transparent; cursor:pointer; }
+.growth-insight-switcher { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin:0 0 8px; }
+.growth-insight-switcher button { min-width:0; display:grid; grid-template-columns:14px minmax(0,1fr) auto; align-items:center; gap:5px; min-height:32px; padding:5px 7px; border:1px solid #e2e8f0; border-radius:7px; color:#64748b; background:rgba(255,255,255,.82); font-size:8px; text-align:left; cursor:pointer; }
+.growth-insight-switcher button.active { color:#6d28d9; border-color:#c4b5fd; background:#f5f3ff; }
+.growth-insight-switcher button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.growth-insight-switcher button b { min-width:18px; padding:2px 5px; border-radius:999px; color:#6d28d9; background:#ede9fe; font-size:7px; text-align:center; }
+.personal-learning-map,.evidence-timeline { display:grid; gap:8px; margin:0 0 9px; padding:9px; border:1px solid #ddd6fe; border-radius:9px; background:linear-gradient(135deg,#fff,#faf5ff); }
+.personal-learning-map > header,.evidence-timeline > header { display:grid; grid-template-columns:24px minmax(0,1fr); align-items:center; gap:6px; }
+.personal-learning-map > header > span,.evidence-timeline > header > span { width:24px; height:24px; display:grid; place-items:center; border-radius:7px; color:#fff; background:#7c3aed; }
+.personal-learning-map > header div,.evidence-timeline > header div { display:flex; flex-direction:column; }
+.personal-learning-map > header small,.evidence-timeline > header small { color:#7c3aed; font-size:7px; }
+.personal-learning-map > header strong,.evidence-timeline > header strong { color:#2e1065; font-size:10px; }
+.personal-map-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; margin:0; }
+.personal-map-stats div { display:grid; justify-items:center; gap:2px; padding:6px 3px; border-radius:6px; background:#f8fafc; }
+.personal-map-stats dt { color:#64748b; font-size:7px; }
+.personal-map-stats dd { margin:0; color:#4c1d95; font-size:12px; font-weight:850; }
+.personal-map-path,.evidence-timeline ol { display:grid; gap:4px; margin:0; padding:0; list-style:none; }
+.personal-map-path li { display:grid; grid-template-columns:25px minmax(0,1fr) 20px; align-items:center; gap:6px; padding:6px 7px; border-left:3px solid #cbd5e1; border-radius:6px; background:#f8fafc; }
+.personal-map-path li[data-state="supplemented"] { border-left-color:#8b5cf6; background:#faf5ff; }
+.personal-map-path li[data-state="upgraded"] { border-left-color:#2563eb; background:#eff6ff; }
+.personal-map-path li[data-state="folded"] { border-left-color:#16a34a; background:#f0fdf4; }
+.personal-map-path li[data-state="reorganized"] { border-left-color:#d97706; background:#fffbeb; }
+.personal-map-path li > span { color:#94a3b8; font-size:8px; font-weight:850; }
+.personal-map-path li > div { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.personal-map-path strong { overflow:hidden; color:#1e293b; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.personal-map-path small { display:block; overflow:hidden; color:#64748b; font-size:7px; text-overflow:ellipsis; white-space:nowrap; }
+.personal-map-path li > b { width:20px; height:20px; display:grid; place-items:center; border-radius:50%; color:#6d28d9; background:#ede9fe; font-size:7px; }
+.personal-learning-map > p { display:flex; align-items:flex-start; gap:5px; margin:0; color:#047857; font-size:7px; line-height:1.45; }
+.evidence-timeline ol { max-height:250px; overflow:auto; padding-right:2px; }
+.evidence-timeline li { display:grid; grid-template-columns:24px minmax(0,1fr) 24px; gap:6px; padding:7px; border:1px solid #e2e8f0; border-radius:7px; background:#fff; }
+.evidence-timeline li[data-counter="true"] { border-color:#bbf7d0; background:#f0fdf4; }
+.evidence-timeline li > span { width:24px; height:24px; display:grid; place-items:center; border-radius:7px; color:#6d28d9; background:#f5f3ff; }
+.evidence-timeline li > div { min-width:0; }
+.evidence-timeline li b { color:#334155; font-size:8px; }
+.evidence-timeline li p { margin:2px 0; color:#475569; font-size:8px; line-height:1.45; overflow-wrap:anywhere; }
+.evidence-timeline li small { color:#94a3b8; font-size:7px; }
+.evidence-timeline li > button { width:24px; height:24px; display:grid; place-items:center; border:0; border-radius:6px; color:#64748b; background:#f8fafc; cursor:pointer; }
+.evidence-empty { margin:0; padding:10px; color:#64748b; background:#f8fafc; font-size:8px; line-height:1.5; text-align:center; }
 .section-growth-request { display:grid; gap:8px; margin:0 0 10px; padding:9px; border:1px solid #e2e8f0; border-radius:8px; background:rgba(255,255,255,.86); }
 .growth-steps { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:3px; margin:0; padding:0; list-style:none; }
 .growth-steps li { min-width:0; display:grid; justify-items:center; gap:2px; color:#94a3b8; font-size:7px; }

@@ -1330,6 +1330,28 @@ async def generate_section_evolution_plan(
                 )
             generated_contents.append(_normalize(str(proposed.payload.get("markdown") or "")))
 
+        path_operations = _challenge_path_operations(
+            plan,
+            document=document,
+            evidence_count=len(plan.evidence_ids),
+        )
+        if path_operations:
+            plan.operations.extend(path_operations)
+            plan.impact_summary["personal_path_actions"] = [
+                {
+                    "operation_id": operation.operation_id,
+                    "operation_type": operation.operation_type,
+                    "block_id": operation.target_block_id,
+                    "section_id": operation.target_section_id,
+                    "reason": operation.reason,
+                }
+                for operation in path_operations
+            ]
+            plan.impact_summary["direct_block_ids"] = list(dict.fromkeys([
+                *plan.impact_summary.get("direct_block_ids", []),
+                *(operation.target_block_id for operation in path_operations),
+            ]))
+
         plan_quality = _plan_quality(
             plan,
             section_id=section_id,
@@ -1362,6 +1384,139 @@ async def generate_section_evolution_plan(
 
     plan.updated_at = _now()
     return repository.save(state)
+
+
+def _challenge_path_operations(
+    plan: CourseEvolutionPlan,
+    *,
+    document: CourseDocument,
+    evidence_count: int,
+) -> list[CourseEvolutionOperation]:
+    """Turn stable success into reviewable subtraction and path reorganization.
+
+    These operations are proposed only for evidence-triggered challenge growth.
+    They never run merely because a learner typed "make it harder", and still
+    require the same explicit plan confirmation as every other course change.
+    """
+    if (
+        plan.source_kind != "learning_evidence"
+        or plan.growth_direction != "challenge"
+        or evidence_count < 2
+    ):
+        return []
+    section_blocks = sorted(
+        (
+            block
+            for block in document.blocks
+            if block.section_id == plan.target_section_id
+            and block.status != "retired"
+        ),
+        key=lambda block: (block.position, block.block_id),
+    )
+    if len(section_blocks) < 2:
+        return []
+    replaced_ids = {
+        operation.target_block_id
+        for operation in plan.operations
+        if operation.operation_type == "REPLACE_COURSE_BLOCK"
+    }
+    operations: list[CourseEvolutionOperation] = []
+    fold_target = next(
+        (
+            block
+            for block in section_blocks
+            if block.role in {"orientation", "example"}
+            and block.block_id not in replaced_ids
+        ),
+        None,
+    )
+    if fold_target is not None:
+        operations.append(CourseEvolutionOperation(
+            operation_id=stable_hash({
+                "change_set_id": plan.change_set_id,
+                "target_block_id": fold_target.block_id,
+                "kind": "fold_mastered_scaffold",
+            }, prefix="ceo_"),
+            operation_type="FOLD_COURSE_BLOCK",
+            target_block_id=fold_target.block_id,
+            target_section_id=fold_target.section_id,
+            reason="多次独立正式通过表明这段基础支架已会，可从默认路径折叠；历史内容与证据继续保留。",
+            payload={
+                "action": "FOLD",
+                "candidate_status": "ready",
+                "desired_role": fold_target.role,
+                "target_section_title": str(
+                    next(
+                        (
+                            section.title
+                            for section in document.sections
+                            if section.section_id == fold_target.section_id
+                        ),
+                        "",
+                    )
+                ),
+                "target_block_title": str(fold_target.payload.get("title") or ""),
+                "before_preview": summarize_text(
+                    str(
+                        fold_target.payload.get("markdown")
+                        or fold_target.payload.get("text")
+                        or ""
+                    ),
+                    limit=600,
+                ),
+                "after_preview": "默认学习路径中折叠；需要复习时仍可从课程历史与学习地图找回。",
+            },
+        ))
+
+    application = next(
+        (
+            block
+            for block in section_blocks
+            if block.role == "application"
+            and block.block_id not in replaced_ids
+        ),
+        None,
+    )
+    anchor = next(
+        (
+            block
+            for block in reversed(section_blocks)
+            if block.role in {"reasoning", "concept"}
+            and block.block_id != getattr(application, "block_id", "")
+        ),
+        None,
+    )
+    if application is not None and anchor is not None:
+        current_index = section_blocks.index(application)
+        anchor_index = section_blocks.index(anchor)
+        current_previous = section_blocks[current_index - 1] if current_index > 0 else None
+        if anchor_index < current_index and getattr(current_previous, "block_id", "") != anchor.block_id:
+            operations.append(CourseEvolutionOperation(
+                operation_id=stable_hash({
+                    "change_set_id": plan.change_set_id,
+                    "target_block_id": application.block_id,
+                    "after_block_id": anchor.block_id,
+                    "kind": "advance_transfer_challenge",
+                }, prefix="ceo_"),
+                operation_type="REORDER_COURSE_BLOCK",
+                target_block_id=application.block_id,
+                target_section_id=application.section_id,
+                reason="基础任务已稳定通过，把迁移应用提前到核心解释之后，让个人路径更快进入高阶任务。",
+                payload={
+                    "action": "REORDER",
+                    "candidate_status": "ready",
+                    "desired_role": application.role,
+                    "after_block_id": anchor.block_id,
+                    "target_block_title": str(application.payload.get("title") or ""),
+                    "before_preview": (
+                        f"位于“{str(current_previous.payload.get('title') or '')}”之后"
+                        if current_previous is not None
+                        else "位于本节开头"
+                    ),
+                    "after_preview": f"移动到“{str(anchor.payload.get('title') or '')}”之后",
+                },
+            ))
+    return operations
 
 
 def ensure_challenge_suggestions(

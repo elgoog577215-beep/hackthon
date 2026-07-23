@@ -419,7 +419,12 @@ async def preview_teaching_representation_edit(
         after=body.after,
         semantic_intent=body.semantic_intent,
     )
-    impact = representation_edit_impact(registry, spec, unit_id=body.unit_id)
+    impact = representation_edit_impact(
+        registry,
+        spec,
+        unit_id=body.unit_id,
+        field=body.field,
+    )
     return {"status": "preview", **classification, "impact": impact}
 
 
@@ -447,7 +452,12 @@ async def apply_teaching_representation_edit(
         after=body.after,
         semantic_intent=body.semantic_intent,
     )
-    impact = representation_edit_impact(registry, spec, unit_id=body.unit_id)
+    impact = representation_edit_impact(
+        registry,
+        spec,
+        unit_id=body.unit_id,
+        field=body.field,
+    )
     if body.decision == "representation_only":
         try:
             updated = await run_in_threadpool(
@@ -494,7 +504,7 @@ async def apply_teaching_representation_edit(
         None,
     )
     is_objective_edit = (
-        body.field == "key_message"
+        body.field in {"key_message", "learning_objective"}
         and (
             unit.get("slide_purpose") == "learning_objective"
             or any(key.startswith("objective:") for key in source_keys)
@@ -547,7 +557,7 @@ async def apply_teaching_representation_edit(
                 "learning_objective": after_text,
                 "objective_id": section.objective_id,
             },
-            "reason": "PPT 学习目标承载正式教学意图，确认后回写课程目标真源并精准联动相关表达。",
+            "reason": "当前教学材料承载正式教学意图，确认后回写课程目标真源并精准联动相关表达。",
         }]
     else:
         block_ids = impact.get("block_ids") or []

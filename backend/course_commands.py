@@ -89,6 +89,8 @@ class CourseCommandService:
         insertions: list[dict[str, Any]],
         replacements: list[dict[str, Any]] | None = None,
         retire_block_ids: list[str] | None = None,
+        restore_block_ids: list[str] | None = None,
+        reorderings: list[dict[str, str]] | None = None,
         reason: str = "",
         actor: str = "system",
     ) -> dict[str, Any]:
@@ -161,16 +163,52 @@ class CourseCommandService:
                 if target.status != "retired":
                     target.status = "retired"
 
+            restored_ids = {
+                str(restored_block_id)
+                for restored_block_id in restore_block_ids or []
+                if str(restored_block_id)
+            }
+            for restored_block_id in restored_ids:
+                target = blocks_by_id.get(restored_block_id)
+                if target is None:
+                    raise CourseDocumentConflict("Course block to restore not found")
+                if target.status == "retired":
+                    target.status = "final"
+
             additions_by_anchor: dict[str, list[CourseBlock]] = {}
             for next_block, anchor_id in normalized_insertions:
                 additions_by_anchor.setdefault(anchor_id, []).append(next_block)
 
             reordered: list[CourseBlock] = []
             for section in sorted(document.sections, key=lambda item: (item.position, item.section_id)):
-                section_blocks = sorted(
+                section_blocks = list(sorted(
                     (item for item in document.blocks if item.section_id == section.section_id),
                     key=lambda item: (item.position, item.block_id),
-                )
+                ))
+                for move in reorderings or []:
+                    block_id = str(move.get("block_id") or "")
+                    target = next(
+                        (item for item in section_blocks if item.block_id == block_id),
+                        None,
+                    )
+                    if target is None:
+                        continue
+                    after_block_id = str(move.get("after_block_id") or "")
+                    section_blocks.remove(target)
+                    if not after_block_id:
+                        section_blocks.insert(0, target)
+                        continue
+                    anchor_index = next(
+                        (
+                            index
+                            for index, item in enumerate(section_blocks)
+                            if item.block_id == after_block_id
+                        ),
+                        -1,
+                    )
+                    if anchor_index < 0:
+                        raise CourseDocumentConflict("Course reorder anchor not found")
+                    section_blocks.insert(anchor_index + 1, target)
                 next_position = 0
                 for current_block in section_blocks:
                     current_block.position = next_position
@@ -184,7 +222,18 @@ class CourseCommandService:
             if len(reordered) != len(document.blocks) + len(normalized_insertions):
                 raise CourseDocumentConflict("Grouped course change contains an unresolved insertion")
             document.blocks = reordered
-            operation["affected_block_ids"] = sorted(new_ids | retired_ids | replaced_ids)
+            reordered_ids = {
+                str(item.get("block_id") or "")
+                for item in reorderings or []
+                if str(item.get("block_id") or "")
+            }
+            operation["affected_block_ids"] = sorted(
+                new_ids
+                | retired_ids
+                | restored_ids
+                | replaced_ids
+                | reordered_ids
+            )
 
         return await self.repository.apply_command(
             course_id,

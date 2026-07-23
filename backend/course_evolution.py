@@ -96,6 +96,8 @@ class CourseEvolutionOperation(BaseModel):
         "ADD_ANIMATION",
         "REPLACE_COURSE_BLOCK",
         "INSERT_COURSE_BLOCK",
+        "FOLD_COURSE_BLOCK",
+        "REORDER_COURSE_BLOCK",
         "ADJUST_COURSE_DIFFICULTY",
     ]
     target_block_id: str
@@ -423,14 +425,14 @@ def accept_change_set(
             raise ValueError("Course changed after this candidate was generated")
 
     replaced: CourseEvolutionPlan | None = None
-    retire_block_ids: list[str] = []
+    replaced_retire_block_ids: list[str] = []
     if change_set.replaces_change_set_id:
         replaced = _change_set(state, change_set.replaces_change_set_id)
         if replaced.status != "applied":
             raise ValueError("Replaced course evolution plan is no longer active")
-        retire_block_ids = list(replaced.applied_block_ids)
+        replaced_retire_block_ids = list(replaced.applied_block_ids)
 
-    replacements, insertions = _course_block_mutations(
+    replacements, insertions, folded_retire_block_ids, reorderings = _course_block_mutations(
         change_set,
         document,
         selected_scope=selected_scope,
@@ -444,7 +446,11 @@ def accept_change_set(
             expected_document_revision=document.document_revision,
             insertions=insertions,
             replacements=replacements,
-            retire_block_ids=retire_block_ids,
+            retire_block_ids=[
+                *replaced_retire_block_ids,
+                *folded_retire_block_ids,
+            ],
+            reorderings=reorderings,
             reason=f"学习证据驱动课程生长：{change_set.hypothesis_id}",
             actor=f"learner:{user_id}",
         ))
@@ -465,11 +471,30 @@ def accept_change_set(
     change_set.updated_at = change_set.accepted_at
     inserted_block_ids = [item["block"].block_id for item in insertions]
     replaced_block_ids = [str(item["block_id"]) for item in replacements]
-    change_set.applied_block_ids = [*replaced_block_ids, *inserted_block_ids]
+    folded_block_ids = [
+        operation.target_block_id
+        for operation in change_set.operations
+        if operation.operation_type == "FOLD_COURSE_BLOCK"
+        and operation.operation_id in accepted_operation_id_set
+    ]
+    reordered_block_ids = [
+        operation.target_block_id
+        for operation in change_set.operations
+        if operation.operation_type == "REORDER_COURSE_BLOCK"
+        and operation.operation_id in accepted_operation_id_set
+    ]
+    change_set.applied_block_ids = list(dict.fromkeys([
+        *replaced_block_ids,
+        *inserted_block_ids,
+        *folded_block_ids,
+        *reordered_block_ids,
+    ]))
     change_set.application_receipt = {
         **deepcopy(receipt),
         "inserted_block_ids": inserted_block_ids,
         "replaced_block_ids": replaced_block_ids,
+        "folded_block_ids": folded_block_ids,
+        "reordered_block_ids": reordered_block_ids,
         "accepted_operation_ids": accepted_operation_ids,
         "excluded_operation_ids": excluded_operation_ids,
         "replacement_journal": [
@@ -479,6 +504,30 @@ def accept_change_set(
             }
             for operation in change_set.operations
             if operation.operation_type == "REPLACE_COURSE_BLOCK"
+            and operation.operation_id in accepted_operation_id_set
+        ],
+        "path_operation_journal": [
+            {
+                "operation_id": operation.operation_id,
+                "operation_type": operation.operation_type,
+                "block_id": operation.target_block_id,
+                "before_status": str(
+                    next(
+                        block.status
+                        for block in document.blocks
+                        if block.block_id == operation.target_block_id
+                    )
+                ),
+                "before_after_block_id": _previous_active_block_id(
+                    document,
+                    operation.target_block_id,
+                ),
+            }
+            for operation in change_set.operations
+            if operation.operation_type in {
+                "FOLD_COURSE_BLOCK",
+                "REORDER_COURSE_BLOCK",
+            }
             and operation.operation_id in accepted_operation_id_set
         ],
     }
@@ -523,7 +572,7 @@ def accept_change_set(
         replaced.undo_receipt = {
             "operation": "replaced_by_course_evolution_plan",
             "replacement_change_set_id": change_set.change_set_id,
-            "retired_block_ids": retire_block_ids,
+            "retired_block_ids": replaced_retire_block_ids,
             "document_revision": receipt.get("document_revision"),
         }
         replaced.effect_evaluation = {
@@ -698,8 +747,9 @@ def undo_change_set(
                 "visibility_rule": deepcopy(before_block.get("visibility_rule") or {}),
             })
         inserted_block_ids = list(
-            change_set.application_receipt.get("inserted_block_ids")
-            or [
+            change_set.application_receipt["inserted_block_ids"]
+            if "inserted_block_ids" in change_set.application_receipt
+            else [
                 block_id
                 for block_id in change_set.applied_block_ids
                 if block_id not in {
@@ -708,6 +758,23 @@ def undo_change_set(
                 }
             ]
         )
+        path_operation_journal = list(
+            change_set.application_receipt.get("path_operation_journal") or []
+        )
+        restore_block_ids = [
+            str(item.get("block_id") or "")
+            for item in path_operation_journal
+            if item.get("operation_type") == "FOLD_COURSE_BLOCK"
+            and str(item.get("before_status") or "final") != "retired"
+        ]
+        reverse_reorderings = [
+            {
+                "block_id": str(item.get("block_id") or ""),
+                "after_block_id": str(item.get("before_after_block_id") or ""),
+            }
+            for item in reversed(path_operation_journal)
+            if item.get("operation_type") == "REORDER_COURSE_BLOCK"
+        ]
         try:
             receipt = asyncio.run(CourseCommandService(document_repository).apply_block_operation_group(
                 course_id,
@@ -716,6 +783,8 @@ def undo_change_set(
                 insertions=[],
                 replacements=replacements,
                 retire_block_ids=inserted_block_ids,
+                restore_block_ids=restore_block_ids,
+                reorderings=reverse_reorderings,
                 reason=f"撤销学习证据驱动课程生长：{change_set.hypothesis_id}",
                 actor=f"learner:{user_id}",
             ))
@@ -2724,13 +2793,20 @@ def _course_block_mutations(
     *,
     selected_scope: Literal["current", "current_and_next"],
     selected_operation_ids: set[str] | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[str],
+    list[dict[str, str]],
+]:
     """Compile reviewed section edits and legacy growth blocks into one commit."""
     replacements: list[dict[str, Any]] = []
     insertions: list[dict[str, Any]] = []
     canonical_operations = {
         "REPLACE_COURSE_BLOCK",
         "INSERT_COURSE_BLOCK",
+        "FOLD_COURSE_BLOCK",
+        "REORDER_COURSE_BLOCK",
         "ADJUST_COURSE_DIFFICULTY",
     }
     has_canonical_operations = any(
@@ -2738,17 +2814,24 @@ def _course_block_mutations(
         for operation in change_set.operations
     )
     if not has_canonical_operations:
-        return replacements, _course_block_insertions(
-            change_set,
-            document,
-            selected_scope=selected_scope,
-            selected_operation_ids=selected_operation_ids,
+        return (
+            replacements,
+            _course_block_insertions(
+                change_set,
+                document,
+                selected_scope=selected_scope,
+                selected_operation_ids=selected_operation_ids,
+            ),
+            [],
+            [],
         )
 
     if change_set.course_id != document.course_id:
         raise ValueError("Course evolution plan belongs to another course")
     blocks = {block.block_id: block for block in document.blocks}
     section_ids = {section.section_id for section in document.sections}
+    retire_block_ids: list[str] = []
+    reorderings: list[dict[str, str]] = []
     for operation in change_set.operations:
         if selected_scope == "current" and operation.scope == "next":
             continue
@@ -2758,6 +2841,30 @@ def _course_block_mutations(
             selected_operation_ids is not None
             and operation.operation_id not in selected_operation_ids
         ):
+            continue
+        if operation.operation_type == "FOLD_COURSE_BLOCK":
+            current = blocks.get(operation.target_block_id)
+            if current is None or current.status == "retired":
+                raise ValueError("Course evolution fold target is unavailable")
+            retire_block_ids.append(current.block_id)
+            continue
+        if operation.operation_type == "REORDER_COURSE_BLOCK":
+            current = blocks.get(operation.target_block_id)
+            if current is None or current.status == "retired":
+                raise ValueError("Course evolution reorder target is unavailable")
+            after_block_id = str(operation.payload.get("after_block_id") or "")
+            if after_block_id:
+                anchor = blocks.get(after_block_id)
+                if anchor is None or anchor.status == "retired":
+                    raise ValueError("Course evolution reorder anchor is unavailable")
+                if anchor.section_id != current.section_id:
+                    raise ValueError("Course evolution reorder crossed its section boundary")
+                if anchor.block_id == current.block_id:
+                    raise ValueError("Course evolution reorder cannot anchor to itself")
+            reorderings.append({
+                "block_id": current.block_id,
+                "after_block_id": after_block_id,
+            })
             continue
         proposed_raw = operation.payload.get("proposed_block")
         if not isinstance(proposed_raw, dict):
@@ -2802,9 +2909,35 @@ def _course_block_mutations(
                 "block": proposed,
             })
 
-    if not replacements and not insertions:
+    if not replacements and not insertions and not retire_block_ids and not reorderings:
         raise ValueError("Course evolution plan contains no content mutations")
-    return replacements, insertions
+    return replacements, insertions, retire_block_ids, reorderings
+
+
+def _previous_active_block_id(
+    document: CourseDocument,
+    block_id: str,
+) -> str:
+    target = next(
+        (block for block in document.blocks if block.block_id == block_id),
+        None,
+    )
+    if target is None:
+        return ""
+    ordered = sorted(
+        (
+            block
+            for block in document.blocks
+            if block.section_id == target.section_id
+            and block.status != "retired"
+        ),
+        key=lambda block: (block.position, block.block_id),
+    )
+    index = next(
+        (position for position, block in enumerate(ordered) if block.block_id == block_id),
+        -1,
+    )
+    return ordered[index - 1].block_id if index > 0 else ""
 
 
 def _course_evolution_markdown(operation: CourseEvolutionOperation) -> str:

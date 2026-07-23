@@ -90,9 +90,32 @@ def representation_edit_impact(
     spec: TeachingRepresentationSpec,
     *,
     unit_id: str,
+    field: str | None = None,
 ) -> dict[str, Any]:
     bindings = spec.unit_bindings.get(unit_id) or []
-    source_keys = sorted({key for binding in bindings for key in binding.source_revisions})
+    all_source_keys = {key for binding in bindings for key in binding.source_revisions}
+    preferred_prefixes = {
+        "body": ("block:",),
+        "markdown": ("block:",),
+        "example": ("block:",),
+        "prompt": ("practice:",),
+        "learning_objective": ("objective:",),
+        "key_message": ("objective:",),
+    }.get(str(field or ""))
+    preferred_source_keys = (
+        {
+            key
+            for key in all_source_keys
+            if preferred_prefixes and key.startswith(preferred_prefixes)
+        }
+        if preferred_prefixes
+        else set()
+    )
+    # A paragraph edit follows the paragraph's block revision, while an
+    # objective edit follows the objective revision.  Falling back to all
+    # bindings preserves compatibility for fields without a narrower semantic
+    # owner.
+    source_keys = sorted(preferred_source_keys or all_source_keys)
     block_ids = sorted({binding.block_id for binding in bindings if binding.block_id})
     section_ids = sorted({binding.section_id for binding in bindings if binding.section_id})
     affected: list[dict[str, Any]] = []

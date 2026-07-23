@@ -8,6 +8,8 @@ export interface EvolutionEvidence {
   evidence_kind: string
   summary: string
   strength: number
+  is_counterevidence?: boolean
+  created_at?: string
   anchor: { section_id: string; block_id: string; resolution_status: string }
 }
 

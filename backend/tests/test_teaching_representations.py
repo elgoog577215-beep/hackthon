@@ -677,6 +677,17 @@ def test_semantic_representation_edit_creates_authoring_change_without_writing_c
         item for item in representation_repository.load("course-1").representations
         if item.representation_type == "slide_deck"
     )
+    handout = next(
+        item for item in representation_repository.load("course-1").representations
+        if item.representation_type == "handout"
+    )
+    handout_spec = next(
+        item
+        for item in representation_repository.load("course-1").specs
+        if item.spec_id == handout.spec_id
+    )
+    handout_unit = handout_spec.payload["content"]["units"][0]
+    handout_before = handout_unit["blocks"][0]["markdown"]
 
     monkeypatch.setattr(
         representation_router,
@@ -721,6 +732,28 @@ def test_semantic_representation_edit_creates_authoring_change_without_writing_c
     assert change["change_kind"] == "course_authoring_change"
     assert change["write_target"] == "base_course"
     assert change["source"] == "representation_semantic"
+    assert storage.course == before_course
+
+    local_iteration = client.post(
+        f"/api/courses/course-1/teaching-representations/{handout.representation_id}/edits/apply",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "unit_id": handout_unit["unit_id"],
+            "field": "body",
+            "before": handout_before,
+            "after": f"{handout_before}\n\n补充：用校园步行路线解释向量的方向与长度。",
+            "semantic_intent": True,
+            "decision": "course_semantic",
+        },
+    )
+    assert local_iteration.status_code == 200
+    assert local_iteration.json()["impact"]["affected_unit_count"] < 14
+    assert local_iteration.json()["impact"]["unaffected_unit_count"] > 0
+    local_change = local_iteration.json()["authoring_change"]
+    local_item = local_change["items"][0]
+    assert local_change["scope"] == "block"
+    assert local_item["block_id"] == handout_unit["block_id"]
+    assert "校园步行路线" in local_item["after"]["payload"]["markdown"]
     assert storage.course == before_course
 
 
@@ -909,6 +942,31 @@ def test_objective_edit_updates_course_truth_and_reuses_unaffected_representatio
     repeated_change = repeated_value_on_new_revision.json()["authoring_change"]
     assert repeated_change["proposal_id"] != change["proposal_id"]
     assert repeated_change["status"] == "pending"
+
+    current_registry = representation_repository.load("course-1")
+    outline = next(
+        item
+        for item in current_registry.representations
+        if item.representation_type == "outline"
+    )
+    outline_forward = client.post(
+        f"/api/courses/course-1/teaching-representations/{outline.representation_id}/edits/apply",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "unit_id": "outline:section-a",
+            "field": "learning_objective",
+            "before": "掌握向量加法的计算规则",
+            "after": "能够解释向量加法的几何意义，并迁移到位移合成问题",
+            "semantic_intent": True,
+            "decision": "course_semantic",
+        },
+    )
+    assert outline_forward.status_code == 200
+    outline_change = outline_forward.json()["authoring_change"]
+    outline_item = outline_change["items"][0]
+    assert outline_change["scope"] == "section"
+    assert outline_item["target_kind"] == "course_objective"
+    assert outline_item["block_id"] == "section-a"
 
 
 def test_safe_rebuild_publishes_only_after_quality_passes(tmp_path):
