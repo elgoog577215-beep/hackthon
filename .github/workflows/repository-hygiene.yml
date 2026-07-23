@@ -1,0 +1,19 @@
+name: Repository Hygiene
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tracked-ignored-files:
+    name: Reject tracked ignored files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Verify repository tracking hygiene
+        run: scripts/check-tracked-ignored.sh
