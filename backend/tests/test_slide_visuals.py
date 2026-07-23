@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from PIL import Image
+
+from course_document import document_from_legacy_course
+from slide_asset_repository import SlideAssetRepository
+from slide_deck_v3 import (
+    compile_slide_deck_v3,
+    deterministic_slide_allocation,
+    fragment_course_document,
+)
+from slide_visuals import (
+    SlideVisualPlanV1,
+    deterministic_visual_plan,
+    validate_visual_plan,
+)
+
+
+def visual_course() -> dict:
+    return {
+        "course_id": "visual-course",
+        "course_name": "线性映射：结构与应用",
+        "nodes": [
+            {
+                "node_id": "chapter-1",
+                "parent_node_id": "root",
+                "node_name": "第一章 线性映射",
+                "node_level": 1,
+                "content_blocks": [
+                    {
+                        "block_id": "concept",
+                        "title": "线性映射保持两类运算结构",
+                        "content": (
+                            "线性映射同时保持向量加法与数乘。"
+                            "\n\n- 先验证加法保持性"
+                            "\n- 再验证数乘保持性"
+                            "\n- 最后检查零向量"
+                        ),
+                        "metadata": {"role": "concept"},
+                    },
+                    {
+                        "block_id": "formula",
+                        "title": "定义式",
+                        "content": "$$T(au+bv)=aT(u)+bT(v)$$",
+                        "metadata": {"role": "reasoning", "kind": "formula"},
+                    },
+                    {
+                        "block_id": "example",
+                        "title": "平面旋转是线性映射",
+                        "content": "旋转把每个向量映射到同角度的新方向，并保持向量组合关系。",
+                        "metadata": {"role": "example"},
+                    },
+                    {
+                        "block_id": "check",
+                        "title": "判断练习",
+                        "content": "平移为什么通常不是线性映射？",
+                        "metadata": {"role": "checkpoint"},
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def test_compiler_adds_grounded_visual_director_plan() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="teaching",
+        theme="qizhi-classroom",
+        allocation_plan=allocation,
+    )
+
+    assert content["visual_plan"]["schema_version"] == "slide_visual_plan_v1"
+    assert content["build_signature"]["visual_policy_version"]
+    assert content["visual_quality_report"]["passed"] is True
+    assert content["visual_quality_report"]["effective_visual_coverage_ratio"] >= 0.70
+    assert any(
+        visual["kind"] == "relational_diagram"
+        for slide in content["slides"]
+        for visual in slide["visuals"]
+    )
+    assert all(slide["teaching_job"] for slide in content["slides"])
+    assert all(slide["takeaway"] for slide in content["slides"])
+
+
+def test_visual_plan_rejects_unknown_fragment_bindings() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    plan = deterministic_visual_plan(document, allocation, fragments)
+    raw = plan.model_dump(mode="json")
+    page = next(item for item in raw["pages"] if item["visual_anchor"]["kind"] != "none")
+    page["visual_anchor"]["source_fragment_ids"] = ["unknown-fragment"]
+
+    with pytest.raises(ValueError, match="unknown fragment"):
+        validate_visual_plan(
+            SlideVisualPlanV1.model_validate(raw),
+            allocation,
+            fragments,
+        )
+
+
+def test_visual_plan_takeaway_cannot_add_an_unbound_number() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    plan = deterministic_visual_plan(document, allocation, fragments)
+    raw = plan.model_dump(mode="json")
+    page = next(item for item in raw["pages"] if item["takeaway_source_fragment_ids"])
+    page["takeaway"] = "该方法可以把误差降低 99%"
+
+    with pytest.raises(ValueError, match="ungrounded number"):
+        validate_visual_plan(
+            SlideVisualPlanV1.model_validate(raw),
+            allocation,
+            fragments,
+        )
+
+
+def test_asset_repository_validates_and_promotes_content_addressed_images(
+    tmp_path: Path,
+) -> None:
+    repository = SlideAssetRepository(tmp_path / "assets")
+    source = tmp_path / "source.png"
+    Image.new("RGB", (640, 360), "#2F6FE4").save(source)
+
+    staged = repository.stage_image(
+        source,
+        course_id="visual-course",
+        source_fragment_ids=["fragment-1"],
+        alt_text="蓝色抽象教学背景",
+        purpose="application",
+    )
+    published = repository.promote(staged)
+
+    assert published.asset_id.startswith("sva_")
+    assert published.sha256
+    assert repository.resolve(published.asset_id).read_bytes() == source.read_bytes()
+
+
+def test_asset_repository_rejects_bad_images(tmp_path: Path) -> None:
+    repository = SlideAssetRepository(tmp_path / "assets")
+    bad = tmp_path / "bad.png"
+    bad.write_bytes(b"not-an-image")
+
+    with pytest.raises(ValueError, match="valid raster image"):
+        repository.stage_image(
+            bad,
+            course_id="visual-course",
+            source_fragment_ids=["fragment-1"],
+            alt_text="损坏图片",
+            purpose="application",
+        )
