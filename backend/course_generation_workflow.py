@@ -2258,6 +2258,7 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
                 "assessment": section.get("assessment", []),
                 "prerequisite_node_ids": section.get("prerequisite_node_ids", []),
                 "module_plan": section.get("module_plan", []),
+                "lesson_archetype": section.get("lesson_archetype", {}),
                 "difficulty_contract": section.get("difficulty_contract", {}),
             })
 
@@ -2309,6 +2310,9 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
         "adaptation_decision": artifacts.get("adaptation_decision") or {},
         "course_difficulty_curve": plan.get("course_difficulty_curve") or {},
         "course_module_plan": plan.get("course_module_plan", []),
+        "pedagogy_quality_contract": plan.get(
+            "pedagogy_quality_contract", {}
+        ),
         "sections": plan.get("chapters", []),
         "nodes": nodes,
         "appendices_plan": [

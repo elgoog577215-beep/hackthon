@@ -172,6 +172,12 @@ def _project_overall_plan(
     sections: list[dict[str, Any]],
 ) -> dict[str, Any]:
     overall = compile_overall_teaching_guidance(course_data)
+    raw_course_plan = course_data.get("course_plan")
+    raw_course_plan = (
+        raw_course_plan
+        if isinstance(raw_course_plan, dict)
+        else {}
+    )
     knowledge_usage: dict[str, dict[str, Any]] = {}
     for section in sections:
         seen_in_section: set[str] = set()
@@ -193,6 +199,12 @@ def _project_overall_plan(
                     seen_in_section.add(normalized)
     return {
         **overall,
+        "pedagogy_quality_contract": deepcopy(
+            raw_course_plan.get(
+                "pedagogy_quality_contract"
+            )
+            or {}
+        ),
         "knowledge_tags": sorted(
             knowledge_usage.values(),
             key=lambda item: (
@@ -212,13 +224,27 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
         or {}
     )
     knowledge_ids = _knowledge_id_index(course_data)
+    course_plan = course_data.get("course_plan")
+    course_plan = course_plan if isinstance(course_plan, dict) else {}
+    outline_sections = {
+        _text(section.get("node_id")): section
+        for chapter in course_plan.get("chapters") or []
+        if isinstance(chapter, dict)
+        for section in chapter.get("sections") or []
+        if isinstance(section, dict) and _text(section.get("node_id"))
+    }
     sections = []
     if isinstance(plan, dict):
         for raw in plan.get("sections") or []:
             if not isinstance(raw, dict):
                 continue
+            node_id = str(raw.get("node_id") or "")
+            outline_section = outline_sections.get(node_id) or {}
             sections.append({
-                "node_id": str(raw.get("node_id") or ""),
+                "node_id": node_id,
+                "lesson_archetype": deepcopy(
+                    outline_section.get("lesson_archetype") or {}
+                ),
                 "knowledge_structure": _project_knowledge_structure(
                     raw.get("knowledge_structure"),
                     knowledge_ids=knowledge_ids,

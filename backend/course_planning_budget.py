@@ -121,7 +121,7 @@ def build_compact_planning_context(
                 "required": bool(module.get("required", True)),
                 "output_contract": str(module.get("output_contract") or ""),
             })
-        compact_sections.append({
+        compact_section = {
             "node_id": str(section.get("node_id") or ""),
             "chapter_id": str(section.get("chapter_id") or ""),
             "section_number": section.get("section_number"),
@@ -134,12 +134,37 @@ def build_compact_planning_context(
             "difficulty_delta": difficulty_delta,
             "allowed_module_ids": module_ids,
             "evidence_hints": list(section.get("evidence_hints") or [])[:4],
-        })
+        }
+        lesson_archetype = _compact_lesson_archetype(
+            section.get("lesson_archetype") or {}
+        )
+        if lesson_archetype:
+            compact_section["lesson_archetype"] = lesson_archetype
+        compact_sections.append(compact_section)
     return {
         "composition_style": composition_style,
         "difficulty_baseline": difficulty_baseline,
         "module_catalog": list(module_catalog.values()),
         "sections": compact_sections,
+    }
+
+
+def _compact_lesson_archetype(
+    archetype: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(archetype, dict):
+        return {}
+    return {
+        key: archetype.get(key)
+        for key in (
+            "archetype_id",
+            "label",
+            "purpose",
+            "course_stage",
+            "evidence_contract",
+            "guardrails",
+        )
+        if archetype.get(key) not in (None, "", [], {})
     }
 
 

@@ -27,7 +27,7 @@ from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v24"
+PROMPT_CONTRACT_VERSION = "course_prompt_v25"
 
 
 class CoursePromptComposer:
@@ -119,6 +119,8 @@ class CoursePromptComposer:
 4. 每章只定义一个清晰、互不重复的学习推进范围，不能把小节详情塞进章节焦点。
 5. 章节按学习先后排列，后续章节不得重复承担前面已经完成的核心责任。
 6. 只返回章节骨架，不返回 `sections`、知识点、关系、正文或题目。
+7. 教学画像中的学科分型、质量底线和最终考核是章节推进的设计依据：课程必须为最终
+   可观察成果逐章建立必要能力，不能只按主题名或教材目录罗列章节。
 
 ## JSON Schema
 {{
@@ -528,6 +530,8 @@ class CoursePromptComposer:
    集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
 5. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
    评价策略落实到本节，但不得复述总体教案，也不得改变冻结的目录、知识身份或模块集合。
+6. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
+   成果证据与质量底线；不能把同一学科的所有小节写成相同课堂流程，也不能越权创造课型外模块。
 
 ## JSON Schema
 {{
@@ -615,6 +619,7 @@ class CoursePromptComposer:
         difficulty_profile = course_data.get("difficulty_profile") or {}
         difficulty_contract = node.get("difficulty_contract") or {}
         modules = node.get("module_plan") or []
+        lesson_archetype = node.get("lesson_archetype") or {}
         composition_profile = course_data.get("course_composition_profile") or {}
         if detail_level != "full":
             max_text = 180 if detail_level == "compact" else 96
@@ -641,6 +646,12 @@ class CoursePromptComposer:
                 max_string_chars=max_text,
                 max_list_items=6 if detail_level == "compact" else 3,
                 max_depth=3,
+            )
+            lesson_archetype = compact_value(
+                lesson_archetype,
+                max_string_chars=max_text,
+                max_list_items=4 if detail_level == "compact" else 2,
+                max_depth=2,
             )
             context = clip_text(
                 context,
@@ -822,6 +833,7 @@ class CoursePromptComposer:
 13. Markdown 列表必须使用真实的 `1.` 或 `-` 列表语法并保留必要空行。任务级标题使用 `###`，不要用单独一行加粗文字伪装标题。
 14. 数学表达必须使用 `$...$` 或 `$$...$$`，反引号只用于代码标识、命令或程序片段；不得用反引号书写幂、上下标、分式、复杂度或数学关系。
 15. 下方“总体教案对本节的引领”是课程内容选择与讲法的上位约束：正文必须推进总体成果、体现教学主线并产出对应评价证据；不得把教案条目原样抄成正文。
+16. 下方“本节学科课型”规定当前小节特有的学习行为和成果证据。必须体现该课型与前后小节的差异，不能机械复用同一学科的固定段落套路。
 
 ## 课程
 - 名称：{course_name}
@@ -833,6 +845,9 @@ class CoursePromptComposer:
 
 ## 总体教案对本节的引领
 {teaching_guidance}
+
+## 本节学科课型
+{json.dumps(lesson_archetype, ensure_ascii=False)}
 
 ## 全课难度能力契约
 {format_difficulty_profile(difficulty_profile)}
@@ -969,6 +984,7 @@ class CoursePromptComposer:
             course_data,
             node,
         )
+        lesson_archetype = node.get("lesson_archetype") or {}
         system_prompt = f"""你负责定向修复课程小节。只输出修复后的完整 Markdown，不输出说明。
 
 ## 课程与节点
@@ -982,6 +998,9 @@ class CoursePromptComposer:
 
 ## 总体教案对本节的引领
 {teaching_guidance}
+
+## 本节学科课型
+{json.dumps(lesson_archetype, ensure_ascii=False)}
 
 ## 难度契约
 {difficulty_text}

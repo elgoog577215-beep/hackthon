@@ -4025,6 +4025,9 @@ class CourseService(AIBase):
                     "examples_plan": section.get("examples_plan", []),
                     "exercise_plan": section.get("exercise_plan", []),
                     "module_plan": section.get("module_plan", []),
+                    "lesson_archetype": section.get(
+                        "lesson_archetype", {}
+                    ),
                     "difficulty_contract": section.get("difficulty_contract", {}),
                     "generation_status": "pending",
                     "generated_chars": 0,

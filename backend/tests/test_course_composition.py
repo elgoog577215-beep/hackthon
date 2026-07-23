@@ -89,11 +89,16 @@ def test_composition_preserves_subject_required_modules_and_changes_distribution
     example_result = attach_composition_to_plan(example, "example_driven")
     theory_result = attach_composition_to_plan(theory, "theory_driven")
 
+    archetype_ids = set()
     for section in example["chapters"][0]["sections"]:
         module_ids = {item["module_id"] for item in section["module_plan"]}
-        assert {"lesson_goal", "core_explanation", "math_formalization"} <= module_ids
+        archetype = section["lesson_archetype"]
+        archetype_ids.add(archetype["archetype_id"])
+        assert {"lesson_goal", "core_explanation"} <= module_ids
+        assert set(archetype["module_ids"]) <= module_ids
         assert "composition_case_extension" in module_ids
         assert all(item.get("module_instance_id") for item in section["module_plan"])
+    assert len(archetype_ids) >= 3
 
     balanced_distribution = balanced_result["course_block_distribution"]
     example_distribution = example_result["course_block_distribution"]

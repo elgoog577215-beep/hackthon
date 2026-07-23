@@ -575,7 +575,17 @@ def test_legacy_material_metadata_no_longer_broadcasts_material_refs():
     assert blueprint["source_plan_fingerprint"].startswith("cbps_")
     assert "material_refs" not in node
     assert node["evidence_refs"] == []
-    assert any(item["module_id"] == "math_worked_example" for item in node["module_plan"])
+    assert node["lesson_archetype"]["archetype_id"] == (
+        "math_intuition_representation"
+    )
+    assert {
+        "math_intuition",
+        "math_representation",
+        "math_formalization",
+    } <= {
+        item["module_id"]
+        for item in node["module_plan"]
+    }
     context = build_node_generation_context(course_metadata=course_data, node=node)
     assert "资料增强生成上下文" in context
     assert "不得伪装引用资料" in context
@@ -729,7 +739,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v16"
     assert data["generation_schema_version"] == "course_generation_v16"
-    assert data["prompt_contract_version"] == "course_prompt_v24"
+    assert data["prompt_contract_version"] == "course_prompt_v25"
     assert len(calls) == 4
     assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"
