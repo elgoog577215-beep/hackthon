@@ -141,6 +141,7 @@ from course_teaching_plan_v3 import (
     validate_teaching_plan_batch_v3,
     validate_teaching_plan_skeleton_v3,
 )
+from course_teaching_guidance import compile_overall_teaching_guidance
 from learner_context import DEFAULT_USER_ID
 from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
 from material_pipeline import prepare_course_materials
@@ -1213,6 +1214,10 @@ class CourseService(AIBase):
                 or ""
             ),
         )
+        overall_teaching_guidance = compile_overall_teaching_guidance(
+            course_data,
+            plan=plan,
+        )
         planning_mode = "hierarchical"
         strategy = "adaptive_skeleton_batches"
         started_at = time.monotonic()
@@ -1732,6 +1737,7 @@ class CourseService(AIBase):
                         identity_by_id[item] for item in section_ids
                     ],
                     "module_catalog": module_catalog,
+                    "overall_guidance": overall_teaching_guidance,
                 },
                 max_input_chars=self._generation_budget.max_input_chars,
             )
@@ -1760,6 +1766,7 @@ class CourseService(AIBase):
                         skeleton_revision_id=str(
                             skeleton.get("revision_id") or ""
                         ),
+                        overall_guidance=overall_teaching_guidance,
                         detail_level=detail_level,
                     )
                 )

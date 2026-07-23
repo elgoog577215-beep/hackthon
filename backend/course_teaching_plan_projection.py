@@ -5,6 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from course_teaching_guidance import compile_overall_teaching_guidance
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -164,63 +166,13 @@ def _project_teaching_modules(value: Any) -> list[dict[str, Any]]:
     return modules
 
 
-def _project_chapters(course_data: dict[str, Any]) -> list[dict[str, Any]]:
-    plan = course_data.get("course_plan")
-    if not isinstance(plan, dict):
-        return []
-    chapters: list[dict[str, Any]] = []
-    for chapter_index, raw_chapter in enumerate(plan.get("chapters") or [], start=1):
-        if not isinstance(raw_chapter, dict):
-            continue
-        sections = [
-            item
-            for item in raw_chapter.get("sections") or []
-            if isinstance(item, dict)
-        ]
-        chapters.append({
-            "chapter_id": _text(
-                raw_chapter.get("chapter_id")
-                or raw_chapter.get("chapter_number")
-                or f"chapter-{chapter_index}"
-            ),
-            "chapter_number": _text(
-                raw_chapter.get("chapter_number") or chapter_index
-            ),
-            "title": _text(
-                raw_chapter.get("title")
-                or raw_chapter.get("chapter_title")
-                or f"第 {chapter_index} 章"
-            ),
-            "learning_focus": _text(
-                raw_chapter.get("learning_focus")
-                or raw_chapter.get("learning_objective")
-            ),
-            "section_count": len(sections),
-            "section_ids": [
-                _text(item.get("node_id"))
-                for item in sections
-                if _text(item.get("node_id"))
-            ],
-        })
-    return chapters
-
-
 def _project_overall_plan(
     course_data: dict[str, Any],
     *,
     sections: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    plan = course_data.get("course_plan")
-    plan = plan if isinstance(plan, dict) else {}
-    request = course_data.get("generation_request")
-    request = request if isinstance(request, dict) else {}
-    pedagogy = course_data.get("subject_pedagogy_profile")
-    pedagogy = pedagogy if isinstance(pedagogy, dict) else {}
-    brief = course_data.get("course_generation_brief")
-    brief = brief if isinstance(brief, dict) else {}
-
+    overall = compile_overall_teaching_guidance(course_data)
     knowledge_usage: dict[str, dict[str, Any]] = {}
-    assessment_methods: list[str] = []
     for section in sections:
         seen_in_section: set[str] = set()
         for group in section.get("knowledge_structure") or []:
@@ -239,39 +191,8 @@ def _project_overall_plan(
                 if normalized not in seen_in_section:
                     entry["section_count"] += 1
                     seen_in_section.add(normalized)
-                for criterion in point.get("mastery_criteria") or []:
-                    if not isinstance(criterion, dict):
-                        continue
-                    method = _text(
-                        criterion.get("verification_method")
-                        or criterion.get("verification")
-                        or criterion.get("evidence")
-                    )
-                    if method and method not in assessment_methods:
-                        assessment_methods.append(method)
-
     return {
-        "course_title": _text(
-            plan.get("course_title")
-            or course_data.get("course_name")
-        ),
-        "positioning": _text(
-            plan.get("positioning")
-            or brief.get("goal")
-        ),
-        "target_audience": _text(
-            request.get("target_audience")
-            or course_data.get("target_audience")
-        ),
-        "learning_objectives": _strings(plan.get("learning_objectives")),
-        "prerequisites": _strings(plan.get("prerequisites")),
-        "teaching_strategy": {
-            "primary_mode": _text(pedagogy.get("primary_mode")),
-            "secondary_mode": _text(pedagogy.get("secondary_mode")),
-            "rationale": _text(pedagogy.get("rationale")),
-        },
-        "assessment_methods": assessment_methods[:8],
-        "chapters": _project_chapters(course_data),
+        **overall,
         "knowledge_tags": sorted(
             knowledge_usage.values(),
             key=lambda item: (

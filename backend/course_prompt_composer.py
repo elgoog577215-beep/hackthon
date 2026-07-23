@@ -23,8 +23,11 @@ from course_knowledge_base import (
     course_knowledge_base_prompt_context,
 )
 from course_pedagogy import SubjectPedagogyProfile, module_block_role
+from course_teaching_guidance import (
+    format_generation_teaching_guidance,
+)
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v23"
+PROMPT_CONTRACT_VERSION = "course_prompt_v24"
 
 
 class CoursePromptComposer:
@@ -447,6 +450,7 @@ class CoursePromptComposer:
         section_identities: list[dict[str, Any]],
         module_catalog: list[dict[str, Any]],
         skeleton_revision_id: str,
+        overall_guidance: dict[str, Any] | None = None,
         detail_level: str = "full",
     ) -> str:
         bounded = compact_batch_inputs(
@@ -460,6 +464,20 @@ class CoursePromptComposer:
         knowledge_registry = bounded["knowledge_registry"]
         section_identities = bounded["section_identities"]
         module_catalog = bounded["module_catalog"]
+        overall_guidance = compact_value(
+            overall_guidance or {},
+            max_string_chars=(
+                180 if detail_level == "full"
+                else 120 if detail_level == "compact"
+                else 72
+            ),
+            max_list_items=(
+                8 if detail_level == "full"
+                else 5 if detail_level == "compact"
+                else 3
+            ),
+            max_depth=3,
+        )
         if detail_level != "full":
             course_title = clip_text(
                 course_title, 180 if detail_level == "compact" else 96
@@ -496,6 +514,9 @@ class CoursePromptComposer:
 ## 共享课程块目录（只出现一次）
 {json.dumps(module_catalog, ensure_ascii=False)}
 
+## 总体教案引领（与教师视图同源，只读）
+{json.dumps(overall_guidance, ensure_ascii=False)}
+
 ## 约束
 1. `sections` 必须按批次指定顺序返回，`knowledge_details` 必须按本节
    `owned_knowledge_keys` 顺序逐个展开，不能展开复用键。
@@ -505,6 +526,8 @@ class CoursePromptComposer:
    也不得修改骨架冻结的前置关系。
 4. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
    集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
+5. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
+   评价策略落实到本节，但不得复述总体教案，也不得改变冻结的目录、知识身份或模块集合。
 
 ## JSON Schema
 {{
@@ -653,6 +676,11 @@ class CoursePromptComposer:
         knowledge_context, teaching_context, course_knowledge_context = self._node_knowledge_context(
             course_data, node
         )
+        teaching_guidance = format_generation_teaching_guidance(
+            course_data,
+            node,
+            compact=detail_level != "full",
+        )
         coherence_context = course_coherence_prompt_context(
             course_data,
             str(node.get("node_id") or ""),
@@ -706,6 +734,9 @@ class CoursePromptComposer:
 - 知识：{key_points or '按当前知识库契约'}
 - 范围：{scope or '只完成当前小节责任'}
 - 验收：{assessments or '给出可检查的学习任务'}
+
+## 总体教案对本节的引领
+{teaching_guidance}
 
 ## 当前课程知识库（当前节点切片）
 {course_knowledge_context}
@@ -790,6 +821,7 @@ class CoursePromptComposer:
 12. `## 检查与反馈` 是静态检查参考，不得声称已经评价当前学生。对应多个学习任务时，每个任务必须使用 `### 任务 N：名称` 作为内部边界，并在任务内清楚区分核对标准、参考结论、推导依据和典型错误；不得把所有答案压成一个长段落。
 13. Markdown 列表必须使用真实的 `1.` 或 `-` 列表语法并保留必要空行。任务级标题使用 `###`，不要用单独一行加粗文字伪装标题。
 14. 数学表达必须使用 `$...$` 或 `$$...$$`，反引号只用于代码标识、命令或程序片段；不得用反引号书写幂、上下标、分式、复杂度或数学关系。
+15. 下方“总体教案对本节的引领”是课程内容选择与讲法的上位约束：正文必须推进总体成果、体现教学主线并产出对应评价证据；不得把教案条目原样抄成正文。
 
 ## 课程
 - 名称：{course_name}
@@ -798,6 +830,9 @@ class CoursePromptComposer:
 
 ## 课程块编排画像
 {format_composition_profile(composition_profile)}
+
+## 总体教案对本节的引领
+{teaching_guidance}
 
 ## 全课难度能力契约
 {format_difficulty_profile(difficulty_profile)}
@@ -930,6 +965,10 @@ class CoursePromptComposer:
             course_data,
             str(node.get("node_id") or ""),
         )
+        teaching_guidance = format_generation_teaching_guidance(
+            course_data,
+            node,
+        )
         system_prompt = f"""你负责定向修复课程小节。只输出修复后的完整 Markdown，不输出说明。
 
 ## 课程与节点
@@ -940,6 +979,9 @@ class CoursePromptComposer:
 
 ## 教学模块契约
 {module_text}
+
+## 总体教案对本节的引领
+{teaching_guidance}
 
 ## 难度契约
 {difficulty_text}
