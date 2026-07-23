@@ -20,3 +20,9 @@
 
 - [x] 4.1 Run the relevant frontend test suite for Mermaid and Markdown rendering regressions
 - [ ] 4.2 Manually verify the known imported Markdown example renders correctly in the UI without Mermaid error states or clipped labels
+
+### 2026-07-23 复核记录
+
+- 在真实课程《电磁学：理论基础与工程应用》中检查到 4 个 Mermaid 容器均生成 SVG，未出现 Mermaid 错误态，容器 `scrollWidth` 与 `clientWidth` 一致。
+- 同一课程的旧导入内容仍把 `#### ### 标题` 渲染为带可见 `###` 的四级标题，尚未满足“无原始标题标记泄漏”的人工门禁。
+- 当前测试目录中未找到任务 3.3 所述的 `tests/test_md_import.md` 派生回归；归档前需要补齐对应测试并重新执行本节人工验收。
