@@ -18,7 +18,7 @@
       </header>
 
       <section class="formation-outline" :aria-label="t('courseGeneration.production.navigatorLabel', '课程结构')">
-        <header>
+        <header v-if="growthChapters.length || stageKey !== 'outline' || isTerminal">
           <div>
             <span>{{ t('courseGeneration.production.navigatorLabel', '课程结构') }}</span>
             <strong>{{ outlineTitle }}</strong>
@@ -26,7 +26,7 @@
           <small>{{ outlineMeta }}</small>
         </header>
 
-        <div v-if="stageKey === 'outline'" class="outline-growth-summary" aria-live="polite">
+        <div v-if="stageKey === 'outline' && growthChapters.length" class="outline-growth-summary" aria-live="polite">
           <div :data-complete="growthSkeletonReady">
             <span><Sprout :size="14" /></span>
             <p>
@@ -503,20 +503,20 @@ const resumeLabel = computed(() => props.task?.status === 'paused'
   min-height:0;
   flex:1;
   overflow:auto;
-  padding:18px clamp(18px,3vw,40px) 28px;
-  background:#f6f7f9;
+  padding:16px clamp(16px,2.4vw,32px) 24px;
+  background:#f7f8fa;
 }
 .formation-sheet {
-  width:min(1200px,100%);
+  width:min(1120px,100%);
   margin:0 auto;
   overflow:hidden;
   border:1px solid #dde1e8;
-  border-radius:12px;
+  border-radius:14px;
   background:#fff;
-  box-shadow:0 10px 28px rgba(30,41,59,.06);
+  box-shadow:0 8px 24px rgba(30,41,59,.045);
 }
 .formation-sheet__header {
-  padding:22px 28px 18px;
+  padding:20px 26px 16px;
   border-bottom:1px solid #e7e9ee;
 }
 .formation-sheet__state {
@@ -534,19 +534,19 @@ const resumeLabel = computed(() => props.task?.status === 'paused'
 .formation-sheet__state[data-state="paused"] { color:#667085; }
 .formation-sheet__state svg.lucide-loader-circle { animation:formation-spin .9s linear infinite; }
 .formation-sheet__header h1 {
-  margin:6px 0 5px;
+  margin:5px 0 4px;
   color:#17202e;
-  font:720 clamp(24px,2vw,30px)/1.22 var(--font-sans);
+  font:720 clamp(22px,1.8vw,28px)/1.22 var(--font-sans);
   letter-spacing:-.015em;
 }
 .formation-sheet__header p {
   max-width:820px;
   margin:0;
   color:#687386;
-  font-size:14px;
+  font-size:13px;
   line-height:1.6;
 }
-.formation-outline { padding:0 28px; }
+.formation-outline { padding:0 26px; }
 .formation-outline > header {
   display:flex;
   align-items:center;
@@ -842,30 +842,30 @@ li[data-state="failed"] .growth-section__state { color:#a9571d; }
   font-size:10px;
 }
 .outline-germination {
-  min-height:310px;
+  min-height:220px;
   display:grid;
-  grid-template-columns:120px minmax(0,1fr) minmax(220px,.85fr);
+  grid-template-columns:104px minmax(0,1fr) minmax(190px,.7fr);
   align-items:center;
   gap:24px;
-  margin:0 0 18px;
-  padding:26px clamp(20px,4vw,44px);
+  margin:18px 0;
+  padding:22px clamp(20px,3vw,36px);
   overflow:hidden;
   border:1px solid #e1e6e2;
-  border-radius:14px;
+  border-radius:12px;
   background:
     radial-gradient(circle at 12% 50%,rgba(40,135,100,.11),transparent 25%),
     radial-gradient(circle at 88% 10%,rgba(94,98,196,.09),transparent 28%),
     #fafcfa;
 }
-.outline-germination__signal { position:relative; width:112px; height:112px; display:grid; place-items:center; }
+.outline-germination__signal { position:relative; width:96px; height:96px; display:grid; place-items:center; }
 .outline-germination__signal > i { position:absolute; inset:8px; border:1px solid rgba(35,128,94,.15); border-radius:47% 53% 50% 50%; animation:growth-orbit 7s linear infinite; }
 .outline-germination__signal > i:nth-child(2) { inset:20px 2px; animation-duration:9s; animation-direction:reverse; }
 .outline-germination__signal > i:nth-child(3) { inset:1px 24px; animation-duration:6s; }
 .outline-germination__signal > span {
   position:relative;
   z-index:1;
-  width:52px;
-  height:52px;
+  width:48px;
+  height:48px;
   display:grid;
   place-items:center;
   border:1px solid #acd5c3;
@@ -875,7 +875,7 @@ li[data-state="failed"] .growth-section__state { color:#a9571d; }
   box-shadow:0 12px 30px rgba(31,110,81,.13);
   animation:growth-breathe 1.8s ease-in-out infinite;
 }
-.outline-germination > div:nth-child(2) strong { color:#25382f; font-size:18px; line-height:1.35; }
+.outline-germination > div:nth-child(2) strong { color:#25382f; font-size:17px; line-height:1.35; }
 .outline-germination > div:nth-child(2) p { max-width:520px; margin:7px 0 0; color:#748078; font-size:12px; line-height:1.7; }
 .outline-germination__branches { display:grid; gap:12px; }
 .outline-germination__branches > span { display:grid; grid-template-columns:12px minmax(0,1fr); align-items:center; gap:8px; opacity:0; animation:growth-arrive .45s ease forwards; animation-delay:calc(var(--seed-order) * 100ms); }
@@ -1102,7 +1102,7 @@ li[data-state="failed"] .formation-outline__status { color:#b54708; }
   align-items:center;
   justify-content:space-between;
   gap:14px;
-  padding:13px 28px 14px;
+  padding:12px 26px 13px;
   border-top:1px solid #e2e5ea;
   background:#fafbfc;
 }
@@ -1154,9 +1154,12 @@ li[data-state="failed"] .formation-outline__status { color:#b54708; }
   .growth-chapter__sections > li { grid-template-columns:36px minmax(0,1fr); gap:7px; padding:7px 3px; }
   .growth-section__state { grid-column:2; justify-self:start; }
   .growth-chapter__more { grid-column:1/-1!important; }
-  .outline-germination { min-height:380px; grid-template-columns:1fr; justify-items:center; gap:14px; padding:22px 18px; text-align:center; }
-  .outline-germination__signal { width:96px; height:96px; }
-  .outline-germination__branches { width:100%; }
+  .outline-germination { min-height:300px; grid-template-columns:1fr; justify-items:center; gap:11px; padding:18px 16px; text-align:center; }
+  .course-production-stage[data-state="error"] .outline-germination,
+  .course-production-stage[data-state="paused"] .outline-germination,
+  .course-production-stage[data-state="blocked"] .outline-germination { min-height:220px; }
+  .outline-germination__signal { width:78px; height:78px; }
+  .outline-germination__branches { width:100%; gap:8px; }
   .formation-outline__nodes li { grid-template-columns:26px 13px minmax(0,1fr); gap:8px; padding:10px 0; }
   .formation-outline__status { grid-column:3; justify-self:start; padding:3px 0 0; }
   .formation-outline__skeleton > div { grid-template-columns:26px 13px minmax(0,1fr); gap:8px; padding:10px 0; }

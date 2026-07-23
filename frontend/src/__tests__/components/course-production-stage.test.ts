@@ -75,11 +75,14 @@ describe('CourseProductionStage', () => {
     const wrapper = mount(CourseProductionStage, {
       props: { task: interruptedTask, courseName: 'Quantum mechanics' },
     })
+    const lifecycle = mount(CourseGenerationLifecycle, { props: { task: interruptedTask } })
 
     expect(wrapper.text()).toContain('Course production was interrupted')
     expect(wrapper.text()).toContain('Course requirements and processed sources are saved')
     expect(wrapper.text()).not.toContain('已保留课程需求')
     expect(wrapper.text()).not.toContain('courseGeneration.')
+    expect(lifecycle.text()).toContain('Course production')
+    expect(lifecycle.text()).not.toContain('课程生产')
   })
 
   it('阶段条把当前目录标成中断而不是进行中', () => {

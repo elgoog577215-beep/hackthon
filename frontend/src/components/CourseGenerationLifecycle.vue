@@ -10,8 +10,8 @@
           <Check v-else :size="14" />
         </span>
         <div>
-          <small>{{ t('courseGeneration.lifecycle.now', '当前') }}</small>
-          <strong>{{ currentStage.label }}</strong>
+          <small>{{ t('courseGeneration.workspace.label', '课程生产') }}</small>
+          <strong>{{ activeIndex + 1 }} / {{ stages.length }}</strong>
         </div>
       </div>
 
@@ -64,7 +64,6 @@ const stages = computed(() => [
   { key: 'release', label: t('courseGeneration.lifecycle.release', '确认发布') },
 ])
 const activeIndex = computed(() => courseProductionStageIndex(props.task))
-const currentStage = computed(() => stages.value[activeIndex.value] || stages.value[0]!)
 const currentStatus = computed(() => stageStatus(activeIndex.value))
 const progressValue = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0)))))
 const currentValue = computed(() => (
@@ -92,15 +91,15 @@ function stageStatusLabel(index: number) {
 <style scoped>
 .generation-lifecycle {
   flex:0 0 auto;
-  padding:14px clamp(20px,3vw,44px) 0;
+  padding:9px clamp(18px,2.4vw,32px) 0;
   border-bottom:1px solid #e6e9f0;
-  background:linear-gradient(180deg,#fff 0%,#fcfcfe 100%);
+  background:#fff;
 }
 .generation-lifecycle__inner {
   display:grid;
-  grid-template-columns:minmax(164px,.62fr) minmax(560px,2.2fr) 62px;
+  grid-template-columns:88px minmax(520px,1fr) 54px;
   align-items:center;
-  gap:22px;
+  gap:16px;
 }
 .generation-lifecycle__summary {
   min-width:0;
@@ -109,13 +108,13 @@ function stageStatusLabel(index: number) {
   gap:8px;
 }
 .generation-lifecycle__summary > span {
-  width:36px;
-  height:36px;
-  flex:0 0 36px;
+  width:28px;
+  height:28px;
+  flex:0 0 28px;
   display:grid;
   place-items:center;
   border:1px solid #d7dce5;
-  border-radius:10px;
+  border-radius:8px;
   color:#596579;
   background:#f8f9fb;
 }
@@ -126,14 +125,14 @@ function stageStatusLabel(index: number) {
 }
 .generation-lifecycle__summary small {
   color:#9aa1ae;
-  font-size:11px;
+  font-size:9px;
   font-weight:800;
   letter-spacing:.08em;
 }
 .generation-lifecycle__summary strong {
   overflow:hidden;
   color:#354052;
-  font-size:13px;
+  font:750 11px/1.35 ui-monospace,SFMono-Regular,monospace;
   line-height:1.35;
   text-overflow:ellipsis;
   white-space:nowrap;
@@ -172,7 +171,7 @@ function stageStatusLabel(index: number) {
   position:relative;
   min-width:0;
   display:grid;
-  grid-template-columns:26px minmax(0,1fr);
+  grid-template-columns:22px minmax(0,1fr);
   align-items:center;
   gap:5px;
 }
@@ -180,8 +179,8 @@ function stageStatusLabel(index: number) {
   content:"";
   position:absolute;
   z-index:0;
-  top:12px;
-  left:25px;
+  top:10px;
+  left:21px;
   right:1px;
   height:1px;
   background:#dfe3eb;
@@ -192,8 +191,8 @@ function stageStatusLabel(index: number) {
 .generation-lifecycle__marker {
   position:relative;
   z-index:1;
-  width:26px;
-  height:26px;
+  width:22px;
+  height:22px;
   display:grid;
   place-items:center;
   border:1px solid #d5dbe5;
@@ -211,7 +210,7 @@ function stageStatusLabel(index: number) {
   overflow:hidden;
   color:#8a93a4;
   background:#fff;
-  font-size:12px;
+  font-size:11px;
   line-height:1.35;
   text-overflow:ellipsis;
   white-space:nowrap;
@@ -259,7 +258,7 @@ li[data-status="blocked"] strong {
 .generation-lifecycle__value {
   justify-self:end;
   color:#4f55b5;
-  font:750 13px/1 ui-monospace,SFMono-Regular,monospace;
+  font:750 12px/1 ui-monospace,SFMono-Regular,monospace;
   white-space:nowrap;
 }
 .generation-lifecycle__value[data-status="review"],
@@ -268,8 +267,8 @@ li[data-status="blocked"] strong {
 .generation-lifecycle__value[data-status="blocked"] { color:#b05a18; }
 .generation-lifecycle__value[data-status="paused"] { color:#667085; }
 .generation-lifecycle__track {
-  height:3px;
-  margin:13px calc(-1 * clamp(20px,3vw,44px)) 0;
+  height:2px;
+  margin:8px calc(-1 * clamp(18px,2.4vw,32px)) 0;
   overflow:hidden;
   background:#edf0f4;
 }
@@ -285,7 +284,7 @@ li[data-status="blocked"] strong {
 }
 @media (max-width:1050px) {
   .generation-lifecycle__inner {
-    grid-template-columns:132px minmax(0,1fr) 48px;
+    grid-template-columns:76px minmax(0,1fr) 44px;
     gap:10px;
   }
   .generation-lifecycle strong { font-size:11px; }
@@ -302,9 +301,9 @@ li[data-status="blocked"] strong {
     order:0;
   }
   .generation-lifecycle__summary > span {
-    width:32px;
-    height:32px;
-    flex-basis:32px;
+    width:28px;
+    height:28px;
+    flex-basis:28px;
   }
   .generation-lifecycle__value {
     order:1;
@@ -321,16 +320,16 @@ li[data-status="blocked"] strong {
     text-align:center;
   }
   .generation-lifecycle li:not(:last-child)::after {
-    top:11px;
+    top:9px;
     left:50%;
     right:-50%;
   }
   .generation-lifecycle__marker {
-    width:25px;
-    height:25px;
+    width:20px;
+    height:20px;
   }
   .generation-lifecycle strong {
-    max-width:64px;
+    max-width:72px;
     width:auto;
     overflow:visible;
     background:transparent;
