@@ -129,7 +129,9 @@ def narrative_course() -> dict:
                         "### 实战案例与行业应用\n"
                         "多项式集合与矩阵集合都可以按同一组公理验证为向量空间。\n\n"
                         "### 思考与挑战\n"
-                        "如果集合对数乘不封闭，它还可能是向量空间吗？"
+                        "如果集合对数乘不封闭，它还可能是向量空间吗？\n\n"
+                        "### 延伸阅读\n"
+                        "向量空间概念还可以继续推广到更一般的代数结构。"
                     ),
                     "metadata": {"role": "concept"},
                 }],
@@ -164,6 +166,7 @@ def test_fragmenter_preserves_source_headings_as_semantic_boundaries() -> None:
         "技术实现与方法论",
         "实战案例与行业应用",
         "思考与挑战",
+        "延伸阅读",
     ]
 
 
@@ -250,6 +253,52 @@ def test_source_heading_becomes_slide_claim_without_body_duplication() -> None:
     assert reasoning["title"] == "深度原理与底层机制"
     assert "深度原理与底层机制" not in body_text
     assert "封闭性保证运算不会离开研究对象" in body_text
+
+
+def test_consecutive_source_headings_do_not_create_empty_teaching_pages() -> None:
+    course = source_course()
+    course["nodes"].append({
+        "node_id": "section-reasoning-detail",
+        "parent_node_id": "section-core",
+        "node_name": "Reasoning detail",
+        "node_level": 3,
+        "content_blocks": [{
+            "block_id": "block-reasoning-detail",
+            "title": "正文",
+            "content": (
+                "### 深度原理与底层机制\n"
+                "#### 向量空间的公理体系\n"
+                "封闭性、结合律与分配律共同保证结构可以稳定运算。"
+            ),
+            "metadata": {"role": "concept"},
+        }],
+    })
+    document = document_from_legacy_course(course)
+    plan = deterministic_slide_allocation(
+        document,
+        fragment_course_document(document),
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="teaching",
+        theme="qizhi-classroom",
+        allocation_plan=plan,
+    )
+    reasoning_slides = [
+        slide for slide in content["slides"]
+        if slide["slide_purpose"] == "reasoning"
+    ]
+
+    assert reasoning_slides
+    assert all(slide["blocks"] for slide in reasoning_slides)
+    assert any(
+        "向量空间的公理体系" in block.get("content", "")
+        for slide in reasoning_slides
+        for block in slide["blocks"]
+    )
 
 
 @pytest.mark.parametrize("mode", ["full", "teaching"])

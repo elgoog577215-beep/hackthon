@@ -225,7 +225,27 @@ def _render_slide(
     theme: dict[str, str],
 ) -> None:
     _fill_background(slide, theme["surface"])
+    requested_layout = str(unit.quality.get("requested_layout") or "")
     renderer = {
+        "cover": _render_cover,
+        "roadmap": _render_roadmap,
+        "chapter": _render_chapter,
+        "objective": _render_objective,
+        "concept": _render_concept,
+        "comparison": _render_comparison,
+        "process": _render_process,
+        "code": _render_code,
+        "misconception": _render_misconception,
+        "practice": _render_practice,
+        "recap": _render_recap,
+        "appendix": _render_appendix,
+        "hero-statement": _render_hero_statement,
+        "editorial-body": _render_editorial_body,
+        "two-column": _render_two_column,
+        "case-study": _render_case_study,
+        "question": _render_practice,
+        "summary": _render_recap,
+    }.get(requested_layout) or {
         "cover": _render_cover,
         "roadmap": _render_roadmap,
         "chapter": _render_chapter,
@@ -357,6 +377,98 @@ def _render_concept(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
                 font=theme["math_font"] if is_formula else theme["body_font"],
                 east_asian_font=theme["body_east_asian_font"],
             )
+
+
+def _render_hero_statement(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    _heading(slide, unit, theme)
+    body = " ".join(
+        value
+        for block in unit.blocks
+        for value in (block.items or [block.content])
+        if value
+    )
+    _shape(slide, 0.82, 1.82, 11.68, 4.52, theme["accent_soft"], radius=True)
+    _shape(slide, 1.16, 2.2, 0.12, 3.72, theme["accent"], radius=False)
+    _text(slide, "核心判断", 1.58, 2.24, 2.0, 0.34, 12, theme["accent"], bold=True)
+    _text(
+        slide,
+        body,
+        1.58,
+        2.92,
+        9.9,
+        2.42,
+        27 if len(body) <= 90 else 21,
+        theme["ink"],
+        bold=len(body) <= 90,
+        font=theme["title_font"],
+        east_asian_font=theme["title_east_asian_font"],
+    )
+
+
+def _render_editorial_body(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    _heading(slide, unit, theme)
+    values = [
+        value
+        for block in unit.blocks
+        for value in (block.items or [block.content])
+        if value
+    ]
+    body = "\n\n".join(values)
+    _shape(slide, 0.82, 1.82, 8.82, 4.55, theme["canvas"], radius=True, line=theme["chart_bg"])
+    _shape(slide, 0.82, 1.82, 0.09, 4.55, theme["accent"], radius=False)
+    _text(slide, body, 1.22, 2.2, 7.98, 3.72, 18 if len(body) <= 180 else 15, theme["ink"])
+    _shape(slide, 9.94, 1.82, 2.56, 4.55, theme["accent_soft"], radius=True)
+    _text(slide, unit.eyebrow or "阅读线索", 10.25, 2.18, 1.95, 0.32, 11, theme["accent"], bold=True)
+    _text(slide, "定义\n→\n条件\n→\n结论", 10.25, 3.0, 1.95, 2.15, 18, theme["ink"], bold=True, align="center")
+
+
+def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    _heading(slide, unit, theme)
+    values = [
+        value
+        for block in unit.blocks
+        for value in (block.items or [block.content])
+        if value
+    ]
+    if len(values) == 1:
+        paragraphs = [item for item in values[0].split("\n\n") if item.strip()]
+        if len(paragraphs) > 1:
+            split_at = (len(paragraphs) + 1) // 2
+            values = [
+                "\n\n".join(paragraphs[:split_at]),
+                "\n\n".join(paragraphs[split_at:]),
+            ]
+    if len(values) < 2:
+        _render_editorial_body(slide, unit, theme)
+        return
+    labels = ("依据", "推论")
+    colors = (
+        (theme["accent_soft"], theme["accent"]),
+        (theme["green_soft"], theme["green"]),
+    )
+    for index, value in enumerate(values[:2]):
+        x = 0.82 + index * 5.92
+        soft, accent = colors[index]
+        _shape(slide, x, 1.9, 5.58, 4.38, soft, radius=True)
+        _text(slide, labels[index], x + 0.34, 2.2, 1.2, 0.32, 12, accent, bold=True)
+        _text(slide, value, x + 0.34, 2.82, 4.9, 2.85, 17, theme["ink"])
+
+
+def _render_case_study(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    _heading(slide, unit, theme)
+    values = [
+        value
+        for block in unit.blocks
+        for value in (block.items or [block.content])
+        if value
+    ]
+    body = "\n\n".join(values)
+    _shape(slide, 0.82, 1.82, 3.0, 4.55, theme["green_soft"], radius=True)
+    _text(slide, "CASE", 1.18, 2.2, 1.2, 0.36, 13, theme["green"], bold=True)
+    _text(slide, "从具体情境\n检验抽象结构", 1.18, 3.0, 2.24, 1.35, 24, theme["ink"], bold=True)
+    _shape(slide, 4.12, 1.82, 8.38, 4.55, theme["canvas"], radius=True, line=theme["chart_bg"])
+    _text(slide, "案例观察", 4.48, 2.18, 1.6, 0.32, 12, theme["accent"], bold=True)
+    _text(slide, body, 4.48, 2.82, 7.3, 2.95, 18 if len(body) <= 180 else 15, theme["ink"])
 
 
 def _render_comparison(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:

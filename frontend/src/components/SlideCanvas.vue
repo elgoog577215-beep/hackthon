@@ -49,7 +49,12 @@
         {{ slide.key_message }}
       </blockquote>
 
-      <div class="deck-canvas__blocks" :data-layout="visualLayout" :data-count="slide.blocks?.length || 0">
+      <div
+        class="deck-canvas__blocks"
+        :data-layout="visualLayout"
+        :data-count="slide.blocks?.length || 0"
+        :data-has-message="Boolean(slide.key_message)"
+      >
         <section v-for="(block, blockIndex) in slide.blocks" :key="block.block_id" :data-type="block.type">
           <header v-if="block.title">
             <b>{{ String(blockIndex + 1).padStart(2, '0') }}</b>
@@ -141,6 +146,12 @@ function layoutLabel(value: string) {
     chapter: '章节',
     objective: '目标',
     concept: '概念',
+    'hero-statement': '核心判断',
+    'editorial-body': '正文',
+    'two-column': '双栏推理',
+    'case-study': '案例',
+    question: '思考',
+    summary: '回顾',
     comparison: '对比',
     process: '过程',
     code: '代码',
@@ -310,6 +321,31 @@ function layoutLabel(value: string) {
 .deck-canvas[data-layout="editorial-body"] .deck-canvas__blocks { grid-template-columns:1fr; }
 .deck-canvas[data-layout="two-column"] .deck-canvas__blocks { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .deck-canvas[data-layout="concept-cards"] .deck-canvas__blocks { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.deck-canvas[data-layout="hero-statement"] .deck-canvas__blocks section {
+  display:flex;
+  align-items:center;
+  padding:6% 8%;
+  border:0;
+  border-left:.55cqw solid var(--deck-blue);
+  background:var(--deck-blue-soft);
+}
+.deck-canvas[data-layout="hero-statement"] .deck-canvas__blocks p {
+  font-family:var(--deck-title-font);
+  font-size:2.15cqw;
+  font-weight:700;
+  line-height:1.42;
+}
+.deck-canvas[data-layout="case-study"] .deck-canvas__blocks {
+  padding-left:25%;
+  background:linear-gradient(90deg,var(--deck-blue-soft) 0 22%,transparent 22%);
+}
+.deck-canvas[data-layout="case-study"] .deck-canvas__blocks section {
+  border-left:.48cqw solid var(--deck-teal);
+}
+.deck-canvas[data-layout="question"] .deck-canvas__blocks section {
+  border-color:color-mix(in srgb,var(--deck-amber) 38%,var(--deck-line));
+  background:color-mix(in srgb,var(--deck-amber) 8%,var(--deck-card));
+}
 .deck-canvas[data-layout="appendix"] .deck-canvas__heading small { color:var(--deck-amber); }
 .deck-canvas[data-layout="formula"] .deck-canvas__blocks p { font-family:"Times New Roman",serif; font-size:1.8cqw; }
 .deck-canvas::after {
@@ -375,14 +411,17 @@ function layoutLabel(value: string) {
 }
 .deck-canvas__blocks {
   position:absolute;
-  inset:38% 5.5% 10.5%;
+  inset:25% 5.5% 10.5%;
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(0,1fr));
   gap:1.8%;
 }
-.deck-canvas__blocks[data-layout="objective"] { inset:25% 5.5% 10.5%; grid-template-columns:1.05fr 1fr 1fr; }
+.deck-canvas__blocks[data-has-message="true"] { top:38%; }
+.deck-canvas__blocks[data-layout="objective"],
+.deck-canvas__blocks[data-layout="objective-cards"] { inset:25% 5.5% 10.5%; grid-template-columns:1.05fr 1fr 1fr; }
 .deck-canvas__blocks[data-layout="code"] { inset:25% 5.5% 10.5%; grid-template-columns:1.75fr 1fr; }
 .deck-canvas__blocks[data-layout="practice"],
+.deck-canvas__blocks[data-layout="question"],
 .deck-canvas__blocks[data-layout="misconception"] { inset:25% 5.5% 10.5%; grid-template-columns:1.55fr .9fr; }
 .deck-canvas__blocks[data-layout="roadmap"],
 .deck-canvas__blocks[data-layout="process"] { inset:28% 5.5% 11%; }

@@ -132,7 +132,13 @@ class ContentFragmentV1(_StrictModel):
 
 class DerivedTextV1(_StrictModel):
     text: str = Field(min_length=1, max_length=160)
-    purpose: Literal["navigation", "section_label", "continuation", "appendix_label"]
+    purpose: Literal[
+        "navigation",
+        "section_label",
+        "page_title",
+        "continuation",
+        "appendix_label",
+    ]
     derived_from: list[str] = Field(default_factory=list)
 
 
@@ -144,6 +150,19 @@ class PlannedPageV2(_StrictModel):
     sequence_id: str = ""
     step_index: int = Field(default=0, ge=0)
     derived_text: list[DerivedTextV1] = Field(default_factory=list, max_length=10)
+    narrative_role: Literal[
+        "orientation",
+        "concept",
+        "reasoning",
+        "method",
+        "example",
+        "misconception",
+        "checkpoint",
+        "recap",
+        "appendix",
+    ] = "concept"
+    section_id: str = ""
+    chapter_id: str = ""
 
 
 class FragmentExclusionV1(_StrictModel):
@@ -197,9 +216,10 @@ def fragment_course_document(document: CourseDocument) -> list[ContentFragmentV1
     """Parse active course blocks into stable, display-ready source fragments."""
     fragments: list[ContentFragmentV1] = []
     sections = {section.section_id: section for section in document.sections}
+    section_order = _pedagogical_section_order(document.sections)
     ordinal = 0
     for block in sorted(document.blocks, key=lambda item: (
-        sections.get(item.section_id).position if sections.get(item.section_id) else 10**9,
+        section_order.get(item.section_id, 10**9),
         item.position,
         item.block_id,
     )):
@@ -231,6 +251,42 @@ def fragment_course_document(document: CourseDocument) -> list[ContentFragmentV1
             ))
             ordinal += 1
     return fragments
+
+
+def _pedagogical_section_order(
+    sections: list[CourseSection],
+) -> dict[str, int]:
+    children: dict[str | None, list[CourseSection]] = {}
+    section_ids = {section.section_id for section in sections}
+    for section in sections:
+        parent_id = (
+            section.parent_section_id
+            if section.parent_section_id in section_ids
+            else None
+        )
+        children.setdefault(parent_id, []).append(section)
+    ordered_ids: list[str] = []
+    visited: set[str] = set()
+
+    def visit(section: CourseSection) -> None:
+        if section.section_id in visited:
+            return
+        visited.add(section.section_id)
+        ordered_ids.append(section.section_id)
+        for child in sorted(
+            children.get(section.section_id, []),
+            key=lambda item: item.position,
+        ):
+            visit(child)
+
+    for root in sorted(children.get(None, []), key=lambda item: item.position):
+        visit(root)
+    for section in sorted(sections, key=lambda item: item.position):
+        visit(section)
+    return {
+        section_id: index
+        for index, section_id in enumerate(ordered_ids)
+    }
 
 
 def _fragment_block(block: CourseBlock) -> list[tuple[str, str]]:
@@ -302,6 +358,14 @@ def _fragment_prose(raw: str, block: CourseBlock) -> list[tuple[str, str]]:
     for line in raw.splitlines():
         stripped = line.strip()
         if not stripped:
+            flush_paragraph()
+            continue
+        heading_match = re.match(r"^#{1,6}\s+(.+?)\s*#*\s*$", stripped)
+        if heading_match:
+            flush_paragraph()
+            result.append(("heading", heading_match.group(1).strip()))
+            continue
+        if re.fullmatch(r"(?:-{3,}|_{3,}|\*{3,})", stripped):
             flush_paragraph()
             continue
         if re.match(r"^\s*(?:[-*+]|\d+[.)])\s+", line):
@@ -436,10 +500,20 @@ def deterministic_slide_allocation(
     included, excluded = _select_fragments_for_mode(fragments, mode)
     section_index = {section.section_id: section for section in document.sections}
     capacity = _THEME_PAGE_CAPACITY[theme]
+    chapters = [
+        section
+        for section in sorted(document.sections, key=lambda item: item.position)
+        if section.level == 1
+    ]
+    chapter_ids = {
+        _chapter_id_for_section(fragment.section_id, section_index)
+        for fragment in included
+    }
     pages: list[PlannedPageV2] = [
         PlannedPageV2(
             page_id="slide:title",
             layout="cover",
+            narrative_role="orientation",
             derived_text=[DerivedTextV1(
                 text=document.title,
                 purpose="navigation",
@@ -453,69 +527,179 @@ def deterministic_slide_allocation(
                     text=section.title,
                     purpose="section_label",
                 )
-                for section in sorted(document.sections, key=lambda item: item.position)
-                if any(fragment.section_id == section.section_id for fragment in included)
+                for section in chapters
+                if section.section_id in chapter_ids
             ][:10],
+            narrative_role="orientation",
         ),
     ]
+
     grouped: dict[tuple[str, str], list[ContentFragmentV1]] = {}
     for fragment in included:
         grouped.setdefault((fragment.section_id, fragment.block_id), []).append(fragment)
-    for (section_id, block_id), block_fragments in grouped.items():
-        section = section_index.get(section_id)
-        appendix = mode == "teaching" and (
-            block_fragments[0].role in _APPENDIX_ROLES
-            or bool(section and section.level >= 3)
-        )
-        chunks = _paginate_fragments(
-            block_fragments,
-            capacity,
-            appendix=appendix,
-        )
-        for chunk_index, chunk in enumerate(chunks):
-            page_id = f"slide:{block_id}:{chunk_index + 1}"
-            source_layout = _layout_for_fragments(chunk)
-            layout = (
-                source_layout
-                if appendix and _has_atomic_fragment(chunk)
-                else "appendix"
-                if appendix
-                else source_layout
-            )
-            derived = []
-            if chunk_index:
-                derived.append(DerivedTextV1(
-                    text="续",
-                    purpose="continuation",
-                    derived_from=[item.fragment_id for item in chunk],
-                ))
-            allocated_page = PlannedPageV2(
-                page_id=page_id,
-                layout=layout,
-                fragment_ids=[item.fragment_id for item in chunk],
-                appendix=appendix,
-                derived_text=derived,
-            )
-            pages.extend(_expand_reveal_pages(allocated_page, chunk))
 
-    non_appendix = [page for page in pages if not page.appendix]
-    appendix_pages = [page for page in pages if page.appendix]
+    source_runs: list[dict[str, Any]] = []
+    for (section_id, block_id), block_fragments in grouped.items():
+        for run_index, run_fragments in enumerate(_semantic_fragment_runs(block_fragments), start=1):
+            section = section_index.get(section_id)
+            source_runs.append({
+                "run_id": f"{block_id}:{run_index}",
+                "section_id": section_id,
+                "block_id": block_id,
+                "chapter_id": _chapter_id_for_section(section_id, section_index),
+                "topic_id": _topic_id_for_section(section_id, section_index),
+                "section_level": section.level if section else 1,
+                "fragments": run_fragments,
+                "narrative_role": _narrative_role_for_run(run_fragments),
+                "source_role": run_fragments[0].role,
+                "has_heading": any(
+                    fragment.kind == "heading"
+                    for fragment in run_fragments
+                ),
+            })
+
+    mainline_run_ids = _select_mainline_run_ids(source_runs, mode)
+    appendix_pages: list[PlannedPageV2] = []
+    chapter_order = [
+        chapter.section_id for chapter in chapters
+        if chapter.section_id in chapter_ids
+    ]
+    chapter_order.extend([
+        chapter_id
+        for chapter_id in dict.fromkeys(run["chapter_id"] for run in source_runs)
+        if chapter_id not in chapter_order
+    ])
+
+    for chapter_number, chapter_id in enumerate(chapter_order, start=1):
+        chapter = section_index.get(chapter_id)
+        chapter_runs = [
+            run for run in source_runs
+            if run["chapter_id"] == chapter_id
+        ]
+        mainline_runs = [
+            run for run in chapter_runs
+            if run["run_id"] in mainline_run_ids
+        ]
+        if not mainline_runs:
+            for run in chapter_runs:
+                appendix_pages.extend(_allocate_run_pages(
+                    run,
+                    capacity=capacity,
+                    appendix=True,
+                ))
+            continue
+
+        chapter_title = chapter.title if chapter else f"第 {chapter_number} 章"
+        has_topic_sections = any(
+            section.level == 2
+            and _chapter_id_for_section(section.section_id, section_index) == chapter_id
+            for section in document.sections
+        )
+        chapter_intro_runs = [
+            run
+            for run in mainline_runs
+            if run["section_level"] == 1
+            and (run["source_role"] == "orientation" or has_topic_sections)
+            and not _has_atomic_fragment(run["fragments"])
+        ][:1]
+        chapter_intro_fragments = [
+            fragment
+            for run in chapter_intro_runs
+            for fragment in run["fragments"]
+        ]
+        if (
+            len(chapter_intro_fragments) > 8
+            or sum(len(fragment.text) for fragment in chapter_intro_fragments) > 90
+        ):
+            chapter_intro_runs = []
+            chapter_intro_fragments = []
+        chapter_intro_run_ids = {
+            run["run_id"] for run in chapter_intro_runs
+        }
+        topic_sections = [
+            section
+            for section in sorted(document.sections, key=lambda item: item.position)
+            if section.level == 2
+            and _chapter_id_for_section(section.section_id, section_index) == chapter_id
+        ]
+        pages.append(PlannedPageV2(
+            page_id=f"slide:chapter:{chapter_id}",
+            layout="section-divider",
+            fragment_ids=[
+                fragment.fragment_id
+                for fragment in chapter_intro_fragments
+            ],
+            narrative_role="orientation",
+            section_id=chapter_id,
+            chapter_id=chapter_id,
+            derived_text=[
+                DerivedTextV1(
+                    text=chapter_title,
+                    purpose="section_label",
+                ),
+                *[
+                    DerivedTextV1(
+                        text=section.title,
+                        purpose="navigation",
+                    )
+                    for section in topic_sections[:6]
+                ],
+            ],
+        ))
+        for run in mainline_runs:
+            if run["run_id"] in chapter_intro_run_ids:
+                continue
+            pages.extend(_allocate_run_pages(
+                run,
+                capacity=capacity,
+                appendix=False,
+            ))
+        pages.append(PlannedPageV2(
+            page_id=f"slide:chapter-recap:{chapter_id}",
+            layout="summary",
+            narrative_role="recap",
+            section_id=chapter_id,
+            chapter_id=chapter_id,
+            derived_text=[
+                DerivedTextV1(
+                    text=chapter_title,
+                    purpose="section_label",
+                ),
+                *[
+                    DerivedTextV1(
+                        text=section.title,
+                        purpose="navigation",
+                    )
+                    for section in topic_sections[:8]
+                ],
+            ],
+        ))
+        for run in chapter_runs:
+            if run["run_id"] not in mainline_run_ids:
+                appendix_pages.extend(_allocate_run_pages(
+                    run,
+                    capacity=capacity,
+                    appendix=True,
+                ))
+
     if appendix_pages:
         appendix_ids = [fragment_id for page in appendix_pages for fragment_id in page.fragment_ids]
-        non_appendix.append(PlannedPageV2(
+        pages.append(PlannedPageV2(
             page_id="slide:appendix-divider",
             layout="section-divider",
             appendix=True,
+            narrative_role="appendix",
             derived_text=[DerivedTextV1(
                 text="补充材料",
                 purpose="appendix_label",
                 derived_from=appendix_ids,
             )],
         ))
-    pages = non_appendix + appendix_pages
+    pages.extend(appendix_pages)
     pages.append(PlannedPageV2(
         page_id="slide:summary",
         layout="summary",
+        narrative_role="recap",
         derived_text=[DerivedTextV1(text="课程回顾", purpose="navigation")],
     ))
     plan = SlideAllocationPlanV2(
@@ -533,6 +717,219 @@ def deterministic_slide_allocation(
     )
     validate_allocation_plan(plan, fragments)
     return plan
+
+
+def _chapter_id_for_section(
+    section_id: str,
+    sections: dict[str, CourseSection],
+) -> str:
+    section = sections.get(section_id)
+    if not section:
+        return section_id
+    visited: set[str] = set()
+    while section.parent_section_id and section.parent_section_id not in visited:
+        visited.add(section.section_id)
+        parent = sections.get(section.parent_section_id)
+        if not parent:
+            break
+        section = parent
+    return section.section_id
+
+
+def _topic_id_for_section(
+    section_id: str,
+    sections: dict[str, CourseSection],
+) -> str:
+    section = sections.get(section_id)
+    if not section:
+        return section_id
+    visited: set[str] = set()
+    while section.level > 2 and section.parent_section_id not in visited:
+        visited.add(section.section_id)
+        parent = sections.get(section.parent_section_id or "")
+        if not parent:
+            break
+        section = parent
+    return section.section_id
+
+
+def _semantic_fragment_runs(
+    fragments: list[ContentFragmentV1],
+) -> list[list[ContentFragmentV1]]:
+    runs: list[list[ContentFragmentV1]] = []
+    current: list[ContentFragmentV1] = []
+    for fragment in fragments:
+        if (
+            fragment.kind == "heading"
+            and current
+            and any(item.kind != "heading" for item in current)
+        ):
+            runs.append(current)
+            current = []
+        current.append(fragment)
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _narrative_role_for_run(
+    fragments: list[ContentFragmentV1],
+) -> str:
+    heading = next(
+        (fragment.text for fragment in fragments if fragment.kind == "heading"),
+        "",
+    )
+    normalized = re.sub(r"\s+", "", heading).lower()
+    keyword_roles = (
+        ("checkpoint", ("思考", "挑战", "问题", "练习", "检查", "question", "challenge", "practice", "check")),
+        ("misconception", ("误区", "易错", "反例", "misconception", "pitfall", "counterexample")),
+        ("example", ("案例", "应用", "示例", "实战", "example", "application", "case")),
+        ("method", ("方法", "步骤", "实现", "技术", "算法", "method", "implementation", "algorithm", "procedure")),
+        ("reasoning", ("原理", "机制", "推导", "证明", "深度", "principle", "mechanism", "derivation", "proof", "deep")),
+        ("recap", ("总结", "小结", "回顾", "summary", "recap")),
+        ("concept", ("核心", "概念", "背景", "定义", "引入", "core", "concept", "background", "definition", "idea")),
+    )
+    for role, keywords in keyword_roles:
+        if any(keyword in normalized for keyword in keywords):
+            return role
+    source_role = fragments[0].role if fragments else "concept"
+    return {
+        "orientation": "orientation",
+        "objective": "orientation",
+        "reasoning": "reasoning",
+        "example": "example",
+        "application": "example",
+        "misconception": "misconception",
+        "checkpoint": "checkpoint",
+        "activity": "checkpoint",
+        "summary": "recap",
+        "transfer": "example",
+    }.get(source_role, "concept" if not heading else "appendix")
+
+
+def _select_mainline_run_ids(
+    runs: list[dict[str, Any]],
+    mode: SlideDeckMode,
+) -> set[str]:
+    if mode != "teaching":
+        return {run["run_id"] for run in runs}
+
+    selected: set[str] = set()
+    detailed_by_topic: dict[str, list[dict[str, Any]]] = {}
+    for run in runs:
+        if run["source_role"] in _APPENDIX_ROLES:
+            continue
+        if run["section_level"] <= 2:
+            selected.add(run["run_id"])
+            continue
+        detailed_by_topic.setdefault(run["topic_id"], []).append(run)
+
+    # A teaching topic follows a compact learning arc.  One source run per
+    # narrative job is promoted; all remaining verbatim detail stays available
+    # in the appendix.
+    teachable_roles = {
+        "orientation",
+        "concept",
+        "reasoning",
+        "method",
+        "example",
+        "misconception",
+        "checkpoint",
+        "recap",
+    }
+    for topic_runs in detailed_by_topic.values():
+        used_roles: set[str] = set()
+        for run in topic_runs:
+            role = run["narrative_role"]
+            if not run["has_heading"] and run["source_role"] == "concept":
+                continue
+            if role in teachable_roles and role not in used_roles:
+                selected.add(run["run_id"])
+                used_roles.add(role)
+    return selected
+
+
+def _allocate_run_pages(
+    run: dict[str, Any],
+    *,
+    capacity: int,
+    appendix: bool,
+) -> list[PlannedPageV2]:
+    fragments: list[ContentFragmentV1] = run["fragments"]
+    heading = fragments[0] if fragments and fragments[0].kind == "heading" else None
+    body_fragments = fragments[1:] if heading else fragments
+    raw_chunks = _paginate_fragments(
+        body_fragments,
+        capacity,
+        appendix=appendix,
+    ) or [[]]
+    maximum_body_fragments = (
+        4
+        if not appendix and run["narrative_role"] == "misconception"
+        else 7
+        if heading
+        else 8
+    )
+    chunks = [
+        fragment_slice
+        for chunk in raw_chunks
+        for fragment_slice in (
+            [
+                chunk[index:index + maximum_body_fragments]
+                for index in range(0, len(chunk), maximum_body_fragments)
+            ]
+            if len(chunk) > maximum_body_fragments
+            else [chunk]
+        )
+    ]
+    allocated: list[PlannedPageV2] = []
+    for chunk_index, body_chunk in enumerate(chunks, start=1):
+        chunk = [
+            *([heading] if heading and chunk_index == 1 else []),
+            *body_chunk,
+        ]
+        derived: list[DerivedTextV1] = []
+        if heading:
+            derived.append(DerivedTextV1(
+                text=heading.text,
+                purpose="page_title",
+                derived_from=[heading.fragment_id],
+            ))
+        if chunk_index > 1:
+            derived.append(DerivedTextV1(
+                text="续",
+                purpose="continuation",
+                derived_from=[item.fragment_id for item in chunk],
+            ))
+        narrative_role = (
+            "appendix" if appendix else run["narrative_role"]
+        )
+        source_layout = _layout_for_fragments(
+            chunk,
+            narrative_role=narrative_role,
+        )
+        layout = (
+            source_layout
+            if appendix and _has_atomic_fragment(chunk)
+            else "appendix"
+            if appendix
+            else source_layout
+        )
+        page = PlannedPageV2(
+            page_id=(
+                f"slide:{run['block_id']}:run:{run['run_id'].rsplit(':', 1)[-1]}"
+                f":page:{chunk_index}"
+            ),
+            layout=layout,
+            fragment_ids=[item.fragment_id for item in chunk],
+            appendix=appendix,
+            derived_text=derived,
+            narrative_role=narrative_role,
+            section_id=run["section_id"],
+            chapter_id=run["chapter_id"],
+        )
+        allocated.extend(_expand_reveal_pages(page, chunk))
+    return allocated
 
 
 def _select_fragments_for_mode(
@@ -574,7 +971,7 @@ def _paginate_fragments(
             or len(current) >= page_limit
             or (
                 not appendix
-                and _estimated_materialized_block_count(candidate) > 3
+                and _estimated_materialized_block_count(candidate) > 2
             )
             or (not appendix and not _fits_materialized_layout(candidate))
             or (fragment.kind == "code" and current)
@@ -666,14 +1063,18 @@ def _fits_materialized_layout(fragments: list[ContentFragmentV1]) -> bool:
     return True
 
 
-def _layout_for_fragments(fragments: list[ContentFragmentV1]) -> str:
+def _layout_for_fragments(
+    fragments: list[ContentFragmentV1],
+    *,
+    narrative_role: str = "",
+) -> str:
     kinds = {item.kind for item in fragments}
-    role = fragments[0].role if fragments else "concept"
+    role = narrative_role or (fragments[0].role if fragments else "concept")
     if "code" in kinds:
         return "code"
     if "formula" in kinds:
         return "formula"
-    if role == "objective":
+    if role in {"orientation", "objective"}:
         return "objective-cards"
     if role in {"example", "application"}:
         return "case-study"
@@ -683,11 +1084,20 @@ def _layout_for_fragments(fragments: list[ContentFragmentV1]) -> str:
         return "question"
     list_items = [item for item in fragments if item.kind == "list_item"]
     if (
-        role in {"reasoning", "process"} or len(list_items) >= 3
-    ) and list_items and all(len(item.text) <= 48 for item in list_items):
+        role in {"method", "process"} or len(list_items) >= 3
+    ) and (
+        kinds <= {"heading", "list_item"}
+        and sum(item.kind == "heading" for item in fragments) <= 1
+        and list_items
+        and all(len(item.text) <= 48 for item in list_items)
+    ):
         return "process"
-    if role == "summary":
+    if role == "reasoning":
+        return "two-column" if len(fragments) >= 2 else "editorial-body"
+    if role in {"summary", "recap"}:
         return "summary"
+    if role == "concept" and len(fragments) <= 2:
+        return "hero-statement"
     if kinds == {"list_item"} and len(fragments) >= 4:
         return "concept-cards"
     if len(fragments) == 2:
@@ -701,6 +1111,8 @@ def _expand_reveal_pages(
 ) -> list[PlannedPageV2]:
     """Turn process pages into cumulative, PowerPoint-compatible reveal steps."""
     if page.appendix or page.layout not in {"process", "timeline", "cycle"}:
+        return [page]
+    if any(fragment.kind != "list_item" for fragment in fragments):
         return [page]
     if len(fragments) < 3 or len(fragments) > 5:
         return [page]
@@ -738,9 +1150,32 @@ def validate_allocation_plan(
         raise ValueError("Slide allocation duplicates excluded fragments")
     if catalog and not referenced:
         raise ValueError("Slide allocation must include at least one source fragment")
-    ordered = [catalog[fragment_id].ordinal for fragment_id in referenced]
-    if ordered != sorted(ordered):
-        raise ValueError("Slide allocation changes source fragment order")
+    page_groups = (
+        [
+            [page for page in plan.pages if not page.appendix],
+            [page for page in plan.pages if page.appendix],
+        ]
+        if plan.mode == "teaching"
+        else [plan.pages]
+    )
+    for pages in page_groups:
+        ordered = [
+            catalog[fragment_id].ordinal
+            for fragment_id in _allocated_fragment_ids_from_pages(pages)
+        ]
+        if ordered != sorted(ordered):
+            inversion = next(
+                (
+                    (ordered[index - 1], ordered[index])
+                    for index in range(1, len(ordered))
+                    if ordered[index] < ordered[index - 1]
+                ),
+                ("?", "?"),
+            )
+            raise ValueError(
+                "Slide allocation changes source fragment order "
+                f"({inversion[0]} before {inversion[1]})"
+            )
     if plan.mode in {"full", "teaching"}:
         if set(referenced) != set(catalog) or excluded:
             raise ValueError("Full and teaching modes require complete source coverage")
@@ -753,16 +1188,22 @@ def validate_allocation_plan(
 
 def _allocated_fragment_ids(plan: SlideAllocationPlanV2) -> list[str]:
     """Return each allocated source fragment once, validating reveal sequences."""
+    return _allocated_fragment_ids_from_pages(plan.pages)
+
+
+def _allocated_fragment_ids_from_pages(
+    plan_pages: list[PlannedPageV2],
+) -> list[str]:
     sequence_groups: dict[str, list[PlannedPageV2]] = {}
-    for page in plan.pages:
+    for page in plan_pages:
         if page.sequence_id:
             sequence_groups.setdefault(page.sequence_id, []).append(page)
     sequence_fragments: dict[str, list[str]] = {}
-    for sequence_id, pages in sequence_groups.items():
-        ordered = sorted(pages, key=lambda item: item.step_index)
+    for sequence_id, sequence_pages in sequence_groups.items():
+        ordered = sorted(sequence_pages, key=lambda item: item.step_index)
         if [item.step_index for item in ordered] != list(range(1, len(ordered) + 1)):
             raise ValueError(f"Reveal sequence '{sequence_id}' has invalid step indexes")
-        positions = sorted(plan.pages.index(item) for item in pages)
+        positions = sorted(plan_pages.index(item) for item in sequence_pages)
         if positions != list(range(positions[0], positions[0] + len(positions))):
             raise ValueError(f"Reveal sequence '{sequence_id}' pages must be contiguous")
         final_ids = ordered[-1].fragment_ids
@@ -774,7 +1215,7 @@ def _allocated_fragment_ids(plan: SlideAllocationPlanV2) -> list[str]:
 
     allocated: list[str] = []
     emitted_sequences: set[str] = set()
-    for page in plan.pages:
+    for page in plan_pages:
         if not page.sequence_id:
             allocated.extend(page.fragment_ids)
             continue
@@ -989,6 +1430,95 @@ def _materialize_page(
             blocks=[],
             source_keys=["course_document"],
         )
+    if page.page_id.startswith("slide:chapter:"):
+        labels = [
+            _display_text(item.text)
+            for item in page.derived_text
+            if item.purpose == "navigation"
+        ]
+        title = next(
+            (
+                _display_text(item.text)
+                for item in page.derived_text
+                if item.purpose == "section_label"
+            ),
+            "课程章节",
+        )
+        return SlideSpec(
+            unit_id=page.page_id,
+            position=0,
+            layout="chapter",
+            slide_purpose="chapter_open",
+            eyebrow="章节导入",
+            title=title,
+            key_message=(
+                " ".join(_display_text(fragment.text) for fragment in fragments)
+                if fragments
+                else
+                " → ".join(labels[:4])
+                if labels
+                else "本章将从核心问题出发逐步展开。"
+            ),
+            blocks=[],
+            section_id=fragments[0].section_id if fragments else None,
+            source_section_ids=(
+                list(dict.fromkeys(fragment.section_id for fragment in fragments))
+                if fragments
+                else [page.section_id] if page.section_id else []
+            ),
+            source_block_ids=list(dict.fromkeys(
+                fragment.block_id for fragment in fragments
+            )),
+            source_keys=(
+                [f"block:{fragment.block_id}" for fragment in fragments]
+                if fragments
+                else ["course_document"]
+            ),
+            quality={
+                "fragment_ids": [
+                    fragment.fragment_id for fragment in fragments
+                ],
+                "source_hashes": {
+                    fragment.fragment_id: fragment.source_hash
+                    for fragment in fragments
+                },
+                "requested_layout": page.layout,
+                "narrative_role": page.narrative_role,
+                "chapter_id": page.chapter_id,
+            },
+        )
+    if page.page_id.startswith("slide:chapter-recap:") and not fragments:
+        labels = [
+            _display_text(item.text)
+            for item in page.derived_text
+            if item.purpose == "navigation"
+        ]
+        chapter_title = next(
+            (
+                _display_text(item.text)
+                for item in page.derived_text
+                if item.purpose == "section_label"
+            ),
+            "本章",
+        )
+        return SlideSpec(
+            unit_id=page.page_id,
+            position=0,
+            layout="recap",
+            slide_purpose="chapter_recap",
+            eyebrow="本章回顾",
+            title=f"{chapter_title}：知识链回顾",
+            key_message="回看本章各主题之间的递进关系。",
+            blocks=[SlideBlockSpec(
+                block_id=f"{page.page_id}:recap",
+                type="process",
+                items=labels or [chapter_title],
+                metadata={"derived_text": True},
+            )],
+            section_id=None,
+            source_section_ids=[page.section_id] if page.section_id else [],
+            source_keys=["course_document"],
+        )
 
     first = fragments[0] if fragments else None
     section = sections.get(first.section_id if first else "")
@@ -1003,11 +1533,29 @@ def _materialize_page(
             _display_text(section.title) if section else "课程内容"
         )
     )
+    source_page_title = next(
+        (
+            _display_text(item.text)
+            for item in page.derived_text
+            if item.purpose == "page_title"
+        ),
+        "",
+    )
+    if source_page_title:
+        title = source_page_title
     if page.derived_text and any(item.purpose == "continuation" for item in page.derived_text):
         title = f"{title}（续）"
-    slide_blocks = _slide_blocks_from_fragments(page, fragments)
+    body_fragments = list(fragments)
+    if (
+        source_page_title
+        and body_fragments
+        and body_fragments[0].kind == "heading"
+        and _display_text(body_fragments[0].text) == source_page_title
+    ):
+        body_fragments = body_fragments[1:]
+    slide_blocks = _slide_blocks_from_fragments(page, body_fragments)
     mapped_layout = _renderer_layout(page.layout)
-    role = first.role if first else "summary"
+    role = page.narrative_role or (first.role if first else "summary")
     return SlideSpec(
         unit_id=page.page_id,
         position=0,
@@ -1035,6 +1583,8 @@ def _materialize_page(
             "sequence_id": page.sequence_id,
             "step_index": page.step_index,
             "requested_layout": page.layout,
+            "narrative_role": page.narrative_role,
+            "chapter_id": page.chapter_id,
         },
     )
 
@@ -1201,15 +1751,18 @@ def _renderer_layout(layout: str) -> str:
 
 def _role_label(role: str) -> str:
     return {
+        "orientation": "问题导入",
         "objective": "学习目标",
         "concept": "核心概念",
         "reasoning": "推理过程",
+        "method": "方法步骤",
         "example": "案例",
         "misconception": "常见误区",
         "application": "应用",
         "activity": "课堂活动",
         "checkpoint": "理解检查",
         "summary": "本节小结",
+        "recap": "知识回顾",
         "transfer": "迁移应用",
         "prerequisite": "前置知识",
         "counterexample": "反例",
