@@ -18,7 +18,7 @@
       <span v-else-if="live" class="generation-lesson-plan__working">
         <LoaderCircle :size="14" />
         {{ t('courseGeneration.lessonPlan.generating', '正在规划') }}
-        <b>{{ taskProgress }}%</b>
+        <b>{{ completedSections }}/{{ totalSections }}</b>
       </span>
     </header>
 
@@ -106,7 +106,19 @@ const sections = computed(() => lessonNodes.value.map(node => ({
   plan: planByNode.value.get(node.node_id),
 })))
 const planReady = computed(() => props.plan?.status === 'completed' && Boolean(props.plan.sections?.length))
-const taskProgress = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0)))))
+const completedSections = computed(() => Number(
+  props.task?.recovery?.checkpoint?.completed_teaching_plan_sections
+  ?? props.task?.phaseDetail?.completed_items
+  ?? props.plan?.sections?.length
+  ?? 0,
+))
+const totalSections = computed(() => Number(
+  props.task?.recovery?.checkpoint?.total_teaching_plan_sections
+  ?? props.task?.phaseDetail?.total_items
+  ?? props.plan?.section_count
+  ?? sections.value.length
+  ?? 0,
+))
 const moduleCount = computed(() => (props.plan?.sections || []).reduce(
   (sum, section) => sum + (section.teaching_modules?.length || 0),
   0,
@@ -119,7 +131,7 @@ const knowledgeCount = computed(() => (props.plan?.sections || []).reduce(
 
 <style scoped>
 .generation-lesson-plan { min-height:0; flex:1; overflow:auto; padding:38px clamp(24px,4.5vw,72px) 88px; background:radial-gradient(circle at 88% 4%,rgba(99,102,241,.07),transparent 28%),linear-gradient(180deg,#f9f9fc 0%,#f5f6fa 100%); }
-.generation-lesson-plan__header { width:min(1180px,100%); display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:34px; margin:0 auto 28px; padding:0 2px 25px; border-bottom:1px solid #dfe3eb; }
+.generation-lesson-plan__header { width:min(1160px,100%); display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:34px; margin:0 auto 28px; padding:0 2px 25px; border-bottom:1px solid #dfe3eb; }
 .generation-lesson-plan__header > div > span { color:#5b61cf; font-size:12px; font-weight:850; line-height:1.4; letter-spacing:.08em; }
 .generation-lesson-plan__header h2 { margin:7px 0 6px; color:#182230; font:700 clamp(31px,3vw,39px)/1.16 Georgia,"Noto Serif SC",serif; letter-spacing:-.025em; }
 .generation-lesson-plan__header p { margin:0; color:#697386; font-size:14px; line-height:1.7; }
@@ -131,7 +143,7 @@ const knowledgeCount = computed(() => (props.plan?.sections || []).reduce(
 .generation-lesson-plan__working { display:inline-flex; align-items:center; gap:7px; color:#5b61cf; font-size:13px; font-weight:750; }
 .generation-lesson-plan__working b { padding-left:3px; color:#71798a; font:700 12px/1 ui-monospace,SFMono-Regular,monospace; }
 .generation-lesson-plan__working svg,.generation-lesson-plan__empty svg { animation:lesson-plan-spin .9s linear infinite; }
-.generation-lesson-plan__sections { width:min(1180px,100%); display:grid; gap:18px; margin:0 auto; }
+.generation-lesson-plan__sections { width:min(1160px,100%); display:grid; gap:18px; margin:0 auto; }
 .generation-lesson-plan__sections > article { position:relative; display:grid; grid-template-columns:68px minmax(0,1fr); overflow:hidden; border:1px solid rgba(218,222,231,.94); border-radius:17px; background:rgba(255,255,255,.97); box-shadow:0 10px 28px rgba(40,48,70,.055); cursor:pointer; transition:border-color .18s,box-shadow .18s,transform .18s; }
 .generation-lesson-plan__sections > article::before { content:""; position:absolute; top:0; bottom:0; left:0; width:3px; background:transparent; transition:background .18s; }
 .generation-lesson-plan__sections > article:hover,.generation-lesson-plan__sections > article.is-active { border-color:#b5b9ee; box-shadow:0 15px 34px rgba(79,70,229,.095); transform:translateY(-2px); }

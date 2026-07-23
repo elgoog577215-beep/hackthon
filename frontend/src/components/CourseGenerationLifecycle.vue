@@ -57,23 +57,39 @@ const props = withDefaults(defineProps<{
 })
 
 const stages = computed(() => [
-  { key: 'requirements', label: t('courseGeneration.lifecycle.requirements', '需求') },
-  { key: 'outline', label: t('courseGeneration.lifecycle.outline', '目录') },
-  { key: 'teaching', label: t('courseGeneration.lifecycle.teaching', '教案与知识库') },
-  { key: 'content', label: t('courseGeneration.lifecycle.content', '正文生成') },
-  { key: 'release', label: t('courseGeneration.lifecycle.release', '确认发布') },
+  { key: 'outline', backendIndex: 1, label: t('courseGeneration.lifecycle.outline', '目录确认') },
+  { key: 'teaching', backendIndex: 2, label: t('courseGeneration.lifecycle.teaching', '教案确认') },
+  { key: 'content', backendIndex: 3, label: t('courseGeneration.lifecycle.content', '正文生成') },
+  { key: 'release', backendIndex: 4, label: t('courseGeneration.lifecycle.release', '确认发布') },
 ])
-const activeIndex = computed(() => courseProductionStageIndex(props.task))
+const backendStageIndex = computed(() => courseProductionStageIndex(props.task))
+const activeIndex = computed(() => Math.max(0, Math.min(stages.value.length - 1, backendStageIndex.value - 1)))
 const currentStatus = computed(() => stageStatus(activeIndex.value))
 const progressValue = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0)))))
 const currentValue = computed(() => (
   currentStatus.value === 'active' || currentStatus.value === 'completed'
-    ? `${progressValue.value}%`
+    ? liveCount.value || `${progressValue.value}%`
     : stageStatusLabel(activeIndex.value)
 ))
 
+const liveCount = computed(() => {
+  const checkpoint = props.task?.recovery?.checkpoint
+  const detail = props.task?.phaseDetail || {}
+  if (activeIndex.value === 1) {
+    const completed = Number(checkpoint?.completed_teaching_plan_sections ?? detail.completed_items ?? 0)
+    const total = Number(checkpoint?.total_teaching_plan_sections ?? detail.total_items ?? 0)
+    return total ? `${completed}/${total}` : ''
+  }
+  if (activeIndex.value === 2) {
+    const completed = Number(props.task?.completedNodes ?? checkpoint?.completed_nodes ?? detail.completed_items ?? 0)
+    const total = Number(props.task?.totalNodes ?? checkpoint?.total_nodes ?? detail.total_items ?? 0)
+    return total ? `${completed}/${total}` : ''
+  }
+  return ''
+})
+
 function stageStatus(index: number) {
-  return courseProductionStageStatus(props.task, index)
+  return courseProductionStageStatus(props.task, stages.value[index]?.backendIndex ?? index)
 }
 
 function stageStatusLabel(index: number) {
@@ -162,7 +178,7 @@ function stageStatusLabel(index: number) {
 .generation-lifecycle ol {
   width:100%;
   display:grid;
-  grid-template-columns:repeat(5,minmax(0,1fr));
+  grid-template-columns:repeat(4,minmax(0,1fr));
   margin:0;
   padding:0;
   list-style:none;

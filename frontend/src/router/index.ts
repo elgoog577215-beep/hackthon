@@ -14,7 +14,12 @@ const routes: Array<RouteRecordRaw> = [
   },
   {
     path: '/course/:courseId',
-    redirect: to => ({ name: 'learning', params: { courseId: to.params.courseId } })
+    redirect: to => ({ name: 'course-workbench', params: { courseId: to.params.courseId } })
+  },
+  {
+    path: '/course/:courseId/workbench',
+    name: 'course-workbench',
+    component: () => import('../views/CourseWorkbenchView.vue')
   },
   {
     path: '/course/:courseId/learn/:nodeId?',

@@ -56,7 +56,7 @@ describe('CourseProductionStage', () => {
     })
 
     expect(wrapper.attributes('data-state')).toBe('error')
-    expect(wrapper.text()).toContain('目录 · 已中断')
+    expect(wrapper.text()).toContain('目录确认 · 已中断')
     expect(wrapper.text()).toContain('量子力学')
     expect(wrapper.text()).toContain('目录会在最终位置逐步出现')
     expect(wrapper.text()).toContain('课程生产暂时中断')
@@ -88,10 +88,30 @@ describe('CourseProductionStage', () => {
   it('阶段条把当前目录标成中断而不是进行中', () => {
     const wrapper = mount(CourseGenerationLifecycle, { props: { task: interruptedTask } })
     const stages = wrapper.findAll('li')
-    expect(stages).toHaveLength(5)
-    expect(stages[0]!.attributes('data-status')).toBe('completed')
-    expect(stages[1]!.attributes('data-status')).toBe('error')
-    expect(stages[1]!.attributes('aria-label')).toContain('已中断')
+    expect(stages).toHaveLength(4)
+    expect(stages[0]!.attributes('data-status')).toBe('error')
+    expect(stages[0]!.attributes('aria-label')).toContain('已中断')
+    expect(stages[1]!.attributes('data-status')).toBe('pending')
+    expect(stages[2]!.attributes('data-status')).toBe('pending')
+    expect(stages[3]!.attributes('data-status')).toBe('pending')
+  })
+
+  it('教案确认后启动正文失败时按正文阶段显示中断', () => {
+    const task: Task = {
+      ...interruptedTask,
+      currentPhase: 'teaching_plan_ready',
+      guidedWorkflow: {
+        ...interruptedTask.guidedWorkflow!,
+        current_step: 'content',
+        steps: interruptedTask.guidedWorkflow!.steps,
+      },
+    }
+    const wrapper = mount(CourseGenerationLifecycle, { props: { task } })
+    const stages = wrapper.findAll('li')
+
+    expect(stages[1]!.attributes('data-status')).toBe('completed')
+    expect(stages[2]!.attributes('data-status')).toBe('error')
+    expect(stages[2]!.attributes('aria-label')).toContain('已中断')
   })
 
   it('把真实目录检查点投影为可展开的生长树', async () => {

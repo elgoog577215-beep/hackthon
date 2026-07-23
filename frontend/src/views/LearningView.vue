@@ -67,7 +67,7 @@
       />
 
       <GenerationLessonPlan
-        v-if="activeWorkspaceItem === 'lesson-plan'"
+        v-if="activeWorkspaceItem === 'lesson-plan' || showTeachingReview"
         :plan="courseStore.currentTeachingPlan"
         :nodes="courseStore.nodes"
         :active-node-id="courseStore.currentNode?.node_id"
@@ -303,6 +303,7 @@ const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
+const workflowOpenedAi = ref(false)
 const notebookOpen = ref(false)
 const mistakeBookOpen = ref(false)
 const statsOpen = ref(false)
@@ -362,6 +363,11 @@ const showOutlineReview = computed(() => Boolean(
   && activeWorkspaceItem.value === 'course'
   && generationTask.value?.status === 'waiting_for_review'
   && generationTask.value?.guidedWorkflow?.review_step === 'outline'
+))
+const showTeachingReview = computed(() => Boolean(
+  isGenerationPreview.value
+  && generationTask.value?.status === 'waiting_for_review'
+  && generationTask.value?.guidedWorkflow?.review_step === 'teaching'
 ))
 const showProductionStage = computed(() => Boolean(
   isGenerationPreview.value
@@ -706,7 +712,7 @@ async function resumeGenerationTask() {
   }
 }
 
-function handleGenerationGateConfirmed(_step?: 'outline' | 'content' | 'release') {
+function handleGenerationGateConfirmed(_step?: 'outline' | 'teaching' | 'content' | 'release') {
   autoFollowGeneration.value = true
   activeWorkspaceItem.value = 'course'
 }
@@ -729,6 +735,25 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   if (isNarrow.value) navigatorOpen.value = false
 }
 
+watch(
+  () => [route.query.surface, loadedLearningCourseId.value] as const,
+  ([surface, loadedCourseId]) => {
+    const growthRequested = String(surface || '') === 'growth'
+      && Boolean(loadedCourseId)
+      && loadedCourseId === courseStore.currentCourseId
+      && !isGenerationPreview.value
+    if (growthRequested) {
+      openAi()
+      workflowOpenedAi.value = true
+    } else if (workflowOpenedAi.value) {
+      aiVisible.value = false
+      activeDomain.value = 'course'
+      workflowOpenedAi.value = false
+
+    }
+  },
+  { immediate: true },
+)
 function openBlockImprovement(target: CourseBlockEditTarget) {
   activeDomain.value = 'assistant'
   aiBlockTarget.value = target

@@ -228,19 +228,25 @@ export const useCourseStore = defineStore('course', {
             try {
                 const taskRes = await http.get(`/api/courses/${courseId}/task`)
                 const taskData = taskRes.data as Record<string, any> | null
-                if (taskData && taskData.status !== 'none' && taskData.status !== 'error') {
+                if (taskData && taskData.status !== 'none') {
                     backendTask = taskData
                     let localTask = genStore.tasks.get(courseId)
                     if (!localTask) {
                         localTask = genStore.createTask(taskData.id, courseId, '后台生成任务')
                     }
                     localTask.id = taskData.id
-                    localTask.status = taskData.status
+                    localTask.status = normalizeTaskStatus(String(taskData.status || 'pending'))
                     localTask.progress = taskData.progress
                     const phase = taskData.current_phase || taskData.phase
                     if (phase) localTask.currentPhase = String(phase)
                     localTask.phaseProgress = taskData.phase_progress ?? taskData.progress
                     localTask.phaseDetail = taskData.phase_detail || {}
+                    localTask.error = taskData.error ? String(taskData.error) : undefined
+                    localTask.recovery = taskData.recovery || undefined
+                    localTask.guidedWorkflow = taskData.guided_workflow || undefined
+                    if (typeof taskData.publication_allowed === 'boolean') {
+                        localTask.publicationAllowed = taskData.publication_allowed
+                    }
                     if (taskData.status === 'running' || taskData.status === 'pending') {
                         genStore.startGlobalMonitor()
                     }
@@ -264,6 +270,9 @@ export const useCourseStore = defineStore('course', {
             const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`)
             if (res.data?.document) {
                 this.applyCourseDocumentEnvelope(res.data)
+                if (this.nodes.length === 0 && await this.refreshGenerationPreview(courseId)) {
+                    return
+                }
                 void this.fetchCourseAnnotations(courseId)
                 const localTask = genStore.tasks.get(courseId)
                 if (localTask && localTask.courseName === '后台生成任务') {

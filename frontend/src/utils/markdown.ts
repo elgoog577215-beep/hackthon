@@ -261,7 +261,15 @@ const normalizeBalancedDisplayEnvironments = (content: string) => {
         `\\$*\\s*(\\\\begin\\{(${DISPLAY_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{\\2\\})\\s*\\$*`,
         'g'
     );
-    return content.replace(environmentRe, (_match, environment) => `\n$$\n${String(environment).trim()}\n$$\n`);
+    return content.replace(environmentRe, (match, environment, _name, offset) => {
+        // Earlier normalization may have promoted an inline outer expression
+        // such as `span(left($$ matrix $$)right))` to one valid display block.
+        // Do not wrap its balanced matrix environments a second time.
+        const prefix = content.slice(0, Number(offset));
+        const displayDelimiterCount = (prefix.match(/\$\$/g) || []).length;
+        if (displayDelimiterCount % 2 === 1) return match;
+        return `\n$$\n${String(environment).trim()}\n$$\n`;
+    });
 };
 
 // Some generated legacy lessons wrap an otherwise valid `$$ environment $$`
@@ -789,8 +797,8 @@ export const renderMarkdown = (content: string) => {
 
     // --- Pre-processing for Robustness ---
     let normalized = content;
-    normalized = normalizeLegacyDisplayShells(normalized);
     normalized = normalizeNestedDisplayEnvironments(normalized);
+    normalized = normalizeLegacyDisplayShells(normalized);
     normalized = normalized.replace(/\$\$\s*([=+\-])\s*\$\$/g, (_match, op) => `$$\n${op}\n$$`);
     // Recover the common model output `$A =$$$\begin{...}` as one inline
     // prefix followed by a display environment. Do not start inside `$$`.

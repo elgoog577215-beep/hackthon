@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute }">
+  <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute, 'has-course-workflow': isCourseRoute }">
     <header v-if="!isPptRoute" class="app-header glass-panel-elevated">
       <button class="brand-button" type="button" :aria-label="t('app.backToLibrary', '返回课程库')" @click="router.push('/courses')">
         <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
@@ -20,9 +20,9 @@
           </button>
         </label>
 
-        <button type="button" class="header-ppt-button" :title="t('pptWorkspace.open', '打开 PPT 工作台')" @click="openPptWorkspace">
-          <Presentation :size="17" />
-          <span>{{ t('pptWorkspace.shortTitle', 'PPT 工作台') }}</span>
+        <button type="button" class="header-ppt-button" title="打开启智课程闭环" @click="openCourseWorkbench">
+          <Workflow :size="17" />
+          <span>课程闭环</span>
         </button>
 
         <el-popover placement="bottom-end" :width="224" trigger="click">
@@ -84,6 +84,8 @@
       </div>
     </header>
 
+    <CourseWorkflowBar v-if="isCourseRoute" />
+
     <main class="app-main">
       <router-view />
     </main>
@@ -95,7 +97,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Download, Presentation, Scan, Search, Settings2, X } from 'lucide-vue-next'
+import { Download, Scan, Search, Settings2, Workflow, X } from 'lucide-vue-next'
+import CourseWorkflowBar from './components/CourseWorkflowBar.vue'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
@@ -132,6 +135,9 @@ onBeforeUnmount(() => {
 
 const isLearningRoute = computed(() => route.name === 'learning')
 const isPptRoute = computed(() => route.name === 'ppt-workspace')
+const isCourseRoute = computed(() => (
+  route.name === 'course-workbench' || route.name === 'learning' || route.name === 'ppt-workspace'
+))
 const searchQuery = computed({
   get: () => courseStore.globalSearchQuery,
   set: value => { courseStore.globalSearchQuery = value },
@@ -147,9 +153,9 @@ function handleExport(command: string) {
   else courseStore.exportCourseMarkdown()
 }
 
-function openPptWorkspace() {
+function openCourseWorkbench() {
   const courseId = courseStore.currentCourseId || String(route.params.courseId || '')
-  if (courseId) void router.push({ name: 'ppt-workspace', params: { courseId } })
+  if (courseId) void router.push({ name: 'course-workbench', params: { courseId } })
 }
 
 function updateFontSize(event: Event) {
@@ -174,7 +180,8 @@ function changeLocale(locale: 'zh' | 'en') {
   color: var(--lz-text);
   background: transparent;
 }
-.app-shell.is-ppt-workspace { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#e9edf3; }
+.app-shell.has-course-workflow:not(.is-ppt-workspace) { grid-template-rows:60px 52px minmax(0,1fr); gap:8px; }
+.app-shell.is-ppt-workspace { grid-template-rows:52px minmax(0,1fr); gap:0; padding:0; background:#e9edf3; }
 .app-shell.is-ppt-workspace .app-main { border-radius:0; }
 
 .app-header {

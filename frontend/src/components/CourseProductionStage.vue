@@ -465,8 +465,8 @@ const savedSummary = computed(() => savedItems.value.length
   : '')
 const nextDetails = computed<Record<CourseProductionStageKey, string>>(() => ({
   requirements: t('courseGeneration.production.requirementsNext', '需求确认后立即生成课程目录；不会再增加额外确认门。'),
-  outline: t('courseGeneration.production.outlineNext', '目录确认后，系统自动生成全课教案、知识库与各节正文。'),
-  teaching: t('courseGeneration.production.teachingNext', '全课教案汇编通过后，正文会按依赖波次并行生成。'),
+  outline: t('courseGeneration.production.outlineNext', '目录确认后，系统生成全课教案与知识库；教案等待你确认后才开始正文。'),
+  teaching: t('courseGeneration.production.teachingNext', '确认全课教案后，正文会按依赖波次并行生成，并把已完成内容立即显示出来。'),
   content: t('courseGeneration.production.contentNext', '所有小节完成后进入确定性发布检查，不追加 AI 返工循环。'),
   release: t('courseGeneration.production.releaseNext', '确认发布后，当前页面会原地切换为正式学习现场。'),
 }))

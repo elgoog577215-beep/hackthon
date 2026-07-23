@@ -1,3 +1,4 @@
+import asyncio
 import json
 from copy import deepcopy
 
@@ -316,7 +317,7 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert manager.tasks[job["job_id"]]["request_snapshot"]["generation_mode"] == "review_blueprint"
     assert manager.tasks[job["job_id"]]["guided_workflow"]["steps"][0]["status"] == "confirmed"
     assert await manager._task_queue.get() == job["job_id"]
-    await manager._process_task(job["job_id"])
+    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
 
     assert manager.tasks[job["job_id"]]["status"] == "waiting_for_review"
     assert manager.tasks[job["job_id"]]["guided_workflow"]["review_step"] == "outline"
@@ -438,7 +439,7 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates(
+async def test_guided_job_requires_teaching_confirmation_before_content(
     tmp_path,
     monkeypatch,
 ):
@@ -456,7 +457,7 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
     )
     job = await manager.create_generation_job({"subject": "概念课"})
     assert await manager._task_queue.get() == job["job_id"]
-    await manager._process_task(job["job_id"])
+    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
     await manager.confirm_generation_step(job["course_id"], "outline")
     assert await manager._task_queue.get() == job["job_id"]
 
@@ -477,6 +478,27 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
         )
 
     monkeypatch.setattr(manager, "_schedule_nodes", finish_content)
+
+    async def keep_compiled_practice_assets(
+        _task_id,
+        _course,
+        question_bank_bundle,
+        asset_bundle,
+    ):
+        return (
+            question_bank_bundle,
+            asset_bundle,
+            {
+                "target_node_count": 0,
+                "generation_audit": {"model_call_count": 0},
+            },
+        )
+
+    monkeypatch.setattr(
+        manager,
+        "_repair_failed_practice_nodes",
+        keep_compiled_practice_assets,
+    )
     # This workflow test uses deliberately repetitive placeholder content; the
     # quality contract is covered separately. Keep this case on the publishable
     # branch so it tests review-gate sequencing instead of relying on the old
@@ -486,7 +508,17 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
         "_quality_allows_publication",
         lambda _course, _report: True,
     )
-    await manager._process_task(job["job_id"])
+    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
+    task = manager.tasks[job["job_id"]]
+    assert task["status"] == "waiting_for_review"
+    assert task["guided_workflow"]["review_step"] == "teaching"
+    teaching_review = manager.get_generation_review(job["course_id"])
+    assert teaching_review["step"] == "teaching"
+    assert teaching_review["can_confirm"] is True
+
+    await manager.confirm_generation_step(job["course_id"], "teaching")
+    assert await manager._task_queue.get() == job["job_id"]
+    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"
     assert task["guided_workflow"]["review_step"] == "release"
@@ -521,7 +553,7 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
     )
     assert stale_sidecar.exists()
     reopened = await manager.reopen_generation_step(job["course_id"], "outline")
-    assert reopened["invalidated_steps"] == ["content", "release"]
+    assert reopened["invalidated_steps"] == ["teaching", "content", "release"]
     assert task["guided_workflow"]["review_step"] == "outline"
     edited_draft = manager._version_repository.load_draft(job["course_id"])
     edited_draft["nodes"][0]["learning_objective"] = "能够比较概念的内涵与外延"
@@ -539,7 +571,13 @@ async def test_guided_job_compiles_plan_and_knowledge_without_extra_review_gates
         "_quality_allows_publication",
         lambda _course, _report: True,
     )
-    await manager._process_task(job["job_id"])
+    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
+    task = manager.tasks[job["job_id"]]
+    assert task["status"] == "waiting_for_review"
+    assert task["guided_workflow"]["review_step"] == "teaching"
+    await manager.confirm_generation_step(job["course_id"], "teaching")
+    assert await manager._task_queue.get() == job["job_id"]
+    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"
     assert task["guided_workflow"]["review_step"] == "release"

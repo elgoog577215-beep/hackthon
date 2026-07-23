@@ -108,7 +108,7 @@ async def _workspace_manager(tmp_path, monkeypatch, *, task_status: str = "runni
 def _release_workflow(course: dict, request: dict | None = None) -> dict:
     snapshot = request or {}
     workflow = create_guided_workflow(snapshot)
-    for step in ("outline", "content"):
+    for step in ("outline", "teaching", "content"):
         revision = artifact_revision(step, course, request=snapshot)
         mark_waiting(workflow, step, revision=revision)
         confirm_waiting_step(workflow, step, revision=revision)
@@ -151,6 +151,34 @@ async def test_fresh_active_job_is_not_described_as_recovery(tmp_path, monkeypat
     assert recovery["state"] == "none"
     assert recovery["reason_code"] == "not_needed"
     assert recovery["can_resume"] is False
+
+
+@pytest.mark.asyncio
+async def test_polling_task_summary_does_not_load_workspace_or_copy_heavy_artifacts(
+    tmp_path, monkeypatch,
+):
+    manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path, monkeypatch, task_status="failed"
+    )
+    task = manager.tasks["job-recovery"]
+    task["event_history"] = [{"payload": "x" * 100_000}]
+    task["result"] = {"rendered": "y" * 100_000}
+    task["last_event"] = {"payload": "z" * 100_000}
+
+    def unexpected_workspace_load(_workspace_id):
+        raise AssertionError("polling summary must not load the generation workspace")
+
+    monkeypatch.setattr(workspaces, "load_course", unexpected_workspace_load)
+
+    summary = manager.get_latest_task_by_course("course-recovery")
+
+    assert summary is not None
+    assert summary["id"] == "job-recovery"
+    assert summary["recovery"]["state"] == "manual_resume"
+    assert summary["recovery"]["can_resume"] is True
+    assert "event_history" not in summary
+    assert "last_event" not in summary
+    assert "result" not in summary
 
 
 @pytest.mark.asyncio

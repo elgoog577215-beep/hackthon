@@ -58,9 +58,16 @@ describe('course production stage projection', () => {
   })
 
   it('区分教案、正文与发布阶段', () => {
-    expect(courseProductionStageIndex(task({ currentPhase: 'course_teaching_plan_batch' }))).toBe(2)
-    expect(courseProductionStageIndex(task({ currentPhase: 'content_generation' }))).toBe(3)
-    expect(courseProductionStageIndex(task({ currentPhase: 'release_validation' }))).toBe(4)
+    const teaching = task({ currentPhase: 'course_teaching_plan_batch' })
+    const content = task({ currentPhase: 'content_generation' })
+    const release = task({ currentPhase: 'release_validation' })
+    teaching.guidedWorkflow!.current_step = 'teaching'
+    content.guidedWorkflow!.current_step = 'content'
+    release.guidedWorkflow!.current_step = 'release'
+
+    expect(courseProductionStageIndex(teaching)).toBe(2)
+    expect(courseProductionStageIndex(content)).toBe(3)
+    expect(courseProductionStageIndex(release)).toBe(4)
   })
 
   it('只在后端允许时显示恢复，并识别真实正文草稿', () => {

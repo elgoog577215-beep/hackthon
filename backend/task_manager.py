@@ -8,7 +8,7 @@
 #
 # 生成流程：
 # 1. 创建唯一 GenerationJob → 2. 生成并确认课程目录
-# 3. 一次生成全课小节教案并本地编译知识库 → 4. 并行生成正文
+# 3. 分批生成并确认全课小节教案 → 4. 并行生成正文
 # 5. 编译学习资产并执行确定性结构校验 → 6. 保存并推送进度
 #
 # Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 10.1, 10.2, 10.3, 10.4,
@@ -149,6 +149,19 @@ ACTIVE_NODE_PROGRESS_CREDIT = 0.35
 # 指数退避参数
 BACKOFF_BASE = 2
 BACKOFF_MAX = 60
+
+# Task polling is a control-plane read. Large representation artifacts and event
+# payloads stay in their dedicated repositories/endpoints instead of being
+# copied into every five-second task-list response.
+PUBLIC_TASK_OMITTED_FIELDS = frozenset({
+    "event_history",
+    "last_event",
+    "result",
+    "representation_deck_plan",
+    "request_snapshot",
+    "node_drafts",
+})
+PUBLIC_TASK_LOG_LIMIT = 100
 
 
 class TaskRecoveryConflict(RuntimeError):
@@ -966,6 +979,7 @@ class TaskManager:
             task["phase_progress"] = 100
             task["message"] = {
                 "outline": "课程目录已确认，开始冻结全课知识职责并按预算生成详细教案与正文",
+                "teaching": "全课教案已确认，开始按小节持续生成课程正文",
                 "content": "课程内容已确认，开始执行结构与发布预检",
                 "release": "确认发布已完成，正在发布课程",
             }.get(step, "当前步骤已确认，继续生成")
@@ -1179,6 +1193,11 @@ class TaskManager:
         task = self.tasks.get(task_id)
         return self._task_view(task) if task else None
 
+    def get_task_summary(self, task_id: str) -> dict[str, Any] | None:
+        """Return the lightweight control-plane projection used by polling APIs."""
+        task = self.tasks.get(task_id)
+        return self._task_summary_view(task) if task else None
+
     def get_all_tasks(self, limit: int = 100) -> list[dict[str, Any]]:
         """获取所有任务，按状态优先级和时间排序。"""
         status_priority = {
@@ -1189,7 +1208,7 @@ class TaskManager:
             "failed": 4,
             "completed": 5,
         }
-        tasks_list = [self._task_view(task) for task in self.tasks.values()]
+        tasks_list = [self._task_summary_view(task) for task in self.tasks.values()]
         tasks_list.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         tasks_list.sort(
             key=lambda x: status_priority.get(x.get("status", ""), 5)
@@ -1198,7 +1217,22 @@ class TaskManager:
 
     def get_tasks_by_course(self, course_id: str) -> list[dict[str, Any]]:
         """获取指定课程的所有任务。"""
-        return [self._task_view(task) for task in self.tasks.values() if task["course_id"] == course_id]
+        return [
+            self._task_summary_view(task)
+            for task in self.tasks.values()
+            if task["course_id"] == course_id
+        ]
+
+    def get_latest_task_by_course(self, course_id: str) -> dict[str, Any] | None:
+        """Return one lightweight latest task without projecting older jobs."""
+        candidates = [
+            task for task in self.tasks.values()
+            if task.get("course_id") == course_id
+        ]
+        if not candidates:
+            return None
+        latest = max(candidates, key=lambda item: str(item.get("updated_at") or ""))
+        return self._task_summary_view(latest)
 
     def get_generation_workspace_course(self, course_id: str) -> dict[str, Any] | None:
         candidates = [
@@ -1372,6 +1406,25 @@ class TaskManager:
                     for node in course_data.get("nodes") or []
                 ],
             }
+        elif step == "teaching":
+            teaching_plan = project_course_teaching_plan(course_data)
+            teaching_stage = deepcopy(
+                (course_data.get("generation_stage_artifacts") or {}).get(
+                    "course_teaching_plan"
+                ) or {}
+            )
+            sections = list(teaching_plan.get("sections") or [])
+            artifact = {
+                "status": str(teaching_plan.get("status") or teaching_stage.get("status") or ""),
+                "section_count": int(teaching_plan.get("section_count") or len(sections)),
+                "completed_count": len(sections),
+                "knowledge_point_count": int(teaching_plan.get("knowledge_point_count") or 0),
+                "teaching_module_count": int(teaching_plan.get("teaching_module_count") or 0),
+                "completed_batches": int(teaching_stage.get("completed_batch_count") or teaching_stage.get("completed_batches") or 0),
+                "total_batches": int(teaching_stage.get("batch_count") or teaching_stage.get("total_batches") or 0),
+                "semantic_status": teaching_stage.get("semantic_status"),
+                "sections": deepcopy(sections),
+            }
         elif step == "content":
             content_nodes = [
                 node
@@ -1509,6 +1562,15 @@ class TaskManager:
                 task.get("status") == "waiting_for_review"
                 and workflow.get("review_step") == step
                 and (
+                    (
+                        step != "teaching"
+                        or (
+                            artifact.get("status") == "completed"
+                            and artifact.get("completed_count") == artifact.get("section_count")
+                            and artifact.get("semantic_status") != "retry_required"
+                        )
+                    )
+                    and
                     (
                         step != "content"
                         or (
@@ -1868,6 +1930,142 @@ class TaskManager:
                 "checkpoint": checkpoint,
             }
         return {**base, "checkpoint": checkpoint}
+
+    def _task_recovery_summary(self, task: dict[str, Any]) -> dict[str, Any]:
+        """Build a polling-safe recovery summary without loading course payloads."""
+        status = str(task.get("status") or "")
+        phase = str(task.get("phase") or task.get("current_phase") or "")
+        detail = task.get("phase_detail")
+        if not isinstance(detail, dict):
+            detail = {}
+        workflow = task.get("guided_workflow")
+        if not isinstance(workflow, dict):
+            workflow = {}
+        step_states = {
+            str(item.get("key") or ""): str(item.get("status") or "")
+            for item in workflow.get("steps") or []
+            if isinstance(item, dict)
+        }
+        completed_nodes = int(task.get("completed_nodes") or 0)
+        total_nodes = int(task.get("total_nodes") or 0)
+        checkpoint = {
+            "phase": phase,
+            "completed_nodes": completed_nodes,
+            "total_nodes": total_nodes,
+            "draft_node_ids": list((task.get("node_drafts") or {}).keys()),
+            "failed_node_ids": [],
+            "interrupted_node_ids": [],
+            "requirements_ready": bool(task.get("request_snapshot")),
+            "outline_ready": bool(
+                task.get("blueprint_confirmed")
+                or step_states.get("outline") == "confirmed"
+            ),
+            "teaching_plan_ready": bool(
+                step_states.get("teaching") == "confirmed"
+                or phase in {
+                    "content_generation",
+                    "content_partial",
+                    "learning_assets",
+                    "content_validation",
+                    "release_ready",
+                    "release_confirmed",
+                    "completed",
+                }
+            ),
+            "completed_teaching_plan_batches": int(
+                detail.get("completed_batches") or 0
+            ),
+            "total_teaching_plan_batches": int(detail.get("total_batches") or 0),
+            "completed_teaching_plan_sections": int(
+                detail.get("completed_items") or 0
+            ) if "teaching" in phase else 0,
+            "total_teaching_plan_sections": int(
+                detail.get("total_items") or 0
+            ) if "teaching" in phase else 0,
+            "completed_knowledge_packages": int(
+                detail.get("completed_items") or 0
+            ) if "knowledge" in phase else 0,
+            "total_knowledge_packages": int(
+                detail.get("total_items") or 0
+            ) if "knowledge" in phase else 0,
+            "workspace_status": task.get("workspace_status"),
+            "updated_at": task.get("updated_at"),
+        }
+        base = {
+            "state": "none",
+            "can_resume": False,
+            "reason_code": "not_needed",
+            "reason": "当前任务不需要恢复",
+            "checkpoint": checkpoint,
+        }
+        if status == "completed" or (
+            status == "completed_with_warnings"
+            and task.get("publication_allowed") is not False
+        ):
+            return {
+                **base,
+                "state": "completed",
+                "reason_code": "already_published",
+                "reason": "课程已经发布完成，不需要再次执行",
+            }
+        if status == "conflict":
+            return {
+                **base,
+                "state": "conflict",
+                "reason_code": "revision_conflict",
+                "reason": "当前课程已经变化，需要先处理内容冲突",
+            }
+        if status in {"pending", "running"}:
+            if task.get("last_recovery_reason") in {"service_restart", "manual_resume"}:
+                return {
+                    **base,
+                    "state": "auto_resuming",
+                    "reason_code": "job_recovering",
+                    "reason": "任务正在从最近保存点继续",
+                }
+            return base
+
+        has_checkpoint = bool(task.get("workspace_id") or task.get("candidate_id"))
+        if status == "completed_with_warnings" and (
+            phase == "quality_failed" or task.get("publication_allowed") is False
+        ):
+            return {
+                **base,
+                "state": "quality_blocked",
+                "can_resume": has_checkpoint,
+                "reason_code": "quality_gate_failed",
+                "reason": "正文和教案已经保留；继续后只修复未通过的练习并重新执行发布检查",
+            }
+        if status in {"paused", "failed", "error", "completed_with_warnings"}:
+            if not has_checkpoint:
+                return {
+                    **base,
+                    "state": "unavailable",
+                    "reason_code": "checkpoint_not_supported",
+                    "reason": "该旧任务没有独立检查点，无法安全继续",
+                }
+            return {
+                **base,
+                "state": "manual_resume",
+                "can_resume": True,
+                "reason_code": (
+                    "checkpoint_available"
+                    if checkpoint["outline_ready"] or total_nodes
+                    else "stage_restart_available"
+                ),
+                "reason": "已保存的课程现场会被复用，可以从中断步骤继续",
+            }
+        return base
+
+    def _task_summary_view(self, task: dict[str, Any]) -> dict[str, Any]:
+        view = {
+            key: deepcopy(value)
+            for key, value in task.items()
+            if key not in PUBLIC_TASK_OMITTED_FIELDS and key != "logs"
+        }
+        view["logs"] = deepcopy((task.get("logs") or [])[-PUBLIC_TASK_LOG_LIMIT:])
+        view["recovery"] = self._task_recovery_summary(task)
+        return view
 
     def _task_view(self, task: dict[str, Any]) -> dict[str, Any]:
         view = deepcopy(task)
@@ -3401,6 +3599,36 @@ class TaskManager:
                 raise AIProviderRequestError(
                     "教案语义仍需重试，正文生成不会提前启动"
                 )
+            if guided and not guided_step_confirmed(guided_workflow, "teaching"):
+                teaching_plan = project_course_teaching_plan(course_data)
+                section_count = int(
+                    teaching_plan.get("section_count")
+                    or len(teaching_plan.get("sections") or [])
+                )
+                await self._pause_for_guided_review(
+                    task_id,
+                    course_data,
+                    "teaching",
+                    phase="teaching_plan_ready",
+                    progress=max(55, int(task.get("progress") or 0)),
+                    message="全课教案已生成，确认后将按小节持续生成正文",
+                    phase_detail={
+                        "artifact_type": "course_teaching_plan",
+                        "completed_items": section_count,
+                        "total_items": section_count,
+                        "completed_batches": int(
+                            teaching_stage.get("completed_batch_count")
+                            or teaching_stage.get("completed_batches")
+                            or 0
+                        ),
+                        "total_batches": int(
+                            teaching_stage.get("batch_count")
+                            or teaching_stage.get("total_batches")
+                            or 0
+                        ),
+                    },
+                )
+                return
             if not course_data.get("learning_asset_plan"):
                 course_data["learning_asset_plan"] = compile_learning_asset_plan(course_data)
                 if isinstance(course_data.get("course_blueprint"), dict):
@@ -3713,6 +3941,27 @@ class TaskManager:
                     return generation_task.result()
                 if activity_waiter in done:
                     activity_event.clear()
+                    activity_waiter = None
+                    continue
+
+                # Progress can arrive exactly as ``asyncio.wait`` snapshots a
+                # timeout.  Re-check both signals before cancelling the
+                # generation task, otherwise a productive stream may be
+                # mistaken for an inactive one on coarse event loops.
+                if generation_task.done():
+                    activity_waiter.cancel()
+                    await asyncio.gather(
+                        activity_waiter,
+                        return_exceptions=True,
+                    )
+                    return generation_task.result()
+                if activity_event.is_set():
+                    activity_event.clear()
+                    activity_waiter.cancel()
+                    await asyncio.gather(
+                        activity_waiter,
+                        return_exceptions=True,
+                    )
                     activity_waiter = None
                     continue
 
@@ -4122,7 +4371,7 @@ class TaskManager:
                         request=task.get("request_snapshot") or {},
                     )
                     if (
-                        legacy_review in {"knowledge", "teaching"}
+                        legacy_review == "knowledge"
                         and task.get("status") == "waiting_for_review"
                     ):
                         task["status"] = "pending"

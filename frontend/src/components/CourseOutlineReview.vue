@@ -68,7 +68,7 @@
       <footer class="outline-review__footer">
         <div>
           <strong>{{ footerTitle }}</strong>
-          <p>{{ t('courseGeneration.outlineReview.guard', '这是生成过程中唯一需要编辑结构的确认点；后续只在发布前做最终确认。') }}</p>
+          <p>{{ t('courseGeneration.outlineReview.guard', '这是唯一需要编辑课程结构的步骤；下一步还会确认全课教案，再开始生成正文。') }}</p>
           <p v-if="actionError" class="outline-review__action-error">{{ actionError }}</p>
         </div>
         <div class="outline-review__actions">

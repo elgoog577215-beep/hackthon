@@ -40,12 +40,12 @@ def _course():
     }
 
 
-def test_four_steps_form_one_confirmed_source_chain():
+def test_staged_steps_form_one_confirmed_source_chain():
     request = {"subject": "线性代数", "difficulty": "intermediate"}
     course = _course()
     workflow = create_guided_workflow(request)
 
-    for step in ("outline", "content"):
+    for step in ("outline", "teaching", "content"):
         revision = artifact_revision(step, course, request=request)
         mark_waiting(workflow, step, revision=revision)
         confirm_waiting_step(workflow, step, revision=revision)
@@ -60,7 +60,7 @@ def test_content_drift_blocks_release_and_upstream_change_invalidates_downstream
     request = {"subject": "线性代数", "difficulty": "intermediate"}
     course = _course()
     workflow = create_guided_workflow(request)
-    for step in ("outline", "content"):
+    for step in ("outline", "teaching", "content"):
         revision = artifact_revision(step, course, request=request)
         mark_waiting(workflow, step, revision=revision)
         confirm_waiting_step(workflow, step, revision=revision)
@@ -71,7 +71,7 @@ def test_content_drift_blocks_release_and_upstream_change_invalidates_downstream
 
     assert report["can_publish"] is False
     assert any(item["code"] == "content_revision_mismatch" for item in report["issues"])
-    assert invalidated == ["content", "release"]
+    assert invalidated == ["teaching", "content", "release"]
     assert step_state(workflow, "content")["status"] == "needs_regeneration"
 
 
@@ -79,7 +79,7 @@ def test_outline_drift_is_detected_even_when_persisted_revision_id_is_stale():
     request = {"subject": "线性代数", "difficulty": "intermediate"}
     course = _course()
     workflow = create_guided_workflow(request)
-    for step in ("outline", "content"):
+    for step in ("outline", "teaching", "content"):
         revision = artifact_revision(step, course, request=request)
         mark_waiting(workflow, step, revision=revision)
         confirm_waiting_step(workflow, step, revision=revision)
@@ -145,6 +145,10 @@ def test_step_cannot_confirm_after_its_upstream_revision_changes():
     mark_waiting(workflow, "outline", revision=outline_revision)
     confirm_waiting_step(workflow, "outline", revision=outline_revision)
 
+    teaching_revision = artifact_revision("teaching", course, request=request)
+    mark_waiting(workflow, "teaching", revision=teaching_revision)
+    confirm_waiting_step(workflow, "teaching", revision=teaching_revision)
+
     content_revision = artifact_revision("content", course, request=request)
     mark_waiting(workflow, "content", revision=content_revision)
     step_state(workflow, "outline")["artifact_revision"] = "outline_changed"
@@ -157,7 +161,7 @@ def test_step_cannot_confirm_after_its_upstream_revision_changes():
         )
 
 
-def test_v1_knowledge_or_teaching_review_migrates_to_content_generation():
+def test_v1_teaching_review_is_preserved_as_explicit_confirmation():
     request = {"subject": "线性代数", "difficulty": "intermediate"}
     workflow = {
         "schema_version": "guided_course_generation_v1",
@@ -195,13 +199,14 @@ def test_v1_knowledge_or_teaching_review_migrates_to_content_generation():
 
     migrated = migrate_guided_workflow(workflow, request=request)
 
-    assert migrated["schema_version"] == "guided_course_generation_v2"
+    assert migrated["schema_version"] == "guided_course_generation_v3"
     assert [item["key"] for item in migrated["steps"]] == [
         "requirements",
         "outline",
+        "teaching",
         "content",
         "release",
     ]
-    assert migrated["review_step"] is None
-    assert migrated["current_step"] == "content"
-    assert step_state(migrated, "content")["status"] == "pending"
+    assert migrated["review_step"] == "teaching"
+    assert migrated["current_step"] == "teaching"
+    assert step_state(migrated, "teaching")["status"] == "waiting_for_confirmation"

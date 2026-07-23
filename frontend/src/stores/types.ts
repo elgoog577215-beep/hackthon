@@ -385,7 +385,7 @@ export interface TaskRecovery {
     checkpoint: TaskRecoveryCheckpoint
 }
 
-export type GuidedGenerationStepKey = 'requirements' | 'outline' | 'content' | 'release'
+export type GuidedGenerationStepKey = 'requirements' | 'outline' | 'teaching' | 'content' | 'release'
 
 export interface GuidedGenerationStep {
     number: number
@@ -397,7 +397,7 @@ export interface GuidedGenerationStep {
 }
 
 export interface GuidedGenerationWorkflow {
-    schema_version: 'guided_course_generation_v2'
+    schema_version: 'guided_course_generation_v2' | 'guided_course_generation_v3'
     current_step: GuidedGenerationStepKey
     review_step?: GuidedGenerationStepKey | null
     steps: GuidedGenerationStep[]

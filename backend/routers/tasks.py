@@ -20,11 +20,10 @@ def get_course_task(
     course_id: str,
     tm: TaskManager = Depends(require_task_manager),
 ):
-    tasks = tm.get_tasks_by_course(course_id)
-    if not tasks:
+    task = tm.get_latest_task_by_course(course_id)
+    if task is None:
         return {"status": "none"}
-    tasks.sort(key=lambda x: x["updated_at"], reverse=True)
-    return tasks[0]
+    return task
 
 
 @router.get("/courses/{course_id}/generation-preview")
@@ -57,7 +56,7 @@ def get_task(
     task_id: str,
     tm: TaskManager = Depends(require_task_manager),
 ):
-    task = tm.get_task(task_id)
+    task = tm.get_task_summary(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task

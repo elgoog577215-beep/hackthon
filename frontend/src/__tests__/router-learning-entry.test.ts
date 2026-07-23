@@ -2,17 +2,17 @@ import { describe, expect, it } from 'vitest'
 import router from '@/router'
 
 describe('learning routes', () => {
-  it('旧课程入口只重定向到唯一学习现场', () => {
+  it('旧课程入口重定向到统一课程闭环总览', () => {
     const legacyRoute = router.getRoutes().find(route => route.path === '/course/:courseId')
     expect(legacyRoute).toBeDefined()
     expect(typeof legacyRoute!.redirect).toBe('function')
     const redirect = (legacyRoute!.redirect as Function)({ params: { courseId: 'course-1' } })
     const resolved = router.resolve(redirect)
 
-    expect(resolved.name).toBe('learning')
-    expect(resolved.fullPath).toBe('/course/course-1/learn')
+    expect(resolved.name).toBe('course-workbench')
+    expect(resolved.fullPath).toBe('/course/course-1/workbench')
     expect(router.getRoutes().map(route => route.name).filter(Boolean)).toEqual(
-      expect.arrayContaining(['learning', 'course-library', 'ppt-workspace']),
+      expect.arrayContaining(['course-workbench', 'learning', 'course-library', 'ppt-workspace']),
     )
   })
 

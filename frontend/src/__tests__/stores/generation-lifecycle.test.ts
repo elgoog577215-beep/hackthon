@@ -125,6 +125,54 @@ describe('course generation lifecycle reconciliation', () => {
     expect(get).not.toHaveBeenCalledWith('/api/courses/course-live/document')
   })
 
+  it('任务轮询暂时失败时仍从空发布壳恢复失败任务现场', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(http, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/courses/course-failed/task') {
+        throw new Error('task polling timeout')
+      }
+      if (url === '/api/courses/course-failed/document') {
+        return { data: {
+          course_id: 'course-failed', course_name: '恢复课程', current_course_version_id: '',
+          source_format: 'canonical', migration: { required: false },
+          document: {
+            schema_version: 'course_document_v1', course_id: 'course-failed', title: '恢复课程',
+            document_revision: '', sections: [], blocks: [],
+          },
+        } } as never
+      }
+      if (url === '/api/courses/course-failed/generation-preview') {
+        return { data: {
+          schema_version: 'generation_preview_v2', projection: 'generation_workspace',
+          course_id: 'course-failed', course_name: '恢复课程', workspace_id: 'job-failed', workspace_status: 'failed',
+          task: {
+            id: 'job-failed', status: 'failed', progress: 36, phase: 'content_generation',
+            error: 'provider unavailable',
+            recovery: {
+              state: 'manual_resume', can_resume: true, reason_code: 'checkpoint_available', reason: 'saved',
+              checkpoint: { phase: 'content_generation', completed_nodes: 0, total_nodes: 1, draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [] },
+            },
+          },
+          nodes: [{
+            node_id: 'L2-1-1', parent_node_id: 'root', node_name: '待恢复小节', node_level: 2,
+            node_content: '', node_type: 'original', generation_status: 'error', content_state: 'failed',
+            error_summary: 'provider unavailable',
+          }],
+        } } as never
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    await courses.loadCourse('course-failed')
+
+    expect(courses.currentCourseProjection).toBe('generation_preview')
+    expect(courses.nodes[0]?.node_name).toBe('待恢复小节')
+    expect(generation.getTask('course-failed')?.status).toBe('error')
+    expect(generation.getTask('course-failed')?.recovery?.can_resume).toBe(true)
+  })
+
   it('服务端草稿检查点较旧时不覆盖浏览器已经收到的正文增量', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()
