@@ -652,7 +652,12 @@ def _first_visible_unit_change(
     fields_by_type = {
         "outline": ("learning_objective", "title"),
         "lesson_plan": ("teaching_focus", "learning_objective", "activities"),
-        "handout": ("learning_prompt", "learning_objective"),
+        # A local handout edit changes the visible block markdown while the
+        # section-level prompt and objective may remain byte-identical.  Keep
+        # blocks first so the synchronization receipt exposes the real text
+        # diff instead of incorrectly classifying the rebuilt unit as a
+        # source-only verification.
+        "handout": ("blocks", "learning_prompt", "learning_objective"),
         "practice_sheet": ("prompt",),
         "diagram": ("nodes", "mermaid", "title"),
         "slide_deck": ("key_message", "speaker_notes", "blocks"),
@@ -675,7 +680,7 @@ def _visible_change_text(value: Any) -> str:
             if isinstance(item, dict):
                 values.extend(
                     str(item.get(key) or "").strip()
-                    for key in ("phase", "prompt", "title", "content")
+                    for key in ("phase", "prompt", "title", "content", "markdown")
                     if item.get(key)
                 )
                 values.extend(str(entry).strip() for entry in item.get("items") or [])

@@ -992,6 +992,15 @@ def test_safe_rebuild_publishes_only_after_quality_passes(tmp_path):
     assert result["status"] == "synchronized"
     assert result["quality"]["passed"] is True
     assert any(item["stale_unit_ids"] for item in result["stale_before"])
+    handout_change = next(
+        unit
+        for item in result["changes"]
+        if item["representation_type"] == "handout"
+        for unit in item["units"]
+        if unit["change_kind"] == "content_changed"
+    )
+    assert handout_change["field"] == "blocks"
+    assert "向量表达大小和方向" in handout_change["after"]
     assert all(item.status == "ready" for item in current.representations)
     assert current.registry_revision != before.registry_revision
 
