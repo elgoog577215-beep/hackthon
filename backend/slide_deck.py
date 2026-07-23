@@ -119,11 +119,18 @@ class SlideDeckPlanV1(_StrictModel):
 
 
 class SlideDeckContent(_StrictModel):
-    schema_version: Literal["slide_deck_v2"] = SLIDE_DECK_SCHEMA
+    schema_version: Literal["slide_deck_v2", "slide_deck_v3"] = SLIDE_DECK_SCHEMA
     title: str
     theme: str = "qingfeng-classroom"
+    mode: str = ""
+    variant_key: str = ""
+    source_document_revision: str = ""
     aspect_ratio: Literal["16:9"] = "16:9"
     slides: list[SlideSpec]
+    fragment_manifest: list[dict[str, Any]] = Field(default_factory=list)
+    allocation_plan: dict[str, Any] = Field(default_factory=dict)
+    coverage_report: dict[str, Any] = Field(default_factory=dict)
+    exclusions: list[dict[str, Any]] = Field(default_factory=list)
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
     override_conflicts: list[dict[str, Any]] = Field(default_factory=list)
     quality_summary: dict[str, Any] = Field(default_factory=dict)
@@ -702,7 +709,13 @@ def validate_slide_deck(
                 "页面仍包含 Markdown 表格或标题符号，说明正文没有被转译为演示结构。",
                 slide.unit_id,
             ))
-        if _looks_like_raw_latex(_slide_non_code_visible_text(slide)):
+        if (
+            _looks_like_raw_latex(_slide_non_code_visible_text(slide))
+            and not (
+                deck.schema_version == "slide_deck_v3"
+                and str(slide.quality.get("requested_layout") or "") == "formula"
+            )
+        ):
             visual_issues.append(_issue(
                 "critical",
                 "raw_latex_leaked",
@@ -716,7 +729,10 @@ def validate_slide_deck(
                 "页面包含替换字符或常见错误解码片段，不能导出为课堂课件。",
                 slide.unit_id,
             ))
-        if any(len(block.content) > 360 and block.type != "code" for block in slide.blocks):
+        if (
+            deck.schema_version != "slide_deck_v3"
+            and any(len(block.content) > 360 and block.type != "code" for block in slide.blocks)
+        ):
             visual_issues.append(_issue(
                 "critical",
                 "paragraph_copy_detected",

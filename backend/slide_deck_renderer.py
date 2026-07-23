@@ -52,6 +52,116 @@ THEMES: dict[str, dict[str, str]] = {
         "body_east_asian_font": "Microsoft YaHei",
         "math_font": "Times New Roman",
     },
+    "qizhi-classroom": {
+        "surface": "FFFDF7",
+        "canvas": "FFF3D6",
+        "chart_bg": "E6F2FF",
+        "title": "17365D",
+        "ink": "34465C",
+        "muted": "6D7D91",
+        "accent": "2F6FE4",
+        "accent_soft": "DCE9FF",
+        "green": "16856B",
+        "green_soft": "E2F7F0",
+        "amber": "F29D38",
+        "amber_soft": "FFF0D9",
+        "red": "C45443",
+        "red_soft": "FCE7E3",
+        "code": "14243B",
+        "title_font": "Noto Sans SC",
+        "title_east_asian_font": "Microsoft YaHei",
+        "body_font": "Noto Sans SC",
+        "body_east_asian_font": "Microsoft YaHei",
+        "math_font": "Times New Roman",
+    },
+    "academic-editorial": {
+        "surface": "FBFAF7",
+        "canvas": "EFEEE9",
+        "chart_bg": "E4E7E9",
+        "title": "273340",
+        "ink": "45515D",
+        "muted": "727A82",
+        "accent": "315E7D",
+        "accent_soft": "DCE6EB",
+        "green": "4F6D64",
+        "green_soft": "E6EDEA",
+        "amber": "8B6B3E",
+        "amber_soft": "F2EBDD",
+        "red": "824C45",
+        "red_soft": "F3E4E1",
+        "code": "252E35",
+        "title_font": "Noto Serif SC",
+        "title_east_asian_font": "SimSun",
+        "body_font": "Noto Sans SC",
+        "body_east_asian_font": "Microsoft YaHei",
+        "math_font": "Times New Roman",
+    },
+    "grid-notebook": {
+        "surface": "FAF8F0",
+        "canvas": "F2EEDC",
+        "chart_bg": "DFE8E3",
+        "title": "283B36",
+        "ink": "40524D",
+        "muted": "73817C",
+        "accent": "2D7464",
+        "accent_soft": "D9EAE3",
+        "green": "648B57",
+        "green_soft": "E8F0E2",
+        "amber": "D18A32",
+        "amber_soft": "F8E9CF",
+        "red": "B75A48",
+        "red_soft": "F4DFDA",
+        "code": "253D38",
+        "title_font": "Noto Sans SC",
+        "title_east_asian_font": "Microsoft YaHei",
+        "body_font": "Noto Sans SC",
+        "body_east_asian_font": "Microsoft YaHei",
+        "math_font": "Times New Roman",
+    },
+    "modern-geometric": {
+        "surface": "F6F3FF",
+        "canvas": "E9E1FF",
+        "chart_bg": "DAD2F2",
+        "title": "231A4A",
+        "ink": "463D62",
+        "muted": "746C8B",
+        "accent": "6548E8",
+        "accent_soft": "DDD4FF",
+        "green": "138D85",
+        "green_soft": "DDF5F1",
+        "amber": "F08B3E",
+        "amber_soft": "FFE6D5",
+        "red": "D45168",
+        "red_soft": "FADCE3",
+        "code": "211B3A",
+        "title_font": "Noto Sans SC",
+        "title_east_asian_font": "Microsoft YaHei",
+        "body_font": "Noto Sans SC",
+        "body_east_asian_font": "Microsoft YaHei",
+        "math_font": "Times New Roman",
+    },
+    "dark-tech": {
+        "surface": "0C1321",
+        "canvas": "16243A",
+        "chart_bg": "22334B",
+        "title": "F3F8FF",
+        "ink": "D7E3F2",
+        "muted": "91A6BE",
+        "accent": "4DB5FF",
+        "accent_soft": "183C5A",
+        "green": "40D6B1",
+        "green_soft": "173D3A",
+        "amber": "FFB35A",
+        "amber_soft": "49351F",
+        "red": "FF7385",
+        "red_soft": "482631",
+        "code": "070D16",
+        "title_font": "Noto Sans SC",
+        "title_east_asian_font": "Microsoft YaHei",
+        "body_font": "Noto Sans SC",
+        "body_east_asian_font": "Microsoft YaHei",
+        "math_font": "Times New Roman",
+    },
 }
 
 BODY_FONT = "Noto Sans SC"
@@ -161,7 +271,7 @@ def _render_roadmap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         row, column = divmod(index, columns)
         x = 0.78 + column * 6.0
         y = 2.05 + row * (card_h + 0.16)
-        _shape(slide, x, y, 5.55, card_h, "FFFFFF", radius=True, line="DFE3EE")
+        _shape(slide, x, y, 5.55, card_h, theme["canvas"], radius=True, line=theme["chart_bg"])
         _shape(slide, x + 0.22, y + 0.22, 0.5, 0.5, theme["accent_soft"], radius=True)
         _text(slide, f"{index + 1:02d}", x + 0.22, y + 0.33, 0.5, 0.2, 10, theme["accent"], bold=True, align="center")
         _text(slide, item, x + 0.9, y + 0.24, 4.35, card_h - 0.25, 14, theme["ink"], bold=True)
@@ -176,7 +286,7 @@ def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         slide, unit.title, 4.65, 1.62, 7.55, 1.4, 31, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
     )
-    _shape(slide, 4.65, 3.45, 6.95, 1.55, "FFFFFF", radius=True, line="DFE3EE")
+    _shape(slide, 4.65, 3.45, 6.95, 1.55, theme["canvas"], radius=True, line=theme["chart_bg"])
     _text(slide, "本章主线", 4.98, 3.78, 1.4, 0.3, 11, theme["accent"], bold=True)
     _text(slide, unit.key_message or _block_content(unit.blocks, 0), 4.98, 4.12, 6.18, 0.62, 15, theme["ink"], bold=True)
 
@@ -208,7 +318,7 @@ def _render_concept(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     width = 11.82 / max(1, len(blocks)) - 0.18
     for index, block in enumerate(blocks):
         x = 0.76 + index * (width + 0.27)
-        _shape(slide, x, 2.87, width, 3.52, "FFFFFF", radius=True, line="DFE3EE")
+        _shape(slide, x, 2.87, width, 3.52, theme["canvas"], radius=True, line=theme["chart_bg"])
         accent = [theme["accent"], theme["green"], theme["amber"]][index % 3]
         _shape(slide, x, 2.87, 0.08, 3.52, accent, radius=False)
         _text(slide, block.title or f"要点 {index + 1}", x + 0.3, 3.17, width - 0.55, 0.42, 13, accent, bold=True)
@@ -251,7 +361,7 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     width = (11.7 - max(0, len(items) - 1) * 0.24) / max(1, len(items))
     for index, item in enumerate(items):
         x = 0.82 + index * (width + 0.24)
-        _shape(slide, x, 2.08, width, 3.72, "FFFFFF", radius=True, line="DFE3EE")
+        _shape(slide, x, 2.08, width, 3.72, theme["canvas"], radius=True, line=theme["chart_bg"])
         _shape(slide, x + 0.22, 2.34, 0.58, 0.58, theme["accent"], radius=True)
         _text(slide, str(index + 1), x + 0.22, 2.52, 0.58, 0.2, 12, "FFFFFF", bold=True, align="center")
         _text(slide, item, x + 0.23, 3.25, width - 0.46, 1.95, 15, theme["ink"], bold=True)
@@ -292,7 +402,7 @@ def _render_misconception(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
 def _render_practice(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     exercise = _find_block(unit, "exercise") or (unit.blocks[0] if unit.blocks else None)
-    _shape(slide, 0.78, 1.82, 7.52, 4.64, "FFFFFF", radius=True, line="DADFEB")
+    _shape(slide, 0.78, 1.82, 7.52, 4.64, theme["canvas"], radius=True, line=theme["chart_bg"])
     _text(slide, exercise.title if exercise and exercise.title else "先独立作答", 1.12, 2.13, 2.4, 0.35, 12, theme["accent"], bold=True)
     if exercise and exercise.items:
         _bullets(slide, exercise.items, 1.12, 2.75, 6.78, 2.95, 15, theme["ink"], theme["accent"])
@@ -468,7 +578,11 @@ def _table(
             cell = table.cell(row_index, column_index)
             cell.text = values[row_index][column_index] if row_index < len(values) and column_index < len(values[row_index]) else ""
             cell.fill.solid()
-            cell.fill.fore_color.rgb = RGBColor.from_string(theme["accent_soft"] if row_index == 0 else ("FFFFFF" if row_index % 2 else theme["canvas"]))
+            cell.fill.fore_color.rgb = RGBColor.from_string(
+                theme["accent_soft"]
+                if row_index == 0
+                else (theme["surface"] if row_index % 2 else theme["canvas"])
+            )
             cell.margin_left = cell.margin_right = Inches(0.1)
             cell.margin_top = cell.margin_bottom = Inches(0.07)
             paragraph = cell.text_frame.paragraphs[0]

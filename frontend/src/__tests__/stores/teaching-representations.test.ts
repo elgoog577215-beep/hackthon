@@ -55,6 +55,34 @@ beforeEach(() => {
 })
 
 describe('teaching representation progressive build', () => {
+  it('posts mode and theme to the scoped slide variant stream', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse([
+      {
+        event: 'build_complete',
+        progress: 100,
+        registry: { representations: [], specs: [] },
+        quality: { passed: true },
+      },
+    ]))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useTeachingRepresentationsStore()
+
+    await store.buildSlideDeckVariant('course-1', {
+      mode: 'teaching',
+      theme: 'grid-notebook',
+      forceRebuild: true,
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/api/courses/course-1/teaching-representations/slide-decks/build/stream')
+    expect(JSON.parse(String(init.body))).toEqual({
+      mode: 'teaching',
+      theme: 'grid-notebook',
+      force_rebuild: true,
+    })
+  })
+
   it('resets all course-scoped state as soon as a different course starts loading', async () => {
     const pending = deferred<{ data: { registry: { representations: never[] } } }>()
     httpMock.get.mockReturnValueOnce(pending.promise)

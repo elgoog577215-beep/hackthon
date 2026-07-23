@@ -31,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ai_base import AIProviderRequestError
+from ai_base import AIBase, AIProviderRequestError
 from assessment_orchestrator import AssessmentGenerationOrchestrator
 from content_blocks import set_node_content_blocks
 from course_coherence import (
@@ -124,9 +124,16 @@ from question_search import enrich_question_bank_with_web
 from representation_compiler import (
     compile_core_representations,
     rebuild_core_representations_safely,
+    rebuild_slide_deck_variant_safely,
     validate_compiled_representations,
 )
 from slide_deck import SlideDeckPlanV1, plan_slide_deck
+from slide_deck_v3 import (
+    SlideAllocationPlanV2,
+    normalize_slide_deck_theme,
+    plan_slide_deck_v3,
+    slide_deck_variant_key,
+)
 from storage import DATA_DIR
 from teaching_representations import teaching_representation_repository
 
@@ -146,6 +153,53 @@ STREAM_PROGRESS_INTERVAL_SECONDS = 1.5
 DRAFT_CHECKPOINT_INTERVAL_SECONDS = 8.0
 ACTIVE_NODE_PROGRESS_CREDIT = 0.35
 
+
+def _source_first_slide_ai_workers() -> tuple[
+    Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
+    Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
+]:
+    """Create opt-in ID-only planner and reviewer functions."""
+    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return None, None
+    provider = AIBase()
+    if provider.client is None:
+        return None, None
+
+    async def planner(request: dict[str, Any]) -> dict[str, Any]:
+        response = await provider._call_llm(
+            json.dumps(request, ensure_ascii=False),
+            system_prompt=(
+                "Return only a slide_allocation_plan_v2 JSON object. You are a page "
+                "director, not a course author. Never write, summarize, translate, or "
+                "replace teaching body text. Allocate only the supplied fragment_id "
+                "values, preserve their order, use only allowed layouts, and explicitly "
+                "exclude every omitted fragment in concise mode."
+            ),
+            use_fast_model=True,
+            retry_count=1,
+            enable_thinking=False,
+            raise_on_failure=True,
+        )
+        return provider._extract_json(response or "") or {}
+
+    async def reviewer(request: dict[str, Any]) -> dict[str, Any]:
+        response = await provider._call_llm(
+            json.dumps(request, ensure_ascii=False),
+            system_prompt=(
+                "Return only JSON with action keep or replan and an issues array. "
+                "Issues may contain only code, page_id, and suggested_action. Never "
+                "write replacement slide text or teaching content."
+            ),
+            use_fast_model=True,
+            retry_count=1,
+            enable_thinking=False,
+            raise_on_failure=True,
+        )
+        return provider._extract_json(response or "") or {}
+
+    return planner, reviewer
+
 # 指数退避参数
 BACKOFF_BASE = 2
 BACKOFF_MAX = 60
@@ -158,6 +212,7 @@ PUBLIC_TASK_OMITTED_FIELDS = frozenset({
     "last_event",
     "result",
     "representation_deck_plan",
+    "representation_deck_plan_v3",
     "request_snapshot",
     "node_drafts",
 })
@@ -1600,7 +1655,7 @@ class TaskManager:
         if not task:
             raise KeyError(task_id)
 
-        if task.get("type") == "teaching_representation_build":
+        if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
             status = str(task.get("status") or "")
             checkpoint = {
                 "phase": str(task.get("phase") or "queued"),
@@ -2122,7 +2177,7 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             return False
-        if task.get("type") == "teaching_representation_build":
+        if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
             if task.get("status") not in {"pending", "running"}:
                 return False
             task["status"] = "pending"
@@ -2512,7 +2567,7 @@ class TaskManager:
         if not task:
             raise KeyError(task_id)
 
-        if task.get("type") == "teaching_representation_build":
+        if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
             recovery = self.describe_task_recovery(task_id)
             if task.get("status") in {"pending", "running"}:
                 return {"status": "already_active", "task": self._task_view(task)}
@@ -3256,6 +3311,142 @@ class TaskManager:
         )
         await self._push_progress(task_id)
 
+    async def _process_slide_deck_variant_task(self, task_id: str) -> None:
+        """Build one mode/theme PPT variant without rebuilding sibling artifacts."""
+        task = self.tasks.get(task_id)
+        if not task or task.get("status") == "paused":
+            return
+        request = task.get("request_snapshot") or {}
+        course_id = str(task["course_id"])
+        mode = str(request.get("mode") or "teaching")
+        theme = normalize_slide_deck_theme(str(request.get("theme") or "qizhi-classroom"))
+        variant_key = slide_deck_variant_key(mode, theme)
+        await self._update_task_status(
+            task_id,
+            "running",
+            message=f"正在生成 {variant_key} 课程课件",
+        )
+        document, canonical = await asyncio.to_thread(
+            self._course_document_repository.load_document, course_id,
+        )
+        if not canonical:
+            raise CourseDocumentConflict("Course must be canonical before building slide variants")
+        course_view = await asyncio.to_thread(
+            self._course_document_repository.load_course_view, course_id,
+        )
+        source_revision = str(document.document_revision or "")
+        saved_revision = str(task.get("representation_source_document_revision") or "")
+        saved_variant = str(task.get("representation_variant_key") or "")
+        allocation_plan: SlideAllocationPlanV2 | None = None
+        resume_slides: list[dict[str, Any]] = []
+        if saved_revision == source_revision and saved_variant == variant_key:
+            try:
+                raw_plan = task.get("representation_deck_plan_v3")
+                if isinstance(raw_plan, dict):
+                    allocation_plan = SlideAllocationPlanV2.model_validate(raw_plan)
+            except (TypeError, ValueError):
+                allocation_plan = None
+            latest_slides: dict[str, dict[str, Any]] = {}
+            for event in task.get("event_history") or []:
+                if event.get("event") != "slide_upsert" or not isinstance(event.get("slide"), dict):
+                    continue
+                slide = deepcopy(event["slide"])
+                unit_id = str(slide.get("unit_id") or "")
+                if unit_id:
+                    latest_slides[unit_id] = slide
+            resume_slides = sorted(
+                latest_slides.values(),
+                key=lambda item: int(item.get("position") or 0),
+            )
+        if allocation_plan is None:
+            planner, reviewer = _source_first_slide_ai_workers()
+            await self._record_representation_event(task_id, {
+                "event": "fragmenting",
+                "progress": 3,
+                "stage": "fragmenting",
+                "variant_key": variant_key,
+            })
+            allocation_plan = await plan_slide_deck_v3(
+                document,
+                course_view,
+                mode=mode,  # type: ignore[arg-type]
+                theme=theme,  # type: ignore[arg-type]
+                ai_planner=planner,
+                ai_reviewer=reviewer,
+            )
+            resume_slides = []
+            async with self._lock:
+                current = self.tasks.get(task_id)
+                if not current or current.get("status") in {"paused", "cancelled"}:
+                    return
+                current["representation_source_document_revision"] = source_revision
+                current["representation_variant_key"] = variant_key
+                current["representation_deck_plan_v3"] = allocation_plan.model_dump(mode="json")
+                current["updated_at"] = datetime.now().isoformat()
+                self.save_tasks()
+        await self._record_representation_event(task_id, {
+            "event": "deck_plan",
+            "progress": 8,
+            "stage": "slide_plan",
+            "strategy": "source_fragments_then_allocate",
+            "planner": allocation_plan.planner,
+            "fallback_reason": allocation_plan.fallback_reason,
+            "estimated_slide_count": len(allocation_plan.pages),
+            "variant_key": variant_key,
+        })
+        loop = asyncio.get_running_loop()
+
+        def progress(payload: dict[str, Any]) -> None:
+            current = self.tasks.get(task_id) or {}
+            if current.get("status") in {"paused", "cancelled"}:
+                raise RuntimeError("slide_deck_variant_build_interrupted")
+            future = asyncio.run_coroutine_threadsafe(
+                self._record_representation_event(task_id, payload),
+                loop,
+            )
+            future.result(timeout=10)
+
+        build = await asyncio.to_thread(
+            rebuild_slide_deck_variant_safely,
+            document,
+            course_view,
+            teaching_representation_repository,
+            mode=mode,
+            theme=theme,
+            allocation_plan=allocation_plan,
+            progress_callback=progress,
+            resume_slides=resume_slides,
+        )
+        quality = build.get("quality") or {}
+        if not quality.get("passed"):
+            raise RuntimeError("slide_deck_variant_quality_gate_failed")
+        registry = teaching_representation_repository.load(course_id)
+        result = {
+            "build": build,
+            "quality": quality,
+            "registry": registry.model_dump(mode="json"),
+            "variant_key": variant_key,
+        }
+        async with self._lock:
+            current = self.tasks.get(task_id)
+            if not current or current.get("status") in {"paused", "cancelled"}:
+                return
+            current["result"] = result
+            current["completed_representation_types"] = [f"slide_deck:{variant_key}"]
+            current["progress"] = 100
+            current["phase_progress"] = 100
+            current["phase"] = "complete"
+            current["current_phase"] = "complete"
+            current["message"] = f"{variant_key} 课件已通过质量门并发布"
+            current["updated_at"] = datetime.now().isoformat()
+            self.save_tasks()
+        await self._record_representation_event(task_id, {
+            "event": "build_complete",
+            "progress": 100,
+            **result,
+        })
+        await self._update_task_status(task_id, "completed", message="PPT 组合生成完成")
+
     async def _process_teaching_representation_task(self, task_id: str) -> None:
         """Build same-source artifacts as a durable, resumable generation job."""
         task = self.tasks.get(task_id)
@@ -3407,6 +3598,9 @@ class TaskManager:
         if task["status"] == "paused":
             return
 
+        if task.get("type") == "slide_deck_variant_build":
+            await self._process_slide_deck_variant_task(task_id)
+            return
         if task.get("type") == "teaching_representation_build":
             await self._process_teaching_representation_task(task_id)
             return
@@ -4382,6 +4576,7 @@ class TaskManager:
                 if task.get("type") not in {
                     "course_generation",
                     "teaching_representation_build",
+                    "slide_deck_variant_build",
                 }:
                     task["legacy_read_only"] = True
                     if task.get("status") in ("pending", "running", "paused"):

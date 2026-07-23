@@ -29,9 +29,18 @@ from learner_context import require_user_id
 from representation_compiler import (
     export_slide_deck_pptx,
     rebuild_core_representations_safely,
+    rebuild_slide_deck_variant_safely,
     validate_compiled_representations,
 )
 from slide_deck import SlideDeckPlanV1, plan_slide_deck
+from slide_deck_v3 import (
+    SlideAllocationPlanV2,
+    SlideDeckMode,
+    SlideDeckTheme,
+    normalize_slide_deck_theme,
+    plan_slide_deck_v3,
+    slide_deck_variant_key,
+)
 from slide_deck_renderer import SlideDeckQualityError, validate_theme
 from storage import DATA_DIR
 from teaching_representations import (
@@ -96,6 +105,14 @@ class ApplyRepresentationEditRequest(RepresentationEditRequest):
     decision: str
 
 
+class SlideDeckVariantBuildRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: SlideDeckMode = "teaching"
+    theme: SlideDeckTheme = "qizhi-classroom"
+    force_rebuild: bool = False
+
+
 def _reconciled_registry(course_id: str) -> dict:
     course_repository = get_course_document_repository()
     raw = course_repository.load_raw(course_id)
@@ -157,6 +174,45 @@ async def _plan_registry_slide_deck(course_id: str) -> SlideDeckPlanV1:
         course_view,
         ai_planner=get_slide_deck_ai_planner(),
     )
+
+
+def _compile_slide_variant_registry(
+    course_id: str,
+    *,
+    mode: SlideDeckMode,
+    theme: SlideDeckTheme,
+    allocation_plan: SlideAllocationPlanV2 | dict[str, Any],
+    progress_callback: Any | None = None,
+) -> dict[str, Any]:
+    course_repository = get_course_document_repository()
+    document, canonical = course_repository.load_document(course_id)
+    if not canonical:
+        raise RepresentationConflict("Course must be migrated before compiling slide variants")
+    raw = course_repository.load_raw(course_id)
+    repository = get_teaching_representation_repository()
+    repository.reconcile_course_operation_log(
+        course_id,
+        list(raw.get("course_operation_log") or []),
+    )
+    build = rebuild_slide_deck_variant_safely(
+        document,
+        course_repository.load_course_view(course_id),
+        repository,
+        mode=mode,
+        theme=theme,
+        allocation_plan=allocation_plan,
+        progress_callback=progress_callback,
+    )
+    registry = repository.reconcile_course_operation_log(
+        course_id,
+        list(raw.get("course_operation_log") or []),
+    )
+    return {
+        "build": build,
+        "quality": build.get("quality") or {},
+        "registry": registry.model_dump(mode="json"),
+        "variant_key": slide_deck_variant_key(mode, theme),
+    }
 
 
 @router.get("")
@@ -347,6 +403,182 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+@router.post("/slide-decks/build/stream")
+async def stream_slide_deck_variant_build(
+    course_id: str,
+    body: SlideDeckVariantBuildRequest,
+    request: Request,
+) -> StreamingResponse:
+    """Build one mode/theme PPT variant and stream page-level progress."""
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    theme = normalize_slide_deck_theme(body.theme)
+    variant_key = slide_deck_variant_key(body.mode, theme)
+    document, course_view = await run_in_threadpool(_load_registry_slide_source, course_id)
+    registry = get_teaching_representation_repository().load(course_id)
+    cached = next((
+        item for item in registry.representations
+        if item.representation_type == "slide_deck"
+        and item.variant_key == variant_key
+        and item.status == "ready"
+    ), None)
+    cached_spec = next((
+        item for item in registry.specs
+        if cached is not None and item.spec_id == cached.spec_id
+    ), None)
+    cached_current = bool(
+        cached_spec
+        and str((cached_spec.payload.get("content") or {}).get("source_document_revision") or "")
+        == str(document.document_revision or "")
+    )
+    if cached_current and not body.force_rebuild:
+        async def cached_event_stream():
+            payload = {
+                "event": "build_complete",
+                "progress": 100,
+                "stage": "complete",
+                "cached": True,
+                "variant_key": variant_key,
+                "quality": (cached_spec.payload.get("content") or {}).get("quality_report") or {},
+                "registry": registry.model_dump(mode="json"),
+            }
+            yield f"id: 1\nevent: build_complete\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            cached_event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    task_manager = get_task_manager_optional()
+    if task_manager is not None:
+        task_id = await task_manager.create_task(
+            course_id,
+            "slide_deck_variant_build",
+            request_snapshot={
+                "operation": "build_slide_deck_variant",
+                "mode": body.mode,
+                "theme": theme,
+                "variant_key": variant_key,
+                "force_rebuild": body.force_rebuild,
+            },
+            base_document_revision=str(document.document_revision or ""),
+        )
+
+        async def durable_event_stream():
+            cursor = 0
+            started = {
+                "event": "planner_started",
+                "progress": 1,
+                "sequence": 0,
+                "task_id": task_id,
+                "variant_key": variant_key,
+            }
+            yield f"id: 0\nevent: planner_started\ndata: {json.dumps(started, ensure_ascii=False)}\n\n"
+            while True:
+                task = task_manager.get_task(task_id)
+                if not task:
+                    payload = {
+                        "event": "error",
+                        "message": "Build task was removed",
+                        "task_id": task_id,
+                    }
+                    yield f"event: error\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    return
+                history = task.get("event_history") or []
+                for payload in history:
+                    sequence = int(payload.get("sequence") or 0)
+                    if sequence <= cursor:
+                        continue
+                    cursor = sequence
+                    event_name = str(payload.get("event") or "message")
+                    event_body = {**payload, "task_id": task_id}
+                    yield (
+                        f"id: {sequence}\nevent: {event_name}\n"
+                        f"data: {json.dumps(event_body, ensure_ascii=False)}\n\n"
+                    )
+                status = str(task.get("status") or "")
+                if status in {"completed", "failed", "cancelled", "paused"}:
+                    if status != "completed" and not any(
+                        str(item.get("event") or "") == "error" for item in history
+                    ):
+                        payload = {
+                            "event": "error" if status == "failed" else status,
+                            "progress": int(task.get("progress") or 0),
+                            "message": str(task.get("error") or task.get("message") or status),
+                            "task_id": task_id,
+                        }
+                        yield f"event: {payload['event']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    return
+                await asyncio.sleep(0.12)
+
+        return StreamingResponse(
+            durable_event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    async def event_stream():
+        sequence = 1
+        started = {
+            "event": "planner_started",
+            "progress": 1,
+            "sequence": sequence,
+            "variant_key": variant_key,
+        }
+        yield f"id: {sequence}\nevent: planner_started\ndata: {json.dumps(started, ensure_ascii=False)}\n\n"
+        allocation_plan = await plan_slide_deck_v3(
+            document,
+            course_view,
+            mode=body.mode,
+            theme=theme,  # type: ignore[arg-type]
+        )
+        events: Queue[dict[str, Any] | None] = Queue()
+
+        def publish(payload: dict[str, Any]) -> None:
+            events.put(payload)
+
+        def worker() -> None:
+            try:
+                result = _compile_slide_variant_registry(
+                    course_id,
+                    mode=body.mode,
+                    theme=theme,  # type: ignore[arg-type]
+                    allocation_plan=allocation_plan,
+                    progress_callback=publish,
+                )
+                blocked = (
+                    str((result.get("build") or {}).get("status") or "") != "synchronized"
+                    or not (result.get("quality") or {}).get("passed", False)
+                )
+                publish({
+                    "event": "build_blocked" if blocked else "build_complete",
+                    "progress": 100,
+                    **result,
+                })
+            except Exception as exc:
+                publish({"event": "error", "progress": 100, "message": str(exc)})
+            finally:
+                events.put(None)
+
+        worker_task = asyncio.create_task(asyncio.to_thread(worker))
+        while True:
+            payload = await asyncio.to_thread(events.get)
+            if payload is None:
+                break
+            sequence += 1
+            event_name = str(payload.get("event") or "message")
+            event_body = {**payload, "sequence": sequence}
+            yield f"id: {sequence}\nevent: {event_name}\ndata: {json.dumps(event_body, ensure_ascii=False)}\n\n"
+        await worker_task
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -636,15 +868,8 @@ async def export_teaching_slide_deck(
     course_id: str,
     representation_id: str,
     request: Request,
-    theme: str = "qingfeng-classroom",
+    theme: str | None = None,
 ) -> FileResponse:
-    try:
-        validate_theme(theme)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail={
-            "code": "invalid_slide_theme",
-            "message": str(exc),
-        }) from exc
     payload = await get_teaching_representation_spec(course_id, representation_id, request)
     representation = payload["representation"]
     if representation["representation_type"] != "slide_deck":
@@ -652,9 +877,22 @@ async def export_teaching_slide_deck(
     from teaching_representations import TeachingRepresentationSpec
 
     spec = TeachingRepresentationSpec.model_validate(payload["spec"])
-    output_path = Path(DATA_DIR) / "teaching_exports" / f"{representation_id}-{spec.revision}-{theme}.pptx"
+    content = spec.payload.get("content") or {}
+    resolved_theme = (
+        str(content.get("theme") or "qizhi-classroom")
+        if content.get("schema_version") == "slide_deck_v3"
+        else str(theme or content.get("theme") or "qingfeng-classroom")
+    )
     try:
-        await run_in_threadpool(export_slide_deck_pptx, spec, output_path, theme=theme)
+        validate_theme(resolved_theme)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "invalid_slide_theme",
+            "message": str(exc),
+        }) from exc
+    output_path = Path(DATA_DIR) / "teaching_exports" / f"{representation_id}-{spec.revision}-{resolved_theme}.pptx"
+    try:
+        await run_in_threadpool(export_slide_deck_pptx, spec, output_path, theme=resolved_theme)
     except SlideDeckQualityError as exc:
         raise HTTPException(status_code=422, detail={
             "code": "slide_export_quality_blocked",

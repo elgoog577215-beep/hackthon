@@ -2,7 +2,7 @@
   <article
     class="deck-canvas"
     :class="{ 'is-presenting': presenting }"
-    :data-layout="slide.layout"
+    :data-layout="visualLayout"
     :data-theme="theme"
     :aria-label="`${pageNumber} / ${pageCount} · ${slide.title}`"
   >
@@ -36,7 +36,7 @@
     <template v-else>
       <header class="deck-canvas__heading">
         <div>
-          <small>{{ slide.eyebrow || layoutLabel(slide.layout) }}</small>
+          <small>{{ slide.eyebrow || layoutLabel(visualLayout) }}</small>
           <h2>{{ slide.title }}</h2>
         </div>
         <span>{{ String(pageNumber).padStart(2, '0') }}</span>
@@ -49,7 +49,7 @@
         {{ slide.key_message }}
       </blockquote>
 
-      <div class="deck-canvas__blocks" :data-layout="slide.layout" :data-count="slide.blocks?.length || 0">
+      <div class="deck-canvas__blocks" :data-layout="visualLayout" :data-count="slide.blocks?.length || 0">
         <section v-for="(block, blockIndex) in slide.blocks" :key="block.block_id" :data-type="block.type">
           <header v-if="block.title">
             <b>{{ String(blockIndex + 1).padStart(2, '0') }}</b>
@@ -87,6 +87,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { t } from '../shared/i18n'
 import type { SlideDeckTheme } from '../stores/teachingRepresentations'
 
@@ -107,9 +108,15 @@ interface Slide {
   key_message?: string
   section_id?: string
   blocks: SlideBlock[]
+  quality?: {
+    passed?: boolean
+    character_count?: number
+    issues?: Array<Record<string, any>>
+    requested_layout?: string
+  }
 }
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   slide: Slide
   pageNumber: number
   pageCount: number
@@ -120,6 +127,8 @@ withDefaults(defineProps<{
   theme: 'qingfeng-classroom',
   presenting: false,
 })
+
+const visualLayout = computed(() => props.slide.quality?.requested_layout || props.slide.layout)
 
 function chapterNumber(title: string) {
   return title.match(/\d+/)?.[0]?.padStart(2, '0') || '·'
@@ -196,6 +205,112 @@ function layoutLabel(value: string) {
   --deck-body-font:"Noto Sans SC","Microsoft YaHei","微软雅黑",sans-serif;
   --deck-cover-wash:linear-gradient(155deg,var(--deck-title),#63778D 58%,#AAB3BD);
 }
+.deck-canvas[data-theme="qizhi-classroom"] {
+  --deck-bg:#FFFDF7;
+  --deck-title:#17365D;
+  --deck-body:#34465C;
+  --deck-main:#2F6FE4;
+  --deck-accent:#F29D38;
+  --deck-chart:#DCE9F7;
+  --deck-blue-soft:#E7F0FF;
+  --deck-teal:#16856B;
+  --deck-paper:var(--deck-bg);
+  --deck-card:#fff;
+  --deck-line:#DDE5EE;
+  --deck-message-bg:#EAF1FF;
+  --deck-callout:#2F6FE4;
+  --deck-cover-wash:linear-gradient(145deg,#17365D,#2F6FE4 60%,#F29D38);
+}
+.deck-canvas[data-theme="academic-editorial"] {
+  --deck-bg:#FBFAF7;
+  --deck-title:#273340;
+  --deck-body:#45515D;
+  --deck-main:#315E7D;
+  --deck-accent:#8B6B3E;
+  --deck-chart:#E1E2DF;
+  --deck-blue-soft:#E8ECEC;
+  --deck-teal:#4F6D64;
+  --deck-paper:var(--deck-bg);
+  --deck-card:#FFFEFB;
+  --deck-line:#D8D8D3;
+  --deck-message-bg:#ECEDE9;
+  --deck-callout:#315E7D;
+  --deck-title-font:"Noto Serif SC","SimSun","宋体",serif;
+  --deck-cover-wash:linear-gradient(145deg,#273340,#526575 64%,#B2A58D);
+}
+.deck-canvas[data-theme="grid-notebook"] {
+  --deck-bg:#FAF8F0;
+  --deck-title:#283B36;
+  --deck-body:#40524D;
+  --deck-main:#2D7464;
+  --deck-accent:#D18A32;
+  --deck-chart:#DDE5DE;
+  --deck-blue-soft:#E1ECE5;
+  --deck-teal:#648B57;
+  --deck-paper:var(--deck-bg);
+  --deck-card:rgba(255,255,252,.9);
+  --deck-line:#D5DED7;
+  --deck-message-bg:#E7EFE9;
+  --deck-callout:#2D7464;
+  --deck-cover-wash:linear-gradient(145deg,#283B36,#2D7464 62%,#D18A32);
+  background-image:linear-gradient(rgba(45,116,100,.075) 1px,transparent 1px),linear-gradient(90deg,rgba(45,116,100,.075) 1px,transparent 1px);
+  background-size:3.2cqw 3.2cqw;
+}
+.deck-canvas[data-theme="modern-geometric"] {
+  --deck-bg:#F6F3FF;
+  --deck-title:#231A4A;
+  --deck-body:#463D62;
+  --deck-main:#6548E8;
+  --deck-accent:#F08B3E;
+  --deck-chart:#DDD5F2;
+  --deck-blue-soft:#E6DFFF;
+  --deck-teal:#138D85;
+  --deck-paper:var(--deck-bg);
+  --deck-card:#fff;
+  --deck-line:#D8D0EC;
+  --deck-message-bg:#E8E1FF;
+  --deck-callout:#6548E8;
+  --deck-cover-wash:linear-gradient(135deg,#231A4A,#6548E8 58%,#F08B3E);
+}
+.deck-canvas[data-theme="modern-geometric"]::before {
+  content:"";
+  position:absolute;
+  right:-7%;
+  top:-12%;
+  width:31%;
+  aspect-ratio:1;
+  border-radius:25% 52% 30% 55%;
+  background:color-mix(in srgb,var(--deck-accent) 18%,transparent);
+  transform:rotate(27deg);
+}
+.deck-canvas[data-theme="dark-tech"] {
+  --deck-bg:#0C1321;
+  --deck-title:#F3F8FF;
+  --deck-body:#D7E3F2;
+  --deck-main:#4DB5FF;
+  --deck-accent:#40D6B1;
+  --deck-chart:#22334B;
+  --deck-ink:var(--deck-title);
+  --deck-muted:#91A6BE;
+  --deck-blue:#4DB5FF;
+  --deck-blue-soft:#183C5A;
+  --deck-teal:#40D6B1;
+  --deck-amber:#FFB35A;
+  --deck-paper:var(--deck-bg);
+  --deck-card:#121E30;
+  --deck-line:#29405C;
+  --deck-message-bg:#142D43;
+  --deck-callout:#4DB5FF;
+  --deck-cover-wash:linear-gradient(145deg,#050912,#123150 62%,#166B68);
+}
+.deck-canvas[data-theme="dark-tech"] .deck-canvas__blocks > section {
+  box-shadow:inset 0 0 0 1px rgba(77,181,255,.14),0 0 28px rgba(22,96,135,.08);
+}
+.deck-canvas[data-layout="editorial-body"] .deck-canvas__blocks { grid-template-columns:1fr; }
+.deck-canvas[data-layout="two-column"] .deck-canvas__blocks { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.deck-canvas[data-layout="concept-cards"] .deck-canvas__blocks { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.deck-canvas[data-layout="appendix"] .deck-canvas__heading small { color:var(--deck-amber); }
+.deck-canvas[data-layout="formula"] .deck-canvas__blocks p { font-family:"Times New Roman",serif; font-size:1.8cqw; }
 .deck-canvas::after {
   content:"";
   position:absolute;

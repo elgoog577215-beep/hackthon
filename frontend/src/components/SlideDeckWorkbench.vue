@@ -1,5 +1,5 @@
 <template>
-  <section class="slide-workbench" :class="{ 'is-standalone': standalone }" :data-theme="theme" :data-preview-source="previewSource">
+  <section class="slide-workbench" :class="{ 'is-standalone': standalone }" :data-theme="previewTheme" :data-preview-source="previewSource">
     <header class="slide-workbench__toolbar">
       <div class="slide-workbench__identity">
         <button v-if="standalone" type="button" class="slide-workbench__back" :title="t('pptWorkspace.backToCourse', '返回课程')" @click="emit('back')">
@@ -18,22 +18,28 @@
         <small class="slide-workbench__count">{{ t('teachingRepresentations.slides.demoPageCount', '{count} 页 · Demo 标准 12–18 页').replace('{count}', String(slides.length)) }}</small>
       </div>
       <div class="slide-workbench__commands">
-        <div class="slide-workbench__theme" role="radiogroup" :aria-label="t('pptWorkspace.themeLabel', '课件主题')">
-          <button
-            type="button"
-            data-theme-option="qingfeng-classroom"
-            :aria-pressed="theme === 'qingfeng-classroom'"
-            :class="{ active: theme === 'qingfeng-classroom' }"
-            @click="theme = 'qingfeng-classroom'"
-          >{{ t('pptWorkspace.themes.qingfeng', '清风课堂') }}</button>
-          <button
-            type="button"
-            data-theme-option="academic-bluegray"
-            :aria-pressed="theme === 'academic-bluegray'"
-            :class="{ active: theme === 'academic-bluegray' }"
-            @click="theme = 'academic-bluegray'"
-          >{{ t('pptWorkspace.themes.academic', '学术蓝灰') }}</button>
+        <div class="slide-workbench__theme" :aria-label="t('pptWorkspace.themeLabel', '课件模式与风格')">
+          <select :value="mode" :disabled="building" aria-label="内容模式" @change="changeMode">
+            <option value="full">完整</option>
+            <option value="teaching">授课</option>
+            <option value="concise">精简</option>
+          </select>
+          <select :value="theme" :disabled="building" aria-label="视觉风格" @change="changeTheme">
+            <option value="qizhi-classroom">启智课堂{{ variantCached(mode, 'qizhi-classroom') ? ' · 已生成' : '' }}</option>
+            <option value="academic-editorial">学术编辑{{ variantCached(mode, 'academic-editorial') ? ' · 已生成' : '' }}</option>
+            <option value="grid-notebook">网格笔记{{ variantCached(mode, 'grid-notebook') ? ' · 已生成' : '' }}</option>
+            <option value="modern-geometric">现代几何{{ variantCached(mode, 'modern-geometric') ? ' · 已生成' : '' }}</option>
+            <option value="dark-tech">深色科技{{ variantCached(mode, 'dark-tech') ? ' · 已生成' : '' }}</option>
+          </select>
+          <button type="button" :disabled="building" title="查看模式与风格预览" @click="emit('configure')">
+            <SlidersHorizontal :size="15" />
+          </button>
+          <button class="legacy-theme-option" type="button" data-theme-option="qingfeng-classroom" @click="previewTheme = 'qingfeng-classroom'">清风课堂</button>
+          <button class="legacy-theme-option" type="button" data-theme-option="academic-bluegray" @click="previewTheme = 'academic-bluegray'">学术蓝灰</button>
         </div>
+        <button v-if="standalone" type="button" class="slide-workbench__configure-compact" title="选择模式与风格" @click="emit('configure')">
+          <SlidersHorizontal :size="16" />
+        </button>
         <button v-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuild', '同步课程最新内容')" @click="emit('rebuild')">
           <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ t('pptWorkspace.sync', '同步课程') }}</span>
         </button>
@@ -82,7 +88,7 @@
           :page-number="activeIndex + 1"
           :page-count="slides.length"
           :deck-title="deckTitle"
-          :theme="theme"
+          :theme="previewTheme"
         />
         <div v-else class="slide-stage__empty">
           <LoaderCircle v-if="building" :size="24" class="spinning" />
@@ -284,7 +290,7 @@
             :page-number="activeIndex + 1"
             :page-count="slides.length"
             :deck-title="deckTitle"
-            :theme="theme"
+            :theme="previewTheme"
             presenting
           />
           <aside v-if="notesVisible">
@@ -310,11 +316,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, SlidersHorizontal, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
-import type { SlideDeckPreviewSource, SlideDeckTheme } from '../stores/teachingRepresentations'
+import type { SlideDeckMode, SlideDeckPreviewSource, SlideDeckTheme, TeachingRepresentation } from '../stores/teachingRepresentations'
 import type { ChangeProposal, ChangeProposalContent, ChangeProposalItem } from '../types/changeProposal'
 import { writePptSameSourceHighlight } from '../utils/ppt-same-source'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
@@ -366,13 +372,20 @@ const props = withDefaults(defineProps<{
   quality?: Record<string, any> | null
   previewSource?: SlideDeckPreviewSource
   standalone?: boolean
+  mode?: SlideDeckMode
+  theme?: SlideDeckTheme
+  variants?: TeachingRepresentation[]
 }>(), {
   standalone: false,
+  mode: 'teaching',
+  theme: 'qingfeng-classroom',
+  variants: () => [],
 })
 
 const emit = defineEmits<{
   (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
-  (event: 'back' | 'rebuild'): void
+  (event: 'back' | 'rebuild' | 'configure'): void
+  (event: 'variant-change', payload: { mode: SlideDeckMode; theme: V3Theme }): void
   (event: 'open-course', payload: PptSameSourceHighlightState): void
 }>()
 
@@ -398,9 +411,10 @@ const presentationOpen = ref(false)
 const notesVisible = ref(false)
 const presentationBlank = ref(false)
 const presentationSurface = ref<HTMLElement | null>(null)
-const theme = ref<SlideDeckTheme>('qingfeng-classroom')
+const previewTheme = ref<SlideDeckTheme>(props.theme)
 const layouts = ['cover', 'roadmap', 'chapter', 'objective', 'concept', 'comparison', 'process', 'code', 'misconception', 'practice', 'recap']
 let autoPreviewTimer: number | undefined
+type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
 const activeIndex = computed(() => Math.max(0, props.slides.findIndex(slide => slide.unit_id === activeUnitId.value)))
 const activeSlide = computed(() => props.slides[activeIndex.value] || null)
@@ -490,9 +504,11 @@ const hasDetailedSyncReceipt = computed(() => (
   Array.isArray(syncReceipt.value?.changes) && syncReceipt.value.changes.length > 0
 ))
 const stageLabel = computed(() => ({
+  fragmenting: t('teachingRepresentations.slides.stages.fragmenting', '正在切分课程原文'),
   planning: t('teachingRepresentations.slides.stages.planning', '正在准备课程结构'),
   slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划页面'),
   slide_build: t('teachingRepresentations.slides.stages.slideBuild', '正在生成页面'),
+  reviewing: t('teachingRepresentations.slides.stages.reviewing', '正在审核页面分配'),
   quality: t('teachingRepresentations.slides.stages.quality', '正在检查质量'),
   complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
 }[props.stage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
@@ -505,6 +521,9 @@ watch(() => props.slides.map(slide => slide.unit_id), unitIds => {
   if (!unitIds.includes(activeUnitId.value)) activeUnitId.value = unitIds[0] || ''
   if (props.building && !userSelected.value) activeUnitId.value = unitIds[unitIds.length - 1] || ''
 }, { immediate: true })
+watch(() => props.theme, value => {
+  previewTheme.value = value
+})
 
 watch(activeSlide, initializeEdit, { immediate: true })
 watch(editValue, scheduleAutomaticPreview)
@@ -561,10 +580,28 @@ async function downloadSlides() {
   if (exportDisabled.value) return
   exportBusy.value = true
   try {
-    await store.downloadSlides(props.representationId, props.deckTitle, theme.value)
+    await store.downloadSlides(props.representationId, props.deckTitle, previewTheme.value)
   } finally {
     exportBusy.value = false
   }
+}
+
+function changeMode(event: Event) {
+  emit('variant-change', {
+    mode: (event.target as HTMLSelectElement).value as SlideDeckMode,
+    theme: props.theme as V3Theme,
+  })
+}
+
+function changeTheme(event: Event) {
+  emit('variant-change', {
+    mode: props.mode,
+    theme: (event.target as HTMLSelectElement).value as V3Theme,
+  })
+}
+
+function variantCached(mode: SlideDeckMode, theme: V3Theme) {
+  return props.variants.some(item => item.variant_key === `${mode}:${theme}`)
 }
 
 function resetEdit() {
@@ -856,9 +893,11 @@ function classificationLabel(value: string) {
 .slide-workbench__status { min-height:24px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border-radius:6px; color:#047857; background:#ecfdf5; font-size:9px; font-weight:700; }.slide-workbench__status[data-state="building"] { color:#4f46e5; background:#eef2ff; }.slide-workbench__status[data-state="warning"] { color:#b45309; background:#fffbeb; }
 .slide-workbench__status[data-state="error"] { color:#b42318; background:#fef3f2; }
 .slide-workbench__commands { flex:none; display:flex; gap:6px; }.slide-workbench__commands button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; cursor:pointer; }.slide-workbench__commands button:hover { color:var(--lz-brand-strong); border-color:#c7d2fe; background:var(--lz-brand-soft); }.slide-workbench__commands button:disabled { opacity:.45; cursor:not-allowed; }
-.slide-workbench__theme { display:grid; grid-template-columns:1fr 1fr; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
-.slide-workbench__commands .slide-workbench__theme button { min-height:28px; padding:0 9px; border:0; border-radius:6px; color:#697586; background:transparent; box-shadow:none; }
-.slide-workbench__commands .slide-workbench__theme button.active { color:#1f4fbe; background:#fff; box-shadow:0 2px 7px rgba(32,55,86,.12); }
+.slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
+.slide-workbench__theme select { min-height:28px; max-width:112px; padding:0 25px 0 8px; border:0; border-radius:6px; color:#536174; background:#fff; font-size:11px; font-weight:700; outline:none; }
+.slide-workbench__commands .slide-workbench__theme button { min-height:28px; padding:0; border:0; border-radius:6px; color:#697586; background:transparent; box-shadow:none; }
+.slide-workbench__commands .slide-workbench__theme .legacy-theme-option { display:none; }
+.slide-workbench__configure-compact { display:none !important; }
 .slide-workbench__progress { position:absolute; inset:auto 0 -1px; height:2px; background:#eef0f8; }.slide-workbench__progress i { display:block; height:100%; background:#6d5dfb; transition:width .2s ease; }
 .slide-workbench__body { min-width:0; min-height:0; display:grid; grid-template-columns:176px minmax(430px,1fr) 236px; }
 .slide-thumbnails { min-height:0; overflow:auto; padding:10px 8px 18px; border-right:1px solid var(--lz-border); background:#fbfcff; }.slide-thumbnails > button { width:100%; display:grid; grid-template-columns:20px minmax(0,1fr); align-items:start; gap:5px; margin:0 0 6px; padding:5px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-muted); background:transparent; cursor:pointer; }.slide-thumbnails > button:hover { background:#f3f5fb; }.slide-thumbnails > button.active { border-color:#a5b4fc; color:var(--lz-brand); background:#fff; box-shadow:0 4px 12px rgba(79,70,229,.08); }.slide-thumbnails > button.stale { border-left-color:#f59e0b; }.slide-thumbnails > button > span { padding-top:3px; font:700 8px ui-monospace,monospace; text-align:center; }
@@ -936,8 +975,8 @@ function classificationLabel(value: string) {
 .is-standalone .slide-workbench__count { color:#8fa0b4; font-size:10px; }
 .is-standalone .slide-workbench__commands { gap:7px; }
 .is-standalone .slide-workbench__theme { border-color:rgba(255,255,255,.12); background:rgba(255,255,255,.05); }
+.is-standalone .slide-workbench__theme select { min-height:30px; color:#d8e1ec; background:#304052; }
 .is-standalone .slide-workbench__commands .slide-workbench__theme button { min-height:30px; color:#9cacbf; background:transparent; }
-.is-standalone .slide-workbench__commands .slide-workbench__theme button.active { color:#fff; background:#304052; box-shadow:0 2px 8px rgba(0,0,0,.22); }
 .is-standalone .slide-workbench__commands button {
   min-height:38px;
   padding:0 12px;
@@ -1141,7 +1180,7 @@ function classificationLabel(value: string) {
   .is-standalone .slide-workbench__commands button { width:38px; padding:0; }
   .is-standalone .slide-workbench__commands .slide-workbench__export { width:auto; padding:0 12px; }
   .is-standalone .slide-workbench__commands .slide-workbench__export span { display:inline; }
-  .is-standalone .slide-workbench__commands .slide-workbench__theme button { width:auto; padding:0 8px; }
+  .is-standalone .slide-workbench__commands .slide-workbench__theme button { width:auto; padding:0 7px; }
 }
 @media (max-width:900px) {
   .slide-workbench.is-standalone { grid-template-rows:auto minmax(0,1fr); }
@@ -1158,6 +1197,7 @@ function classificationLabel(value: string) {
   .is-standalone .slide-workbench__identity > div { display:none; }
   .is-standalone .slide-workbench__commands { margin-left:auto; }
   .is-standalone .slide-workbench__theme { display:none; }
+  .is-standalone .slide-workbench__commands .slide-workbench__configure-compact { display:grid !important; }
   .is-standalone .slide-workbench__commands > button:nth-of-type(1),
   .is-standalone .slide-workbench__commands > button:nth-of-type(2) { display:none; }
   .deck-presentation > main { padding:8px; }

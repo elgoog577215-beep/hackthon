@@ -2,12 +2,27 @@ import { defineStore } from 'pinia'
 import http, { learnerIdentityHeaders, withApiBase } from '../utils/http'
 
 export type RepresentationType = 'outline' | 'lesson_plan' | 'handout' | 'practice_sheet' | 'slide_deck' | 'diagram'
-export type SlideDeckTheme = 'qingfeng-classroom' | 'academic-bluegray'
+export type SlideDeckMode = 'full' | 'teaching' | 'concise'
+export type SlideDeckTheme =
+  | 'qizhi-classroom'
+  | 'academic-editorial'
+  | 'grid-notebook'
+  | 'modern-geometric'
+  | 'dark-tech'
+  | 'qingfeng-classroom'
+  | 'academic-bluegray'
 export type SlideDeckPreviewSource = 'draft' | 'published'
+
+export interface SlideDeckBuildOptions {
+  mode: SlideDeckMode
+  theme: Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
+  forceRebuild?: boolean
+}
 
 export interface TeachingRepresentation {
   representation_id: string
   representation_type: RepresentationType
+  variant_key?: string
   spec_id: string
   status: 'planned' | 'building' | 'ready' | 'stale' | 'failed' | 'archived'
   stale_unit_ids: string[]
@@ -90,6 +105,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     buildPaused: false,
     loading: false,
     building: false,
+    deferMissingSlideBuild: false,
     courseRequestToken: 0,
     loadRequestToken: 0,
     specRequestToken: 0,
@@ -159,7 +175,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     async build(courseId: string) {
       return this.buildProgressive(courseId)
     },
-    async buildProgressive(courseId: string) {
+    async buildProgressive(courseId: string, options?: SlideDeckBuildOptions) {
       this.switchCourse(courseId)
       this.loadRequestToken += 1
       this.loading = false
@@ -182,8 +198,23 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.slideQuality = this.publishedSlideQuality
       try {
         const response = await fetch(
-          withApiBase(`/api/courses/${courseId}/teaching-representations/build/stream`),
-          { method: 'POST', headers: learnerIdentityHeaders({ Accept: 'text/event-stream' }) },
+          withApiBase(options
+            ? `/api/courses/${courseId}/teaching-representations/slide-decks/build/stream`
+            : `/api/courses/${courseId}/teaching-representations/build/stream`),
+          {
+            method: 'POST',
+            headers: learnerIdentityHeaders({
+              Accept: 'text/event-stream',
+              ...(options ? { 'Content-Type': 'application/json' } : {}),
+            }),
+            ...(options ? {
+              body: JSON.stringify({
+                mode: options.mode,
+                theme: options.theme,
+                force_rebuild: options.forceRebuild === true,
+              }),
+            } : {}),
+          },
         )
         const completedRef: { value?: TeachingRepresentationBuildEvent } = {}
         await consumeTeachingRepresentationStream(response, event => {
@@ -251,7 +282,13 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.buildProgress = 100
         this.buildStage = 'complete'
         const available = this.representations
-        if (!this.selectedId || !available.some(item => item.representation_id === this.selectedId)) {
+        const requestedVariant = options ? `${options.mode}:${options.theme}` : ''
+        const requestedRepresentation = requestedVariant
+          ? available.find(item => item.representation_type === 'slide_deck' && item.variant_key === requestedVariant)
+          : null
+        if (requestedRepresentation) {
+          this.selectedId = requestedRepresentation.representation_id
+        } else if (!this.selectedId || !available.some(item => item.representation_id === this.selectedId)) {
           this.selectedId = available[0]?.representation_id || ''
         }
         if (this.selectedId) await this.loadSpec(this.selectedId)
@@ -264,6 +301,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       } finally {
         if (isCurrentAttempt()) this.building = false
       }
+    },
+    async buildSlideDeckVariant(courseId: string, options: SlideDeckBuildOptions) {
+      return this.buildProgressive(courseId, options)
     },
     async pauseBuild() {
       if (!this.buildTaskId || !this.building) return
@@ -322,7 +362,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     async ensure(courseId: string) {
       const registry = await this.load(courseId)
       if (!registry || this.courseId !== courseId) return
-      if (!this.representations.length) {
+      if (!this.representations.length && !this.deferMissingSlideBuild) {
         await this.buildProgressive(courseId)
         return
       }
@@ -331,7 +371,11 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         (item: TeachingRepresentationSpec) => item.spec_id === slideRepresentation?.spec_id,
       ) as TeachingRepresentationSpec | undefined
       const content = slideSpec?.payload?.content
-      if (slideRepresentation && content?.schema_version !== 'slide_deck_v2') {
+      if (
+        !this.deferMissingSlideBuild
+        && slideRepresentation
+        && !['slide_deck_v2', 'slide_deck_v3'].includes(content?.schema_version)
+      ) {
         await this.buildProgressive(courseId)
       }
     },
@@ -354,8 +398,8 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       ) return null
       const spec = (response.data.spec || null) as TeachingRepresentationSpec | null
       this.selectedSpec = spec
-      if (spec?.payload?.content?.schema_version === 'slide_deck_v2') {
-        const summary = spec.payload.content.quality_summary
+      if (['slide_deck_v2', 'slide_deck_v3'].includes(spec?.payload?.content?.schema_version)) {
+        const summary = spec?.payload.content.quality_summary
         if (summary) {
           this.publishedSlideQuality = summary
           if (this.slidePreviewSource === 'published') this.slideQuality = summary
