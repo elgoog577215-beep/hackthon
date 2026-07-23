@@ -2261,9 +2261,35 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
                 "difficulty_contract": section.get("difficulty_contract", {}),
             })
 
+    teaching_plan_revision_id = str(
+        plan.get("teaching_plan_revision_id") or ""
+    ).strip()
+    derivation_mode = (
+        "official_course_teaching_plan"
+        if teaching_plan_revision_id
+        else "course_outline"
+    )
+    source_plan_fingerprint = stable_hash(
+        {
+            "teaching_plan_revision_id": teaching_plan_revision_id,
+            "course_title": plan.get("course_title"),
+            "positioning": plan.get("positioning"),
+            "learning_objectives": plan.get("learning_objectives") or [],
+            "prerequisites": plan.get("prerequisites") or [],
+            "chapters": plan.get("chapters") or [],
+            "knowledge_relations": plan.get("knowledge_relations") or [],
+            "course_module_plan": plan.get("course_module_plan") or [],
+            "course_difficulty_curve": plan.get("course_difficulty_curve") or {},
+        },
+        prefix="cbps_",
+    )
+
     return {
         "blueprint_id": f"cbp-{uuid.uuid4()}",
         "schema_version": PIPELINE_VERSION,
+        "derivation_mode": derivation_mode,
+        "source_teaching_plan_revision_id": teaching_plan_revision_id,
+        "source_plan_fingerprint": source_plan_fingerprint,
         "course_title": plan.get("course_title") or artifacts.get("course_generation_brief", {}).get("subject", ""),
         "positioning": plan.get("positioning") or artifacts.get("course_generation_brief", {}).get("goal", "电子课程资料"),
         "learning_objectives": plan.get("learning_objectives", []),

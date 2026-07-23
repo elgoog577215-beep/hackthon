@@ -42,7 +42,171 @@
       </div>
     </header>
 
-    <div v-if="selectedSection" class="generation-lesson-plan__workspace">
+    <div
+      v-if="overallPlan || selectedSection"
+      class="generation-lesson-plan__view-switch"
+      role="tablist"
+      :aria-label="t('courseGeneration.lessonPlan.viewLabel', '教案视图')"
+    >
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="viewMode === 'overall'"
+        :class="{ 'is-active': viewMode === 'overall' }"
+        @click="viewMode = 'overall'"
+      >
+        <BookOpenCheck :size="16" />
+        <span>
+          <strong>{{ t('courseGeneration.lessonPlan.overallTab', '总体教案') }}</strong>
+          <small>{{ t('courseGeneration.lessonPlan.overallTabHelp', '看整门课怎样设计') }}</small>
+        </span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="viewMode === 'sections'"
+        :class="{ 'is-active': viewMode === 'sections' }"
+        @click="viewMode = 'sections'"
+      >
+        <ListTree :size="16" />
+        <span>
+          <strong>{{ t('courseGeneration.lessonPlan.sectionsTab', '分小节教案') }}</strong>
+          <small>{{ t('courseGeneration.lessonPlan.sectionsTabHelp', '看每一节如何落地') }}</small>
+        </span>
+      </button>
+    </div>
+
+    <article
+      v-if="viewMode === 'overall' && overallPlan"
+      class="generation-lesson-plan__overview"
+      role="tabpanel"
+    >
+      <header class="generation-lesson-plan__overview-hero">
+        <div>
+          <span>{{ t('courseGeneration.lessonPlan.overallEyebrow', '全课教学设计') }}</span>
+          <h3>{{ overallPlan.course_title || t('courseGeneration.lessonPlan.untitledCourse', '未命名课程') }}</h3>
+          <p>{{ overallPlan.positioning || t('courseGeneration.lessonPlan.positioningPending', '课程定位将在目录确认后形成。') }}</p>
+        </div>
+        <aside>
+          <UsersRound :size="18" />
+          <span>{{ t('courseGeneration.lessonPlan.targetAudience', '教学对象') }}</span>
+          <strong>{{ overallPlan.target_audience || t('courseGeneration.lessonPlan.audiencePending', '按课程需求确定') }}</strong>
+        </aside>
+      </header>
+
+      <div class="generation-lesson-plan__overview-grid">
+        <section class="generation-lesson-plan__overview-card is-objectives">
+          <header>
+            <Target :size="18" />
+            <span>
+              <small>{{ t('courseGeneration.lessonPlan.overallObjectivesEyebrow', '总体目标') }}</small>
+              <strong>{{ t('courseGeneration.lessonPlan.overallObjectives', '学完这门课，学生能够') }}</strong>
+            </span>
+          </header>
+          <ol v-if="overallPlan.learning_objectives.length">
+            <li v-for="(objective, index) in overallPlan.learning_objectives" :key="objective">
+              <span>{{ String(index + 1).padStart(2, '0') }}</span>
+              <p>{{ objective }}</p>
+            </li>
+          </ol>
+          <p v-else class="generation-lesson-plan__card-empty">{{ t('courseGeneration.lessonPlan.objectivesPending', '总体教学目标正在形成。') }}</p>
+        </section>
+
+        <section class="generation-lesson-plan__overview-card">
+          <header>
+            <Route :size="18" />
+            <span>
+              <small>{{ t('courseGeneration.lessonPlan.entryEyebrow', '学习起点') }}</small>
+              <strong>{{ t('courseGeneration.lessonPlan.prerequisitesTitle', '开始前需要具备') }}</strong>
+            </span>
+          </header>
+          <ul v-if="overallPlan.prerequisites.length" class="generation-lesson-plan__plain-list">
+            <li v-for="item in overallPlan.prerequisites" :key="item">{{ item }}</li>
+          </ul>
+          <p v-else class="generation-lesson-plan__card-empty">{{ t('courseGeneration.lessonPlan.noPrerequisites', '没有额外前置要求。') }}</p>
+        </section>
+
+        <section class="generation-lesson-plan__overview-card">
+          <header>
+            <Sparkles :size="18" />
+            <span>
+              <small>{{ t('courseGeneration.lessonPlan.strategyEyebrow', '教学策略') }}</small>
+              <strong>{{ t('courseGeneration.lessonPlan.strategyTitle', '这门课准备怎样教') }}</strong>
+            </span>
+          </header>
+          <p class="generation-lesson-plan__strategy-copy">
+            {{ overallPlan.teaching_strategy.rationale || teachingModeSummary }}
+          </p>
+          <div v-if="teachingModeTags.length" class="generation-lesson-plan__strategy-tags">
+            <span v-for="item in teachingModeTags" :key="item">{{ teachingModeLabel(item) }}</span>
+          </div>
+        </section>
+
+        <section class="generation-lesson-plan__overview-card">
+          <header>
+            <BadgeCheck :size="18" />
+            <span>
+              <small>{{ t('courseGeneration.lessonPlan.assessmentEyebrow', '评价设计') }}</small>
+              <strong>{{ t('courseGeneration.lessonPlan.assessmentTitle', '怎样知道学生已经学会') }}</strong>
+            </span>
+          </header>
+          <ul v-if="overallPlan.assessment_methods.length" class="generation-lesson-plan__plain-list">
+            <li v-for="item in overallPlan.assessment_methods" :key="item">{{ item }}</li>
+          </ul>
+          <p v-else class="generation-lesson-plan__card-empty">
+            {{ t('courseGeneration.lessonPlan.assessmentFallback', '依据各小节的可观察能力与掌握标准进行形成性评价。') }}
+          </p>
+        </section>
+      </div>
+
+      <section class="generation-lesson-plan__overview-section">
+        <header>
+          <span>
+            <small>{{ t('courseGeneration.lessonPlan.courseStructureEyebrow', '教学进程') }}</small>
+            <strong>{{ t('courseGeneration.lessonPlan.courseStructureTitle', '章节怎样推动学习发生') }}</strong>
+          </span>
+          <p>{{ t('courseGeneration.lessonPlan.courseStructureHelp', '章节负责阶段性推进，分小节教案负责把每一步落实为知识与课程块。') }}</p>
+        </header>
+        <ol class="generation-lesson-plan__chapter-path">
+          <li v-for="(chapter, index) in overallPlan.chapters" :key="chapter.chapter_id || index">
+            <span>{{ chapter.chapter_number || String(index + 1).padStart(2, '0') }}</span>
+            <div>
+              <strong>{{ chapter.title }}</strong>
+              <p>{{ chapter.learning_focus || t('courseGeneration.lessonPlan.chapterFocusPending', '本章教学责任随目录确定。') }}</p>
+            </div>
+            <small>{{ chapter.section_count }} {{ t('courseGeneration.lessonPlan.sectionUnit', '小节') }}</small>
+          </li>
+        </ol>
+      </section>
+
+      <section v-if="overallPlan.knowledge_tags.length" class="generation-lesson-plan__overview-section is-knowledge-map">
+        <header>
+          <span>
+            <small>{{ t('courseGeneration.lessonPlan.courseKnowledgeEyebrow', '全课知识') }}</small>
+            <strong>{{ t('courseGeneration.lessonPlan.courseKnowledgeTitle', '教案引用的知识坐标') }}</strong>
+          </span>
+          <p>{{ t('courseGeneration.lessonPlan.courseKnowledgeHelp', '标签来自当前课程知识库；数字表示该知识覆盖的小节数。') }}</p>
+        </header>
+        <div class="generation-lesson-plan__knowledge-tags">
+          <button
+            v-for="tag in overallPlan.knowledge_tags"
+            :key="tag.knowledge_id || tag.name"
+            type="button"
+            :disabled="!tag.knowledge_id"
+            :title="tag.knowledge_id
+              ? t('courseGeneration.lessonPlan.openKnowledge', '在知识库中查看')
+              : t('courseGeneration.lessonPlan.knowledgePending', '等待知识库编译')"
+            @click="openKnowledge(tag.knowledge_id)"
+          >
+            <BrainCircuit :size="14" />
+            <span>{{ tag.name }}</span>
+            <small>{{ tag.section_count }}</small>
+          </button>
+        </div>
+      </section>
+    </article>
+
+    <div v-else-if="selectedSection" class="generation-lesson-plan__workspace" role="tabpanel">
       <nav class="generation-lesson-plan__pager" :aria-label="t('courseGeneration.lessonPlan.sectionNavigation', '教案小节导航')">
         <button
           type="button"
@@ -139,6 +303,28 @@
                 <strong>{{ t('courseGeneration.lessonPlan.knowledgeTitle', '教到什么，怎样知道学会') }}</strong>
               </span>
               <p>{{ t('courseGeneration.lessonPlan.knowledgeHelp', '把知识边界、可观察能力、掌握标准和易错纠偏放在同一个备课单元里。') }}</p>
+            </div>
+
+            <div v-if="selectedKnowledgeTags.length" class="generation-lesson-plan__section-knowledge-tags">
+              <span>{{ t('courseGeneration.lessonPlan.sectionKnowledgeTags', '本节知识标签') }}</span>
+              <div>
+                <button
+                  v-for="tag in selectedKnowledgeTags"
+                  :key="tag.knowledge_id || tag.name"
+                  type="button"
+                  :disabled="!tag.knowledge_id"
+                  :data-status="tag.knowledge_status || 'awaiting_compilation'"
+                  :title="tag.knowledge_id
+                    ? t('courseGeneration.lessonPlan.openKnowledge', '在知识库中查看')
+                    : t('courseGeneration.lessonPlan.knowledgePending', '等待知识库编译')"
+                  @click="openKnowledge(tag.knowledge_id)"
+                >
+                  <BrainCircuit :size="13" />
+                  {{ tag.name }}
+                  <ArrowUpRight v-if="tag.knowledge_id" :size="12" />
+                  <small v-else>{{ t('courseGeneration.lessonPlan.compiling', '编译中') }}</small>
+                </button>
+              </div>
             </div>
 
             <div v-if="selectedSection.plan.knowledge_structure?.length" class="generation-lesson-plan__knowledge-groups">
@@ -268,9 +454,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import {
   ArrowRight,
+  ArrowUpRight,
   BadgeCheck,
   BookOpenCheck,
   BrainCircuit,
@@ -280,10 +467,13 @@ import {
   CircleCheck,
   CircleDashed,
   GitBranch,
+  ListTree,
   LoaderCircle,
   Route,
+  Sparkles,
   Target,
   TriangleAlert,
+  UsersRound,
 } from 'lucide-vue-next'
 import type {
   CourseTeachingPlanProjection,
@@ -312,8 +502,10 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'select', node: Node): void
+  (event: 'open-knowledge', knowledgeId: string): void
 }>()
 
+const viewMode = ref<'overall' | 'sections'>('overall')
 const planByNode = computed(() => new Map(
   (props.plan?.sections || []).map(section => [section.node_id, section]),
 ))
@@ -329,6 +521,7 @@ const selectedIndex = computed(() => {
   return childIndex >= 0 ? childIndex : 0
 })
 const selectedSection = computed(() => sections.value[selectedIndex.value])
+const overallPlan = computed(() => props.plan?.overall)
 const previousSection = computed(() => selectedIndex.value > 0 ? sections.value[selectedIndex.value - 1] : undefined)
 const nextSection = computed(() => selectedIndex.value < sections.value.length - 1 ? sections.value[selectedIndex.value + 1] : undefined)
 const planReady = computed(() => props.plan?.status === 'completed' && Boolean(props.plan.sections?.length))
@@ -357,6 +550,35 @@ const moduleCount = computed(() => (props.plan?.sections || []).reduce(
 const knowledgeCount = computed(() => (props.plan?.sections || []).reduce(
   (sum, section) => sum + (section.key_points?.length || 0),
   0,
+))
+const selectedKnowledgeTags = computed(() => {
+  const tags = new Map<string, {
+    knowledge_id: string
+    knowledge_status?: string
+    name: string
+  }>()
+  for (const group of selectedSection.value?.plan?.knowledge_structure || []) {
+    for (const point of group.knowledge_points || []) {
+      const name = String(point.name || '').trim()
+      if (!name) continue
+      const key = String(point.knowledge_id || name)
+      tags.set(key, {
+        knowledge_id: String(point.knowledge_id || ''),
+        knowledge_status: point.knowledge_status,
+        name,
+      })
+    }
+  }
+  return [...tags.values()]
+})
+const teachingModeTags = computed(() => [
+  overallPlan.value?.teaching_strategy.primary_mode,
+  overallPlan.value?.teaching_strategy.secondary_mode,
+].filter((value): value is string => Boolean(value)))
+const teachingModeSummary = computed(() => (
+  teachingModeTags.value.length
+    ? t('courseGeneration.lessonPlan.strategyFromProfile', '以课程教学画像组织讲解、示例、练习与反馈。')
+    : t('courseGeneration.lessonPlan.strategyPending', '教学策略正在随全课教案形成。')
 ))
 const planStatusLabel = computed(() => (
   planReady.value
@@ -426,6 +648,24 @@ function knowledgeTypeLabel(value: string): string {
   }
   return labels[value] || value
 }
+
+function teachingModeLabel(value: string): string {
+  const labels: Record<string, string> = {
+    conceptual: t('courseGeneration.lessonPlan.teachingModes.conceptual', '概念建构'),
+    worked_examples: t('courseGeneration.lessonPlan.teachingModes.workedExamples', '例题引导'),
+    inquiry: t('courseGeneration.lessonPlan.teachingModes.inquiry', '探究学习'),
+    project_based: t('courseGeneration.lessonPlan.teachingModes.projectBased', '项目实践'),
+    procedural: t('courseGeneration.lessonPlan.teachingModes.procedural', '程序训练'),
+    case_based: t('courseGeneration.lessonPlan.teachingModes.caseBased', '案例教学'),
+    discussion: t('courseGeneration.lessonPlan.teachingModes.discussion', '讨论辨析'),
+  }
+  return labels[value] || value.replace(/_/g, ' ')
+}
+
+function openKnowledge(knowledgeId: string): void {
+  if (!knowledgeId) return
+  emit('open-knowledge', knowledgeId)
+}
 </script>
 
 <style scoped>
@@ -466,6 +706,63 @@ function knowledgeTypeLabel(value: string): string {
 .generation-lesson-plan__progress > div:first-child { display:flex; justify-content:space-between; gap:14px; color:#5a60bb; font-size:12px; font-weight:750; }
 .generation-lesson-plan__progress-track { height:4px; overflow:hidden; margin-top:8px; border-radius:999px; background:#e5e7f5; }
 .generation-lesson-plan__progress-track i { display:block; height:100%; border-radius:inherit; background:#6268cc; transition:width .25s ease; }
+.generation-lesson-plan__view-switch { width:min(1180px,100%); display:flex; gap:5px; margin:0 auto 14px; padding:5px; border:1px solid #dfe2e8; border-radius:14px; background:rgba(255,255,255,.76); box-shadow:0 8px 25px rgba(38,45,63,.04); backdrop-filter:blur(14px); }
+.generation-lesson-plan__view-switch button { min-width:0; display:flex; align-items:center; gap:10px; padding:9px 14px; border:0; border-radius:10px; color:#737c8c; background:transparent; cursor:pointer; text-align:left; }
+.generation-lesson-plan__view-switch button:hover { color:#4d55ae; background:#f6f6fc; }
+.generation-lesson-plan__view-switch button.is-active { color:#4e55ad; background:#f0f1fb; box-shadow:inset 0 0 0 1px #dfe1f5; }
+.generation-lesson-plan__view-switch button > span { display:grid; gap:1px; }
+.generation-lesson-plan__view-switch button strong { color:inherit; font-size:12px; line-height:1.35; }
+.generation-lesson-plan__view-switch button small { color:#969daa; font-size:11px; line-height:1.35; }
+.generation-lesson-plan__overview { width:min(1180px,100%); overflow:hidden; margin:0 auto; border:1px solid #d9dde5; border-radius:20px; background:rgba(255,255,255,.97); box-shadow:0 20px 55px rgba(38,45,63,.075); }
+.generation-lesson-plan__overview-hero { position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(230px,.34fr); gap:40px; padding:38px 40px 34px; border-bottom:1px solid #e0e3e9; background:linear-gradient(120deg,#fbfbf9 0%,#fff 58%,#f2f3ff 100%); }
+.generation-lesson-plan__overview-hero::before { content:""; position:absolute; top:0; left:40px; width:72px; height:3px; background:#6269c4; }
+.generation-lesson-plan__overview-hero > div > span { color:#696fc0; font-size:12px; font-weight:800; letter-spacing:.09em; }
+.generation-lesson-plan__overview-hero h3 { margin:8px 0 9px; color:#1b2636; font:700 28px/1.25 Georgia,"Noto Serif SC",serif; letter-spacing:-.02em; }
+.generation-lesson-plan__overview-hero p { max-width:760px; margin:0; color:#687285; font-size:14px; line-height:1.75; }
+.generation-lesson-plan__overview-hero aside { align-self:center; display:grid; grid-template-columns:28px minmax(0,1fr); gap:2px 8px; padding:15px 16px; border:1px solid #dfe2ec; border-radius:13px; background:rgba(255,255,255,.72); }
+.generation-lesson-plan__overview-hero aside svg { grid-row:1 / 3; align-self:center; color:#6067bd; }
+.generation-lesson-plan__overview-hero aside span { color:#9198a5; font-size:11px; font-weight:750; }
+.generation-lesson-plan__overview-hero aside strong { color:#4b5669; font-size:13px; line-height:1.5; }
+.generation-lesson-plan__overview-grid { display:grid; grid-template-columns:1.18fr .82fr; gap:0; border-bottom:1px solid #e4e6eb; }
+.generation-lesson-plan__overview-card { min-width:0; padding:28px 32px 30px; border-top:1px solid #e8eaee; border-left:1px solid #e8eaee; background:#fff; }
+.generation-lesson-plan__overview-card:nth-child(-n+2) { border-top:0; }
+.generation-lesson-plan__overview-card:nth-child(odd) { border-left:0; }
+.generation-lesson-plan__overview-card.is-objectives { background:linear-gradient(135deg,#fdfdfb,#fafaff); }
+.generation-lesson-plan__overview-card > header { display:flex; align-items:center; gap:11px; margin-bottom:18px; }
+.generation-lesson-plan__overview-card > header > svg { flex:none; color:#5960b7; }
+.generation-lesson-plan__overview-card > header span { display:grid; gap:2px; }
+.generation-lesson-plan__overview-card > header small { color:#9198a6; font-size:11px; font-weight:750; letter-spacing:.07em; }
+.generation-lesson-plan__overview-card > header strong { color:#364154; font-size:15px; line-height:1.4; }
+.generation-lesson-plan__overview-card ol { display:grid; gap:10px; margin:0; padding:0; list-style:none; }
+.generation-lesson-plan__overview-card ol li { display:grid; grid-template-columns:26px minmax(0,1fr); gap:10px; align-items:start; }
+.generation-lesson-plan__overview-card ol li > span { display:grid; place-items:center; width:24px; height:24px; border:1px solid #dde0f0; border-radius:7px; color:#6268b6; background:#f4f4fb; font:700 10px/1 ui-monospace,SFMono-Regular,monospace; }
+.generation-lesson-plan__overview-card ol p { margin:1px 0 0; color:#596579; font-size:13px; line-height:1.62; }
+.generation-lesson-plan__plain-list { display:flex; flex-wrap:wrap; gap:7px; margin:0; padding:0; list-style:none; }
+.generation-lesson-plan__plain-list li { padding:7px 10px; border:1px solid #e1e4ea; border-radius:8px; color:#596579; background:#f8f9fa; font-size:12px; line-height:1.4; }
+.generation-lesson-plan__strategy-copy,.generation-lesson-plan__card-empty { margin:0; color:#667185; font-size:13px; line-height:1.7; }
+.generation-lesson-plan__card-empty { color:#939aa6; }
+.generation-lesson-plan__strategy-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:13px; }
+.generation-lesson-plan__strategy-tags span { padding:5px 8px; border:1px solid #dfe2f4; border-radius:999px; color:#5b62b6; background:#f5f5fc; font-size:11px; font-weight:750; }
+.generation-lesson-plan__overview-section { padding:31px 34px 34px; border-bottom:1px solid #e4e6eb; background:#fcfcfb; }
+.generation-lesson-plan__overview-section:last-child { border-bottom:0; }
+.generation-lesson-plan__overview-section > header { display:flex; align-items:end; justify-content:space-between; gap:28px; margin-bottom:21px; }
+.generation-lesson-plan__overview-section > header > span { display:grid; gap:3px; }
+.generation-lesson-plan__overview-section > header small { color:#8e96a4; font-size:11px; font-weight:750; letter-spacing:.07em; }
+.generation-lesson-plan__overview-section > header strong { color:#303b4d; font-size:16px; }
+.generation-lesson-plan__overview-section > header p { max-width:570px; margin:0; color:#7a8393; font-size:12px; line-height:1.6; text-align:right; }
+.generation-lesson-plan__chapter-path { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0; padding:0; list-style:none; counter-reset:chapters; }
+.generation-lesson-plan__chapter-path li { position:relative; min-width:0; display:grid; grid-template-columns:34px minmax(0,1fr); gap:10px; padding:16px; border:1px solid #e0e3e9; border-radius:12px; background:#fff; }
+.generation-lesson-plan__chapter-path li > span { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; color:#575eb7; background:#f0f1fb; font:700 11px/1 ui-monospace,SFMono-Regular,monospace; }
+.generation-lesson-plan__chapter-path li > div { min-width:0; }
+.generation-lesson-plan__chapter-path li strong { display:block; color:#414c5f; font-size:13px; line-height:1.45; }
+.generation-lesson-plan__chapter-path li p { margin:4px 0 0; color:#7b8493; font-size:11px; line-height:1.55; }
+.generation-lesson-plan__chapter-path li > small { grid-column:2; color:#999fac; font-size:11px; }
+.generation-lesson-plan__overview-section.is-knowledge-map { background:linear-gradient(130deg,#fbfbff,#fff); }
+.generation-lesson-plan__knowledge-tags { display:flex; flex-wrap:wrap; gap:8px; }
+.generation-lesson-plan__knowledge-tags button { display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:0 9px; border:1px solid #dfe2f2; border-radius:9px; color:#555cb2; background:#f8f8ff; font-size:12px; cursor:pointer; }
+.generation-lesson-plan__knowledge-tags button:hover:not(:disabled) { border-color:#bfc4e8; background:#f0f1fb; transform:translateY(-1px); }
+.generation-lesson-plan__knowledge-tags button:disabled { color:#8b91a1; background:#f5f6f8; cursor:default; }
+.generation-lesson-plan__knowledge-tags button small { display:grid; place-items:center; min-width:18px; height:18px; border-radius:6px; color:#7278b7; background:#e8e9f7; font-size:11px; font-weight:800; }
 .generation-lesson-plan__workspace { width:min(1180px,100%); margin:0 auto; }
 .generation-lesson-plan__pager { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:14px; margin:0 2px 12px; }
 .generation-lesson-plan__pager > button { min-width:0; display:flex; align-items:center; gap:9px; padding:7px 9px; border:0; border-radius:9px; color:#687285; background:transparent; cursor:pointer; text-align:left; }
@@ -510,6 +807,13 @@ function knowledgeTypeLabel(value: string): string {
 .generation-lesson-plan__module-copy > div { display:flex; flex-wrap:wrap; gap:6px; }
 .generation-lesson-plan__module-copy > div span { padding:4px 8px; border:1px solid #e0e3f6; border-radius:6px; color:#555cb8; background:#f8f8ff; font-size:12px; line-height:1.35; }
 .generation-lesson-plan__knowledge { background:#fcfcfb; }
+.generation-lesson-plan__section-knowledge-tags { display:grid; grid-template-columns:140px minmax(0,1fr); align-items:start; gap:14px; margin:-3px 0 22px; padding:14px 15px; border:1px solid #e1e4ec; border-radius:12px; background:linear-gradient(110deg,#f7f7fc,#fff); }
+.generation-lesson-plan__section-knowledge-tags > span { padding-top:6px; color:#727a8d; font-size:12px; font-weight:800; }
+.generation-lesson-plan__section-knowledge-tags > div { display:flex; flex-wrap:wrap; gap:7px; }
+.generation-lesson-plan__section-knowledge-tags button { display:inline-flex; align-items:center; gap:5px; min-height:29px; padding:0 9px; border:1px solid #dcdff0; border-radius:999px; color:#555cb3; background:#fff; font-size:11px; font-weight:750; cursor:pointer; }
+.generation-lesson-plan__section-knowledge-tags button:hover:not(:disabled) { border-color:#bfc4e4; box-shadow:0 5px 14px rgba(77,84,160,.09); transform:translateY(-1px); }
+.generation-lesson-plan__section-knowledge-tags button:disabled { color:#868e9d; background:#f5f6f8; cursor:default; }
+.generation-lesson-plan__section-knowledge-tags button small { margin-left:2px; color:#a0a6b0; font-size:11px; font-weight:650; }
 .generation-lesson-plan__knowledge-groups { display:grid; gap:22px; }
 .generation-lesson-plan__knowledge-group { overflow:hidden; border:1px solid #dfe2e8; border-radius:14px; background:#fff; }
 .generation-lesson-plan__knowledge-group > header { display:flex; gap:12px; padding:17px 19px 15px; border-bottom:1px solid #e7e9ed; background:#f8f8f6; }
@@ -570,6 +874,9 @@ function knowledgeTypeLabel(value: string): string {
   .generation-lesson-plan__header { grid-template-columns:1fr; align-items:start; gap:16px; }
   .generation-lesson-plan__summary { width:100%; }
   .generation-lesson-plan__summary dl div { min-width:0; flex:1; }
+  .generation-lesson-plan__overview-hero { grid-template-columns:1fr; gap:20px; }
+  .generation-lesson-plan__overview-hero aside { max-width:520px; }
+  .generation-lesson-plan__chapter-path { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .generation-lesson-plan__sheet-header { grid-template-columns:58px minmax(0,1fr); }
   .generation-lesson-plan__readiness { grid-column:2; justify-self:start; }
   .generation-lesson-plan__block-heading { grid-template-columns:38px minmax(0,1fr); }
@@ -581,6 +888,20 @@ function knowledgeTypeLabel(value: string): string {
   .generation-lesson-plan__header { margin-bottom:14px; padding:0 6px 20px; }
   .generation-lesson-plan__header h2 { font-size:29px; }
   .generation-lesson-plan__summary dl div { padding:3px 10px; }
+  .generation-lesson-plan__view-switch { width:calc(100% - 4px); }
+  .generation-lesson-plan__view-switch button { flex:1; padding:9px 10px; }
+  .generation-lesson-plan__view-switch button small { display:none; }
+  .generation-lesson-plan__overview { border-radius:15px; }
+  .generation-lesson-plan__overview-hero { padding:29px 20px 24px; }
+  .generation-lesson-plan__overview-hero::before { left:20px; }
+  .generation-lesson-plan__overview-hero h3 { font-size:24px; }
+  .generation-lesson-plan__overview-grid { grid-template-columns:1fr; }
+  .generation-lesson-plan__overview-card,.generation-lesson-plan__overview-card:nth-child(-n+2) { padding:24px 20px; border-top:1px solid #e8eaee; border-left:0; }
+  .generation-lesson-plan__overview-card:first-child { border-top:0; }
+  .generation-lesson-plan__overview-section { padding:25px 20px 27px; }
+  .generation-lesson-plan__overview-section > header { display:grid; gap:8px; }
+  .generation-lesson-plan__overview-section > header p { text-align:left; }
+  .generation-lesson-plan__chapter-path { grid-template-columns:1fr; }
   .generation-lesson-plan__pager { grid-template-columns:1fr auto 1fr; gap:5px; }
   .generation-lesson-plan__pager > button { padding:7px 3px; }
   .generation-lesson-plan__pager > button strong { display:none; }
@@ -593,6 +914,8 @@ function knowledgeTypeLabel(value: string): string {
   .generation-lesson-plan__block { padding:24px 16px 27px; }
   .generation-lesson-plan__block-heading { align-items:start; gap:10px 11px; margin-bottom:18px; }
   .generation-lesson-plan__block-heading > p { grid-column:1 / -1; }
+  .generation-lesson-plan__section-knowledge-tags { grid-template-columns:1fr; gap:8px; }
+  .generation-lesson-plan__section-knowledge-tags > span { padding-top:0; }
   .generation-lesson-plan__knowledge-group summary { grid-template-columns:minmax(0,1fr) auto; gap:8px; }
   .generation-lesson-plan__knowledge-group summary > p { grid-column:1 / -1; grid-row:2; }
   .generation-lesson-plan__knowledge-group summary > svg { grid-column:2; grid-row:1; }

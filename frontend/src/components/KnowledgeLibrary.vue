@@ -704,6 +704,22 @@ function selectNode(node: KnowledgeNode, expandable = false): void {
   if (expandable && !expandedIds.value.has(node.knowledge_id)) toggleNode(node.knowledge_id)
 }
 
+function focusRequestedKnowledge(): void {
+  const knowledgeId = String(courseStore.focusKnowledgeId || '')
+  if (!knowledgeId) return
+  const node = nodeById.value.get(knowledgeId)
+  if (!node) return
+  const nextExpanded = new Set(expandedIds.value)
+  let current: KnowledgeNode | undefined = node
+  while (current?.parent_id) {
+    nextExpanded.add(current.parent_id)
+    current = nodeById.value.get(current.parent_id)
+  }
+  expandedIds.value = nextExpanded
+  selectNode(node, hasChildren(node.knowledge_id))
+  courseStore.focusKnowledgeId = ''
+}
+
 function selectFirstMatch(): void {
   const matches = visibleRows.value.filter(row => matchingIds.value.has(row.node.knowledge_id))
   const match = matches.find(row => row.node.node_type === 'knowledge_point') || matches[0]
@@ -733,6 +749,7 @@ async function loadLibrary(): Promise<void> {
     )
     selectedNode.value = view.nodes.find((node: KnowledgeNode) => node.knowledge_id === view.root_node_id) || view.nodes[0] || null
     mobileDetailOpen.value = false
+    focusRequestedKnowledge()
     viewMode.value = 'tree'
   } catch (error: any) {
     logger.error(error)
@@ -856,6 +873,12 @@ watch(() => courseStore.showKnowledgeLibrary, async show => {
     searchQuery.value = ''
     mobileDetailOpen.value = false
     viewMode.value = 'tree'
+  }
+})
+
+watch(() => courseStore.focusKnowledgeId, knowledgeId => {
+  if (knowledgeId && courseStore.showKnowledgeLibrary && libraryView.value) {
+    focusRequestedKnowledge()
   }
 })
 

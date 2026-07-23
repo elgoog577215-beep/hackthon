@@ -175,11 +175,12 @@ function degradedResponse() {
   }
 }
 
-async function mountLibrary() {
+async function mountLibrary(focusKnowledgeId = '') {
   const pinia = createPinia()
   setActivePinia(pinia)
   const courseStore = useCourseStore()
   courseStore.currentCourseId = 'course-1'
+  courseStore.focusKnowledgeId = focusKnowledgeId
   const wrapper = mount(KnowledgeLibrary, {
     global: { plugins: [pinia], stubs: { Teleport: true, Transition: false } },
   })
@@ -237,6 +238,20 @@ describe('Course knowledge library', () => {
     expect(courseStore.showKnowledgeLibrary).toBe(false)
     await new Promise(resolve => setTimeout(resolve, 170))
     expect(scrollSpy).toHaveBeenCalledWith('L2-1-1')
+  })
+
+  it('从教案知识标签打开时直接定位对应原子知识', async () => {
+    const { wrapper, courseStore } = await mountLibrary(
+      'linear-combination-definition',
+    )
+
+    expect(wrapper.get('.knowledge-tree-detail h2').text()).toBe(
+      '线性组合的形式定义',
+    )
+    expect(wrapper.get('.knowledge-tree-breadcrumb').text()).toContain(
+      '线性表示机制',
+    )
+    expect(courseStore.focusKnowledgeId).toBe('')
   })
 
   it('搜索原子知识时保留课程、章节、小节和概念组祖先路径', async () => {

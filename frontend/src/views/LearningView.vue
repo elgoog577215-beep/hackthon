@@ -76,6 +76,7 @@
         :live="isGenerationPreview"
         :task="generationTask"
         @select="selectNode"
+        @open-knowledge="openKnowledgeFromLessonPlan"
       />
       <CourseOutlineReview
         v-else-if="showOutlineReview"
@@ -867,6 +868,19 @@ function openKnowledgeLibrary() {
   aiVisible.value = false
   courseStore.showKnowledgeLibrary = true
   if (isNarrow.value) navigatorOpen.value = false
+}
+
+function openKnowledgeFromLessonPlan(knowledgeId: string) {
+  if (!knowledgeId) return
+  if (isGenerationPreview.value) {
+    ElMessage.info(t(
+      'courseGeneration.lessonPlan.knowledgeAvailableAfterPublish',
+      '知识标签已经绑定课程知识库；课程发布后可打开完整知识详情。',
+    ))
+    return
+  }
+  courseStore.focusKnowledgeId = knowledgeId
+  openKnowledgeLibrary()
 }
 
 function openTeachingResource(type: 'outline' | 'lesson_plan') {

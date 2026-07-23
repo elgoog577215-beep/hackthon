@@ -18,6 +18,93 @@ describe('课程教案阅读尺度', () => {
     expect(component).toContain('.generation-lesson-plan__knowledge-detail')
   })
 
+  it('用总体教案与分小节教案承载同一份全课计划', async () => {
+    const nodes: Node[] = [{
+      node_id: 'section-1',
+      node_name: '一次函数斜率',
+      node_level: 2,
+      parent_node_id: 'chapter-1',
+      node_content: '',
+      learning_objective: '理解斜率表示的变化关系',
+      node_type: 'original',
+      generation_status: 'completed',
+      generated_chars: 0,
+    }]
+    const plan = {
+      schema_version: 'course_teaching_plan_projection_v1' as const,
+      status: 'completed',
+      revision_id: 'teaching-1',
+      strategy: 'batched',
+      section_count: 1,
+      knowledge_point_count: 1,
+      teaching_module_count: 1,
+      overall: {
+        course_title: '一次函数',
+        positioning: '从变化率出发理解一次函数',
+        target_audience: '初中二年级学生',
+        learning_objectives: ['理解斜率表示的变化关系'],
+        prerequisites: ['平面直角坐标系'],
+        teaching_strategy: {
+          primary_mode: 'conceptual',
+          secondary_mode: 'worked_examples',
+          rationale: '先建立图像直觉，再进入代数表达。',
+        },
+        assessment_methods: ['出口题'],
+        chapters: [{
+          chapter_id: 'chapter-1',
+          chapter_number: '1',
+          title: '变化率与图像',
+          learning_focus: '建立斜率的几何与情境直觉',
+          section_count: 1,
+          section_ids: ['section-1'],
+        }],
+        knowledge_tags: [{
+          knowledge_id: 'knowledge-slope',
+          name: '一次函数斜率',
+          section_count: 1,
+        }],
+      },
+      sections: [{
+        node_id: 'section-1',
+        key_points: ['一次函数斜率'],
+        reused_knowledge_names: [],
+        knowledge_relations: [],
+        teaching_modules: [{
+          module_id: 'guided-example',
+          teaching_purpose: '用生活情境建立变化率直觉',
+          teaching_guidance: '先比较两段路程，再归纳斜率表达。',
+          knowledge_names: ['一次函数斜率'],
+        }],
+        knowledge_structure: [{
+          concept_group: '变化率',
+          knowledge_points: [{
+            knowledge_id: 'knowledge-slope',
+            knowledge_status: 'bound',
+            name: '一次函数斜率',
+            statement: '斜率表示横坐标每变化一个单位时纵坐标的变化量。',
+          }],
+        }],
+      }],
+    }
+
+    const wrapper = mount(GenerationLessonPlan, {
+      props: { nodes, plan, activeNodeId: 'section-1' },
+    })
+
+    expect(wrapper.text()).toContain('总体教案')
+    expect(wrapper.text()).toContain('从变化率出发理解一次函数')
+    expect(wrapper.text()).toContain('建立斜率的几何与情境直觉')
+    expect(wrapper.text()).toContain('一次函数斜率')
+
+    const knowledgeTag = wrapper.get('.generation-lesson-plan__knowledge-tags button')
+    await knowledgeTag.trigger('click')
+    expect(wrapper.emitted('open-knowledge')?.[0]).toEqual(['knowledge-slope'])
+
+    await wrapper.findAll('.generation-lesson-plan__view-switch button')[1]!.trigger('click')
+    expect(wrapper.text()).toContain('本节知识标签')
+    expect(wrapper.text()).toContain('用生活情境建立变化率直觉')
+  })
+
   it('把教学流程、掌握证据、易错纠偏与知识衔接放在同一份小节教案中', async () => {
     const nodes: Node[] = [
       {

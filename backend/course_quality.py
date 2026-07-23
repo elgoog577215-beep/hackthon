@@ -47,6 +47,16 @@ MODULE_SIGNAL_RULES: dict[str, tuple[tuple[str, ...], str]] = {
 def validate_blueprint(blueprint: dict[str, Any]) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     nodes = blueprint.get("nodes") or []
+    if (
+        blueprint.get("derivation_mode") == "official_course_teaching_plan"
+        and not blueprint.get("source_teaching_plan_revision_id")
+    ):
+        issues.append(_issue(
+            "missing_teaching_plan_lineage",
+            "critical",
+            "课程蓝图缺少正式教案版本来源",
+            "从当前正式教案重新编译课程蓝图",
+        ))
     profile = blueprint.get("subject_pedagogy_profile") or blueprint.get("pedagogy_profile")
     if not profile:
         issues.append(_issue("missing_pedagogy_profile", "critical", "蓝图缺少教学画像", "重新解析教学画像"))

@@ -112,6 +112,7 @@ export const useCourseStore = defineStore('course', {
     // --- UI State ---
     isFocusMode: false,
     showKnowledgeLibrary: false,
+    focusKnowledgeId: '',
     showTeachingResources: false,
     globalSearchQuery: '',
     scrollToNodeId: null as string | null,

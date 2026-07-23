@@ -561,11 +561,18 @@ def test_legacy_material_metadata_no_longer_broadcasts_material_refs():
         }],
     }, artifacts)
     plan = attach_module_plans_to_plan(plan, profile)
+    plan["teaching_plan_revision_id"] = "teaching-plan-revision-1"
     blueprint = build_course_blueprint_from_plan(plan, artifacts)
     course_data = {**artifacts, "course_blueprint": blueprint}
     node = blueprint["nodes"][0]
 
     assert profile.primary_mode == PedagogyMode.MATH_FORMAL
+    assert blueprint["derivation_mode"] == "official_course_teaching_plan"
+    assert (
+        blueprint["source_teaching_plan_revision_id"]
+        == "teaching-plan-revision-1"
+    )
+    assert blueprint["source_plan_fingerprint"].startswith("cbps_")
     assert "material_refs" not in node
     assert node["evidence_refs"] == []
     assert any(item["module_id"] == "math_worked_example" for item in node["module_plan"])
