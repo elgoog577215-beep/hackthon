@@ -662,6 +662,17 @@ def test_demo_mode_relaxes_strong_contract(monkeypatch):
     assert relaxed["scope"] == "current"
 
 
+def test_public_self_report_parser_preserves_demo_scope_and_supports():
+    contract = course_evolution.strong_self_report_contract(
+        "矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。"
+        "请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。"
+    )
+
+    assert contract["is_strong"] is True
+    assert contract["scope"] == "current_and_next"
+    assert contract["requested_supports"] == ["explanation", "animation", "practice"]
+
+
 def test_block_text_excludes_embedded_diagram_and_html_syntax():
     excerpt = course_evolution._block_text({
         "markdown": """

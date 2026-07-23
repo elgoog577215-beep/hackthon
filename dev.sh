@@ -7,11 +7,36 @@ BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 ENV_FILE="$ROOT_DIR/.env"
 
+RECORDLY_DEMO=0
+if [ "${1:-}" = "--recordly-demo" ]; then
+    RECORDLY_DEMO=1
+    shift
+elif [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    printf '用法：./dev.sh [--recordly-demo]\n'
+    printf '  --recordly-demo  重置双 Demo 数据并用 5174 端口启动确定性录屏环境\n'
+    exit 0
+fi
+[ "$#" -eq 0 ] || {
+    printf '启动失败：未知参数 %s\n' "$1" >&2
+    exit 1
+}
+
 BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
-FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+if [ "$RECORDLY_DEMO" -eq 1 ]; then
+    FRONTEND_PORT="${FRONTEND_PORT:-5174}"
+else
+    FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+fi
 EVOLUTION_DEMO_MODE="${EVOLUTION_DEMO_MODE:-0}"
+VITE_RECORDLY_DEMO_MODE="${VITE_RECORDLY_DEMO_MODE:-0}"
+VITE_LEARNER_USER_ID="${VITE_LEARNER_USER_ID:-}"
+if [ "$RECORDLY_DEMO" -eq 1 ]; then
+    EVOLUTION_DEMO_MODE=1
+    VITE_RECORDLY_DEMO_MODE=1
+    VITE_LEARNER_USER_ID="video2-demo-student"
+fi
 
 BACKEND_PID=""
 FRONTEND_PID=""
@@ -82,10 +107,17 @@ port_is_busy "$BACKEND_PORT" && fail "后端端口 $BACKEND_PORT 已被占用"
 port_is_busy "$FRONTEND_PORT" && fail "前端端口 $FRONTEND_PORT 已被占用"
 
 mkdir -p "$BACKEND_DIR/data"
+if [ "$RECORDLY_DEMO" -eq 1 ]; then
+    printf '正在重置双 Demo 的课程、教学材料与个人学习状态…\n'
+    "$PYTHON_BIN" "$ROOT_DIR/scripts/prepare_recordly_demo.py" \
+        --frontend-origin "http://$FRONTEND_HOST:$FRONTEND_PORT" >/dev/null
+    printf '录屏数据已就绪：课程 demo-matrix-growth-v2，学习者 video2-demo-student\n'
+fi
 
 printf '正在启动后端：http://%s:%s\n' "$BACKEND_HOST" "$BACKEND_PORT"
 (
     cd "$BACKEND_DIR"
+    export EVOLUTION_DEMO_MODE
     exec "$PYTHON_BIN" -m uvicorn main:app \
         --host "$BACKEND_HOST" \
         --port "$BACKEND_PORT" \
@@ -99,6 +131,8 @@ printf '正在启动前端：http://%s:%s\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
 (
     cd "$FRONTEND_DIR"
     export VITE_API_PROXY_TARGET="http://$BACKEND_HOST:$BACKEND_PORT"
+    export VITE_RECORDLY_DEMO_MODE
+    export VITE_LEARNER_USER_ID
     exec npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT"
 ) &
 FRONTEND_PID=$!
@@ -109,6 +143,11 @@ printf '\n本地环境已就绪\n'
 printf '前端：http://%s:%s\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
 printf '后端：http://%s:%s\n' "$BACKEND_HOST" "$BACKEND_PORT"
 printf 'API 文档：http://%s:%s/docs\n' "$BACKEND_HOST" "$BACKEND_PORT"
+if [ "$RECORDLY_DEMO" -eq 1 ]; then
+    printf '视频一：http://%s:%s/course/demo-matrix-growth-v2/ppt\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
+    printf '视频二：http://%s:%s/course/demo-matrix-growth-v2/learn/v2-sec-1-2\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
+    printf '固定提问：矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。\n'
+fi
 printf '按 Ctrl+C 停止全部服务\n\n'
 
 while kill -0 "$BACKEND_PID" 2>/dev/null && kill -0 "$FRONTEND_PID" 2>/dev/null; do

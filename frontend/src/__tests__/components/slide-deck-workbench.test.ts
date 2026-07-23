@@ -37,7 +37,7 @@ beforeEach(() => {
 })
 
 describe('SlideDeckWorkbench', () => {
-  it('switches preview themes without rebuilding and applies the theme to normal and full-screen canvases', async () => {
+  it('keeps the toolbar focused on teaching materials and opens the material overview', async () => {
     const store = useTeachingRepresentationsStore()
     const build = vi.spyOn(store, 'buildProgressive')
     const demoSlides = Array.from({ length: 15 }, (_, index) => ({
@@ -58,8 +58,11 @@ describe('SlideDeckWorkbench', () => {
     expect(wrapper.find('.slide-workbench__count').text()).toContain('15')
     expect(wrapper.find('.slide-workbench__count').text()).toContain('12–18')
 
-    await wrapper.find('[data-theme-option="academic-bluegray"]').trigger('click')
-    expect(wrapper.find('.deck-canvas').attributes('data-theme')).toBe('academic-bluegray')
+    expect(wrapper.find('[data-theme-option]').exists()).toBe(false)
+    const materials = wrapper.findAll('.slide-workbench__commands button')
+      .find(button => button.attributes('title') === '教学材料总览')
+    await materials!.trigger('click')
+    expect(wrapper.emitted('open-materials')).toHaveLength(1)
     expect(wrapper.emitted('rebuild')).toBeUndefined()
     expect(build).not.toHaveBeenCalled()
 
@@ -68,7 +71,7 @@ describe('SlideDeckWorkbench', () => {
     await present!.trigger('click')
     await flushPromises()
     expect(document.body.querySelector('.deck-presentation .deck-canvas')?.getAttribute('data-theme'))
-      .toBe('academic-bluegray')
+      .toBe('qingfeng-classroom')
 
     wrapper.unmount()
   })

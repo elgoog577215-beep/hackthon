@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from course_document import CourseDocument
+from practice_grading import PracticeGrader
 from video2_demo_preset import (
     COURSE_ID,
     COURSE_TITLE,
@@ -13,6 +16,7 @@ from video2_demo_preset import (
     TARGET_SECTION_ID,
     _is_course_scoped_payload,
     build_video2_course_envelope,
+    build_video2_learning_asset_bundle,
     prepare_video2_demo,
 )
 
@@ -118,6 +122,32 @@ def test_prepare_video2_demo_resets_only_the_dedicated_course(tmp_path: Path):
     assert question["node_id"] == TARGET_SECTION_ID
     assert "Bv" in question["prompt"]
     assert "A(Bv)" in question["prompt"]
+    assert question["question_type"] == "single_choice"
+    assert question["practice_level"] == "mastery_check"
+    assert question["input_contract"]["mode"] == "choice"
+    assert question["grading_policy"]["method"] == "deterministic"
+    assert question["answer_spec"]["correct_option_id"] == "A"
+    assert question["validation_policy"]["mastery_eligible"] is True
+
+
+@pytest.mark.asyncio
+async def test_video2_targeted_validation_is_graded_without_an_external_model():
+    bundle = build_video2_learning_asset_bundle()
+    question = bundle["assets"]["validation_questions"][0]
+
+    grade = await PracticeGrader().grade(
+        question,
+        {
+            "submitted_answer_payload": {"selected_option_id": "A"},
+            "support_usage": [],
+        },
+    )
+
+    assert grade["status"] == "graded"
+    assert grade["passed"] is True
+    assert grade["score"] == 100
+    assert grade["grading_method"] == "deterministic"
+    assert grade["mastery_eligible"] is True
 
 
 def test_demo_reset_ignores_malformed_mixed_state():

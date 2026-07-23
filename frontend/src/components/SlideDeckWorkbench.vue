@@ -18,22 +18,9 @@
         <small class="slide-workbench__count">{{ t('teachingRepresentations.slides.demoPageCount', '{count} 页 · Demo 标准 12–18 页').replace('{count}', String(slides.length)) }}</small>
       </div>
       <div class="slide-workbench__commands">
-        <div class="slide-workbench__theme" role="radiogroup" :aria-label="t('pptWorkspace.themeLabel', '课件主题')">
-          <button
-            type="button"
-            data-theme-option="qingfeng-classroom"
-            :aria-pressed="theme === 'qingfeng-classroom'"
-            :class="{ active: theme === 'qingfeng-classroom' }"
-            @click="theme = 'qingfeng-classroom'"
-          >{{ t('pptWorkspace.themes.qingfeng', '清风课堂') }}</button>
-          <button
-            type="button"
-            data-theme-option="academic-bluegray"
-            :aria-pressed="theme === 'academic-bluegray'"
-            :class="{ active: theme === 'academic-bluegray' }"
-            @click="theme = 'academic-bluegray'"
-          >{{ t('pptWorkspace.themes.academic', '学术蓝灰') }}</button>
-        </div>
+        <button v-if="standalone" type="button" :title="t('pptWorkspace.materialsOverview', '教学材料总览')" @click="emit('open-materials')">
+          <Layers3 :size="16" /><span>{{ t('pptWorkspace.materialsOverview', '教学材料总览') }}</span>
+        </button>
         <button v-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuild', '同步课程最新内容')" @click="emit('rebuild')">
           <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ t('pptWorkspace.sync', '同步课程') }}</span>
         </button>
@@ -310,7 +297,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, Layers3, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
@@ -372,7 +359,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
-  (event: 'back' | 'rebuild'): void
+  (event: 'back' | 'rebuild' | 'open-materials'): void
   (event: 'open-course', payload: PptSameSourceHighlightState): void
 }>()
 
@@ -680,44 +667,7 @@ async function confirmInlineChange() {
   editBusy.value = true
   syncing.value = true
   try {
-    const applyPromise = changeProposalsStore.applyItem(proposal.proposal_id, item.item_id)
-    if (import.meta.env.VITE_RECORDLY_DEMO_MODE === '1') {
-      const outcome = await Promise.race([
-        applyPromise.then(result => ({ completed: true as const, result })),
-        new Promise<{ completed: false }>(resolve => window.setTimeout(
-          () => resolve({ completed: false }),
-          1500,
-        )),
-      ])
-      if (!outcome.completed) {
-        // The recording preset still sends the real command.  Only the visible
-        // receipt is released early so a desktop capture never waits on a slow
-        // client-side response transition.  A later reset restores the demo.
-        void applyPromise.catch(() => undefined)
-        const impact = impactPreview.value?.impact || {}
-        inlineProposal.value = null
-        editPreview.value = null
-        syncReceipt.value = {
-          status: 'synchronized',
-          rebuilt_unit_count: Number(impact.affected_unit_count || 0),
-          reused_unit_count: Number(impact.unaffected_unit_count || 0),
-          changed_unit_count: Number(impact.affected_unit_count || 0),
-          verified_unit_count: 0,
-          changes: [],
-        }
-        editResult.value = t('teachingRepresentations.syncComplete', '课程同源同步完成')
-        impactDialogOpen.value = true
-        return
-      }
-      inlineProposal.value = null
-      editPreview.value = null
-      syncReceipt.value = outcome.result?.representation_sync || null
-      editResult.value = t('teachingRepresentations.syncComplete', '课程同源同步完成')
-      impactDialogOpen.value = true
-      return
-    }
-
-    const result = await applyPromise
+    const result = await changeProposalsStore.applyItem(proposal.proposal_id, item.item_id)
     await store.load(props.courseId)
     await store.select(props.representationId)
     // Loading the rebuilt deck replaces the active slide object and schedules

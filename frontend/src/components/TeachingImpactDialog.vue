@@ -136,6 +136,23 @@
               <small>{{ t('teachingRepresentations.impactDialog.selectHint', '点击查看依据与结果') }}</small>
             </div>
 
+            <nav v-if="receipt && resultTypeGroups.length" class="impact-result-filter" :aria-label="t('teachingRepresentations.impactDialog.resultFilter', '按教学材料查看更新结果')">
+              <button type="button" :aria-pressed="resultTypeFilter === 'all'" @click="selectResultType('all')">
+                {{ t('teachingRepresentations.impactDialog.allMaterials', '全部') }}
+                <b>{{ impactItems.length }}</b>
+              </button>
+              <button
+                v-for="group in resultTypeGroups"
+                :key="group.type"
+                type="button"
+                :aria-pressed="resultTypeFilter === group.type"
+                @click="selectResultType(group.type)"
+              >
+                {{ representationLabel(group.type) }}
+                <b>{{ group.count }}</b>
+              </button>
+            </nav>
+
             <div class="impact-list">
               <button
                 v-for="(item, index) in displayImpactItems"
@@ -385,6 +402,7 @@ const emit = defineEmits<{
 }>()
 
 const selectedImpactKey = ref('')
+const resultTypeFilter = ref('all')
 const semanticChange = computed(() => props.preview?.semantic_change || {})
 const affectedCount = computed(() => Number(props.preview?.impact?.affected_unit_count || 0))
 const unaffectedCount = computed(() => Number(props.preview?.impact?.unaffected_unit_count || 0))
@@ -408,8 +426,24 @@ const impactItems = computed(() => (
     ? receiptImpactItems.value
     : previewImpactItems.value
 ))
-const displayImpactItems = computed(() => impactItems.value.slice(0, 24))
-const hiddenImpactCount = computed(() => Math.max(0, impactItems.value.length - displayImpactItems.value.length))
+const resultTypeGroups = computed(() => {
+  const counts = new Map<string, number>()
+  impactItems.value.forEach((item: Record<string, any>) => {
+    const type = String(item.representation_type || '')
+    if (type) counts.set(type, (counts.get(type) || 0) + 1)
+  })
+  const order = ['outline', 'lesson_plan', 'handout', 'slide_deck', 'practice_sheet', 'diagram']
+  return [...counts.entries()]
+    .sort(([left], [right]) => order.indexOf(left) - order.indexOf(right))
+    .map(([type, count]) => ({ type, count }))
+})
+const filteredImpactItems = computed(() => (
+  resultTypeFilter.value === 'all'
+    ? impactItems.value
+    : impactItems.value.filter((item: Record<string, any>) => item.representation_type === resultTypeFilter.value)
+))
+const displayImpactItems = computed(() => filteredImpactItems.value.slice(0, 24))
+const hiddenImpactCount = computed(() => Math.max(0, filteredImpactItems.value.length - displayImpactItems.value.length))
 const selectedImpactItem = computed(() => (
   displayImpactItems.value.find((item: Record<string, any>) => itemKey(item) === selectedImpactKey.value)
   || displayImpactItems.value[0]
@@ -445,10 +479,16 @@ watch(
   () => [props.open, impactItems.value.map((item: Record<string, any>) => itemKey(item)).join('|')],
   ([isOpen]) => {
     if (!isOpen) return
+    resultTypeFilter.value = 'all'
     selectedImpactKey.value = displayImpactItems.value[0] ? itemKey(displayImpactItems.value[0]) : ''
   },
   { immediate: true },
 )
+
+function selectResultType(type: string) {
+  resultTypeFilter.value = type
+  selectedImpactKey.value = displayImpactItems.value[0] ? itemKey(displayImpactItems.value[0]) : ''
+}
 
 function itemKey(item: Record<string, any>) {
   return `${item.representation_type || 'unknown'}:${item.unit_id || item.label || 'unit'}`
@@ -724,6 +764,32 @@ function impactPriority(left: Record<string, any>, right: Record<string, any>) {
 .impact-list-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:18px 2px 8px; }
 .impact-list-heading span { color:#263246; font-size:10px; font-weight:800; }
 .impact-list-heading small { color:#8a96a6; font-size:8px; }
+.impact-result-filter {
+  display:flex;
+  gap:6px;
+  overflow:auto;
+  margin:0 0 9px;
+  padding:2px;
+  scrollbar-width:none;
+}
+.impact-result-filter::-webkit-scrollbar { display:none; }
+.impact-result-filter button {
+  min-height:28px;
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  flex:0 0 auto;
+  padding:0 9px;
+  border:1px solid #dfe3eb;
+  border-radius:999px;
+  color:#657286;
+  background:#fff;
+  font-size:9px;
+  font-weight:750;
+  cursor:pointer;
+}
+.impact-result-filter button[aria-pressed="true"] { border-color:#7872ea; color:#4338ca; background:#efefff; }
+.impact-result-filter b { min-width:17px; padding:2px 4px; border-radius:99px; color:inherit; background:rgba(99,102,241,.09); font-size:8px; text-align:center; }
 .impact-list { display:grid; gap:7px; }
 .impact-list > button {
   --delay:0ms;

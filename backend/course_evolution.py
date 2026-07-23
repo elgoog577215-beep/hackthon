@@ -2220,6 +2220,11 @@ def _strong_self_report_contract(statement: str) -> dict[str, Any]:
     }
 
 
+def strong_self_report_contract(statement: str) -> dict[str, Any]:
+    """Public parser shared by learner-facing course-adjustment entrypoints."""
+    return deepcopy(_strong_self_report_contract(statement))
+
+
 def _event_signal(event: dict[str, Any]) -> tuple[str, float, bool]:
     event_type = str(event.get("event_type") or "")
     statement = str((event.get("evidence") or {}).get("statement") or "")

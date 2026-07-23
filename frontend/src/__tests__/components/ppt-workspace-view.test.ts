@@ -240,6 +240,52 @@ describe('PptWorkspaceView', () => {
     expect(wrapper.find('.deck-canvas').text()).not.toContain('残留失败预览')
   })
 
+  it('restores the slide representation after closing the teaching-material overview', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    store.registry = {
+      representations: [
+        {
+          representation_id: 'outline-1', representation_type: 'outline', spec_id: 'outline-spec',
+          status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+        },
+        {
+          representation_id: 'slides-1', representation_type: 'slide_deck', spec_id: 'slides-spec',
+          status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+        },
+      ],
+    }
+    store.selectedId = 'slides-1'
+    store.selectedSpec = {
+      spec_id: 'slides-spec', representation_type: 'slide_deck', unit_bindings: {}, revision: 'r1',
+      payload: { compiler_version: 'same_source_compiler_v2', content: {
+        title: '同源课件',
+        slides: [{ unit_id: 'slide:1', layout: 'cover', slide_purpose: 'orientation', title: '正式课件', blocks: [] }],
+      } },
+    }
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+    const select = vi.spyOn(store, 'select').mockImplementation(async (representationId: string) => {
+      store.selectedId = representationId
+    })
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true, TeachingRepresentationsOverlay: true } },
+    })
+    await flushPromises()
+
+    const workbench = wrapper.getComponent({ name: 'SlideDeckWorkbench' })
+    workbench.vm.$emit('open-materials')
+    await nextTick()
+    const overlay = wrapper.getComponent({ name: 'TeachingRepresentationsOverlay' })
+    expect(overlay.props('visible')).toBe(true)
+
+    overlay.vm.$emit('close')
+    await flushPromises()
+    expect(overlay.props('visible')).toBe(false)
+    expect(select).toHaveBeenLastCalledWith('slides-1')
+  })
+
   it('clears legacy migration state when a switched course document fails to load', async () => {
     httpMock.get.mockResolvedValueOnce({ data: courseEnvelope('legacy_projection', 'checksum-legacy') })
     const store = useTeachingRepresentationsStore()

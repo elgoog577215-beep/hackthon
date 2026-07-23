@@ -68,6 +68,37 @@
             <span class="representation-status" :data-status="selected.status">{{ statusLabel(selected) }}</span>
           </div>
 
+          <section v-if="overviewMode" class="material-suite" aria-labelledby="material-suite-title">
+            <div class="material-suite__heading">
+              <div>
+                <small>{{ t('teachingRepresentations.materialSuite.eyebrow', '一份课程真源 · 六类教学材料') }}</small>
+                <h3 id="material-suite-title">{{ t('teachingRepresentations.materialSuite.title', '教学材料已一键生成，并保持同源连接') }}</h3>
+                <p>{{ t('teachingRepresentations.materialSuite.description', '大纲决定方向，教案与讲义承载细节，PPT、练习和图解共同引用同一份课程结构。') }}</p>
+              </div>
+              <button type="button" :disabled="store.building" @click="rebuild">
+                <LoaderCircle v-if="store.building" :size="15" class="spinning" />
+                <RefreshCw v-else :size="15" />
+                {{ store.building
+                  ? t('teachingRepresentations.materialSuite.updating', '正在联动生成…')
+                  : t('teachingRepresentations.materialSuite.updateAll', '一键更新全部材料') }}
+              </button>
+            </div>
+            <div class="material-suite__grid">
+              <button
+                v-for="item in selectableTypes"
+                :key="`suite:${item.representation_type}`"
+                type="button"
+                :data-status="item.status"
+                :aria-pressed="selected.representation_type === item.representation_type"
+                @click="selectType(item.representation_type)"
+              >
+                <span>{{ typeLabel(item.representation_type) }}</span>
+                <strong>{{ t('teachingRepresentations.materialSuite.connected', '同源已连接') }}</strong>
+                <small>{{ statusLabel(item) }} · {{ t('teachingRepresentations.materialSuite.traceable', '可追溯到课程结构') }}</small>
+              </button>
+            </div>
+          </section>
+
           <nav class="representation-types" :aria-label="t('teachingRepresentations.typeNav', '资源类型')">
             <button
               v-for="item in selectableTypes"
@@ -152,10 +183,12 @@ const props = withDefaults(defineProps<{
   visible: boolean
   courseId: string
   activeType?: 'outline' | 'lesson_plan'
+  overviewMode?: boolean
   practiceAvailable?: boolean
   practiceRepairAvailable?: boolean
 }>(), {
   activeType: 'outline',
+  overviewMode: false,
   practiceAvailable: false,
   practiceRepairAvailable: false,
 })
@@ -168,6 +201,9 @@ const store = useTeachingRepresentationsStore()
 const selected = computed(() => store.selectedRepresentation)
 const content = computed(() => store.selectedSpec?.payload?.content || null)
 const workspaceTitle = computed(() => (
+  props.overviewMode
+    ? t('teachingRepresentations.materialSuite.workspaceTitle', '教学材料一键生成')
+    :
   props.activeType === 'outline'
     ? t('teachingRepresentations.outlineTitle', '课程大纲')
     : t('teachingRepresentations.lessonPlanTitle', '课程教案')
@@ -289,6 +325,56 @@ onMounted(ensureLoaded)
 .representation-status[data-status="stale"] { color:#92400e; background:#fffbeb; }
 .representation-status[data-status="failed"] { color:#b91c1c; background:#fef2f2; }
 .representation-status[data-status="building"] { color:#4338ca; background:#eef2ff; }
+.material-suite {
+  margin:0 0 24px;
+  padding:20px;
+  border:1px solid #dfe4f5;
+  border-radius:18px;
+  background:
+    radial-gradient(circle at 88% 4%,rgba(99,102,241,.12),transparent 34%),
+    linear-gradient(135deg,#f8f9ff,#fff);
+  box-shadow:0 14px 36px rgba(49,46,129,.07);
+}
+.material-suite__heading { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+.material-suite__heading small { color:#5b56d7; font-size:9px; font-weight:800; letter-spacing:.08em; }
+.material-suite__heading h3 { margin:5px 0 0; color:#182033; font-size:18px; }
+.material-suite__heading p { max-width:620px; margin:7px 0 0; color:#667085; font-size:11px; line-height:1.6; }
+.material-suite__heading button {
+  min-height:38px;
+  flex:0 0 auto;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:0 13px;
+  border:0;
+  border-radius:10px;
+  color:#fff;
+  background:#4f46e5;
+  box-shadow:0 8px 18px rgba(79,70,229,.2);
+  font-size:11px;
+  font-weight:750;
+  cursor:pointer;
+}
+.material-suite__heading button:disabled { opacity:.55; cursor:wait; }
+.material-suite__grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; margin-top:17px; }
+.material-suite__grid button {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  padding:11px;
+  border:1px solid #e3e6ef;
+  border-radius:11px;
+  color:#475467;
+  background:rgba(255,255,255,.86);
+  cursor:pointer;
+  text-align:left;
+}
+.material-suite__grid button[aria-pressed="true"] { border-color:#8983f0; background:#f1f0ff; box-shadow:0 0 0 2px rgba(79,70,229,.08); }
+.material-suite__grid button[data-status="stale"] { border-color:#f4cf73; background:#fffaf0; }
+.material-suite__grid span { font-size:10px; font-weight:750; }
+.material-suite__grid strong { margin-top:7px; color:#1f2937; font-size:12px; line-height:1.2; }
+.material-suite__grid small { margin-top:5px; overflow:hidden; color:#8490a2; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
 .representations-empty button { min-height:36px; display:inline-flex; align-items:center; gap:7px; padding:0 12px; border:1px solid #c7d2fe; border-radius:8px; color:var(--lz-brand-strong); background:#fff; cursor:pointer; }
 .stale-notice { display:flex; align-items:center; gap:8px; margin:0 0 18px; padding:10px 12px; border-left:3px solid #f59e0b; color:#92400e; background:#fffbeb; font-size:11px; }
 .outline-preview article,.units-preview article { position:relative; display:grid; grid-template-columns:34px minmax(0,1fr); gap:12px; padding:17px 0; border-bottom:1px solid #edf0f5; }
@@ -318,5 +404,7 @@ onMounted(ensureLoaded)
   .representations-actions { grid-column:2; }
   .representation-preview { padding:22px 18px 34px; }
   .preview-heading h3 { font-size:22px; }
+  .material-suite__heading { flex-direction:column; }
+  .material-suite__grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 </style>
