@@ -10,6 +10,7 @@ const input = path.join('/tmp', 'lingzhi-real-input')
 const dryRun = process.argv.includes('--dry-run')
 const interactionCheck = process.argv.includes('--interaction-check')
 const cdpEndpoint = process.env.EDGE_CDP_URL ?? 'http://127.0.0.1:9224'
+const demoUrl = process.env.VIDEO1_DEMO_URL ?? 'http://127.0.0.1:5174/course/demo-ai-literacy-update-v1/ppt'
 const useRecordly = process.env.USE_RECORDLY === '1'
 const durationSeconds = Number(process.env.VIDEO1_DURATION ?? 70)
 const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
@@ -28,7 +29,7 @@ const browser = await chromium.connectOverCDP(cdpEndpoint)
 const page = browser.contexts()[0].pages().find(item => item.url().includes('demo-ai-literacy-update-v1'))
 if (!page) throw new Error(`未在 ${cdpEndpoint} 找到视频一 Edge 页面`)
 page.setDefaultTimeout(30_000)
-await page.reload({ waitUntil: 'networkidle' })
+await page.goto(demoUrl, { waitUntil: 'networkidle' })
 
 const windowMetrics = await page.evaluate(() => ({
   x: window.screenX,
@@ -99,14 +100,9 @@ async function stopRecordingFromTray() {
   await sleep(3200)
 }
 
-async function cue(text, locator = null, eyebrow = '操作提示', highlight = false) {
+async function cue(text, locator = null, eyebrow = '操作提示') {
   const box = locator ? await locator.boundingBox() : null
-  await page.evaluate(({ text, eyebrow, box, highlight }) => window.__recordingCue?.({ text, eyebrow, box, highlight }), {
-    text,
-    eyebrow,
-    box,
-    highlight,
-  })
+  await page.evaluate(({ text, eyebrow, box }) => window.__recordingCue?.({ text, eyebrow, box }), { text, eyebrow, box })
 }
 
 async function chooseKeyMessage() {
@@ -150,11 +146,9 @@ await page.evaluate(() => {
     #recording-cue small{display:block;margin-bottom:3px;color:#8dd8ff;font-size:13px;font-weight:800}#recording-cue strong{display:block;font-size:21px;line-height:1.35;letter-spacing:0}
     #recording-target{position:fixed;z-index:2147483644;border:3px solid #ffb800;border-radius:8px;box-shadow:0 0 0 5px rgba(255,184,0,.18);pointer-events:none}
     #recording-target:after{content:'↓';position:absolute;left:50%;top:-38px;width:30px;height:30px;display:grid;place-items:center;color:#111827;background:#ffb800;border-radius:50%;font-size:20px;font-weight:900;transform:translateX(-50%)}
-    #recording-target.is-course-highlight{border-color:#f59e0b;background:rgba(250,204,21,.16);box-shadow:0 0 0 6px rgba(250,204,21,.2),0 8px 24px rgba(146,64,14,.16);overflow:hidden}
-    #recording-target.is-course-highlight:before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,rgba(253,224,71,.3) 44%,transparent 78%);animation:recording-highlight 1.6s ease-in-out infinite}
     #recording-pointer{position:fixed;z-index:2147483647;left:50%;top:55%;width:30px;height:30px;border:3px solid #fff;border-radius:50%;background:rgba(15,23,42,.76);box-shadow:0 0 0 3px rgba(15,23,42,.7),0 7px 18px rgba(0,0,0,.35);transform:translate(-50%,-50%);transition:left .56s cubic-bezier(.2,.75,.22,1),top .56s cubic-bezier(.2,.75,.22,1);pointer-events:none}
     #recording-pointer:after{content:'';position:absolute;inset:8px;border-radius:50%;background:#ffbd2e}
-    #recording-pointer.is-clicking{animation:recording-click .48s ease-out}@keyframes recording-click{0%{box-shadow:0 0 0 3px rgba(15,23,42,.7),0 0 0 0 rgba(255,189,46,.8)}100%{box-shadow:0 0 0 3px rgba(15,23,42,.7),0 0 0 22px rgba(255,189,46,0)}}@keyframes recording-highlight{0%,100%{transform:translateX(-105%)}55%{transform:translateX(105%)}}
+    #recording-pointer.is-clicking{animation:recording-click .48s ease-out}@keyframes recording-click{0%{box-shadow:0 0 0 3px rgba(15,23,42,.7),0 0 0 0 rgba(255,189,46,.8)}100%{box-shadow:0 0 0 3px rgba(15,23,42,.7),0 0 0 22px rgba(255,189,46,0)}}
   `
   document.head.appendChild(style)
   const pointer = document.createElement('div'); pointer.id = 'recording-pointer'; document.body.appendChild(pointer)
@@ -163,7 +157,7 @@ await page.evaluate(() => {
     if (!clicking) return
     pointer.classList.remove('is-clicking'); void pointer.offsetWidth; pointer.classList.add('is-clicking')
   }
-  window.__recordingCue = ({ text, eyebrow, box, highlight = false }) => {
+  window.__recordingCue = ({ text, eyebrow, box }) => {
     document.getElementById('recording-cue')?.remove(); document.getElementById('recording-target')?.remove()
     const card = document.createElement('div'); card.id = 'recording-cue'
     const small = document.createElement('small'); small.textContent = eyebrow
@@ -172,7 +166,6 @@ await page.evaluate(() => {
     if (!box) return
     const target = document.createElement('div'); target.id = 'recording-target'
     Object.assign(target.style, { left:`${box.x-6}px`, top:`${box.y-6}px`, width:`${box.width+12}px`, height:`${box.height+12}px` })
-    if (highlight) target.classList.add('is-course-highlight')
     document.body.appendChild(target)
   }
 })
@@ -286,16 +279,17 @@ try {
   await sleep(1600)
   const finalReturnToDeck = page.getByRole('button', { name: '查看更新后的课件' })
   await realClick(finalReturnToDeck, 650)
-  await ensureVisibleInSidebar(targetSlide)
-  await realClick(targetSlide, 350)
-  const updatedCourseText = page.locator('.deck-canvas').getByText(
-    '先回顾 DeepSeek V3.2，再比较 V4 的核心变化、能力边界与应用场景',
-    { exact: true },
-  )
-  await updatedCourseText.waitFor({ state: 'visible' })
-  await cue('这就是更新后真正写回课程的正文', updatedCourseText, '回到第 17 讲正文', true)
-  await sleep(2800)
-  await cue('一处改变，全课联动。世界变了，课程跟着变。', updatedCourseText, '人工智能通识课 · 第 17 讲已更新', true)
+  const openCourse = page.locator('.same-source-course-link')
+  await openCourse.waitFor({ state: 'visible' })
+  await cue('进入课程，查看真正更新后的正文', openCourse, '从 PPT 回到课程')
+  await realClick(openCourse, 450)
+  await page.waitForURL(/\/course\/demo-ai-literacy-update-v1\/learn\/ai-sec-17/)
+  const updatedCourseBlock = page.locator('.is-ppt-same-source-primary')
+  await updatedCourseBlock.waitFor({ state: 'visible' })
+  await sleep(900)
+  await cue('课程正文已同步更新，并显示真实前后差异', null, '第 17 讲 · 正文高亮')
+  await sleep(3000)
+  await cue('一处改变，全课联动。世界变了，课程跟着变。', null, '人工智能通识课 · 第 17 讲已更新')
 
   const remaining = durationSeconds * 1000 - (Date.now() - startedAt)
   if (remaining > 0) await sleep(remaining)
