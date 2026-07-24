@@ -10,6 +10,7 @@ const input = path.join('/tmp', 'lingzhi-real-input')
 const dryRun = process.argv.includes('--dry-run')
 const frontendOrigin = process.env.VIDEO2_FRONTEND_ORIGIN || 'http://127.0.0.1:5175'
 const apiOrigin = process.env.VIDEO2_API_ORIGIN || 'http://127.0.0.1:8001'
+const recordlyDebugOrigin = process.env.VIDEO2_RECORDLY_CDP || ''
 const requestId = 'video2-project-prep-20260724-v1'
 const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
 
@@ -211,6 +212,40 @@ async function reachCourseLibrary() {
   await page.getByRole('button', { name: /新建课程/ }).waitFor()
 }
 
+async function focusRecordingPage() {
+  await page.bringToFront()
+  await sleep(700)
+  realInput('move', 980, 420, 0.48)
+  if (!await page.evaluate(() => document.hasFocus())) throw new Error('目标 Edge 窗口没有获得焦点')
+}
+
+async function stopRecordingFromTray() {
+  execFileSync('osascript', [
+    '-e', 'tell application "System Events" to tell process "Recordly" to tell menu bar item 1 of menu bar 2 to click',
+    '-e', 'delay 0.4',
+    '-e', 'tell application "System Events" to tell process "Recordly" to click menu item "Stop Recording" of menu 1 of menu bar item 1 of menu bar 2',
+  ])
+  await sleep(3200)
+}
+
+async function startRecording() {
+  if (!recordlyDebugOrigin) {
+    realInput('click', 950, 949, 0.45)
+    return
+  }
+
+  const recordlyBrowser = await chromium.connectOverCDP(recordlyDebugOrigin)
+  try {
+    const hud = recordlyBrowser.contexts()[0].pages().find(item => item.url().includes('windowType=hud-overlay'))
+    if (!hud) throw new Error('未找到 Recordly 录制控制栏')
+    const source = await hud.locator('button[aria-haspopup="dialog"]').first().innerText()
+    if (source.trim() === 'Screen') throw new Error('Recordly 仍在整屏录制模式')
+    await hud.locator('button[title="Record"]').click()
+  } finally {
+    await recordlyBrowser.close()
+  }
+}
+
 if (dryRun) {
   await page.goto(`${frontendOrigin}/courses`, { waitUntil: 'networkidle' })
   const targetCenters = {}
@@ -262,13 +297,22 @@ if (dryRun) {
 }
 
 await reachCourseLibrary()
+await focusRecordingPage()
 
-// Recordly 只捕获已经选定的 Edge 窗口；红色开始/停止按钮固定在主屏幕该坐标。
-realInput('click', 950, 949, 0.45)
-await sleep(1700)
-execFileSync('osascript', ['-e', 'tell application "Microsoft Edge" to activate'])
-await sleep(900)
-const startedAt = Date.now()
+let recordingStarted = false
+let recordingStopped = false
+let startedAt = 0
+
+try {
+  // Recordly 启动后等待 3 秒倒计时完成。
+  await startRecording()
+  recordingStarted = true
+  await sleep(450)
+  realInput('move', 980, 420, 0.48)
+  await sleep(3700)
+  await focusRecordingPage()
+  startedAt = Date.now()
+
 async function holdUntil(seconds) {
   const remaining = seconds * 1000 - (Date.now() - startedAt)
   if (remaining > 0) await sleep(remaining)
@@ -313,8 +357,13 @@ await cue('自述只形成暂定起点，后续还要在项目中验证', starti
 await holdUntil(50)
 
 const submit = page.getByRole('button', { name: /确认需求，生成目录/ })
+await submit.evaluate(element => element.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+await sleep(850)
 await cue('确认后，系统为这个学生生成第一版个人路径', submit, '生成个人课程')
 await realClick(submit, 600)
+if (!page.url().includes(`/course/${prepared.course_id}/learn`)) {
+  await submit.evaluate(element => element.click())
+}
 await page.waitForURL(`**/course/${prepared.course_id}/learn**`)
 await page.locator('.outline-review').waitFor()
 await page.locator('.outline-review__starting-point').waitFor()
@@ -351,8 +400,8 @@ const confirm = page.getByRole('button', { name: '确认目录并继续' })
 await cue('学生确认后才继续生成；同一个项目，每个人长出自己的学习路径', confirm, '保留学生确认边界')
 const remaining = 91_000 - (Date.now() - startedAt)
 if (remaining > 0) await sleep(remaining)
-realInput('click', 950, 949, 0.45)
-await sleep(2600)
+await stopRecordingFromTray()
+recordingStopped = true
 
 console.log(JSON.stringify({
   browser: 'Microsoft Edge',
@@ -361,3 +410,6 @@ console.log(JSON.stringify({
   duration: (Date.now() - startedAt) / 1000,
   finished: true,
 }))
+} finally {
+  if (recordingStarted && !recordingStopped) await stopRecordingFromTray().catch(() => {})
+}
