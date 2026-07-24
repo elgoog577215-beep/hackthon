@@ -12,6 +12,7 @@
 ## 2. 开发与验收入口
 
 - [项目 README](../README.md)：本地安装、启动、AI 提供方配置和技术栈。
+- [整体开发需求与依赖路线图](./requirements/灵知整体开发需求与依赖路线图.md)：把目标产品拆为 `P0–P6` 前置建设层，定义每层的输入、产物、完成门和禁止跨越项；它不维护实施进度，也不替代产品蓝图与 OpenSpec。
 - [课程生成到学习闭环验收矩阵](./course-learning-full-chain-acceptance.md)：纵向链路验收记录；大型结构化课程 OpenSpec 收束后转入归档。
 - [通用题目生成评测](./evals/universal-question-generation.md)：题目生成能力与回归指标。
 - [外部 PPTX 再导入评估](./architecture/external-pptx-reimport-evaluation.md)：外部课件回导边界与实施门槛。
